@@ -30,13 +30,17 @@
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
 #include "vk_cuda_interop_ext.h"
 #endif
-#ifdef LUISA_AST_LLVM_TO_SPIRV
-#include <spirv_llvm/llvm_codegen_utility.h>
-#include <SPIRV/disassemble.h>
-#include <fstream>
-#elif defined(LUISA_XIR_TO_SPIRV)
+#if defined(LUISA_XIR_TO_SPIRV) && defined(LUISA_AST_LLVM_TO_SPIRV)
+#error "Vulkan compute SPIR-V codegen paths are mutually exclusive."
+#endif
+
+#ifdef LUISA_XIR_TO_SPIRV
 #include <spirv_codegen/entry.h>
 #include <spirv_codegen/utils.h>
+#include <SPIRV/disassemble.h>
+#include <fstream>
+#elif defined(LUISA_AST_LLVM_TO_SPIRV)
+#include <spirv_llvm/llvm_codegen_utility.h>
 #include <SPIRV/disassemble.h>
 #include <fstream>
 #endif
@@ -46,7 +50,9 @@ namespace lc::vk {
 using namespace std::string_literals;
 static luisa::spin_mutex g_dxc_mutex;
 static vstd::StackObject<hlsl::ShaderCompiler, false> g_dxc_compiler;
+static luisa::filesystem::path g_dxc_runtime_directory;
 static int32 g_dxc_ref_count = 0;
+static bool g_dxc_compiler_initialized = false;
 
 namespace detail {
 struct Settings {
@@ -340,7 +346,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
       set_accel_kernel(BuiltinKernel::load_accel_set_kernel) {
     bool headless = false;
     bool use_lmdb = false;
-    bool load_dxc = true;
+    bool load_dxc_for_config_readback = false;
     uint device_idx = -1;
     if (configs) {
         if (configs->extension) {
@@ -371,7 +377,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
             std::lock_guard lck{detail::instance_mtx};
             detail::vk_instance = external_device.instance;
         }
-        load_dxc = _config_ext->load_dxc();
+        load_dxc_for_config_readback = _config_ext->load_dxc();
         _graphics_queue = external_device.graphics_queue;
         auto ext_path = _config_ext->external_vulkan_lib_path();
         custom_path = std::move(ext_path.lib_path);
@@ -393,10 +399,11 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
 
     Context ctx{this->_ctx_impl};
 #ifndef LC_NO_HLSL_BUILTIN
-    if (load_dxc) {
+    {
         std::lock_guard lck(g_dxc_mutex);
-        if (g_dxc_ref_count == 0)
-            g_dxc_compiler.create(ctx.runtime_directory(), true);
+        if (g_dxc_ref_count == 0) {
+            g_dxc_runtime_directory = ctx.runtime_directory();
+        }
         g_dxc_ref_count++;
     }
 #endif
@@ -435,7 +442,14 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
 
     if (_config_ext) {
         _config_ext->init_volk(vkGetInstanceProcAddr);
-        _config_ext->readback_vulkan_device(instance(), physical_device(), logic_device(), alloc_callbacks(), _pso_header, _graphics_queue, _compute_queue, _copy_queue, graphics_queue_index(), compute_queue_index(), copy_queue_index(), g_dxc_compiler->compiler(), g_dxc_compiler->library(), g_dxc_compiler->utils());
+        auto dxc = load_dxc_for_config_readback ? Device::compiler() : nullptr;
+        _config_ext->readback_vulkan_device(
+            instance(), physical_device(), logic_device(), alloc_callbacks(),
+            _pso_header, _graphics_queue, _compute_queue, _copy_queue,
+            graphics_queue_index(), compute_queue_index(), copy_queue_index(),
+            dxc == nullptr ? nullptr : dxc->compiler(),
+            dxc == nullptr ? nullptr : dxc->library(),
+            dxc == nullptr ? nullptr : dxc->utils());
     }
     _exts.try_emplace(
 #ifdef LUISA_USE_SYSTEM_STL
@@ -1046,10 +1060,14 @@ Device::~Device() {
     }
     _default_file_io = nullptr;
 #ifndef LC_NO_HLSL_BUILTIN
-    if (g_dxc_compiler) {
+    {
         std::lock_guard lck(g_dxc_mutex);
-        if (--g_dxc_ref_count == 0) {
-            g_dxc_compiler.destroy();
+        if (g_dxc_ref_count > 0 && --g_dxc_ref_count == 0) {
+            if (g_dxc_compiler_initialized) {
+                g_dxc_compiler.destroy();
+                g_dxc_compiler_initialized = false;
+            }
+            g_dxc_runtime_directory.clear();
         }
     }
 #endif
@@ -1077,7 +1095,15 @@ BufferCreationInfo Device::create_buffer(const luisa::compute::Type *element, si
 }
 BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_ptr) noexcept { return BufferCreationInfo::make_invalid(); }
 void Device::destroy_buffer(uint64_t handle) noexcept {
-    delete reinterpret_cast<Buffer *>(handle);
+    auto *buffer = reinterpret_cast<Buffer *>(handle);
+    vstd::vector<Stream *> streams;
+    {
+        std::lock_guard lck{_stream_mtx};
+        streams.reserve(_streams.size());
+        for (auto *stream : _streams) { streams.emplace_back(stream); }
+    }
+    for (auto *stream : streams) { stream->remove_resource_state(buffer); }
+    delete buffer;
 }
 
 // texture
@@ -1100,7 +1126,15 @@ ResourceCreationInfo Device::create_texture(
     return r;
 }
 void Device::destroy_texture(uint64_t handle) noexcept {
-    delete reinterpret_cast<Texture *>(handle);
+    auto *texture = reinterpret_cast<Texture *>(handle);
+    vstd::vector<Stream *> streams;
+    {
+        std::lock_guard lck{_stream_mtx};
+        streams.reserve(_streams.size());
+        for (auto *stream : _streams) { streams.emplace_back(stream); }
+    }
+    for (auto *stream : streams) { stream->remove_resource_state(texture); }
+    delete texture;
 }
 luisa::FirstFit::Node *Device::HeapAlloc::sub_alloc(uint32_t size) {
     auto ptr = sub_allocator.allocate_best_fit(size);
@@ -1129,13 +1163,22 @@ void Device::destroy_bindless_array(uint64_t handle) noexcept {
 // stream
 ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
     auto ptr = new Stream(this, stream_tag);
+    {
+        std::lock_guard lck{_stream_mtx};
+        _streams.emplace(ptr);
+    }
     ResourceCreationInfo info{
         .handle = reinterpret_cast<uint64_t>(ptr),
         .native_handle = ptr->queue()};
     return info;
 }
 void Device::destroy_stream(uint64_t handle) noexcept {
-    delete reinterpret_cast<Stream *>(handle);
+    auto *stream = reinterpret_cast<Stream *>(handle);
+    {
+        std::lock_guard lck{_stream_mtx};
+        _streams.erase(stream);
+    }
+    delete stream;
 }
 void Device::synchronize_stream(uint64_t stream_handle) noexcept {
     reinterpret_cast<Stream *>(stream_handle)->sync();
@@ -1173,17 +1216,38 @@ void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchai
 bool Device::print_code() {
     return luisa::compute::backend_print_code_enabled();
 }
+
+#ifdef LUISA_XIR_TO_SPIRV
+[[nodiscard]] static vstd::MD5 compute_shader_cache_md5(Function kernel, const ShaderOption &option,
+                                                        bool use_native_float_atomics) noexcept {
+    using namespace std::string_view_literals;
+    auto option_flags =
+        (static_cast<uint64_t>(option.enable_fast_math) << 0u) |
+        (static_cast<uint64_t>(option.enable_debug_info) << 1u) |
+        (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u);
+    auto block_size = kernel.block_size();
+    uint64_t data[] = {
+        luisa::hash_value("luisa-vk-xir-spv-cache-v3"sv),
+        kernel.hash(),
+        kernel.body()->hash(),
+        luisa::hash_value(block_size),
+        static_cast<uint64_t>(block_size.x) |
+            (static_cast<uint64_t>(block_size.y) << 21u) |
+            (static_cast<uint64_t>(block_size.z) << 42u),
+        option_flags,
+        static_cast<uint64_t>(option.max_registers),
+        luisa::hash_value(option.native_include),
+        option.native_include.size(),
+        static_cast<uint64_t>(use_native_float_atomics),
+    };
+    return vstd::MD5{vstd::span<const uint8_t>{
+        reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
+}
+#endif
+
 // kernel
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
-    LUISA_ASSERT(Device::compiler(), "Shader compiler not loaded.");
     ShaderCreationInfo info;
-    uint mask = 0;
-    if (option.enable_fast_math) {
-        mask |= 1;
-    }
-    if (option.enable_debug_info) {
-        mask |= 2;
-    }
 
     // Check if this shader uses motion blur trace operations
     bool requires_motion_blur = kernel.propagated_builtin_callables().uses_raytracing_motion_blur();
@@ -1195,205 +1259,77 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     }
 
     if (requires_motion_blur) {
-        if (option.compile_only) {
-            LUISA_ERROR("compile_only is not yet supported for motion blur shaders.");
-        }
-        // Use ray tracing pipeline for motion blur shaders
-        auto code = hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
-        vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+        LUISA_ERROR("Vulkan compute shaders must use native SPIR-V codegen. "
+                    "The legacy HLSL ray-tracing fallback for motion-blur compute shaders is disabled.");
+    }
+#ifdef LUISA_XIR_TO_SPIRV
+    static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
+    bool use_native_float_atomics = _vk_device->properties.vendorID == VK_VENDOR_ID_NVIDIA;
+    vstd::optional<lc::spirv::SpirvResult> spv_result;
+    auto shader_md5 = compute_shader_cache_md5(kernel, option, use_native_float_atomics);
+    auto require_print_code = print_code();
+    auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
+    auto uses_user_path = !option.name.empty();
+    auto serde_type = (option.compile_only || uses_user_path) ? SerdeType::kByteCode : SerdeType::kCache;
+    auto use_binary_io = option.compile_only || uses_user_path || option.enable_cache;
+    if (option.compile_only && option.name.empty()) [[unlikely]] {
+        LUISA_ERROR("Vulkan compile-only shader requires a non-empty shader name.");
+    }
+    luisa::string shader_name = uses_user_path ? option.name : luisa::format("{}.spv", shader_md5.to_string(false));
 
-        vstd::string_view file_name;
-        vstd::string str_cache;
-        SerdeType serde_type = SerdeType::kCache;
-        if (option.enable_cache) {
-            if (option.name.empty()) {
-                str_cache << check_md5.to_string(false) << "_rt.spv"sv;
-                file_name = str_cache;
-            } else {
-                file_name = option.name;
-                serde_type = SerdeType::kByteCode;
-            }
-        }
-        auto shader = RayTracingShader::compile(
-            _binary_io,
+    if (require_print_code || !use_binary_io ||
+        ShaderSerializer::require_recompile(shader_name, shader_md5, type_md5, serde_type, _binary_io)) {
+        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
+    }
+
+    if (!spv_result && !option.compile_only && use_binary_io) {
+        auto deser = ShaderSerializer::try_deser_compute(
             this,
-            ShaderSerializer::serialize_saved_args(kernel),
-            [&]() { return std::move(code); },
-            check_md5,
+            {shader_md5},
             hlsl::binding_to_arg(kernel.bound_arguments()),
-            kernel.block_size(),
-            file_name,
+            shader_name,
             serde_type,
-            kShaderModel,
-            option.enable_fast_math,
-            option.enable_debug_info);
-        info.handle = reinterpret_cast<uint64_t>(shader);
-        info.native_handle = shader->pipeline();
-    } else {
-#ifdef LUISA_AST_LLVM_TO_SPIRV
-        // === AST LLVM → SPIR-V codegen path ===
-        auto llvm_result = lc::llvm_codegen::LLVMCodegenUtility::CompileSPIRV(kernel, option);
-        for (size_t i = 0; i < llvm_result.properties.size(); ++i) {
-            auto &p = llvm_result.properties[i];
-            LUISA_VERBOSE("  LLVM prop[{}]: type={}, space={}, reg={}, array_size={}",
-                          i, (int)p.type, p.space_index, p.register_index, p.array_size);
-        }
-        if (print_code()) [[unlikely]] {
-            auto dump_name = [&]() -> luisa::string {
-                if (!option.name.empty()) return option.name;
-                if (!kernel.name().empty()) return luisa::string{kernel.name()};
-                return luisa::format("{:x}", kernel.hash());
-            }();
-            {
-                auto filename = luisa::format("spv_code_llvm_{}.spvasm", dump_name);
-                std::ofstream file(filename.c_str());
-                if (file) {
-                    file << "; === LLVM KERNEL: " << kernel.name()
-                         << " hash=" << kernel.hash() << " ===\n";
-                    spv::Disassemble(file, std::vector<uint32_t>{llvm_result.spv_bin.begin(), llvm_result.spv_bin.end()});
-                }
-                LUISA_VERBOSE("SPIRV-LLVM printed to {}.", filename);
-            }
-        }
-        if (option.compile_only) {
-            assert(!option.name.empty());
-            info.invalidate();
-            ShaderSerializer::serialize_bytecode(
-                llvm_result.properties,
-                ShaderSerializer::serialize_saved_args(kernel),
-                vstd::MD5{vstd::span<const uint8_t>(
-                    reinterpret_cast<const uint8_t *>(llvm_result.spv_bin.data()),
-                    llvm_result.spv_bin.size() * sizeof(uint32_t))},
-                hlsl::CodegenUtility::GetTypeMD5(kernel),
-                kernel.block_size(),
-                option.name,
-                llvm_result.spv_bin,
-                SerdeType::kByteCode,
-                _binary_io,
-                llvm_result.useTex2DBindless,
-                llvm_result.useTex3DBindless,
-                llvm_result.useBufferBindless,
-                llvm_result.printers,
-                0);
-        } else {
-            auto shader = new ComputeShader(
-                this,
-                kernel.block_size(),
-                llvm_result.properties,
-                ShaderSerializer::serialize_saved_args(kernel),
-                {reinterpret_cast<const uint *>(llvm_result.spv_bin.data()),
-                 llvm_result.spv_bin.size()},
-                hlsl::binding_to_arg(kernel.bound_arguments()),
-                {},
-                llvm_result.useTex2DBindless,
-                llvm_result.useTex3DBindless,
-                llvm_result.useBufferBindless,
-                std::move(llvm_result.printers),
-                {llvm_result.constant_ubo_data.data(),
-                 llvm_result.constant_ubo_data.size()},
-                0,
-                kernel.allowed_warp_size());
-            LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
-                          reinterpret_cast<void *>(shader->pipeline()));
+            _binary_io);
+        if (deser.shader) {
+            auto shader = static_cast<ComputeShader *>(deser.shader);
+            LUISA_VERBOSE("ComputeShader loaded successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
+            info.block_size = shader->block_size();
+            return info;
         }
-#elif defined(LUISA_XIR_TO_SPIRV)
-        static constexpr uint32_t VK_VENDOR_ID_AMD = 0x1002u;
-        static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
-        static constexpr uint32_t VK_VENDOR_ID_INTEL = 0x8086u;
-        bool use_native_float_atomics = _vk_device->properties.vendorID == VK_VENDOR_ID_NVIDIA;
-        vstd::optional<lc::spirv::SpirvResult> spv_result;
-        // We need a hash here, no need to compile spirv first
-        vstd::MD5 pseudo_hash;
-        // no compatible between atomic_float switch.
-        if (use_native_float_atomics) {
-            pseudo_hash = vstd::MD5::MD5Data{
-                kernel.hash(),
-                kernel.body()->hash()};
-        } else {
-            pseudo_hash = vstd::MD5::MD5Data{
-                kernel.body()->hash(),
-                kernel.hash()};
+        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
+    }
+
+    if (spv_result) {
+        for (size_t i = 0; i < spv_result->properties.size(); ++i) {
+            auto &p = spv_result->properties[i];
+            LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
-        const bool require_print_code = print_code();
-        auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
-        luisa::string shader_name = option.name.empty() ? luisa::format("{}.spv", pseudo_hash.to_string(false)) : option.name;
-        if (require_print_code || ShaderSerializer::require_recompile(
-                                      shader_name,
-                                      pseudo_hash,
-                                      type_md5,
-                                      option.compile_only ? SerdeType::kByteCode : SerdeType::kCache,
-                                      _binary_io)) {
-            spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
-        }
-        ////////// print
         if (require_print_code) [[unlikely]] {
-            for (size_t i = 0; i < spv_result->properties.size(); ++i) {
-                auto &p = spv_result->properties[i];
-                LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
-            }
             auto dump_name = [&]() -> luisa::string {
                 if (!shader_name.empty()) return shader_name;
                 if (!kernel.name().empty()) return luisa::string{kernel.name()};
                 return luisa::format("{:x}", kernel.hash());
             }();
-            {
-                auto filename = luisa::format("spv_code_{}.spvasm", dump_name);
-                std::ofstream file(filename.c_str());
-                if (file) {
-                    file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
-                    spv::Disassemble(file, spv_result->spv_bin);
-                }
-                LUISA_VERBOSE("SPIRV printed to {}.", filename);
+            auto filename = luisa::format("spv_code_{}.spvasm", dump_name);
+            std::ofstream file(filename.c_str());
+            if (file) {
+                file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
+                spv::Disassemble(file, spv_result->spv_bin);
             }
-            // Test HLSL
-            auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
-            {
-                auto hlsl_filename = luisa::format("hlsl_output_{}.hlsl", dump_name);
-                auto f = fopen(hlsl_filename.c_str(), "wb");
-                if (f) {
-                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-                    fclose(f);
-                }
-            }
-            auto comp_result = Device::compiler()->compile_compute(
-                code.result.view(),
-                !option.enable_debug_info,
-                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
-                option.enable_fast_math,
-                true,
-                option.enable_debug_info);
-            if (comp_result.is_type_of<vstd::string>()) [[unlikely]] {
-                LUISA_ERROR("HLSL test compilation error: {}", *comp_result.try_get<vstd::string>());
-            } else {
-                LUISA_VERBOSE("HLSL test compilation successful.");
-                {
-                    auto filename = luisa::format("spv_code_hlsl_{}.spvasm", dump_name);
-                    std::ofstream file(filename.c_str());
-                    if (file) {
-                        file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
-                        auto &&blob = comp_result.force_get<lc::hlsl::ComUniquePtr<IDxcBlob>>();
-                        std::vector<uint32_t> vec((blob->GetBufferSize() + sizeof(uint) - 1) / sizeof(uint));
-                        std::memcpy(vec.data(), blob->GetBufferPointer(), blob->GetBufferSize());
-                        spv::Disassemble(file, vec);
-                    }
-                    LUISA_VERBOSE("SPIRV-HLSL printed to {}.", filename);
-                }
-            }
+            LUISA_VERBOSE("SPIRV printed to {}.", filename);
         }
-        info.invalidate();
-        assert(!(option.compile_only && option.name.empty()));
-        if (spv_result) {
+        if (use_binary_io) {
             ShaderSerializer::serialize_bytecode(
                 spv_result->properties,
-                ShaderSerializer::serialize_saved_args(kernel),
-                pseudo_hash,
+                ShaderSerializer::serialize_saved_args(luisa::span{spv_result->argument_usages}),
+                shader_md5,
                 type_md5,
                 kernel.block_size(),
                 shader_name,
                 spv_result->spv_bin,
-                option.compile_only ? SerdeType::kByteCode : SerdeType::kCache,
+                serde_type,
                 _binary_io,
                 spv_result->useTex2DBindless,
                 spv_result->useTex3DBindless,
@@ -1401,124 +1337,103 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result->printers,
                 0);
         }
-        if (option.compile_only) {
-            return info;
-        }
-        if (spv_result) {
-            auto shader = new ComputeShader(
-                this,
-                kernel.block_size(),
-                spv_result->properties,
-                ShaderSerializer::serialize_saved_args(kernel),
-                {reinterpret_cast<const uint *>(spv_result->spv_bin.data()), spv_result->spv_bin.size()},
-                hlsl::binding_to_arg(kernel.bound_arguments()),
-                {},
-                spv_result->useTex2DBindless,
-                spv_result->useTex3DBindless,
-                spv_result->useBufferBindless,
-                std::move(spv_result->printers),
-                {spv_result->constant_ubo_data.data(), spv_result->constant_ubo_data.size()},
-                0,
-                kernel.allowed_warp_size());
-            LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
-            info.handle = reinterpret_cast<uint64_t>(shader);
-            info.native_handle = shader->pipeline();
-        } else {
-            auto deser = ShaderSerializer::try_deser_compute(
-                this,
-                {pseudo_hash},
-                hlsl::binding_to_arg(kernel.bound_arguments()),
-                shader_name,
-                SerdeType::kCache,
-                _binary_io);
-            auto cs = static_cast<ComputeShader *>(deser.shader);
-            LUISA_VERBOSE("ComputeShader load successfully, pipeline: {}", reinterpret_cast<void *>(cs->pipeline()));
-            info.handle = reinterpret_cast<uint64_t>(cs);
-            info.native_handle = cs->pipeline();
-        }
+    }
+    if (option.compile_only) {
+        assert(!option.name.empty());
+        info.invalidate();
+    } else {
+        LUISA_ASSERT(spv_result, "Vulkan SPIR-V cache load failed without recompilation.");
+        auto shader = new ComputeShader(
+            this,
+            kernel.block_size(),
+            spv_result->properties,
+            ShaderSerializer::serialize_saved_args(luisa::span{spv_result->argument_usages}),
+            {reinterpret_cast<const uint *>(spv_result->spv_bin.data()), spv_result->spv_bin.size()},
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            {},
+            spv_result->useTex2DBindless,
+            spv_result->useTex3DBindless,
+            spv_result->useBufferBindless,
+            std::move(spv_result->printers),
+            {spv_result->constant_ubo_data.data(), spv_result->constant_ubo_data.size()},
+            0,
+            kernel.allowed_warp_size());
+        LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
+        info.handle = reinterpret_cast<uint64_t>(shader);
+        info.native_handle = shader->pipeline();
+    }
 
+#elif defined(LUISA_AST_LLVM_TO_SPIRV)
+    // === AST LLVM to SPIR-V codegen path ===
+    auto llvm_result = lc::llvm_codegen::LLVMCodegenUtility::CompileSPIRV(kernel, option);
+    for (size_t i = 0; i < llvm_result.properties.size(); ++i) {
+        auto &p = llvm_result.properties[i];
+        LUISA_VERBOSE("  LLVM prop[{}]: type={}, space={}, reg={}, array_size={}",
+                      i, (int)p.type, p.space_index, p.register_index, p.array_size);
+    }
+    if (print_code()) [[unlikely]] {
+        auto dump_name = [&]() -> luisa::string {
+            if (!option.name.empty()) return option.name;
+            if (!kernel.name().empty()) return luisa::string{kernel.name()};
+            return luisa::format("{:x}", kernel.hash());
+        }();
+        auto filename = luisa::format("spv_code_llvm_{}.spvasm", dump_name);
+        std::ofstream file(filename.c_str());
+        if (file) {
+            file << "; === LLVM KERNEL: " << kernel.name()
+                 << " hash=" << kernel.hash() << " ===\n";
+            spv::Disassemble(file, std::vector<uint32_t>{llvm_result.spv_bin.begin(), llvm_result.spv_bin.end()});
+        }
+        LUISA_VERBOSE("SPIRV-LLVM printed to {}.", filename);
+    }
+    if (option.compile_only) {
+        assert(!option.name.empty());
+        info.invalidate();
+        ShaderSerializer::serialize_bytecode(
+            llvm_result.properties,
+            ShaderSerializer::serialize_saved_args(kernel),
+            vstd::MD5{vstd::span<const uint8_t>(
+                reinterpret_cast<const uint8_t *>(llvm_result.spv_bin.data()),
+                llvm_result.spv_bin.size() * sizeof(uint32_t))},
+            hlsl::CodegenUtility::GetTypeMD5(kernel),
+            kernel.block_size(),
+            option.name,
+            llvm_result.spv_bin,
+            SerdeType::kByteCode,
+            _binary_io,
+            llvm_result.useTex2DBindless,
+            llvm_result.useTex3DBindless,
+            llvm_result.useBufferBindless,
+            llvm_result.printers,
+            0);
+    } else {
+        auto shader = new ComputeShader(
+            this,
+            kernel.block_size(),
+            llvm_result.properties,
+            ShaderSerializer::serialize_saved_args(kernel),
+            {reinterpret_cast<const uint *>(llvm_result.spv_bin.data()),
+             llvm_result.spv_bin.size()},
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            {},
+            llvm_result.useTex2DBindless,
+            llvm_result.useTex3DBindless,
+            llvm_result.useBufferBindless,
+            std::move(llvm_result.printers),
+            {llvm_result.constant_ubo_data.data(),
+             llvm_result.constant_ubo_data.size()},
+            0,
+            kernel.allowed_warp_size());
+        LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
+                      reinterpret_cast<void *>(shader->pipeline()));
+        info.handle = reinterpret_cast<uint64_t>(shader);
+        info.native_handle = shader->pipeline();
+    }
 #else
-        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
-        vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-        if (option.compile_only) {
-            assert(!option.name.empty());
-            info.invalidate();
-            if (print_code()) {
-                auto dump_name = [&]() -> luisa::string {
-                    if (!option.name.empty()) return option.name;
-                    if (!kernel.name().empty()) return luisa::string{kernel.name()};
-                    return luisa::format("{:x}", kernel.hash());
-                }();
-                auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
-                auto f = fopen(dump_file_name.c_str(), "wb");
-                if (f) {
-                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-                    fclose(f);
-                }
-            }
-            auto comp_result = Device::compiler()->compile_compute(
-                code.result.view(),
-                !option.enable_debug_info,
-                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
-                option.enable_fast_math,
-                true,
-                option.enable_debug_info);
-            comp_result.multi_visit(
-                [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
-                    auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
-                    ShaderSerializer::serialize_bytecode(
-                        code.properties,
-                        saved_args,
-                        check_md5,
-                        code.typeMD5,
-                        kernel.block_size(),
-                        option.name,
-                        {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
-                        SerdeType::kByteCode,
-                        _binary_io, code.useTex2DBindless,
-                        code.useTex3DBindless,
-                        code.useBufferBindless,
-                        code.printers,
-                        code.validation_count);
-                },
-                [](auto &&err) {
-                    LUISA_ERROR("Compile Error: {}", err);
-                    return nullptr;
-                });
-
-        } else {
-            vstd::string_view file_name;
-            vstd::string str_cache;
-            SerdeType serde_type;
-            if (option.enable_cache) {
-                if (option.name.empty()) {
-                    str_cache << check_md5.to_string(false) << ".spv"sv;
-                    file_name = str_cache;
-                    serde_type = SerdeType::kCache;
-                } else {
-                    file_name = option.name;
-                    serde_type = SerdeType::kByteCode;
-                }
-            }
-            auto shader = ComputeShader::compile(
-                _binary_io,
-                this,
-                ShaderSerializer::serialize_saved_args(kernel),
-                [&]() { return std::move(code); },
-                check_md5,
-                hlsl::binding_to_arg(kernel.bound_arguments()),
-                kernel.block_size(),
-                file_name,
-                serde_type,
-                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
-                option.enable_fast_math,
-                code.validation_count,
-                kernel.allowed_warp_size());
-            info.handle = reinterpret_cast<uint64_t>(shader);
-            info.native_handle = shader->pipeline();
-        }
+    LUISA_ERROR("Vulkan compute shaders require native SPIR-V codegen. "
+                "Enable LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV or "
+                "LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV.");
 #endif
-    }// end else (non-motion-blur path)
     info.block_size = kernel.block_size();
     return info;
 }
@@ -1616,7 +1531,19 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
 }
 
 hlsl::ShaderCompiler *Device::compiler() {
-    return g_dxc_compiler ? g_dxc_compiler.ptr() : nullptr;
+#ifndef LC_NO_HLSL_BUILTIN
+    std::lock_guard lck(g_dxc_mutex);
+    if (!g_dxc_compiler_initialized) {
+        if (g_dxc_runtime_directory.empty()) [[unlikely]] {
+            LUISA_ERROR("Vulkan internal HLSL compiler requested before device initialization.");
+        }
+        g_dxc_compiler.create(g_dxc_runtime_directory, true);
+        g_dxc_compiler_initialized = true;
+    }
+    return g_dxc_compiler.ptr();
+#else
+    return nullptr;
+#endif
 }
 
 VkInstance Device::instance() {

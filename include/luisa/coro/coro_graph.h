@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/dll_export.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
@@ -27,6 +28,13 @@ public:
         size_t token{0u};               // suspend token value (0 for entry)
         bool is_terminal{false};        // terminal scope (no outgoing transitions)
         const xir::CallableFunction *callable{nullptr};// pointer to the continuation callable
+        luisa::vector<size_t> input_fields;
+        luisa::vector<size_t> output_fields;
+        luisa::vector<size_t> targets;
+
+        [[nodiscard]] auto input_field_span() const noexcept { return luisa::span{input_fields}; }
+        [[nodiscard]] auto output_field_span() const noexcept { return luisa::span{output_fields}; }
+        [[nodiscard]] auto target_span() const noexcept { return luisa::span{targets}; }
     };
 
     /// A directed edge between two continuation scopes.
@@ -67,6 +75,7 @@ public:
 
     [[nodiscard]] size_t edge_count() const noexcept;
     [[nodiscard]] const Edge *edge(size_t from, size_t to) const noexcept;
+    [[nodiscard]] luisa::string dump() const noexcept;
 
     // --- Iterators ---
 

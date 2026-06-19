@@ -101,6 +101,36 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
         LUISA_WARNING("SPIR-V optimization failed, using unoptimized binary.");
     }
 }
+
+vstd::vector<std::pair<Variable, Usage>>
+SpirvCodegenEntry::_collect_kernel_argument_usages(Function kernel, const xir::Module *module) const noexcept {
+    const xir::KernelFunction *xir_kernel = nullptr;
+    for (auto f : module->function_list()) {
+        if (f->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
+            xir_kernel = static_cast<const xir::KernelFunction *>(f);
+            break;
+        }
+    }
+    auto ast_args = kernel.arguments();
+    vstd::vector<std::pair<Variable, Usage>> result;
+    result.reserve(ast_args.size());
+    luisa::vector<const xir::Argument *> xir_args;
+    if (xir_kernel != nullptr) {
+        for (auto arg : xir_kernel->arguments()) {
+            xir_args.emplace_back(arg);
+        }
+    }
+    for (auto i = 0u; i < ast_args.size(); i++) {
+        auto ast_arg = ast_args[i];
+        auto usage = kernel.variable_usage(ast_arg.uid());
+        if (i < xir_args.size()) {
+            usage = _function_argument_usage_of(xir_kernel, xir_args[i]);
+        }
+        result.emplace_back(ast_arg, usage);
+    }
+    return result;
+}
+
 SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption &opt, bool use_native_float_atomics) {
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
     StringScratch scratch;
@@ -108,6 +138,8 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     codegen._use_native_float_atomics = use_native_float_atomics;
     auto analysis = codegen._analyze_module_usage(xir_module.get());
     codegen._mark_atomic_buffer_types(analysis);
+    codegen._analyze_function_argument_usage(xir_module.get());
+    auto argument_usages = codegen._collect_kernel_argument_usages(kernel, xir_module.get());
 
     for (auto c : analysis.used_constants) {
         if (auto t = c->type(); t != nullptr && t->is_array()) {
@@ -115,7 +147,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
         }
     }
 
-    codegen.generate_binding(kernel);
+    codegen.generate_binding(kernel, argument_usages);
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
@@ -150,6 +182,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     return SpirvResult{
         std::move(words),
         std::move(props),
+        std::move(argument_usages),
         std::move(printers),
         std::move(constant_ubo_data),
         use_tex2d,

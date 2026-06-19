@@ -323,6 +323,67 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         }
     };
 
+    "wavefront_large_self_loop_queue_preserves_frame_fields"_test = [options] {
+        constexpr uint N = 12288u;
+        constexpr uint rounds = 11u;
+        constexpr uint capacity = N;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
+            auto tid = dispatch_x();
+            auto value = tid * 747796405u + 2891336453u;
+            $for (i, 11u) {
+                value = value * 1664525u + 1013904223u + i;
+                $suspend("loop");
+                value = (value ^ (tid + i * 2246822519u)) * 3266489917u;
+            };
+            buf.write(tid, value ^ (tid * 668265263u));
+        });
+
+        auto expected_at = [](uint tid) noexcept {
+            auto value = tid * 747796405u + 2891336453u;
+            for (auto i = 0u; i < rounds; i++) {
+                value = value * 1664525u + 1013904223u + i;
+                value = (value ^ (tid + i * 2246822519u)) * 3266489917u;
+            }
+            return value ^ (tid * 668265263u);
+        };
+
+        for (auto gather_by_sorting : {false, true}) {
+            luisa::vector<uint> zero(N);
+            stream << output.copy_from(luisa::span{zero}) << synchronize();
+
+            WavefrontCoroSchedulerConfig cfg{
+                .thread_count = capacity,
+                .global_memory_soa = true,
+                .gather_by_sorting = gather_by_sorting,
+                .frame_buffer_compaction = true,
+            };
+            WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
+            scheduler(output).dispatch(N)(stream);
+
+            luisa::vector<uint> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+
+            auto ok = true;
+            for (auto i = 0u; i < N; i++) {
+                auto expected = expected_at(i);
+                if (host[i] != expected) {
+                    LUISA_WARNING("wavefront large self-loop mismatch gather_by_sorting={} at {}: got {}, expected {}",
+                                  gather_by_sorting, i, host[i], expected);
+                    ok = false;
+                    break;
+                }
+            }
+            expect(ok) << "large self-loop queues must preserve frame fields and drain correctly";
+        }
+    };
+
     "wavefront_hint_fields_are_resolved_and_correct"_test = [options] {
         constexpr uint N = 129u;
         constexpr uint capacity = 64u;

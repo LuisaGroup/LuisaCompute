@@ -86,7 +86,7 @@ public:
     };
     struct RangeHash {
         size_t operator()(Range const &r) const {
-            return hash64(this, sizeof(Range), hash64_default_seed);
+            return hash64(&r, sizeof(Range), hash64_default_seed);
         }
     };
     struct ResourceView {
@@ -268,7 +268,9 @@ private:
     }
     // Texture, Buffer
     int64_t get_last_layer_write(RangeHandle *handle, Range range) {
-        int64_t layer = handle->get_max_read_layer(range);
+        int64_t layer = std::max(
+            handle->get_max_read_layer(range),
+            handle->get_max_write_layer(range));
         if (_bindless_max_layer >= layer) {
             for (auto &&i : _bindless_map) {
                 _func_table.lock_bindless(i.first);
@@ -778,21 +780,29 @@ public:
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     void clear() noexcept {
-        auto re_construct_map = [&]<typename T>(T &t) {
+        auto destroy_map = []<typename T>(T &t) noexcept {
             t.~T();
-            new (&t) T(64, ArenaRef{_arena});
         };
         _bindless_max_layer = -1;
         _max_accel_read_level = -1;
         _max_accel_write_level = -1;
         _max_mesh_level = -1;
+        _dispatch_layer = 0;
+        _use_bindless_in_pass = false;
+        _use_accel_in_pass = false;
         _cmd_lists.clear();
-        _arena.clear();
         _max_dispatch_blocks.clear();
-        re_construct_map(_res_map);
-        re_construct_map(_no_range_resmap);
-        re_construct_map(_bindless_map);
-        re_construct_map(_write_res_map);
+        _dispatch_read_handle.clear();
+        _dispatch_write_handle.clear();
+        destroy_map(_res_map);
+        destroy_map(_no_range_resmap);
+        destroy_map(_bindless_map);
+        destroy_map(_write_res_map);
+        _arena.clear();
+        new (&_res_map) decltype(_res_map)(64, ArenaRef{_arena});
+        new (&_no_range_resmap) decltype(_no_range_resmap)(64, ArenaRef{_arena});
+        new (&_bindless_map) decltype(_bindless_map)(64, ArenaRef{_arena});
+        new (&_write_res_map) decltype(_write_res_map)(64, ArenaRef{_arena});
     }
     ~CommandReorderVisitor() noexcept {}
     [[nodiscard]] auto command_lists() const noexcept {

@@ -107,6 +107,7 @@ luisa_compute_add_test(test_texture_io          unit/runtime/test_texture_io.cpp
 luisa_compute_add_test(test_warp                unit/runtime/test_warp.cpp)
 luisa_compute_add_test(test_warp_prefix_scan    unit/runtime/test_warp_prefix_scan.cpp)
 luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduction.cpp)
+luisa_compute_add_test(test_vk_spirv_codegen_path unit/runtime/test_vk_spirv_codegen_path.cpp)
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)
 luisa_compute_add_test(test_buffer              unit/runtime/test_buffer.cpp)
 luisa_compute_add_test(test_out_of_range        unit/runtime/test_out_of_range.cpp)

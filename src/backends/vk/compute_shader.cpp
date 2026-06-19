@@ -90,7 +90,7 @@ ComputeShader::~ComputeShader() {
     vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
     vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
 }
-ComputeShader *ComputeShader::compile(
+ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
     BinaryIO const *bin_io,
     Device *device,
     vstd::vector<SavedArgument> &&saved_args,
@@ -104,6 +104,11 @@ ComputeShader *ComputeShader::compile(
     bool unsafe_math,
     uint validation_count,
     luisa::optional<uint8_t> required_subgroup_size) {
+
+    if (serde_type != SerdeType::kBuiltin) [[unlikely]] {
+        LUISA_ERROR("Vulkan HLSL-to-SPIR-V compute compilation is restricted to internal builtins. "
+                    "User compute shaders must use native SPIR-V codegen.");
+    }
 
     auto result = required_subgroup_size ?
                       ShaderSerializer::DeserResult{} :

@@ -96,6 +96,9 @@ luisa_compute_add_example(example_multi_head_attention ml/multi_head_attention.c
 
 # coroutine (headless)
 luisa_compute_add_example(example_coro_path_tracing rendering/coro_path_tracing.cpp)
+luisa_compute_add_example(example_coro_path_tracing_wavefront rendering/coro_path_tracing.cpp)
+target_compile_definitions(example_coro_path_tracing_wavefront
+        PRIVATE LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1)
 
 # --- GUI toolkit integration examples (wxWidgets, Qt) ---
 

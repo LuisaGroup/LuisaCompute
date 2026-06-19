@@ -80,6 +80,26 @@ void reg_ast2xir() {
         for ([[maybe_unused]] auto *f : module->function_list()) { func_count++; }
         expect(func_count >= 1u);
     };
+
+    "xir_ast_to_xir_does_not_merge_distinct_functions_by_hash"_test = [] {
+        Callable a = [](Float x) { return x + 1.0f; };
+        Callable b = [](Float x) { return x + 1.0f; };
+        expect(a.function().hash() == b.function().hash());
+        AST2XIRConfig config{};
+        auto *ctx = ast_to_xir_translate_begin(config);
+        expect(ctx != nullptr);
+        ast_to_xir_translate_add_function(ctx, a.function());
+        ast_to_xir_translate_add_function(ctx, b.function());
+        auto module = ast_to_xir_translate_finalize(ctx);
+        expect(module != nullptr);
+        auto callable_count = 0u;
+        for (auto *f : module->function_list()) {
+            if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE) {
+                callable_count++;
+            }
+        }
+        expect(callable_count == 2u) << "AST2XIR must key generated functions by builder identity, not only Function::hash()";
+    };
 }
 
 void reg_xir2text() {

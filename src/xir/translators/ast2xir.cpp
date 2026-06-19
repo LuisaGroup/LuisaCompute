@@ -66,7 +66,7 @@ public:
 private:
     [[maybe_unused]] AST2XIRConfig _config;
     luisa::unique_ptr<Module> _module;
-    luisa::unordered_map<uint64_t, Function *> _generated_functions;
+    luisa::unordered_map<const compute::detail::FunctionBuilder *, Function *> _generated_functions;
     luisa::unordered_map<ConstantData, Constant *> _generated_constants;
     luisa::unordered_map<TypedLiteral, Constant *> _generated_literals;
     luisa::unordered_map<const Type *, Constant *> _generated_zero_constants;
@@ -1200,7 +1200,7 @@ public:
     Function *add_function(const ASTFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
         // try emplace the function
-        auto [iter, just_inserted] = _generated_functions.try_emplace(f.hash(), nullptr);
+        auto [iter, just_inserted] = _generated_functions.try_emplace(f.builder(), nullptr);
         // return the function if it has been translated
         if (!just_inserted) { return iter->second; }
         // create a new function

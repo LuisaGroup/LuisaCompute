@@ -178,7 +178,7 @@ void reg_coro_split() {
         size_t callable_suspends = 0u;
         for (auto *f : m.function_list()) {
             if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-                auto *def = static_cast<FunctionDefinition*>(f);
+                auto *def = static_cast<FunctionDefinition *>(f);
                 def->traverse_instructions([&](Instruction *inst) noexcept {
                     if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
                         callable_suspends++;
@@ -236,7 +236,7 @@ void reg_coro_split() {
         size_t callable_suspends = 0u;
         for (auto *f : m.function_list()) {
             if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-                auto *def = static_cast<FunctionDefinition*>(f);
+                auto *def = static_cast<FunctionDefinition *>(f);
                 def->traverse_instructions([&](Instruction *inst) noexcept {
                     if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
                         callable_suspends++;
@@ -276,7 +276,7 @@ void reg_coro_split() {
         bool found_resume = false;
         for (auto *f : m.function_list()) {
             if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-                auto *def = static_cast<FunctionDefinition*>(f);
+                auto *def = static_cast<FunctionDefinition *>(f);
                 def->traverse_instructions([&](Instruction *inst) noexcept {
                     if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_RESUME) {
                         found_resume = true;
@@ -321,7 +321,7 @@ void reg_coro_split() {
         size_t callable_terms = 0u;
         for (auto *f : m.function_list()) {
             if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-                auto *def = static_cast<FunctionDefinition*>(f);
+                auto *def = static_cast<FunctionDefinition *>(f);
                 def->traverse_instructions([&](Instruction *inst) noexcept {
                     if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_TERMINATE) {
                         callable_terms++;
@@ -374,7 +374,7 @@ void reg_coro_split() {
         // basic sanity: all blocks in callables should be terminated
         for (auto *f : m.function_list()) {
             if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-                auto *def = static_cast<FunctionDefinition*>(f);
+                auto *def = static_cast<FunctionDefinition *>(f);
                 def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
                     expect(bb->is_terminated());
                 });
@@ -382,7 +382,7 @@ void reg_coro_split() {
         }
     };
 
-    "skip_on_first_run_present_in_continuations"_test = [] {
+    "continuations_do_not_emit_skip_check"_test = [] {
         // given: a single-suspend coroutine
         Module m;
         BasicBlock *body;
@@ -404,22 +404,32 @@ void reg_coro_split() {
         b.return_void();
 
         // when
-        auto resume_count = coro_split_pass_run_on_module(&m);
-        static_cast<void>(resume_count);
+        auto cfg = coro_cfg_distill_pass_run_on_function(k);
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
 
-        // then: callables exist, each is well-formed
+        // then: callables exist, each is well-formed, and no synthetic skip-check branch is emitted
+        expect(split.subroutines.size() == 2u);
         expect(count_callables(m) == 2u);
 
         // verify each callable has a body block and all blocks are terminated
         for (auto *f : m.function_list()) {
             if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-                auto *def = static_cast<FunctionDefinition*>(f);
+                auto *def = static_cast<FunctionDefinition *>(f);
                 expect(def->body_block() != nullptr);
                 def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
                     expect(bb->is_terminated());
                 });
             }
         }
+
+        size_t continuation_cond_branches = 0u;
+        auto *cont = split.subroutines[1u].callable;
+        cont->definition()->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->derived_instruction_tag() == DerivedInstructionTag::CONDITIONAL_BRANCH) {
+                continuation_cond_branches++;
+            }
+        });
+        expect(continuation_cond_branches == 0u);
     };
 
     "module_pass_handles_mixed_functions"_test = [] {

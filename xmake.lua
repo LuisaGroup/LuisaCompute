@@ -30,7 +30,7 @@ option("lc_use_lto", {default=false})
 -- enable Vulkan backend
 option("lc_vk_backend", {default = true})
 
-option("lc_vk_backend_use_xir_spirv", {default = false})
+option("lc_vk_backend_use_xir_spirv", {default = true})
 -- enable toy C backend for testing and debugging
 option("lc_toy_c_backend", {default = false})
 -- enable NVIDIA-CUDA backend
@@ -136,6 +136,11 @@ if lc_options then
     for k, v in pairs(lc_options) do
         set_config(k, v)
     end
+end
+if has_config("lc_vk_backend_use_xir_spirv") and has_config("lc_vk_backend_use_ast_llvm_spirv") then
+    raise("Vulkan compute shader codegen options are mutually exclusive. " ..
+          "Use lc_vk_backend_use_xir_spirv for the default native SPIR-V path, " ..
+          "or lc_vk_backend_use_ast_llvm_spirv for the experimental LLVM SPIR-V path.")
 end
 includes("scripts/xmake_func.lua")
 

@@ -2,7 +2,9 @@
 // Full path tracing pipeline inside a coroutine with multiple $suspend
 // points matching the persistent-threads pattern from the old codebase.
 //
-// Usage: coro_path_tracing <backend> [--offline] [--spp N] [--scheduler state_machine|wavefront|persistent]
+// Usage: coro_path_tracing <backend> [--offline] [--spp N]
+//                          [--resolution N] [--sample-dispatch|--batch-dispatch]
+//                          [--scheduler state_machine|wavefront|persistent]
 //   backend: cuda, dx, cpu, metal, fallback
 
 #include <array>
@@ -42,6 +44,10 @@ using namespace luisa::compute::coro;
 #include <luisa/gui/window.h>
 #endif
 
+#ifndef LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT
+#define LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT 0
+#endif
+
 struct Onb {
     float3 tangent;
     float3 binormal;
@@ -60,7 +66,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--scheduler state_machine|wavefront|persistent]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--resolution N] [--sample-dispatch|--batch-dispatch] [--scheduler state_machine|wavefront|persistent]", argv[0]);
         exit(1);
     }
 
@@ -69,6 +75,26 @@ int main(int argc, char *argv[]) {
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
     auto scheduler_kind = luisa::example::parse_coro_scheduler_arg(argc, argv);
+    auto resolution_size = 1024u;
+    auto sample_dispatch = LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT != 0;
+    for (auto i = 2; i < argc; i++) {
+        if (argv[i] == nullptr) { break; }
+        std::string_view arg{argv[i]};
+        if (arg == "--resolution") {
+            if (i + 1 >= argc || argv[i + 1] == nullptr) {
+                LUISA_ERROR("Missing value for --resolution.");
+            }
+            auto value = static_cast<uint>(std::atoi(argv[++i]));
+            if (value == 0u) {
+                LUISA_ERROR("--resolution must be greater than zero.");
+            }
+            resolution_size = value;
+        } else if (arg == "--sample-dispatch") {
+            sample_dispatch = true;
+        } else if (arg == "--batch-dispatch") {
+            sample_dispatch = false;
+        }
+    }
     bool offline = opts.offline;
 #if !ENABLE_DISPLAY
     if (!offline) {
@@ -207,15 +233,18 @@ int main(int argc, char *argv[]) {
     };
 
     // ─── SPP per dispatch ────────────────────────────────────────────
-    auto spp_per_dispatch = (backend_name == "metal" ||
-                             backend_name == "cpu" ||
-                             backend_name == "fallback") ?
-                                1u :
-                                64u;
-
-    static constexpr uint2 resolution = make_uint2(1024u);
+    uint2 resolution = make_uint2(resolution_size);
     uint total_cells = resolution.x * resolution.y;
     uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
+    auto default_spp_per_dispatch = (backend_name == "metal" ||
+                                     backend_name == "cpu" ||
+                                     backend_name == "fallback") ?
+                                        1u :
+                                        64u;
+    auto samples_per_pass = opts.spp == 0u ?
+                                default_spp_per_dispatch :
+                                std::min(default_spp_per_dispatch, total_spp);
+    auto spp_per_coroutine = sample_dispatch ? 1u : samples_per_pass;
 
     Coroutine coro = [&](ImageFloat image, ImageUInt seed_image,
                          AccelVar accel, UInt2 resolution) noexcept {
@@ -227,7 +256,7 @@ int main(int argc, char *argv[]) {
         Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
         $suspend("per_spp");
-        $for (i, spp_per_dispatch) {
+        $for (i, spp_per_coroutine) {
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             Float3 beta = def(make_float3(1.0f));
             Float pdf_bsdf = def(0.0f);
@@ -303,11 +332,18 @@ int main(int argc, char *argv[]) {
             };
         };
         $suspend("write_film");
-        radiance /= static_cast<float>(spp_per_dispatch);
+        radiance /= static_cast<float>(spp_per_coroutine);
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(coord, make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
+
+    LUISA_INFO("Coroutine compiled: {} subroutines, {} graph nodes, {} frame fields, frame payload {} B, frame struct {} B",
+               coro.subroutine_count(), coro.graph().node_count(),
+               coro.frame().frame_field_count(), coro.frame().total_size(),
+               coro.frame().frame_type()->size());
+    LUISA_INFO("Coroutine frame R/W by subroutine:");
+    luisa::example::dump_coro_frame_rw(coro);
 
     using Scheduler = CoroScheduler<Image<float>, Image<uint>, Accel, uint2>;
     std::unique_ptr<Scheduler> scheduler;
@@ -317,7 +353,7 @@ int main(int argc, char *argv[]) {
             break;
         case luisa::example::CoroSchedulerKind::wavefront: {
             WavefrontCoroSchedulerConfig cfg{
-                .thread_count = 4_M,
+                .thread_count = static_cast<uint>(4_M),
                 .global_memory_soa = true,
                 .gather_by_sorting = false,
             };
@@ -325,12 +361,18 @@ int main(int argc, char *argv[]) {
             break;
         }
         case luisa::example::CoroSchedulerKind::persistent: {
-            PersistentThreadsCoroSchedulerConfig cfg{};
+            PersistentThreadsCoroSchedulerConfig cfg{.block_size = 32u};
             scheduler = std::make_unique<PersistentThreadsCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
             break;
         }
     }
     LUISA_INFO("CoroScheduler: {}", luisa::example::coro_scheduler_name(scheduler_kind));
+    LUISA_INFO("Coroutine dispatch shape: {} ({} SPP/pass, {} SPP/coroutine)",
+               sample_dispatch ? "old wavefront-style 3D sample dispatch" : "per-pixel batched coroutine",
+               samples_per_pass, spp_per_coroutine);
+    if (sample_dispatch && opts.compare_path) {
+        LUISA_WARNING("3D sample dispatch matches the old wavefront workload shape but multiple samples write the same 2D pixel; disable --compare or use --batch-dispatch for reference validation.");
+    }
 
     // ─── Make sampler shader ─────────────────────────────────────────
     auto make_sampler_shader = device.compile(Kernel2D([&](ImageUInt seed_image) noexcept {
@@ -377,13 +419,21 @@ int main(int argc, char *argv[]) {
 
     // ─── Render loop ─────────────────────────────────────────────────
     if (offline) {
-        auto passes = (total_spp + spp_per_dispatch - 1u) / spp_per_dispatch;
+        auto passes = (total_spp + samples_per_pass - 1u) / samples_per_pass;
         Clock clock;
         for (uint pass = 0u; pass < passes; ++pass) {
-            stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
-                   << accumulate_shader(accum_image, framebuffer)
-                          .dispatch(resolution)
-                   << synchronize();
+            if (sample_dispatch) {
+                stream << (*scheduler)(framebuffer, seed_image, accel, resolution)
+                              .dispatch(resolution.x, resolution.y, samples_per_pass)
+                       << accumulate_shader(accum_image, framebuffer)
+                              .dispatch(resolution)
+                       << synchronize();
+            } else {
+                stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
+                       << accumulate_shader(accum_image, framebuffer)
+                              .dispatch(resolution)
+                       << synchronize();
+            }
             LUISA_INFO("Pass {}/{}: {:.1f} ms",
                        pass + 1u, passes, clock.toc());
         }
@@ -429,22 +479,33 @@ int main(int argc, char *argv[]) {
         uint frame_count = 0u;
         Clock clock;
 
-        LUISA_INFO("Interactive mode: {}-SPP/pass, ESC to quit", spp_per_dispatch);
+        LUISA_INFO("Interactive mode: {}-SPP/pass, ESC to quit", samples_per_pass);
 
         while (!window.should_close()) {
-            stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
-                   << accumulate_shader(accum_image, framebuffer)
-                          .dispatch(resolution)
-                   << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false)
-                          .dispatch(resolution)
-                   << swapchain.present(ldr_image)
-                   << synchronize();
+            if (sample_dispatch) {
+                stream << (*scheduler)(framebuffer, seed_image, accel, resolution)
+                              .dispatch(resolution.x, resolution.y, samples_per_pass)
+                       << accumulate_shader(accum_image, framebuffer)
+                              .dispatch(resolution)
+                       << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false)
+                              .dispatch(resolution)
+                       << swapchain.present(ldr_image)
+                       << synchronize();
+            } else {
+                stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
+                       << accumulate_shader(accum_image, framebuffer)
+                              .dispatch(resolution)
+                       << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false)
+                              .dispatch(resolution)
+                       << swapchain.present(ldr_image)
+                       << synchronize();
+            }
             window.poll_events();
             double dt = clock.toc() - last_time;
             last_time = clock.toc();
-            frame_count += spp_per_dispatch;
+            frame_count += samples_per_pass;
             LUISA_INFO("spp: {}, time: {} ms, spp/s: {}",
-                       frame_count, dt, spp_per_dispatch / dt * 1000.0);
+                       frame_count, dt, samples_per_pass / dt * 1000.0);
         }
 
         // Read back final image and save

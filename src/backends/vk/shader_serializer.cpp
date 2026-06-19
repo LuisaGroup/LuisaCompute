@@ -485,6 +485,15 @@ vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(Function kern
     return result;
 }
 
+vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(luisa::span<const std::pair<Variable, Usage>> arguments) {
+    vstd::vector<SavedArgument> result;
+    result.reserve(arguments.size());
+    for (auto &&i : arguments) {
+        result.emplace_back(i.second, i.first);
+    }
+    return result;
+}
+
 vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(
     vstd::IRange<std::pair<Variable, Usage>> &arguments) {
     vstd::vector<SavedArgument> result;

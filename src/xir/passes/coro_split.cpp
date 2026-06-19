@@ -24,11 +24,11 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static constexpr uint32_t FRAME_FIELD_CORO_ID = 0u;
-static constexpr uint32_t FRAME_FIELD_TOKEN = 1u;
-static constexpr uint32_t FRAME_FIELD_SKIP_FLAG = 2u;
-static constexpr uint32_t FRAME_USER_FIELD_OFFSET = 3u;
-static constexpr uint32_t SKIP_FLAG_TRUE = 1u;
+static constexpr uint32_t FRAME_FIELD_ID_X = 0u;
+static constexpr uint32_t FRAME_FIELD_ID_Y = 1u;
+static constexpr uint32_t FRAME_FIELD_ID_Z = 2u;
+static constexpr uint32_t FRAME_FIELD_TOKEN = 3u;
+static constexpr uint32_t FRAME_USER_FIELD_OFFSET = 4u;
 
 class CoroSplitValueResolver final : public InstructionCloneValueResolver {
 
@@ -126,9 +126,15 @@ public:
                 auto *sreg = static_cast<const SpecialRegister *>(value);
                 if (sreg->derived_special_register_tag() == DerivedSpecialRegisterTag::DISPATCH_ID &&
                     _builder != nullptr && _module != nullptr && _frame_arg != nullptr) {
-                    auto *idx = static_cast<Value *>(_module->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_CORO_ID));
-                    auto *gep = _builder->gep(Type::of<uint3>(), _frame_arg, {idx});
-                    return _builder->load(Type::of<uint3>(), gep);
+                    auto load_id_field = [&](uint32_t field_index) noexcept {
+                        auto *idx = static_cast<Value *>(_module->create_constant(Type::of<uint32_t>(), &field_index));
+                        auto *gep = _builder->gep(Type::of<uint>(), _frame_arg, {idx});
+                        return static_cast<Value *>(_builder->load(Type::of<uint>(), gep));
+                    };
+                    auto *x = load_id_field(FRAME_FIELD_ID_X);
+                    auto *y = load_id_field(FRAME_FIELD_ID_Y);
+                    auto *z = load_id_field(FRAME_FIELD_ID_Z);
+                    return _builder->call(Type::of<uint3>(), ArithmeticOp::AGGREGATE, {x, y, z});
                 }
                 return const_cast<Value *>(value);
             }
@@ -191,7 +197,12 @@ public:
 };
 
 [[nodiscard]] static const Type *create_frame_type() noexcept {
-    return Type::structure({Type::of<uint3>(), Type::of<uint>(), Type::of<uint>()});
+    return Type::structure({
+        Type::of<uint>(),
+        Type::of<uint>(),
+        Type::of<uint>(),
+        Type::of<uint>(),
+    });
 }
 
 static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint32_t token) noexcept {
@@ -199,13 +210,6 @@ static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint
     auto *gep = b.gep(Type::of<uint>(), frame_arg, {field_token});
     auto *tok_const = mod->create_constant(Type::of<uint>(), &token);
     b.store(gep, tok_const);
-}
-
-static void store_skip_flag_true(XIRBuilder &b, Value *frame_arg, Module *mod) noexcept {
-    auto *field_one = mod->create_constant(Type::of<uint>(), &FRAME_FIELD_SKIP_FLAG);
-    auto *gep = b.gep(Type::of<uint>(), frame_arg, {field_one});
-    auto *flag_true = mod->create_constant(Type::of<uint>(), &SKIP_FLAG_TRUE);
-    b.store(gep, flag_true);
 }
 
 [[nodiscard]] static bool is_memory_frame_value(const Value *value) noexcept {
@@ -244,7 +248,21 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
 [[nodiscard]] static luisa::span<Value *const> store_values_for_suspend(
     const CoroCfgDistillResult &result, size_t scope_index, uint32_t token) noexcept {
     for (auto &edge : result.transition_edges) {
-        if (edge.from_scope == scope_index && edge.token == token) {
+        if (edge.is_suspend && edge.from_scope == scope_index && edge.token == token) {
+            return luisa::span{edge.store_values};
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] static luisa::span<Value *const> store_values_for_branch_transition(
+    const CoroCfgDistillResult &result, size_t scope_index,
+    const BasicBlock *exit_block, size_t target_scope) noexcept {
+    for (auto &edge : result.transition_edges) {
+        if (!edge.is_suspend &&
+            edge.from_scope == scope_index &&
+            edge.to_scope == target_scope &&
+            edge.exit_block == exit_block) {
             return luisa::span{edge.store_values};
         }
     }
@@ -272,84 +290,27 @@ static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame
     }
 }
 
-static void build_skip_check_entry(Module *mod, CallableFunction *func,
-                                   Value *frame_arg, BasicBlock *body_entry,
-                                   bool check_token = false) noexcept {
-    auto *check_block = func->create_basic_block();
-    auto *ret_block = func->create_basic_block();
-    func->set_body_block(check_block);
-
-    XIRBuilder b;
-    b.set_insertion_point(check_block);
-
-    if (check_token) {
-        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN);
-        auto *gep0 = b.gep(Type::of<uint>(), frame_arg, {field_token});
-        auto *loaded_token = b.load(Type::of<uint>(), gep0);
-        auto *zero = mod->create_constant_zero(Type::of<uint>());
-        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {loaded_token, zero});
-        b.cond_br(cond, ret_block, body_entry);
-    } else {
-        auto *field_one = mod->create_constant(Type::of<uint>(), &FRAME_FIELD_SKIP_FLAG);
-        auto *gep = b.gep(Type::of<uint>(), frame_arg, {field_one});
-        auto *loaded_flag = b.load(Type::of<uint>(), gep);
-        auto *zero = mod->create_constant_zero(Type::of<uint>());
-        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {loaded_flag, zero});
-        b.cond_br(cond, ret_block, body_entry);
-    }
-
-    b.set_insertion_point(ret_block);
-    b.return_void();
-}
-
 static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                         CallableFunction *new_func, Value *frame_arg,
                         const CoroCfgDistillResult &result,
                         const luisa::unordered_map<const Value *, size_t> &field_indices,
                         CoroSplitValueResolver &resolver) noexcept {
 
-    // pre-scan: create fallback return blocks for cross-scope branch targets
     luisa::unordered_set<const BasicBlock *> scope_block_set;
     for (auto *bb : scope.blocks) {
         scope_block_set.insert(bb);
     }
     resolver.set_scope(scope.blocks.front(), scope_block_set);
 
-    luisa::unordered_map<const BasicBlock *, BasicBlock *> fallback_returns;
-
-    auto get_or_create_fallback = [&](const BasicBlock *target) -> BasicBlock * {
-        if (scope_block_set.contains(target)) { return nullptr; }
-        auto it = fallback_returns.find(target);
-        if (it != fallback_returns.end()) { return it->second; }
-        auto *fb = new_func->create_basic_block();
-        XIRBuilder fb_builder;
-        fb_builder.set_insertion_point(fb);
-        fb_builder.return_void();
-        fallback_returns.emplace(target, fb);
-        resolver.map_block(target, fb);
-        return fb;
-    };
-
-    // pre-scan all branch instructions for cross-scope targets
-    for (auto *orig_bb : scope.blocks) {
-        auto *term = orig_bb->terminator();
-        if (term == nullptr) { continue; }
-        auto tag = term->derived_instruction_tag();
-        if (tag == DerivedInstructionTag::BRANCH) {
-            auto *br = static_cast<const BranchInst *>(term);
-            get_or_create_fallback(br->target_block());
-        } else if (tag == DerivedInstructionTag::CONDITIONAL_BRANCH) {
-            auto *cbr = static_cast<const ConditionalBranchInst *>(term);
-            get_or_create_fallback(cbr->true_block());
-            get_or_create_fallback(cbr->false_block());
-        } else if (tag == DerivedInstructionTag::SWITCH) {
-            auto *sw = static_cast<const SwitchInst *>(term);
-            get_or_create_fallback(sw->default_block());
-            for (size_t i = 0u; i < sw->case_count(); ++i) {
-                get_or_create_fallback(sw->case_block(i));
-            }
+    luisa::unordered_map<const BasicBlock *, size_t> block_to_scope_index;
+    for (size_t i = 0u; i < result.scopes.size(); ++i) {
+        auto &other_scope = result.scopes[i];
+        for (auto *bb : other_scope.blocks) {
+            block_to_scope_index.emplace(bb, i);
         }
     }
+
+    luisa::unordered_map<const BasicBlock *, luisa::unordered_map<const BasicBlock *, BasicBlock *>> fallback_returns;
 
     XIRBuilder b;
 
@@ -394,6 +355,35 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
     b.set_insertion_point(first_cloned_bb);
     load_live_values_from_frame(b, mod, frame_arg, result, scope, field_indices, resolver);
 
+    auto resolve_branch_target = [&](const BasicBlock *source, BasicBlock *target) noexcept -> BasicBlock * {
+        if (target == nullptr) { return nullptr; }
+        if (scope_block_set.contains(target)) {
+            return static_cast<BasicBlock *>(resolver.resolve(target));
+        }
+        auto &by_target = fallback_returns[source];
+        if (auto it = by_target.find(target); it != by_target.end()) {
+            return it->second;
+        }
+        auto *fb = new_func->create_basic_block();
+        XIRBuilder fb_builder;
+        fb_builder.set_insertion_point(fb);
+        if (auto target_scope = block_to_scope_index.find(target);
+            target_scope != block_to_scope_index.end()) {
+            auto values = store_values_for_branch_transition(
+                result, static_cast<size_t>(scope.scope_id), source, target_scope->second);
+            store_live_values_to_frame(fb_builder, mod, frame_arg, result, values, field_indices, resolver);
+            store_frame_token(fb_builder, frame_arg, mod, result.scopes[target_scope->second].trigger_token);
+        } else {
+            store_live_values_to_frame(fb_builder, mod, frame_arg, result,
+                                       luisa::span{scope.live_out_values},
+                                       field_indices, resolver);
+            store_frame_token(fb_builder, frame_arg, mod, TERMINAL_TOKEN);
+        }
+        fb_builder.return_void();
+        by_target.emplace(target, fb);
+        return fb;
+    };
+
     for (auto *orig_bb : clone_order) {
         auto *cloned_bb = static_cast<BasicBlock *>(resolver.resolve(orig_bb));
         resolver.set_current_original_block(orig_bb);
@@ -432,12 +422,33 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                 case DerivedInstructionTag::CONDITIONAL_BRANCH: {
                     auto *cbr = static_cast<ConditionalBranchInst *>(inst);
                     auto *cond = resolver.resolve(cbr->condition());
-                    auto *true_block = static_cast<BasicBlock *>(resolver.resolve(cbr->true_block()));
-                    auto *false_block = static_cast<BasicBlock *>(resolver.resolve(cbr->false_block()));
+                    auto *true_block = resolve_branch_target(orig_bb, cbr->true_block());
+                    auto *false_block = resolve_branch_target(orig_bb, cbr->false_block());
                     b.set_insertion_point(cloned_bb);
                     Instruction *cloned = true_block == false_block ?
                                               static_cast<Instruction *>(b.br(true_block)) :
                                               static_cast<Instruction *>(b.cond_br(cond, true_block, false_block));
+                    resolver.map_value(inst, cloned);
+                    break;
+                }
+                case DerivedInstructionTag::BRANCH: {
+                    auto *br = static_cast<BranchInst *>(inst);
+                    auto *target = resolve_branch_target(orig_bb, br->target_block());
+                    b.set_insertion_point(cloned_bb);
+                    auto *cloned = b.br(target);
+                    resolver.map_value(inst, cloned);
+                    break;
+                }
+                case DerivedInstructionTag::SWITCH: {
+                    auto *sw = static_cast<SwitchInst *>(inst);
+                    auto *value = resolver.resolve(sw->value());
+                    auto *default_block = resolve_branch_target(orig_bb, sw->default_block());
+                    b.set_insertion_point(cloned_bb);
+                    auto *cloned = b.switch_(value);
+                    cloned->set_default_block(default_block);
+                    for (size_t i = 0u; i < sw->case_count(); ++i) {
+                        cloned->add_case(sw->case_value(i), resolve_branch_target(orig_bb, sw->case_block(i)));
+                    }
                     resolver.map_value(inst, cloned);
                     break;
                 }
@@ -454,10 +465,10 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
     }
 }
 
-static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillResult::Scope &scope,
-                                              Value *frame_arg, const CoroCfgDistillResult &result,
-                                              const luisa::unordered_map<const Value *, size_t> &field_indices,
-                                              CoroSplitValueResolver &resolver) noexcept {
+static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult::Scope &scope,
+                                        Value *frame_arg, const CoroCfgDistillResult &result,
+                                        const luisa::unordered_map<const Value *, size_t> &field_indices,
+                                        CoroSplitValueResolver &resolver) noexcept {
     XIRBuilder b;
     for (auto *orig_bb : scope.blocks) {
         auto *cloned_bb = static_cast<BasicBlock *>(resolver.resolve(orig_bb));
@@ -466,15 +477,12 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
         if (term != nullptr && term->derived_instruction_tag() == DerivedInstructionTag::RETURN) {
             auto *orig_term = orig_bb->terminator();
             bool was_suspend = (orig_term != nullptr &&
-                               orig_term->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND);
+                                orig_term->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND);
             b.set_insertion_point(term->prev());
             if (!was_suspend) {
                 store_live_values_to_frame(b, mod, frame_arg, result,
                                            luisa::span{scope.live_out_values},
                                            field_indices, resolver);
-            }
-            store_skip_flag_true(b, frame_arg, mod);
-            if (!was_suspend) {
                 store_frame_token(b, frame_arg, mod, TERMINAL_TOKEN);
             }
         }
@@ -516,15 +524,11 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
         auto *body_entry = static_cast<BasicBlock *>(resolver.resolve(scope.blocks.front()));
         resolver.set_frame_arg(mod, frame_arg);
 
-        if (i > 0) {
-            build_skip_check_entry(mod, new_func, frame_arg, body_entry);
-        } else {
-            new_func->set_body_block(body_entry);
-        }
+        new_func->set_body_block(body_entry);
 
         clone_scope(mod, scope, new_func, frame_arg, result, frame_value_indices, resolver);
 
-        instrument_returns_with_skip_flag(mod, scope, frame_arg, result, frame_value_indices, resolver);
+        instrument_terminal_returns(mod, scope, frame_arg, result, frame_value_indices, resolver);
 
         info.subroutines.emplace_back(CoroSplitInfo::Subroutine{
             .scope_index = i,

@@ -1,5 +1,6 @@
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
+#include <luisa/dsl/coro_frame.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -26,9 +27,10 @@ namespace {
 [[nodiscard]] CallableFunction *make_post_split_callable(Module &m, Value *&frame_arg_out, BasicBlock *&body_out) noexcept {
     auto *cf = m.create_callable(nullptr);
     frame_arg_out = cf->create_reference_argument(Type::structure({
-        Type::of<uint3>(),
-        Type::of<uint32_t>(),
-        Type::of<uint32_t>(),
+        Type::of<uint>(),
+        Type::of<uint>(),
+        Type::of<uint>(),
+        Type::of<uint>(),
     }));
     body_out = cf->create_body_block();
     return cf;
@@ -67,7 +69,7 @@ void reg_coro_materialize() {
 
         // then: nothing registered, no stores/loads for user vars
         expect(info.register_count == 0u);
-        expect(info.frame_field_count == 3u);
+        expect(info.frame_field_count == CoroFrameDesc::reserved_field_count);
         expect(info.load_inserted_count == 0u);
         expect(info.store_inserted_count == 0u);
     };
@@ -169,7 +171,7 @@ void reg_coro_materialize() {
         b.set_insertion_point(body);
 
         // simulate post-split token store
-        auto token_field = 1u;
+        auto token_field = 3u;
         auto *field_token = m.create_constant(Type::of<uint32_t>(), &token_field);
         auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_token});
         auto token_val = static_cast<uint32_t>(42u);
@@ -182,7 +184,7 @@ void reg_coro_materialize() {
 
         // then: no user registers
         expect(info.register_count == 0u);
-        expect(info.frame_field_count == 3u);
+        expect(info.frame_field_count == CoroFrameDesc::reserved_field_count);
     };
 }
 

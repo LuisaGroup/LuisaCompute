@@ -570,6 +570,11 @@ Stream::~Stream() {
     }
 }
 
+void Stream::remove_resource_state(Resource const *resource) noexcept {
+    std::lock_guard lck{_dispatch_mtx};
+    _resource_barrier.remove_resource(resource);
+}
+
 void Stream::present(
     Texture const *tex,
     uint mip,

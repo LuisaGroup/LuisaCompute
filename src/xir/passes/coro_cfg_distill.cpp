@@ -1,5 +1,6 @@
 #include <algorithm>
 
+#include <luisa/ast/type.h>
 #include <luisa/core/stl/deque.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -155,6 +156,17 @@ static void append_ordered_values(luisa::vector<Value *> &dst,
     });
 }
 
+static void sort_frame_values_by_layout(luisa::vector<Value *> &values) noexcept {
+    std::stable_sort(values.begin(), values.end(), [](auto *lhs, auto *rhs) noexcept {
+        auto *lt = lhs->type();
+        auto *rt = rhs->type();
+        if (lt->alignment() != rt->alignment()) {
+            return lt->alignment() > rt->alignment();
+        }
+        return lt->size() > rt->size();
+    });
+}
+
 [[nodiscard]] static bool same_set(const luisa::unordered_set<Value *> &a,
                                    const luisa::unordered_set<Value *> &b) noexcept {
     if (a.size() != b.size()) { return false; }
@@ -302,8 +314,8 @@ static void transfer_instruction(Instruction *inst, ScopeDataflowState &state) n
 struct ScopeDataflowResult {
     luisa::unordered_set<Value *> external;
     luisa::unordered_set<Value *> touched;
-    luisa::unordered_map<uint32_t, luisa::unordered_set<Value *>> killed_at_suspend;
-    luisa::unordered_map<uint32_t, luisa::unordered_set<Value *>> touched_at_suspend;
+    luisa::unordered_map<BasicBlock *, luisa::unordered_set<Value *>> killed_at_exit;
+    luisa::unordered_map<BasicBlock *, luisa::unordered_set<Value *>> touched_at_exit;
 };
 
 [[nodiscard]] static ScopeDataflowResult analyze_scope_use_def(
@@ -340,9 +352,12 @@ struct ScopeDataflowResult {
             auto state = next_in;
             for (auto *inst : bb->instructions()) {
                 if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
-                    auto *suspend = static_cast<CoroSuspendInst *>(inst);
-                    result.killed_at_suspend[suspend->token()] = state.killed;
-                    result.touched_at_suspend[suspend->token()] = state.touched;
+                    result.killed_at_exit[bb] = state.killed;
+                    result.touched_at_exit[bb] = state.touched;
+                }
+                if (inst->is_terminator() && inst->derived_instruction_tag() != DerivedInstructionTag::CORO_SUSPEND) {
+                    result.killed_at_exit[bb] = state.killed;
+                    result.touched_at_exit[bb] = state.touched;
                 }
                 transfer_instruction(inst, state);
             }
@@ -413,6 +428,33 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         trigger_to_scope.emplace(result.scopes[i].trigger_token, i);
     }
 
+    luisa::vector<luisa::unordered_set<BasicBlock *>> scope_blocks;
+    scope_blocks.reserve(n);
+    for (auto &scope : result.scopes) {
+        auto &set = scope_blocks.emplace_back();
+        for (auto *bb : scope.blocks) { set.emplace(bb); }
+    }
+
+    luisa::unordered_map<BasicBlock *, size_t> block_to_scope;
+    for (size_t i = 0u; i < n; ++i) {
+        for (auto *bb : result.scopes[i].blocks) {
+            block_to_scope.emplace(bb, i);
+        }
+    }
+
+    auto append_cross_scope_successor_edges = [&](size_t from, BasicBlock *exit_block, auto visit) noexcept {
+        if (exit_block == nullptr || !exit_block->is_terminated()) { return; }
+        luisa::unordered_set<size_t> seen_targets;
+        exit_block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+            if (succ == nullptr || scope_blocks[from].contains(succ)) { return; }
+            if (auto it = block_to_scope.find(succ); it != block_to_scope.end() && it->second != from) {
+                if (seen_targets.emplace(it->second).second) {
+                    visit(it->second);
+                }
+            }
+        });
+    };
+
     result.transition_edges.clear();
     for (size_t from = 0u; from < n; ++from) {
         for (auto &sp : result.scopes[from].suspend_points) {
@@ -423,15 +465,35 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             edge.from_scope = from;
             edge.to_scope = to;
             edge.token = sp.token;
-            if (auto killed = scope_data[from].killed_at_suspend.find(sp.token);
-                killed != scope_data[from].killed_at_suspend.end()) {
+            edge.exit_block = sp.block;
+            edge.is_suspend = true;
+            if (auto killed = scope_data[from].killed_at_exit.find(sp.block);
+                killed != scope_data[from].killed_at_exit.end()) {
                 for (auto *value : killed->second) { edge.killed_values.emplace_back(value); }
             }
-            if (auto touched = scope_data[from].touched_at_suspend.find(sp.token);
-                touched != scope_data[from].touched_at_suspend.end()) {
+            if (auto touched = scope_data[from].touched_at_exit.find(sp.block);
+                touched != scope_data[from].touched_at_exit.end()) {
                 for (auto *value : touched->second) { edge.touched_values.emplace_back(value); }
             }
             result.transition_edges.emplace_back(std::move(edge));
+        }
+        for (auto *bb : result.scopes[from].blocks) {
+            append_cross_scope_successor_edges(from, bb, [&](size_t to) noexcept {
+                CoroCfgDistillResult::Edge edge;
+                edge.from_scope = from;
+                edge.to_scope = to;
+                edge.token = result.scopes[to].trigger_token;
+                edge.exit_block = bb;
+                if (auto killed = scope_data[from].killed_at_exit.find(bb);
+                    killed != scope_data[from].killed_at_exit.end()) {
+                    for (auto *value : killed->second) { edge.killed_values.emplace_back(value); }
+                }
+                if (auto touched = scope_data[from].touched_at_exit.find(bb);
+                    touched != scope_data[from].touched_at_exit.end()) {
+                    for (auto *value : touched->second) { edge.touched_values.emplace_back(value); }
+                }
+                result.transition_edges.emplace_back(std::move(edge));
+            });
         }
     }
 
@@ -470,6 +532,10 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             luisa::unordered_set<Value *> touched;
             for (auto *value : edge.touched_values) { touched.emplace(value); }
             auto store = set_intersection(live_begin[edge.to_scope], touched);
+            edge.live_values.clear();
+            for (auto *value : live_begin[edge.to_scope]) {
+                edge.live_values.emplace_back(value);
+            }
             edge.store_values.clear();
             for (auto *value : store) {
                 edge.store_values.emplace_back(value);
@@ -498,6 +564,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     result.frame_values.reserve(frame_value_set.size());
     luisa::vector<Value *> ordered_frame_values;
     append_ordered_values(ordered_frame_values, frame_value_set, order);
+    sort_frame_values_by_layout(ordered_frame_values);
     luisa::unordered_map<Value *, luisa::string> names;
     for (auto *value : ordered_frame_values) {
         auto name = frame_value_name(value, result.frame_values.size());
@@ -523,15 +590,19 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     for (auto &edge : result.transition_edges) {
         luisa::unordered_set<Value *> killed_set;
         luisa::unordered_set<Value *> touched_set;
+        luisa::unordered_set<Value *> live_set;
         luisa::unordered_set<Value *> store_set;
         for (auto *value : edge.killed_values) { killed_set.emplace(value); }
         for (auto *value : edge.touched_values) { touched_set.emplace(value); }
+        for (auto *value : edge.live_values) { live_set.emplace(value); }
         for (auto *value : edge.store_values) { store_set.emplace(value); }
         append_ordered_values(edge.killed_values, killed_set, order);
         append_ordered_values(edge.touched_values, touched_set, order);
+        append_ordered_values(edge.live_values, live_set, order);
         append_ordered_values(edge.store_values, store_set, order);
         append_names_from_values(edge.killed_variables, edge.killed_values, names);
         append_names_from_values(edge.touched_variables, edge.touched_values, names);
+        append_names_from_values(edge.live_variables, edge.live_values, names);
         append_names_from_values(edge.store_variables, edge.store_values, names);
     }
 }

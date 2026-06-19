@@ -3,6 +3,11 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
     luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
     target_link_libraries(luisa-compute-backend-vk PUBLIC luisa-compute-ext-volk luisa-compute-hlsl-codegen)
+    if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV AND LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+        message(FATAL_ERROR "Vulkan compute shader codegen options are mutually exclusive. "
+                "Use LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV for the default native SPIR-V path, "
+                "or LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV for the experimental LLVM SPIR-V path.")
+    endif ()
     if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
         target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-spirv)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE LUISA_XIR_TO_SPIRV)

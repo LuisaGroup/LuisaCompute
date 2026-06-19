@@ -20,7 +20,7 @@ using namespace boost::ut::literals;
 
 namespace {
 
-    constexpr uint kTestInstances = 64u;
+constexpr uint kTestInstances = 64u;
 
 bool expect_sequence(luisa::span<const int> host, int base, luisa::string_view label) noexcept {
     for (auto i = 0u; i < host.size(); i++) {
@@ -37,7 +37,7 @@ bool expect_sequence(luisa::span<const int> host, int base, luisa::string_view l
 /// Verify that compact_frame_buffer works correctly on mock frame data.
 /// This exercises the standalone compaction utility alongside the scheduler.
 void verify_compaction_utility() {
-    // Mock: 8 instances, stride=3 (token + skip + user), 3 alive
+    // Mock: 8 instances, stride=3 uints, 3 alive
     constexpr size_t capacity = 8u;
     constexpr size_t stride = 3u;
 
@@ -66,7 +66,7 @@ void verify_compaction_utility() {
     expect(buf[2u * stride] == 6u) << "instance 5 should be at pos 2";
 }
 
-} // namespace
+}// namespace
 
 void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
 

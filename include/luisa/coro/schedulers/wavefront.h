@@ -4,9 +4,12 @@
 
 #pragma once
 
+#include <cstdlib>
+
 #include <luisa/coro/coro_frame_storage.h>
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/coro/radix_sort.h>
+#include <luisa/core/clock.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/core/logging.h>
@@ -23,6 +26,7 @@ struct WavefrontCoroSchedulerConfig {
     bool frame_buffer_compaction = true;
     uint hint_range = 0xffffffffu;
     luisa::vector<luisa::string> hint_fields;
+    bool report_stats = false;
 };
 
 template<typename... Args>
@@ -35,9 +39,9 @@ public:
 private:
     Config _config;
     ByteBuffer _frame_buffer;
-    Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>, uint, uint, uint, uint, uint3, Args...> _gen_kernel;
-    luisa::vector<Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>, uint, uint, Args...>> _resume_kernels;
-    Shader<1, ByteBuffer, uint> _clear_shader;
+    Shader1D<ByteBuffer, Buffer<uint>, uint, uint, uint, uint, uint3, Args...> _gen_kernel;
+    luisa::vector<Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Args...>> _resume_kernels;
+    Shader1D<ByteBuffer, uint> _initialize_shader;
     Shader1D<Buffer<uint>, uint> _clear_count_shader;
     Shader1D<ByteBuffer, Buffer<uint>, uint> _count_shader;
     Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
@@ -57,7 +61,9 @@ private:
     CoroFrameStorageLayout _frame_layout;
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
+    luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
     size_t _hint_field_index{static_cast<size_t>(-1)};
+    uint _used_frame_count{0u};
     bool _has_hint_sort{false};
 
 private:
@@ -110,9 +116,14 @@ private:
                             CoroFrameStorageLayout::make_aos(coro.frame(), _config.thread_count);
         _input_fields.resize(nc);
         _output_fields.resize(nc);
+        _transition_output_fields.resize(nc);
         for (auto i = 0u; i < nc; i++) {
             _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
             _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
+            _transition_output_fields[i].resize(nc);
+            for (auto j = 0u; j < nc; j++) {
+                _transition_output_fields[i][j] = coro_frame_collect_output_fields(coro.graph(), i, j);
+            }
         }
         _resume_kernels.resize(nc);
         _host_count.resize(nc);
@@ -174,11 +185,14 @@ private:
             };
             return next;
         };
+        Callable<uint(uint, ByteBuffer)> read_scheduler_token = [layout = _frame_layout, soa = _config.global_memory_soa](
+                                                                    UInt index, ByteBufferVar frame_buf) noexcept {
+            return coro_frame_read_field<uint>(frame_buf, index, layout, soa, 3u);
+        };
 
-        Callable<uint(uint, ByteBuffer)> get_coro_token = [layout = _frame_layout, soa = _config.global_memory_soa,
-                                                           token_to_index](UInt index, ByteBufferVar frame_buf) noexcept {
-            auto token = coro_frame_read_field<uint>(frame_buf, index, layout, soa, 1u);
-            return token_to_index(token);
+        Callable<uint(uint, ByteBuffer)> get_scheduler_token = [read_scheduler_token](
+                                                                   UInt index, ByteBufferVar frame_buf) noexcept {
+            return read_scheduler_token(index, frame_buf);
         };
         Callable<uint(uint, ByteBuffer)> identity_index = [](UInt index, ByteBufferVar) noexcept {
             return index;
@@ -186,7 +200,7 @@ private:
         if (_config.gather_by_sorting) {
             _sort_token = radix_sort::instance<ByteBuffer>{
                 device, _config.thread_count, _sort_temp_storage,
-                &get_coro_token, &identity_index, &get_coro_token,
+                &get_scheduler_token, &identity_index, &get_scheduler_token,
                 1u, static_cast<uint>(nc)};
         }
         if (_has_hint_sort) {
@@ -216,29 +230,26 @@ private:
         }
 
         if (auto entry_sub = coro[0u]) {
-            Kernel1D k_gen = [&coro, layout = _frame_layout, output_fields = _output_fields[0u],
+            Kernel1D k_gen = [&coro, layout = _frame_layout, output_fields = _transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
-                              sorted = _config.gather_by_sorting, token_to_index](
+                              token_to_index](
                                  ByteBufferVar frame_buf, BufferUInt resume_index,
-                                 BufferUInt resume_count,
                                  UInt index_offset, UInt frame_offset, UInt global_start,
                                  UInt count, UInt3 dispatch_shape,
                                  Var<Args>... k_args) noexcept {
                 auto x = dispatch_x();
                 $if (x >= count) { $return(); };
                 auto frame_id = compact ? frame_offset + x : resume_index.read(index_offset + x);
-                if (!sorted) {
-                    resume_count.atomic(0u).fetch_sub(1u);
-                }
                 auto logical_id = _dispatch_id_from_linear_index(global_start + x, dispatch_shape);
                 auto frame = coro.instantiate(logical_id);
                 frame.target_token = 0u;
-                frame.skip_flag = 0u;
                 coro.entry()(frame, k_args...);
-                coro_frame_store(frame_buf, frame_id, frame, layout, soa, luisa::span{output_fields});
-                if (!sorted) {
-                    auto next = token_to_index(frame.target_token);
-                    resume_count.atomic(next).fetch_add(1u);
+                auto next = token_to_index(frame.target_token);
+                frame.target_token = next;
+                for (size_t target = 0u; target < output_fields.size(); ++target) {
+                    $if (next == static_cast<uint>(target)) {
+                        coro_frame_store(frame_buf, frame_id, frame, layout, soa, luisa::span{output_fields[target]});
+                    };
                 }
             };
             _gen_kernel = device.compile(k_gen);
@@ -247,37 +258,36 @@ private:
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
-            uint my_token = static_cast<uint>(coro.graph().node(i).token);
-            Kernel1D k_cont = [&coro, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _output_fields[i],
-                               soa = _config.global_memory_soa, my_token, i,
-                               sorted = _config.gather_by_sorting, token_to_index](
+            Kernel1D k_cont = [&coro, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
+                               soa = _config.global_memory_soa, i,
+                               read_scheduler_token, token_to_index](
                                   ByteBufferVar frame_buf, BufferUInt resume_index,
-                                  BufferUInt resume_count,
                                   UInt resume_offset, UInt count,
                                   Var<Args>... k_args) noexcept {
                 auto x = dispatch_x();
                 $if (x >= count) { $return(); };
                 auto idx = resume_index.read(resume_offset + x);
-                auto tok = coro_frame_read_field<uint>(frame_buf, idx, layout, soa, 1u);
-                $if (tok != my_token) { $return(); };
-                if (!sorted) {
-                    resume_count.atomic(static_cast<uint>(i)).fetch_sub(1u);
-                }
+                auto tok = read_scheduler_token(idx, frame_buf);
+                $if (tok != static_cast<uint>(i)) { $return(); };
                 auto frame = coro_frame_load(&coro.frame(), frame_buf, idx, layout, soa, luisa::span{input_fields});
-                frame.skip_flag = 0u;
+                frame.target_token = CoroFrame::TERMINAL_TOKEN;
                 coro[i](frame, k_args...);
-                coro_frame_store(frame_buf, idx, frame, layout, soa, luisa::span{output_fields});
-                if (!sorted) {
-                    auto next = token_to_index(frame.target_token);
-                    resume_count.atomic(next).fetch_add(1u);
+                auto next = token_to_index(frame.target_token);
+                frame.target_token = next;
+                for (size_t target = 0u; target < output_fields.size(); ++target) {
+                    $if (next == static_cast<uint>(target)) {
+                        coro_frame_store(frame_buf, idx, frame, layout, soa, luisa::span{output_fields[target]});
+                    };
                 }
             };
             _resume_kernels[i] = device.compile(k_cont);
         }
 
-        _clear_shader = device.compile<1>([](ByteBufferVar buf, UInt n) {
+        _initialize_shader = device.compile<1>([layout = _frame_layout, soa = _config.global_memory_soa](ByteBufferVar buf, UInt n) {
             auto x = dispatch_x();
-            $if (x < n) { buf.write(x * 4u, 0u); };
+            $if (x < n) {
+                coro_frame_write_field(buf, x, layout, soa, 3u, 0u);
+            };
         });
 
         _clear_count_shader = device.compile<1>([](BufferUInt buffer, UInt n) {
@@ -286,58 +296,71 @@ private:
         });
 
         _count_shader = device.compile<1>(
-            [layout = _frame_layout, soa = _config.global_memory_soa, token_to_index](
+            [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token,
+             node_count = static_cast<uint>(nc)](
                 ByteBufferVar frame_buf, BufferUInt count, UInt n) noexcept {
                 auto x = dispatch_x();
                 $if (x >= n) { $return(); };
-                auto tok = coro_frame_read_field<uint>(frame_buf, x, layout, soa, 1u);
-                auto bucket = token_to_index(tok);
-                count.atomic(bucket).fetch_add(1u);
+                auto tok = read_scheduler_token(x, frame_buf);
+                $if (tok < node_count) {
+                    count.atomic(tok).fetch_add(1u);
+                };
             });
 
         _gather_shader = device.compile<1>(
-            [layout = _frame_layout, soa = _config.global_memory_soa, token_to_index](
+            [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token,
+             node_count = static_cast<uint>(nc)](
                 ByteBufferVar frame_buf, BufferUInt index, BufferUInt offset, UInt n) noexcept {
                 auto x = dispatch_x();
                 $if (x >= n) { $return(); };
-                auto tok = coro_frame_read_field<uint>(frame_buf, x, layout, soa, 1u);
-                auto bucket = token_to_index(tok);
-                auto slot = offset.atomic(bucket).fetch_add(1u);
-                index.write(slot, x);
+                auto tok = read_scheduler_token(x, frame_buf);
+                $if (tok < node_count) {
+                    auto slot = offset.atomic(tok).fetch_add(1u);
+                    index.write(slot, x);
+                };
             });
 
         _compact_shader = device.compile<1>(
-            [layout = _frame_layout, soa = _config.global_memory_soa, desc = &coro.frame()](
+            [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token, desc = &coro.frame()](
                 ByteBufferVar frame_buf, BufferUInt index, BufferUInt global,
-                UInt empty_offset, UInt capacity, UInt sorted) noexcept {
+                UInt active_count, UInt empty_count, UInt scan_count) noexcept {
                 auto x = dispatch_x();
-                auto src = empty_offset + x;
-                $if (src >= capacity) { $return(); };
-                auto tok = coro_frame_read_field<uint>(frame_buf, src, layout, soa, 1u);
-                $if (tok != 0u & tok != CoroFrame::TERMINAL_TOKEN) {
-                    auto res = global.atomic(0u).fetch_add(1u);
-                    auto dst = index.read(res);
-                    $while (sorted == 0u & dst >= empty_offset) {
-                        res = global.atomic(0u).fetch_add(1u);
+                auto src = active_count + x;
+                $if (src >= scan_count) { $return(); };
+                auto tok = read_scheduler_token(src, frame_buf);
+                $if (tok != 0u) {
+                    auto dst = def(0u);
+                    auto found_dst = def(false);
+                    $while (!found_dst) {
+                        auto res = global.atomic(0u).fetch_add(1u);
+                        $if (res >= empty_count) { $break; };
                         dst = index.read(res);
+                        found_dst = dst < active_count;
                     };
-                    auto frame = coro_frame_load(desc, frame_buf, src, layout, soa);
-                    coro_frame_store(frame_buf, dst, frame, layout, soa);
-                    coro_frame_write_field(frame_buf, src, layout, soa, 1u, 0u);
+                    $if (found_dst) {
+                        auto frame = coro_frame_load(desc, frame_buf, src, layout, soa);
+                        coro_frame_store(frame_buf, dst, frame, layout, soa);
+                        coro_frame_write_field(frame_buf, src, layout, soa, 3u, 0u);
+                    };
                 };
             });
     }
 
-    void _sort_token_buckets(Stream &stream) noexcept {
+    void _sort_token_buckets(Stream &stream, uint count) noexcept {
+        if (count == 0u) {
+            std::fill(_host_count.begin(), _host_count.end(), 0u);
+            std::fill(_host_offset.begin(), _host_offset.end(), 0u);
+            return;
+        }
         _sort_token.sort(stream, _sort_key[0].view(), _resume_index.view(),
                          _sort_key[1].view(), _resume_index.view(),
-                         _config.thread_count, _frame_buffer);
+                         count, _frame_buffer);
         stream << _sort_temp_storage.hist_buffer.view()
                       .subview(0u, _host_offset.size())
                       .copy_to(luisa::span{_host_offset.data(), _host_offset.size()})
                << synchronize();
         for (auto i = 0u; i < _host_count.size(); i++) {
-            auto next = i + 1u == _host_count.size() ? _config.thread_count : _host_offset[i + 1u];
+            auto next = i + 1u == _host_count.size() ? count : _host_offset[i + 1u];
             _host_count[i] = next - _host_offset[i];
         }
     }
@@ -358,8 +381,8 @@ private:
         Stream &stream, uint3 dispatch_size,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
         uint N = dispatch_size.x * dispatch_size.y * dispatch_size.z;
-        auto uint_count = static_cast<uint>((_frame_buffer.size_bytes() + sizeof(uint) - 1u) / sizeof(uint));
-        stream << _clear_shader(_frame_buffer, uint_count).dispatch(uint_count);
+        stream << _initialize_shader(_frame_buffer, _config.thread_count).dispatch(_config.thread_count);
+        _used_frame_count = 0u;
 
         auto nc = _resume_kernels.size();
         for (size_t i = 0u; i < nc; ++i) {
@@ -369,63 +392,106 @@ private:
         stream << _resume_count.copy_from(luisa::span{_host_count.data(), _host_count.size()});
 
         auto dispatch_counter = 0u;
+        auto report_stats = _config.report_stats || std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr;
+        auto iteration_count = uint64_t{0u};
+        auto gather_scan_count = uint64_t{0u};
+        auto compact_scan_count = uint64_t{0u};
+        auto generated_count = uint64_t{0u};
+        auto resumed_count = uint64_t{0u};
+        auto max_scan_count = 0u;
+        auto max_active_count = 0u;
+        Clock dispatch_clock;
         while (true) {
+            iteration_count++;
+            auto scan_count = _config.frame_buffer_compaction ? _used_frame_count : _config.thread_count;
+            gather_scan_count += scan_count;
+            max_scan_count = std::max(max_scan_count, scan_count);
             if (_config.gather_by_sorting) {
-                _sort_token_buckets(stream);
+                _sort_token_buckets(stream, scan_count);
+            } else {
+                stream << _clear_count_shader(_resume_count, static_cast<uint>(nc)).dispatch(static_cast<uint>(nc));
+                if (scan_count != 0u) {
+                    stream << _count_shader(_frame_buffer, _resume_count, scan_count).dispatch(scan_count);
+                }
+                stream << _resume_count.copy_to(luisa::span{_host_count.data(), _host_count.size()})
+                       << synchronize();
             }
 
             auto active_count = 0u;
+            for (size_t i = 1u; i < nc; ++i) {
+                active_count += _host_count[i];
+            }
+            max_active_count = std::max(max_active_count, active_count);
+            LUISA_ASSERT(active_count <= scan_count,
+                         "Wavefront coroutine queue invariant violation: active frames ({}) exceed scanned frame prefix ({}).",
+                         active_count, scan_count);
+            auto empty_count = _config.frame_buffer_compaction ?
+                                   _config.thread_count - active_count :
+                                   _host_count[0u];
+            auto compact_empty_count = _config.frame_buffer_compaction ?
+                                           scan_count - active_count :
+                                           empty_count;
+            _host_count[0u] = compact_empty_count;
+
             auto active_offset = 0u;
             for (size_t i = 0u; i < nc; ++i) {
                 _host_offset[i] = active_offset;
                 active_offset += _host_count[i];
-                if (i != 0u) { active_count += _host_count[i]; }
             }
             if (dispatch_counter == N && active_count == 0u) { break; }
 
-            if (!_config.gather_by_sorting) {
+            if (!_config.gather_by_sorting && scan_count != 0u) {
                 stream << _resume_offset.copy_from(luisa::span{_host_offset.data(), _host_offset.size()});
-                stream << _gather_shader(_frame_buffer, _resume_index, _resume_offset, _config.thread_count).dispatch(_config.thread_count);
+                stream << _gather_shader(_frame_buffer, _resume_index, _resume_offset, scan_count).dispatch(scan_count);
             }
 
-            auto empty_count = _host_count[0u];
             if (empty_count > _config.thread_count / 2u && dispatch_counter < N) {
                 auto gen_count = std::min(N - dispatch_counter, empty_count);
-                auto frame_offset = _config.thread_count - empty_count;
-                if (_config.frame_buffer_compaction && empty_count != _config.thread_count) {
+                auto frame_offset = active_count;
+                if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
                     stream << _clear_count_shader(_global_buffer, 1u).dispatch(1u);
                     stream << _compact_shader(_frame_buffer, _resume_index, _global_buffer,
-                                              frame_offset, _config.thread_count,
-                                              _config.gather_by_sorting ? 1u : 0u)
-                                  .dispatch(empty_count);
+                                              frame_offset, compact_empty_count, scan_count)
+                                  .dispatch(scan_count - frame_offset);
+                    compact_scan_count += scan_count - frame_offset;
                 }
-                stream << _gen_kernel(_frame_buffer, _resume_index, _resume_count,
+                stream << _gen_kernel(_frame_buffer, _resume_index,
                                       _host_offset[0u], frame_offset,
                                       dispatch_counter, gen_count, dispatch_size, args...)
                               .dispatch(gen_count);
                 dispatch_counter += gen_count;
+                generated_count += gen_count;
+                if (_config.frame_buffer_compaction) {
+                    _used_frame_count = frame_offset + gen_count;
+                }
             } else {
                 for (size_t i = 1u; i < nc; ++i) {
                     auto count = _host_count[i];
                     if (count == 0u) { continue; }
+                    resumed_count += count;
                     if (_has_hint_sort && _have_hint[i]) {
                         auto sorted_index = _sort_hint_range(stream, _host_offset[i], count);
                         BufferView<uint> indices[2] = {
                             _resume_index.view().subview(_host_offset[i], count),
                             _sort_index.view().subview(_host_offset[i], count)};
-                        stream << _resume_kernels[i](_frame_buffer, indices[sorted_index], _resume_count,
+                        stream << _resume_kernels[i](_frame_buffer, indices[sorted_index],
                                                      0u, count, args...)
                                       .dispatch(count);
                     } else {
-                        stream << _resume_kernels[i](_frame_buffer, _resume_index, _resume_count,
+                        stream << _resume_kernels[i](_frame_buffer, _resume_index,
                                                      _host_offset[i], count, args...)
                                       .dispatch(count);
                     }
                 }
             }
             if (!_config.gather_by_sorting) {
-                stream << _resume_count.copy_to(luisa::span{_host_count.data(), _host_count.size()}) << synchronize();
             }
+        }
+        if (report_stats) {
+            LUISA_INFO("Wavefront stats: iterations={} generated={} resumed={} gather_scan={} compact_scan={} max_scan={} max_active={} elapsed_ms={:.3f}",
+                       iteration_count, generated_count, resumed_count,
+                       gather_scan_count, compact_scan_count,
+                       max_scan_count, max_active_count, dispatch_clock.toc());
         }
     }
 

@@ -5,14 +5,20 @@
 
 namespace lc::spirv {
 
-void SpirvCodegenEntry::generate_binding(Function kernel) {
+void SpirvCodegenEntry::generate_binding(Function kernel, luisa::span<const std::pair<Variable, Usage>> argument_usages) {
     _properties.clear();
     _use_tex2d_bindless = false;
     _use_tex3d_bindless = false;
     _use_buffer_bindless = false;
 
+    auto argument_usage = [&](const Variable &v) noexcept {
+        for (auto &&[arg, usage] : argument_usages) {
+            if (arg.uid() == v.uid()) { return usage; }
+        }
+        return kernel.variable_usage(v.uid());
+    };
     auto is_writable = [&](const Variable &v) {
-        return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
+        return (static_cast<uint>(argument_usage(v)) & static_cast<uint>(Usage::WRITE)) != 0;
     };
 
     // Detect cbuffer non-empty: any argument that is not a resource or builtin

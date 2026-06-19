@@ -21,33 +21,31 @@ void reg_coro_frame_desc_manual() {
         expect(desc.total_size() == 0u);
     };
 
-    "add_token_skip_fields"_test = [] {
+    "add_two_uint_fields"_test = [] {
         CoroFrameDesc desc;
-        desc.add_field("token", Type::of<uint32_t>());
-        desc.add_field("skip", Type::of<uint32_t>());
+        desc.add_field("a", Type::of<uint32_t>());
+        desc.add_field("b", Type::of<uint32_t>());
 
         expect(desc.field_count() == 2u);
         expect(desc.total_size() == 8u);
 
-        // token at offset 0
-        auto &token_f = desc.field(0u);
-        expect(token_f.name == "token");
-        expect(token_f.offset == 0u);
-        expect(token_f.size == 4u);
+        auto &a = desc.field(0u);
+        expect(a.name == "a");
+        expect(a.offset == 0u);
+        expect(a.size == 4u);
 
-        // skip at offset 4
-        auto &skip_f = desc.field(1u);
-        expect(skip_f.name == "skip");
-        expect(skip_f.offset == 4u);
-        expect(skip_f.size == 4u);
+        auto &b = desc.field(1u);
+        expect(b.name == "b");
+        expect(b.offset == 4u);
+        expect(b.size == 4u);
     };
 
     "user_fields_with_alignment"_test = [] {
         CoroFrameDesc desc;
-        desc.add_field("token", Type::of<uint32_t>());// offset 0, size 4
-        desc.add_field("skip", Type::of<uint32_t>()); // offset 4, size 4
-        desc.add_field("x", Type::of<float>());       // offset 8, size 4
-        desc.add_field("y", Type::of<int>());          // offset 12, size 4
+        desc.add_field("a", Type::of<uint32_t>());// offset 0, size 4
+        desc.add_field("b", Type::of<uint32_t>());// offset 4, size 4
+        desc.add_field("x", Type::of<float>());   // offset 8, size 4
+        desc.add_field("y", Type::of<int>());     // offset 12, size 4
 
         expect(desc.field_count() == 4u);
         expect(desc.total_size() == 16u);
@@ -60,8 +58,8 @@ void reg_coro_frame_desc_manual() {
 
     "field_lookup_by_name"_test = [] {
         CoroFrameDesc desc;
-        desc.add_field("token", Type::of<uint32_t>());
-        desc.add_field("skip", Type::of<uint32_t>());
+        desc.add_field("a", Type::of<uint32_t>());
+        desc.add_field("b", Type::of<uint32_t>());
         desc.add_field("x", Type::of<float>());
         desc.add_field("y", Type::of<int>());
 
@@ -79,8 +77,8 @@ void reg_coro_frame_desc_manual() {
 
     "field_lookup_invalid_name"_test = [] {
         CoroFrameDesc desc;
-        desc.add_field("token", Type::of<uint32_t>());
-        desc.add_field("skip", Type::of<uint32_t>());
+        desc.add_field("a", Type::of<uint32_t>());
+        desc.add_field("b", Type::of<uint32_t>());
 
         auto *not_found = desc.field("nonexistent");
         expect(not_found == nullptr);
@@ -88,16 +86,16 @@ void reg_coro_frame_desc_manual() {
 
     "field_lookup_by_index"_test = [] {
         CoroFrameDesc desc;
-        desc.add_field("token", Type::of<uint32_t>());
-        desc.add_field("skip", Type::of<uint32_t>());
+        desc.add_field("u0", Type::of<uint32_t>());
+        desc.add_field("u1", Type::of<uint32_t>());
         desc.add_field("a", Type::of<float>());
         desc.add_field("b", Type::of<int>());
         desc.add_field("c", Type::of<uint32_t>());
 
         expect(desc.field_count() == 5u);
 
-        expect(desc.field(0u).name == "token");
-        expect(desc.field(1u).name == "skip");
+        expect(desc.field(0u).name == "u0");
+        expect(desc.field(1u).name == "u1");
         expect(desc.field(2u).name == "a");
         expect(desc.field(3u).name == "b");
         expect(desc.field(4u).name == "c");
@@ -105,16 +103,29 @@ void reg_coro_frame_desc_manual() {
 
     "total_size_is_aligned"_test = [] {
         CoroFrameDesc desc;
-        desc.add_field("token", Type::of<uint32_t>());// 4 bytes
-        desc.add_field("skip", Type::of<uint32_t>()); // 4 bytes
+        desc.add_field("a", Type::of<uint32_t>());// 4 bytes
+        desc.add_field("b", Type::of<uint32_t>());// 4 bytes
         // float3 has alignment 16, size 12
-        desc.add_field("v", Type::of<float3>());       // offset 16, size 12
+        desc.add_field("v", Type::of<float3>());// offset 16, size 12
 
         expect(desc.field_count() == 3u);
         // v should be aligned to 16
         expect(desc.field(2u).offset == 16u);
         // total_size = 16 + 12 = 28, aligned to 16 → 32
         expect(desc.total_size() == 32u);
+    };
+
+    "reserved_fields_are_scalar_uints"_test = [] {
+        CoroFrameDesc desc;
+        expect(desc.frame_field_count() == CoroFrameDesc::reserved_field_count);
+        expect(desc.frame_field_type(0u) == Type::of<uint>());
+        expect(desc.frame_field_type(1u) == Type::of<uint>());
+        expect(desc.frame_field_type(2u) == Type::of<uint>());
+        expect(desc.frame_field_type(3u) == Type::of<uint>());
+
+        desc.add_field("payload", Type::of<float>());
+        expect(desc.frame_field_count() == CoroFrameDesc::reserved_field_count + 1u);
+        expect(desc.frame_field_type(CoroFrameDesc::reserved_field_count) == Type::of<float>());
     };
 }
 
@@ -123,8 +134,8 @@ void reg_coro_frame_desc_from_materialize() {
     "from_materialize_info_basic"_test = [] {
         // given: CoroMaterializeInfo with 2 user registers
         CoroMaterializeInfo info;
-        info.name_to_field.emplace("x", 2u);
-        info.name_to_field.emplace("y", 3u);
+        info.name_to_field.emplace("x", CoroFrameDesc::reserved_field_count);
+        info.name_to_field.emplace("y", CoroFrameDesc::reserved_field_count + 1u);
         info.name_to_type.emplace("x", Type::of<float>());
         info.name_to_type.emplace("y", Type::of<int>());
 
@@ -153,9 +164,9 @@ void reg_coro_frame_desc_from_materialize() {
     "from_materialize_info_sorted_by_index"_test = [] {
         // given: entries added out of order
         CoroMaterializeInfo info;
-        info.name_to_field.emplace("z", 4u);
-        info.name_to_field.emplace("x", 2u);
-        info.name_to_field.emplace("y", 3u);
+        info.name_to_field.emplace("z", CoroFrameDesc::reserved_field_count + 2u);
+        info.name_to_field.emplace("x", CoroFrameDesc::reserved_field_count);
+        info.name_to_field.emplace("y", CoroFrameDesc::reserved_field_count + 1u);
         info.name_to_type.emplace("x", Type::of<float>());
         info.name_to_type.emplace("y", Type::of<int>());
         info.name_to_type.emplace("z", Type::of<uint32_t>());

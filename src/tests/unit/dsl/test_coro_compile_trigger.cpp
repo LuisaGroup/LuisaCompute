@@ -27,7 +27,7 @@ auto make_simple_coro = [] {
     return 0u;
 }
 
-} // namespace
+}// namespace
 
 void reg_coro_compile_trigger() {
 
@@ -95,6 +95,21 @@ void reg_coro_compile_trigger() {
         auto c = make_simple_coro();
         expect(static_cast<bool>(c[0u]));
         expect(static_cast<bool>(c[1u]));
+    };
+
+    "aggregate_vector_local_frame_is_split"_test = [] {
+        auto c = Coroutine<void(int)>{[](Var<int> x) {
+            Float3 v = make_float3(cast<float>(x), 2.0f, 3.0f);
+            $suspend("vector");
+            Float y = v.x + v.y;
+            static_cast<void>(y);
+        }};
+        auto &fd = c.frame_desc();
+        expect(fd.field_count() == 3u);
+        expect(fd.field(0u).type == Type::of<float>());
+        expect(fd.field(1u).type == Type::of<float>());
+        expect(fd.field(2u).type == Type::of<float>());
+        expect(fd.total_size() == 12u);
     };
 }
 
