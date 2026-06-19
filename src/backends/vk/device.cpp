@@ -1236,7 +1236,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         for (size_t i = 0; i < llvm_result.properties.size(); ++i) {
             auto &p = llvm_result.properties[i];
             LUISA_VERBOSE("  LLVM prop[{}]: type={}, space={}, reg={}, array_size={}",
-                         i, (int)p.type, p.space_index, p.register_index, p.array_size);
+                          i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
         if (print_code()) [[unlikely]] {
             auto dump_name = [&]() -> luisa::string {
@@ -1294,7 +1294,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 0,
                 kernel.allowed_warp_size());
             LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
-                         reinterpret_cast<void *>(shader->pipeline()));
+                          reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
         }
@@ -1303,14 +1303,38 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
         static constexpr uint32_t VK_VENDOR_ID_INTEL = 0x8086u;
         bool use_native_float_atomics = _vk_device->properties.vendorID == VK_VENDOR_ID_NVIDIA;
-        auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
-        for (size_t i = 0; i < spv_result.properties.size(); ++i) {
-            auto &p = spv_result.properties[i];
-            LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
+        vstd::optional<lc::spirv::SpirvResult> spv_result;
+        // We need a hash here, no need to compile spirv first
+        vstd::MD5 pseudo_hash;
+        // no compatible between atomic_float switch.
+        if (use_native_float_atomics) {
+            pseudo_hash = vstd::MD5::MD5Data{
+                kernel.hash(),
+                kernel.body()->hash()};
+        } else {
+            pseudo_hash = vstd::MD5::MD5Data{
+                kernel.body()->hash(),
+                kernel.hash()};
         }
-        if (print_code()) [[unlikely]] {
+        const bool require_print_code = print_code();
+        auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
+        luisa::string shader_name = option.name.empty() ? luisa::format("{}.spv", pseudo_hash.to_string(false)) : option.name;
+        if (require_print_code || ShaderSerializer::require_recompile(
+                                      shader_name,
+                                      pseudo_hash,
+                                      type_md5,
+                                      option.compile_only ? SerdeType::kByteCode : SerdeType::kCache,
+                                      _binary_io)) {
+            spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
+        }
+        ////////// print
+        if (require_print_code) [[unlikely]] {
+            for (size_t i = 0; i < spv_result->properties.size(); ++i) {
+                auto &p = spv_result->properties[i];
+                LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
+            }
             auto dump_name = [&]() -> luisa::string {
-                if (!option.name.empty()) return option.name;
+                if (!shader_name.empty()) return shader_name;
                 if (!kernel.name().empty()) return luisa::string{kernel.name()};
                 return luisa::format("{:x}", kernel.hash());
             }();
@@ -1319,7 +1343,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 std::ofstream file(filename.c_str());
                 if (file) {
                     file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
-                    spv::Disassemble(file, spv_result.spv_bin);
+                    spv::Disassemble(file, spv_result->spv_bin);
                 }
                 LUISA_VERBOSE("SPIRV printed to {}.", filename);
             }
@@ -1358,43 +1382,59 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 }
             }
         }
-        if (option.compile_only) {
-            assert(!option.name.empty());
-            info.invalidate();
+        info.invalidate();
+        assert(!(option.compile_only && option.name.empty()));
+        if (spv_result) {
             ShaderSerializer::serialize_bytecode(
-                spv_result.properties,
+                spv_result->properties,
                 ShaderSerializer::serialize_saved_args(kernel),
-                vstd::MD5{vstd::span<const uint8_t>(reinterpret_cast<const uint8_t *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() * sizeof(uint32_t))},
-                hlsl::CodegenUtility::GetTypeMD5(kernel),
+                pseudo_hash,
+                type_md5,
                 kernel.block_size(),
-                option.name,
-                spv_result.spv_bin,
-                SerdeType::kByteCode,
+                shader_name,
+                spv_result->spv_bin,
+                option.compile_only ? SerdeType::kByteCode : SerdeType::kCache,
                 _binary_io,
-                spv_result.useTex2DBindless,
-                spv_result.useTex3DBindless,
-                spv_result.useBufferBindless,
-                spv_result.printers,
+                spv_result->useTex2DBindless,
+                spv_result->useTex3DBindless,
+                spv_result->useBufferBindless,
+                spv_result->printers,
                 0);
-        } else {
+        }
+        if (option.compile_only) {
+            return info;
+        }
+        if (spv_result) {
             auto shader = new ComputeShader(
                 this,
                 kernel.block_size(),
-                spv_result.properties,
+                spv_result->properties,
                 ShaderSerializer::serialize_saved_args(kernel),
-                {reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size()},
+                {reinterpret_cast<const uint *>(spv_result->spv_bin.data()), spv_result->spv_bin.size()},
                 hlsl::binding_to_arg(kernel.bound_arguments()),
                 {},
-                spv_result.useTex2DBindless,
-                spv_result.useTex3DBindless,
-                spv_result.useBufferBindless,
-                std::move(spv_result.printers),
-                {spv_result.constant_ubo_data.data(), spv_result.constant_ubo_data.size()},
+                spv_result->useTex2DBindless,
+                spv_result->useTex3DBindless,
+                spv_result->useBufferBindless,
+                std::move(spv_result->printers),
+                {spv_result->constant_ubo_data.data(), spv_result->constant_ubo_data.size()},
                 0,
                 kernel.allowed_warp_size());
             LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
+        } else {
+            auto deser = ShaderSerializer::try_deser_compute(
+                this,
+                {pseudo_hash},
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                shader_name,
+                SerdeType::kCache,
+                _binary_io);
+            auto cs = static_cast<ComputeShader *>(deser.shader);
+            LUISA_VERBOSE("ComputeShader load successfully, pipeline: {}", reinterpret_cast<void *>(cs->pipeline()));
+            info.handle = reinterpret_cast<uint64_t>(cs);
+            info.native_handle = cs->pipeline();
         }
 
 #else

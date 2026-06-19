@@ -153,6 +153,26 @@ void ShaderSerializer::serialize_raster(
             break;
     }
 }
+
+bool ShaderSerializer::require_recompile(
+    vstd::string_view file_name,
+    vstd::MD5 shader_md5,
+    vstd::MD5 type_md5,
+    SerdeType serde_type,
+    BinaryIO const *bin_io) {
+    using namespace detail;
+    auto read_stream = read_binary_io(serde_type, bin_io, file_name);
+    if (!read_stream) return true;
+    if (read_stream->length() < sizeof(ShaderSerHeader)) return true;
+    ShaderSerHeader header;
+    read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(ShaderSerHeader)});
+    if (header.header_ver != kShaderSerVersion) return true;
+    if (header.md5 != shader_md5) return true;
+    if (header.type_md5 != type_md5) return true;
+    return false;
+}
+
+
 void ShaderSerializer::serialize_bytecode(
     vstd::span<const hlsl::Property> binds,
     vstd::span<const SavedArgument> saved_args,
