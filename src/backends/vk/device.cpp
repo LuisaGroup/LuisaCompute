@@ -1335,7 +1335,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result->useTex3DBindless,
                 spv_result->useBufferBindless,
                 spv_result->printers,
-                0);
+                0,
+                spv_result->constant_ubo_data);
         }
     }
     if (option.compile_only) {
@@ -1405,7 +1406,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             llvm_result.useTex3DBindless,
             llvm_result.useBufferBindless,
             llvm_result.printers,
-            0);
+            0,
+            llvm_result.constant_ubo_data);
     } else {
         auto shader = new ComputeShader(
             this,

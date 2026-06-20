@@ -19,6 +19,7 @@ struct ShaderSerHeader {
     uint printer_count;
     uint printer_size_bytes;
     uint validation_count;
+    uint64 constant_ubo_size;
     bool use_bindless_buffer;
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
@@ -39,7 +40,7 @@ struct RasterSerHeader {
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
 };
-constexpr uint32_t kShaderSerVersion = 2; // version: set to header_ver
+constexpr uint32_t kShaderSerVersion = 3; // version: set to header_ver (3: +constant_ubo_data)
 constexpr uint kXIRPipelineVersion = 1; // bump when optimization pipeline changes to invalidate cache
 struct PSODataPackage {
     VkPipelineCacheHeaderVersionOne header;
@@ -211,7 +212,8 @@ void ShaderSerializer::serialize_bytecode(
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
     vstd::span<std::pair<vstd::string, Type const *> const> printers,
-    uint validation_count) {
+    uint validation_count,
+    luisa::span<const std::byte> constant_ubo_data) {
     using namespace detail;
     vstd::vector<std::byte> results;
     ShaderSerHeader header{
@@ -227,11 +229,13 @@ void ShaderSerializer::serialize_bytecode(
     for (auto &i : printers) {
         printer_size_bytes += i.first.size() + i.second->description().size() + 2;// zero-end string
     }
+    auto ubo_data_size = constant_ubo_data.size_bytes();
     uint64_t final_size = sizeof(ShaderSerHeader) +
                           header.property_size * sizeof(hlsl::Property) +
                           header.spv_byte_size +
                           header.kernel_arg_count * sizeof(SavedArgument) +
-                          printer_size_bytes;
+                          printer_size_bytes +
+                          ubo_data_size;
     luisa::enlarge_by(results, final_size);
     auto data_ptr = results.data();
     auto save = [&]<typename T>(T const &t) {
@@ -248,6 +252,7 @@ void ShaderSerializer::serialize_bytecode(
     header.printer_count = printers.size();
     header.printer_size_bytes = printer_size_bytes;
     header.validation_count = validation_count;
+    header.constant_ubo_size = ubo_data_size;
     save(header);
     save_arr(binds.data(), binds.size());
     save_arr(saved_args.data(), saved_args.size());
@@ -258,6 +263,9 @@ void ShaderSerializer::serialize_bytecode(
         save_arr(desc.data(), desc.size());
         *data_ptr = (std::byte)0;
         ++data_ptr;
+    }
+    if (ubo_data_size > 0) {
+        save_arr(constant_ubo_data.data(), ubo_data_size);
     }
 
     switch (serde_type) {
@@ -307,6 +315,7 @@ auto ShaderSerializer::try_deser_raster(
     using namespace detail;
     RasterSerHeader header;
     vstd::vector<std::pair<luisa::string, Type const *>> printers;
+    vstd::vector<std::byte> constant_ubo_data;
     {
         auto read_stream = [&]() {
             return read_binary_io(serde_type, bin_io, file_name);
@@ -385,6 +394,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
     uint3 block_size;
     ShaderSerHeader header;
     vstd::vector<std::pair<luisa::string, Type const *>> printers;
+    vstd::vector<std::byte> constant_ubo_data;
     {
         auto read_stream = [&]() {
             return read_binary_io(serde_type, bin_io, file_name);
@@ -395,7 +405,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(ShaderSerHeader)});
         if (header.header_ver != kShaderSerVersion) return result;
         if (header.pipeline_ver != kXIRPipelineVersion) return result;
-        if (stream_len != read_stream->pos() + (header.printer_size_bytes + header.property_size * sizeof(hlsl::Property) + header.spv_byte_size + header.kernel_arg_count * sizeof(SavedArgument)))
+        if (stream_len != read_stream->pos() + (header.printer_size_bytes + header.property_size * sizeof(hlsl::Property) + header.spv_byte_size + header.kernel_arg_count * sizeof(SavedArgument) + header.constant_ubo_size))
             return result;
         if (shader_md5 && *shader_md5 != header.md5)
             return result;
@@ -423,6 +433,11 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
                 ptr += type_desc_len + 1;
                 printers.emplace_back(luisa::string{printer_val}, type);
             }
+        }
+        // Read constant UBO data if present
+        if (header.constant_ubo_size > 0) {
+            luisa::enlarge_by(constant_ubo_data, header.constant_ubo_size);
+            read_stream->read(constant_ubo_data);
         }
     }
     vstd::vector<std::byte> pso_data;
@@ -465,7 +480,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         header.use_bindless_tex3d,
         header.use_bindless_buffer,
         std::move(printers),
-        {},
+        constant_ubo_data,
         header.validation_count};
     if (pso_data.empty() &&
         shader->serialize_pso(pso_data)) {

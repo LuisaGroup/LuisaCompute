@@ -47,7 +47,8 @@ public:
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
         vstd::span<std::pair<vstd::string, luisa::compute::Type const *> const> printers,
-        uint validation_count = 0);
+        uint validation_count = 0,
+        luisa::span<const std::byte> constant_ubo_data = {});
     static bool require_recompile(
         vstd::string_view file_name,
         vstd::MD5 shader_md5,
