@@ -21,6 +21,7 @@
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/loop_unroll.h>
+#include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -134,6 +135,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         phase_a.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::trace_gep_pass_run_on_module(m);
             return i.traced_gep_count > 0u;
+        });
+        phase_a.add("fuse-consecutive-buffer-reads", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
+            return i.fused_group_count > 0u;
         });
         phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::dce_pass_run_on_module(m, &r);
