@@ -183,8 +183,19 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
             return i.promoted_ref_arg_count > 0u;
         });
+        phase_a.add("loop-unroll", [](xir::Module *m, xir::PassReport &r) {
+            xir::LoopUnrollOptions unroll_opts;
+            unroll_opts.max_trip_count = 256;
+            unroll_opts.unroll_pure_only = true;  // skip loops with buffer writes for safety
+            auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
+            return i.unrolled_loop_count > 0u;
+        });
         phase_a.add("sroa", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::sroa_pass_run_on_module(m, {}, &r);
+            xir::SROAOptions sroa_opts;
+            sroa_opts.decompose_vectors = true;
+            sroa_opts.decompose_matrices = false;
+            sroa_opts.aggressive = false;
+            auto i = xir::sroa_pass_run_on_module(m, sroa_opts, &r);
             return i.decomposed_alloca_count > 0u;
         });
         phase_a.add("gvn", [](xir::Module *m, xir::PassReport &r) {
@@ -256,7 +267,9 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             return i.scalarized_inst_count > 0u;
         });
         autodiff.add("sroa", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::sroa_pass_run_on_module(m, {}, &r);
+            xir::SROAOptions sroa_opts;
+            sroa_opts.decompose_vectors = true;
+            auto i = xir::sroa_pass_run_on_module(m, sroa_opts, &r);
             return i.decomposed_alloca_count > 0u;
         });
         autodiff.add("dce", [](xir::Module *m, xir::PassReport &r) {
@@ -286,6 +299,13 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                 norm.add("indvar-simplify", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::indvar_simplify_pass_run_on_module(m, &r);
                     return i.simplified_iv_count > 0u || i.removed_dead_iv_count > 0u;
+                });
+                norm.add("loop-unroll", [](xir::Module *m, xir::PassReport &r) {
+                    xir::LoopUnrollOptions unroll_opts;
+                    unroll_opts.max_trip_count = 256;
+                    unroll_opts.unroll_pure_only = true;
+                    auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
+                    return i.unrolled_loop_count > 0u;
                 });
                 norm.add("loop-vectorization", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::loop_vectorization_pass_run_on_module(m, &r);

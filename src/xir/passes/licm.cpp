@@ -78,7 +78,18 @@ void licm_on_loop(LoopInst *loop, LICMInfo &info, DomTree &dom_tree) noexcept {
             if (inst->isa<AllocaInst>()) { return; }
             if (!all_operands_invariant(inst, invariant)) { return; }
             auto *bb = inst->parent_block();
-            if (bb == prepare || get_memory_info(inst).is_pure()) {
+            auto mem = get_memory_info(inst);
+            // Allow hoisting of:
+            //   - instructions in the prepare block (runs once before loop)
+            //   - pure instructions (no memory effects)
+            //   - read-only global memory accesses (buffer reads) with invariant operands
+            bool can_hoist = bb == prepare ||
+                             mem.is_pure() ||
+                             (mem.scope == MemoryScope::GLOBAL &&
+                              mem.reads_memory() &&
+                              !mem.writes_memory() &&
+                              !mem.is_volatile);
+            if (can_hoist) {
                 invariant.insert(inst);
                 changed = true;
             }

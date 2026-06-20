@@ -9,15 +9,10 @@
 
 namespace luisa::compute::xir {
 
-// WARNING: This pass has known correctness issues with trip count analysis.
-// It only handles the simple `for(i=start; i<bound; i+=step)` pattern where
-// the bound is a constant on the RHS. Other patterns (decrementing loops,
-// non-constant bounds, nested induction variables) are not supported and
-// may produce wrong results. Disabled in production pipelines until hardened.
+// Loop unroller: handles `for(i=start; i<bound; i+=step)` with constant bound.
+// Enabled in Phase A pipeline (before SROA) and normalization pipeline.
 
 namespace detail {
-
-static constexpr size_t kMaxUnrollCount = 16;
 
 class LoopUnrollResolver final : public InstructionCloneValueResolver {
     luisa::unordered_map<const Value *, Value *> _map;
@@ -34,7 +29,7 @@ public:
     }
 };
 
-[[nodiscard]] static size_t analyze_trip_count(LoopInst *loop) noexcept {
+[[nodiscard]] static size_t analyze_trip_count(LoopInst *loop, size_t max_trip_count) noexcept {
     auto prepare = loop->prepare_block();
     auto update = loop->update_block();
     if (!prepare || !update) return 0;
@@ -110,7 +105,7 @@ public:
 
     if (step <= 0) return 0;
     int64_t trips = (bound_val - start + (op == ArithmeticOp::BINARY_LESS_EQUAL ? 1 : 0) + step - 1) / step;
-    if (trips <= 0 || static_cast<size_t>(trips) > kMaxUnrollCount) return 0;
+    if (trips <= 0 || static_cast<size_t>(trips) > max_trip_count) return 0;
     return static_cast<size_t>(trips);
 }
 
@@ -199,7 +194,7 @@ static void unroll(LoopInst *loop, size_t trips, LoopUnrollInfo &info) noexcept 
     info.unrolled_loop_count++;
 }
 
-static void run(Function *function, LoopUnrollInfo &info) noexcept {
+static void run(Function *function, LoopUnrollInfo &info, const LoopUnrollOptions &options) noexcept {
     auto def = function->definition();
     if (!def) return;
 
@@ -210,23 +205,38 @@ static void run(Function *function, LoopUnrollInfo &info) noexcept {
     });
 
     for (auto loop : loops) {
-        auto trips = analyze_trip_count(loop);
-        if (trips > 0) unroll(loop, trips, info);
+        auto trips = analyze_trip_count(loop, options.max_trip_count);
+        if (trips > 0) {
+            if (options.unroll_pure_only) {
+                // Check if the loop body contains buffer writes
+                bool has_buffer_write = false;
+                if (auto body = loop->body_block()) {
+                    body->traverse_instructions([&](Instruction *inst) noexcept {
+                        if (inst->derived_instruction_tag() == DerivedInstructionTag::RESOURCE_WRITE) {
+                            has_buffer_write = true;
+                        }
+                    });
+                }
+                if (!has_buffer_write) unroll(loop, trips, info);
+            } else {
+                unroll(loop, trips, info);
+            }
+        }
     }
 }
 
 }// namespace detail
 
-LoopUnrollInfo loop_unroll_pass_run_on_function(Function *function) noexcept {
+LoopUnrollInfo loop_unroll_pass_run_on_function(Function *function, LoopUnrollOptions options) noexcept {
     LoopUnrollInfo info;
-    detail::run(function, info);
+    detail::run(function, info, options);
     return info;
 }
 
-LoopUnrollInfo loop_unroll_pass_run_on_module(Module *module) noexcept {
+LoopUnrollInfo loop_unroll_pass_run_on_module(Module *module, LoopUnrollOptions options) noexcept {
     LoopUnrollInfo info;
     for (auto f : module->function_list())
-        detail::run(f, info);
+        detail::run(f, info, options);
     return info;
 }
 

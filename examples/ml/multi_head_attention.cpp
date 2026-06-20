@@ -402,23 +402,34 @@ int main(int argc, char *argv[]) {
                 Var exp_score = exp(score - m_new); // exp(score - m_new) ∈ (0, 1]
                 s_norm = s_norm * exp_diff + exp_score;
 
+                // ── Pre-load cKV[j,:] into local array to avoid reloading it
+                //     64 times (once per head_dim) inside the d-loop. ──
+                $array<float, latent_dim> cKV_local;
+                Var ci = (b * seq_len + j) * latent_dim;
+                $for (l, latent_dim / 4u) {
+                    Var l4 = l * 4u;
+                    Var cv_base = ci + l4;
+                    cKV_local[l4]     = cKV.read(cv_base);
+                    cKV_local[l4 + 1u] = cKV.read(cv_base + 1u);
+                    cKV_local[l4 + 2u] = cKV.read(cv_base + 2u);
+                    cKV_local[l4 + 3u] = cKV.read(cv_base + 3u);
+                };
+
                 // Update O_row: O *= exp(m - m_new), then O += V[j] * exp(score - m_new).
-                // V[b,h,j,d] is computed inline from Wuv and cKV (fused up_project_v)
+                // V[b,h,j,d] is computed inline from Wuv and cKV_local (fused up_project_v)
                 // to eliminate the V_buf intermediate: V[b,h,j,d] = Wuv[h,d,:] @ cKV[b,j,:]
                 $for (d, head_dim) {
                     Var old_o = O.read(qkv_idx(b, h, i, d));
-                    // Inline up_project_v: compute V[b,h,j,d] from Wuv[h,d,:] @ cKV[b,j,:]
+                    // Inline up_project_v: compute V[b,h,j,d] from Wuv[h,d,:] @ cKV_local[:]
                     Var head_off_uv = h * head_dim * latent_dim;
-                    Var ci = (b * seq_len + j) * latent_dim;
                     Var v_val = def(0.0f);
                     $for (l, latent_dim / 4u) {
                         Var l4 = l * 4u;
                         Var w_base = head_off_uv + d * latent_dim + l4;
-                        Var cv_base = ci + l4;
-                        v_val += Wuv.read(w_base) * cKV.read(cv_base)
-                               + Wuv.read(w_base + 1u) * cKV.read(cv_base + 1u)
-                               + Wuv.read(w_base + 2u) * cKV.read(cv_base + 2u)
-                               + Wuv.read(w_base + 3u) * cKV.read(cv_base + 3u);
+                        v_val += Wuv.read(w_base)     * cKV_local[l4]
+                               + Wuv.read(w_base + 1u) * cKV_local[l4 + 1u]
+                               + Wuv.read(w_base + 2u) * cKV_local[l4 + 2u]
+                               + Wuv.read(w_base + 3u) * cKV_local[l4 + 3u];
                     };
                     O.write(qkv_idx(b, h, i, d), old_o * exp_diff + v_val * exp_score);
                 };

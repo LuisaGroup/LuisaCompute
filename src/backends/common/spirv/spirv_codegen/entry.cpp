@@ -45,6 +45,7 @@ static void luisa_spirv_validate(luisa::span<const uint32_t> words, luisa::strin
 
 static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
     int opt_level = 2;
+    luisa::string pass_preset;
     if (auto env = std::getenv("LUISA_SPIRV_OPT_LEVEL")) {
         char *end = nullptr;
         auto val = std::strtol(env, &end, 10);
@@ -52,7 +53,10 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
             opt_level = static_cast<int>(val);
         }
     }
-    if (opt_level == 0) {
+    if (auto env = std::getenv("LUISA_SPIRV_OPT_PASSES")) {
+        pass_preset = env;
+    }
+    if (opt_level == 0 && pass_preset.empty()) {
         LUISA_INFO("SPIR-V optimization skipped (LUISA_SPIRV_OPT_LEVEL=0)");
         return;
     }
@@ -78,15 +82,51 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
                     break;
             }
         });
-    if (opt_level == 1) {
+
+    // Determine effective pass preset
+    if (pass_preset.empty()) {
+        if (opt_level == 0) pass_preset = "none";
+        else if (opt_level == 1) pass_preset = "lightweight";
+        else if (opt_level == 2) pass_preset = "compute";
+        else pass_preset = "full";
+    }
+
+    if (pass_preset == "none") {
+        LUISA_INFO("SPIR-V optimization skipped (preset=none)");
+        return;
+    } else if (pass_preset == "lightweight") {
         optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
         optimizer.RegisterPass(spvtools::CreateBlockMergePass());
         optimizer.RegisterPass(spvtools::CreateSimplificationPass());
         optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
-        LUISA_INFO("SPIR-V optimization level 1 (lightweight passes)");
-    } else {
+        LUISA_INFO("SPIR-V optimization preset 'lightweight' (level {})", opt_level);
+    } else if (pass_preset == "compute") {
+        // Compute-oriented performance passes (curated for Vulkan compute)
+        optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
+        optimizer.RegisterPass(spvtools::CreateBlockMergePass());
+        optimizer.RegisterPass(spvtools::CreateSimplificationPass());
+        optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
+        optimizer.RegisterPass(spvtools::CreateLocalSingleStoreElimPass());
+        optimizer.RegisterPass(spvtools::CreateLocalMultiStoreElimPass());
+        optimizer.RegisterPass(spvtools::CreateRedundancyEliminationPass());
+        optimizer.RegisterPass(spvtools::CreateLoopUnrollPass(true));
+        optimizer.RegisterPass(spvtools::CreateCCPPass());
+        LUISA_INFO("SPIR-V optimization preset 'compute' (level {})", opt_level);
+    } else if (pass_preset == "full") {
+        // Full performance pass suite (original behavior)
         optimizer.RegisterPerformancePasses();
-        LUISA_INFO("SPIR-V optimization level 2 (performance passes)");
+        LUISA_INFO("SPIR-V optimization preset 'full' (level {})", opt_level);
+    } else {
+        LUISA_WARNING("Unknown SPIR-V optimization preset '{}', falling back to compute", pass_preset);
+        optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
+        optimizer.RegisterPass(spvtools::CreateBlockMergePass());
+        optimizer.RegisterPass(spvtools::CreateSimplificationPass());
+        optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
+        optimizer.RegisterPass(spvtools::CreateLocalSingleStoreElimPass());
+        optimizer.RegisterPass(spvtools::CreateLocalMultiStoreElimPass());
+        optimizer.RegisterPass(spvtools::CreateRedundancyEliminationPass());
+        optimizer.RegisterPass(spvtools::CreateLoopUnrollPass(true));
+        optimizer.RegisterPass(spvtools::CreateCCPPass());
     }
     std::vector<uint32_t> optimized;
     if (optimizer.Run(words.data(),
