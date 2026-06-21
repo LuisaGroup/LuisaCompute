@@ -1040,16 +1040,45 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             if (all_constant) {
                 id = _builder.createCompositeInsert(e, v, type, const_indices);
             } else {
-                // Fallback: use alloca + access chain + store + load
-                auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "insert_tmp");
-                _builder.createStore(v, temp_var);
-                std::vector<spv::Id> access_indices;
-                for (auto i = 2u; i < inst->operand_count(); ++i) {
-                    access_indices.push_back(_emit_value(inst->operand(i)));
+                // Try to reuse an existing alloca variable if the base value
+                // came from a load of a local alloca. This avoids the insert_tmp
+                // temporary that would copy the full array.
+                spv::Id source_var = spv::NoResult;
+                spv::StorageClass source_sc = spv::StorageClass::Function;
+                if (auto base_xir = inst->operand(0); base_xir->isa<xir::LoadInst>()) {
+                    auto load = static_cast<const xir::LoadInst *>(base_xir);
+                    if (auto ptr = load->variable(); ptr->isa<xir::AllocaInst>()) {
+                        auto alloca = static_cast<const xir::AllocaInst *>(ptr);
+                        if (alloca->op() == xir::AllocaOp::LOCAL || alloca->op() == xir::AllocaOp::SHARED) {
+                            if (auto it = _value_map.find(alloca); it != _value_map.end()) {
+                                source_var = it->second;
+                                source_sc = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
+                            }
+                        }
+                    }
                 }
-                auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, access_indices);
-                _builder.createStore(e, ptr);
-                id = _builder.createLoad(temp_var, spv::NoPrecision);
+                if (source_var != spv::NoResult) {
+                    // Use the existing alloca variable directly: access-chain,
+                    // store the new element, then load the updated composite.
+                    std::vector<spv::Id> access_indices;
+                    for (auto i = 2u; i < inst->operand_count(); ++i) {
+                        access_indices.push_back(_emit_value(inst->operand(i)));
+                    }
+                    auto ptr = _create_access_chain(source_sc, source_var, access_indices);
+                    _builder.createStore(e, ptr);
+                    id = _builder.createLoad(source_var, spv::NoPrecision);
+                } else {
+                    // Fallback: use alloca + access chain + store + load
+                    auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "insert_tmp");
+                    _builder.createStore(v, temp_var);
+                    std::vector<spv::Id> access_indices;
+                    for (auto i = 2u; i < inst->operand_count(); ++i) {
+                        access_indices.push_back(_emit_value(inst->operand(i)));
+                    }
+                    auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, access_indices);
+                    _builder.createStore(e, ptr);
+                    id = _builder.createLoad(temp_var, spv::NoPrecision);
+                }
             }
             break;
         }
@@ -1090,6 +1119,25 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     dynamic_indices.push_back(_emit_value(inst->operand(i)));
                 }
             }
+            // Try to reuse an existing alloca variable if the base value
+            // came from a load of a local alloca. This avoids the extract_tmp
+            // temporary that would copy the full array.
+            spv::Id source_var = spv::NoResult;
+            spv::StorageClass source_sc = spv::StorageClass::Function;
+            if (!all_constant) {
+                if (auto base_xir = inst->operand(0); base_xir->isa<xir::LoadInst>()) {
+                    auto load = static_cast<const xir::LoadInst *>(base_xir);
+                    if (auto ptr = load->variable(); ptr->isa<xir::AllocaInst>()) {
+                        auto alloca = static_cast<const xir::AllocaInst *>(ptr);
+                        if (alloca->op() == xir::AllocaOp::LOCAL || alloca->op() == xir::AllocaOp::SHARED) {
+                            if (auto it = _value_map.find(alloca); it != _value_map.end()) {
+                                source_var = it->second;
+                                source_sc = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
+                            }
+                        }
+                    }
+                }
+            }
             if (all_constant) {
                 id = _builder.createCompositeExtract(v, type, const_indices);
             } else if (base_type->is_vector()) {
@@ -1111,6 +1159,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         result = _builder.createTriOp(spv::Op::OpSelect, type, cmp, elem_i, result);
                     }
                     id = result;
+                } else if (source_var != spv::NoResult) {
+                    // Use the existing alloca variable directly: access-chain and load element.
+                    auto ptr = _create_access_chain(source_sc, source_var, dynamic_indices);
+                    id = _builder.createLoad(ptr, spv::NoPrecision);
                 } else {
                     auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
                                                             _convert_type(base_type, Usage::READ), "extract_tmp");
@@ -1119,11 +1171,16 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     id = _builder.createLoad(ptr, spv::NoPrecision);
                 }
                 } else if (base_type->is_structure()) {
-                    auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
-                                                            _convert_type(base_type, Usage::READ), "extract_tmp");
-                    _builder.createStore(v, temp_var);
-                    auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
-                    id = _builder.createLoad(ptr, spv::NoPrecision);
+                    if (source_var != spv::NoResult) {
+                        auto ptr = _create_access_chain(source_sc, source_var, dynamic_indices);
+                        id = _builder.createLoad(ptr, spv::NoPrecision);
+                    } else {
+                        auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
+                                                                _convert_type(base_type, Usage::READ), "extract_tmp");
+                        _builder.createStore(v, temp_var);
+                        auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
+                        id = _builder.createLoad(ptr, spv::NoPrecision);
+                    }
                 } else {
                     LUISA_NOT_IMPLEMENTED("SPIR-V dynamic extract for type {}.", base_type->description());
                 }

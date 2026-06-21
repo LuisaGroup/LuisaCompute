@@ -396,6 +396,15 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                     auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
                     return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
                 });
+                // After restructure_cfg, new loops may be exposed that were previously
+                // hidden in unstructured CFG. Run loop_unroll again to catch them.
+                norm.add("loop-unroll-post", [](xir::Module *m, xir::PassReport &r) {
+                    xir::LoopUnrollOptions unroll_opts;
+                    unroll_opts.max_trip_count = 256;
+                    unroll_opts.unroll_pure_only = true;
+                    auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
+                    return i.unrolled_loop_count > 0u;
+                });
                 norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::dce_pass_run_on_module(m, &r);
                     return i.removed_inst_count > 0u || i.removed_block_count > 0u;

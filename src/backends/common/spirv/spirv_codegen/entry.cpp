@@ -111,10 +111,14 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
         optimizer.RegisterPass(spvtools::CreateRedundancyEliminationPass());
         optimizer.RegisterPass(spvtools::CreateLoopUnrollPass(true));
         optimizer.RegisterPass(spvtools::CreateCCPPass());
+        optimizer.RegisterPass(spvtools::CreatePrivateToLocalPass());
+        optimizer.RegisterPass(spvtools::CreateCopyPropagateArraysPass());
         LUISA_INFO("SPIR-V optimization preset 'compute' (level {})", opt_level);
     } else if (pass_preset == "full") {
         // Full performance pass suite (original behavior)
         optimizer.RegisterPerformancePasses();
+        optimizer.RegisterPass(spvtools::CreatePrivateToLocalPass());
+        optimizer.RegisterPass(spvtools::CreateCopyPropagateArraysPass());
         LUISA_INFO("SPIR-V optimization preset 'full' (level {})", opt_level);
     } else {
         LUISA_WARNING("Unknown SPIR-V optimization preset '{}', falling back to compute", pass_preset);
@@ -127,18 +131,30 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
         optimizer.RegisterPass(spvtools::CreateRedundancyEliminationPass());
         optimizer.RegisterPass(spvtools::CreateLoopUnrollPass(true));
         optimizer.RegisterPass(spvtools::CreateCCPPass());
+        optimizer.RegisterPass(spvtools::CreatePrivateToLocalPass());
+        optimizer.RegisterPass(spvtools::CreateCopyPropagateArraysPass());
     }
+    // Fixed-point iteration: run the optimizer repeatedly until no further
+    // changes (within a max iteration limit to prevent infinite loops).
     std::vector<uint32_t> optimized;
-    if (optimizer.Run(words.data(),
-                      words.size(), &optimized)) {
-        auto before = words.size();
+    auto before = words.size();
+    for (int iter = 0; iter < 5; ++iter) {
+        if (!optimizer.Run(words.data(), words.size(), &optimized)) {
+            LUISA_WARNING("SPIR-V optimization failed at iteration {}, using unoptimized binary.", iter);
+            break;
+        }
+        if (optimized.size() == words.size()) {
+            // No change, stop iterating
+            break;
+        }
         words.assign(optimized.begin(), optimized.end());
+        optimized.clear();
+    }
+    if (words.size() != before) {
         LUISA_INFO("SPIR-V optimized (level {}): {} -> {} words ({:.1f}%)",
                    opt_level, before, words.size(),
                    100.0 * static_cast<double>(words.size()) /
                        static_cast<double>(before));
-    } else {
-        LUISA_WARNING("SPIR-V optimization failed, using unoptimized binary.");
     }
 }
 

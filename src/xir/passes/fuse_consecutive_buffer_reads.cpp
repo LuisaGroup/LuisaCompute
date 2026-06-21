@@ -49,111 +49,188 @@ namespace {
     return INT64_MAX;
 }
 
-struct BufferReadGroup {
-    Value *buffer;
-    luisa::vector<ResourceReadInst *> reads;
-    luisa::vector<Value *> indices;
-};
+// Check if a scalar type is eligible for fusion (float, int, uint).
+[[nodiscard]] bool is_fusable_scalar(const Type *type) noexcept {
+    return type->is_scalar() &&
+           (type->is_float() || type->is_int32() || type->is_uint32());
+}
+
+// Fuse consecutive buffer reads into a single vector read + extracts.
+template<int MaxGroupSize>
+void fuse_buffer_reads_in_block(BasicBlock *bb, FunctionDefinition *def,
+                                FuseConsecutiveBufferReadsInfo &info) noexcept {
+    XIRBuilder builder;
+    // Collect all buffer reads in this block, grouped by buffer
+    luisa::unordered_map<Value *, luisa::vector<ResourceReadInst *>> read_groups;
+    luisa::unordered_map<Value *, luisa::vector<Value *>> index_groups;
+    for (auto *inst : bb->instructions()) {
+        if (inst->derived_instruction_tag() != DerivedInstructionTag::RESOURCE_READ) continue;
+        auto *read = static_cast<ResourceReadInst *>(inst);
+        if (read->op() != ResourceReadOp::BUFFER_READ) continue;
+        if (!is_fusable_scalar(read->type())) continue;
+        auto *buffer = read->operand(0);
+        auto *index = read->operand(1);
+        read_groups[buffer].push_back(read);
+        index_groups[buffer].push_back(index);
+    }
+
+    for (auto &[buffer, reads] : read_groups) {
+        auto &indices = index_groups[buffer];
+        auto n = reads.size();
+        if (n < 2u) continue;
+
+        for (size_t i = 0; i < n; ++i) {
+            if (reads[i] == nullptr) continue;
+            // Try to find reads at offsets +1, +2, ..., +(MaxGroupSize-1)
+            int match[4] = {-1, -1, -1, -1};
+            match[0] = static_cast<int>(i);
+            int found = 1;
+            for (size_t j = 0; j < n && found < MaxGroupSize; ++j) {
+                if (j == i || reads[j] == nullptr) continue;
+                auto offset = constant_offset_between(indices[i], indices[j]);
+                if (offset >= 1 && offset < MaxGroupSize) {
+                    if (match[offset] == -1) {
+                        match[offset] = static_cast<int>(j);
+                        found++;
+                    }
+                }
+            }
+
+            if (found >= 2) {
+                // We have 'found' consecutive reads
+                auto *base_idx = indices[match[0]];
+                auto *elem_type = reads[match[0]]->type();
+                auto *vec_type = Type::vector(elem_type, found);
+
+                // Collect valid reads
+                ResourceReadInst *fused_reads[4] = {};
+                bool all_valid = true;
+                for (int k = 0; k < found; ++k) {
+                    fused_reads[k] = reads[match[k]];
+                    if (!fused_reads[k]->parent_block()) { all_valid = false; break; }
+                }
+                if (!all_valid) continue;
+
+                // Create vector read
+                builder.set_insertion_point(fused_reads[0]);
+                auto *vec_read = builder.call(vec_type, ResourceReadOp::BUFFER_READ,
+                                              {buffer, base_idx});
+
+                // Create extracts and replace
+                auto *m = def->parent_module();
+                for (int k = 0; k < found; ++k) {
+                    builder.set_insertion_point(fused_reads[k]);
+                    auto idx_val = static_cast<uint32_t>(k);
+                    auto *idx_const = m->create_constant(Type::of<uint32_t>(), &idx_val);
+                    auto *extract = builder.call(elem_type, ArithmeticOp::EXTRACT, {vec_read, idx_const});
+                    fused_reads[k]->replace_all_uses_with(extract);
+                    fused_reads[k]->remove_self();
+                    reads[match[k]] = nullptr;
+                }
+
+                info.fused_group_count++;
+                info.fused_read_count += found;
+            }
+        }
+    }
+}
+
+// Fuse consecutive buffer writes into a single vector write.
+template<int MaxGroupSize>
+void fuse_buffer_writes_in_block(BasicBlock *bb, FuseConsecutiveBufferReadsInfo &info) noexcept {
+    XIRBuilder builder;
+    // Collect all buffer writes in this block, grouped by buffer
+    luisa::unordered_map<Value *, luisa::vector<ResourceWriteInst *>> write_groups;
+    luisa::unordered_map<Value *, luisa::vector<Value *>> index_groups;
+    luisa::unordered_map<Value *, luisa::vector<Value *>> value_groups;
+    for (auto *inst : bb->instructions()) {
+        if (inst->derived_instruction_tag() != DerivedInstructionTag::RESOURCE_WRITE) continue;
+        auto *write = static_cast<ResourceWriteInst *>(inst);
+        if (write->op() != ResourceWriteOp::BUFFER_WRITE) continue;
+        auto *value = write->operand(2);  // (buffer, index, value)
+        if (!is_fusable_scalar(value->type())) continue;
+        auto *buffer = write->operand(0);
+        auto *index = write->operand(1);
+        write_groups[buffer].push_back(write);
+        index_groups[buffer].push_back(index);
+        value_groups[buffer].push_back(value);
+    }
+
+    for (auto &[buffer, writes] : write_groups) {
+        auto &indices = index_groups[buffer];
+        auto &values = value_groups[buffer];
+        auto n = writes.size();
+        if (n < 2u) continue;
+
+        for (size_t i = 0; i < n; ++i) {
+            if (writes[i] == nullptr) continue;
+            int match[4] = {-1, -1, -1, -1};
+            match[0] = static_cast<int>(i);
+            int found = 1;
+            for (size_t j = 0; j < n && found < MaxGroupSize; ++j) {
+                if (j == i || writes[j] == nullptr) continue;
+                auto offset = constant_offset_between(indices[i], indices[j]);
+                if (offset >= 1 && offset < MaxGroupSize) {
+                    if (match[offset] == -1) {
+                        match[offset] = static_cast<int>(j);
+                        found++;
+                    }
+                }
+            }
+
+            if (found >= 2) {
+                ResourceWriteInst *fused_writes[4] = {};
+                bool all_valid = true;
+                for (int k = 0; k < found; ++k) {
+                    fused_writes[k] = writes[match[k]];
+                    if (!fused_writes[k]->parent_block()) { all_valid = false; break; }
+                }
+                if (!all_valid) continue;
+
+                // Construct the vector value
+                auto *elem_type = values[match[0]]->type();
+                auto *vec_type = Type::vector(elem_type, found);
+                auto *m = bb->parent_function()->parent_module();
+
+                builder.set_insertion_point(fused_writes[0]);
+                auto *vec_undef = m->create_undefined(vec_type);
+                Value *vec_val = vec_undef;
+                for (int k = 0; k < found; ++k) {
+                    auto idx_val = static_cast<uint32_t>(k);
+                    auto *idx_const = m->create_constant(Type::of<uint32_t>(), &idx_val);
+                    vec_val = builder.call(vec_type, ArithmeticOp::INSERT,
+                                           {vec_val, values[match[k]], idx_const});
+                }
+
+                // Create vector write
+                auto *base_idx = indices[match[0]];
+                builder.call(ResourceWriteOp::BUFFER_WRITE,
+                            {buffer, base_idx, vec_val});
+
+                // Remove original writes
+                for (int k = 0; k < found; ++k) {
+                    fused_writes[k]->remove_self();
+                    writes[match[k]] = nullptr;
+                }
+
+                info.fused_group_count++;
+                info.fused_read_count += found;  // reused counter for fused operations
+            }
+        }
+    }
+}
 
 void fuse_consecutive_buffer_reads_on_function(FunctionDefinition *def,
                                                 FuseConsecutiveBufferReadsInfo &info) noexcept {
-    XIRBuilder builder;
-    
     for (auto *bb : def->basic_blocks()) {
-        // Collect all buffer reads in this block, grouped by buffer
-        luisa::unordered_map<Value *, BufferReadGroup> groups;
-        for (auto *inst : bb->instructions()) {
-            if (inst->derived_instruction_tag() != DerivedInstructionTag::RESOURCE_READ) continue;
-            auto *read = static_cast<ResourceReadInst *>(inst);
-            if (read->op() != ResourceReadOp::BUFFER_READ) continue;
-            // Only fuse scalar float reads (most common for dot products)
-            if (!read->type()->is_scalar() || !read->type()->is_float()) continue;
-            auto *buffer = read->operand(0);
-            auto *index = read->operand(1);
-            auto &group = groups[buffer];
-            group.buffer = buffer;
-            group.reads.push_back(read);
-            group.indices.push_back(index);
-        }
-        
-        // For each group, try to find runs of 4 consecutive reads
-        for (auto &[buffer, group] : groups) {
-            if (group.reads.size() < 4) continue;
-            
-            // Build offset map: for each pair, compute constant offset
-            // We want to find a base index and 4 reads at offsets 0,1,2,3
-            size_t n = group.reads.size();
-            for (size_t i = 0; i < n; ++i) {
-                // Try to find reads at offsets +1, +2, +3 from this base
-                int match[4] = {-1, -1, -1, -1};
-                match[0] = static_cast<int>(i);
-                int found = 1;
-                for (size_t j = 0; j < n && found < 4; ++j) {
-                    if (j == i) continue;
-                    auto offset = constant_offset_between(group.indices[i], group.indices[j]);
-                    if (offset >= 1 && offset <= 3) {
-                        if (match[offset] == -1) {
-                            match[offset] = static_cast<int>(j);
-                            found++;
-                        }
-                    }
-                }
-                
-                if (found == 4) {
-                    // We have 4 consecutive reads at offsets 0,1,2,3
-                    auto *base_idx = group.indices[match[0]];
-                    auto *read0 = group.reads[match[0]];
-                    auto *read1 = group.reads[match[1]];
-                    auto *read2 = group.reads[match[2]];
-                    auto *read3 = group.reads[match[3]];
-                    
-                    // Ensure all reads are still valid (not already replaced)
-                    if (!read0->parent_block() || !read1->parent_block() ||
-                        !read2->parent_block() || !read3->parent_block()) continue;
-                    
-                    // Create a vector read: vec4 = resource_read(buffer, base_idx)
-                    auto *elem_type = read0->type();
-                    auto *vec_type = Type::vector(elem_type, 4);
-                    builder.set_insertion_point(read0);
-                    auto *vec_read = builder.call(vec_type, ResourceReadOp::BUFFER_READ,
-                                                   {buffer, base_idx});
-                    
-                    // Create extract instructions for each element
-                    auto *m = def->parent_module();
-                    auto make_extract = [&](Instruction *before, int idx) -> Value * {
-                        builder.set_insertion_point(before);
-                        auto idx_val = static_cast<uint32_t>(idx);
-                        auto *idx_const = m->create_constant(Type::of<uint32_t>(), &idx_val);
-                        return builder.call(elem_type, ArithmeticOp::EXTRACT, {vec_read, idx_const});
-                    };
-                    
-                    // Replace each scalar read with an extract from the vector
-                    Value *extracts[4];
-                    extracts[0] = make_extract(read0, 0);
-                    extracts[1] = make_extract(read1, 1);
-                    extracts[2] = make_extract(read2, 2);
-                    extracts[3] = make_extract(read3, 3);
-                    
-                    read0->replace_all_uses_with(extracts[0]);
-                    read0->remove_self();
-                    read1->replace_all_uses_with(extracts[1]);
-                    read1->remove_self();
-                    read2->replace_all_uses_with(extracts[2]);
-                    read2->remove_self();
-                    read3->replace_all_uses_with(extracts[3]);
-                    read3->remove_self();
-                    
-                    info.fused_group_count++;
-                    info.fused_read_count += 4;
-                    
-                    // Mark these reads as processed so we don't try to fuse them again
-                    group.reads[match[0]] = nullptr;
-                    group.reads[match[1]] = nullptr;
-                    group.reads[match[2]] = nullptr;
-                    group.reads[match[3]] = nullptr;
-                }
-            }
-        }
+        // Try groups of 4, 3, then 2 (larger groups first for better throughput)
+        fuse_buffer_reads_in_block<4>(bb, def, info);
+        fuse_buffer_reads_in_block<3>(bb, def, info);
+        fuse_buffer_reads_in_block<2>(bb, def, info);
+        // Also fuse writes
+        fuse_buffer_writes_in_block<4>(bb, info);
+        fuse_buffer_writes_in_block<3>(bb, info);
+        fuse_buffer_writes_in_block<2>(bb, info);
     }
 }
 
