@@ -44,14 +44,14 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Multi-Head Attention Example");
     LUISA_INFO("Backend: {}", argv[1]);
 
-    // ── Attention path switch ─────────────────────────────────────────────
+    // -- Attention path switch ---------------------------------------------
     bool use_mla = true;
     if (argc >= 3) {
         use_mla = (std::atoi(argv[2]) != 0);
     }
     LUISA_INFO("Path: {}", use_mla ? "MLA" : "MHA");
 
-    // ── Constants ─────────────────────────────────────────────────────────
+    // -- Constants ---------------------------------------------------------
     constexpr uint batch     = 16u;
     constexpr uint num_heads = 8u;
     constexpr uint seq_len   = 256u;
@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
     constexpr uint qkv_size     = batch * num_heads * seq_len * head_dim;
     constexpr uint scores_size  = batch * num_heads * seq_len * seq_len;
 
-    // ── Host-side index helpers (CPU reference) ───────────────────────────
+    // -- Host-side index helpers (CPU reference) ---------------------------
     constexpr auto qkv_index = [](uint b, uint h, uint i, uint d) constexpr noexcept {
         return ((b * num_heads + h) * seq_len + i) * head_dim + d;
     };
@@ -92,12 +92,12 @@ int main(int argc, char *argv[]) {
         return ((b * num_heads + h) * seq_len + i) * rope_dim + d;
     };
 
-    // ── Context & Device ──────────────────────────────────────────────────
+    // -- Context & Device --------------------------------------------------
     Context ctx{argv[0]};
     Device device = ctx.create_device(argv[1]);
     Stream stream = device.create_stream();
 
-    // ── Host data initialization ──────────────────────────────────────────
+    // -- Host data initialization ------------------------------------------
     // MHA inputs (kept for the baseline path).
     luisa::vector<float> Q_host(qkv_size);
     luisa::vector<float> K_host(qkv_size);
@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
         Wkr_host[i] = std::sin(static_cast<float>(i) * 0.15f + 0.4f) * 0.02f;
     }
 
-    // ── Device buffers ────────────────────────────────────────────────────
+    // -- Device buffers ----------------------------------------------------
     auto H_buf     = device.create_buffer<float>(hidden_size);
     auto cKV_buf   = device.create_buffer<float>(latent_size);
     auto Krope_buf = device.create_buffer<float>(rope_size);
@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
            << Wkr_buf.copy_from(luisa::span{Wkr_host});
     stream << upload.commit() << synchronize();
 
-    // ── Reusable RoPE rotation helper (DSL) ───────────────────────────────
+    // -- Reusable RoPE rotation helper (DSL) -------------------------------
     // Precompute per-pair inverse frequencies (host-side constexpr) to avoid
     // pow() in every kernel call. For realistic seq_len >= 2048 this matters.
     const std::array<float, rope_dim / 2u> kInvFreqs = []() {
@@ -189,11 +189,11 @@ int main(int argc, char *argv[]) {
     ShaderOption opt{.enable_debug_info = false};
     Clock compile_clock;
 
-    // ── Compile and dispatch the selected attention path ──────────────────
+    // -- Compile and dispatch the selected attention path ------------------
     // Both MLA and MHA kernels are always defined; only the selected path
     // is compiled to GPU code and dispatched.
 
-        // ── Optimized MLA GPU kernels ───────────────────────────────────
+        // -- Optimized MLA GPU kernels -----------------------------------
         // Phase 1+2: float4 vectorization + kernel fusion + online softmax.
 
         // Project queries: Q[b,h,i,d] = Wq[h,d,:] @ H[b,i,:] (shared-memory tiled).
@@ -217,14 +217,14 @@ int main(int argc, char *argv[]) {
             Var tx = thread_x();
             Var hi = (b * seq_len + i) * hidden_dim;
 
-            // ── Cooperative load of H[b,i,:] into shared memory (all 32 threads) ──
+            // -- Cooperative load of H[b,i,:] into shared memory (all 32 threads) --
             $for (e, hidden_dim / kBlockSize) {
                 Var e_idx = tx * (hidden_dim / kBlockSize) + e;
                 H_shared[e_idx] = H.read(hi + e_idx);
             };
             sync_block();
 
-            // ── First num_heads threads compute Q for their assigned head ──
+            // -- First num_heads threads compute Q for their assigned head --
             $if (tx < num_heads) {
                 Var h = tx;
                 Var h_off = h * head_dim * hidden_dim;
@@ -357,7 +357,7 @@ int main(int argc, char *argv[]) {
                 O.write(qkv_idx(b, h, i, d), 0.0f);
             };
 
-            // ── Hoist q_latent = Wuk[h]^T @ q_content (independent of j) ──
+            // -- Hoist q_latent = Wuk[h]^T @ q_content (independent of j) --
             // Pre-compute all latent_dim q_latent values once per thread
             // using a local array to avoid seq_len× recomputation.
             $array<float, latent_dim> q_latent;
@@ -376,13 +376,13 @@ int main(int argc, char *argv[]) {
             };
 
             $for (j, seq_len) {
-                // ── Content score via matrix absorption (reusing hoisted q_latent) ──
+                // -- Content score via matrix absorption (reusing hoisted q_latent) --
                 Var content_score = def(0.0f);
                 $for (d, latent_dim) {
                     content_score += q_latent[d] * cKV.read(latent_idx(b, j, d));
                 };
 
-                // ── Positional score ──
+                // -- Positional score --
                 Var pos_score = def(0.0f);
                 $for (r, rope_dim / 4u) {
                     Var r4 = r * 4u;
@@ -396,14 +396,14 @@ int main(int argc, char *argv[]) {
 
                 Var score = (content_score + pos_score) * scale;
 
-                // ── Online softmax update ──
+                // -- Online softmax update --
                 Var m_new = max(m, score);
                 Var exp_diff = exp(m - m_new);      // exp(m - m_new) ∈ (0, 1]
                 Var exp_score = exp(score - m_new); // exp(score - m_new) ∈ (0, 1]
                 s_norm = s_norm * exp_diff + exp_score;
 
-                // ── Pre-load cKV[j,:] into local array to avoid reloading it
-                //     64 times (once per head_dim) inside the d-loop. ──
+                // -- Pre-load cKV[j,:] into local array to avoid reloading it
+                //     64 times (once per head_dim) inside the d-loop. --
                 $array<float, latent_dim> cKV_local;
                 Var ci = (b * seq_len + j) * latent_dim;
                 $for (l, latent_dim / 4u) {
@@ -437,14 +437,14 @@ int main(int argc, char *argv[]) {
                 m = m_new;
             };
 
-            // ── Normalize output row by softmax sum ──
+            // -- Normalize output row by softmax sum --
             $for (d, head_dim) {
                 Var val = O.read(qkv_idx(b, h, i, d));
                 O.write(qkv_idx(b, h, i, d), val / s_norm);
             };
         };
 
-        // ── MHA baseline kernel ────────────────────────────────────────
+        // -- MHA baseline kernel ----------------------------------------
         Kernel1D mha_online_attention_kernel = [&](BufferFloat Q, BufferFloat K,
                                                     BufferFloat V, BufferFloat O) noexcept {
             set_block_size(256u, 1u, 1u);
@@ -504,7 +504,7 @@ int main(int argc, char *argv[]) {
             };
         };
 
-        // ── Compile & dispatch selected path ────────────────────────────
+        // -- Compile & dispatch selected path ----------------------------
         if (use_mla) {
             LUISA_INFO("Compiling MLA kernels ...");
 
@@ -554,248 +554,248 @@ int main(int argc, char *argv[]) {
             LUISA_INFO("  MHA GPU dispatch + sync: {:.2f} ms", dispatch_ms);
         }
 
-    // ── Download results ──────────────────────────────────────────────────
+    // -- Download results --------------------------------------------------
     luisa::vector<float> O_gpu(qkv_size);
     Clock download_clock;
     stream << O_buf.copy_to(luisa::span{O_gpu}) << synchronize();
     double download_ms = download_clock.toc();
     LUISA_INFO("  Download results: {:.2f} ms", download_ms);
 
-    // ── CPU Reference ─────────────────────────────────────────────────────
+    // -- CPU Reference -----------------------------------------------------
     LUISA_INFO("Running CPU reference ...");
     Clock cpu_clock;
 
     luisa::vector<float> O_cpu(qkv_size, 0.0f);
 
-    if (use_mla) {
-        // CPU-side MLA reference.
-        luisa::vector<float> Q_cpu(qkv_size, 0.0f);
-        luisa::vector<float> Krope_cpu(rope_size, 0.0f);
-        luisa::vector<float> cKV_cpu(latent_size, 0.0f);
-        luisa::vector<float> V_cpu(qkv_size, 0.0f);
-        luisa::vector<float> S_cpu(scores_size, 0.0f);
-        luisa::vector<float> A_cpu(scores_size, 0.0f);
+    // if (use_mla) {
+    //     // CPU-side MLA reference.
+    //     luisa::vector<float> Q_cpu(qkv_size, 0.0f);
+    //     luisa::vector<float> Krope_cpu(rope_size, 0.0f);
+    //     luisa::vector<float> cKV_cpu(latent_size, 0.0f);
+    //     luisa::vector<float> V_cpu(qkv_size, 0.0f);
+    //     luisa::vector<float> S_cpu(scores_size, 0.0f);
+    //     luisa::vector<float> A_cpu(scores_size, 0.0f);
 
-        auto apply_rope_pair_cpu = [](float x0, float x1, uint pair, uint pos) {
-            float freq = 1.0f / std::pow(rope_theta, (2.0f * static_cast<float>(pair)) / rope_dim);
-            float angle = static_cast<float>(pos) * freq;
-            float c = std::cos(angle);
-            float s = std::sin(angle);
-            return std::make_pair(x0 * c - x1 * s, x0 * s + x1 * c);
-        };
+    //     auto apply_rope_pair_cpu = [](float x0, float x1, uint pair, uint pos) {
+    //         float freq = 1.0f / std::pow(rope_theta, (2.0f * static_cast<float>(pair)) / rope_dim);
+    //         float angle = static_cast<float>(pos) * freq;
+    //         float c = std::cos(angle);
+    //         float s = std::sin(angle);
+    //         return std::make_pair(x0 * c - x1 * s, x0 * s + x1 * c);
+    //     };
 
-        // Project Q.
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint i = 0u; i < seq_len; ++i) {
-                for (uint h = 0u; h < num_heads; ++h) {
-                    for (uint d = 0u; d < head_dim; ++d) {
-                        float acc = 0.0f;
-                        for (uint e = 0u; e < hidden_dim; ++e) {
-                            uint wi = h * head_dim * hidden_dim + d * hidden_dim + e;
-                            acc += Wq_host[wi] * H_host[hidden_index(b, i, e)];
-                        }
-                        Q_cpu[qkv_index(b, h, i, d)] = acc;
-                    }
-                    // RoPE on the positional slice.
-                    for (uint r = 0u; r < rope_dim / 2u; ++r) {
-                        uint d0 = content_dim + r * 2u;
-                        uint d1 = d0 + 1u;
-                        auto [x0, x1] = apply_rope_pair_cpu(
-                            Q_cpu[qkv_index(b, h, i, d0)],
-                            Q_cpu[qkv_index(b, h, i, d1)], r, i);
-                        Q_cpu[qkv_index(b, h, i, d0)] = x0;
-                        Q_cpu[qkv_index(b, h, i, d1)] = x1;
-                    }
-                }
-            }
-        }
+    //     // Project Q.
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint i = 0u; i < seq_len; ++i) {
+    //             for (uint h = 0u; h < num_heads; ++h) {
+    //                 for (uint d = 0u; d < head_dim; ++d) {
+    //                     float acc = 0.0f;
+    //                     for (uint e = 0u; e < hidden_dim; ++e) {
+    //                         uint wi = h * head_dim * hidden_dim + d * hidden_dim + e;
+    //                         acc += Wq_host[wi] * H_host[hidden_index(b, i, e)];
+    //                     }
+    //                     Q_cpu[qkv_index(b, h, i, d)] = acc;
+    //                 }
+    //                 // RoPE on the positional slice.
+    //                 for (uint r = 0u; r < rope_dim / 2u; ++r) {
+    //                     uint d0 = content_dim + r * 2u;
+    //                     uint d1 = d0 + 1u;
+    //                     auto [x0, x1] = apply_rope_pair_cpu(
+    //                         Q_cpu[qkv_index(b, h, i, d0)],
+    //                         Q_cpu[qkv_index(b, h, i, d1)], r, i);
+    //                     Q_cpu[qkv_index(b, h, i, d0)] = x0;
+    //                     Q_cpu[qkv_index(b, h, i, d1)] = x1;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        // Compress KV.
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint i = 0u; i < seq_len; ++i) {
-                for (uint d = 0u; d < latent_dim; ++d) {
-                    float acc = 0.0f;
-                    for (uint e = 0u; e < hidden_dim; ++e) {
-                        acc += Wdkv_host[d * hidden_dim + e] * H_host[hidden_index(b, i, e)];
-                    }
-                    cKV_cpu[latent_index(b, i, d)] = acc;
-                }
-            }
-        }
+    //     // Compress KV.
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint i = 0u; i < seq_len; ++i) {
+    //             for (uint d = 0u; d < latent_dim; ++d) {
+    //                 float acc = 0.0f;
+    //                 for (uint e = 0u; e < hidden_dim; ++e) {
+    //                     acc += Wdkv_host[d * hidden_dim + e] * H_host[hidden_index(b, i, e)];
+    //                 }
+    //                 cKV_cpu[latent_index(b, i, d)] = acc;
+    //             }
+    //         }
+    //     }
 
-        // Up-project V.
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint j = 0u; j < seq_len; ++j) {
-                for (uint h = 0u; h < num_heads; ++h) {
-                    for (uint d = 0u; d < head_dim; ++d) {
-                        float acc = 0.0f;
-                        for (uint l = 0u; l < latent_dim; ++l) {
-                            uint wi = h * head_dim * latent_dim + d * latent_dim + l;
-                            acc += Wuv_host[wi] * cKV_cpu[latent_index(b, j, l)];
-                        }
-                        V_cpu[qkv_index(b, h, j, d)] = acc;
-                    }
-                }
-            }
-        }
+    //     // Up-project V.
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint j = 0u; j < seq_len; ++j) {
+    //             for (uint h = 0u; h < num_heads; ++h) {
+    //                 for (uint d = 0u; d < head_dim; ++d) {
+    //                     float acc = 0.0f;
+    //                     for (uint l = 0u; l < latent_dim; ++l) {
+    //                         uint wi = h * head_dim * latent_dim + d * latent_dim + l;
+    //                         acc += Wuv_host[wi] * cKV_cpu[latent_index(b, j, l)];
+    //                     }
+    //                     V_cpu[qkv_index(b, h, j, d)] = acc;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        // Decoupled RoPE keys.
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint j = 0u; j < seq_len; ++j) {
-                for (uint h = 0u; h < num_heads; ++h) {
-                    for (uint r = 0u; r < rope_dim; ++r) {
-                        float acc = 0.0f;
-                        for (uint e = 0u; e < hidden_dim; ++e) {
-                            uint wi = h * rope_dim * hidden_dim + r * hidden_dim + e;
-                            acc += Wkr_host[wi] * H_host[hidden_index(b, j, e)];
-                        }
-                        Krope_cpu[rope_index(b, h, j, r)] = acc;
-                    }
-                    for (uint r = 0u; r < rope_dim / 2u; ++r) {
-                        uint d0 = r * 2u;
-                        uint d1 = d0 + 1u;
-                        auto [x0, x1] = apply_rope_pair_cpu(
-                            Krope_cpu[rope_index(b, h, j, d0)],
-                            Krope_cpu[rope_index(b, h, j, d1)], r, j);
-                        Krope_cpu[rope_index(b, h, j, d0)] = x0;
-                        Krope_cpu[rope_index(b, h, j, d1)] = x1;
-                    }
-                }
-            }
-        }
+    //     // Decoupled RoPE keys.
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint j = 0u; j < seq_len; ++j) {
+    //             for (uint h = 0u; h < num_heads; ++h) {
+    //                 for (uint r = 0u; r < rope_dim; ++r) {
+    //                     float acc = 0.0f;
+    //                     for (uint e = 0u; e < hidden_dim; ++e) {
+    //                         uint wi = h * rope_dim * hidden_dim + r * hidden_dim + e;
+    //                         acc += Wkr_host[wi] * H_host[hidden_index(b, j, e)];
+    //                     }
+    //                     Krope_cpu[rope_index(b, h, j, r)] = acc;
+    //                 }
+    //                 for (uint r = 0u; r < rope_dim / 2u; ++r) {
+    //                     uint d0 = r * 2u;
+    //                     uint d1 = d0 + 1u;
+    //                     auto [x0, x1] = apply_rope_pair_cpu(
+    //                         Krope_cpu[rope_index(b, h, j, d0)],
+    //                         Krope_cpu[rope_index(b, h, j, d1)], r, j);
+    //                     Krope_cpu[rope_index(b, h, j, d0)] = x0;
+    //                     Krope_cpu[rope_index(b, h, j, d1)] = x1;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        // MLA scores with matrix absorption.
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint h = 0u; h < num_heads; ++h) {
-                for (uint i = 0u; i < seq_len; ++i) {
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        // q_latent = Wuk[h]^T @ q_content.
-                        float q_latent[latent_dim];
-                        for (uint d = 0u; d < latent_dim; ++d) {
-                            float acc = 0.0f;
-                            for (uint c = 0u; c < content_dim; ++c) {
-                                uint wi = h * content_dim * latent_dim + c * latent_dim + d;
-                                acc += Wuk_host[wi] * Q_cpu[qkv_index(b, h, i, c)];
-                            }
-                            q_latent[d] = acc;
-                        }
+    //     // MLA scores with matrix absorption.
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint h = 0u; h < num_heads; ++h) {
+    //             for (uint i = 0u; i < seq_len; ++i) {
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     // q_latent = Wuk[h]^T @ q_content.
+    //                     float q_latent[latent_dim];
+    //                     for (uint d = 0u; d < latent_dim; ++d) {
+    //                         float acc = 0.0f;
+    //                         for (uint c = 0u; c < content_dim; ++c) {
+    //                             uint wi = h * content_dim * latent_dim + c * latent_dim + d;
+    //                             acc += Wuk_host[wi] * Q_cpu[qkv_index(b, h, i, c)];
+    //                         }
+    //                         q_latent[d] = acc;
+    //                     }
 
-                        float content_score = 0.0f;
-                        for (uint d = 0u; d < latent_dim; ++d) {
-                            content_score += q_latent[d] * cKV_cpu[latent_index(b, j, d)];
-                        }
+    //                     float content_score = 0.0f;
+    //                     for (uint d = 0u; d < latent_dim; ++d) {
+    //                         content_score += q_latent[d] * cKV_cpu[latent_index(b, j, d)];
+    //                     }
 
-                        float pos_score = 0.0f;
-                        for (uint r = 0u; r < rope_dim; ++r) {
-                            pos_score += Q_cpu[qkv_index(b, h, i, content_dim + r)] *
-                                         Krope_cpu[rope_index(b, h, j, r)];
-                        }
+    //                     float pos_score = 0.0f;
+    //                     for (uint r = 0u; r < rope_dim; ++r) {
+    //                         pos_score += Q_cpu[qkv_index(b, h, i, content_dim + r)] *
+    //                                      Krope_cpu[rope_index(b, h, j, r)];
+    //                     }
 
-                        S_cpu[score_index(b, h, i, j)] = (content_score + pos_score) * scale;
-                    }
-                }
-            }
-        }
+    //                     S_cpu[score_index(b, h, i, j)] = (content_score + pos_score) * scale;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        // Softmax.
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint h = 0u; h < num_heads; ++h) {
-                for (uint i = 0u; i < seq_len; ++i) {
-                    uint base = score_index(b, h, i, 0);
-                    float m = -1e30f;
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        m = std::max(m, S_cpu[base + j]);
-                    }
-                    float s = 0.0f;
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        float e = std::exp(S_cpu[base + j] - m);
-                        A_cpu[base + j] = e;
-                        s += e;
-                    }
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        A_cpu[base + j] /= s;
-                    }
-                }
-            }
-        }
+    //     // Softmax.
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint h = 0u; h < num_heads; ++h) {
+    //             for (uint i = 0u; i < seq_len; ++i) {
+    //                 uint base = score_index(b, h, i, 0);
+    //                 float m = -1e30f;
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     m = std::max(m, S_cpu[base + j]);
+    //                 }
+    //                 float s = 0.0f;
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     float e = std::exp(S_cpu[base + j] - m);
+    //                     A_cpu[base + j] = e;
+    //                     s += e;
+    //                 }
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     A_cpu[base + j] /= s;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        // AV weighted sum.
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint h = 0u; h < num_heads; ++h) {
-                for (uint i = 0u; i < seq_len; ++i) {
-                    for (uint d = 0u; d < head_dim; ++d) {
-                        float sum = 0.0f;
-                        for (uint j = 0u; j < seq_len; ++j) {
-                            sum += A_cpu[score_index(b, h, i, j)] * V_cpu[qkv_index(b, h, j, d)];
-                        }
-                        O_cpu[qkv_index(b, h, i, d)] = sum;
-                    }
-                }
-            }
-        }
-    } else {
-        // CPU-side MHA reference (original baseline).
-        luisa::vector<float> S_cpu(scores_size, 0.0f);
-        luisa::vector<float> A_cpu(scores_size, 0.0f);
+    //     // AV weighted sum.
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint h = 0u; h < num_heads; ++h) {
+    //             for (uint i = 0u; i < seq_len; ++i) {
+    //                 for (uint d = 0u; d < head_dim; ++d) {
+    //                     float sum = 0.0f;
+    //                     for (uint j = 0u; j < seq_len; ++j) {
+    //                         sum += A_cpu[score_index(b, h, i, j)] * V_cpu[qkv_index(b, h, j, d)];
+    //                     }
+    //                     O_cpu[qkv_index(b, h, i, d)] = sum;
+    //                 }
+    //             }
+    //         }
+    //     }
+    // } else {
+    //     // CPU-side MHA reference (original baseline).
+    //     luisa::vector<float> S_cpu(scores_size, 0.0f);
+    //     luisa::vector<float> A_cpu(scores_size, 0.0f);
 
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint h = 0u; h < num_heads; ++h) {
-                for (uint i = 0u; i < seq_len; ++i) {
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        float sum = 0.0f;
-                        for (uint d = 0u; d < head_dim; ++d) {
-                            uint head_off = (b * num_heads + h) * seq_len * head_dim;
-                            uint qi = head_off + i * head_dim + d;
-                            uint ki = head_off + j * head_dim + d;
-                            sum += Q_host[qi] * K_host[ki];
-                        }
-                        S_cpu[score_index(b, h, i, j)] = sum * scale;
-                    }
-                }
-            }
-        }
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint h = 0u; h < num_heads; ++h) {
+    //             for (uint i = 0u; i < seq_len; ++i) {
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     float sum = 0.0f;
+    //                     for (uint d = 0u; d < head_dim; ++d) {
+    //                         uint head_off = (b * num_heads + h) * seq_len * head_dim;
+    //                         uint qi = head_off + i * head_dim + d;
+    //                         uint ki = head_off + j * head_dim + d;
+    //                         sum += Q_host[qi] * K_host[ki];
+    //                     }
+    //                     S_cpu[score_index(b, h, i, j)] = sum * scale;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint h = 0u; h < num_heads; ++h) {
-                for (uint i = 0u; i < seq_len; ++i) {
-                    uint base = score_index(b, h, i, 0);
-                    float m = -1e30f;
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        m = std::max(m, S_cpu[base + j]);
-                    }
-                    float s = 0.0f;
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        float e = std::exp(S_cpu[base + j] - m);
-                        A_cpu[base + j] = e;
-                        s += e;
-                    }
-                    for (uint j = 0u; j < seq_len; ++j) {
-                        A_cpu[base + j] /= s;
-                    }
-                }
-            }
-        }
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint h = 0u; h < num_heads; ++h) {
+    //             for (uint i = 0u; i < seq_len; ++i) {
+    //                 uint base = score_index(b, h, i, 0);
+    //                 float m = -1e30f;
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     m = std::max(m, S_cpu[base + j]);
+    //                 }
+    //                 float s = 0.0f;
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     float e = std::exp(S_cpu[base + j] - m);
+    //                     A_cpu[base + j] = e;
+    //                     s += e;
+    //                 }
+    //                 for (uint j = 0u; j < seq_len; ++j) {
+    //                     A_cpu[base + j] /= s;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        for (uint b = 0u; b < batch; ++b) {
-            for (uint h = 0u; h < num_heads; ++h) {
-                for (uint i = 0u; i < seq_len; ++i) {
-                    for (uint d = 0u; d < head_dim; ++d) {
-                        float sum = 0.0f;
-                        for (uint j = 0u; j < seq_len; ++j) {
-                            sum += A_cpu[score_index(b, h, i, j)] * V_host[qkv_index(b, h, j, d)];
-                        }
-                        O_cpu[qkv_index(b, h, i, d)] = sum;
-                    }
-                }
-            }
-        }
-    }
+    //     for (uint b = 0u; b < batch; ++b) {
+    //         for (uint h = 0u; h < num_heads; ++h) {
+    //             for (uint i = 0u; i < seq_len; ++i) {
+    //                 for (uint d = 0u; d < head_dim; ++d) {
+    //                     float sum = 0.0f;
+    //                     for (uint j = 0u; j < seq_len; ++j) {
+    //                         sum += A_cpu[score_index(b, h, i, j)] * V_host[qkv_index(b, h, j, d)];
+    //                     }
+    //                     O_cpu[qkv_index(b, h, i, d)] = sum;
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     double cpu_ms = cpu_clock.toc();
     LUISA_INFO("  CPU reference completed in {:.2f} ms", cpu_ms);
 
-    // ── Performance / memory summary ──────────────────────────────────────
-    LUISA_INFO("── Summary ──────────────────────────────────────────────");
+    // -- Performance / memory summary --------------------------------------
+    LUISA_INFO("-- Summary ----------------------------------------------");
     LUISA_INFO("  Mode: {}", use_mla ? "MLA" : "MHA");
     LUISA_INFO("  Matrix config: batch={}, heads={}, seq_len={}, head_dim={}",
                batch, num_heads, seq_len, head_dim);
@@ -809,7 +809,7 @@ int main(int argc, char *argv[]) {
                    mha_kv_bytes, mla_kv_bytes, ratio * 100.0f);
     }
 
-    // ── Verification ──────────────────────────────────────────────────────
+    // -- Verification ------------------------------------------------------
     float max_diff = 0.0f;
     uint max_idx = 0u;
     for (uint i = 0u; i < qkv_size; ++i) {
