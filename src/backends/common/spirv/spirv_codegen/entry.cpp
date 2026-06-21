@@ -111,6 +111,8 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
         optimizer.RegisterPass(spvtools::CreateRedundancyEliminationPass());
         optimizer.RegisterPass(spvtools::CreateLoopUnrollPass(true));
         optimizer.RegisterPass(spvtools::CreateCCPPass());
+        optimizer.RegisterPass(spvtools::CreateScalarReplacementPass(100));
+        optimizer.RegisterPass(spvtools::CreateIfConversionPass());
         optimizer.RegisterPass(spvtools::CreatePrivateToLocalPass());
         optimizer.RegisterPass(spvtools::CreateCopyPropagateArraysPass());
         LUISA_INFO("SPIR-V optimization preset 'compute' (level {})", opt_level);

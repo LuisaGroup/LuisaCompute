@@ -141,6 +141,33 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::BINARY_ADD: {
             if (is_float) {
+                // Peephole: detect FMul+FAdd pattern and emit fused multiply-add (FMA).
+                // BINARY_ADD(BINARY_MUL(a, b), c) -> Fma(a, b, c)
+                // BINARY_ADD(c, BINARY_MUL(a, b)) -> Fma(a, b, c)
+                auto try_fma = [&](const xir::Value *mul_op, const xir::Value *add_op) -> bool {
+                    if (!mul_op->isa<xir::ArithmeticInst>()) return false;
+                    auto *mul_inst = static_cast<const xir::ArithmeticInst *>(mul_op);
+                    if (mul_inst->op() != xir::ArithmeticOp::BINARY_MUL) return false;
+                    // Verify the mul result is float (scalar or vector)
+                    auto mul_t = mul_inst->type();
+                    auto mul_elem = mul_t->is_vector() || mul_t->is_matrix() ? mul_t->element() : mul_t;
+                    if (!mul_elem->is_float()) return false;
+                    // Emit mul first to ensure its operands are available, then
+                    // use them to form the FMA. The dead OpFMul will be cleaned
+                    // up by the SPIR-V optimizer's DCE pass.
+                    auto mul_val = _emit_value(mul_op);
+                    auto a = _emit_value(mul_inst->operand(0));
+                    auto b = _emit_value(mul_inst->operand(1));
+                    auto c = _emit_value(add_op);
+                    // Ensure all operands match the result type for FMA
+                    a = _ensure_type(a, type);
+                    b = _ensure_type(b, type);
+                    c = _ensure_type(c, type);
+                    id = _builder.createBuiltinCall(type, _glsl450, GLSLstd450Fma, {a, b, c});
+                    return true;
+                };
+                if (try_fma(inst->operand(0), inst->operand(1))) break;
+                if (try_fma(inst->operand(1), inst->operand(0))) break;
                 id = binary(spv::Op::OpFAdd);
             } else {
                 auto a = operand(0);
@@ -2309,17 +2336,25 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
 
 spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, bool index_is_word_offset, spv::MemoryAccessMask memory_access) noexcept {
     auto uint_type = _builder.makeUintType(32);
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type)) {
-        // Typed buffer: direct element access via SPIR-V type system.
-        // Works for scalar, vector, and matrix element types.
-        auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), index});
-        auto loaded = _builder.createLoad(ptr, spv::NoPrecision, memory_access);
-        auto plain_type = _convert_type(read_type, Usage::READ);
-        auto loaded_type = _builder.getTypeId(loaded);
-        if (loaded_type != plain_type) {
-            loaded = _builder.createUnaryOp(spv::Op::OpCopyLogical, plain_type, loaded);
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr &&
+        !_buffer_uses_word_storage(buffer_type)) {
+        auto buffer_elem_type = buffer_type->element();
+        if (read_type == buffer_elem_type) {
+            // Typed buffer: direct element access via SPIR-V type system.
+            auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), index});
+            auto loaded = _builder.createLoad(ptr, spv::NoPrecision, memory_access);
+            auto plain_type = _convert_type(read_type, Usage::READ);
+            auto loaded_type = _builder.getTypeId(loaded);
+            if (loaded_type != plain_type) {
+                loaded = _builder.createUnaryOp(spv::Op::OpCopyLogical, plain_type, loaded);
+            }
+            return loaded;
         }
-        return loaded;
+        // Vector/aggregate read from a scalar-typed buffer: load consecutive scalar elements.
+        // index is a scalar element index, which is also the word offset for 4-byte scalars.
+        if (buffer_elem_type->is_scalar() && !read_type->is_scalar()) {
+            return _emit_buffer_read_impl(buffer, index, read_type, memory_access);
+        }
     }
     // Byte buffer or bindless: word-level access
     auto word_count = read_type->size() / 4u;

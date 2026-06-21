@@ -195,6 +195,16 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
             return i.unrolled_loop_count > 0u;
         });
+        // After loop unrolling, adjacent buffer reads may be exposed.
+        // Run fuse again to merge them into vector reads.
+        phase_a.add("fuse-consecutive-buffer-reads-after-unroll", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
+            return i.fused_group_count > 0u;
+        });
+        phase_a.add("dce-after-fuse", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        });
         phase_a.add("sroa", [](xir::Module *m, xir::PassReport &r) {
             xir::SROAOptions sroa_opts;
             sroa_opts.decompose_vectors = true;
@@ -404,6 +414,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                     unroll_opts.unroll_pure_only = true;
                     auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
                     return i.unrolled_loop_count > 0u;
+                });
+                norm.add("mem2reg-post-restructure", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::mem2reg_pass_run_on_module(m, &r);
+                    return i.promoted_alloca_count > 0u;
                 });
                 norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::dce_pass_run_on_module(m, &r);

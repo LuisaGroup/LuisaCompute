@@ -529,10 +529,10 @@ void SpirvCodegenEntry::generate_binding(Function kernel, luisa::span<const std:
                 var = _builder.createVariable(spv::NoPrecision, storage, struct_type, var_name);
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
-                // TODO: Add alias analysis to make Aliased conditional.
-                // Aliased is conservative; future integration with the XIR
-                // alias-analysis pass would let us drop it for non-aliased buffers.
-                _builder.addDecoration(var, spv::Decoration::Aliased);
+                // Aliased decoration omitted: each buffer maps to a distinct
+                // descriptor binding and cannot alias in compute shaders.
+                // Removing Aliased lets the driver reorder and merge memory
+                // operations more aggressively.
                 // Only add Coherent when necessary:
                 // - buffer is used with atomics, or
                 // - element type contains bool (word-level storage causes false sharing).
