@@ -16,10 +16,10 @@ protected:
         PrintValue<bool>{}(x, _str);
     }
     void _decode_char(char x) noexcept override {
-        LUISA_NOT_IMPLEMENTED();
+        PrintValue<luisa::byte>{}(static_cast<luisa::byte>(x), _str);
     }
     void _decode_uchar(uchar x) noexcept override {
-        LUISA_NOT_IMPLEMENTED();
+        PrintValue<luisa::ubyte>{}(static_cast<luisa::ubyte>(x), _str);
     }
     void _decode_short(short x) noexcept override {
         LUISA_NOT_IMPLEMENTED();
@@ -70,6 +70,8 @@ protected:
     LUISA_HLSL_DECODE_CONST_VEC(T, 3); \
     LUISA_HLSL_DECODE_CONST_VEC(T, 4)
         LUISA_HLSL_DECODE_CONST(bool);
+        LUISA_HLSL_DECODE_CONST(byte);
+        LUISA_HLSL_DECODE_CONST(ubyte);
         LUISA_HLSL_DECODE_CONST(int);
         LUISA_HLSL_DECODE_CONST(uint);
         LUISA_HLSL_DECODE_CONST(float);

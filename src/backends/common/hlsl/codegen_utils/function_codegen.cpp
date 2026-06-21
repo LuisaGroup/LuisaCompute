@@ -415,6 +415,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_USHORT2:
         case CallOp::MAKE_USHORT3:
         case CallOp::MAKE_USHORT4:
+        case CallOp::MAKE_BYTE2:
+        case CallOp::MAKE_BYTE3:
+        case CallOp::MAKE_BYTE4:
+        case CallOp::MAKE_UBYTE2:
+        case CallOp::MAKE_UBYTE3:
+        case CallOp::MAKE_UBYTE4:
         case CallOp::MAKE_HALF2:
         case CallOp::MAKE_HALF3:
         case CallOp::MAKE_HALF4:

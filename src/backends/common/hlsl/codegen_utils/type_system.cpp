@@ -51,6 +51,12 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::FLOAT64:
             str << "float64_t"sv;
             return;
+        case Type::Tag::INT8:
+            str << "int8_t"sv;
+            return;
+        case Type::Tag::UINT8:
+            str << "uint8_t"sv;
+            return;
         case Type::Tag::INT16:
             str << "int16_t"sv;
             return;

@@ -287,14 +287,14 @@ struct PrintValue<bool> {
 };
 template<>
 struct PrintValue<luisa::byte> {
-    void operator()(bool const &v, vstd::StringBuilder &str) {
-        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    void operator()(luisa::byte const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("int8_t({})", static_cast<int>(v)));
     }
 };
 template<>
 struct PrintValue<luisa::ubyte> {
-    void operator()(bool const &v, vstd::StringBuilder &str) {
-        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    void operator()(luisa::ubyte const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("uint8_t({}u)", static_cast<uint>(v)));
     }
 };
 template<typename EleType, uint64 N>
@@ -323,6 +323,10 @@ struct PrintValue<Vector<EleType, N>> {
                 varName << "float16_t";
             } else if constexpr (std::is_same_v<EleType, double>) {
                 varName << "float64_t";
+            } else if constexpr (std::is_same_v<EleType, luisa::byte>) {
+                varName << "int8_t";
+            } else if constexpr (std::is_same_v<EleType, luisa::ubyte>) {
+                varName << "uint8_t";
             } else if constexpr (std::is_same_v<EleType, short>) {
                 varName << "int16_t";
             } else if constexpr (std::is_same_v<EleType, ushort>) {

@@ -52,7 +52,9 @@ template <typename T> struct IsUnsigned {};
   }
 
 _SPECIALIZE_ISUNSIGNED(uint8_t4_packed, true);
-_SPECIALIZE_ISUNSIGNED(int8_t4_packed, true);
+_SPECIALIZE_ISUNSIGNED(int8_t4_packed, false);
+_SPECIALIZE_ISUNSIGNED(uint8_t, true);
+_SPECIALIZE_ISUNSIGNED(int8_t, false);
 _SPECIALIZE_ISUNSIGNED(uint32_t, true);
 _SPECIALIZE_ISUNSIGNED(int32_t, false);
 _SPECIALIZE_ISUNSIGNED(float32_t, false);
