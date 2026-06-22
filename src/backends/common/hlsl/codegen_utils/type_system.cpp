@@ -109,8 +109,6 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                 if (ele->is_matrix()) {
                     auto n = vstd::to_string(ele->dimension());
                     str << "_WrappedFloat"sv << n << 'x' << n;
-                } else if (opt->atomicFloatToInt && (ele->is_float32() || ele->is_float64())) {
-                    str << "int"sv;
                 } else {
                     if (ele->is_vector() && ele->dimension() == 3) {
                         GetTypeName(*ele->element(), str, usage);

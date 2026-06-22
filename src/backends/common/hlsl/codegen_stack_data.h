@@ -48,7 +48,6 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool useTex3DBindless : 1 = false;
     bool useBufferBindless : 1 = false;
     bool enable_debug_info : 1 = false;
-    bool atomicFloatToInt : 1 = false;
     // Key: pair of (function hash, variable uid) → validate index in _validate_N array
     struct ValidateKey {
         uint64_t func_hash;

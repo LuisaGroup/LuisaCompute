@@ -484,13 +484,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_READ: {
             bool aliasStruct = TypeIsAliased(expr->type());
-            bool floatToInt = opt->atomicFloatToInt && (expr->type()->is_float32() || expr->type()->is_float64());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
-            }
-            if (floatToInt) {
-                str << "asfloat(";
             }
             str << "_bfread"sv;
             auto elem = args[0]->type()->element();
@@ -510,7 +506,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 }
             }
             str << ')';
-            if (aliasStruct || floatToInt) {
+            if (aliasStruct) {
                 str << ')';
             }
             return;
@@ -518,13 +514,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BUFFER_VOLATILE_READ: {
             mark_coherent(args[0]);
             bool aliasStruct = TypeIsAliased(expr->type());
-            bool floatToInt = opt->atomicFloatToInt && (expr->type()->is_float32() || expr->type()->is_float64());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
-            }
-            if (floatToInt) {
-                str << "asfloat(";
             }
             str << "_volatile_bfread"sv;
             auto elem = args[0]->type()->element();
@@ -539,7 +531,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             PrintArgs();
             // Note: volatile reads use template functions (not macros), so we skip the debug vid
             str << ')';
-            if (aliasStruct || floatToInt) {
+            if (aliasStruct) {
                 str << ')';
             }
             return;
@@ -552,7 +544,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << "_volatile"sv;
             }
             auto elem = args[0]->type()->element();
-            bool floatToInt = opt->atomicFloatToInt && (elem->is_float32() || elem->is_float64());
             bool aliasStruct = TypeIsAliased(elem);
             str << "_bfwrite"sv;
             if (IsNumVec3(*elem)) {
@@ -582,10 +573,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (aliasStruct) {
                 OriginToAliased(args.back()->type(), str);
                 str << '(';
-                args.back()->accept(vis);
-                str << ')';
-            } else if (floatToInt) {
-                str << "asint("sv;
                 args.back()->accept(vis);
                 str << ')';
             } else {

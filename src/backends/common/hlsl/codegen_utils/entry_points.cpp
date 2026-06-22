@@ -176,7 +176,6 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
-    opt->atomicFloatToInt = isSpirV && kernel.propagated_builtin_callables().uses_atomic();
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -269,7 +268,6 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
     opt->enable_debug_info = enable_debug_info;
-    opt->atomicFloatToInt = isSpirV && kernel.propagated_builtin_callables().uses_atomic();
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -279,8 +277,8 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     vstd::StringBuilder codegenData;
     vstd::StringBuilder varData;
     vstd::StringBuilder incrementalFunc;
-    vstd::StringBuilder finalResult;
     opt->incrementalFunc = &incrementalFunc;
+    vstd::StringBuilder finalResult;
     finalResult.reserve(65500);
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
@@ -367,7 +365,6 @@ CodegenResult CodegenUtility::RasterCodegen(
     opt->kernel = vertFunc;
     opt->noRegister = noRegister;
     opt->isRaster = true;
-    opt->atomicFloatToInt = isSpirV && (vertFunc.propagated_builtin_callables().uses_atomic() || pixelFunc.propagated_builtin_callables().uses_atomic());
     auto disposeOpt = vstd::scope_exit([&] {
         opt->isRaster = false;
         CodegenStackData::DeAllocate(std::move(opt));
