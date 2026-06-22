@@ -315,8 +315,7 @@ LoopFusionInfo loop_fusion_pass_run_on_function(Function *function) noexcept {
     auto *def = function->definition();
     if (def == nullptr) { return {}; }
 
-    // Populate SCEV data for trip count comparison.
-    scev_pass_run_on_function(def);
+    static_cast<void>(scev_pass_run_on_function(def));
 
     // Collect all LoopInst in the function in traversal order.
     luisa::vector<LoopInst *> loops;
