@@ -92,7 +92,7 @@ struct FusionCandidate {
     }
 };
 
-[[nodiscard]] int64_t get_constant_int_value(Constant *c) noexcept {
+[[nodiscard]] static int64_t get_const_int_val(Constant *c) noexcept {
     if (c == nullptr) { return 0; }
     if (c->type()->is_int32()) { return static_cast<int64_t>(c->as<int32_t>()); }
     if (c->type()->is_uint32()) { return static_cast<int64_t>(c->as<uint32_t>()); }
@@ -128,9 +128,9 @@ struct FusionCandidate {
     auto *start_c = static_cast<const SCEVConstant *>(add_rec->start())->constant();
     auto *step_c = static_cast<const SCEVConstant *>(add_rec->stride())->constant();
 
-    int64_t start = get_constant_int_value(start_c);
-    int64_t step = get_constant_int_value(step_c);
-    int64_t bound_val = get_constant_int_value(bound);
+    int64_t start = get_const_int_val(start_c);
+    int64_t step = get_const_int_val(step_c);
+    int64_t bound_val = get_const_int_val(bound);
     if (step <= 0) { return false; }
 
     int64_t trips = (bound_val - start + (op == ArithmeticOp::BINARY_LESS_EQUAL ? 1 : 0) + step - 1) / step;

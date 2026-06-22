@@ -2668,17 +2668,26 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
 void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, bool index_is_word_offset, spv::MemoryAccessMask memory_access) noexcept {
     auto uint_type = _builder.makeUintType(32);
     if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type)) {
-        // Typed buffer: direct element access via SPIR-V type system.
-        // Works for scalar, vector, and matrix element types.
-        auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), index});
-        auto ptr_type = _builder.getTypeId(ptr);
-        auto pointee_type = _builder.getContainedTypeId(ptr_type);
-        auto val_type = _builder.getTypeId(value);
-        if (pointee_type != val_type) {
-            value = _builder.createUnaryOp(spv::Op::OpCopyLogical, pointee_type, value);
+        auto buffer_elem_type = buffer_type->element();
+        if (value_type == buffer_elem_type) {
+            // Typed buffer: direct element access via SPIR-V type system.
+            // Works for scalar, vector, and matrix element types.
+            auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), index});
+            auto ptr_type = _builder.getTypeId(ptr);
+            auto pointee_type = _builder.getContainedTypeId(ptr_type);
+            auto val_type = _builder.getTypeId(value);
+            if (pointee_type != val_type) {
+                value = _builder.createUnaryOp(spv::Op::OpCopyLogical, pointee_type, value);
+            }
+            _builder.createStore(value, ptr, memory_access);
+            return;
         }
-        _builder.createStore(value, ptr, memory_access);
-        return;
+        // Vector/aggregate write to a scalar-typed buffer: expand into consecutive scalar writes.
+        // index is a scalar element index, which is also the word offset for 4-byte scalars.
+        if (buffer_elem_type->is_scalar() && !value_type->is_scalar()) {
+            _emit_buffer_write_impl(buffer, index, value, value_type, memory_access);
+            return;
+        }
     }
     // Byte buffer or bindless: word-level access
     auto word_count = value_type->size() / 4u;
