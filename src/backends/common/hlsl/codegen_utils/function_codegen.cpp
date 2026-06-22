@@ -227,17 +227,24 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::CLZ:
             LUISA_DEBUG_ASSERT(args.size() == 1);
+            // CLZ always returns uint (32-bit) per DSL semantics,
+            // so cast argument to uint and use 31 as the bit-width.
             str << "_clz("sv;
-            GetTypeName(*args[0]->type(), str, Usage::NONE);
-            str << ',';
-            args[0]->accept(vis);
-            str << ',';
             if (args[0]->type()->is_vector()) {
-                str << luisa::format("{}", args[0]->type()->element()->size() * 8 - 1);
+                str << "uint"sv << args[0]->type()->dimension() << ",("sv;
+                str << "uint"sv << args[0]->type()->dimension() << ")("sv;
+                args[0]->accept(vis);
+                str << "),31)"sv;
+            } else if (args[0]->type()->size() < 4u) {
+                str << "uint,("sv;
+                str << "uint)("sv;
+                args[0]->accept(vis);
+                str << "),31)"sv;
             } else {
-                str << luisa::format("{}", args[0]->type()->size() * 8 - 1);
+                str << "uint,"sv;
+                args[0]->accept(vis);
+                str << ",31)"sv;
             }
-            str << ')';
             return;
         case CallOp::CTZ:
             str << "_ctz"sv;
@@ -246,8 +253,23 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "countbits"sv;
             break;
         case CallOp::REVERSE:
-            str << "reversebits"sv;
-            break;
+            // REVERSE always returns uint (32-bit) per DSL semantics,
+            // so cast argument to uint before reversing bits.
+            LUISA_DEBUG_ASSERT(args.size() == 1);
+            str << "reversebits("sv;
+            if (args[0]->type()->is_vector()) {
+                str << "uint"sv << args[0]->type()->dimension() << '(';
+                args[0]->accept(vis);
+                str << ")"sv;
+            } else if (args[0]->type()->size() < 4u) {
+                str << "uint("sv;
+                args[0]->accept(vis);
+                str << ")"sv;
+            } else {
+                args[0]->accept(vis);
+            }
+            str << ')';
+            return;
         case CallOp::ISINF:
             str << "isinf"sv;
             break;

@@ -802,6 +802,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &vk11_feature,
         .storageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
+        .uniformAndStorageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
         .shaderBufferInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderSharedInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderFloat16 = enable_16bit ? VK_TRUE : VK_FALSE,
