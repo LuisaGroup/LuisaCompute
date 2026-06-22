@@ -24,6 +24,7 @@
 #include <utility>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
@@ -567,229 +568,225 @@ int main(int argc, char *argv[]) {
 
     luisa::vector<float> O_cpu(qkv_size, 0.0f);
 
-    // if (use_mla) {
-    //     // CPU-side MLA reference.
-    //     luisa::vector<float> Q_cpu(qkv_size, 0.0f);
-    //     luisa::vector<float> Krope_cpu(rope_size, 0.0f);
-    //     luisa::vector<float> cKV_cpu(latent_size, 0.0f);
-    //     luisa::vector<float> V_cpu(qkv_size, 0.0f);
-    //     luisa::vector<float> S_cpu(scores_size, 0.0f);
-    //     luisa::vector<float> A_cpu(scores_size, 0.0f);
+    // Fiber scheduler for the multi-threaded CPU reference.
+    luisa::fiber::scheduler cpu_scheduler;
 
-    //     auto apply_rope_pair_cpu = [](float x0, float x1, uint pair, uint pos) {
-    //         float freq = 1.0f / std::pow(rope_theta, (2.0f * static_cast<float>(pair)) / rope_dim);
-    //         float angle = static_cast<float>(pos) * freq;
-    //         float c = std::cos(angle);
-    //         float s = std::sin(angle);
-    //         return std::make_pair(x0 * c - x1 * s, x0 * s + x1 * c);
-    //     };
+    auto apply_rope_pair_cpu = [](float x0, float x1, uint pair, uint pos) noexcept {
+        float freq = 1.0f / std::pow(rope_theta, (2.0f * static_cast<float>(pair)) / rope_dim);
+        float angle = static_cast<float>(pos) * freq;
+        float c = std::cos(angle);
+        float s = std::sin(angle);
+        return std::make_pair(x0 * c - x1 * s, x0 * s + x1 * c);
+    };
 
-    //     // Project Q.
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint i = 0u; i < seq_len; ++i) {
-    //             for (uint h = 0u; h < num_heads; ++h) {
-    //                 for (uint d = 0u; d < head_dim; ++d) {
-    //                     float acc = 0.0f;
-    //                     for (uint e = 0u; e < hidden_dim; ++e) {
-    //                         uint wi = h * head_dim * hidden_dim + d * hidden_dim + e;
-    //                         acc += Wq_host[wi] * H_host[hidden_index(b, i, e)];
-    //                     }
-    //                     Q_cpu[qkv_index(b, h, i, d)] = acc;
-    //                 }
-    //                 // RoPE on the positional slice.
-    //                 for (uint r = 0u; r < rope_dim / 2u; ++r) {
-    //                     uint d0 = content_dim + r * 2u;
-    //                     uint d1 = d0 + 1u;
-    //                     auto [x0, x1] = apply_rope_pair_cpu(
-    //                         Q_cpu[qkv_index(b, h, i, d0)],
-    //                         Q_cpu[qkv_index(b, h, i, d1)], r, i);
-    //                     Q_cpu[qkv_index(b, h, i, d0)] = x0;
-    //                     Q_cpu[qkv_index(b, h, i, d1)] = x1;
-    //                 }
-    //             }
-    //         }
-    //     }
+    if (use_mla) {
+        // CPU-side MLA reference.
+        luisa::vector<float> Q_cpu(qkv_size, 0.0f);
+        luisa::vector<float> Krope_cpu(rope_size, 0.0f);
+        luisa::vector<float> cKV_cpu(latent_size, 0.0f);
+        luisa::vector<float> V_cpu(qkv_size, 0.0f);
+        luisa::vector<float> S_cpu(scores_size, 0.0f);
+        luisa::vector<float> A_cpu(scores_size, 0.0f);
 
-    //     // Compress KV.
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint i = 0u; i < seq_len; ++i) {
-    //             for (uint d = 0u; d < latent_dim; ++d) {
-    //                 float acc = 0.0f;
-    //                 for (uint e = 0u; e < hidden_dim; ++e) {
-    //                     acc += Wdkv_host[d * hidden_dim + e] * H_host[hidden_index(b, i, e)];
-    //                 }
-    //                 cKV_cpu[latent_index(b, i, d)] = acc;
-    //             }
-    //         }
-    //     }
+        // Project Q.
+        luisa::fiber::parallel(batch * seq_len, [&](uint32_t idx) noexcept {
+            uint b = idx / seq_len;
+            uint i = idx % seq_len;
+            for (uint h = 0u; h < num_heads; ++h) {
+                for (uint d = 0u; d < head_dim; ++d) {
+                    float acc = 0.0f;
+                    for (uint e = 0u; e < hidden_dim; ++e) {
+                        uint wi = h * head_dim * hidden_dim + d * hidden_dim + e;
+                        acc += Wq_host[wi] * H_host[hidden_index(b, i, e)];
+                    }
+                    Q_cpu[qkv_index(b, h, i, d)] = acc;
+                }
+                // RoPE on the positional slice.
+                for (uint r = 0u; r < rope_dim / 2u; ++r) {
+                    uint d0 = content_dim + r * 2u;
+                    uint d1 = d0 + 1u;
+                    auto rot = apply_rope_pair_cpu(
+                        Q_cpu[qkv_index(b, h, i, d0)],
+                        Q_cpu[qkv_index(b, h, i, d1)], r, i);
+                    Q_cpu[qkv_index(b, h, i, d0)] = rot.first;
+                    Q_cpu[qkv_index(b, h, i, d1)] = rot.second;
+                }
+            }
+        });
 
-    //     // Up-project V.
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint j = 0u; j < seq_len; ++j) {
-    //             for (uint h = 0u; h < num_heads; ++h) {
-    //                 for (uint d = 0u; d < head_dim; ++d) {
-    //                     float acc = 0.0f;
-    //                     for (uint l = 0u; l < latent_dim; ++l) {
-    //                         uint wi = h * head_dim * latent_dim + d * latent_dim + l;
-    //                         acc += Wuv_host[wi] * cKV_cpu[latent_index(b, j, l)];
-    //                     }
-    //                     V_cpu[qkv_index(b, h, j, d)] = acc;
-    //                 }
-    //             }
-    //         }
-    //     }
+        // Compress KV.
+        luisa::fiber::parallel(batch * seq_len, [&](uint32_t idx) noexcept {
+            uint b = idx / seq_len;
+            uint i = idx % seq_len;
+            for (uint d = 0u; d < latent_dim; ++d) {
+                float acc = 0.0f;
+                for (uint e = 0u; e < hidden_dim; ++e) {
+                    acc += Wdkv_host[d * hidden_dim + e] * H_host[hidden_index(b, i, e)];
+                }
+                cKV_cpu[latent_index(b, i, d)] = acc;
+            }
+        });
 
-    //     // Decoupled RoPE keys.
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint j = 0u; j < seq_len; ++j) {
-    //             for (uint h = 0u; h < num_heads; ++h) {
-    //                 for (uint r = 0u; r < rope_dim; ++r) {
-    //                     float acc = 0.0f;
-    //                     for (uint e = 0u; e < hidden_dim; ++e) {
-    //                         uint wi = h * rope_dim * hidden_dim + r * hidden_dim + e;
-    //                         acc += Wkr_host[wi] * H_host[hidden_index(b, j, e)];
-    //                     }
-    //                     Krope_cpu[rope_index(b, h, j, r)] = acc;
-    //                 }
-    //                 for (uint r = 0u; r < rope_dim / 2u; ++r) {
-    //                     uint d0 = r * 2u;
-    //                     uint d1 = d0 + 1u;
-    //                     auto [x0, x1] = apply_rope_pair_cpu(
-    //                         Krope_cpu[rope_index(b, h, j, d0)],
-    //                         Krope_cpu[rope_index(b, h, j, d1)], r, j);
-    //                     Krope_cpu[rope_index(b, h, j, d0)] = x0;
-    //                     Krope_cpu[rope_index(b, h, j, d1)] = x1;
-    //                 }
-    //             }
-    //         }
-    //     }
+        // Up-project V.
+        luisa::fiber::parallel(batch * seq_len * num_heads, [&](uint32_t idx) noexcept {
+            uint b = idx / (seq_len * num_heads);
+            uint h = (idx / seq_len) % num_heads;
+            uint j = idx % seq_len;
+            for (uint d = 0u; d < head_dim; ++d) {
+                float acc = 0.0f;
+                for (uint l = 0u; l < latent_dim; ++l) {
+                    uint wi = h * head_dim * latent_dim + d * latent_dim + l;
+                    acc += Wuv_host[wi] * cKV_cpu[latent_index(b, j, l)];
+                }
+                V_cpu[qkv_index(b, h, j, d)] = acc;
+            }
+        });
 
-    //     // MLA scores with matrix absorption.
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint h = 0u; h < num_heads; ++h) {
-    //             for (uint i = 0u; i < seq_len; ++i) {
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     // q_latent = Wuk[h]^T @ q_content.
-    //                     float q_latent[latent_dim];
-    //                     for (uint d = 0u; d < latent_dim; ++d) {
-    //                         float acc = 0.0f;
-    //                         for (uint c = 0u; c < content_dim; ++c) {
-    //                             uint wi = h * content_dim * latent_dim + c * latent_dim + d;
-    //                             acc += Wuk_host[wi] * Q_cpu[qkv_index(b, h, i, c)];
-    //                         }
-    //                         q_latent[d] = acc;
-    //                     }
+        // Decoupled RoPE keys.
+        luisa::fiber::parallel(batch * seq_len * num_heads, [&](uint32_t idx) noexcept {
+            uint b = idx / (seq_len * num_heads);
+            uint h = (idx / seq_len) % num_heads;
+            uint j = idx % seq_len;
+            for (uint r = 0u; r < rope_dim; ++r) {
+                float acc = 0.0f;
+                for (uint e = 0u; e < hidden_dim; ++e) {
+                    uint wi = h * rope_dim * hidden_dim + r * hidden_dim + e;
+                    acc += Wkr_host[wi] * H_host[hidden_index(b, j, e)];
+                }
+                Krope_cpu[rope_index(b, h, j, r)] = acc;
+            }
+            for (uint r = 0u; r < rope_dim / 2u; ++r) {
+                uint d0 = r * 2u;
+                uint d1 = d0 + 1u;
+                auto rot = apply_rope_pair_cpu(
+                    Krope_cpu[rope_index(b, h, j, d0)],
+                    Krope_cpu[rope_index(b, h, j, d1)], r, j);
+                Krope_cpu[rope_index(b, h, j, d0)] = rot.first;
+                Krope_cpu[rope_index(b, h, j, d1)] = rot.second;
+            }
+        });
 
-    //                     float content_score = 0.0f;
-    //                     for (uint d = 0u; d < latent_dim; ++d) {
-    //                         content_score += q_latent[d] * cKV_cpu[latent_index(b, j, d)];
-    //                     }
+        // MLA scores with matrix absorption.
+        luisa::fiber::parallel(batch * num_heads * seq_len, [&](uint32_t idx) noexcept {
+            uint b = idx / (num_heads * seq_len);
+            uint h = (idx / seq_len) % num_heads;
+            uint i = idx % seq_len;
+            for (uint j = 0u; j < seq_len; ++j) {
+                // q_latent = Wuk[h]^T @ q_content.
+                float q_latent[latent_dim];
+                for (uint d = 0u; d < latent_dim; ++d) {
+                    float acc = 0.0f;
+                    for (uint c = 0u; c < content_dim; ++c) {
+                        uint wi = h * content_dim * latent_dim + c * latent_dim + d;
+                        acc += Wuk_host[wi] * Q_cpu[qkv_index(b, h, i, c)];
+                    }
+                    q_latent[d] = acc;
+                }
 
-    //                     float pos_score = 0.0f;
-    //                     for (uint r = 0u; r < rope_dim; ++r) {
-    //                         pos_score += Q_cpu[qkv_index(b, h, i, content_dim + r)] *
-    //                                      Krope_cpu[rope_index(b, h, j, r)];
-    //                     }
+                float content_score = 0.0f;
+                for (uint d = 0u; d < latent_dim; ++d) {
+                    content_score += q_latent[d] * cKV_cpu[latent_index(b, j, d)];
+                }
 
-    //                     S_cpu[score_index(b, h, i, j)] = (content_score + pos_score) * scale;
-    //                 }
-    //             }
-    //         }
-    //     }
+                float pos_score = 0.0f;
+                for (uint r = 0u; r < rope_dim; ++r) {
+                    pos_score += Q_cpu[qkv_index(b, h, i, content_dim + r)] *
+                                 Krope_cpu[rope_index(b, h, j, r)];
+                }
 
-    //     // Softmax.
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint h = 0u; h < num_heads; ++h) {
-    //             for (uint i = 0u; i < seq_len; ++i) {
-    //                 uint base = score_index(b, h, i, 0);
-    //                 float m = -1e30f;
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     m = std::max(m, S_cpu[base + j]);
-    //                 }
-    //                 float s = 0.0f;
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     float e = std::exp(S_cpu[base + j] - m);
-    //                     A_cpu[base + j] = e;
-    //                     s += e;
-    //                 }
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     A_cpu[base + j] /= s;
-    //                 }
-    //             }
-    //         }
-    //     }
+                S_cpu[score_index(b, h, i, j)] = (content_score + pos_score) * scale;
+            }
+        });
 
-    //     // AV weighted sum.
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint h = 0u; h < num_heads; ++h) {
-    //             for (uint i = 0u; i < seq_len; ++i) {
-    //                 for (uint d = 0u; d < head_dim; ++d) {
-    //                     float sum = 0.0f;
-    //                     for (uint j = 0u; j < seq_len; ++j) {
-    //                         sum += A_cpu[score_index(b, h, i, j)] * V_cpu[qkv_index(b, h, j, d)];
-    //                     }
-    //                     O_cpu[qkv_index(b, h, i, d)] = sum;
-    //                 }
-    //             }
-    //         }
-    //     }
-    // } else {
-    //     // CPU-side MHA reference (original baseline).
-    //     luisa::vector<float> S_cpu(scores_size, 0.0f);
-    //     luisa::vector<float> A_cpu(scores_size, 0.0f);
+        // Softmax.
+        luisa::fiber::parallel(batch * num_heads * seq_len, [&](uint32_t idx) noexcept {
+            uint b = idx / (num_heads * seq_len);
+            uint h = (idx / seq_len) % num_heads;
+            uint i = idx % seq_len;
+            uint base = score_index(b, h, i, 0);
+            float m = -1e30f;
+            for (uint j = 0u; j < seq_len; ++j) {
+                m = std::max(m, S_cpu[base + j]);
+            }
+            float s = 0.0f;
+            for (uint j = 0u; j < seq_len; ++j) {
+                float e = std::exp(S_cpu[base + j] - m);
+                A_cpu[base + j] = e;
+                s += e;
+            }
+            for (uint j = 0u; j < seq_len; ++j) {
+                A_cpu[base + j] /= s;
+            }
+        });
 
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint h = 0u; h < num_heads; ++h) {
-    //             for (uint i = 0u; i < seq_len; ++i) {
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     float sum = 0.0f;
-    //                     for (uint d = 0u; d < head_dim; ++d) {
-    //                         uint head_off = (b * num_heads + h) * seq_len * head_dim;
-    //                         uint qi = head_off + i * head_dim + d;
-    //                         uint ki = head_off + j * head_dim + d;
-    //                         sum += Q_host[qi] * K_host[ki];
-    //                     }
-    //                     S_cpu[score_index(b, h, i, j)] = sum * scale;
-    //                 }
-    //             }
-    //         }
-    //     }
+        // AV weighted sum.
+        luisa::fiber::parallel(batch * num_heads * seq_len * head_dim, [&](uint32_t idx) noexcept {
+            uint b = idx / (num_heads * seq_len * head_dim);
+            uint h = (idx / (seq_len * head_dim)) % num_heads;
+            uint i = (idx / head_dim) % seq_len;
+            uint d = idx % head_dim;
+            float sum = 0.0f;
+            for (uint j = 0u; j < seq_len; ++j) {
+                sum += A_cpu[score_index(b, h, i, j)] * V_cpu[qkv_index(b, h, j, d)];
+            }
+            O_cpu[qkv_index(b, h, i, d)] = sum;
+        });
+    } else {
+        // CPU-side MHA reference (multi-threaded).
+        luisa::vector<float> S_cpu(scores_size, 0.0f);
+        luisa::vector<float> A_cpu(scores_size, 0.0f);
 
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint h = 0u; h < num_heads; ++h) {
-    //             for (uint i = 0u; i < seq_len; ++i) {
-    //                 uint base = score_index(b, h, i, 0);
-    //                 float m = -1e30f;
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     m = std::max(m, S_cpu[base + j]);
-    //                 }
-    //                 float s = 0.0f;
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     float e = std::exp(S_cpu[base + j] - m);
-    //                     A_cpu[base + j] = e;
-    //                     s += e;
-    //                 }
-    //                 for (uint j = 0u; j < seq_len; ++j) {
-    //                     A_cpu[base + j] /= s;
-    //                 }
-    //             }
-    //         }
-    //     }
+        // QK^T + scale.
+        luisa::fiber::parallel(batch * num_heads * seq_len, [&](uint32_t idx) noexcept {
+            uint b = idx / (num_heads * seq_len);
+            uint h = (idx / seq_len) % num_heads;
+            uint i = idx % seq_len;
+            for (uint j = 0u; j < seq_len; ++j) {
+                float sum = 0.0f;
+                for (uint d = 0u; d < head_dim; ++d) {
+                    uint head_off = (b * num_heads + h) * seq_len * head_dim;
+                    uint qi = head_off + i * head_dim + d;
+                    uint ki = head_off + j * head_dim + d;
+                    sum += Q_host[qi] * K_host[ki];
+                }
+                S_cpu[score_index(b, h, i, j)] = sum * scale;
+            }
+        });
 
-    //     for (uint b = 0u; b < batch; ++b) {
-    //         for (uint h = 0u; h < num_heads; ++h) {
-    //             for (uint i = 0u; i < seq_len; ++i) {
-    //                 for (uint d = 0u; d < head_dim; ++d) {
-    //                     float sum = 0.0f;
-    //                     for (uint j = 0u; j < seq_len; ++j) {
-    //                         sum += A_cpu[score_index(b, h, i, j)] * V_host[qkv_index(b, h, j, d)];
-    //                     }
-    //                     O_cpu[qkv_index(b, h, i, d)] = sum;
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+        // Softmax.
+        luisa::fiber::parallel(batch * num_heads * seq_len, [&](uint32_t idx) noexcept {
+            uint b = idx / (num_heads * seq_len);
+            uint h = (idx / seq_len) % num_heads;
+            uint i = idx % seq_len;
+            uint base = score_index(b, h, i, 0);
+            float m = -1e30f;
+            for (uint j = 0u; j < seq_len; ++j) {
+                m = std::max(m, S_cpu[base + j]);
+            }
+            float s = 0.0f;
+            for (uint j = 0u; j < seq_len; ++j) {
+                float e = std::exp(S_cpu[base + j] - m);
+                A_cpu[base + j] = e;
+                s += e;
+            }
+            for (uint j = 0u; j < seq_len; ++j) {
+                A_cpu[base + j] /= s;
+            }
+        });
+
+        // AV weighted sum.
+        luisa::fiber::parallel(batch * num_heads * seq_len * head_dim, [&](uint32_t idx) noexcept {
+            uint b = idx / (num_heads * seq_len * head_dim);
+            uint h = (idx / (seq_len * head_dim)) % num_heads;
+            uint i = (idx / head_dim) % seq_len;
+            uint d = idx % head_dim;
+            float sum = 0.0f;
+            for (uint j = 0u; j < seq_len; ++j) {
+                sum += A_cpu[score_index(b, h, i, j)] * V_host[qkv_index(b, h, j, d)];
+            }
+            O_cpu[qkv_index(b, h, i, d)] = sum;
+        });
+    }
 
     double cpu_ms = cpu_clock.toc();
     LUISA_INFO("  CPU reference completed in {:.2f} ms", cpu_ms);

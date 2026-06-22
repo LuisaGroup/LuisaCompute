@@ -182,7 +182,14 @@ SpirvCodegenEntry::_collect_kernel_argument_usages(Function kernel, const xir::M
         auto ast_arg = ast_args[i];
         auto usage = kernel.variable_usage(ast_arg.uid());
         if (i < xir_args.size()) {
-            usage = _function_argument_usage_of(xir_kernel, xir_args[i]);
+            // Merge XIR analysis with AST analysis:
+            // The XIR analysis can add READ/WRITE/READ_WRITE on top of the AST,
+            // but should NOT subtract. This ensures that buffers which are both
+            // read and written (like read-then-write patterns on the same element)
+            // are classified READ_WRITE even if the XIR instruction traversal
+            // misses one of the accesses (e.g., due to optimization passes).
+            auto xir_usage = _function_argument_usage_of(xir_kernel, xir_args[i]);
+            usage = static_cast<Usage>(luisa::to_underlying(usage) | luisa::to_underlying(xir_usage));
         }
         result.emplace_back(ast_arg, usage);
     }

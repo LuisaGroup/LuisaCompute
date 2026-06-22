@@ -537,6 +537,12 @@ void SpirvCodegenEntry::generate_binding(Function kernel, luisa::span<const std:
                 // - buffer is used with atomics, or
                 // - element type contains bool (word-level storage causes false sharing).
                 // Coherent forces GPU to bypass caches; for disjoint writes this is pure overhead.
+                if (!writable && elem_type != nullptr) {
+                    // Typed read-only buffer: add NonWritable so the Vulkan driver
+                    // knows this binding is read-only, enabling potential read-only
+                    // descriptor optimizations and preventing accidental writes.
+                    _builder.addDecoration(var, spv::Decoration::NonWritable);
+                }
                 if (writable && elem_type != nullptr) {
                     bool needs_coherent = _needs_atomic_buffer_types.contains(elem_type);
                     if (!needs_coherent) {
