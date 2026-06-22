@@ -189,7 +189,7 @@ struct LoopVectorizationContext {
 
 [[nodiscard]] static bool check_legality(LoopVectorizationContext &ctx) noexcept {
     if (!is_loop_structure_valid(ctx)) { return false; }
-    scev_pass_run_on_function(ctx.def);
+    static_cast<void>(scev_pass_run_on_function(ctx.def));
     if (!analyze_trip_count(ctx)) { return false; }
 
     // Require unit stride for the simple vectorization scheme.
