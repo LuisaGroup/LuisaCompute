@@ -31,8 +31,8 @@ foreach (sdk ${COMPONENTS})
     set(valid TRUE)
     if (sdk STREQUAL "dx")
         download_sdk(${sdk}
-                "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk_20260605.zip"
-                "bf205362c9a29171886da5c0d95627f39f82fb250b626ee3c7610032a473e753")
+                "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk_20260622.zip"
+                "79a7aeef3cfbfa0207836efc4dbd8dbd9a4d77659e87f039ed1ac18302a1328b")
     else ()
         set(valid FALSE)
         message(WARNING "Unknown SDK: ${sdk}")

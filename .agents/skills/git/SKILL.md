@@ -104,7 +104,7 @@ Computes SHA256 of the local zip, then updates:
 
 ```bash
 # Provide zip name explicitly
-python scripts/update_sha256.py dx_sdk_20260605.zip
+python scripts/update_sha256.py dx_sdk_20260622.zip
 
 # Auto-detect from CMakeLists.txt URL
 python scripts/update_sha256.py
