@@ -1432,9 +1432,86 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.native_handle = shader->pipeline();
     }
 #else
-    LUISA_ERROR("Vulkan compute shaders require native SPIR-V codegen. "
-                "Enable LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV or "
-                "LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV.");
+    // HLSL codegen fallback path
+    {
+        uint mask = 0;
+        if (option.enable_fast_math) { mask |= 1; }
+        if (option.enable_debug_info) { mask |= 2; }
+        
+        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
+        vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+        
+        if (option.compile_only) {
+            LUISA_ASSERT(!option.name.empty(), "Vulkan compile-only shader requires a non-empty shader name.");
+            info.invalidate();
+            if (print_code()) {
+                auto f = fopen("hlsl_output.hlsl", "ab");
+                if (f) {
+                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
+                    fclose(f);
+                }
+            }
+            auto comp_result = Device::compiler()->compile_compute(
+                code.result.view(),
+                !option.enable_debug_info,
+                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+                option.enable_fast_math,
+                true,
+                option.enable_debug_info);
+            comp_result.multi_visit(
+                [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
+                    auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
+                    ShaderSerializer::serialize_bytecode(
+                        code.properties,
+                        saved_args,
+                        check_md5,
+                        code.typeMD5,
+                        kernel.block_size(),
+                        option.name,
+                        {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
+                        SerdeType::kByteCode,
+                        _binary_io,
+                        code.useTex2DBindless,
+                        code.useTex3DBindless,
+                        code.useBufferBindless,
+                        code.printers);
+                },
+                [](auto &&err) {
+                    LUISA_ERROR("Compile Error: {}", err);
+                    return nullptr;
+                });
+        } else {
+            vstd::string_view file_name;
+            vstd::string str_cache;
+            SerdeType serde_type;
+            if (option.enable_cache) {
+                if (option.name.empty()) {
+                    str_cache << check_md5.to_string(false) << ".spv"sv;
+                    file_name = str_cache;
+                    serde_type = SerdeType::kCache;
+                } else {
+                    file_name = option.name;
+                    serde_type = SerdeType::kByteCode;
+                }
+            }
+            auto shader = ComputeShader::compile(
+                _binary_io,
+                this,
+                ShaderSerializer::serialize_saved_args(kernel),
+                [&]() { return std::move(code); },
+                check_md5,
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                kernel.block_size(),
+                file_name,
+                serde_type,
+                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+                option.enable_fast_math);
+            LUISA_VERBOSE("ComputeShader (HLSL) created, pipeline: {}",
+                          reinterpret_cast<void *>(shader->pipeline()));
+            info.handle = reinterpret_cast<uint64_t>(shader);
+            info.native_handle = shader->pipeline();
+        }
+    }
 #endif
     info.block_size = kernel.block_size();
     return info;

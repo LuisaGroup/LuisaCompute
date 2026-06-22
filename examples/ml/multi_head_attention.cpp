@@ -35,6 +35,25 @@
 using namespace luisa;
 using namespace luisa::compute;
 
+// -- Constants ---------------------------------------------------------
+// Kept at namespace scope so they remain constant expressions inside DSL
+// lambdas (they are not captured, so they can be used as template arguments
+// such as in $array<float, latent_dim>).
+constexpr uint batch     = 16u;
+constexpr uint num_heads = 8u;
+constexpr uint seq_len   = 256u;
+constexpr uint head_dim  = 64u;
+
+// MLA-specific dimensions.
+constexpr uint hidden_dim  = 512u;// input hidden size h_t
+constexpr uint latent_dim  = 64u;// compressed KV dim d_c
+constexpr uint rope_dim    = 16u; // decoupled RoPE dim d_h^R
+constexpr uint content_dim = head_dim - rope_dim;
+constexpr float rope_theta = 10000.0f;
+
+static_assert(content_dim > 0u, "head_dim must be larger than rope_dim");
+static_assert(rope_dim % 2u == 0u, "rope_dim must be even for pair-wise RoPE");
+
 int main(int argc, char *argv[]) {
 
     if (argc <= 1) {
@@ -52,21 +71,6 @@ int main(int argc, char *argv[]) {
     }
     LUISA_INFO("Path: {}", use_mla ? "MLA" : "MHA");
 
-    // -- Constants ---------------------------------------------------------
-    constexpr uint batch     = 16u;
-    constexpr uint num_heads = 8u;
-    constexpr uint seq_len   = 256u;
-    constexpr uint head_dim  = 64u;
-
-    // MLA-specific dimensions.
-    constexpr uint hidden_dim  = 512u;// input hidden size h_t
-    constexpr uint latent_dim  = 64u;// compressed KV dim d_c
-    constexpr uint rope_dim    = 16u; // decoupled RoPE dim d_h^R
-    constexpr uint content_dim = head_dim - rope_dim;
-    constexpr float rope_theta = 10000.0f;
-
-    static_assert(content_dim > 0u, "head_dim must be larger than rope_dim");
-    static_assert(rope_dim % 2u == 0u, "rope_dim must be even for pair-wise RoPE");
 
     const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
 

@@ -30,7 +30,7 @@ option("lc_use_lto", {default=false})
 -- enable Vulkan backend
 option("lc_vk_backend", {default = true})
 
-option("lc_vk_backend_use_xir_spirv", {default = true})
+option("lc_vk_backend_use_xir_spirv", {default = false})
 -- enable toy C backend for testing and debugging
 option("lc_toy_c_backend", {default = false})
 -- enable NVIDIA-CUDA backend

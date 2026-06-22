@@ -90,7 +90,7 @@ ComputeShader::~ComputeShader() {
     vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
     vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
 }
-ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
+ComputeShader *ComputeShader::compile(
     BinaryIO const *bin_io,
     Device *device,
     vstd::vector<SavedArgument> &&saved_args,
@@ -105,20 +105,12 @@ ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
     uint validation_count,
     luisa::optional<uint8_t> required_subgroup_size) {
 
-    if (serde_type != SerdeType::kBuiltin) [[unlikely]] {
-        LUISA_ERROR("Vulkan HLSL-to-SPIR-V compute compilation is restricted to internal builtins. "
-                    "User compute shaders must use native SPIR-V codegen.");
-    }
-
     auto result = required_subgroup_size ?
                       ShaderSerializer::DeserResult{} :
                       ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
     // cache invalid, need compile
     bool write_cache = !required_subgroup_size && !file_name.empty();
     if (!result.shader) {
-        if (serde_type == SerdeType::kBuiltin) [[unlikely]] {
-            LUISA_WARNING("Cached SPIRV {} is invalid!", file_name);
-        }
         auto str = codegen();
         vstd::MD5 md5;
         if (write_cache) {
@@ -196,5 +188,41 @@ ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
             });
     }
     return static_cast<ComputeShader *>(result.shader);
+}
+
+ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
+    BinaryIO const *bin_io,
+    Device *device,
+    vstd::vector<SavedArgument> &&saved_args,
+    vstd::function<hlsl::CodegenResult()> const &codegen,
+    vstd::optional<vstd::MD5> const &code_md5,
+    vstd::vector<Argument> &&bindings,
+    uint3 block_size,
+    vstd::string_view file_name,
+    SerdeType serde_type,
+    uint shader_model,
+    bool unsafe_math,
+    uint validation_count,
+    luisa::optional<uint8_t> required_subgroup_size) {
+
+    if (serde_type != SerdeType::kBuiltin) [[unlikely]] {
+        LUISA_ERROR("Vulkan HLSL-to-SPIR-V compute compilation is restricted to internal builtins. "
+                    "User compute shaders must use native SPIR-V codegen.");
+    }
+
+    return compile(
+        bin_io,
+        device,
+        std::move(saved_args),
+        codegen,
+        code_md5,
+        std::move(bindings),
+        block_size,
+        file_name,
+        serde_type,
+        shader_model,
+        unsafe_math,
+        validation_count,
+        required_subgroup_size);
 }
 }// namespace lc::vk
