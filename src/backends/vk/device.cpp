@@ -1451,6 +1451,20 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                     fclose(f);
                 }
             }
+            // Try loading from cache before compiling, like the non-compile-only branch.
+            auto cache_result = ShaderSerializer::try_deser_compute(
+                this,
+                {check_md5},
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                option.name,
+                SerdeType::kByteCode,
+                _binary_io);
+            if (cache_result.shader) {
+                delete static_cast<ComputeShader *>(cache_result.shader);
+                LUISA_VERBOSE("ComputeShader (HLSL compile-only) loaded from cache.");
+                info.block_size = kernel.block_size();
+                return info;
+            }
             auto comp_result = Device::compiler()->compile_compute(
                 code.result.view(),
                 !option.enable_debug_info,

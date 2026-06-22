@@ -120,6 +120,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/if_conversion.cpp
         passes/indvar_simplify.cpp
         passes/pass_pipeline.cpp
+        passes/fuse_consecutive_buffer_reads.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})

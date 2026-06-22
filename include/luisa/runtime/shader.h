@@ -303,7 +303,7 @@ public:
         : ShaderBase{device, [&] {
                          auto info = device->create_shader(option, kernel);
 #ifdef LUISA_ENABLE_SAFE_MODE
-                         if (!info.valid()) {
+                         if (!info.valid() && !option.compile_only) {
                              LUISA_ERROR("Failed to create shader.");
                          }
 #endif
