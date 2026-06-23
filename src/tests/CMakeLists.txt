@@ -60,6 +60,7 @@ luisa_compute_add_test(test_ast_basic       unit/ast/test_ast_basic.cpp)
 luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
 target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/runtime)
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
+luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
 
 # --- unit/dsl: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_binding_group          unit/dsl/test_binding_group.cpp)

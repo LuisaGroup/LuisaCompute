@@ -90,6 +90,18 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
     virtual ~DirectXDeviceConfigExt() noexcept override = default;
     [[nodiscard]] virtual luisa::span<DXCustomCmd::EnhancedResourceUsage const> before_states(uint64_t stream_handle) noexcept { return {}; }
     [[nodiscard]] virtual luisa::span<DXCustomCmd::EnhancedResourceUsage const> after_states(uint64_t stream_handle) noexcept { return {}; }
+
+    // Optional feedback from Device creation about whether the requested
+    // experimental features (e.g. cooperative vectors) could be enabled.
+    virtual void SetExperimentalFeaturesEnabled(bool value) noexcept {
+        _experimental_features_enabled = value;
+    }
+    [[nodiscard]] bool ExperimentalFeaturesEnabled() const noexcept {
+        return _experimental_features_enabled;
+    }
+
+protected:
+    bool _experimental_features_enabled = false;
 };
 
 }// namespace luisa::compute

@@ -55,6 +55,7 @@ test_proj("test_builtin_kernel", "unit/ast/test_builtin_kernel.cpp", false, func
     add_includedirs("$(projectdir)/src/runtime")
 end)
 test_proj("test_manual_ast", "unit/ast/test_manual_ast.cpp")
+test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
 
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
