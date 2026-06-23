@@ -90,14 +90,13 @@ python scripts/update_sha256.py [zip_name]
 | Arg | Effect |
 |-----|--------|
 | **zip_name given** | Uses `SDKs/<zip_name>` as the local zip; must exist. |
-| **zip_name omitted** | Parses zip name from `LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL` in `src/backends/dx/CMakeLists.txt`. |
+| **zip_name omitted** | Parses zip name from `LUISA_COMPUTE_DX_SDK` in `scripts/sdks.cmake`. |
 
 Computes SHA256 of the local zip, then updates:
 
 | File | What changes |
 |------|-------------|
-| `src/backends/dx/CMakeLists.txt` | `LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL` + `LUISA_COMPUTE_DX_SDK_SHA256` |
-| `scripts/download_sdks.cmake` | URL + SHA256 inside `if (sdk STREQUAL "dx")` block |
+| `scripts/sdks.cmake` | `LUISA_COMPUTE_DX_SDK` (URL + SHA256 as one CMake list) |
 | `scripts/find_sdk.lua` | `name` field under `dx_sdk` entry |
 
 ### Examples

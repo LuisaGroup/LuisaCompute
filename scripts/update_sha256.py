@@ -5,13 +5,12 @@ Usage:
     python scripts/update_sha256.py [zip_name]
 
 If zip_name is given, it must match a file under SDKs/ (e.g. dx_sdk_20260511.zip).
-If omitted, the zip name is parsed from LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL in
-src/backends/dx/CMakeLists.txt (existing behaviour).
+If omitted, the zip name is parsed from LUISA_COMPUTE_DX_SDK in
+scripts/sdks.cmake (existing behaviour).
 
 Files updated:
-    1. src/backends/dx/CMakeLists.txt          — URL + SHA256
-    2. scripts/download_sdks.cmake             — URL + SHA256
-    3. scripts/find_sdk.lua                    — dx_sdk name
+    1. scripts/sdks.cmake                      — URL + SHA256
+    2. scripts/find_sdk.lua                    — dx_sdk name
 """
 
 import hashlib
@@ -47,18 +46,18 @@ def main() -> int:
             return 1
         print(f"[INFO] Using zip name from command line: {zip_name}")
     else:
-        # Fall back to parsing from CMakeLists.txt
-        cmake_file = repo_root / "src" / "backends" / "dx" / "CMakeLists.txt"
-        if not cmake_file.exists():
-            print(f"[ERROR] CMake file not found: {cmake_file}")
+        # Fall back to parsing from scripts/sdks.cmake
+        sdks_file = repo_root / "scripts" / "sdks.cmake"
+        if not sdks_file.exists():
+            print(f"[ERROR] SDK metadata file not found: {sdks_file}")
             return 1
-        content = cmake_file.read_text(encoding="utf-8")
+        content = sdks_file.read_text(encoding="utf-8")
         url_match = re.search(
-            r'set\s*\(\s*LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL\s+"([^"]+)"\s*\)',
+            r'set\s*\(\s*LUISA_COMPUTE_DX_SDK\s+"([^"]+)"\s+"[^"]+"\s*\)',
             content,
         )
         if not url_match:
-            print("[ERROR] Could not parse LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL from CMakeLists.txt.")
+            print("[ERROR] Could not parse LUISA_COMPUTE_DX_SDK from scripts/sdks.cmake.")
             return 1
         url = url_match.group(1)
         zip_name = url.split("/")[-1]
@@ -75,76 +74,31 @@ def main() -> int:
     sha256 = compute_sha256(zip_path)
     print(f"[INFO] SHA256 of {zip_path.relative_to(repo_root)}: {sha256}")
 
-    # ── 2. Update src/backends/dx/CMakeLists.txt ───────────────────────
-    cmake_file = repo_root / "src" / "backends" / "dx" / "CMakeLists.txt"
-    if cmake_file.exists():
-        content = cmake_file.read_text(encoding="utf-8")
+    # ── 2. Update scripts/sdks.cmake ───────────────────────────────────
+    sdks_file = repo_root / "scripts" / "sdks.cmake"
+    if sdks_file.exists():
+        content = sdks_file.read_text(encoding="utf-8")
         new_url = f"https://github.com/LuisaGroup/SDKs/releases/download/sdk/{zip_name}"
 
-        # Update URL
-        new_content, url_count = re.subn(
-            r'(set\s*\(\s*LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL\s+")[^"]+("\s*\))',
-            rf'\g<1>{new_url}\g<2>',
+        new_content, count = re.subn(
+            r'(set\s*\(\s*LUISA_COMPUTE_DX_SDK\s+")[^"]+("\s+")[^"]+("\s*\))',
+            rf'\g<1>{new_url}\g<2>{sha256}\g<3>',
             content,
             count=1,
         )
-        if url_count == 0:
-            print("[ERROR] Could not find LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL in CMakeLists.txt.")
-            return 1
-
-        # Update SHA256
-        new_content, sha_count = re.subn(
-            r'(set\s*\(\s*LUISA_COMPUTE_DX_SDK_SHA256\s+")([^"]*)("\s*\))',
-            lambda m: f'{m.group(1)}{sha256}{m.group(3)}',
-            new_content,
-            count=1,
-        )
-        if sha_count == 0:
-            print("[ERROR] Could not find LUISA_COMPUTE_DX_SDK_SHA256 in CMakeLists.txt.")
+        if count == 0:
+            print("[ERROR] Could not find LUISA_COMPUTE_DX_SDK in scripts/sdks.cmake.")
             return 1
 
         if new_content != content:
-            cmake_file.write_text(new_content, encoding="utf-8")
-            print(f"[INFO] Updated CMakeLists.txt: URL -> {new_url}, SHA256 -> {sha256}")
+            sdks_file.write_text(new_content, encoding="utf-8")
+            print(f"[INFO] Updated scripts/sdks.cmake: URL -> {new_url}, SHA256 -> {sha256}")
         else:
-            print("[INFO] CMakeLists.txt already up-to-date.")
+            print("[INFO] scripts/sdks.cmake already up-to-date.")
     else:
-        print(f"[WARN] CMake file not found, skipping: {cmake_file}")
+        print(f"[WARN] SDK metadata file not found, skipping: {sdks_file}")
 
-    # ── 3. Update scripts/download_sdks.cmake ──────────────────────────
-    dl_file = repo_root / "scripts" / "download_sdks.cmake"
-    if dl_file.exists():
-        content = dl_file.read_text(encoding="utf-8")
-        new_url = f"https://github.com/LuisaGroup/SDKs/releases/download/sdk/{zip_name}"
-
-        # Replace the URL inside the dx block
-        new_content = re.sub(
-            r'("https://github\.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk_[^"]+\.zip")',
-            f'"{new_url}"',
-            content,
-            count=1,
-        )
-
-        # Replace the SHA256 inside the dx block
-        new_content, sha_count = re.subn(
-            r'(download_sdk\(\$\{sdk\}\s*\n\s*"[^"]*"\s*\n\s*)"[0-9a-f]{64}"',
-            lambda m: f'{m.group(1)}"{sha256}"',
-            new_content,
-            count=1,
-        )
-
-        if sha_count == 0:
-            print("[WARN] Could not find SHA256 in download_sdks.cmake.")
-
-        if new_content != content:
-            dl_file.write_text(new_content, encoding="utf-8")
-            print(f"[INFO] Updated download_sdks.cmake: URL -> {new_url}")
-        else:
-            print("[INFO] download_sdks.cmake already up-to-date.")
-    else:
-        print(f"[WARN] download_sdks.cmake not found, skipping: {dl_file}")
-
-    # ── 4. Update scripts/find_sdk.lua ─────────────────────────────────
+    # ── 3. Update scripts/find_sdk.lua ─────────────────────────────────
     lua_file = repo_root / "scripts" / "find_sdk.lua"
     if lua_file.exists():
         content = lua_file.read_text(encoding="utf-8")
