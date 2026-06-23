@@ -165,8 +165,6 @@ static vstd::string_view _atomic_compare_exchange =
     R"(# r;InterlockedCompareExchange($,@,r);return r;)"sv;
 static vstd::string_view _atomic_compare_exchange_float =
     R"(# r;InterlockedCompareExchangeFloatBitwise($,@,r);return r;)"sv;
-static vstd::string_view _atomic_compare_exchange_float_spirv =
-    R"(# r;InterlockedCompareExchange($,asint(@),r);return asfloat(r);)"sv;
 static vstd::string_view _atomic_add =
     R"(# r;InterlockedAdd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_add_float =
@@ -233,7 +231,7 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = _atomic_exchange;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            tmp.body = (retType->is_float32()) ? (isSpirv ? _atomic_compare_exchange_float_spirv : _atomic_compare_exchange_float) : _atomic_compare_exchange;
+            tmp.body = (retType->is_float32()) ? _atomic_compare_exchange_float : _atomic_compare_exchange;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
             // SPIR-V: native InterlockedAdd supports float directly
