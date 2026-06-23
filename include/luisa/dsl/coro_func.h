@@ -12,6 +12,7 @@
 #include <luisa/core/concepts.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/coro/coro_graph.h>
+#include <luisa/dsl/builtin.h>
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/dsl/func.h>
 
@@ -239,10 +240,17 @@ public:
         return CoroFrame::create(&_frame_desc);
     }
 
-    [[nodiscard]] CoroFrame instantiate(Expr<uint3> coro_id) const noexcept {
+    [[nodiscard]] CoroFrame instantiate(Expr<uint3> coro_id, Expr<uint3> dispatch_size) const noexcept {
         auto frame = CoroFrame::create(&_frame_desc);
         frame.coro_id = coro_id;
+        frame.dispatch_size_x = dispatch_size.x;
+        frame.dispatch_size_y = dispatch_size.y;
+        frame.dispatch_size_z = dispatch_size.z;
         return frame;
+    }
+
+    [[nodiscard]] CoroFrame instantiate(Expr<uint3> coro_id) const noexcept {
+        return instantiate(coro_id, dispatch_size());
     }
 
 private:

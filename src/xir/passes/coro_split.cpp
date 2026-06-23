@@ -27,8 +27,11 @@ namespace detail {
 static constexpr uint32_t FRAME_FIELD_ID_X = 0u;
 static constexpr uint32_t FRAME_FIELD_ID_Y = 1u;
 static constexpr uint32_t FRAME_FIELD_ID_Z = 2u;
-static constexpr uint32_t FRAME_FIELD_TOKEN = 3u;
-static constexpr uint32_t FRAME_USER_FIELD_OFFSET = 4u;
+static constexpr uint32_t FRAME_FIELD_SIZE_X = 3u;
+static constexpr uint32_t FRAME_FIELD_SIZE_Y = 4u;
+static constexpr uint32_t FRAME_FIELD_SIZE_Z = 5u;
+static constexpr uint32_t FRAME_FIELD_TOKEN = 6u;
+static constexpr uint32_t FRAME_USER_FIELD_OFFSET = 7u;
 
 class CoroSplitValueResolver final : public InstructionCloneValueResolver {
 
@@ -124,16 +127,21 @@ public:
                 return const_cast<Value *>(value);
             case DerivedValueTag::SPECIAL_REGISTER: {
                 auto *sreg = static_cast<const SpecialRegister *>(value);
-                if (sreg->derived_special_register_tag() == DerivedSpecialRegisterTag::DISPATCH_ID &&
+                auto tag = sreg->derived_special_register_tag();
+                if ((tag == DerivedSpecialRegisterTag::DISPATCH_ID ||
+                     tag == DerivedSpecialRegisterTag::DISPATCH_SIZE) &&
                     _builder != nullptr && _module != nullptr && _frame_arg != nullptr) {
-                    auto load_id_field = [&](uint32_t field_index) noexcept {
+                    auto load_uint_field = [&](uint32_t field_index) noexcept {
                         auto *idx = static_cast<Value *>(_module->create_constant(Type::of<uint32_t>(), &field_index));
                         auto *gep = _builder->gep(Type::of<uint>(), _frame_arg, {idx});
                         return static_cast<Value *>(_builder->load(Type::of<uint>(), gep));
                     };
-                    auto *x = load_id_field(FRAME_FIELD_ID_X);
-                    auto *y = load_id_field(FRAME_FIELD_ID_Y);
-                    auto *z = load_id_field(FRAME_FIELD_ID_Z);
+                    auto base = tag == DerivedSpecialRegisterTag::DISPATCH_ID ?
+                                    FRAME_FIELD_ID_X :
+                                    FRAME_FIELD_SIZE_X;
+                    auto *x = load_uint_field(base + 0u);
+                    auto *y = load_uint_field(base + 1u);
+                    auto *z = load_uint_field(base + 2u);
                     return _builder->call(Type::of<uint3>(), ArithmeticOp::AGGREGATE, {x, y, z});
                 }
                 return const_cast<Value *>(value);
@@ -198,6 +206,9 @@ public:
 
 [[nodiscard]] static const Type *create_frame_type() noexcept {
     return Type::structure({
+        Type::of<uint>(),
+        Type::of<uint>(),
+        Type::of<uint>(),
         Type::of<uint>(),
         Type::of<uint>(),
         Type::of<uint>(),

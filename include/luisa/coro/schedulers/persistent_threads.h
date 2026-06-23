@@ -90,6 +90,10 @@ private:
                 auto index_x = index_xy - index_y * dispatch_size_prefix_product.x;
                 return make_uint3(index_x, index_y, index_z);
             };
+            auto logical_dispatch_size = make_uint3(
+                dispatch_size_prefix_product.x,
+                dispatch_size_prefix_product.y / dispatch_size_prefix_product.x,
+                dispatch_size_prefix_product.z / dispatch_size_prefix_product.y);
             CoroFrameSharedStorage frames{&coro.frame(), shared_queue_size, _config.shared_memory_soa};
             Shared<uint> all_token{total_queue_size};
             Shared<uint> path_id{shared_queue_size};
@@ -256,7 +260,7 @@ private:
                                                 workload.atomic(0u).fetch_add(1u);
                         $if (global_index < workload[1u]) {
                             work_counter.atomic(0u).fetch_sub(1u);
-                            auto frame = coro.instantiate(dispatch_id_from_linear(global_index));
+                            auto frame = coro.instantiate(dispatch_id_from_linear(global_index), logical_dispatch_size);
                             frame.target_token = 0u;
                             coro.entry()(frame, args...);
                             auto next = token_to_index(frame.target_token);

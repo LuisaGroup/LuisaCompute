@@ -83,7 +83,7 @@ private:
     size_t _total_size{0u};
 
 public:
-    static constexpr size_t reserved_field_count = 4u;
+    static constexpr size_t reserved_field_count = 7u;
 
     void add_field(luisa::string name, const Type *type) noexcept {
         auto alignment = type->alignment();
@@ -122,7 +122,10 @@ public:
             case 0u: return luisa::string_view{"coro_id.x"};
             case 1u: return luisa::string_view{"coro_id.y"};
             case 2u: return luisa::string_view{"coro_id.z"};
-            case 3u: return luisa::string_view{"target_token"};
+            case 3u: return luisa::string_view{"dispatch_size.x"};
+            case 4u: return luisa::string_view{"dispatch_size.y"};
+            case 5u: return luisa::string_view{"dispatch_size.z"};
+            case 6u: return luisa::string_view{"target_token"};
             default:
                 LUISA_ASSERT(index < frame_field_count(), "CoroFrame field index out of range.");
                 return luisa::string_view{_fields[index - reserved_field_count].name};
@@ -134,7 +137,10 @@ public:
             case 0u:
             case 1u:
             case 2u:
-            case 3u: return Type::of<uint>();
+            case 3u:
+            case 4u:
+            case 5u:
+            case 6u: return Type::of<uint>();
             default:
                 LUISA_ASSERT(index < frame_field_count(), "CoroFrame field index out of range.");
                 return _fields[index - reserved_field_count].type;
@@ -232,6 +238,9 @@ public:
     UInt coro_id_x;
     UInt coro_id_y;
     UInt coro_id_z;
+    UInt dispatch_size_x;
+    UInt dispatch_size_y;
+    UInt dispatch_size_z;
     UInt target_token;
     CoroFrameIdProxy coro_id;
 
@@ -242,7 +251,10 @@ public:
           coro_id_x{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 0u)},
           coro_id_y{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 1u)},
           coro_id_z{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 2u)},
-          target_token{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 3u)},
+          dispatch_size_x{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 3u)},
+          dispatch_size_y{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 4u)},
+          dispatch_size_z{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 5u)},
+          target_token{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 6u)},
           coro_id{coro_id_x.expression(), coro_id_y.expression(), coro_id_z.expression()} {}
 
     explicit CoroFrame(const CoroFrameDesc *desc) noexcept

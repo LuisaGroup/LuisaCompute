@@ -187,7 +187,7 @@ private:
         };
         Callable<uint(uint, ByteBuffer)> read_scheduler_token = [layout = _frame_layout, soa = _config.global_memory_soa](
                                                                     UInt index, ByteBufferVar frame_buf) noexcept {
-            return coro_frame_read_field<uint>(frame_buf, index, layout, soa, 3u);
+            return coro_frame_read_field<uint>(frame_buf, index, layout, soa, 6u);
         };
 
         Callable<uint(uint, ByteBuffer)> get_scheduler_token = [read_scheduler_token](
@@ -241,7 +241,7 @@ private:
                 $if (x >= count) { $return(); };
                 auto frame_id = compact ? frame_offset + x : resume_index.read(index_offset + x);
                 auto logical_id = _dispatch_id_from_linear_index(global_start + x, dispatch_shape);
-                auto frame = coro.instantiate(logical_id);
+                auto frame = coro.instantiate(logical_id, dispatch_shape);
                 frame.target_token = 0u;
                 coro.entry()(frame, k_args...);
                 auto next = token_to_index(frame.target_token);
@@ -286,7 +286,7 @@ private:
         _initialize_shader = device.compile<1>([layout = _frame_layout, soa = _config.global_memory_soa](ByteBufferVar buf, UInt n) {
             auto x = dispatch_x();
             $if (x < n) {
-                coro_frame_write_field(buf, x, layout, soa, 3u, 0u);
+                coro_frame_write_field(buf, x, layout, soa, 6u, 0u);
             };
         });
 
@@ -340,7 +340,7 @@ private:
                     $if (found_dst) {
                         auto frame = coro_frame_load(desc, frame_buf, src, layout, soa);
                         coro_frame_store(frame_buf, dst, frame, layout, soa);
-                        coro_frame_write_field(frame_buf, src, layout, soa, 3u, 0u);
+                        coro_frame_write_field(frame_buf, src, layout, soa, 6u, 0u);
                     };
                 };
             });

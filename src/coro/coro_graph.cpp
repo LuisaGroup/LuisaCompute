@@ -2,6 +2,7 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
+#include <luisa/dsl/coro_frame.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -19,7 +20,7 @@ static void append_unique(luisa::vector<size_t> &fields, size_t field) noexcept 
 }
 
 static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
-    for (auto i = 0u; i < 4u; i++) {
+    for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
         append_unique(fields, i);
     }
 }

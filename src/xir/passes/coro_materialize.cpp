@@ -22,8 +22,8 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 4u;
-static constexpr uint32_t FRAME_FIELD_TOKEN_CMAT = 3u;
+static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 7u;
+static constexpr uint32_t FRAME_FIELD_TOKEN_CMAT = 6u;
 
 struct RegisterInfo {
     luisa::string name;
