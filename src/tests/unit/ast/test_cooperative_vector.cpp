@@ -63,12 +63,12 @@ void test_cooperative_vector_types() {
     expect(cmr_f32_4x8->coop_vec_ref_type() == CoopRefVecType::FLOAT32);
 
     // Sanity-check sizes reported for reference element types.
-    expect(eq(coop_ref_vec_type_size(CoopRefVecType::UINT8), 1uz));
-    expect(eq(coop_ref_vec_type_size(CoopRefVecType::INT8), 1uz));
-    expect(eq(coop_ref_vec_type_size(CoopRefVecType::FLOAT16), 2uz));
-    expect(eq(coop_ref_vec_type_size(CoopRefVecType::FLOAT32), 4uz));
-    expect(eq(coop_ref_vec_type_size(CoopRefVecType::INT32), 4uz));
-    expect(eq(coop_ref_vec_type_size(CoopRefVecType::UINT32), 4uz));
+    expect(eq(coop_ref_vec_type_size(CoopRefVecType::UINT8), size_t{1}));
+    expect(eq(coop_ref_vec_type_size(CoopRefVecType::INT8), size_t{1}));
+    expect(eq(coop_ref_vec_type_size(CoopRefVecType::FLOAT16), size_t{2}));
+    expect(eq(coop_ref_vec_type_size(CoopRefVecType::FLOAT32), size_t{4}));
+    expect(eq(coop_ref_vec_type_size(CoopRefVecType::INT32), size_t{4}));
+    expect(eq(coop_ref_vec_type_size(CoopRefVecType::UINT32), size_t{4}));
 }
 
 // Verify that creating a CoopVector local flips the FunctionBuilder flag.
