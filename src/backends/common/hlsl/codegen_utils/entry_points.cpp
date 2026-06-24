@@ -114,11 +114,7 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
         builder << CodegenUtility::ReadInternalHLSLFile("resource_size");
     }
     if (linalg || ops.uses_cooperative()) {
-        if (!is_spirv) {
-            builder << CodegenUtility::ReadInternalHLSLFile("dx_linalg");
-        } else {
-            LUISA_ERROR("Vulkan tensor not supported yet.");
-        }
+        builder << CodegenUtility::ReadInternalHLSLFile("dx_linalg");
     }
     bool useBindless = false;
     for (auto i : vstd::range(

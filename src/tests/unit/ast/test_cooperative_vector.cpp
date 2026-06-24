@@ -124,9 +124,9 @@ void test_cooperative_vector_dsl() {
         << "DSL kernel should directly call COOPERATIVE_VECTOR_ACCUMULATE";
 }
 
-// Device-side execution test.  This requires the DX backend with Shader
-// Model 6.8 cooperative-vector support; experimental features must be
-// enabled through the device extension.
+// Device-side execution test.  This requires a backend with cooperative-vector
+// support (DX with Shader Model 6.8, or VK).  For DX, experimental features must
+// be enabled through the device extension.
 void test_cooperative_vector_device(Device &device) {
     luisa::log_level_verbose();
     LUISA_INFO("Running cooperative vector device test on backend '{}'", device.backend_name());
@@ -190,24 +190,28 @@ int main(int argc, char *argv[]) {
     }
 
     luisa::string backend = ut_argv[1];
-    if (backend != "dx") {
-        LUISA_INFO("This test only supports the dx backend; got '{}'. Skipping device execution tests.", backend);
-        return 0;
-    }
-
+    if (backend == "dx") {
 #ifdef _WIN32
-    Context context{ut_argv[0]};
-    DeviceConfig config;
-    auto dx_config = luisa::make_unique<DXExperimentalConfigExt>();
-    auto *dx_config_ptr = dx_config.get();
-    config.extension = std::move(dx_config);
-    Device device = context.create_device("dx", &config);
-    if (!dx_config_ptr->ExperimentalFeaturesEnabled()) {
-        LUISA_INFO("DX cooperative-vector experimental features are not available on this system; skipping device execution tests.");
+        Context context{ut_argv[0]};
+        DeviceConfig config;
+        auto dx_config = luisa::make_unique<DXExperimentalConfigExt>();
+        auto *dx_config_ptr = dx_config.get();
+        config.extension = std::move(dx_config);
+        Device device = context.create_device("dx", &config);
+        if (!dx_config_ptr->ExperimentalFeaturesEnabled()) {
+            LUISA_INFO("DX cooperative-vector experimental features are not available on this system; skipping device execution tests.");
+            return 0;
+        }
+        test_cooperative_vector_device(device);
+#else
+        LUISA_INFO("DX backend is not available on this platform; skipping device execution tests.");
+#endif
+    } else if (backend == "vk") {
+        Context context{ut_argv[0]};
+        Device device = context.create_device("vk");
+        test_cooperative_vector_device(device);
+    } else {
+        LUISA_INFO("This test only supports the dx or vk backend; got '{}'. Skipping device execution tests.", backend);
         return 0;
     }
-    test_cooperative_vector_device(device);
-#else
-    LUISA_INFO("DX backend is not available on this platform; skipping device execution tests.");
-#endif
 }

@@ -637,6 +637,70 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             _enable_device_exts.emplace_back(name);
         }
     };
+    // Try enabling cooperative-matrix extensions in order of preference:
+    // VK_KHR_cooperative_matrix -> VK_NV_cooperative_matrix2 (requires KHR) -> VK_NV_cooperative_matrix.
+    enum class CooperativeMatrixExt : uint8_t { None, KHR, KHRAndNV2, NV };
+    auto enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
+    VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features_khr{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR,
+        .pNext = nullptr,
+        .cooperativeMatrix = VK_FALSE};
+    VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix_2_features_nv{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_2_FEATURES_NV,
+        .pNext = nullptr,
+        .cooperativeMatrixWorkgroupScope = VK_FALSE};
+    VkPhysicalDeviceCooperativeMatrixFeaturesNV cooperative_matrix_features_nv{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_NV,
+        .pNext = nullptr,
+        .cooperativeMatrix = VK_FALSE};
+    if (supported_ext.find(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &cooperative_matrix_features_khr};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        VkPhysicalDeviceCooperativeMatrixPropertiesKHR cooperative_matrix_properties_khr{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_PROPERTIES_KHR,
+            .pNext = nullptr};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &cooperative_matrix_properties_khr};
+        vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+        if (cooperative_matrix_features_khr.cooperativeMatrix == VK_TRUE &&
+            (cooperative_matrix_properties_khr.cooperativeMatrixSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u) {
+            enabled_cooperative_matrix_ext = CooperativeMatrixExt::KHR;
+            enable_device_extension(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
+        }
+    }
+    if (enabled_cooperative_matrix_ext == CooperativeMatrixExt::KHR &&
+        supported_ext.find(VK_NV_COOPERATIVE_MATRIX_2_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &cooperative_matrix_2_features_nv};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (cooperative_matrix_2_features_nv.cooperativeMatrixWorkgroupScope == VK_TRUE) {
+            enabled_cooperative_matrix_ext = CooperativeMatrixExt::KHRAndNV2;
+            enable_device_extension(VK_NV_COOPERATIVE_MATRIX_2_EXTENSION_NAME);
+        }
+    }
+    if (enabled_cooperative_matrix_ext == CooperativeMatrixExt::None &&
+        supported_ext.find(VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &cooperative_matrix_features_nv};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        VkPhysicalDeviceCooperativeMatrixPropertiesNV cooperative_matrix_properties_nv{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_PROPERTIES_NV,
+            .pNext = nullptr};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &cooperative_matrix_properties_nv};
+        vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+        if (cooperative_matrix_features_nv.cooperativeMatrix == VK_TRUE &&
+            (cooperative_matrix_properties_nv.cooperativeMatrixSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u) {
+            enabled_cooperative_matrix_ext = CooperativeMatrixExt::NV;
+            enable_device_extension(VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME);
+        }
+    }
     {
         VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES};
@@ -786,6 +850,26 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         .computeFullSubgroups = VK_FALSE};
     if (enable_subgroup_size_control) {
         feature_next = &subgroup_size_control_feature;
+    }
+    if (enabled_cooperative_matrix_ext != CooperativeMatrixExt::None) {
+        switch (enabled_cooperative_matrix_ext) {
+            case CooperativeMatrixExt::KHRAndNV2:
+                cooperative_matrix_2_features_nv.pNext = feature_next;
+                feature_next = &cooperative_matrix_2_features_nv;
+                cooperative_matrix_features_khr.pNext = feature_next;
+                feature_next = &cooperative_matrix_features_khr;
+                break;
+            case CooperativeMatrixExt::KHR:
+                cooperative_matrix_features_khr.pNext = feature_next;
+                feature_next = &cooperative_matrix_features_khr;
+                break;
+            case CooperativeMatrixExt::NV:
+                cooperative_matrix_features_nv.pNext = feature_next;
+                feature_next = &cooperative_matrix_features_nv;
+                break;
+            default:
+                break;
+        }
     }
     VkPhysicalDeviceSynchronization2Features barrier_feature{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
