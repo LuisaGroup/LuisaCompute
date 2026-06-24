@@ -97,6 +97,9 @@ vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
 namespace detail {
 size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg) {
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
+    if (is_spirv) {
+        builder << CodegenUtility::ReadInternalHLSLFile("spv_alias");
+    }
     size_t immutable_size = builder.size();
     if (ops.uses_raytracing()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header");

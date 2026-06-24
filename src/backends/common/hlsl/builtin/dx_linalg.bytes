@@ -768,7 +768,7 @@ CooperativeVector<ComponentType, components>::Load(
     RWStructuredBuffer<Type> data, uint32_t index) {
   CooperativeVector result;
   result._vector = __builtin_spv_CooperativeVectorLoadNV<SpirvVectorType>(
-      data[index], 0, memoryAccessOperands);
+      data, index, memoryAccessOperands);
   return result;
 }
 
@@ -779,7 +779,7 @@ CooperativeVector<ComponentType, components>::Load(
     StructuredBuffer<Type> data, uint32_t index) {
   CooperativeVector result;
   result._vector = __builtin_spv_CooperativeVectorLoadNV<SpirvVectorType>(
-      data[index], 0, MemoryAccessMaskNone);
+      data, index, MemoryAccessMaskNone);
   return result;
 }
 
@@ -787,7 +787,7 @@ template <class ComponentType, uint components>
 template <uint32_t memoryAccessOperands, class Type>
 void CooperativeVector<ComponentType, components>::Store(
     RWStructuredBuffer<Type> data, uint32_t index) {
-  __builtin_spv_CooperativeVectorStoreNV(data[index], 0, _vector,
+  __builtin_spv_CooperativeVectorStoreNV(data, index, _vector,
                                          memoryAccessOperands);
 }
 
