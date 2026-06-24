@@ -565,6 +565,22 @@ template <typename CoopVecType, typename ComponentType>
 [[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
 __builtin_spv_ConstructCooperativeVector(ComponentType value);
 
+template <typename CoopVecType, typename ComponentType>
+[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+__builtin_spv_ConstructCooperativeVector_2(ComponentType v0, ComponentType v1);
+
+template <typename CoopVecType, typename ComponentType>
+[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+__builtin_spv_ConstructCooperativeVector_4(ComponentType v0, ComponentType v1, ComponentType v2, ComponentType v3);
+
+template <typename CoopVecType, typename ComponentType>
+[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+__builtin_spv_ConstructCooperativeVector_8(ComponentType v0, ComponentType v1, ComponentType v2, ComponentType v3, ComponentType v4, ComponentType v5, ComponentType v6, ComponentType v7);
+
+template <typename CoopVecType, typename ComponentType>
+[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+__builtin_spv_ConstructCooperativeVector_16(ComponentType v0, ComponentType v1, ComponentType v2, ComponentType v3, ComponentType v4, ComponentType v5, ComponentType v6, ComponentType v7, ComponentType v8, ComponentType v9, ComponentType v10, ComponentType v11, ComponentType v12, ComponentType v13, ComponentType v14, ComponentType v15);
+
 template <typename ComponentType, uint components>
 [[vk::ext_instruction(/* OpCompositeInsert */ 82)]]
 typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType
@@ -1044,16 +1060,70 @@ template <> struct ComponentTypeMap<DATA_TYPE_FLOAT8_E5M2> {
 };
 
 //
+// Helper: construct cooperative vector from regular vector via OpCompositeConstruct.
+// Uses template specialization to pick the right N-argument builtin.
+//
+template <typename ElTy, int ElCount>
+struct CoopVecConstructor {
+  static vk::nv::CooperativeVector<ElTy, ElCount> Construct(vector<ElTy, ElCount> v);
+};
+
+template <typename ElTy>
+struct CoopVecConstructor<ElTy, 1> {
+  static vk::nv::CooperativeVector<ElTy, 1> Construct(vector<ElTy, 1> v) {
+    using CV = vk::nv::CooperativeVector<ElTy, 1>;
+    CV result;
+    result._vector = __builtin_spv_ConstructCooperativeVector<typename CV::SpirvVectorType>(v[0]);
+    return result;
+  }
+};
+
+template <typename ElTy>
+struct CoopVecConstructor<ElTy, 2> {
+  static vk::nv::CooperativeVector<ElTy, 2> Construct(vector<ElTy, 2> v) {
+    using CV = vk::nv::CooperativeVector<ElTy, 2>;
+    CV result;
+    result._vector = __builtin_spv_ConstructCooperativeVector_2<typename CV::SpirvVectorType>(v[0], v[1]);
+    return result;
+  }
+};
+
+template <typename ElTy>
+struct CoopVecConstructor<ElTy, 4> {
+  static vk::nv::CooperativeVector<ElTy, 4> Construct(vector<ElTy, 4> v) {
+    using CV = vk::nv::CooperativeVector<ElTy, 4>;
+    CV result;
+    result._vector = __builtin_spv_ConstructCooperativeVector_4<typename CV::SpirvVectorType>(v[0], v[1], v[2], v[3]);
+    return result;
+  }
+};
+
+template <typename ElTy>
+struct CoopVecConstructor<ElTy, 8> {
+  static vk::nv::CooperativeVector<ElTy, 8> Construct(vector<ElTy, 8> v) {
+    using CV = vk::nv::CooperativeVector<ElTy, 8>;
+    CV result;
+    result._vector = __builtin_spv_ConstructCooperativeVector_8<typename CV::SpirvVectorType>(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+    return result;
+  }
+};
+
+template <typename ElTy>
+struct CoopVecConstructor<ElTy, 16> {
+  static vk::nv::CooperativeVector<ElTy, 16> Construct(vector<ElTy, 16> v) {
+    using CV = vk::nv::CooperativeVector<ElTy, 16>;
+    CV result;
+    result._vector = __builtin_spv_ConstructCooperativeVector_16<typename CV::SpirvVectorType>(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]);
+    return result;
+  }
+};
+
+//
 // Helpers: convert between vector and vk::nv::CooperativeVector
 //
 template <typename ElTy, int ElCount>
 vk::nv::CooperativeVector<ElTy, ElCount> ToCooperativeVector(vector<ElTy, ElCount> v) {
-  vk::nv::CooperativeVector<ElTy, ElCount> cv =
-      vk::nv::CooperativeVector<ElTy, ElCount>::Splat((ElTy)0);
-  [unroll] for (uint32_t i = 0; i < ElCount; ++i) {
-    cv.Set(v[i], i);
-  }
-  return cv;
+  return CoopVecConstructor<ElTy, ElCount>::Construct(v);
 }
 
 template <typename ElTy, int ElCount>

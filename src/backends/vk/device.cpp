@@ -701,6 +701,29 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_device_extension(VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME);
         }
     }
+    // Probe for cooperative-vector support (VK_NV_cooperative_vector).
+    VkPhysicalDeviceCooperativeVectorFeaturesNV cooperative_vector_features_nv{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV,
+        .pNext = nullptr,
+        .cooperativeVector = VK_FALSE};
+    if (supported_ext.find(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &cooperative_vector_features_nv};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        VkPhysicalDeviceCooperativeVectorPropertiesNV cooperative_vector_properties_nv{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_PROPERTIES_NV,
+            .pNext = nullptr};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &cooperative_vector_properties_nv};
+        vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+        if (cooperative_vector_features_nv.cooperativeVector == VK_TRUE &&
+            (cooperative_vector_properties_nv.cooperativeVectorSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u) {
+            cooperative_vector_enabled = true;
+            enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
+        }
+    }
     {
         VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES};
@@ -871,16 +894,26 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 break;
         }
     }
+    if (cooperative_vector_enabled) {
+        cooperative_vector_features_nv.pNext = feature_next;
+        feature_next = &cooperative_vector_features_nv;
+    }
     VkPhysicalDeviceSynchronization2Features barrier_feature{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
         feature_next,
         true};
+    // Variable pointers to storage buffers are required by cooperative
+    // vector/matrix SPIR-V operations (which take buffer pointers via
+    // [[vk::ext_reference]]). Only enable the device feature when a
+    // cooperative-matrix/vector extension is active.
+    bool const enable_variable_pointers_storage_buffer =
+        enabled_cooperative_matrix_ext != CooperativeMatrixExt::None || cooperative_vector_enabled;
     VkPhysicalDeviceVulkan11Features vk11_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
         .pNext = &barrier_feature,
         .storageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
         .uniformAndStorageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
-        .variablePointersStorageBuffer = VK_TRUE};
+        .variablePointersStorageBuffer = enable_variable_pointers_storage_buffer ? VK_TRUE : VK_FALSE};
     auto vk_bindless_enabled = bindless_enabled ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,

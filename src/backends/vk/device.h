@@ -120,6 +120,7 @@ public:
     bool interop_enabled : 1 {true};
     bool motion_blur_enabled : 1 {false};
     bool subgroup_size_control_enabled : 1 {false};
+    bool cooperative_vector_enabled : 1 {false};
     auto &graphics_queue_mtx() { return _graphics_queue_mtx; }
     auto &compute_queue_mtx() { return _compute_queue_mtx; }
     auto &copy_queue_mtx() { return _copy_queue_mtx; }
