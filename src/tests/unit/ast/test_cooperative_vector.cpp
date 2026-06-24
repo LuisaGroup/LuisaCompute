@@ -7,6 +7,7 @@
 // - Device compilation/execution when a supporting backend is provided
 
 #include "ut/ut.hpp"
+#include "test_device.h"
 
 #include <luisa/ast/function_builder.h>
 #include <luisa/ast/type.h>
@@ -19,6 +20,7 @@
 #include <luisa/runtime/command_list.h>
 
 #include <array>
+#include <optional>
 
 #ifdef _WIN32
 #include <luisa/backends/ext/dx_config_ext.h>
@@ -37,6 +39,37 @@ public:
     [[nodiscard]] bool UseExperimental() const noexcept override { return true; }
 };
 #endif
+
+// Create the requested test device (dx with experimental features, or vk).
+// Returns std::nullopt if the backend is not supported on this platform.
+[[nodiscard]] std::optional<luisa::test::DeviceContext> create_test_device(
+    const char *exe, luisa::string_view backend) {
+    if (backend == "dx") {
+#ifdef _WIN32
+        Context context{exe};
+        DeviceConfig config;
+        auto dx_config = luisa::make_unique<DXExperimentalConfigExt>();
+        auto *dx_config_ptr = dx_config.get();
+        config.extension = std::move(dx_config);
+        Device device = context.create_device("dx", &config);
+        if (!dx_config_ptr->ExperimentalFeaturesEnabled()) {
+            LUISA_INFO("DX cooperative-vector experimental features are not available on this system; skipping device execution tests.");
+            return std::nullopt;
+        }
+        return luisa::test::DeviceContext{std::move(context), std::move(device)};
+#else
+        LUISA_INFO("DX backend is not available on this platform; skipping device execution tests.");
+        return std::nullopt;
+#endif
+    }
+    if (backend == "vk") {
+        Context context{exe};
+        Device device = context.create_device("vk");
+        return luisa::test::DeviceContext{std::move(context), std::move(device)};
+    }
+    LUISA_INFO("This test only supports the dx or vk backend; got '{}'. Skipping device execution tests.", backend);
+    return std::nullopt;
+}
 
 // Verify the type registry can build cooperative-vector-related types.
 void test_cooperative_vector_types() {
@@ -386,60 +419,63 @@ void test_cooperative_vector_device(Device &device) {
     expect(ok) << "cooperative_vector_accumulate should write [1,2,...,n] into the byte buffer";
 }
 
+// Global pointer used by the capture-less Boost.UT suite to reach the device.
+Device *g_device_for_tests = nullptr;
+
 }// namespace
 
-static auto test_cooperative_vector_registration = [] {
-    "cooperative_vector_types"_test = [] { test_cooperative_vector_types(); };
-    "cooperative_vector_ast_flags"_test = [] { test_cooperative_vector_ast_flags(); };
-    "cooperative_vector_builtin_call"_test = [] { test_cooperative_vector_builtin_call(); };
-    "cooperative_vector_dsl"_test = [] { test_cooperative_vector_dsl(); };
-    "cooperative_mul_add_ast"_test = [] { test_cooperative_mul_add_ast(); };
-    "bindless_cooperative_mul_add_ast"_test = [] { test_bindless_cooperative_mul_add_ast(); };
-    "cooperative_mul_ast"_test = [] { test_cooperative_mul_ast(); };
-    "bindless_cooperative_mul_ast"_test = [] { test_bindless_cooperative_mul_ast(); };
-    "cooperative_outer_product_accumulate_ast"_test = [] { test_cooperative_outer_product_accumulate_ast(); };
-    "cooperative_mul_add_dsl"_test = [] { test_cooperative_mul_add_dsl(); };
-    "bindless_cooperative_mul_add_dsl"_test = [] { test_bindless_cooperative_mul_add_dsl(); };
-    "cooperative_mul_dsl"_test = [] { test_cooperative_mul_dsl(); };
-    "bindless_cooperative_mul_dsl"_test = [] { test_bindless_cooperative_mul_dsl(); };
-    "cooperative_outer_product_accumulate_dsl"_test = [] { test_cooperative_outer_product_accumulate_dsl(); };
-    return 0;
-}();
-
 int main(int argc, char *argv[]) {
+    const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : luisa::test::safe_argv0();
+
+    // Parse only argv[0] through Boost.UT so that the backend name (argv[1])
+    // is not interpreted as a test-name filter.
+    const char *ut_argv0[] = {exe};
     boost::ut::detail::cfg::parse_arg_with_fallback(
-        argc, const_cast<const char **>(argv));
+        1, const_cast<const char **>(ut_argv0));
 
-    auto ut_argc = boost::ut::detail::cfg::largc;
-    auto ut_argv = boost::ut::detail::cfg::largv;
-    if (ut_argc <= 1) {
-        LUISA_INFO("No backend argument provided; skipping device execution tests.");
-        return 0;
-    }
-
-    luisa::string backend = ut_argv[1];
-    if (backend == "dx") {
-#ifdef _WIN32
-        Context context{ut_argv[0]};
-        DeviceConfig config;
-        auto dx_config = luisa::make_unique<DXExperimentalConfigExt>();
-        auto *dx_config_ptr = dx_config.get();
-        config.extension = std::move(dx_config);
-        Device device = context.create_device("dx", &config);
-        if (!dx_config_ptr->ExperimentalFeaturesEnabled()) {
-            LUISA_INFO("DX cooperative-vector experimental features are not available on this system; skipping device execution tests.");
+    // Create the device first (when requested) so that the Boost.UT runner is
+    // initialized *after* the backend is loaded.  This avoids tearing down the
+    // backend before the runner's destructor finishes, which was causing a
+    // debug-iterator assertion on exit for the vk path.
+    std::optional<luisa::test::DeviceContext> dc;
+    if (argc > 1) {
+        dc = create_test_device(exe, argv[1]);
+        if (!dc) {
             return 0;
         }
-        test_cooperative_vector_device(device);
-#else
-        LUISA_INFO("DX backend is not available on this platform; skipping device execution tests.");
-#endif
-    } else if (backend == "vk") {
-        Context context{ut_argv[0]};
-        Device device = context.create_device("vk");
-        test_cooperative_vector_device(device);
+        g_device_for_tests = &dc->device;
     } else {
-        LUISA_INFO("This test only supports the dx or vk backend; got '{}'. Skipping device execution tests.", backend);
-        return 0;
+        LUISA_INFO("No backend argument provided; skipping device execution tests.");
     }
+
+    // Register all tests as a Boost.UT suite.  We then explicitly run the suite
+    // here (with only argv[0] exposed to Boost.UT) so that the backend name is
+    // not interpreted as a test-name filter.  Running the suite while the
+    // device/context are alive also avoids tearing down the backend before the
+    // runner finishes.
+    boost::ut::suite<"cooperative_vector">{[] {
+        "cooperative_vector_types"_test = [] { test_cooperative_vector_types(); };
+        "cooperative_vector_ast_flags"_test = [] { test_cooperative_vector_ast_flags(); };
+        "cooperative_vector_builtin_call"_test = [] { test_cooperative_vector_builtin_call(); };
+        "cooperative_vector_dsl"_test = [] { test_cooperative_vector_dsl(); };
+        "cooperative_mul_add_ast"_test = [] { test_cooperative_mul_add_ast(); };
+        "bindless_cooperative_mul_add_ast"_test = [] { test_bindless_cooperative_mul_add_ast(); };
+        "cooperative_mul_ast"_test = [] { test_cooperative_mul_ast(); };
+        "bindless_cooperative_mul_ast"_test = [] { test_bindless_cooperative_mul_ast(); };
+        "cooperative_outer_product_accumulate_ast"_test = [] { test_cooperative_outer_product_accumulate_ast(); };
+        "cooperative_mul_add_dsl"_test = [] { test_cooperative_mul_add_dsl(); };
+        "bindless_cooperative_mul_add_dsl"_test = [] { test_bindless_cooperative_mul_add_dsl(); };
+        "cooperative_mul_dsl"_test = [] { test_cooperative_mul_dsl(); };
+        "bindless_cooperative_mul_dsl"_test = [] { test_bindless_cooperative_mul_dsl(); };
+        "cooperative_outer_product_accumulate_dsl"_test = [] { test_cooperative_outer_product_accumulate_dsl(); };
+        if (g_device_for_tests) {
+            "cooperative_vector_device"_test = [] { test_cooperative_vector_device(*g_device_for_tests); };
+        }
+    }};
+
+    return boost::ut::cfg().run(
+               boost::ut::run_cfg{.argc = 1,
+                                  .argv = const_cast<const char **>(ut_argv0)})
+               ? 1
+               : 0;
 }
