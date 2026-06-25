@@ -535,7 +535,7 @@ void test_cooperative_vector_load_store_device(Device &device) {
     CommandList cmdlist = CommandList::create();
     cmdlist << vector_buffer.copy_from(input_data.data())
             << load_shader(vector_buffer, output_buffer).dispatch(1u)
-            << output_buffer.copy_to(host.data());
+            << output_buffer.copy_to(luisa::span{host});
     stream << cmdlist.commit() << synchronize();
 
     bool ok = true;

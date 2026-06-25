@@ -183,6 +183,24 @@ The runtime directories are printed by `LUISA_INFO` at context creation; they de
 | Suspected API/resource misuse | Set `LUISA_ENABLE_VALIDATION=1` | Re-run and read validation messages |
 | Test timeout | Read build file for target entry | Narrow phase with host logging |
 
+## 8. Windows Crash Debugging with `scripts/debugger.py`
+
+A lightweight Python debugger using Windows Debug API + DbgHelp.dll to launch an x64 executable, catch second-chance exceptions, and print a symbolic stack trace from PDB symbols.
+
+**Usage:**
+```bash
+python scripts/debugger.py <path_to_exe> [pdb_search_path] [-- <args>...]
+```
+
+- Arguments after `--` are forwarded to the target executable.
+- The PDB must be next to the EXE or in `pdb_search_path`.
+- Works on **Windows x64** with **Python 3.x** (64-bit recommended).
+
+**Example:**
+```bash
+python scripts/debugger.py build/bin/test.exe -- --gtest_filter=MyTest
+```
+
 ## Summary
 
 - **Stack-traces** → innermost frame = cause; upward walk = call-site.
