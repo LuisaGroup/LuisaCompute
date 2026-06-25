@@ -501,6 +501,16 @@ enum struct CallOp : uint32_t {
     COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,// ResultMatrix += InputVector1 * Transpose(InputVector2);
     // void(matrix_buffer: byte_buffer, matrix_offset: coop_mat_ref, input_vec1 : coop_vector, input_vec2 : coop_vector, )
     COOPERATIVE_VECTOR_ACCUMULATE,// void(vector_buffer: byte_buffer, vector_offset: coop_vec_ref, input_vec: coop_vector)
+    COOPERATIVE_VECTOR_LOAD,         // coop_vec<T,N> (byte_buffer, coop_vec_ref<N, CoopRefType>)
+    COOPERATIVE_VECTOR_STORE,        // void (byte_buffer, coop_vec_ref<N, CoopRefType>, coop_vec<T,N>)
+    COOPERATIVE_VECTOR_SPLAT,        // coop_vec<T,N> (T scalar)
+    COOPERATIVE_VECTOR_CAST,         // coop_vec<ToT,N> (coop_vec<FromT,N>)
+    BINDLESS_COOPERATIVE_VECTOR_LOAD,        // coop_vec<T,N> (bindless_array, buffer_handle: uint, offset: coop_vec_ref)
+    TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD,  // typed variant
+    BINDLESS_COOPERATIVE_VECTOR_STORE,       // void (bindless_array, buffer_handle: uint, offset: coop_vec_ref, coop_vec<T,N>)
+    TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE, // typed variant
+    COOPERATIVE_VECTOR_WORKGROUP_LOAD,  // coop_vec<T,N> (shared_buf: array<T>, index: uint)
+    COOPERATIVE_VECTOR_WORKGROUP_STORE, // void (shared_buf: array<T>, index: uint, coop_vec<T,N>)
 
     // Clock
     CLOCK,// (): uint64
@@ -632,7 +642,17 @@ public:
                test(CallOp::BINDLESS_COOPERATIVE_MUL) ||
                test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) ||
                test(CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE) ||
-               test(CallOp::COOPERATIVE_VECTOR_ACCUMULATE);
+               test(CallOp::COOPERATIVE_VECTOR_ACCUMULATE) ||
+               test(CallOp::COOPERATIVE_VECTOR_LOAD) ||
+               test(CallOp::COOPERATIVE_VECTOR_STORE) ||
+               test(CallOp::COOPERATIVE_VECTOR_SPLAT) ||
+               test(CallOp::COOPERATIVE_VECTOR_CAST) ||
+               test(CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+               test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+               test(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE) ||
+               test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) ||
+               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD) ||
+               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE);
     }
 };
 

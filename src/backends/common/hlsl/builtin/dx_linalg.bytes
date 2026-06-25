@@ -1126,7 +1126,7 @@ vk::nv::CooperativeVector<ElTy, ElCount> ToCooperativeVector(vector<ElTy, ElCoun
   return CoopVecConstructor<ElTy, ElCount>::Construct(v);
 }
 
-template <typename ElTy, int ElCount>
+template <typename ElTy, uint ElCount>
 vector<ElTy, ElCount> ToVector(vk::nv::CooperativeVector<ElTy, ElCount> cv) {
   vector<ElTy, ElCount> v;
   [unroll] for (uint32_t i = 0; i < ElCount; ++i) {
@@ -1210,6 +1210,65 @@ void CoopVectorAccumulate(RWByteAddressBuffer Buffer, uint Offset,
                           vector<ElTy, ElCount> InputVector) {
   vk::nv::cooperativeVectorReduceSumAccumulate(
       ToCooperativeVector(InputVector), Buffer, Offset);
+}
+
+//
+// CoopVecLoad — SPIR-V version (element-wise load from byte buffer)
+//
+template <typename ElTy, int ElCount>
+vector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
+    vector<ElTy, ElCount> result;
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        result[i] = buf.Load<ElTy>(offset + i * sizeof(ElTy));
+    }
+    return result;
+}
+
+//
+// CoopVecStore — SPIR-V version (element-wise store to byte buffer)
+//
+template <typename ElTy, int ElCount>
+void CoopVecStore(RWByteAddressBuffer buf, uint offset, vector<ElTy, ElCount> v) {
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        buf.Store(offset + i * sizeof(ElTy), v[i]);
+    }
+}
+
+//
+// CoopVecSplat — SPIR-V version (native HLSL vector splat via cast)
+//
+template <typename ElTy, int ElCount>
+vector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
+    return (vector<ElTy, ElCount>)scalar;
+}
+
+//
+// CoopVecCast — SPIR-V version (native HLSL cast on vector)
+//
+template <typename ToTy, typename FromTy, int ElCount>
+vector<ToTy, ElCount> CoopVecCast(vector<FromTy, ElCount> v) {
+    return (vector<ToTy, ElCount>)v;
+}
+
+//
+// CoopVecWorkgroupLoad — SPIR-V version using WorkgroupSpirvPointer
+//
+template <typename ElTy, int ElCount, typename SharedBufType>
+vector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index) {
+    vk::nv::CooperativeVector<ElTy, ElCount> cv =
+        vk::nv::CooperativeVector<ElTy, ElCount>::Load(
+            vk::GetGroupSharedAddress(shared_data[index]));
+    return ToVector(cv);
+}
+
+//
+// CoopVecWorkgroupStore — SPIR-V version using WorkgroupSpirvPointer
+//
+template <typename ElTy, int ElCount, typename SharedBufType>
+void CoopVecWorkgroupStore(SharedBufType shared_data, uint index,
+                           vector<ElTy, ElCount> v) {
+    vk::nv::CooperativeVector<ElTy, ElCount> cv = ToCooperativeVector(v);
+    cv.Store(vk::GetGroupSharedAddress(shared_data[index]));
 }
 
 } // namespace linalg
@@ -1436,6 +1495,68 @@ void CoopOuterProductAccum(
   RWMatrixRef<MatrixDT, MatrixM, MatrixN, MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL, false> Matrix = {buffer, buffer_offset, 0};
   OuterProductAccumulate<ElTy, MatrixM, MatrixN, MatrixDT, MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL>(InputVector1, InputVector2, Matrix);
 }
+
+//
+// CoopVecLoad — DX version (element-wise load from byte buffer)
+//
+template <typename ElTy, int ElCount>
+vector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
+    vector<ElTy, ElCount> result;
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        result[i] = buf.Load<ElTy>(offset + i * sizeof(ElTy));
+    }
+    return result;
+}
+
+//
+// CoopVecStore — DX version (element-wise store to byte buffer)
+//
+template <typename ElTy, int ElCount>
+void CoopVecStore(RWByteAddressBuffer buf, uint offset, vector<ElTy, ElCount> v) {
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        buf.Store(offset + i * sizeof(ElTy), v[i]);
+    }
+}
+
+//
+// CoopVecSplat — DX version (native HLSL vector splat)
+//
+template <typename ElTy, int ElCount>
+vector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
+    return vector<ElTy, ElCount>(scalar);
+}
+
+//
+// CoopVecCast — DX version (native HLSL cast on vector)
+//
+template <typename ToTy, typename FromTy, int ElCount>
+vector<ToTy, ElCount> CoopVecCast(vector<FromTy, ElCount> v) {
+    return (vector<ToTy, ElCount>)v;
+}
+
+//
+// CoopVecWorkgroupLoad — DX version (element-wise from groupshared)
+//
+template <typename ElTy, int ElCount, typename SharedBufType>
+vector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index) {
+    vector<ElTy, ElCount> result;
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        result[i] = shared_data[index + i];
+    }
+    return result;
+}
+
+//
+// CoopVecWorkgroupStore — DX version (element-wise to groupshared)
+//
+template <typename ElTy, int ElCount, typename SharedBufType>
+void CoopVecWorkgroupStore(SharedBufType shared_data, uint index,
+                           vector<ElTy, ElCount> v) {
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        shared_data[index + i] = v[i];
+    }
+}
+
 } // namespace linalg
 } // namespace dx
 #endif // SM 6.9 check and HV version check

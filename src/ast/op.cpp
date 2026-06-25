@@ -181,6 +181,97 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
             }
             break;
         }
+        case CallOp::COOPERATIVE_VECTOR_LOAD: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 2 &&
+                  args[0]->type()->is_buffer() &&
+                  args[1]->type()->is_cooperative_vector_ref())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Load call argument type mismatch.");
+            }
+            if (args[1]->type()->dimension() != return_type->dimension()) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Load call dimension mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_STORE: {
+            if (!(return_type == Type::of<void>() &&
+                  args.size() == 3 &&
+                  args[0]->type()->is_buffer() &&
+                  args[1]->type()->is_cooperative_vector_ref() &&
+                  args[2]->type()->is_cooperative_vector())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Store call argument type mismatch.");
+            }
+            if (args[1]->type()->dimension() != args[2]->type()->dimension()) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Store call dimension mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_SPLAT: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 1 &&
+                  args[0]->type()->is_scalar() &&
+                  args[0]->type() == return_type->element())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Splat call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_CAST: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 1 &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Cast call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 3 &&
+                  args[0]->type()->is_bindless_array() &&
+                  args[1]->type()->is_uint32() &&
+                  args[2]->type()->is_cooperative_vector_ref())) [[unlikely]] {
+                LUISA_ERROR("Bindless-Cooperative-Vector-Load call argument type mismatch.");
+            }
+            if (args[2]->type()->dimension() != return_type->dimension()) [[unlikely]] {
+                LUISA_ERROR("Bindless-Cooperative-Vector-Load call dimension mismatch.");
+            }
+            break;
+        }
+        case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE: {
+            if (!(return_type == Type::of<void>() &&
+                  args.size() == 4 &&
+                  args[0]->type()->is_bindless_array() &&
+                  args[1]->type()->is_uint32() &&
+                  args[2]->type()->is_cooperative_vector_ref() &&
+                  args[3]->type()->is_cooperative_vector())) [[unlikely]] {
+                LUISA_ERROR("Bindless-Cooperative-Vector-Store call argument type mismatch.");
+            }
+            if (args[2]->type()->dimension() != args[3]->type()->dimension()) [[unlikely]] {
+                LUISA_ERROR("Bindless-Cooperative-Vector-Store call dimension mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 2 &&
+                  args[0]->type()->is_array() &&
+                  args[1]->type()->is_uint32())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Workgroup-Load call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: {
+            if (!(return_type == Type::of<void>() &&
+                  args.size() == 3 &&
+                  args[0]->type()->is_array() &&
+                  args[1]->type()->is_uint32() &&
+                  args[2]->type()->is_cooperative_vector())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Workgroup-Store call argument type mismatch.");
+            }
+            break;
+        }
         case CallOp::COOPERATIVE_MUL_ADD: {
             if ((luisa::to_underlying(args[0]->usage()) & luisa::to_underlying(Usage::WRITE)) != 0 &&
                 (luisa::to_underlying(args[2]->usage()) & luisa::to_underlying(Usage::WRITE)) == 0) [[unlikely]] {

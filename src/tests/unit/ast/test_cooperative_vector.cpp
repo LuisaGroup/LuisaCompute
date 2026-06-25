@@ -12,6 +12,7 @@
 #include <luisa/ast/function_builder.h>
 #include <luisa/ast/type.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/dsl/shared.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/byte_buffer.h>
@@ -374,6 +375,219 @@ void test_cooperative_outer_product_accumulate_dsl() {
     expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE));
 }
 
+// AST-level test for COOPERATIVE_VECTOR_LOAD.
+void test_cooperative_vector_load_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        auto &cur = *FuncBuilder::current();
+        auto byte_buf = cur.buffer(Type::of<ByteBuffer>());
+        auto v_ref = cur.local(Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 8));
+        auto ret = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+        static_cast<void>(cur.call(
+            CallOp::COOPERATIVE_VECTOR_LOAD,
+            {byte_buf, v_ref}));
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+    expect(f.propagated_builtin_callables().uses_cooperative());
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_LOAD));
+}
+
+// AST-level test for COOPERATIVE_VECTOR_STORE.
+void test_cooperative_vector_store_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        auto &cur = *FuncBuilder::current();
+        auto byte_buf = cur.buffer(Type::of<ByteBuffer>());
+        auto v_ref = cur.local(Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 8));
+        auto v = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+        static_cast<void>(cur.call(
+            CallOp::COOPERATIVE_VECTOR_STORE,
+            {byte_buf, v_ref, v}));
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+    expect(f.propagated_builtin_callables().uses_cooperative());
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_STORE));
+}
+
+// AST-level test for COOPERATIVE_VECTOR_SPLAT.
+void test_cooperative_vector_splat_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        auto &cur = *FuncBuilder::current();
+        auto scalar = cur.literal(Type::of<float>(), 1.0f);
+        auto ret = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+        static_cast<void>(cur.call(
+            CallOp::COOPERATIVE_VECTOR_SPLAT,
+            {scalar}));
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+    expect(f.propagated_builtin_callables().uses_cooperative());
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_SPLAT));
+}
+
+// AST-level test for COOPERATIVE_VECTOR_CAST.
+void test_cooperative_vector_cast_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        auto &cur = *FuncBuilder::current();
+        auto v = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+        auto ret = cur.local(Type::cooperative_vector(Type::of<int>(), 8));
+        static_cast<void>(cur.call(
+            CallOp::COOPERATIVE_VECTOR_CAST,
+            {v}));
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+    expect(f.propagated_builtin_callables().uses_cooperative());
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_CAST));
+}
+
+// DSL-level test for cooperative_vector_load.
+void test_cooperative_vector_load_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        ByteBufferVar buf{luisa::compute::detail::ArgumentCreation{}};
+        CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+        offset.set_byte_offset(0u);
+        [[maybe_unused]] auto result = cooperative_vector_load<float>(buf, offset);
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_LOAD));
+}
+
+// DSL-level test for cooperative_vector_store.
+void test_cooperative_vector_store_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        ByteBufferVar buf{luisa::compute::detail::ArgumentCreation{}};
+        CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+        CoopVector<float> input{8};
+        for (auto i = 0u; i < 8u; ++i) input[i] = static_cast<float>(i);
+        offset.set_byte_offset(0u);
+        cooperative_vector_store(buf, offset, Expr<CoopVector<float>>{input});
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_STORE));
+}
+
+// DSL-level test for cooperative_vector_splat.
+void test_cooperative_vector_splat_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        [[maybe_unused]] auto result = cooperative_vector_splat<float>(1.0f, 8u);
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_SPLAT));
+}
+
+// DSL-level test for cooperative_vector_cast.
+void test_cooperative_vector_cast_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> input{8};
+        for (auto i = 0u; i < 8u; ++i) input[i] = static_cast<float>(i);
+        [[maybe_unused]] auto result = cooperative_vector_cast<int>(Expr<CoopVector<float>>{input});
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_CAST));
+}
+
+// Device-side test for load/store round-trip.
+void test_cooperative_vector_load_store_device(Device &device) {
+    luisa::log_level_verbose();
+    LUISA_INFO("Running cooperative vector load/store device test on backend '{}'", device.backend_name());
+
+    Stream stream = device.create_stream();
+    constexpr auto n = 8u;
+    constexpr auto byte_size = n * sizeof(float);
+
+    ByteBuffer vector_buffer = device.create_byte_buffer(byte_size);
+    std::array<float, n> input_data;
+    for (auto i = 0u; i < n; ++i) input_data[i] = static_cast<float>(i + 1);
+    luisa::vector<std::byte> host(byte_size);
+
+    // Store kernel: writes [1,2,...,n] into buffer via cooperative_vector_accumulate
+    Kernel1D store_kernel = [&](ByteBufferVar buf) noexcept {
+        CoopVectorRef offset{CoopRefVecType::FLOAT32, n};
+        CoopVector<float> input{n};
+        for (auto i = 0u; i < n; ++i) input[i] = static_cast<float>(i + 1);
+        offset.set_byte_offset(0u);
+        cooperative_vector_accumulate(buf, offset, Expr<CoopVector<float>>{input});
+    };
+
+    // Load kernel: reads back via cooperative_vector_load and copies to output buffer
+    Kernel1D load_kernel = [&](ByteBufferVar buf, BufferVar<float> output) noexcept {
+        CoopVectorRef offset{CoopRefVecType::FLOAT32, n};
+        offset.set_byte_offset(0u);
+        auto loaded = cooperative_vector_load<float>(buf, offset);
+        for (auto i = 0u; i < n; ++i) {
+            output.write(i, loaded[i]);
+        }
+    };
+
+    auto store_shader = device.compile(store_kernel);
+    auto load_shader = device.compile(load_kernel);
+    Buffer<float> output_buffer = device.create_buffer<float>(n);
+
+    CommandList cmdlist = CommandList::create();
+    cmdlist << vector_buffer.copy_from(input_data.data())
+            << load_shader(vector_buffer, output_buffer).dispatch(1u)
+            << output_buffer.copy_to(host.data());
+    stream << cmdlist.commit() << synchronize();
+
+    bool ok = true;
+    auto *pf = reinterpret_cast<const float *>(host.data());
+    for (auto i = 0u; i < n; ++i) {
+        if (std::abs(pf[i] - input_data[i]) > 1e-4f) {
+            LUISA_WARNING("Load/store mismatch at [{}]: got {} expected {}", i, pf[i], input_data[i]);
+            ok = false;
+        }
+    }
+    expect(ok) << "cooperative_vector_load should return the data that was previously stored";
+}
+
+// Device-side test for cooperative_vector_splat.
+void test_cooperative_vector_splat_device(Device &device) {
+    luisa::log_level_verbose();
+    LUISA_INFO("Running cooperative vector splat device test on backend '{}'", device.backend_name());
+
+    Stream stream = device.create_stream();
+    constexpr auto n = 4u;
+    constexpr auto byte_size = n * sizeof(float);
+
+    ByteBuffer vector_buffer = device.create_byte_buffer(byte_size);
+    std::array<std::byte, byte_size> zero{};
+    luisa::vector<std::byte> host(byte_size);
+
+    Kernel1D kernel = [&](ByteBufferVar buf) noexcept {
+        CoopVectorRef offset{CoopRefVecType::FLOAT32, n};
+        auto v = cooperative_vector_splat<float>(42.0f, n);
+        offset.set_byte_offset(0u);
+        cooperative_vector_accumulate(buf, offset, Expr<CoopVector<float>>{v});
+    };
+
+    auto shader = device.compile(kernel);
+
+    CommandList cmdlist = CommandList::create();
+    cmdlist << vector_buffer.copy_from(zero.data())
+            << shader(vector_buffer).dispatch(1u)
+            << vector_buffer.copy_to(host.data());
+    stream << cmdlist.commit() << synchronize();
+
+    bool ok = true;
+    auto *pf = reinterpret_cast<const float *>(host.data());
+    for (auto i = 0u; i < n; ++i) {
+        if (std::abs(pf[i] - 42.0f) > 1e-4f) {
+            LUISA_WARNING("Splat mismatch at [{}]: got {} expected {}", i, pf[i], 42.0f);
+            ok = false;
+        }
+    }
+    expect(ok) << "cooperative_vector_splat should produce a vector of 42.0 values";
+}
+
 // Device-side execution test.  This requires a backend with cooperative-vector
 // support (DX with Shader Model 6.8, or VK).  For DX, experimental features must
 // be enabled through the device extension.
@@ -417,6 +631,321 @@ void test_cooperative_vector_device(Device &device) {
         }
     }
     expect(ok) << "cooperative_vector_accumulate should write [1,2,...,n] into the byte buffer";
+}
+
+// AST-level test for BINDLESS_COOPERATIVE_VECTOR_LOAD and TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD.
+void test_bindless_cooperative_vector_load_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto test_one = [](CallOp op) {
+        auto fb = FuncBuilder::define_kernel([&]() {
+            auto &cur = *FuncBuilder::current();
+            auto bindless = cur.bindless_array();
+            auto buffer_handle = cur.literal(Type::of<uint>(), 0u);
+            auto v_ref = cur.local(Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 8));
+            auto ret = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+            static_cast<void>(cur.call(
+                op,
+                {bindless, buffer_handle, v_ref}));
+        });
+        Function f{fb.get()};
+        expect(f.use_cooperative_operations());
+        expect(f.propagated_builtin_callables().uses_cooperative());
+        expect(f.direct_builtin_callables().test(op));
+    };
+    test_one(CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD);
+    test_one(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD);
+}
+
+// AST-level test for BINDLESS_COOPERATIVE_VECTOR_STORE and TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE.
+void test_bindless_cooperative_vector_store_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto test_one = [](CallOp op) {
+        auto fb = FuncBuilder::define_kernel([&]() {
+            auto &cur = *FuncBuilder::current();
+            auto bindless = cur.bindless_array();
+            auto buffer_handle = cur.literal(Type::of<uint>(), 0u);
+            auto v_ref = cur.local(Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 8));
+            auto v = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+            static_cast<void>(cur.call(
+                op,
+                {bindless, buffer_handle, v_ref, v}));
+        });
+        Function f{fb.get()};
+        expect(f.use_cooperative_operations());
+        expect(f.propagated_builtin_callables().uses_cooperative());
+        expect(f.direct_builtin_callables().test(op));
+    };
+    test_one(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE);
+    test_one(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE);
+}
+
+// DSL-level test for bindless_cooperative_vector_load and typed_bindless_cooperative_vector_load.
+void test_bindless_cooperative_vector_load_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        BindlessVar bindless{luisa::compute::detail::ArgumentCreation{}};
+        CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+        offset.set_byte_offset(0u);
+        [[maybe_unused]] auto out0 = bindless_cooperative_vector_load<float>(bindless, 0u, offset);
+        [[maybe_unused]] auto out1 = typed_bindless_cooperative_vector_load<float>(bindless, 0u, offset);
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD));
+    expect(f.direct_builtin_callables().test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD));
+}
+
+// DSL-level test for bindless_cooperative_vector_store and typed_bindless_cooperative_vector_store.
+void test_bindless_cooperative_vector_store_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        BindlessVar bindless{luisa::compute::detail::ArgumentCreation{}};
+        CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+        CoopVector<float> input{8};
+        for (auto i = 0u; i < 8u; ++i) input[i] = static_cast<float>(i);
+        offset.set_byte_offset(0u);
+        bindless_cooperative_vector_store(bindless, 0u, offset, Expr<CoopVector<float>>{input});
+        typed_bindless_cooperative_vector_store(bindless, 0u, offset, Expr<CoopVector<float>>{input});
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE));
+    expect(f.direct_builtin_callables().test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE));
+}
+
+// AST-level test for COOPERATIVE_VECTOR_WORKGROUP_LOAD.
+void test_cooperative_vector_workgroup_load_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        auto &cur = *FuncBuilder::current();
+        auto shared_arr = cur.local(Type::array(Type::of<float>(), 8));
+        auto index = cur.literal(Type::of<uint>(), 0u);
+        auto ret = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+        static_cast<void>(cur.call(
+            CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD,
+            {shared_arr, index}));
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+    expect(f.propagated_builtin_callables().uses_cooperative());
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD));
+}
+
+// AST-level test for COOPERATIVE_VECTOR_WORKGROUP_STORE.
+void test_cooperative_vector_workgroup_store_ast() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        auto &cur = *FuncBuilder::current();
+        auto shared_arr = cur.local(Type::array(Type::of<float>(), 8));
+        auto index = cur.literal(Type::of<uint>(), 0u);
+        auto v = cur.local(Type::cooperative_vector(Type::of<float>(), 8));
+        static_cast<void>(cur.call(
+            CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE,
+            {shared_arr, index, v}));
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+    expect(f.propagated_builtin_callables().uses_cooperative());
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE));
+}
+
+// DSL-level test for cooperative_vector_workgroup_load.
+void test_cooperative_vector_workgroup_load_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        Shared<float> shared_mem{8};
+        [[maybe_unused]] auto result = cooperative_vector_workgroup_load(shared_mem, 0u);
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD));
+}
+
+// DSL-level test for cooperative_vector_workgroup_store.
+void test_cooperative_vector_workgroup_store_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        Shared<float> shared_mem{8};
+        CoopVector<float> input{8};
+        for (auto i = 0u; i < 8u; ++i) input[i] = static_cast<float>(i);
+        cooperative_vector_workgroup_store(shared_mem, 0u, Expr<CoopVector<float>>{input});
+    });
+    Function f{fb.get()};
+    expect(f.direct_builtin_callables().test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE));
+}
+
+// DSL-level test for cooperative_vector_min.
+void test_cooperative_vector_min_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> a{4};
+        CoopVector<float> b{4};
+        for (auto i = 0u; i < 4u; ++i) { a[i] = static_cast<float>(i + 1); b[i] = static_cast<float>(4 - i); }
+        [[maybe_unused]] auto result = cooperative_vector_min(a, b);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_max.
+void test_cooperative_vector_max_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> a{4};
+        CoopVector<float> b{4};
+        for (auto i = 0u; i < 4u; ++i) { a[i] = static_cast<float>(i + 1); b[i] = static_cast<float>(4 - i); }
+        [[maybe_unused]] auto result = cooperative_vector_max(a, b);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_clamp.
+void test_cooperative_vector_clamp_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> v{4};
+        CoopVector<float> lo{4};
+        CoopVector<float> hi{4};
+        for (auto i = 0u; i < 4u; ++i) { v[i] = static_cast<float>(i); lo[i] = 0.5f; hi[i] = 2.5f; }
+        [[maybe_unused]] auto result = cooperative_vector_clamp(v, lo, hi);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_exp.
+void test_cooperative_vector_exp_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> v{4};
+        for (auto i = 0u; i < 4u; ++i) v[i] = static_cast<float>(i);
+        [[maybe_unused]] auto result = cooperative_vector_exp(v);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_log.
+void test_cooperative_vector_log_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> v{4};
+        for (auto i = 0u; i < 4u; ++i) v[i] = static_cast<float>(i + 1);
+        [[maybe_unused]] auto result = cooperative_vector_log(v);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_tanh.
+void test_cooperative_vector_tanh_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> v{4};
+        for (auto i = 0u; i < 4u; ++i) v[i] = 0.5f;
+        [[maybe_unused]] auto result = cooperative_vector_tanh(v);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_atan.
+void test_cooperative_vector_atan_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> v{4};
+        for (auto i = 0u; i < 4u; ++i) v[i] = static_cast<float>(i);
+        [[maybe_unused]] auto result = cooperative_vector_atan(v);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_fma.
+void test_cooperative_vector_fma_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<float> a{4};
+        CoopVector<float> b{4};
+        CoopVector<float> c{4};
+        for (auto i = 0u; i < 4u; ++i) { a[i] = 2.0f; b[i] = 3.0f; c[i] = 1.0f; }
+        [[maybe_unused]] auto result = cooperative_vector_fma(a, b, c);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_bitwise_and.
+void test_cooperative_vector_bitwise_and_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<uint> a{4};
+        CoopVector<uint> b{4};
+        for (auto i = 0u; i < 4u; ++i) { a[i] = 0xFFu; b[i] = 0xF0u; }
+        [[maybe_unused]] auto result = cooperative_vector_bitwise_and(a, b);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_bitwise_or.
+void test_cooperative_vector_bitwise_or_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<uint> a{4};
+        CoopVector<uint> b{4};
+        for (auto i = 0u; i < 4u; ++i) { a[i] = 0x0Fu; b[i] = 0xF0u; }
+        [[maybe_unused]] auto result = cooperative_vector_bitwise_or(a, b);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_bitwise_xor.
+void test_cooperative_vector_bitwise_xor_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<uint> a{4};
+        CoopVector<uint> b{4};
+        for (auto i = 0u; i < 4u; ++i) { a[i] = 0xFFu; b[i] = 0xF0u; }
+        [[maybe_unused]] auto result = cooperative_vector_bitwise_xor(a, b);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_bitwise_not.
+void test_cooperative_vector_bitwise_not_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<uint> v{4};
+        for (auto i = 0u; i < 4u; ++i) v[i] = 0x0Fu;
+        [[maybe_unused]] auto result = cooperative_vector_bitwise_not(v);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_shift_left.
+void test_cooperative_vector_shift_left_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<uint> v{4};
+        for (auto i = 0u; i < 4u; ++i) v[i] = 1u << i;
+        [[maybe_unused]] auto result = cooperative_vector_shift_left(v, 1u);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
+}
+
+// DSL-level test for cooperative_vector_shift_right.
+void test_cooperative_vector_shift_right_dsl() {
+    using FuncBuilder = luisa::compute::detail::FunctionBuilder;
+    auto fb = FuncBuilder::define_kernel([&]() {
+        CoopVector<uint> v{4};
+        for (auto i = 0u; i < 4u; ++i) v[i] = 0x80u;
+        [[maybe_unused]] auto result = cooperative_vector_shift_right(v, 4u);
+    });
+    Function f{fb.get()};
+    expect(f.use_cooperative_operations());
 }
 
 // Global pointer used by the capture-less Boost.UT suite to reach the device.
@@ -468,8 +997,40 @@ int main(int argc, char *argv[]) {
         "cooperative_mul_dsl"_test = [] { test_cooperative_mul_dsl(); };
         "bindless_cooperative_mul_dsl"_test = [] { test_bindless_cooperative_mul_dsl(); };
         "cooperative_outer_product_accumulate_dsl"_test = [] { test_cooperative_outer_product_accumulate_dsl(); };
+        "cooperative_vector_load_ast"_test = [] { test_cooperative_vector_load_ast(); };
+        "cooperative_vector_store_ast"_test = [] { test_cooperative_vector_store_ast(); };
+        "cooperative_vector_splat_ast"_test = [] { test_cooperative_vector_splat_ast(); };
+        "cooperative_vector_cast_ast"_test = [] { test_cooperative_vector_cast_ast(); };
+        "cooperative_vector_load_dsl"_test = [] { test_cooperative_vector_load_dsl(); };
+        "cooperative_vector_store_dsl"_test = [] { test_cooperative_vector_store_dsl(); };
+        "cooperative_vector_splat_dsl"_test = [] { test_cooperative_vector_splat_dsl(); };
+        "cooperative_vector_cast_dsl"_test = [] { test_cooperative_vector_cast_dsl(); };
+        "bindless_cooperative_vector_load_ast"_test = [] { test_bindless_cooperative_vector_load_ast(); };
+        "bindless_cooperative_vector_store_ast"_test = [] { test_bindless_cooperative_vector_store_ast(); };
+        "bindless_cooperative_vector_load_dsl"_test = [] { test_bindless_cooperative_vector_load_dsl(); };
+        "bindless_cooperative_vector_store_dsl"_test = [] { test_bindless_cooperative_vector_store_dsl(); };
+        "cooperative_vector_workgroup_load_ast"_test = [] { test_cooperative_vector_workgroup_load_ast(); };
+        "cooperative_vector_workgroup_store_ast"_test = [] { test_cooperative_vector_workgroup_store_ast(); };
+        "cooperative_vector_workgroup_load_dsl"_test = [] { test_cooperative_vector_workgroup_load_dsl(); };
+        "cooperative_vector_workgroup_store_dsl"_test = [] { test_cooperative_vector_workgroup_store_dsl(); };
+        "cooperative_vector_min_dsl"_test = [] { test_cooperative_vector_min_dsl(); };
+        "cooperative_vector_max_dsl"_test = [] { test_cooperative_vector_max_dsl(); };
+        "cooperative_vector_clamp_dsl"_test = [] { test_cooperative_vector_clamp_dsl(); };
+        "cooperative_vector_exp_dsl"_test = [] { test_cooperative_vector_exp_dsl(); };
+        "cooperative_vector_log_dsl"_test = [] { test_cooperative_vector_log_dsl(); };
+        "cooperative_vector_tanh_dsl"_test = [] { test_cooperative_vector_tanh_dsl(); };
+        "cooperative_vector_atan_dsl"_test = [] { test_cooperative_vector_atan_dsl(); };
+        "cooperative_vector_fma_dsl"_test = [] { test_cooperative_vector_fma_dsl(); };
+        "cooperative_vector_bitwise_and_dsl"_test = [] { test_cooperative_vector_bitwise_and_dsl(); };
+        "cooperative_vector_bitwise_or_dsl"_test = [] { test_cooperative_vector_bitwise_or_dsl(); };
+        "cooperative_vector_bitwise_xor_dsl"_test = [] { test_cooperative_vector_bitwise_xor_dsl(); };
+        "cooperative_vector_bitwise_not_dsl"_test = [] { test_cooperative_vector_bitwise_not_dsl(); };
+        "cooperative_vector_shift_left_dsl"_test = [] { test_cooperative_vector_shift_left_dsl(); };
+        "cooperative_vector_shift_right_dsl"_test = [] { test_cooperative_vector_shift_right_dsl(); };
         if (g_device_for_tests) {
             "cooperative_vector_device"_test = [] { test_cooperative_vector_device(*g_device_for_tests); };
+            "cooperative_vector_load_store_device"_test = [] { test_cooperative_vector_load_store_device(*g_device_for_tests); };
+            "cooperative_vector_splat_device"_test = [] { test_cooperative_vector_splat_device(*g_device_for_tests); };
         }
     }};
 

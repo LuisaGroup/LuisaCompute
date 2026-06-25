@@ -1825,6 +1825,94 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
             str << luisa::format(",{}>", args[2]->type()->dimension());
         } break;
+        case CallOp::COOPERATIVE_VECTOR_LOAD: {
+            str << "dx::linalg::CoopVecLoad<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>", expr->type()->dimension());
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_STORE: {
+            str << "dx::linalg::CoopVecStore<";
+            GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
+            str << luisa::format(",{}>", args[2]->type()->dimension());
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_SPLAT: {
+            str << "dx::linalg::CoopVecSplat<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>", expr->type()->dimension());
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_CAST: {
+            str << "dx::linalg::CoopVecCast<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << ',';
+            GetTypeName(*args[0]->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>", expr->type()->dimension());
+        } break;
+        case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: {
+            opt->useBufferBindless = true;
+            str << "dx::linalg::CoopVecLoad<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>(", expr->type()->dimension());
+            str << "bdls[NonUniformResourceIndex(";
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) {
+                args[0]->accept(vis);
+                str << "[0]+";
+                args[1]->accept(vis);
+            } else {
+                str << "_ReadBdlsBuffer(";
+                args[0]->accept(vis);
+                str << ',';
+                args[1]->accept(vis);
+                str << ')';
+            }
+            str << ")],";
+            args[2]->accept(vis);
+            str << ')';
+        }
+            return;
+        case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE: {
+            opt->useBufferBindless = true;
+            str << "dx::linalg::CoopVecStore<";
+            GetTypeName(*args[3]->type()->element(), str, args[3]->usage());
+            str << luisa::format(",{}>(", args[3]->type()->dimension());
+            str << "bdls[NonUniformResourceIndex(";
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) {
+                args[0]->accept(vis);
+                str << "[0]+";
+                args[1]->accept(vis);
+            } else {
+                str << "_ReadBdlsBuffer(";
+                args[0]->accept(vis);
+                str << ',';
+                args[1]->accept(vis);
+                str << ')';
+            }
+            str << ")],";
+            args[2]->accept(vis);
+            str << ',';
+            args[3]->accept(vis);
+            str << ')';
+        }
+            return;
+        case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: {
+            str << "dx::linalg::CoopVecWorkgroupLoad<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << ',';
+            str << luisa::format("{}", expr->type()->dimension());
+            str << ',';
+            GetTypeName(*args[0]->type(), str, args[0]->usage());
+            str << '>';
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: {
+            str << "dx::linalg::CoopVecWorkgroupStore<";
+            GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
+            str << ',';
+            str << luisa::format("{}", args[2]->type()->dimension());
+            str << ',';
+            GetTypeName(*args[0]->type(), str, args[0]->usage());
+            str << '>';
+        } break;
         case CallOp::COOPERATIVE_MUL_ADD: {
             auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
             str << "dx::linalg::CoopMulAdd<";
