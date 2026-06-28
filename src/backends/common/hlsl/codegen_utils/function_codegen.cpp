@@ -52,7 +52,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                 Usage usage = func.variable_usage(i.uid());
                 if (i.tag() == Variable::Tag::REFERENCE) {
                     if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) != 0) {
-                        data += "inout "sv;
+                        data += opt->isSpirv ? "[[vk::ext_reference]] inout "sv : "inout "sv;
                     }
                 }
                 RegistStructType(i.type());
