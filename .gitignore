@@ -355,3 +355,14 @@ AGENTS.*
 /agent*.py
 build-check/
 build-verify/
+/build-cuda-debug
+/build-cuda
+/build-dx-debug
+/build-dx
+/dist-cuda-debug
+/dist-cuda
+/dist-dx-debug
+/dist-dx
+/install-dx
+/install-dx-debug/include
+/install-dx-debug
