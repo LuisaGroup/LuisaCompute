@@ -1791,7 +1791,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 file_name,
                 serde_type,
                 shader_model,
-                option.enable_fast_math);
+                option.enable_fast_math,
+                0,
+                kernel.allowed_warp_size());
             LUISA_VERBOSE("ComputeShader (HLSL) created, pipeline: {}",
                           reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);

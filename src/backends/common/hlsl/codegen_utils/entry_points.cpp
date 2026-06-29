@@ -627,7 +627,7 @@ uint3 grpId = uint3(0,0,0);
             } else {
                 // Compute shader: generate standard entry point
                 auto warp_size = func.allowed_warp_size();
-                if (warp_size.has_value()) {
+                if (warp_size.has_value() && !opt->isSpirv) {
                     result << luisa::format("[WaveSize({})]\n", int(warp_size.value()));
                 }
                 result << "[numthreads("
