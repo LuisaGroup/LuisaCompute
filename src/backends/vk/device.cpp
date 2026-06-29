@@ -589,25 +589,79 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     bool enable_float_atomic_add = false;
     bool enable_float_shared_atomic = false;
     bool enable_subgroup_size_control = false;
+    bool enable_subgroup_extended_types = false;
     if (supported_ext.find(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) != supported_ext.end()) {
         _enable_device_exts.emplace_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
         enable_barycentric = true;
     }
     if (supported_ext.find(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME) != supported_ext.end()) {
-        _enable_device_exts.emplace_back(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
-        enable_atomic64_bit = true;
+        VkPhysicalDeviceVulkan12Features vk12_atomic_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk12_atomic_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (vk12_atomic_features.shaderBufferInt64Atomics == VK_TRUE &&
+            vk12_atomic_features.shaderSharedInt64Atomics == VK_TRUE) {
+            _enable_device_exts.emplace_back(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
+            enable_atomic64_bit = true;
+        }
     }
-    if (supported_ext.find(VK_KHR_16BIT_STORAGE_EXTENSION_NAME) != supported_ext.end()) {
-        _enable_device_exts.emplace_back(VK_KHR_16BIT_STORAGE_EXTENSION_NAME);
-        enable_16bit = true;
-    }
-    if (supported_ext.find(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
-        _enable_device_exts.emplace_back(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME);
-        enable_16bit = true;
+    {
+        VkPhysicalDeviceVulkan11Features vk11_16bit_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+            .pNext = nullptr};
+        VkPhysicalDeviceVulkan12Features vk12_16bit_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext = &vk11_16bit_features};
+        VkPhysicalDeviceFeatures2 features2_16bit{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk12_16bit_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2_16bit);
+        bool has_16bit = false;
+        if (supported_ext.find(VK_KHR_16BIT_STORAGE_EXTENSION_NAME) != supported_ext.end() ||
+            supported_ext.find(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
+            has_16bit = (vk12_16bit_features.shaderFloat16 == VK_TRUE &&
+                         vk11_16bit_features.storageBuffer16BitAccess == VK_TRUE &&
+                         vk11_16bit_features.uniformAndStorageBuffer16BitAccess == VK_TRUE);
+        }
+        if (has_16bit) {
+            if (supported_ext.find(VK_KHR_16BIT_STORAGE_EXTENSION_NAME) != supported_ext.end()) {
+                _enable_device_exts.emplace_back(VK_KHR_16BIT_STORAGE_EXTENSION_NAME);
+            }
+            if (supported_ext.find(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
+                _enable_device_exts.emplace_back(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME);
+            }
+            enable_16bit = true;
+        }
     }
     if (supported_ext.find(VK_KHR_8BIT_STORAGE_EXTENSION_NAME) != supported_ext.end()) {
-        _enable_device_exts.emplace_back(VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
-        enable_8bit = true;
+        VkPhysicalDeviceVulkan12Features vk12_8bit_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2_8bit{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk12_8bit_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2_8bit);
+        if (vk12_8bit_features.storageBuffer8BitAccess == VK_TRUE &&
+            vk12_8bit_features.uniformAndStorageBuffer8BitAccess == VK_TRUE &&
+            vk12_8bit_features.shaderInt8 == VK_TRUE) {
+            _enable_device_exts.emplace_back(VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
+            enable_8bit = true;
+        }
+    }
+    if (supported_ext.find(VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceVulkan12Features vk12_subgroup_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk12_subgroup_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (vk12_subgroup_features.shaderSubgroupExtendedTypes == VK_TRUE) {
+            enable_subgroup_extended_types = true;
+        }
     }
     if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
         VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{
@@ -778,8 +832,33 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (bindless_enabled) {
         if (supported_ext.find(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) != supported_ext.end() &&
             supported_ext.find(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) != supported_ext.end()) {
-            enable_device_extension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-            enable_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            // Query descriptor indexing features
+            VkPhysicalDeviceDescriptorIndexingFeatures desc_indexing_features{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+                .pNext = nullptr};
+            VkPhysicalDeviceVulkan12Features vk12_desc_features{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+                .pNext = &desc_indexing_features};
+            VkPhysicalDeviceFeatures2 features2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = &vk12_desc_features};
+            vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+            // Check master descriptorIndexing bit (Vk12) AND all individual sub-features (DescriptorIndexingFeatures)
+            if (vk12_desc_features.descriptorIndexing == VK_TRUE &&
+                desc_indexing_features.shaderUniformBufferArrayNonUniformIndexing == VK_TRUE &&
+                desc_indexing_features.shaderSampledImageArrayNonUniformIndexing == VK_TRUE &&
+                desc_indexing_features.shaderStorageBufferArrayNonUniformIndexing == VK_TRUE &&
+                desc_indexing_features.shaderStorageImageArrayNonUniformIndexing == VK_TRUE &&
+                desc_indexing_features.descriptorBindingUniformBufferUpdateAfterBind == VK_TRUE &&
+                desc_indexing_features.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE &&
+                desc_indexing_features.descriptorBindingStorageImageUpdateAfterBind == VK_TRUE &&
+                desc_indexing_features.descriptorBindingStorageBufferUpdateAfterBind == VK_TRUE &&
+                desc_indexing_features.runtimeDescriptorArray == VK_TRUE) {
+                enable_device_extension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+                enable_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            } else {
+                bindless_enabled = false;
+            }
         } else {
             bindless_enabled = false;
         }
@@ -824,6 +903,25 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
 #endif
         } else {
             interop_enabled = false;
+        }
+    }
+    // bufferDeviceAddress requires VK_KHR_buffer_device_address on Vulkan 1.1 devices
+    if (device_address_enabled) {
+        VkPhysicalDeviceVulkan12Features vk12_ba_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk12_ba_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (vk12_ba_features.bufferDeviceAddress != VK_TRUE) {
+            // Not natively supported (Vulkan < 1.2) — try extension
+            if (supported_ext.find(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) != supported_ext.end()) {
+                enable_device_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+            } else {
+                LUISA_WARNING("bufferDeviceAddress not supported; disabling device address.");
+                device_address_enabled = false;
+            }
         }
     }
     luisa::vector<luisa::string> extra_exts = [&]() {
@@ -938,14 +1036,27 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     // vector/matrix SPIR-V operations (which take buffer pointers via
     // [[vk::ext_reference]]). Only enable the device feature when a
     // cooperative-matrix/vector extension is active.
-    bool const enable_variable_pointers_storage_buffer =
-        enabled_cooperative_matrix_ext != CooperativeMatrixExt::None || cooperative_vector_enabled;
+    bool enable_variable_pointers_storage_buffer = false;
+    if (enabled_cooperative_matrix_ext != CooperativeMatrixExt::None || cooperative_vector_enabled) {
+        VkPhysicalDeviceVulkan11Features vk11_vp_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk11_vp_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (vk11_vp_features.variablePointersStorageBuffer == VK_TRUE &&
+            vk11_vp_features.variablePointers == VK_TRUE) {
+            enable_variable_pointers_storage_buffer = true;
+        }
+    }
     VkPhysicalDeviceVulkan11Features vk11_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
         .pNext = &barrier_feature,
         .storageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
         .uniformAndStorageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
-        .variablePointersStorageBuffer = enable_variable_pointers_storage_buffer ? VK_TRUE : VK_FALSE};
+        .variablePointersStorageBuffer = enable_variable_pointers_storage_buffer ? VK_TRUE : VK_FALSE,
+        .variablePointers = enable_variable_pointers_storage_buffer ? VK_TRUE : VK_FALSE};
     auto vk_bindless_enabled = bindless_enabled ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -967,7 +1078,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         .descriptorBindingStorageBufferUpdateAfterBind = vk_bindless_enabled,
         .runtimeDescriptorArray = vk_bindless_enabled,
 
-        .shaderSubgroupExtendedTypes = (enable_atomic64_bit || enable_16bit) ? VK_TRUE : VK_FALSE,
+        .shaderSubgroupExtendedTypes = enable_subgroup_extended_types ? VK_TRUE : VK_FALSE,
 
         .timelineSemaphore = VK_TRUE,
         .bufferDeviceAddress = device_address_enabled ? VK_TRUE : VK_FALSE};
