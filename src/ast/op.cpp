@@ -6,6 +6,27 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
 
+namespace {
+
+[[nodiscard]] bool is_lvalue_expression(const luisa::compute::Expression *expr) noexcept {
+    switch (expr->tag()) {
+        case luisa::compute::Expression::Tag::REF: return true;
+        case luisa::compute::Expression::Tag::ACCESS:
+            return is_lvalue_expression(static_cast<const luisa::compute::AccessExpr *>(expr)->range());
+        case luisa::compute::Expression::Tag::MEMBER: {
+            auto member = static_cast<const luisa::compute::MemberExpr *>(expr);
+            if (member->is_swizzle()) {
+                return member->swizzle_size() == 1u &&
+                       is_lvalue_expression(member->self());
+            }
+            return is_lvalue_expression(member->self());
+        }
+        default: return false;
+    }
+}
+
+}// namespace
+
 namespace luisa::compute {
 
 CallOpSet::Iterator::Iterator(const CallOpSet &set) noexcept : _set{set} {
@@ -352,6 +373,20 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
                   args[3]->type()->dimension() == matrix_dimension.x         // input is K
                   )) [[unlikely]] {
                 LUISA_ERROR("Cooperative-Mul call dimension mismatch.");
+            }
+            break;
+        }
+        case CallOp::ASYNC_COPY: {
+            if (!(return_type->is_uint32() &&
+                  args.size() == 7 &&
+                  args[0]->type()->is_uint32() &&
+                  args[3]->type()->is_uint32() &&
+                  args[4]->type()->is_uint32() &&
+                  args[5]->type()->is_uint32() &&
+                  args[6]->type()->is_uint32() &&
+                  is_lvalue_expression(args[1]) &&
+                  is_lvalue_expression(args[2]))) [[unlikely]] {
+                LUISA_ERROR("ASYNC_COPY argument type mismatch.");
             }
             break;
         }

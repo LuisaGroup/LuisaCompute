@@ -1988,6 +1988,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             TypeToCoop(args[1]->type()->coop_vec_ref_type(), str);
             str << luisa::format(",{},{}>", matrix_dimension.x, matrix_dimension.y);
         } break;
+        case CallOp::ASYNC_COPY: {
+            if (!opt->isSpirv) {
+                LUISA_NOT_IMPLEMENTED();
+            }
+            str << "__builtin_spirv_group_async_copy(";
+            for (size_t i = 0; i < args.size(); ++i) {
+                if (i) str << ",";
+                args[i]->accept(vis);
+            }
+            str << ")";
+            return;
+        }
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
         case CallOp::BINDLESS_COOPERATIVE_MUL: {
             opt->useBufferBindless = true;

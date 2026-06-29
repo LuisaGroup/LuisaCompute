@@ -152,7 +152,7 @@ CompileResult ShaderCompiler::compile_compute(
         if (shaderModel > 65) {
             args.emplace_back(L"-fspv-target-env=vulkan1.3");
         } else if (shaderModel > 60) {
-            args.emplace_back(L"-fspv-target-env=vulkan1.1");
+            args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
     }
     args.emplace_back(L"-T");
@@ -186,7 +186,7 @@ RasterBin ShaderCompiler::compile_raster(
         if (shaderModel > 65) {
             args.emplace_back(L"-fspv-target-env=vulkan1.3");
         } else if (shaderModel > 60) {
-            args.emplace_back(L"-fspv-target-env=vulkan1.1");
+            args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
     }
     if (enableUnsafeMath) {

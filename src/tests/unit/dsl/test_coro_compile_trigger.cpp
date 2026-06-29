@@ -33,8 +33,9 @@ void reg_coro_compile_trigger() {
 
     "compile_on_construction_does_not_throw"_test = [] {
         // Constructing the Coroutine triggers eager compilation.
-        // Should not throw.
-        expect(nothrow([&] { make_simple_coro(); }));
+        // Should not throw (when exceptions are enabled).
+        auto c = make_simple_coro();
+        expect(static_cast<bool>(c.function_builder()));
     };
 
     "graph_not_empty"_test = [] {

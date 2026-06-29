@@ -56,7 +56,7 @@ def main():
             dxc_path,
             '-spirv',
             '/DSPV',
-            '-fspv-target-env=vulkan1.1',
+            '-fspv-target-env=vulkan1.2',
             '-all_resources_bound',
             '-enable-16bit-types',
             '-Zpr',

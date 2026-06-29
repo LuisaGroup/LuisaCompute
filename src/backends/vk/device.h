@@ -121,6 +121,7 @@ public:
     bool motion_blur_enabled : 1 {false};
     bool subgroup_size_control_enabled : 1 {false};
     bool cooperative_vector_enabled : 1 {false};
+    bool async_copy_enabled : 1 {false};
     auto &graphics_queue_mtx() { return _graphics_queue_mtx; }
     auto &compute_queue_mtx() { return _compute_queue_mtx; }
     auto &copy_queue_mtx() { return _copy_queue_mtx; }
@@ -137,6 +138,7 @@ public:
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
     bool enable_device_address() const { return device_address_enabled; }
+    bool enable_async_copy() const { return async_copy_enabled; }
     static hlsl::ShaderCompiler *compiler();
     static VkAllocationCallbacks *alloc_callbacks();
     static VkInstance instance();

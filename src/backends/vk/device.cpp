@@ -1,4 +1,5 @@
 #include "device.h"
+#include <luisa/ast/op.h>
 #include <luisa/core/logging.h>
 #include "log.h"
 #include <luisa/vstl/config.h>
@@ -747,6 +748,31 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             }
         }
     }
+    VkPhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR workgroup_memory_explicit_layout_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_FEATURES_KHR,
+        .pNext = nullptr,
+        .workgroupMemoryExplicitLayout = VK_FALSE,
+        .workgroupMemoryExplicitLayoutScalarBlockLayout = VK_FALSE,
+        .workgroupMemoryExplicitLayout8BitAccess = VK_FALSE,
+        .workgroupMemoryExplicitLayout16BitAccess = VK_FALSE};
+    VkPhysicalDeviceMaintenance5FeaturesKHR maintenance5_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+        .pNext = nullptr,
+        .maintenance5 = VK_FALSE};
+    if (supported_ext.find(VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME) != supported_ext.end() &&
+        supported_ext.find(VK_KHR_MAINTENANCE_5_EXTENSION_NAME) != supported_ext.end()) {
+        workgroup_memory_explicit_layout_features.pNext = &maintenance5_features;
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &workgroup_memory_explicit_layout_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (workgroup_memory_explicit_layout_features.workgroupMemoryExplicitLayout == VK_TRUE &&
+            maintenance5_features.maintenance5 == VK_TRUE) {
+            async_copy_enabled = true;
+            enable_device_extension(VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME);
+            enable_device_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
+        }
+    }
     enable_device_extension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
     enable_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if (bindless_enabled) {
@@ -897,6 +923,12 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (cooperative_vector_enabled) {
         cooperative_vector_features_nv.pNext = feature_next;
         feature_next = &cooperative_vector_features_nv;
+    }
+    if (async_copy_enabled) {
+        maintenance5_features.pNext = feature_next;
+        feature_next = &maintenance5_features;
+        workgroup_memory_explicit_layout_features.pNext = feature_next;
+        feature_next = &workgroup_memory_explicit_layout_features;
     }
     VkPhysicalDeviceSynchronization2Features barrier_feature{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
@@ -1558,6 +1590,17 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         
         auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
         vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+        bool const requires_async_copy = kernel.propagated_builtin_callables().test(CallOp::ASYNC_COPY);
+        if (requires_async_copy) {
+            if (!async_copy_enabled) {
+                LUISA_ERROR("ASYNC_COPY is not supported on this Vulkan device because VK_KHR_workgroup_memory_explicit_layout is unavailable.");
+            }
+        }
+        uint const shader_model = [&]() noexcept -> uint {
+            if (kernel.use_cooperative_operations()) { return kTensorShaderModel; }
+            if (kernel.allowed_warp_size().has_value() || requires_async_copy) { return kHighShaderModel; }
+            return kShaderModel;
+        }();
         
         if (option.compile_only) {
             LUISA_ASSERT(!option.name.empty(), "Vulkan compile-only shader requires a non-empty shader name.");
@@ -1586,7 +1629,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             auto comp_result = Device::compiler()->compile_compute(
                 code.result.view(),
                 !option.enable_debug_info,
-                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+                shader_model,
                 option.enable_fast_math,
                 true,
                 option.enable_debug_info);
@@ -1636,7 +1679,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 kernel.block_size(),
                 file_name,
                 serde_type,
-                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+                shader_model,
                 option.enable_fast_math);
             LUISA_VERBOSE("ComputeShader (HLSL) created, pipeline: {}",
                           reinterpret_cast<void *>(shader->pipeline()));

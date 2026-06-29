@@ -512,6 +512,9 @@ enum struct CallOp : uint32_t {
     COOPERATIVE_VECTOR_WORKGROUP_LOAD,  // coop_vec<T,N> (shared_buf: array<T>, index: uint)
     COOPERATIVE_VECTOR_WORKGROUP_STORE, // void (shared_buf: array<T>, index: uint, coop_vec<T,N>)
 
+    // Async group copy
+    ASYNC_COPY,/// [(uint scope, ref dst, ref src, uint elem_bytes, uint num, uint stride, uint event) -> uint]: async group copy
+
     // Clock
     CLOCK,// (): uint64
 };

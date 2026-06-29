@@ -100,6 +100,35 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
     if (is_spirv) {
         builder << CodegenUtility::ReadInternalHLSLFile("spv_alias");
     }
+    if (is_spirv && ops.test(CallOp::ASYNC_COPY)) {
+        builder << R"(
+[[vk::ext_instruction(259, "")]]
+[[vk::ext_capability(18)]]
+uint __builtin_spirv_group_async_copy_typed(
+    uint execution_scope,
+    [[vk::ext_reference]] inout uint destination,
+    [[vk::ext_reference]] in uint source,
+    uint num_elements,
+    uint stride,
+    uint event);
+uint __builtin_spirv_group_async_copy(
+    uint execution_scope,
+    [[vk::ext_reference]] inout uint destination,
+    [[vk::ext_reference]] in uint source,
+    uint element_num_bytes,
+    uint num_elements,
+    uint stride,
+    uint event) {
+    return __builtin_spirv_group_async_copy_typed(
+        execution_scope,
+        destination,
+        source,
+        num_elements,
+        stride / element_num_bytes,
+        event);
+}
+)";
+    }
     size_t immutable_size = builder.size();
     if (ops.uses_raytracing()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header");
@@ -181,7 +210,15 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = kernel;
     bool nonEmptyCbuffer = IsCBufferNonEmpty(kernel);
-
+    // The generated HLSL is assembled in the following order:
+    //   1. finalResult: prelude (debug macro, builtin headers, native code,
+    //                  custom mask comment) and post-processed custom structs
+    //   2. varData: cbuffer, push constants, and resource bindings
+    //   3. incrementalFunc: helper functions generated on demand for types /
+    //                       access chains
+    //   4. codegenData: entry point functions (kernel / vertex / pixel) and
+    //                   callables
+    // Final concatenation: finalResult << varData << incrementalFunc << codegenData;
     vstd::StringBuilder codegenData;
     vstd::StringBuilder varData;
     vstd::StringBuilder incrementalFunc;
@@ -206,7 +243,12 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
         uint64_t hashes[] = {func_hash};
         GenerateCBuffer({&argRange}, varData, enable_debug_info, validation_count, hashes);
     }
-
+    // Generate the compute-shader entry point and every callable it depends on.
+    // CodegenFunction emits literal constants, the HLSL entry function signature
+    // ([numthreads], dispatch-bounds check against dsp_c, thread-id loading),
+    // the _Global args load when a cbuffer is present, and the kernel/callable
+    // bodies through StringStateVisitor. Custom callables are emitted recursively
+    // so the resulting HLSL is self-contained.
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer || enable_debug_info, true);
     if (isSpirV) {
         if (opt->noRegister) {
@@ -233,6 +275,15 @@ uint4 v;
         }
         bind_count += 2;
     }
+    // Build the runtime property table and emit all resource/register bindings.
+    // PreprocessCodegenProperties reserves fixed slots for the push-constant
+    // block, the sampler heap, the argument cbuffer (if any), and bindless
+    // arrays. CodegenProperties then walks the kernel arguments to declare
+    // buffers, textures, bindless arrays, acceleration structures, etc., and
+    // records their ShaderVariableType/register indices. Postprocess flushes
+    // generated custom struct definitions and groupshared variables. The four
+    // pieces are then concatenated in the final shader order: prelude,
+    // bindings, incremental helpers, entry functions/callables.
     CodegenResult::Properties properties;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
