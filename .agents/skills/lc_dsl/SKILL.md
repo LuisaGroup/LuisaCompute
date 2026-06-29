@@ -540,6 +540,326 @@ int main(int argc, char *argv[]) {
 }
 ```
 
+## Cooperative Vector Operations
+
+Cooperative vectors are thread-local vectors of uniform size that participate in hardware-accelerated cooperative (cross-lane/warp) operations. They are backed by `CoopVector<T>`, `CoopVectorRef`, and `CoopMatrixRef` types defined in `<luisa/dsl/coop_vector.h>`. All free functions are in `<luisa/dsl/resource.h>`.
+
+### Headers
+
+```cpp
+#include <luisa/dsl/coop_vector.h>   // CoopVector<T>, CoopVectorRef, CoopMatrixRef
+#include <luisa/dsl/resource.h>       // all cooperative_vector_*, cooperative_mat_*, bindless_cooperative_* functions
+#include <luisa/dsl/expr.h>           // Expr<CoopVector<T>> specialization
+#include <luisa/dsl/sugar.h>          // $ sugar macros (optional)
+```
+
+### Backend Support
+
+> **⚠️ Currently cooperative vector operations only support the Vulkan (`vk`) backend.**
+> The DX backend requires Shader Model 6.8 with experimental features, which is not widely available.
+> Check `src/tests/unit/ast/test_cooperative_vector.cpp` for the `create_test_device()` helper.
+
+### Type System
+
+```cpp
+// Create a cooperative vector type (element type + size)
+auto cv_type = Type::cooperative_vector(Type::of<float>(), 16);  // coopvec<float,16>
+
+// Create a cooperative vector reference type (used to describe buffer offsets)
+auto cvr_type = Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 16);  // coopvec_ref<16,5>
+
+// Create a cooperative matrix reference type
+auto cmr_type = Type::cooperative_matrix_ref(CoopRefVecType::FLOAT32, 4, 8);  // coopmat_ref<4,8,5>
+```
+
+Available `CoopRefVecType` values: `FLOAT16`, `FLOAT32`, `INT8`, `UINT8`, `INT32`, `UINT32`.
+
+### DSL Object Construction
+
+```cpp
+// Cooperative vector of float with 8 elements
+CoopVector<float> v{8};
+
+// Cooperative vector reference (describes a byte-buffer region)
+CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+offset.set_byte_offset(0u);  // set the byte offset into the buffer
+
+// Cooperative matrix reference (for matrix multiply operations)
+CoopMatrixRef mat_offset{CoopRefVecType::FLOAT32, 4, 8};
+mat_offset.set_byte_offset(0u);
+```
+
+### Element Access
+
+Individual elements are accessed with `operator[]` (read/write):
+
+```cpp
+CoopVector<float> v{8};
+for (auto i = 0u; i < 8u; ++i) {
+    v[i] = static_cast<float>(i + 1);  // write
+}
+Var<float> elem = v[3];  // read
+```
+
+### Load / Store (ByteBuffer)
+
+Load a cooperative vector from a `ByteBuffer` into thread-local storage:
+
+```cpp
+ByteBufferVar buf{luisa::compute::detail::ArgumentCreation{}};
+CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+offset.set_byte_offset(0u);
+auto loaded = cooperative_vector_load<float>(buf, offset);
+```
+
+Store a cooperative vector to a `ByteBuffer`:
+
+```cpp
+CoopVector<float> input{8};
+for (auto i = 0u; i < 8u; ++i) input[i] = static_cast<float>(i);
+offset.set_byte_offset(0u);
+cooperative_vector_store(buf, offset, Expr<CoopVector<float>>{input});
+```
+
+### Accumulate
+
+Atomically accumulate a cooperative vector into a `ByteBuffer` at a given offset:
+
+```cpp
+CoopVector<float> input{8};
+for (auto i = 0u; i < 8u; ++i) input[i] = static_cast<float>(i + 1);
+offset.set_byte_offset(0u);
+cooperative_vector_accumulate(buf, offset, Expr<CoopVector<float>>{input});
+```
+
+### Splat
+
+Create a cooperative vector with all elements set to the same scalar value:
+
+```cpp
+auto result = cooperative_vector_splat<float>(42.0f, 8u);
+```
+
+### Cast
+
+Cast the element type of a cooperative vector:
+
+```cpp
+CoopVector<float> input{8};
+// ... fill input ...
+auto result = cooperative_vector_cast<int>(Expr<CoopVector<float>>{input});
+```
+
+### Bindless Load / Store
+
+Load from or store to a bindless (or typed bindless) buffer:
+
+```cpp
+BindlessVar bindless{luisa::compute::detail::ArgumentCreation{}};
+CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+offset.set_byte_offset(0u);
+
+// Bindless load
+auto out0 = bindless_cooperative_vector_load<float>(bindless, 0u, offset);
+auto out1 = typed_bindless_cooperative_vector_load<float>(bindless, 0u, offset);
+
+// Bindless store
+CoopVector<float> input{8};
+// ... fill input ...
+bindless_cooperative_vector_store(bindless, 0u, offset, Expr<CoopVector<float>>{input});
+typed_bindless_cooperative_vector_store(bindless, 0u, offset, Expr<CoopVector<float>>{input});
+```
+
+### Workgroup Load / Store
+
+Load from or store to shared memory (workgroup-level cooperative vector transfer):
+
+```cpp
+Shared<float> shared_mem{8};
+
+// Workgroup load: load from shared memory at index
+auto result = cooperative_vector_workgroup_load(shared_mem, 0u);
+
+// Workgroup store: store to shared memory at index
+CoopVector<float> input{8};
+// ... fill input ...
+cooperative_vector_workgroup_store(shared_mem, 0u, Expr<CoopVector<float>>{input});
+```
+
+### Matrix Multiply Operations
+
+Compute `out = matrix * input_vector + bias` (cooperative matrix multiply with accumulator):
+
+```cpp
+ByteBufferVar matrix_buffer{luisa::compute::detail::ArgumentCreation{}};
+ByteBufferVar bias_buffer{luisa::compute::detail::ArgumentCreation{}};
+CoopMatrixRef matrix_offset{CoopRefVecType::FLOAT32, 4, 8};
+CoopVectorRef bias_offset{CoopRefVecType::FLOAT32, 8};
+CoopVector<float> input{4};
+
+matrix_offset.set_byte_offset(0u);
+bias_offset.set_byte_offset(0u);
+
+auto out = cooperative_mat_mul_add<float, float>(
+    matrix_buffer, matrix_offset,
+    bias_buffer, bias_offset,
+    Expr<CoopVector<float>>{input});
+```
+
+Compute `out = matrix * input_vector` (without bias):
+
+```cpp
+auto out = cooperative_mat_mul<float, float>(
+    matrix_buffer, matrix_offset,
+    Expr<CoopVector<float>>{input});
+```
+
+Bindless variants:
+
+```cpp
+BindlessVar bindless{luisa::compute::detail::ArgumentCreation{}};
+CoopMatrixRef matrix_offset{CoopRefVecType::FLOAT32, 4, 8};
+CoopVectorRef bias_offset{CoopRefVecType::FLOAT32, 8};
+CoopVector<float> input{4};
+
+// bindless mat_mul_add
+auto out0 = bindless_cooperative_mat_mul_add<float, float>(
+    bindless, 0u, matrix_offset, 0u, bias_offset,
+    Expr<CoopVector<float>>{input});
+
+// typed bindless mat_mul_add
+auto out1 = typed_bindless_cooperative_mat_mul_add<float, float>(
+    bindless, 0u, matrix_offset, 0u, bias_offset,
+    Expr<CoopVector<float>>{input});
+
+// bindless mat_mul (no bias)
+auto out2 = bindless_cooperative_mat_mul<float, float>(
+    bindless, 0u, matrix_offset,
+    Expr<CoopVector<float>>{input});
+
+// typed bindless mat_mul (no bias)
+auto out3 = typed_bindless_cooperative_mat_mul<float, float>(
+    bindless, 0u, matrix_offset,
+    Expr<CoopVector<float>>{input});
+```
+
+### Outer Product Accumulate
+
+Accumulate the outer product of two cooperative vectors into a cooperative matrix:
+
+```cpp
+ByteBufferVar matrix_buffer{luisa::compute::detail::ArgumentCreation{}};
+CoopMatrixRef matrix_offset{CoopRefVecType::FLOAT32, 4, 8};
+CoopVector<float> input1{4};
+CoopVector<float> input2{8};
+// ... fill vectors ...
+matrix_offset.set_byte_offset(0u);
+cooperative_outer_product_accumulate(
+    matrix_buffer, matrix_offset,
+    Expr<CoopVector<float>>{input1},
+    Expr<CoopVector<float>>{input2});
+```
+
+### Element-wise Math Operations
+
+These compute element-wise operations by iterating over each lane:
+
+```cpp
+CoopVector<float> a{4}, b{4}, c{4}, lo{4}, hi{4}, v{4};
+// ... fill ...
+
+auto r_min  = cooperative_vector_min(a, b);    // element-wise min
+auto r_max  = cooperative_vector_max(a, b);    // element-wise max
+auto r_clamp = cooperative_vector_clamp(v, lo, hi);  // element-wise clamp
+auto r_exp  = cooperative_vector_exp(v);       // element-wise exp
+auto r_log  = cooperative_vector_log(v);       // element-wise log
+auto r_tanh = cooperative_vector_tanh(v);      // element-wise tanh
+auto r_atan = cooperative_vector_atan(v);      // element-wise atan
+auto r_fma  = cooperative_vector_fma(a, b, c); // element-wise fma(a,b,c) = a*b+c
+```
+
+### Element-wise Bitwise Operations (Integer Element Types)
+
+```cpp
+CoopVector<uint> a{4}, b{4}, v{4};
+// ... fill ...
+
+auto r_and = cooperative_vector_bitwise_and(a, b);   // element-wise &
+auto r_or  = cooperative_vector_bitwise_or(a, b);    // element-wise |
+auto r_xor = cooperative_vector_bitwise_xor(a, b);   // element-wise ^
+auto r_not = cooperative_vector_bitwise_not(v);      // element-wise ~
+auto r_shl = cooperative_vector_shift_left(v, 1u);   // element-wise <<
+auto r_shr = cooperative_vector_shift_right(v, 4u);  // element-wise >>
+```
+
+### Device Compilation Considerations
+
+- Backends: DX (Shader Model 6.8 with experimental features) or Vulkan.
+- For DX, enable experimental features via `DirectXDeviceConfigExt`:
+
+```cpp
+class DXExperimentalConfigExt final : public DirectXDeviceConfigExt {
+public:
+    [[nodiscard]] bool UseExperimental() const noexcept override { return true; }
+};
+
+auto dx_config = luisa::make_unique<DXExperimentalConfigExt>();
+config.extension = std::move(dx_config);
+Device device = context.create_device("dx", &config);
+```
+
+- Compile and dispatch like regular kernels:
+
+```cpp
+Kernel1D kernel = [&](ByteBufferVar buf) noexcept {
+    CoopVectorRef offset{CoopRefVecType::FLOAT32, 8};
+    CoopVector<float> input{8};
+    // ... fill input ...
+    offset.set_byte_offset(0u);
+    cooperative_vector_accumulate(buf, offset, Expr<CoopVector<float>>{input});
+};
+auto shader = device.compile(kernel);
+stream << shader(buf).dispatch(1u) << synchronize();
+```
+
+### Complete Load/Store Round-Trip Example
+
+```cpp
+constexpr auto n = 8u;
+ByteBuffer vector_buffer = device.create_byte_buffer(n * sizeof(float));
+
+// Store kernel
+Kernel1D store_kernel = [&](ByteBufferVar buf) noexcept {
+    CoopVectorRef offset{CoopRefVecType::FLOAT32, n};
+    CoopVector<float> input{n};
+    for (auto i = 0u; i < n; ++i) input[i] = static_cast<float>(i + 1);
+    offset.set_byte_offset(0u);
+    cooperative_vector_accumulate(buf, offset, Expr<CoopVector<float>>{input});
+};
+
+// Load kernel
+Kernel1D load_kernel = [&](ByteBufferVar buf, BufferVar<float> output) noexcept {
+    CoopVectorRef offset{CoopRefVecType::FLOAT32, n};
+    offset.set_byte_offset(0u);
+    auto loaded = cooperative_vector_load<float>(buf, offset);
+    for (auto i = 0u; i < n; ++i) {
+        output.write(i, loaded[i]);
+    }
+};
+
+auto store_shader = device.compile(store_kernel);
+auto load_shader = device.compile(load_kernel);
+```
+
+### DSL Source File References
+
+| File | Contents |
+|------|----------|
+| `include/luisa/dsl/coop_vector.h` | `CoopVector<T>`, `CoopVectorRef`, `CoopMatrixRef` DSL type definitions |
+| `include/luisa/dsl/resource.h` (lines 880–1322) | All free functions: `cooperative_vector_*`, `cooperative_mat_*`, `bindless_cooperative_*`, `cooperative_outer_product_*` |
+| `include/luisa/dsl/expr.h` (lines 151–155) | `Expr<CoopVector<T>>` template specialization with subscript access |
+| `src/tests/unit/ast/test_cooperative_vector.cpp` | AST construction, DSL sugar, and device execution tests for all cooperative operations |
+
 ## Summary
 
 | Feature | Syntax |
@@ -574,3 +894,15 @@ int main(int argc, char *argv[]) {
 | Warp First Lane | `warp_is_first_active_lane()` / `warp_first_active_lane()` |
 | Block Barrier | `sync_block()` |
 | Hints | `assume(pred)` / `device_assert(pred, msg)` / `unreachable()` |
+| CoopVector Obj | `CoopVector<float> v{n}` / `CoopVectorRef{type, n}` / `CoopMatrixRef{type, n, m}` |
+| CVec Load/Store | `cooperative_vector_load<T>(buf, offset)` / `cooperative_vector_store(buf, offset, val)` |
+| CVec Accumulate | `cooperative_vector_accumulate(buf, offset, val)` |
+| CVec Splat | `cooperative_vector_splat<T>(scalar, n)` |
+| CVec Cast | `cooperative_vector_cast<T>(vec)` |
+| CVec Bindless | `bindless_cooperative_vector_load<T>(arr, slot, offset)` / `typed_bindless_cooperative_vector_store(arr, slot, offset, val)` |
+| CVec Workgroup | `cooperative_vector_workgroup_load(shared, idx)` / `cooperative_vector_workgroup_store(shared, idx, val)` |
+| CVec MatMul | `cooperative_mat_mul_add<Out,In>(buf, mat_off, bias_buf, bias_off, vec)` / `cooperative_mat_mul<Out,In>(buf, mat_off, vec)` |
+| CVec Bindless Mat | `bindless_cooperative_mat_mul_add<Out,In>(arr, mat_slot, mat_off, bias_slot, bias_off, vec)` |
+| CVec Outer Product | `cooperative_outer_product_accumulate(buf, mat_off, v1, v2)` |
+| CVec Element-wise | `cooperative_vector_min/max/clamp/exp/log/tanh/atan/fma(a, b...)` |
+| CVec Bitwise | `cooperative_vector_bitwise_and/or/xor/not(v)` / `cooperative_vector_shift_left/right(v, bits)` |

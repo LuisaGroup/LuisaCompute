@@ -31,6 +31,9 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/runtime/byte_buffer.h>
+#include <luisa/dsl/coop_vector.h>
+#include <luisa/dsl/resource.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -54,10 +57,19 @@ constexpr float rope_theta = 10000.0f;
 static_assert(content_dim > 0u, "head_dim must be larger than rope_dim");
 static_assert(rope_dim % 2u == 0u, "rope_dim must be even for pair-wise RoPE");
 
+// Cooperative vector chunk size (max supported by CoopVecConstructor codegen).
+constexpr uint kCoopChunk = 16u;
+constexpr uint kLatentChunks = latent_dim / kCoopChunk;
+constexpr uint kHiddenChunks = hidden_dim / kCoopChunk;
+constexpr uint kContentChunks = content_dim / kCoopChunk;
+static_assert(latent_dim % kCoopChunk == 0u);
+static_assert(hidden_dim % kCoopChunk == 0u);
+static_assert(content_dim % kCoopChunk == 0u);
+
 int main(int argc, char *argv[]) {
 
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [use_mla=1]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [use_mla=1] [cooperative_vector=0]", argv[0]);
         return 1;
     }
 
@@ -69,7 +81,14 @@ int main(int argc, char *argv[]) {
     if (argc >= 3) {
         use_mla = (std::atoi(argv[2]) != 0);
     }
+
+    bool cooperative_vector = false;
+    if (argc >= 4) {
+        cooperative_vector = (std::atoi(argv[3]) != 0);
+    }
+
     LUISA_INFO("Path: {}", use_mla ? "MLA" : "MHA");
+    LUISA_INFO("Cooperative vector: {}", cooperative_vector ? "enabled" : "disabled");
 
 
     const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
@@ -157,6 +176,9 @@ int main(int argc, char *argv[]) {
     auto Wuv_buf  = device.create_buffer<float>(Wuv_host.size());
     auto Wkr_buf  = device.create_buffer<float>(Wkr_host.size());
 
+    // ByteBuffer for cooperative-vector access to Wuv weights.
+    auto Wuv_byte_buf = device.create_byte_buffer(Wuv_host.size() * sizeof(float));
+
     // Upload everything in one batch.
     CommandList upload = CommandList::create();
     upload << Q_buf.copy_from(luisa::span{Q_host})
@@ -167,7 +189,8 @@ int main(int argc, char *argv[]) {
            << Wdkv_buf.copy_from(luisa::span{Wdkv_host})
            << Wuk_buf.copy_from(luisa::span{Wuk_host})
            << Wuv_buf.copy_from(luisa::span{Wuv_host})
-           << Wkr_buf.copy_from(luisa::span{Wkr_host});
+           << Wkr_buf.copy_from(luisa::span{Wkr_host})
+           << Wuv_byte_buf.copy_from(Wuv_host.data());
     stream << upload.commit() << synchronize();
 
     // -- Reusable RoPE rotation helper (DSL) -------------------------------
@@ -260,6 +283,79 @@ int main(int argc, char *argv[]) {
             };
         };
 
+        // -- Cooperative-vector-optimized project Q kernel -----------------
+        // Uses cooperative_vector_fma for the Wq @ H dot product.
+        Kernel1D project_q_coop_kernel = [&](BufferFloat H, BufferFloat Q, BufferFloat Wq) noexcept {
+            constexpr uint kBlockSize = 32u;
+            set_block_size(kBlockSize, 1u, 1u);
+            set_name("mla_project_q_coop");
+
+            Shared<float> H_shared{hidden_dim};
+
+            auto qkv_idx = [&](auto b_, auto h_, auto i_, auto d_) {
+                return ((b_ * num_heads + h_) * seq_len + i_) * head_dim + d_;
+            };
+
+            Var idx = dispatch_id().x;
+            Var b = idx / seq_len;
+            Var i = idx % seq_len;
+            Var tx = thread_x();
+            Var hi = (b * seq_len + i) * hidden_dim;
+
+            // -- Cooperative load of H[b,i,:] into shared memory (all 32 threads) --
+            $for (e, hidden_dim / kBlockSize) {
+                Var e_idx = tx * (hidden_dim / kBlockSize) + e;
+                H_shared[e_idx] = H.read(hi + e_idx);
+            };
+            sync_block();
+
+            // -- First num_heads threads compute Q for their assigned head --
+            $if (tx < num_heads) {
+                Var h = tx;
+                Var h_off = h * head_dim * hidden_dim;
+
+                $for (d, head_dim) {
+                    Var acc = def(0.0f);
+                    // Chunked dot product over hidden_dim=512 (kHiddenChunks=32 chunks of 16).
+                    $for (chunk, kHiddenChunks) {
+                        Var chunk_start = chunk * kCoopChunk;
+
+                        // Load Wq[d, chunk_start:chunk_start+16] into CoopVector (sequential).
+                        CoopVector<float> w_chunk{kCoopChunk};
+                        Var w_base = h_off + d * hidden_dim + chunk_start;
+                        $for (i, kCoopChunk) {
+                            w_chunk[i] = Wq.read(w_base + i);
+                        };
+
+                        // Load H_shared[chunk_start:chunk_start+16] into CoopVector.
+                        CoopVector<float> h_chunk{kCoopChunk};
+                        $for (i, kCoopChunk) {
+                            h_chunk[i] = H_shared[chunk_start + i];
+                        };
+
+                        auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
+                        auto prod = cooperative_vector_fma(w_chunk, h_chunk, zero);
+
+                        $for (i, kCoopChunk) {
+                            acc += prod[i];
+                        };
+                    };
+                    Q.write(qkv_idx(b, h, i, d), acc);
+                };
+
+                // Apply RoPE to the positional slice (same as regular kernel).
+                $for (r, rope_dim / 2u) {
+                    Var d0 = content_dim + r * 2u;
+                    Var d1 = d0 + 1u;
+                    Float x0 = Q.read(qkv_idx(b, h, i, d0));
+                    Float x1 = Q.read(qkv_idx(b, h, i, d1));
+                    Float2 rot = apply_rope_pair(x0, x1, r, i);
+                    Q.write(qkv_idx(b, h, i, d0), rot.x);
+                    Q.write(qkv_idx(b, h, i, d1), rot.y);
+                };
+            };
+        };
+
         // Fused project KV: cKV + Krope from a single H read per token.
         // Each thread handles one (b,i) token, computing cKV (latent_dim=16)
         // and Krope (num_heads×rope_dim=64) in one pass.
@@ -308,6 +404,98 @@ int main(int argc, char *argv[]) {
                              + Wkr.read(w_base + 1u) * H.read(h_base + 1u)
                              + Wkr.read(w_base + 2u) * H.read(h_base + 2u)
                              + Wkr.read(w_base + 3u) * H.read(h_base + 3u);
+                    };
+                    Krope.write(rope_idx(b, h, i, r), acc);
+                };
+                // Apply RoPE to the just-written Krope values for this head.
+                $for (r, rope_dim / 2u) {
+                    Var d0 = r * 2u;
+                    Var d1 = d0 + 1u;
+                    Float x0 = Krope.read(rope_idx(b, h, i, d0));
+                    Float x1 = Krope.read(rope_idx(b, h, i, d1));
+                    Float2 rot = apply_rope_pair(x0, x1, r, i);
+                    Krope.write(rope_idx(b, h, i, d0), rot.x);
+                    Krope.write(rope_idx(b, h, i, d1), rot.y);
+                };
+            };
+        };
+
+        // -- Cooperative-vector-optimized project KV kernel ----------------
+        // Uses cooperative_vector_fma for both cKV and Krope dot products.
+        // The Krope computation benefits from rope_dim=16 fitting exactly
+        // in a single cooperative vector chunk.
+        Kernel1D project_kv_coop_kernel = [&](BufferFloat H, BufferFloat cKV,
+                                               BufferFloat Krope, BufferFloat Wdkv,
+                                               BufferFloat Wkr) noexcept {
+            set_block_size(256u, 1u, 1u);
+            set_name("mla_project_kv_coop");
+
+            auto rope_idx = [&](auto b_, auto h_, auto i_, auto d_) {
+                return ((b_ * num_heads + h_) * seq_len + i_) * rope_dim + d_;
+            };
+
+            Var idx = dispatch_id().x;
+
+            Var b = idx / seq_len;
+            Var i = idx % seq_len;
+            Var hi = (b * seq_len + i) * hidden_dim;
+
+            // --- cKV[b,i,d] = W_DKV[d,:] @ H[b,i,:] (cooperative fma) ---
+            // latent_dim=64 values, each dot product over hidden_dim=512 (32 chunks).
+            $for (d, latent_dim) {
+                Var acc = def(0.0f);
+                $for (chunk, kHiddenChunks) {
+                    Var chunk_start = chunk * kCoopChunk;
+
+                    CoopVector<float> w_chunk{kCoopChunk};
+                    Var w_base = d * hidden_dim + chunk_start;
+                    $for (j, kCoopChunk) {
+                        w_chunk[j] = Wdkv.read(w_base + j);
+                    };
+
+                    CoopVector<float> h_chunk{kCoopChunk};
+                    Var h_base = hi + chunk_start;
+                    $for (j, kCoopChunk) {
+                        h_chunk[j] = H.read(h_base + j);
+                    };
+
+                    auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
+                    auto prod = cooperative_vector_fma(w_chunk, h_chunk, zero);
+
+                    $for (j, kCoopChunk) {
+                        acc += prod[j];
+                    };
+                };
+                cKV.write((b * seq_len + i) * latent_dim + d, acc);
+            };
+
+            // --- Krope[b,h,i,r] = W_KR[h,r,:] @ H[b,i,:] (cooperative fma) ---
+            // rope_dim=16 fits exactly in one chunk per output element.
+            $for (h, num_heads) {
+                Var head_off_kr = h * rope_dim * hidden_dim;
+                $for (r, rope_dim) {
+                    Var acc = def(0.0f);
+                    $for (chunk, kHiddenChunks) {
+                        Var chunk_start = chunk * kCoopChunk;
+
+                        CoopVector<float> w_chunk{kCoopChunk};
+                        Var w_base = head_off_kr + r * hidden_dim + chunk_start;
+                        $for (j, kCoopChunk) {
+                            w_chunk[j] = Wkr.read(w_base + j);
+                        };
+
+                        CoopVector<float> h_chunk{kCoopChunk};
+                        Var h_base = hi + chunk_start;
+                        $for (j, kCoopChunk) {
+                            h_chunk[j] = H.read(h_base + j);
+                        };
+
+                        auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
+                        auto prod = cooperative_vector_fma(w_chunk, h_chunk, zero);
+
+                        $for (j, kCoopChunk) {
+                            acc += prod[j];
+                        };
                     };
                     Krope.write(rope_idx(b, h, i, r), acc);
                 };
@@ -449,6 +637,189 @@ int main(int argc, char *argv[]) {
             };
         };
 
+        // -- Cooperative-vector-optimized online attention kernel ----------
+        // Uses cooperative_vector_fma for all dot products:
+        //   - q_latent hoisting (Wuk^T @ Q_content)
+        //   - content score (q_latent @ cKV)
+        //   - positional score (Q_pos @ Krope)
+        //   - V up-projection (Wuv @ cKV)
+        Kernel1D online_attention_coop_kernel = [&](BufferFloat Q, BufferFloat cKV,
+                                                      BufferFloat Wuk, BufferFloat Krope,
+                                                      BufferFloat Wuv, BufferFloat O) noexcept {
+            set_block_size(256u, 1u, 1u);
+            set_name("mla_online_attention_coop");
+
+            auto qkv_idx = [&](auto b_, auto h_, auto i_, auto d_) {
+                return ((b_ * num_heads + h_) * seq_len + i_) * head_dim + d_;
+            };
+            auto latent_idx = [&](auto b_, auto j_, auto d_) {
+                return (b_ * seq_len + j_) * latent_dim + d_;
+            };
+            auto rope_idx = [&](auto b_, auto h_, auto j_, auto r_) {
+                return ((b_ * num_heads + h_) * seq_len + j_) * rope_dim + r_;
+            };
+
+            Var idx = dispatch_id().x;
+            Var b = idx / (num_heads * seq_len);
+            Var h = (idx / seq_len) % num_heads;
+            Var i = idx % seq_len;
+
+            Var hc_off = h * content_dim * latent_dim;
+
+            // Online softmax state.
+            Var m = def(-1.0e30f);
+            Var s_norm = def(0.0f);
+
+            // Initialize output row to zero.
+            $for (d, head_dim) {
+                O.write(qkv_idx(b, h, i, d), 0.0f);
+            };
+
+            // -- Hoist q_latent = Wuk[h]^T @ q_content (cooperative fma, chunked) --
+            // content_dim=48 in kContentChunks=3 chunks of kCoopChunk=16.
+            $array<float, latent_dim> q_latent;
+            $for (d, latent_dim) {
+                Var acc = def(0.0f);
+                $for (chunk, kContentChunks) {
+                    Var chunk_start = chunk * kCoopChunk;
+
+                    // Load Wuk[h, chunk_start:chunk_start+16, d] into CoopVector (strided access).
+                    CoopVector<float> w_chunk{kCoopChunk};
+                    $for (c, kCoopChunk) {
+                        Var c_idx = chunk_start + c;
+                        Var w_base = hc_off + c_idx * latent_dim + d;
+                        w_chunk[c] = Wuk.read(w_base);
+                    };
+
+                    // Load Q_content[chunk_start:chunk_start+16] into CoopVector (sequential).
+                    CoopVector<float> q_chunk{kCoopChunk};
+                    Var q_base = qkv_idx(b, h, i, chunk_start);
+                    $for (c, kCoopChunk) {
+                        q_chunk[c] = Q.read(q_base + c);
+                    };
+
+                    auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
+                    auto prod = cooperative_vector_fma(w_chunk, q_chunk, zero);
+
+                    $for (c, kCoopChunk) {
+                        acc += prod[c];
+                    };
+                };
+                q_latent[d] = acc;
+            };
+
+            $for (j, seq_len) {
+                // -- Content score via matrix absorption (cooperative fma) --
+                // Process latent_dim=64 in kLatentChunks=4 chunks of size kCoopChunk=16.
+                // Each chunk uses cooperative_vector_fma for element-wise multiply.
+                Var content_score = def(0.0f);
+                Var ci = (b * seq_len + j) * latent_dim;
+                $for (chunk, kLatentChunks) {
+                    Var chunk_start = chunk * kCoopChunk;
+
+                    // Load q_latent[chunk_start:chunk_start+16] into a CoopVector.
+                    CoopVector<float> q_chunk{kCoopChunk};
+                    $for (c, kCoopChunk) {
+                        q_chunk[c] = q_latent[chunk_start + c];
+                    };
+
+                    // Load cKV[j, chunk_start:chunk_start+16] into a CoopVector.
+                    CoopVector<float> c_chunk{kCoopChunk};
+                    $for (c, kCoopChunk) {
+                        c_chunk[c] = cKV.read(ci + chunk_start + c);
+                    };
+
+                    // Element-wise fma: q_chunk * c_chunk + 0.
+                    // cooperative_vector_splat creates a CoopVector with all equal elements.
+                    auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
+                    auto prod = cooperative_vector_fma(q_chunk, c_chunk, zero);
+
+                    // Manual reduction: sum the 16 element-wise products.
+                    $for (c, kCoopChunk) {
+                        content_score += prod[c];
+                    };
+                };
+
+                // -- Positional score (rope_dim=16 fits exactly in one chunk) --
+                Var pos_score = def(0.0f);
+                {
+                    CoopVector<float> q_pos{kCoopChunk};
+                    CoopVector<float> k_pos{kCoopChunk};
+                    $for (r, rope_dim) {
+                        q_pos[r] = Q.read(qkv_idx(b, h, i, content_dim + r));
+                        k_pos[r] = Krope.read(rope_idx(b, h, j, r));
+                    };
+                    auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
+                    auto prod = cooperative_vector_fma(q_pos, k_pos, zero);
+                    $for (r, rope_dim) {
+                        pos_score += prod[r];
+                    };
+                };
+
+                Var score = (content_score + pos_score) * scale;
+
+                // -- Online softmax update --
+                Var m_new = max(m, score);
+                Var exp_diff = exp(m - m_new);
+                Var exp_score = exp(score - m_new);
+                s_norm = s_norm * exp_diff + exp_score;
+
+                // -- Pre-load cKV[j,:] into local array (same as regular kernel) --
+                $array<float, latent_dim> cKV_local;
+                $for (l, latent_dim / 4u) {
+                    Var l4 = l * 4u;
+                    Var cv_base = ci + l4;
+                    cKV_local[l4]     = cKV.read(cv_base);
+                    cKV_local[l4 + 1u] = cKV.read(cv_base + 1u);
+                    cKV_local[l4 + 2u] = cKV.read(cv_base + 2u);
+                    cKV_local[l4 + 3u] = cKV.read(cv_base + 3u);
+                };
+
+                // Update O_row: O *= exp_diff, then O += V[j] * exp_score.
+                // V[b,h,j,d] = Wuv[h,d,:] @ cKV[b,j,:] (cooperative fma, chunked).
+                $for (d, head_dim) {
+                    Var old_o = O.read(qkv_idx(b, h, i, d));
+                    Var head_off_uv = h * head_dim * latent_dim;
+                    Var v_val = def(0.0f);
+
+                    // Chunked dot product using cooperative_vector_fma.
+                    $for (chunk, kLatentChunks) {
+                        Var chunk_start = chunk * kCoopChunk;
+
+                        // Load Wuv[d, chunk_start:chunk_start+16] into CoopVector.
+                        CoopVector<float> w_chunk{kCoopChunk};
+                        Var w_base = head_off_uv + d * latent_dim + chunk_start;
+                        $for (c, kCoopChunk) {
+                            w_chunk[c] = Wuv.read(w_base + c);
+                        };
+
+                        // Load cKV_local[chunk_start:chunk_start+16] into CoopVector.
+                        CoopVector<float> c_chunk{kCoopChunk};
+                        $for (c, kCoopChunk) {
+                            c_chunk[c] = cKV_local[chunk_start + c];
+                        };
+
+                        auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
+                        auto prod = cooperative_vector_fma(w_chunk, c_chunk, zero);
+
+                        $for (c, kCoopChunk) {
+                            v_val += prod[c];
+                        };
+                    };
+
+                    O.write(qkv_idx(b, h, i, d), old_o * exp_diff + v_val * exp_score);
+                };
+
+                m = m_new;
+            };
+
+            // -- Normalize output row by softmax sum --
+            $for (d, head_dim) {
+                Var val = O.read(qkv_idx(b, h, i, d));
+                O.write(qkv_idx(b, h, i, d), val / s_norm);
+            };
+        };
+
         // -- MHA baseline kernel ----------------------------------------
         Kernel1D mha_online_attention_kernel = [&](BufferFloat Q, BufferFloat K,
                                                     BufferFloat V, BufferFloat O) noexcept {
@@ -511,35 +882,66 @@ int main(int argc, char *argv[]) {
 
         // -- Compile & dispatch selected path ----------------------------
         if (use_mla) {
-            LUISA_INFO("Compiling MLA kernels ...");
+            if (cooperative_vector) {
+                LUISA_INFO("Compiling MLA cooperative kernels ...");
 
-            opt.name = "mla_project_q";
-        auto project_q_shader = device.compile<1>(project_q_kernel, opt);
-        opt.name = "mla_project_kv";
-        auto project_kv_shader = device.compile(project_kv_kernel, opt);
-        opt.name = "mla_online_attention";
-        auto online_attention_shader = device.compile(online_attention_kernel, opt);
+                opt.name = "mla_project_q_coop";
+                auto project_q_shader = device.compile<1>(project_q_coop_kernel, opt);
+                opt.name = "mla_project_kv_coop";
+                auto project_kv_shader = device.compile(project_kv_coop_kernel, opt);
+                opt.name = "mla_online_attention_coop";
+                auto online_attention_shader = device.compile(online_attention_coop_kernel, opt);
 
-        double compile_ms = compile_clock.toc();
-        LUISA_INFO("  MLA kernels compiled in {:.2f} ms", compile_ms);
+                double compile_ms = compile_clock.toc();
+                LUISA_INFO("  MLA cooperative kernels compiled in {:.2f} ms", compile_ms);
 
-        // Warm-up dispatch (not measured) — ensures GPU clocks are at full
-        // frequency and PSO creation is amortized before real measurement.
-        {
-            CommandList warmup = CommandList::create();
-            warmup << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
-            stream << warmup.commit() << synchronize();
-        }
+                // Warm-up dispatch (not measured).
+                {
+                    CommandList warmup = CommandList::create();
+                    warmup << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
+                    stream << warmup.commit() << synchronize();
+                }
 
-        LUISA_INFO("Dispatching MLA GPU kernels ...");
-        Clock dispatch_clock;
-        CommandList cmd_list = CommandList::create();
-        cmd_list << project_q_shader(H_buf, Q_buf, Wq_buf).dispatch(batch * seq_len)
-                 << project_kv_shader(H_buf, cKV_buf, Krope_buf, Wdkv_buf, Wkr_buf).dispatch(batch * seq_len)
-                 << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
-        stream << cmd_list.commit() << synchronize();
-        double dispatch_ms = dispatch_clock.toc();
-        LUISA_INFO("  MLA GPU dispatch + sync: {:.2f} ms", dispatch_ms);
+                LUISA_INFO("Dispatching MLA cooperative GPU kernels ...");
+                Clock dispatch_clock;
+                CommandList cmd_list = CommandList::create();
+                cmd_list << project_q_shader(H_buf, Q_buf, Wq_buf).dispatch(batch * seq_len)
+                         << project_kv_shader(H_buf, cKV_buf, Krope_buf, Wdkv_buf, Wkr_buf).dispatch(batch * seq_len)
+                         << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
+                stream << cmd_list.commit() << synchronize();
+                double dispatch_ms = dispatch_clock.toc();
+                LUISA_INFO("  MLA cooperative GPU dispatch + sync: {:.2f} ms", dispatch_ms);
+
+            } else {
+                LUISA_INFO("Compiling MLA kernels ...");
+
+                opt.name = "mla_project_q";
+                auto project_q_shader = device.compile<1>(project_q_kernel, opt);
+                opt.name = "mla_project_kv";
+                auto project_kv_shader = device.compile(project_kv_kernel, opt);
+                opt.name = "mla_online_attention";
+                auto online_attention_shader = device.compile(online_attention_kernel, opt);
+
+                double compile_ms = compile_clock.toc();
+                LUISA_INFO("  MLA kernels compiled in {:.2f} ms", compile_ms);
+
+                // Warm-up dispatch (not measured).
+                {
+                    CommandList warmup = CommandList::create();
+                    warmup << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
+                    stream << warmup.commit() << synchronize();
+                }
+
+                LUISA_INFO("Dispatching MLA GPU kernels ...");
+                Clock dispatch_clock;
+                CommandList cmd_list = CommandList::create();
+                cmd_list << project_q_shader(H_buf, Q_buf, Wq_buf).dispatch(batch * seq_len)
+                         << project_kv_shader(H_buf, cKV_buf, Krope_buf, Wdkv_buf, Wkr_buf).dispatch(batch * seq_len)
+                         << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
+                stream << cmd_list.commit() << synchronize();
+                double dispatch_ms = dispatch_clock.toc();
+                LUISA_INFO("  MLA GPU dispatch + sync: {:.2f} ms", dispatch_ms);
+            }
 
         } else {
             LUISA_INFO("Compiling MHA kernels (baseline) ...");
