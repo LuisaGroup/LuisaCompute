@@ -305,6 +305,7 @@ uint4 v;
         opt->useTex2DBindless,
         opt->useTex3DBindless,
         opt->useBufferBindless,
+        opt->use_8bit,
         validation_count,
         immutableHeaderSize,
         GetTypeMD5(kernel)};
@@ -394,6 +395,7 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
         opt->useTex2DBindless,
         opt->useTex3DBindless,
         opt->useBufferBindless,
+        opt->use_8bit,
         validation_count,
         immutableHeaderSize,
         GetTypeMD5(kernel)};
@@ -588,6 +590,7 @@ uint obj_id:register(b0);
         opt->useTex2DBindless,
         opt->useTex3DBindless,
         opt->useBufferBindless,
+        opt->use_8bit,
         validation_count,
         immutableHeaderSize,
         GetTypeMD5(funcs)};

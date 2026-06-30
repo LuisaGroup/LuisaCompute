@@ -86,10 +86,6 @@ static_assert(static_cast<uint>(I8_COUNT) <= N, "I8_COUNT exceeds N");
 static_assert(static_cast<uint>(U8_COUNT) <= N, "U8_COUNT exceeds N");
 
 int test_byte8(Device &device) {
-    if (device.backend_name() != "vk") {
-        LUISA_WARNING("backend unsupported.");
-        return 0;
-    }
     Stream stream = device.create_stream();
 
     Buffer<int8_t> i8_in = device.create_buffer<int8_t>(N);

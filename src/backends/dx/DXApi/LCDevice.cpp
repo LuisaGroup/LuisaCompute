@@ -367,8 +367,9 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     mask |= (1 << 2);
     mask |= compiler_version << 3u;
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info);
+    // TODO get result from codegen
     auto choose_shader_model = [&]() -> uint {
-        if (kernel.use_cooperative_operations()) {
+        if (kernel.use_cooperative_operations() || code.use_8bit) {
             // Cooperative-vector kernels are always compiled to SM 6.9 because
             // the long-vector types they use require it.  When the runtime does
             // not actually support the feature, the device-level feature check

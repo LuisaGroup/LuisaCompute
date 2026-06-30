@@ -26,6 +26,7 @@ struct CodegenResult {
     bool useTex2DBindless;
     bool useTex3DBindless;
     bool useBufferBindless;
+    bool use_8bit;
     uint32_t validation_count;// resource size count when debug mode enabled
     uint64 immutableHeaderSize = 0;
     vstd::MD5 typeMD5;
@@ -37,9 +38,10 @@ struct CodegenResult {
         bool useTex2DBindless,
         bool useTex3DBindless,
         bool useBufferBindless,
+        bool use_8bit,
         uint32_t validation_count,
         uint64 immutableHeaderSize,
-        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), printers(std::move(printers)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, validation_count{validation_count}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
+        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), printers(std::move(printers)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, use_8bit{use_8bit}, validation_count{validation_count}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
     CodegenResult(CodegenResult const &) = delete;
     CodegenResult(CodegenResult &&) = default;
 };
