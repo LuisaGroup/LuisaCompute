@@ -145,8 +145,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 return true;
             };
             experimental_features_enabled =
-                try_enable(D3D12ExperimentalShaderModels, "ExperimentalShaderModels") &&
-                try_enable(D3D12CooperativeVectorExperiment, "CooperativeVectorExperiment");
+                try_enable(D3D12ExperimentalShaderModels, "ExperimentalShaderModels");
         }
         if (device_settings) {
             device_settings->SetExperimentalFeaturesEnabled(experimental_features_enabled);
@@ -377,10 +376,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         }
         feature_check.check(this);
         {
-
-            if (experimental_features_enabled && (!feature_check.flags().cooperative_vector_supported)) {
-                LUISA_ERROR("Experimental features were enabled, but cooperative vectors are not supported by the device.");
-            }
             feature_check.flags().enhanced_barriers_supported = (device_settings && device_settings->UseEnhancedBarrier()) && feature_check.flags().enhanced_barriers_supported;
         }
     } else {

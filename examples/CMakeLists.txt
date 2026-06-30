@@ -117,6 +117,7 @@ if (LUISA_COMPUTE_ENABLE_DX)
     luisa_compute_add_example(example_dx_supersampling extension/dx_supersampling.cpp)
     luisa_compute_add_example(example_fsr3 extension/fsr3.cpp)
     luisa_compute_add_example(example_supersampling extension/supersampling.cpp)
+    luisa_compute_add_example(example_dx_custom_sdk dx/custom_sdk/custom_sdk.cpp)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_CLANG_CXX)

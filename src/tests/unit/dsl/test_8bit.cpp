@@ -7,6 +7,11 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/dsl/sugar.h>
+#ifdef _WIN32
+// see note in DX backend `Device.cpp` and `src/tests/integration/runtime/test_work_graph.cpp`
+extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 619;
+extern "C" __declspec(dllexport) const char *D3D12SDKPath = ".\\D3D12\\";
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
