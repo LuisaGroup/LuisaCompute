@@ -125,8 +125,6 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             }
             // ByteAddressBuffer / RWByteAddressBuffer
             else {
-                if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
-                    str << "RW"sv;
                 str << "ByteAddressBuffer"sv;
             }
         } break;
