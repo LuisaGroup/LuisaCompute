@@ -775,8 +775,60 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         vkGetPhysicalDeviceProperties2(physical_device, &properties2);
         if (cooperative_vector_features_nv.cooperativeVector == VK_TRUE &&
             (cooperative_vector_properties_nv.cooperativeVectorSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u) {
+            // Query the list of supported cooperative-vector configurations.
+            uint32_t prop_count = 0u;
+            VkResult cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
+                physical_device, &prop_count, nullptr);
+            if (cv_result == VK_SUCCESS && prop_count > 0u) {
+                // Allocate and zero-initialize the properties array on the stack.
+                VkCooperativeVectorPropertiesNV cv_props_storage[16];
+                auto cv_props = cv_props_storage;
+                uint32_t query_count = std::min<uint32_t>(prop_count, 16u);
+                for (uint32_t i = 0; i < query_count; ++i) {
+                    cv_props[i] = VkCooperativeVectorPropertiesNV{};
+                    cv_props[i].sType = VK_STRUCTURE_TYPE_COOPERATIVE_VECTOR_PROPERTIES_NV;
+                }
+                cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
+                    physical_device, &query_count, cv_props);
+                if (cv_result == VK_SUCCESS) {
+                    auto actual_count = std::min<uint32_t>(query_count, prop_count);
+                    for (uint32_t i = 0; i < actual_count; ++i) {
+                        auto const &p = cv_props[i];
+                        LUISA_INFO("  CooperativeVector config[{}]: inputType={}, inputInterp={}, matrixInterp={}, biasInterp={}, resultType={}, transpose={}",
+                                   i,
+                                   static_cast<int>(p.inputType),
+                                   static_cast<int>(p.inputInterpretation),
+                                   static_cast<int>(p.matrixInterpretation),
+                                   static_cast<int>(p.biasInterpretation),
+                                   static_cast<int>(p.resultType),
+                                   static_cast<int>(p.transpose));
+                    }
+                    // Check if the required FP32 all-float configuration is supported.
+                    bool has_fp32_float_config = false;
+                    for (uint32_t i = 0; i < actual_count; ++i) {
+                        auto const &p = cv_props[i];
+                        if (p.inputType == VK_COMPONENT_TYPE_FLOAT32_KHR &&
+                            p.inputInterpretation == VK_COMPONENT_TYPE_FLOAT32_KHR &&
+                            p.matrixInterpretation == VK_COMPONENT_TYPE_FLOAT32_KHR &&
+                            p.resultType == VK_COMPONENT_TYPE_FLOAT32_KHR &&
+                            p.transpose == VK_FALSE) {
+                            has_fp32_float_config = true;
+                            break;
+                        }
+                    }
+                    if (has_fp32_float_config) {
+                        // Pure-FP32 cooperative-vector path available.
+                        cooperative_vector_fp32_enabled = true;
+                        LUISA_INFO("VK_NV_cooperative_vector: FP32 float config supported.");
+                    } else {
+                        LUISA_INFO("VK_NV_cooperative_vector: FP32 float config NOT supported (quantized configs only).");
+                    }
+                }
+            }
+            // Enable the extension if the hardware supports it.
             cooperative_vector_enabled = true;
             enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
+            LUISA_INFO("VK_NV_cooperative_vector extension enabled on device.");
         }
     }
     {

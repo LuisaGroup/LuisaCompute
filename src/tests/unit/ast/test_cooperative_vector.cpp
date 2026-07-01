@@ -54,8 +54,7 @@ public:
         config.extension = std::move(dx_config);
         Device device = context.create_device("dx", &config);
         if (!dx_config_ptr->ExperimentalFeaturesEnabled()) {
-            LUISA_INFO("DX cooperative-vector experimental features are not available on this system; skipping device execution tests.");
-            return std::nullopt;
+            // LUISA_INFO("DX cooperative-vector experimental features are not available on this system; skipping device execution tests.");
         }
         return luisa::test::DeviceContext{std::move(context), std::move(device)};
 #else
