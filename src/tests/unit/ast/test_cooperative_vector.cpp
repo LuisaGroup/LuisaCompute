@@ -25,6 +25,10 @@
 
 #ifdef _WIN32
 #include <luisa/backends/ext/dx_config_ext.h>
+// Required by the D3D12 Agility SDK: these exports must be in the main .exe,
+// not in a loaded DLL, so the D3D12 loader can find the SDK runtime.
+extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 619;
+extern "C" __declspec(dllexport) const char *D3D12SDKPath = ".\\D3D12\\";
 #endif
 
 using namespace luisa;
