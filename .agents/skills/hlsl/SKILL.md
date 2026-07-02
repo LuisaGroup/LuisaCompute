@@ -152,7 +152,8 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 | `accel_process.bytes` / `accel_process_vk.bytes` | Acceleration-structure processing |
 | `accel_process_vk_motion.bytes` | Acceleration-structure processing with motion blur |
 | `raytracing_motion_header` | Ray tracing motion blur |
-| `dx_linalg` | Linear algebra utils |
+| `dx_linalg` | Linear algebra utils (DXIL) |
+| `vk_linalg` | Linear algebra utils (SPIR-V) |
 | `raytracing_header` | Ray tracing |
 | `tex2d_bindless` / `tex3d_bindless` | Bindless textures |
 | `compute_quad` | Compute quad ops |

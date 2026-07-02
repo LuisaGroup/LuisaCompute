@@ -146,7 +146,7 @@ uint __builtin_spirv_group_async_copy(
         builder << CodegenUtility::ReadInternalHLSLFile("resource_size");
     }
     if (linalg || ops.uses_cooperative()) {
-        builder << CodegenUtility::ReadInternalHLSLFile("dx_linalg");
+        builder << CodegenUtility::ReadInternalHLSLFile(is_spirv ? "vk_linalg" : "dx_linalg");
     }
     bool useBindless = false;
     for (auto i : vstd::range(
