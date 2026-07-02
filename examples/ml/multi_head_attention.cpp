@@ -176,8 +176,15 @@ int main(int argc, char *argv[]) {
     auto Wuv_buf  = device.create_buffer<float>(Wuv_host.size());
     auto Wkr_buf  = device.create_buffer<float>(Wkr_host.size());
 
-    // ByteBuffer for cooperative-vector access to Wuv weights.
+    // ByteBuffer for cooperative-vector access to weight/data buffers.
     auto Wuv_byte_buf = device.create_byte_buffer(Wuv_host.size() * sizeof(float));
+    auto Wq_byte_buf = device.create_byte_buffer(Wq_host.size() * sizeof(float));
+    auto Wdkv_byte_buf = device.create_byte_buffer(Wdkv_host.size() * sizeof(float));
+    auto Wkr_byte_buf = device.create_byte_buffer(Wkr_host.size() * sizeof(float));
+    auto H_byte_buf = device.create_byte_buffer(H_host.size() * sizeof(float));
+    auto Q_byte_buf = device.create_byte_buffer(Q_host.size() * sizeof(float));
+    auto cKV_byte_buf = device.create_byte_buffer(latent_size * sizeof(float));
+    auto Krope_byte_buf = device.create_byte_buffer(rope_size * sizeof(float));
 
     // Upload everything in one batch.
     CommandList upload = CommandList::create();
@@ -190,7 +197,12 @@ int main(int argc, char *argv[]) {
            << Wuk_buf.copy_from(luisa::span{Wuk_host})
            << Wuv_buf.copy_from(luisa::span{Wuv_host})
            << Wkr_buf.copy_from(luisa::span{Wkr_host})
-           << Wuv_byte_buf.copy_from(Wuv_host.data());
+           << Wuv_byte_buf.copy_from(Wuv_host.data())
+           << Wq_byte_buf.copy_from(Wq_host.data())
+           << Wdkv_byte_buf.copy_from(Wdkv_host.data())
+           << Wkr_byte_buf.copy_from(Wkr_host.data())
+           << H_byte_buf.copy_from(H_host.data())
+           << Q_byte_buf.copy_from(Q_host.data());
     stream << upload.commit() << synchronize();
 
     // -- Reusable RoPE rotation helper (DSL) -------------------------------
@@ -285,7 +297,7 @@ int main(int argc, char *argv[]) {
 
         // -- Cooperative-vector-optimized project Q kernel -----------------
         // Uses cooperative_vector_fma for the Wq @ H dot product.
-        Kernel1D project_q_coop_kernel = [&](BufferFloat H, BufferFloat Q, BufferFloat Wq) noexcept {
+        Kernel1D project_q_coop_kernel = [&](BufferFloat H, BufferFloat Q, BufferFloat Wq, ByteBufferVar Wq_byte_buf) noexcept {
             constexpr uint kBlockSize = 32u;
             set_block_size(kBlockSize, 1u, 1u);
             set_name("mla_project_q_coop");
@@ -320,15 +332,14 @@ int main(int argc, char *argv[]) {
                     $for (chunk, kHiddenChunks) {
                         Var chunk_start = chunk * kCoopChunk;
 
-                        // Load Wq[d, chunk_start:chunk_start+16] into CoopVector (sequential).
-                        CoopVector<float> w_chunk{kCoopChunk};
+                        // Load Wq[d, chunk_start:chunk_start+16] via CoopVectorRef (direct buffer link).
+                        CoopVectorRef w_ref{CoopRefVecType::FLOAT32, kCoopChunk};
                         Var w_base = h_off + d * hidden_dim + chunk_start;
-                        $for (i, kCoopChunk) {
-                            w_chunk[i] = Wq.read(w_base + i);
-                        };
+                        w_ref.set_byte_offset(w_base * 4u);
+                        auto w_chunk = cooperative_vector_load<float>(Wq_byte_buf, w_ref);
 
                         // Load H_shared[chunk_start:chunk_start+16] into CoopVector.
-                        CoopVector<float> h_chunk{kCoopChunk};
+                        CoopVector<float> h_chunk{kCoopChunk}; 
                         $for (i, kCoopChunk) {
                             h_chunk[i] = H_shared[chunk_start + i];
                         };
@@ -426,7 +437,10 @@ int main(int argc, char *argv[]) {
         // in a single cooperative vector chunk.
         Kernel1D project_kv_coop_kernel = [&](BufferFloat H, BufferFloat cKV,
                                                BufferFloat Krope, BufferFloat Wdkv,
-                                               BufferFloat Wkr) noexcept {
+                                               BufferFloat Wkr,
+                                               ByteBufferVar H_byte_buf,
+                                               ByteBufferVar Wdkv_byte_buf,
+                                               ByteBufferVar Wkr_byte_buf) noexcept {
             set_block_size(256u, 1u, 1u);
             set_name("mla_project_kv_coop");
 
@@ -447,17 +461,15 @@ int main(int argc, char *argv[]) {
                 $for (chunk, kHiddenChunks) {
                     Var chunk_start = chunk * kCoopChunk;
 
-                    CoopVector<float> w_chunk{kCoopChunk};
+                                        CoopVectorRef wdkv_ref{CoopRefVecType::FLOAT32, kCoopChunk};
                     Var w_base = d * hidden_dim + chunk_start;
-                    $for (j, kCoopChunk) {
-                        w_chunk[j] = Wdkv.read(w_base + j);
-                    };
+                    wdkv_ref.set_byte_offset(w_base * 4u);
+                    auto w_chunk = cooperative_vector_load<float>(Wdkv_byte_buf, wdkv_ref);
 
-                    CoopVector<float> h_chunk{kCoopChunk};
+                    CoopVectorRef h_ref{CoopRefVecType::FLOAT32, kCoopChunk};
                     Var h_base = hi + chunk_start;
-                    $for (j, kCoopChunk) {
-                        h_chunk[j] = H.read(h_base + j);
-                    };
+                    h_ref.set_byte_offset(h_base * 4u);
+                    auto h_chunk = cooperative_vector_load<float>(H_byte_buf, h_ref);
 
                     auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
                     auto prod = cooperative_vector_fma(w_chunk, h_chunk, zero);
@@ -478,17 +490,15 @@ int main(int argc, char *argv[]) {
                     $for (chunk, kHiddenChunks) {
                         Var chunk_start = chunk * kCoopChunk;
 
-                        CoopVector<float> w_chunk{kCoopChunk};
+                                                CoopVectorRef wkr_ref{CoopRefVecType::FLOAT32, kCoopChunk};
                         Var w_base = head_off_kr + r * hidden_dim + chunk_start;
-                        $for (j, kCoopChunk) {
-                            w_chunk[j] = Wkr.read(w_base + j);
-                        };
+                        wkr_ref.set_byte_offset(w_base * 4u);
+                        auto w_chunk = cooperative_vector_load<float>(Wkr_byte_buf, wkr_ref);
 
-                        CoopVector<float> h_chunk{kCoopChunk};
+                        CoopVectorRef h_ref{CoopRefVecType::FLOAT32, kCoopChunk};
                         Var h_base = hi + chunk_start;
-                        $for (j, kCoopChunk) {
-                            h_chunk[j] = H.read(h_base + j);
-                        };
+                        h_ref.set_byte_offset(h_base * 4u);
+                        auto h_chunk = cooperative_vector_load<float>(H_byte_buf, h_ref);
 
                         auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
                         auto prod = cooperative_vector_fma(w_chunk, h_chunk, zero);
@@ -636,7 +646,6 @@ int main(int argc, char *argv[]) {
                 O.write(qkv_idx(b, h, i, d), val / s_norm);
             };
         };
-
         // -- Cooperative-vector-optimized online attention kernel ----------
         // Uses cooperative_vector_fma for all dot products:
         //   - q_latent hoisting (Wuk^T @ Q_content)
@@ -645,7 +654,11 @@ int main(int argc, char *argv[]) {
         //   - V up-projection (Wuv @ cKV)
         Kernel1D online_attention_coop_kernel = [&](BufferFloat Q, BufferFloat cKV,
                                                       BufferFloat Wuk, BufferFloat Krope,
-                                                      BufferFloat Wuv, BufferFloat O) noexcept {
+                                                      BufferFloat Wuv, BufferFloat O,
+                                                      ByteBufferVar Q_byte_buf,
+                                                      ByteBufferVar cKV_byte_buf,
+                                                      ByteBufferVar Krope_byte_buf,
+                                                      ByteBufferVar Wuv_byte_buf) noexcept {
             set_block_size(256u, 1u, 1u);
             set_name("mla_online_attention_coop");
 
@@ -691,12 +704,11 @@ int main(int argc, char *argv[]) {
                         w_chunk[c] = Wuk.read(w_base);
                     };
 
-                    // Load Q_content[chunk_start:chunk_start+16] into CoopVector (sequential).
-                    CoopVector<float> q_chunk{kCoopChunk};
+                    // Load Q_content[chunk_start:chunk_start+16] via CoopVectorRef.
+                    CoopVectorRef q_ref{CoopRefVecType::FLOAT32, kCoopChunk};
                     Var q_base = qkv_idx(b, h, i, chunk_start);
-                    $for (c, kCoopChunk) {
-                        q_chunk[c] = Q.read(q_base + c);
-                    };
+                    q_ref.set_byte_offset(q_base * 4u);
+                    auto q_chunk = cooperative_vector_load<float>(Q_byte_buf, q_ref);
 
                     auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
                     auto prod = cooperative_vector_fma(w_chunk, q_chunk, zero);
@@ -723,11 +735,10 @@ int main(int argc, char *argv[]) {
                         q_chunk[c] = q_latent[chunk_start + c];
                     };
 
-                    // Load cKV[j, chunk_start:chunk_start+16] into a CoopVector.
-                    CoopVector<float> c_chunk{kCoopChunk};
-                    $for (c, kCoopChunk) {
-                        c_chunk[c] = cKV.read(ci + chunk_start + c);
-                    };
+                    // Load cKV[j, chunk_start:chunk_start+16] via CoopVectorRef.
+                    CoopVectorRef ckv_ref{CoopRefVecType::FLOAT32, kCoopChunk};
+                    ckv_ref.set_byte_offset((ci + chunk_start) * 4u);
+                    auto c_chunk = cooperative_vector_load<float>(cKV_byte_buf, ckv_ref);
 
                     // Element-wise fma: q_chunk * c_chunk + 0.
                     // cooperative_vector_splat creates a CoopVector with all equal elements.
@@ -743,12 +754,14 @@ int main(int argc, char *argv[]) {
                 // -- Positional score (rope_dim=16 fits exactly in one chunk) --
                 Var pos_score = def(0.0f);
                 {
-                    CoopVector<float> q_pos{kCoopChunk};
-                    CoopVector<float> k_pos{kCoopChunk};
-                    $for (r, rope_dim) {
-                        q_pos[r] = Q.read(qkv_idx(b, h, i, content_dim + r));
-                        k_pos[r] = Krope.read(rope_idx(b, h, j, r));
-                    };
+                    CoopVectorRef q_pos_ref{CoopRefVecType::FLOAT32, kCoopChunk};
+                    CoopVectorRef k_pos_ref{CoopRefVecType::FLOAT32, kCoopChunk};
+                    Var q_base = qkv_idx(b, h, i, content_dim);
+                    Var k_base = rope_idx(b, h, j, 0u);
+                    q_pos_ref.set_byte_offset(q_base * 4u);
+                    k_pos_ref.set_byte_offset(k_base * 4u);
+                    auto q_pos = cooperative_vector_load<float>(Q_byte_buf, q_pos_ref);
+                    auto k_pos = cooperative_vector_load<float>(Krope_byte_buf, k_pos_ref);
                     auto zero = cooperative_vector_splat<float>(0.0f, kCoopChunk);
                     auto prod = cooperative_vector_fma(q_pos, k_pos, zero);
                     $for (r, rope_dim) {
@@ -786,12 +799,11 @@ int main(int argc, char *argv[]) {
                     $for (chunk, kLatentChunks) {
                         Var chunk_start = chunk * kCoopChunk;
 
-                        // Load Wuv[d, chunk_start:chunk_start+16] into CoopVector.
-                        CoopVector<float> w_chunk{kCoopChunk};
+                        // Load Wuv[d, chunk_start:chunk_start+16] via CoopVectorRef.
+                        CoopVectorRef wuv_ref{CoopRefVecType::FLOAT32, kCoopChunk};
                         Var w_base = head_off_uv + d * latent_dim + chunk_start;
-                        $for (c, kCoopChunk) {
-                            w_chunk[c] = Wuv.read(w_base + c);
-                        };
+                        wuv_ref.set_byte_offset(w_base * 4u);
+                        auto w_chunk = cooperative_vector_load<float>(Wuv_byte_buf, wuv_ref);
 
                         // Load cKV_local[chunk_start:chunk_start+16] into CoopVector.
                         CoopVector<float> c_chunk{kCoopChunk};
@@ -898,16 +910,16 @@ int main(int argc, char *argv[]) {
                 // Warm-up dispatch (not measured).
                 {
                     CommandList warmup = CommandList::create();
-                    warmup << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
+                    warmup << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf, Q_byte_buf, cKV_byte_buf, Krope_byte_buf, Wuv_byte_buf).dispatch(batch * num_heads * seq_len);
                     stream << warmup.commit() << synchronize();
                 }
 
                 LUISA_INFO("Dispatching MLA cooperative GPU kernels ...");
                 Clock dispatch_clock;
                 CommandList cmd_list = CommandList::create();
-                cmd_list << project_q_shader(H_buf, Q_buf, Wq_buf).dispatch(batch * seq_len)
-                         << project_kv_shader(H_buf, cKV_buf, Krope_buf, Wdkv_buf, Wkr_buf).dispatch(batch * seq_len)
-                         << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
+                cmd_list << project_q_shader(H_buf, Q_buf, Wq_buf, Wq_byte_buf).dispatch(batch * seq_len)
+                         << project_kv_shader(H_buf, cKV_buf, Krope_buf, Wdkv_buf, Wkr_buf, H_byte_buf, Wdkv_byte_buf, Wkr_byte_buf).dispatch(batch * seq_len)
+                         << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf, Q_byte_buf, cKV_byte_buf, Krope_byte_buf, Wuv_byte_buf).dispatch(batch * num_heads * seq_len);
                 stream << cmd_list.commit() << synchronize();
                 double dispatch_ms = dispatch_clock.toc();
                 LUISA_INFO("  MLA cooperative GPU dispatch + sync: {:.2f} ms", dispatch_ms);
