@@ -527,125 +527,6 @@ int main(int argc, char *argv[]) {
         // O[b,h,i,:] = softmax(score[i,:]) @ V[b,h,:,:] in a single pass.
         // Eliminates S, A, and V buffers entirely — V is computed inline
         // from Wuv (up-projection weight) and cKV, avoiding VRAM for V_buf
-        // and reducing kernel launch count by 1.
-        Kernel1D online_attention_kernel = [&](BufferFloat Q, BufferFloat cKV,
-                                               BufferFloat Wuk, BufferFloat Krope,
-                                               BufferFloat Wuv, BufferFloat O) noexcept {
-            set_block_size(256u, 1u, 1u);
-            set_name("mla_online_attention");
-
-            auto qkv_idx = [&](auto b_, auto h_, auto i_, auto d_) {
-                return ((b_ * num_heads + h_) * seq_len + i_) * head_dim + d_;
-            };
-            auto latent_idx = [&](auto b_, auto j_, auto d_) {
-                return (b_ * seq_len + j_) * latent_dim + d_;
-            };
-            auto rope_idx = [&](auto b_, auto h_, auto j_, auto r_) {
-                return ((b_ * num_heads + h_) * seq_len + j_) * rope_dim + r_;
-            };
-
-            Var idx = dispatch_id().x;
-            Var b = idx / (num_heads * seq_len);
-            Var h = (idx / seq_len) % num_heads;
-            Var i = idx % seq_len;
-
-            Var hc_off = h * content_dim * latent_dim;
-
-            // Online softmax state.
-            Var m = def(-1.0e30f);
-            Var s_norm = def(0.0f);
-
-            // Initialize output row to zero.
-            $for (d, head_dim) {
-                O.write(qkv_idx(b, h, i, d), 0.0f);
-            };
-
-            // -- Hoist q_latent = Wuk[h]^T @ q_content (independent of j) --
-            // Pre-compute all latent_dim q_latent values once per thread
-            // using a local array to avoid seq_len× recomputation.
-            $array<float, latent_dim> q_latent;
-            $for (d, latent_dim) {
-                Var acc = def(0.0f);
-                $for (c, content_dim / 4u) {
-                    Var c4 = c * 4u;
-                    Var w_base = hc_off + c4 * latent_dim + d;
-                    Var q_base = qkv_idx(b, h, i, c4);
-                    acc += Wuk.read(w_base) * Q.read(q_base)
-                         + Wuk.read(w_base + latent_dim) * Q.read(q_base + 1u)
-                         + Wuk.read(w_base + 2u * latent_dim) * Q.read(q_base + 2u)
-                         + Wuk.read(w_base + 3u * latent_dim) * Q.read(q_base + 3u);
-                };
-                q_latent[d] = acc;
-            };
-
-            $for (j, seq_len) {
-                // -- Content score via matrix absorption (reusing hoisted q_latent) --
-                Var content_score = def(0.0f);
-                $for (d, latent_dim) {
-                    content_score += q_latent[d] * cKV.read(latent_idx(b, j, d));
-                };
-
-                // -- Positional score --
-                Var pos_score = def(0.0f);
-                $for (r, rope_dim / 4u) {
-                    Var r4 = r * 4u;
-                    Var q_base = qkv_idx(b, h, i, content_dim + r4);
-                    Var k_base = rope_idx(b, h, j, r4);
-                    pos_score += Q.read(q_base) * Krope.read(k_base)
-                               + Q.read(q_base + 1u) * Krope.read(k_base + 1u)
-                               + Q.read(q_base + 2u) * Krope.read(k_base + 2u)
-                               + Q.read(q_base + 3u) * Krope.read(k_base + 3u);
-                };
-
-                Var score = (content_score + pos_score) * scale;
-
-                // -- Online softmax update --
-                Var m_new = max(m, score);
-                Var exp_diff = exp(m - m_new);      // exp(m - m_new) ∈ (0, 1]
-                Var exp_score = exp(score - m_new); // exp(score - m_new) ∈ (0, 1]
-                s_norm = s_norm * exp_diff + exp_score;
-
-                // -- Pre-load cKV[j,:] into local array to avoid reloading it
-                //     64 times (once per head_dim) inside the d-loop. --
-                $array<float, latent_dim> cKV_local;
-                Var ci = (b * seq_len + j) * latent_dim;
-                $for (l, latent_dim / 4u) {
-                    Var l4 = l * 4u;
-                    Var cv_base = ci + l4;
-                    cKV_local[l4]     = cKV.read(cv_base);
-                    cKV_local[l4 + 1u] = cKV.read(cv_base + 1u);
-                    cKV_local[l4 + 2u] = cKV.read(cv_base + 2u);
-                    cKV_local[l4 + 3u] = cKV.read(cv_base + 3u);
-                };
-
-                // Update O_row: O *= exp(m - m_new), then O += V[j] * exp(score - m_new).
-                // V[b,h,j,d] is computed inline from Wuv and cKV_local (fused up_project_v)
-                // to eliminate the V_buf intermediate: V[b,h,j,d] = Wuv[h,d,:] @ cKV[b,j,:]
-                $for (d, head_dim) {
-                    Var old_o = O.read(qkv_idx(b, h, i, d));
-                    // Inline up_project_v: compute V[b,h,j,d] from Wuv[h,d,:] @ cKV_local[:]
-                    Var head_off_uv = h * head_dim * latent_dim;
-                    Var v_val = def(0.0f);
-                    $for (l, latent_dim / 4u) {
-                        Var l4 = l * 4u;
-                        Var w_base = head_off_uv + d * latent_dim + l4;
-                        v_val += Wuv.read(w_base)     * cKV_local[l4]
-                               + Wuv.read(w_base + 1u) * cKV_local[l4 + 1u]
-                               + Wuv.read(w_base + 2u) * cKV_local[l4 + 2u]
-                               + Wuv.read(w_base + 3u) * cKV_local[l4 + 3u];
-                    };
-                    O.write(qkv_idx(b, h, i, d), old_o * exp_diff + v_val * exp_score);
-                };
-
-                m = m_new;
-            };
-
-            // -- Normalize output row by softmax sum --
-            $for (d, head_dim) {
-                Var val = O.read(qkv_idx(b, h, i, d));
-                O.write(qkv_idx(b, h, i, d), val / s_norm);
-            };
-        };
         // -- Cooperative-vector-optimized online attention kernel ----------
         // Uses cooperative_vector_fma for all dot products:
         //   - q_latent hoisting (Wuk^T @ Q_content)
@@ -832,7 +713,142 @@ int main(int argc, char *argv[]) {
             };
         };
 
-        // -- MHA baseline kernel ----------------------------------------
+        // -- Shared-memory-optimized MLA online attention kernel --------
+        // Broadcast cKV[j,:] and Krope[j,:] via shared memory to eliminate
+        // 256x redundant global loads. Only latent_dim=64 threads load
+        // cKV and rope_dim=16 threads load Krope; all 256 read from shared.
+        Kernel1D online_attention_kernel = [&](BufferFloat Q, BufferFloat cKV,
+                                                BufferFloat Wuk, BufferFloat Krope,
+                                                BufferFloat Wuv, BufferFloat O) noexcept {
+            set_block_size(256u, 1u, 1u);
+            set_name("mla_online_attention");
+
+            auto qkv_idx = [&](auto b_, auto h_, auto i_, auto d_) {
+                return ((b_ * num_heads + h_) * seq_len + i_) * head_dim + d_;
+            };
+            auto latent_idx = [&](auto b_, auto j_, auto d_) {
+                return (b_ * seq_len + j_) * latent_dim + d_;
+            };
+            auto rope_idx = [&](auto b_, auto h_, auto j_, auto r_) {
+                return ((b_ * num_heads + h_) * seq_len + j_) * rope_dim + r_;
+            };
+
+            Var idx = dispatch_id().x;
+            Var b = idx / (num_heads * seq_len);
+            Var h = (idx / seq_len) % num_heads;
+            Var i = idx % seq_len;
+
+            Var hc_off = h * content_dim * latent_dim;
+
+            // Online softmax state.
+            Var m = def(-1.0e30f);
+            Var s_norm = def(0.0f);
+
+            // Initialize output row to zero.
+            $for (d, head_dim) {
+                O.write(qkv_idx(b, h, i, d), 0.0f);
+            };
+
+            // -- Hoist q_latent = Wuk[h]^T @ q_content (same as regular kernel) --
+            $array<float, latent_dim> q_latent;
+            $for (d, latent_dim) {
+                Var acc = def(0.0f);
+                $for (c, content_dim / 4u) {
+                    Var c4 = c * 4u;
+                    Var w_base = hc_off + c4 * latent_dim + d;
+                    Var q_base = qkv_idx(b, h, i, c4);
+                    acc += Wuk.read(w_base) * Q.read(q_base)
+                         + Wuk.read(w_base + latent_dim) * Q.read(q_base + 1u)
+                         + Wuk.read(w_base + 2u * latent_dim) * Q.read(q_base + 2u)
+                         + Wuk.read(w_base + 3u * latent_dim) * Q.read(q_base + 3u);
+                };
+                q_latent[d] = acc;
+            };
+
+            // Shared memory for this j iteration
+            Shared<float> cKV_shared{latent_dim};
+            Shared<float> Krope_shared{rope_dim};
+
+            $for (j, seq_len) {
+                Var ci = (b * seq_len + j) * latent_dim;
+
+                // -- Cooperative load cKV[j,:] and Krope[j,:] into shared memory --
+                // latent_dim=64 threads load cKV (1 float each),
+                // rope_dim=16 threads load Krope (overlaps with cKV load threads).
+                $if (thread_x() < latent_dim) {
+                    cKV_shared[thread_x()] = cKV.read(ci + thread_x());
+                };
+                $if (thread_x() < rope_dim) {
+                    Var k_base = rope_idx(b, h, j, 0u);
+                    Krope_shared[thread_x()] = Krope.read(k_base + thread_x());
+                };
+                sync_block();
+
+                // -- Content score (read cKV from shared) --
+                Var content_score = def(0.0f);
+                $for (d, latent_dim) {
+                    content_score += q_latent[d] * cKV_shared[d];
+                };
+
+                // -- Positional score (read Krope from shared) --
+                Var pos_score = def(0.0f);
+                $for (r, rope_dim / 4u) {
+                    Var r4 = r * 4u;
+                    Var q_base = qkv_idx(b, h, i, content_dim + r4);
+                    pos_score += Q.read(q_base) * Krope_shared[r4]
+                               + Q.read(q_base + 1u) * Krope_shared[r4 + 1u]
+                               + Q.read(q_base + 2u) * Krope_shared[r4 + 2u]
+                               + Q.read(q_base + 3u) * Krope_shared[r4 + 3u];
+                };
+
+                Var score = (content_score + pos_score) * scale;
+
+                // -- Online softmax update --
+                Var m_new = max(m, score);
+                Var exp_diff = exp(m - m_new);
+                Var exp_score = exp(score - m_new);
+                s_norm = s_norm * exp_diff + exp_score;
+
+                // -- Pre-load cKV[j,:] from shared memory into local array --
+                // (No redundant global loads: cKV_shared already in fast shared memory)
+                $array<float, latent_dim> cKV_local;
+                $for (l, latent_dim / 4u) {
+                    Var l4 = l * 4u;
+                    cKV_local[l4]     = cKV_shared[l4];
+                    cKV_local[l4 + 1u] = cKV_shared[l4 + 1u];
+                    cKV_local[l4 + 2u] = cKV_shared[l4 + 2u];
+                    cKV_local[l4 + 3u] = cKV_shared[l4 + 3u];
+                };
+
+                // -- Update O_row: O *= exp_diff, then O += V[j] * exp_score --
+                $for (d, head_dim) {
+                    Var old_o = O.read(qkv_idx(b, h, i, d));
+                    Var head_off_uv = h * head_dim * latent_dim;
+                    Var v_val = def(0.0f);
+                    $for (l, latent_dim / 4u) {
+                        Var l4 = l * 4u;
+                        Var w_base = head_off_uv + d * latent_dim + l4;
+                        v_val += Wuv.read(w_base)     * cKV_local[l4]
+                               + Wuv.read(w_base + 1u) * cKV_local[l4 + 1u]
+                               + Wuv.read(w_base + 2u) * cKV_local[l4 + 2u]
+                               + Wuv.read(w_base + 3u) * cKV_local[l4 + 3u];
+                    };
+                    O.write(qkv_idx(b, h, i, d), old_o * exp_diff + v_val * exp_score);
+                };
+
+                m = m_new;
+            };
+
+            // -- Normalize output row by softmax sum --
+            $for (d, head_dim) {
+                Var val = O.read(qkv_idx(b, h, i, d));
+                O.write(qkv_idx(b, h, i, d), val / s_norm);
+            };
+        };
+
+        // -- Shared-memory-optimized MHA kernel (broadcast K/V via shared memory) --
+        // Eliminates 256x redundant global loads of K[j,:] and V[j,:] per j:
+        // Only head_dim=64 threads load from global; all 256 threads read from shared.
         Kernel1D mha_online_attention_kernel = [&](BufferFloat Q, BufferFloat K,
                                                     BufferFloat V, BufferFloat O) noexcept {
             set_block_size(256u, 1u, 1u);
@@ -853,21 +869,35 @@ int main(int argc, char *argv[]) {
             Var m = def(-1.0e30f);
             Var s_norm = def(0.0f);
 
+            Shared<float> K_shared{head_dim};
+            Shared<float> V_shared{head_dim};
+
             $for (d, head_dim) {
                 O.write(qkv_idx(b, h, i, d), 0.0f);
             };
 
             $for (j, seq_len) {
-                Var score = def(0.0f);
+                // Thread 0 loads K[j,:] and V[j,:] into shared memory.
+                // All 256 threads then read from shared, eliminating 255x
+                // redundant global-memory reads of the same data.
                 Var kj_base = head_base + j * head_dim;
+                $if (thread_x() == 0u) {
+                    $for (d, head_dim) {
+                        K_shared[d] = K.read(kj_base + d);
+                        V_shared[d] = V.read(kj_base + d);
+                    };
+                };
+                sync_block();
+
+                // Score = Q[i] · K[j] (read K from shared)
+                Var score = def(0.0f);
                 $for (d, head_dim / 4u) {
                     Var d4 = d * 4u;
                     Var q_off = qi_base + d4;
-                    Var k_off = kj_base + d4;
-                    score += Q.read(q_off) * K.read(k_off)
-                           + Q.read(q_off + 1u) * K.read(k_off + 1u)
-                           + Q.read(q_off + 2u) * K.read(k_off + 2u)
-                           + Q.read(q_off + 3u) * K.read(k_off + 3u);
+                    score += Q.read(q_off) * K_shared[d4]
+                           + Q.read(q_off + 1u) * K_shared[d4 + 1u]
+                           + Q.read(q_off + 2u) * K_shared[d4 + 2u]
+                           + Q.read(q_off + 3u) * K_shared[d4 + 3u];
                 };
                 score = score * scale;
 
@@ -876,11 +906,10 @@ int main(int argc, char *argv[]) {
                 Var exp_score = exp(score - m_new);
                 s_norm = s_norm * exp_diff + exp_score;
 
-                Var vj_base = head_base + j * head_dim;
+                // Update O with V from shared
                 $for (d, head_dim) {
                     Var old_o = O.read(qkv_idx(b, h, i, d));
-                    Var v_val = V.read(vj_base + d);
-                    O.write(qkv_idx(b, h, i, d), old_o * exp_diff + v_val * exp_score);
+                    O.write(qkv_idx(b, h, i, d), old_o * exp_diff + V_shared[d] * exp_score);
                 };
 
                 m = m_new;
@@ -891,8 +920,6 @@ int main(int argc, char *argv[]) {
                 O.write(qkv_idx(b, h, i, d), val / s_norm);
             };
         };
-
-        // -- Compile & dispatch selected path ----------------------------
         if (use_mla) {
             if (cooperative_vector) {
                 LUISA_INFO("Compiling MLA cooperative kernels ...");
@@ -956,7 +983,7 @@ int main(int argc, char *argv[]) {
             }
 
         } else {
-            LUISA_INFO("Compiling MHA kernels (baseline) ...");
+            LUISA_INFO("Compiling MHA kernels ...");
 
             opt.name = "mha_online_attention";
             auto mha_online_shader = device.compile(mha_online_attention_kernel, opt);

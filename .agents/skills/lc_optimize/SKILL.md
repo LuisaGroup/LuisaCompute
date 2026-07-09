@@ -351,7 +351,135 @@ UInt num_true = popcount(flag_mask);
 
 ---
 
-## 4. Hardware Mapping
+## 4. Shared Array (Workgroup Memory) Optimization
+
+Warp collectives (section 3) only communicate *within one warp*. When cooperation must span the **whole thread block** (multiple warps), or you need persistent per-block scratch, arbitrary cross-thread indexing, or block-local privatization of a global atomic, use a **shared array** (`Shared<T>` / `$shared<T>`). Shared memory is on-chip and orders of magnitude faster than global memory, so staging data there once and reusing it, or aggregating locally before touching global memory, is a core optimization.
+
+### 4.1 API (`include/luisa/dsl/shared.h`, `include/luisa/dsl/sugar.h:105`)
+
+| DSL | Description |
+|---|---|
+| `Shared<T> s{n}` / `$shared<T> s{n}` | Allocate `n` elements of `T` in workgroup memory. Must be constructed **inside** the kernel/callable body (uses `FunctionBuilder::current()`). |
+| `s[i]` | Reference access (read or write); `i` must be an integral expr. |
+| `s.read(i)` / `s.write(i, v)` | Explicit read / write helpers (alias for `s[i]`). |
+| `s.atomic(i).fetch_add(v)` / `.compare_exchange(e, v)` / ... | Atomic ops on a shared slot. Available for scalar/vector element types (disabled for custom structs). |
+| `s.size()` | Element count. |
+| `new Shared<T>{n}` | Heap-allocate so helper classes can *own* shared scratch (`Shared<T>` is move-only, non-copyable). Lifetime is tied to the enclosing kernel's function builder. See `WarpReduce` in `test_decoupled_look_back.cpp`. |
+
+Always `set_block_size(...)` and size the array to the block (`Shared<T> s{block_size}`). Use `sync_block()` to make writes visible across warps.
+
+### 4.2 When to prefer shared memory over warp collectives
+
+| Situation | Use |
+|---|---|
+| Reduction/scan fits in a single warp | Warp collective (section 3) — no barrier, single instruction. |
+| Reduction spans a whole block (block_size > warp_size) | Two-level: warp collective → shared → block (section 4.5), or full shared-memory tree reduction (4.4). |
+| Many threads append to one global counter/queue | Block-local privatization in shared, then **one** global atomic per block (4.3). |
+| Global data reused by many threads in a block | Stage global → shared once, `sync_block()`, then reuse (4.6). |
+| Arbitrary cross-thread indexing (not just lane shuffles) | Shared array indexed by `thread_id()`. |
+
+### 4.3 Block-Local Atomic Privatization → One Global Atomic
+
+The biggest shared-memory win: replace *up to block_size* contended **global** atomics with per-thread **shared** atomics plus a **single** global atomic per block. Pattern from `test_atomic_queue.cpp` (`push_if`) and `test_shared_memory.cpp` (`AtomicQueue::push`):
+
+```cpp
+// Append `value` to a global queue when `pred` holds, minimizing global contention.
+Shared<uint> index{1};
+$if (thread_x() == 0u) { index.write(0u, 0u); };   // init block counter
+sync_block();
+
+auto local_index = def(0u);
+$if (pred) { local_index = index.atomic(0).fetch_add(1u); };  // cheap SHARED atomic
+sync_block();
+
+$if (thread_x() == 0u) {                            // ONE global atomic for the whole block
+    auto local_count   = index.read(0u);
+    auto global_offset = _counter->atomic(0u).fetch_add(local_count);
+    index.write(0u, global_offset);                 // reuse slot to broadcast the base
+};
+sync_block();
+
+$if (pred) {                                        // scatter to reserved, contiguous range
+    auto global_index = index.read(0u) + local_index;
+    _buffer->write(global_index, value);
+};
+```
+
+**Insight:** Global-atomic traffic drops from O(active threads) to O(1) per block. Contention moves from device-wide global memory to fast on-chip shared memory. This is the standard stream-compaction / queue-append optimization.
+
+### 4.4 Block-Wide Tree Reduction in Shared Memory
+
+When the reduction spans the whole block, stage each thread's value in shared memory and reduce pairwise with a halving loop. Pattern from `test_softmax.cpp` (block sum for softmax) and `test_complex_kernel.cpp`:
+
+```cpp
+set_block_size(block_size, 1, 1);          // power of two
+Shared<float> shared_arr(block_size);       // one slot per thread
+auto tid = thread_id().x;
+shared_arr[tid] = value;                     // stage per-thread value
+
+UInt half = block_size / 2u;
+sync_block();
+$while (half > 0u) {
+    $if (tid < half) {                       // compute into a register FIRST
+        value = shared_arr[tid * 2] + shared_arr[tid * 2 + 1];
+    };
+    sync_block();                            // barrier between read and write-back
+    $if (tid < half) {
+        shared_arr[tid] = value;             // write reduced value back
+    };
+    half /= 2u;
+    sync_block();                            // barrier before next iteration's reads
+};
+$if (tid == 0u) { output.write(block_id().x, shared_arr[0]); };  // thread 0 emits block result
+```
+
+**Why two `sync_block()` per step:** reducing into a local `value` register and only writing back after a barrier avoids the read-after-write / write-after-read hazard where one thread overwrites a slot another thread is still reading. Prefer this whole-block form only when `block_size > warp_size`; inside a single warp, `warp_active_sum` (section 3.2) is faster and barrier-free.
+
+### 4.5 Two-Level Reduction: Warp Collective → Shared → Block
+
+Combine both tools: reduce within each warp with a warp collective (no barrier), write one partial per warp to a *small* shared array, then reduce those partials. This minimizes both shared traffic and barriers vs. a full block tree reduction (see also sections 3.1/3.2):
+
+```cpp
+UInt warp_id = thread_x() / warp_size;            // which warp in the block (warp_size = device.compute_warp_size())
+Float warp_sum = warp_active_sum(value);          // phase 1: intra-warp, no barrier
+Shared<float> warp_results{num_warps_per_block};
+$if (warp_is_first_active_lane()) {
+    warp_results[warp_id] = warp_sum;             // one write per warp
+};
+sync_block();
+$if (thread_x() < num_warps_per_block) {          // phase 2: reduce the few partials
+    Float block_sum = warp_active_sum(warp_results[thread_x()]);
+    $if (warp_is_first_active_lane()) { /* thread 0 has the block total */ };
+};
+```
+
+### 4.6 Shared as Staging / Scratch for Reuse & Exchange
+
+Load global data into shared once, then reuse it many times or exchange it between threads, avoiding repeated global reads. Patterns from `test_shared_mem.cpp`, `test_async_copy.cpp`, and hierarchical mip reduction in `test_mipmap.cpp`:
+
+```cpp
+set_block_size(N, 1u, 1u);
+Shared<uint> s_src{N};
+auto tid = thread_x();
+s_src[tid] = src_buf.read(dispatch_x());     // global -> shared, once
+sync_block();                                 // publish to the whole block
+// ... now reuse s_src[...] / read neighbors' values without touching global memory ...
+```
+
+`test_async_copy.cpp` fills a shared staging buffer with `async_copy(...)` (thread 0 issues the copy, then `sync_block()` before consumers read). `test_mipmap.cpp` writes 2×2 block averages into `Shared<float3>` and reduces level-by-level with a `sync_block()` between levels.
+
+### 4.7 Correctness & Performance Rules
+
+1. **Construct inside the kernel body.** `Shared<T>` needs `FunctionBuilder::current()`; declaring it outside a kernel/callable is invalid.
+2. **Barrier discipline.** A `sync_block()` is required (a) after initializing/filling shared before other threads read, and (b) between the read and write-back phases of each reduction step. Unlike warp collectives, **shared memory is NOT self-synchronizing across warps**.
+3. **Size to the block.** Match the array length to `set_block_size(...)`; use a power-of-two block for the halving tree reduction, and pad out-of-range lanes with the reduction identity (e.g. `0.f` for sum) — see the `$if (id < size) {...} $else { value = 0.f; }` guards in `test_softmax.cpp`.
+4. **Register-then-write.** In tree reductions, compute into a `Var`/register and write back only after a barrier to avoid RAW/WAR hazards.
+5. **Move-only ownership.** `Shared<T>` cannot be copied; store `Shared<T> *` (via `new`) when a helper class must hold shared scratch.
+6. **Prefer warp collectives when they suffice.** Shared memory costs a barrier and on-chip capacity; only reach for it when cooperation exceeds one warp or needs privatization/staging/arbitrary indexing.
+
+---
+
+## 5. Hardware Mapping
 
 | GPU Backend | Warp/Lane Terminology | Native Width |
 |---|---|---|
@@ -365,7 +493,7 @@ Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on
 
 ---
 
-## 5. Rules of Thumb
+## 6. Rules of Thumb
 
 1. **Prefer warp collectives over shared memory.** `warp_active_sum`, `warp_active_max`, `warp_prefix_sum` compile to single hardware instructions (e.g. `__shfl_xor_sync` on CUDA, `OpGroupNonUniformFAdd` on SPIR-V). No barrier needed.
 
@@ -382,3 +510,9 @@ Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on
 7. **Vector types work.** All warp collectives accept `float2`, `float3`, `float4`, `int2`, etc. The operation applies component-wise.
 
 8. **Logic warp size.** You can logically group lanes (e.g. 4 groups of 8 within a 32-lane warp) using `lane % kGroupLanes` and `lane / kGroupLanes` arithmetic. Use `warp_read_lane` to communicate across groups.
+
+9. **Use shared memory for block-wide cooperation** (section 4). When cooperation exceeds one warp, or you need privatization/staging/arbitrary cross-thread indexing, `Shared<T>` beats warp collectives. Always `set_block_size` and size the array to the block.
+
+10. **Privatize global atomics into shared memory** (section 4.3). Aggregate per-thread contributions with cheap shared atomics, then issue **one** global atomic per block. This is the key stream-compaction / queue-append win.
+
+11. **Shared memory needs `sync_block()`; warp collectives do not.** Barrier after filling shared and between the read/write-back phases of a tree reduction (section 4.4). Reduce into a register first, then write back after the barrier to avoid RAW/WAR hazards.
