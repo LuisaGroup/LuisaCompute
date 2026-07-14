@@ -223,6 +223,15 @@ llvm::BasicBlock *CUDACodegenLLVMImpl::_translate_function_definition(FunctionCo
     });
     // finalize phi nodes
     _finalize_pending_phi_nodes(func_ctx);
+    // Assert that all XIR blocks have been properly translated with terminators.
+    // If this fires, it indicates an upstream XIR pass left an empty/orphaned block.
+    for (auto bb : f->basic_blocks()) {
+        auto llvm_bb = func_ctx.get_local_value<llvm::BasicBlock>(bb);
+        LUISA_ASSERT(llvm_bb->getTerminator() != nullptr,
+                     "LLVM basic block has no terminator after translation. "
+                     "This likely indicates a bug in an XIR optimization pass "
+                     "(e.g. DCE incorrectly removing break/continue instructions).");
+    }
     return func_ctx.get_local_value<llvm::BasicBlock>(f->body_block());
 }
 

@@ -4,6 +4,8 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/break.h>
+#include <luisa/xir/instructions/continue.h>
 
 #include "helpers.h"
 
@@ -122,6 +124,10 @@ void traverse_structural_successors(BasicBlock *block, const luisa::unordered_se
                                     Visit &&visit) noexcept {
     if (block == nullptr || !block->is_terminated()) { return; }
     auto *term = block->terminator();
+    // Break/Continue targets jump OUT of the current structured region
+    // (to loop merge/body blocks). They are not structural successors
+    // within the dead region being collected.
+    if (term->isa<BreakInst>() || term->isa<ContinueInst>()) { return; }
     for (auto use : term->operand_uses()) {
         if (auto *succ = find_owned_block(use->value(), owned)) { visit(succ); }
     }
