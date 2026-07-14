@@ -100,6 +100,9 @@ if (CUDAToolkit_FOUND)
             target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE
                     "LINKER:/FORCE:MULTIPLE"
                     "LINKER:/OPT:REF")
+            
+            # newest nvrtc appears to call undocumented RtlNtGetLastStatus directly
+            target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE ntdll)
         endif ()
         target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32)
     endif ()
