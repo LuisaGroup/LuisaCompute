@@ -12,6 +12,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -136,7 +137,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     retarget_handler_branches(on_surface_block, tri_merge);
     retarget_handler_branches(on_procedural_block, proc_merge);
 
-    info.lowered_ray_query_loop_count += 1u;
+    info.lowered_ray_query_loop_count += 1;
     return true;
 }
 
@@ -172,11 +173,14 @@ LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_function(Fu
     return info;
 }
 
-LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Module *module) noexcept {
+LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LowerRayQueryLoopToLoopInfo info;
     if (module == nullptr) { return info; }
     for (auto f : module->function_list()) {
         detail::lower_in_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("lowered_ray_query_loop", info.lowered_ray_query_loop_count);
     }
     return info;
 }

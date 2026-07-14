@@ -1,6 +1,6 @@
 ---
 name: project_structure
-description: LuisaCompute project structure and architecture — modules, build system, compiler pipeline, and design patterns
+description: Project layout, module architecture, compiler pipeline, and design patterns.
 ---
 
 # LuisaCompute Project Structure
@@ -29,7 +29,9 @@ src/
 ├── vstl/         Virtual STL: custom containers, allocators, hashes
 └── xir/          Extended IR: SSA, basic blocks, passes, translators
 
-include/luisa/    Public headers mirroring src/ layout
+include/luisa/    Public headers mirroring src/ layout (+ ir_v2/)
+
+Root also has: examples/, tests/, tutorials/, utils/, docs/
 ```
 
 ## Modules
@@ -37,11 +39,11 @@ include/luisa/    Public headers mirroring src/ layout
 ### `src/core/` — Foundation
 Platform abstractions, math, logging, binary I/O, dynamic modules.
 - `basic_types.cpp` — vector/matrix instantiations
-- `basic_traits.cpp` — compile-time type predicates
 - `logging.cpp` — spdlog-based logging
 - `platform.cpp` — OS abstraction (paths, threads, DLL)
 - `dynamic_module.cpp` — cross-platform shared library loader
 - `binary_io.cpp`, `binary_file_stream.cpp` — binary serialization
+- `first_fit.cpp`, `pool.cpp`, `string_scratch.cpp` — allocators/scratch buffers
 - `stl/` — custom STL: `vector`, `string`, `unordered_map`, `optional`, `variant`, etc.
 - `generate_swizzles.py` — swizzle codegen
 
@@ -55,15 +57,18 @@ DSL traces C++ lambdas → AST nodes.
 - `type.cpp` — scalars, vectors, matrices, buffers, textures, structs
 - `function.cpp` — kernel/callable metadata
 - `function_builder.cpp` — manual AST construction API
+- `variable.cpp` — local variables
 - `op.cpp` — `BinaryOp`, `UnaryOp`, `CallOp`
 - `ast2json.cpp` — AST→JSON serialization
-- `constant_data.cpp`, `callable_library.cpp`, `external_function.cpp`
+- `constant_data.cpp`, `callable_library.cpp`, `external_function.cpp`, `function_duplicator.cpp`, `atomic_ref_node.cpp`
 
 ### `src/xir/` — Extended IR (Next-Gen)
 SSA IR with basic blocks, instructions, optimization passes. Receives AST via `ast2xir`.
 - `instructions/` — 30+ types: arithmetic, memory, control flow, resource, autodiff, atomic
-- `passes/` — DCE, mem2reg, SROA, autodiff, outline, dom-tree, GEP tracing, local load/store elimination, ray-query lowering, unused callable removal
-- `translators/` — `ast2xir`, `xir2json`, `json2xir`, `xir2text`
+- `passes/` — DCE, mem2reg, SROA, autodiff, outline, dom-tree, GEP tracing, local load/store elimination, ray-query lowering, unused callable removal, LICM, GVN, SCCP, inlining, CFG simplification
+- `translators/` — `ast2xir`, `xir2json`, `json2xir`, `xir2text`, `xir2ast`
+- `metadata/` — source locations, names, comments, curve basis
+- `tests/` — XIR unit tests (enabled by `LUISA_COMPUTE_ENABLE_XIR_TESTS`)
 - Key classes: `Module`, `Function`, `BasicBlock`, `Instruction`, `Value`, `Use`, `Builder`
 
 ### `src/ir/` — IR Bridge (Legacy)
@@ -74,9 +79,11 @@ GPU kernels via lambda tracing.
 - `func.cpp` — `Kernel1D/2D/3D`, `Callable`
 - `builtin.cpp` — `dispatch_id`, `thread_id`, math
 - `resource.cpp` — buffer/image/volume/bindless DSL wrappers
+- `local.cpp` — local/thread storage helpers
 - `sugar.cpp` — `$if`, `$for`, `$while`
 - `rtx/` — ray tracing: `Accel`, `Ray`, `RayQuery`, `Curve`, `TriangleHit`
 - `raster/` — `RasterKernel`
+- `ext/` — DSL extensions
 - `soa.cpp`, `polymorphic.cpp`, `dispatch_indirect.cpp`
 
 ### `src/runtime/` — Unified Runtime
@@ -84,7 +91,9 @@ Resource management, command scheduling, RHI abstraction.
 - `device.cpp`, `context.cpp` — device creation, backend loading
 - `stream.cpp`, `command_list.cpp` — command batching/submission
 - `buffer.cpp`, `image.cpp`, `volume.cpp` — GPU memory
-- `bindless_array.cpp`, `swapchain.cpp`, `event.cpp`
+- `byte_buffer.cpp`, `dispatch_buffer.cpp`, `mipmap.cpp` — auxiliary buffers
+- `sparse_buffer.cpp`, `sparse_texture.cpp`, `sparse_heap.cpp`, `sparse_command_list.cpp` — sparse resources
+- `bindless_array.cpp`, `swapchain.cpp`, `event.cpp`, `builtin_kernel.cpp`
 - `rhi/` — `device_interface.h`, `command.h`, `command_encoder.h`, `resource.h`
 - `rtx/` — `accel.cpp`, `mesh.cpp`, `curve.cpp`, `motion_instance.cpp`, `procedural_primitive.cpp`
 - `raster/` — `raster.cpp`, `depth_buffer.cpp`
@@ -103,7 +112,7 @@ Dynamically loaded (`luisa-backend-<name>.dll/.so`). Each: codegen (AST/XIR→na
 | **HIP** (`hip/`) | AMD HIP |
 | **Remote** (`remote/`) | Network-distributed |
 | **Fallback** (`fallback/`) | Reference interpreter |
-| **Common** (`common/`) | Vulkan swapchain, OIDN, LLVM helpers, HLSL builtins |
+| **Common** (`common/`) | `c_codegen/`, `hlsl/`, `spirv/`, `spirv_llvm/`, Vulkan swapchain helpers |
 | **Validation** (`validation/`) | Debug layer |
 | **Toy C** (`toy_c/`) | Minimal C codegen |
 
@@ -126,26 +135,31 @@ Stable C API for language bindings: `runtime.cpp`, `logging.cpp`, Rust binding/R
 - `interop.cpp/h` — PyTorch/DLPack
 
 ### `src/tensor/` — Tensor & Compute Graph
-High-level tensor ops, expression DAG, graph passes. `fallback/` — CPU kernels (matmul, softmax).
+High-level tensor ops, expression DAG, graph passes.
+- `fallback/` — CPU kernels (matmul, softmax)
+- `pass/` — graph passes
 
 ### `src/clangcxx/`, `src/osl/`, `src/gui/`, `src/ext/`
 - **clangcxx**: Clang/libTooling C++→GPU compiler (experimental)
 - **osl**: OSO bytecode parser for shader interop
 - **gui**: Cross-platform windowing + ImGui
-- **ext**: git submodules: EASTL, glfw, imgui, pybind11, spdlog, reproc, stb, volk, yyjson, xxhash, marl, half, HIPRT, liblmdb, magic_enum
+- **ext**: git submodules: EASTL, glfw, glslang, imgui, pybind11, spdlog, reproc, SPIRV-Tools, spirv-headers, stb, volk, yyjson, xxhash, marl, half, HIPRT, liblmdb, magic_enum
 
 ### `src/tests/`
 - `unit/{core,ast,dsl,runtime,ext,xir}/` — unit tests by layer
 - `integration/{runtime,ir}/` — cross-cutting integration tests
 - `common/` — shared headers (`test_device.h`, `ut/`, asset loaders)
+- `cxx_shaders/` — C++ shader tests
 - `python/` — Python frontend tests
+- `ut/` — extra UT harness directory
 - Root: integration tests (`test_path_tracing`, `test_dsl`, `test_rtx`, `test_raster`, `test_tensor`, `test_autodiff`, etc.)
 
 ## Build System
 
-- **CMake (primary)**: `src/CMakeLists.txt`, targets: `luisa-compute-<name>`, alias: `luisa::compute`. Backends as `MODULE` plugins named `luisa-backend-<name>`. Options: `LUISA_COMPUTE_ENABLE_CUDA|DX|METAL|CPU|VULKAN|HIP|DSL|RUST|...`
-- **XMake (secondary)**: `xmake.lua` in `src/` and subdirs
+- **CMake (primary)**: root + `src/CMakeLists.txt`, targets: `luisa-compute-<name>`, alias: `luisa::compute`. Backends as `MODULE` plugins named `luisa-backend-<name>`. Options: `LUISA_COMPUTE_ENABLE_CUDA|DX|METAL|CPU|VULKAN|HIP|DSL|RUST|TENSOR|GUI|...`
+- **XMake (secondary)**: `xmake.lua` in root + `src/` and subdirs
 - **Bootstrap**: `bootstrap.py` at repo root
+- **IntelliSense**: `update_intellisense.lua`
 
 ## Compiler Pipeline
 

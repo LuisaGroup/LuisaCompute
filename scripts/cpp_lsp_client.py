@@ -22,11 +22,18 @@ def check_syntax(client: httpx.Client, args) -> int:
         "file_path": str(file_path),
         "content": args.content,
         "verbose": args.verbose,
-        "timeout": args.timeout,
+        "timeout": args.lsp_timeout,
     }
     try:
         r = client.post("/check_syntax", json=payload)
         r.raise_for_status()
+    except httpx.ConnectError as e:
+        print(
+            f"Failed to connect to LSP server at {args.server} ({e}). "
+            "The server may not be enabled.",
+            file=sys.stderr,
+        )
+        return 2
     except httpx.HTTPError as e:
         print(f"HTTP error: {e}", file=sys.stderr)
         return 2
@@ -41,8 +48,10 @@ def check_syntax(client: httpx.Client, args) -> int:
         print("[OK] No issues found!")
         return 0
 
-    if args.verbose:
-        for line in data.get("formatted", []) or []:
+    formatted = data.get("formatted") or []
+    for line in formatted:
+        # Always print errors and warnings; info/hint only in verbose mode
+        if args.verbose or line.startswith(("Error:", "Warning:")):
             print(line)
 
     print(
@@ -59,11 +68,18 @@ def symbol(client: httpx.Client, args) -> int:
         "line": args.line,
         "character": args.character,
         "action": args.action,
-        "timeout": args.timeout,
+        "timeout": args.lsp_timeout,
     }
     try:
         r = client.post("/symbol", json=payload)
         r.raise_for_status()
+    except httpx.ConnectError as e:
+        print(
+            f"Failed to connect to LSP server at {args.server} ({e}). "
+            "The server may not be enabled.",
+            file=sys.stderr,
+        )
+        return 2
     except httpx.HTTPError as e:
         print(f"HTTP error: {e}", file=sys.stderr)
         return 2
@@ -113,7 +129,7 @@ def main() -> int:
         "--lsp-timeout",
         type=float,
         default=10.0,
-        dest="timeout",
+        dest="lsp_timeout",
         help="LSP internal timeout",
     )
 
@@ -156,7 +172,7 @@ def main() -> int:
         "--lsp-timeout",
         type=float,
         default=10.0,
-        dest="timeout",
+        dest="lsp_timeout",
         help="LSP internal timeout",
     )
 

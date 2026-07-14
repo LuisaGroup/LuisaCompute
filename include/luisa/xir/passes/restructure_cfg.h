@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 class Module;
 class Function;
 
@@ -15,6 +17,6 @@ struct RestructureCFGInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API RestructureCFGInfo restructure_cfg_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API RestructureCFGInfo restructure_cfg_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API RestructureCFGInfo restructure_cfg_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

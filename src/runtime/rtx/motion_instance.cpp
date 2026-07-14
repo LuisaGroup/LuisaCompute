@@ -3,10 +3,11 @@
 //
 
 #include <luisa/core/logging.h>
+#include <luisa/runtime/rtx/motion_instance.h>
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/curve.h>
 #include <luisa/runtime/rtx/procedural_primitive.h>
-#include <luisa/runtime/rtx/motion_instance.h>
+#include <luisa/runtime/stream.h>
 
 namespace luisa::compute {
 
@@ -25,7 +26,15 @@ MotionInstance Device::create_motion_instance(const ProceduralPrimitive &primiti
 MotionInstance::MotionInstance(DeviceInterface *device,
                                const Resource &resource,
                                const AccelMotionOption &option) noexcept
-    : Resource{device, Tag::MOTION_INSTANCE, device->create_motion_instance(option)},
+    : Resource{device, Tag::MOTION_INSTANCE, [&] {
+                   auto info = device->create_motion_instance(option);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                   if (!info.valid()) {
+                       LUISA_ERROR("Failed to create motion instance.");
+                   }
+#endif
+                   return info;
+               }()},
       _child_handle{resource.handle()},
       _mode{option.mode} {
     LUISA_ASSERT(resource &&

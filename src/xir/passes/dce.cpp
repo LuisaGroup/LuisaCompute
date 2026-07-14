@@ -1,7 +1,11 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/break.h>
+#include <luisa/xir/instructions/continue.h>
 
 #include "helpers.h"
 
@@ -13,57 +17,37 @@ static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) n
     if (auto definition = function->definition()) {
         luisa::unordered_set<Instruction *> dead;
         auto all_users_dead = [&](Instruction *inst) noexcept {
-            auto is_live = [&dead](Value *value) noexcept {
-                return value != nullptr && (!value->isa<Instruction>() || !dead.contains(static_cast<Instruction *>(value)));
-            };
             for (auto &&use : inst->use_list()) {
-                if (is_live(use->value())) {
-                    return false;// not all users are dead
+                auto user = use->user();
+                if (user != nullptr && user->isa<Instruction>() &&
+                    !dead.contains(static_cast<Instruction *>(user))) {
+                    return false;
                 }
             }
-            return true;// no user or all users are dead
+            return true;
         };
         auto collect_if_dead = [&](Instruction *inst) noexcept {
             if (all_users_dead(inst)) {
                 dead.emplace(inst);
             }
         };
-        // collect all dead instructions
         for (;;) {
             auto prev_size = dead.size();
             definition->traverse_instructions([&](Instruction *inst) noexcept {
                 if (!dead.contains(inst)) {
-                    switch (inst->derived_instruction_tag()) {
-                        case DerivedInstructionTag::PHI: [[fallthrough]];
-                        case DerivedInstructionTag::ALLOCA: [[fallthrough]];
-                        case DerivedInstructionTag::LOAD: [[fallthrough]];
-                        case DerivedInstructionTag::GEP: [[fallthrough]];
-                        case DerivedInstructionTag::ARITHMETIC: [[fallthrough]];
-                        case DerivedInstructionTag::CAST: [[fallthrough]];
-                        case DerivedInstructionTag::CLOCK: [[fallthrough]];
-                        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: [[fallthrough]];
-                        case DerivedInstructionTag::RESOURCE_QUERY: [[fallthrough]];
-                        case DerivedInstructionTag::RESOURCE_READ: {
+                    auto mem = get_memory_info(inst);
+                    if (mem.is_removable_if_unused()) {
+                        collect_if_dead(inst);
+                    } else if (inst->derived_instruction_tag() == DerivedInstructionTag::AUTODIFF_INTRINSIC) {
+                        auto intrinsic = static_cast<AutodiffIntrinsicInst *>(inst);
+                        if (intrinsic->op() == AutodiffIntrinsicOp::AUTODIFF_GRADIENT) {
                             collect_if_dead(inst);
-                            break;
                         }
-                        case DerivedInstructionTag::AUTODIFF_INTRINSIC: {
-                            auto intrinsic = static_cast<AutodiffIntrinsicInst *>(inst);
-                            switch (intrinsic->op()) {
-                                case AutodiffIntrinsicOp::AUTODIFF_GRADIENT: {
-                                    collect_if_dead(inst);
-                                    break;
-                                }
-                                default: break;
-                            }
-                        }
-                        default: break;
                     }
                 }
             });
             if (dead.size() == prev_size) { break; }
         }
-        // remove dead instructions
         for (auto inst : dead) {
             inst->remove_self();
             info.removed_inst_count++;
@@ -71,7 +55,6 @@ static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) n
     }
 }
 
-// if we find a pointer is only written to and never read, we can remove it
 [[nodiscard]] static bool is_pointer_write_only(luisa::unordered_set<Instruction *> &known, Instruction *inst) noexcept {
     if (known.contains(inst)) { return true; }
     for (auto &&use : inst->use_list()) {
@@ -80,17 +63,13 @@ static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) n
             switch (auto user_inst = static_cast<Instruction *>(user);
                     user_inst->derived_instruction_tag()) {
                 case DerivedInstructionTag::STORE: {
-                    // store is good
                     break;
                 }
                 case DerivedInstructionTag::GEP: {
-                    // if the GEP is ever read, we can't remove the pointer
                     if (!is_pointer_write_only(known, user_inst)) { return false; }
-                    // otherwise we are safe
                     break;
                 }
                 default: {
-                    // just be conservative and assume the pointer is read
                     return false;
                 }
             }
@@ -128,30 +107,99 @@ static void eliminate_dead_alloca_in_function(Function *function, DCEInfo &info)
 }
 
 [[nodiscard]] static bool is_block_terminated_by_unreachable(BasicBlock *block) noexcept {
+    if (!block->is_terminated()) { return false; }
     return block->terminator()->isa<UnreachableInst>();
 }
 
+[[nodiscard]] static BasicBlock *find_owned_block(Value *value, const luisa::unordered_set<BasicBlock *> &owned) noexcept {
+    if (value == nullptr) { return nullptr; }
+    for (auto block : owned) {
+        if (static_cast<Value *>(block) == value) { return block; }
+    }
+    return nullptr;
+}
+
+template<typename Visit>
+void traverse_structural_successors(BasicBlock *block, const luisa::unordered_set<BasicBlock *> &owned,
+                                    Visit &&visit) noexcept {
+    if (block == nullptr || !block->is_terminated()) { return; }
+    auto *term = block->terminator();
+    // Break/Continue targets jump OUT of the current structured region
+    // (to loop merge/body blocks). They are not structural successors
+    // within the dead region being collected.
+    if (term->isa<BreakInst>() || term->isa<ContinueInst>()) { return; }
+    for (auto use : term->operand_uses()) {
+        if (auto *succ = find_owned_block(use->value(), owned)) { visit(succ); }
+    }
+    if (auto *merge = term->control_flow_merge(); merge != nullptr) {
+        if (auto *merge_block = merge->merge_block(); merge_block != nullptr && owned.contains(merge_block)) {
+            visit(merge_block);
+        }
+    }
+    if (term->isa<LoopInst>()) {
+        auto *loop = static_cast<LoopInst *>(term);
+        if (auto *body = loop->body_block(); body != nullptr && owned.contains(body)) { visit(body); }
+        if (auto *update = loop->update_block(); update != nullptr && owned.contains(update)) { visit(update); }
+    }
+}
+
+luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(FunctionDefinition *definition) noexcept {
+    luisa::unordered_set<BasicBlock *> reachable;
+    luisa::unordered_set<BasicBlock *> owned;
+    for (auto block : definition->basic_blocks()) { owned.emplace(block); }
+    luisa::vector<BasicBlock *> work_list;
+    auto add_to_work_list = [&](BasicBlock *block) noexcept {
+        if (block != nullptr && reachable.emplace(block).second) {
+            work_list.emplace_back(block);
+        }
+    };
+    add_to_work_list(definition->body_block());
+    while (!work_list.empty()) {
+        auto *block = work_list.back();
+        work_list.pop_back();
+        traverse_structural_successors(block, owned, add_to_work_list);
+    }
+    return reachable;
+}
+
 void eliminate_instructions_in_unreachable_blocks(const luisa::unordered_set<BasicBlock *> &blocks, DCEInfo &info) noexcept {
+    luisa::vector<ManagedPtr<Instruction>> removed_instructions;
     for (auto b : blocks) {
+        auto already_unreachable = false;
+        if (!b->instructions().empty()) {
+            if (auto inst = b->instructions().front(); inst->isa<UnreachableInst>()) {
+                already_unreachable = inst->next() == b->instructions().tail_sentinel();
+            }
+        }
+        if (already_unreachable) { continue; }
         while (!b->instructions().empty()) {
-            auto inst = b->instructions().front();
-            if (inst->isa<UnreachableInst>()) { break; }
-            inst->remove_self();
+            auto inst = b->instructions().back();
+            removed_instructions.emplace_back(inst->remove_self());
             info.removed_inst_count++;
         }
-        if (!b->is_terminated()) {
-            XIRBuilder builder;
-            builder.set_insertion_point(b);
-            builder.unreachable_();
-        }
+        XIRBuilder builder;
+        builder.set_insertion_point(b);
+        builder.unreachable_();
         LUISA_DEBUG_ASSERT(b->terminator()->isa<UnreachableInst>(),
                            "Block should be terminated by UnreachableInst.");
     }
 }
 
+void remove_phi_incomings_from_blocks(FunctionDefinition *definition,
+                                      const luisa::unordered_set<BasicBlock *> &blocks) noexcept {
+    if (blocks.empty()) { return; }
+    definition->traverse_instructions([&](Instruction *inst) noexcept {
+        if (!inst->isa<PhiInst>()) { return; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        for (size_t i = phi->incoming_count(); i-- > 0u;) {
+            if (blocks.contains(phi->incoming(i).block)) {
+                phi->remove_incoming(i);
+            }
+        }
+    });
+}
+
 void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) noexcept {
-    // run a backward dataflow analysis to propagate unreachable marks:
-    // we should mark a block as unreachable if all its successors are marked as unreachable
     if (auto definition = function->definition()) {
         luisa::vector<BasicBlock *> postorder;
         definition->traverse_basic_blocks(BasicBlockTraversalOrder::POST_ORDER, [&](BasicBlock *block) noexcept {
@@ -182,7 +230,7 @@ void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) 
             }
             if (unreachable.size() == prev_reachable_count) { break; }
         }
-        // eliminate unreachable blocks
+        remove_phi_incomings_from_blocks(definition, unreachable);
         eliminate_instructions_in_unreachable_blocks(unreachable, info);
     }
 }
@@ -206,59 +254,52 @@ void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) 
             case Type::Tag::INT16: return static_cond->as<int16_t>();
             case Type::Tag::UINT16: return static_cond->as<uint16_t>();
             case Type::Tag::INT32: return static_cond->as<int32_t>();
-            case Type::Tag::UINT32: return static_cond->as<uint32_t>();
-            case Type::Tag::INT64: return static_cond->as<int64_t>();
-            case Type::Tag::UINT64: return static_cond->as<uint64_t>();
+            case Type::Tag::UINT32: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint32_t>());
+            case Type::Tag::INT64: return static_cast<SwitchInst::case_value_type>(static_cond->as<int64_t>());
+            case Type::Tag::UINT64: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint64_t>());
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Invalid switch condition type.");
     }();
 }
 
+void collect_unreachable_region(BasicBlock *entry, BasicBlock *merge,
+                                const luisa::unordered_set<BasicBlock *> &owned,
+                                luisa::unordered_set<BasicBlock *> &unreachable) noexcept {
+    luisa::vector<BasicBlock *> work_list;
+    auto add_to_work_list = [&](BasicBlock *block) noexcept {
+        if (block != nullptr && block != merge && owned.contains(block) && unreachable.emplace(block).second) {
+            work_list.emplace_back(block);
+        }
+    };
+    add_to_work_list(entry);
+    while (!work_list.empty()) {
+        auto block = work_list.back();
+        work_list.pop_back();
+        traverse_structural_successors(block, owned, add_to_work_list);
+    }
+}
+
 void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info, luisa::vector<ManagedPtr<BasicBlock>> &removed_blocks) noexcept {
     if (auto definition = function->definition()) {
-        luisa::unordered_set<BasicBlock *> reachable;
-        luisa::unordered_set<BasicBlock *> visited;
+        auto reachable = collect_structurally_reachable_blocks(definition);
+        luisa::unordered_set<BasicBlock *> owned;
+        for (auto *block : definition->basic_blocks()) { owned.emplace(block); }
         luisa::unordered_set<BasicBlock *> unreachable;
-        luisa::vector<BasicBlock *> work_list;
-        auto add_to_work_list = [&](BasicBlock *block) noexcept {
-            if (block != nullptr && visited.emplace(block).second) {
-                work_list.emplace_back(block);
-            }
-        };
-        definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            reachable.emplace(block);
-            add_to_work_list(block);
-        });
-        while (!work_list.empty()) {
-            auto b = work_list.back();
-            work_list.pop_back();
-            // check the block's predecessors
-            b->traverse_predecessors(true, [&](auto pred) noexcept {
-                if (!reachable.contains(pred)) {
-                    unreachable.emplace(pred);
-                    add_to_work_list(pred);
-                }
-            });
-            // let's find out instruction users' blocks that are not in the reachable set
-            b->traverse_instructions([&](Instruction *inst) noexcept {
-                for (auto &&use : inst->use_list()) {
-                    if (auto user = use->user(); user != nullptr && user->isa<Instruction>()) {
-                        if (auto user_block = static_cast<Instruction *>(user)->parent_block();
-                            user_block != nullptr && !reachable.contains(user_block)) {
-                            unreachable.emplace(user_block);
-                            add_to_work_list(user_block);
-                        }
-                    }
-                }
-            });
-            // also check if the terminator is a constant branch
-            switch (auto terminator = b->terminator(); terminator->derived_instruction_tag()) {
+        for (auto *block : reachable) {
+            if (!block->is_terminated()) { continue; }
+            switch (auto terminator = block->terminator(); terminator->derived_instruction_tag()) {
                 case DerivedInstructionTag::IF: [[fallthrough]];
                 case DerivedInstructionTag::CONDITIONAL_BRANCH: {
                     auto cond_br_inst = static_cast<ConditionalBranchTerminatorInstruction *>(terminator);
                     if (auto static_cond = try_evaluate_static_branch_condition(cond_br_inst->condition())) {
-                        unreachable.emplace(*static_cond ? cond_br_inst->false_block() : cond_br_inst->true_block());
+                        auto dead = *static_cond ? cond_br_inst->false_block() : cond_br_inst->true_block();
+                        auto merge = terminator->control_flow_merge();
+                        if (merge != nullptr && merge->merge_block() != nullptr) {
+                            collect_unreachable_region(dead, merge->merge_block(), owned, unreachable);
+                        } else if (dead != nullptr && owned.contains(dead)) {
+                            unreachable.emplace(dead);
+                        }
                     }
                     break;
                 }
@@ -266,17 +307,17 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
                     auto switch_inst = static_cast<SwitchInst *>(terminator);
                     if (auto static_cond = try_evaluate_static_switch_condition(switch_inst->value())) {
                         auto any_match = false;
-                        for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                        for (size_t i = 0; i < switch_inst->case_count(); i++) {
                             if (switch_inst->case_value(i) == *static_cond) {
                                 any_match = true;
                             } else {
                                 LUISA_DEBUG_ASSERT(switch_inst->case_block(i) != nullptr, "Switch case block must not be null.");
-                                unreachable.emplace(switch_inst->case_block(i));
+                                collect_unreachable_region(switch_inst->case_block(i), switch_inst->merge_block(), owned, unreachable);
                             }
                         }
                         if (any_match) {
                             LUISA_DEBUG_ASSERT(switch_inst->default_block() != nullptr, "Switch default block must not be null.");
-                            unreachable.emplace(switch_inst->default_block());
+                            collect_unreachable_region(switch_inst->default_block(), switch_inst->merge_block(), owned, unreachable);
                         }
                     }
                     break;
@@ -284,23 +325,18 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
                 default: break;
             }
         }
-        // eliminate unreachable blocks
+        for (auto *block : definition->basic_blocks()) {
+            if (!reachable.contains(block)) {
+                unreachable.emplace(block);
+            }
+        }
+        remove_phi_incomings_from_blocks(definition, unreachable);
         eliminate_instructions_in_unreachable_blocks(unreachable, info);
-        // now we can remove non-entry blocks without users from the function
         {
-            // Collect blocks referenced as structural merge targets; these must survive
-            // for backends that require structured control flow (e.g., SPIR-V OpLoopMerge / OpSelectionMerge),
-            // even though merge pointers don't participate in the use-list.
-            luisa::unordered_set<BasicBlock *> structural_merges;
-            definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-                if (auto merge = block->terminator()->control_flow_merge()) {
-                    if (auto mb = merge->merge_block()) { structural_merges.emplace(mb); }
-                }
-            });
-            work_list.clear();
+            luisa::vector<BasicBlock *> work_list;
             for (auto block : definition->basic_blocks()) {
                 if (block != definition->body_block() && block->use_list().empty() &&
-                    !structural_merges.contains(block)) {
+                    !reachable.contains(block)) {
                     work_list.emplace_back(block);
                 }
             }
@@ -314,28 +350,21 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
 
 void fix_phi_nodes_in_function(Function *function, luisa::vector<PhiInst *> &phi_nodes) noexcept {
     if (auto definition = function->definition()) {
-        luisa::vector<PhiIncoming> valid_incomings;
         luisa::unordered_set<BasicBlock *> predecessors;
         definition->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->isa<PhiInst>()) {
-                valid_incomings.clear();
                 predecessors.clear();
                 auto phi = static_cast<PhiInst *>(inst);
                 phi_nodes.emplace_back(phi);
                 phi->parent_block()->traverse_predecessors(false, [&](auto block) noexcept {
                     predecessors.emplace(block);
                 });
-                for (auto i = 0u; i < phi->incoming_count(); i++) {
-                    if (auto incoming = phi->incoming(i); predecessors.contains(incoming.block)) {
-                        valid_incomings.emplace_back(incoming);
+                for (size_t i = phi->incoming_count(); i-- > 0u;) {
+                    if (auto incoming = phi->incoming(i); !predecessors.contains(incoming.block)) {
+                        phi->remove_incoming(i);
                     }
                 }
-                LUISA_ASSERT(valid_incomings.size() == predecessors.size());
-                phi->set_incoming_count(valid_incomings.size());
-                for (auto i = 0u; i < valid_incomings.size(); i++) {
-                    auto incoming = valid_incomings[i];
-                    phi->set_incoming(i, incoming.value, incoming.block);
-                }
+                LUISA_ASSERT(phi->incoming_count() == predecessors.size());
             }
         });
     }
@@ -346,8 +375,6 @@ void fix_control_flow_merges_in_function(Function *function) noexcept {
         definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
             auto term = block->terminator();
             if (auto merge = term->control_flow_merge()) {
-                // Loop terminators require a merge block for structured codegen (e.g., SPIR-V OpLoopMerge),
-                // even when the merge is only reachable via an `unreachable` terminator (infinite loops).
                 if (term->isa<LoopInst>() || term->isa<SimpleLoopInst>()) { return; }
                 if (auto merge_block = merge->merge_block();
                     merge_block != nullptr && is_block_terminated_by_unreachable(merge_block)) {
@@ -360,16 +387,26 @@ void fix_control_flow_merges_in_function(Function *function) noexcept {
 
 static void eliminate_redundant_phi_nodes(luisa::vector<PhiInst *> &phi_nodes, DCEInfo &info) noexcept {
     for (;;) {
-        auto prev_dce_count = info.removed_inst_count;
+        auto prev_size = phi_nodes.size();
         phi_nodes.erase(std::remove_if(phi_nodes.begin(), phi_nodes.end(),
                                        remove_redundant_phi_instruction),
                         phi_nodes.end());
-        if (info.removed_inst_count == prev_dce_count) { break; }
-        info.removed_inst_count += phi_nodes.size() - prev_dce_count;
+        auto removed = prev_size - phi_nodes.size();
+        if (removed == 0u) { break; }
+        info.removed_inst_count += removed;
     }
 }
 
 void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
+    if (auto definition = function->definition()) {
+        definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (!block->is_terminated()) {
+                XIRBuilder builder;
+                builder.set_insertion_point(block);
+                builder.unreachable_();
+            }
+        });
+    }
     luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
     for (;;) {
         auto prev_count = info.removed_inst_count + info.removed_block_count;
@@ -383,7 +420,6 @@ void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
         }
         eliminate_dead_code_in_function(function, info);
         eliminate_dead_alloca_in_function(function, info);
-        // if we didn't remove any instruction, we are done
         if (info.removed_inst_count + info.removed_block_count == prev_count) { return; }
     }
 }
@@ -396,10 +432,14 @@ DCEInfo dce_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-DCEInfo dce_pass_run_on_module(Module *module) noexcept {
+DCEInfo dce_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DCEInfo info;
     for (auto f : module->function_list()) {
         detail::run_dce_pass_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("removed_inst", info.removed_inst_count);
+        report->set("removed_block", info.removed_block_count);
     }
     return info;
 }

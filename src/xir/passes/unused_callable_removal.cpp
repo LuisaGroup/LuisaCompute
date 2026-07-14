@@ -1,6 +1,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -22,7 +23,7 @@ static void collect_reachable_callables(Function *f, luisa::unordered_set<Functi
 
 }// namespace detail
 
-UnusedCallableRemovalInfo unused_callable_removal_pass_run_on_module(Module *module) noexcept {
+UnusedCallableRemovalInfo unused_callable_removal_pass_run_on_module(Module *module, PassReport *report) noexcept {
     luisa::unordered_set<Function *> reachable;
     for (auto f : module->function_list()) {
         if (f->isa<KernelFunction>()) {
@@ -36,6 +37,9 @@ UnusedCallableRemovalInfo unused_callable_removal_pass_run_on_module(Module *mod
         }
     }
     for (auto f : removable) { f->remove_self(); }
+    if (report != nullptr) {
+        report->set("removed_callable", removable.size());
+    }
     return {.removed_callable_count = removable.size()};
 }
 

@@ -27,6 +27,8 @@ struct CodegenResult {
     bool useTex2DBindless;
     bool useTex3DBindless;
     bool useBufferBindless;
+    bool use_8bit;
+    uint32_t validation_count;// resource size count when debug mode enabled
     uint64 immutableHeaderSize = 0;
     vstd::MD5 typeMD5;
     CodegenResult() {}
@@ -37,8 +39,10 @@ struct CodegenResult {
         bool useTex2DBindless,
         bool useTex3DBindless,
         bool useBufferBindless,
+        bool use_8bit,
+        uint32_t validation_count,
         uint64 immutableHeaderSize,
-        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), printers(std::move(printers)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
+        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), printers(std::move(printers)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, use_8bit{use_8bit}, validation_count{validation_count}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
     CodegenResult(CodegenResult const &) = delete;
     CodegenResult(CodegenResult &&) = default;
 };
@@ -94,7 +98,10 @@ public:
 
     void GenerateCBuffer(
         std::initializer_list<vstd::IRange<Variable> *> f,
-        vstd::StringBuilder &result);
+        vstd::StringBuilder &result,
+        bool generate_debug_info,
+        uint &validation_count,
+        vstd::span<const uint64_t> func_hashes = {});
     void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str,
@@ -113,6 +120,7 @@ public:
         uint offset,
         RegisterIndexer &registerCount,
         uint &bind_count);
+
     // Single-pass traversal over all work graph nodes: deduplicates bound resources by handle,
     // assigns canonical UIDs in first-encounter order, fills out_properties and out_uid_map,
     // and returns one WorkGraphCapturedBinding per unique resource (also in first-encounter order).
@@ -127,15 +135,18 @@ public:
         vstd::unordered_map<uint64_t, uint32_t> &out_uid_map,
         uint &out_bind_count,
         uint &out_preamble_count);
-    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
-    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
+
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false);
+    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false);
     CodegenResult RasterCodegen(
         Function vertFunc,
         Function pixelFunc,
         luisa::string_view native_code,
         uint custom_mask,
         bool isSpirV,
-        bool noRegister = false);
+        bool noRegister = false,
+        bool enable_debug_info = false);
+        
     // Primary overload: takes pre-computed binding data from CollectWorkGraphBindings.
     CodegenResult WorkGraphCodegen(
         const WorkGraph &work_graph,
@@ -214,6 +225,8 @@ public:
     void visit(const ForStmt *) override;
     void visit(const CommentStmt *) override;
     void visit(const RayQueryStmt *) override;
+    void visit(const SuspendStmt *) override;
+
     void visit(const AutoDiffStmt *stmt) override;
     void visit(const PrintStmt *stmt) override;
     void visit(const DebugBreakStmt *stmt) override { LUISA_NOT_IMPLEMENTED(); }
@@ -330,14 +343,14 @@ struct PrintValue<bool> {
 };
 template<>
 struct PrintValue<luisa::byte> {
-    void operator()(bool const &v, vstd::StringBuilder &str) {
-        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    void operator()(luisa::byte const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("int8_t({})", static_cast<int>(v)));
     }
 };
 template<>
 struct PrintValue<luisa::ubyte> {
-    void operator()(bool const &v, vstd::StringBuilder &str) {
-        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    void operator()(luisa::ubyte const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("uint8_t({}u)", static_cast<uint>(v)));
     }
 };
 template<typename EleType, uint64 N>
@@ -366,6 +379,10 @@ struct PrintValue<Vector<EleType, N>> {
                 varName << "float16_t";
             } else if constexpr (std::is_same_v<EleType, double>) {
                 varName << "float64_t";
+            } else if constexpr (std::is_same_v<EleType, luisa::byte>) {
+                varName << "int8_t";
+            } else if constexpr (std::is_same_v<EleType, luisa::ubyte>) {
+                varName << "uint8_t";
             } else if constexpr (std::is_same_v<EleType, short>) {
                 varName << "int16_t";
             } else if constexpr (std::is_same_v<EleType, ushort>) {

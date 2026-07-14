@@ -60,10 +60,24 @@ example_proj("example_swapchain", "gui/swapchain.cpp", true)
 example_proj("example_swapchain_static", "gui/swapchain_static.cpp", true)
 example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
--- compute
-example_proj("example_helloworld", "compute/helloworld.cpp", false)
-example_proj("example_image_processing", "compute/image_processing.cpp", true)
-includes("compute/tokenize")
+    -- compute
+    example_proj("example_helloworld", "compute/helloworld.cpp", false)
+    example_proj("example_image_processing", "compute/image_processing.cpp", true)
+    if has_config("lc_enable_xir") then
+        local function coro_example_proj(name, source, gui_dep, callable)
+            example_proj(name, source, gui_dep, function()
+                add_deps("lc-coro")
+                if callable then callable() end
+            end)
+        end
+        coro_example_proj("example_coro_sdf_renderer", "rendering/coro_sdf_renderer.cpp", false)
+        coro_example_proj("example_coro_path_tracing", "rendering/coro_path_tracing.cpp", false)
+        coro_example_proj("example_coro_path_tracing_wavefront", "rendering/coro_path_tracing.cpp", false, function()
+            add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
+        end)
+    end
+    example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false)
+    includes("compute/tokenize")
 
 -- extension
 if has_config("lc_dx_backend") then

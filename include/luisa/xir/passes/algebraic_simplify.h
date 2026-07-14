@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 // Algebraic simplification pass.
 // Applies simple algebraic identities to reduce instruction count:
 //   x*0 → 0,  x*1 → x,  x+0 → x,  0-x → -x,
@@ -20,6 +22,6 @@ struct AlgebraicSimplifyOptions {
 };
 
 [[nodiscard]] LUISA_XIR_API AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_function(Function *function, AlgebraicSimplifyOptions options = {}) noexcept;
-[[nodiscard]] LUISA_XIR_API AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_module(Module *module, AlgebraicSimplifyOptions options = {}) noexcept;
+[[nodiscard]] LUISA_XIR_API AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_module(Module *module, AlgebraicSimplifyOptions options = {}, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

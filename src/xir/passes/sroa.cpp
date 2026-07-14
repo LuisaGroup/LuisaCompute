@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/sroa.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/gep.h>
@@ -6,6 +7,7 @@
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/constant.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/format.h>
 
 #include "helpers.h"
 
@@ -13,13 +15,38 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+// Decompose only one level: struct→members, array→elements.
+// Does NOT recurse into nested aggregate members.
+static void collect_elem_types(const Type *type, luisa::vector<const Type *> &elems,
+                               bool decompose_vectors, bool decompose_matrices) noexcept {
+    if (type->is_structure()) {
+        auto members = type->members();
+        elems.assign(members.begin(), members.end());
+    } else if (type->is_array()) {
+        auto elem = type->element();
+        for (size_t i = 0; i < type->dimension(); ++i) {
+            elems.push_back(elem);
+        }
+    } else if (type->is_vector() && decompose_vectors) {
+        auto elem = type->element();
+        for (size_t i = 0; i < type->dimension(); ++i) {
+            elems.push_back(elem);
+        }
+    } else if (type->is_matrix() && decompose_matrices) {
+        auto col_type = Type::vector(type->element(), type->dimension());
+        for (size_t i = 0; i < type->dimension(); ++i) {
+            elems.push_back(col_type);
+        }
+    }
+}
+
 [[nodiscard]] static bool is_sroa_candidate(AllocaInst *alloca, const SROAOptions &options) noexcept {
     if (alloca->op() != AllocaOp::LOCAL) return false;
     auto type = alloca->type();
-    if (type->is_structure() || type->is_array()) {
-    } else if (type->is_vector() && options.decompose_vectors) {
-    } else if (type->is_matrix() && options.decompose_matrices) {
-    } else {
+    if (type->is_scalar()) return false;
+    if (!(type->is_structure() || type->is_array() ||
+          (type->is_vector() && options.decompose_vectors) ||
+          (type->is_matrix() && options.decompose_matrices))) {
         return false;
     }
 
@@ -38,7 +65,9 @@ namespace detail {
         if (u->isa<GEPInst>()) {
             auto gep = static_cast<const GEPInst *>(u);
             for (auto idx_use : gep->index_uses()) {
-                if (!idx_use->value()->isa<Constant>()) return false;
+                if (!idx_use->value()->isa<Constant>()) {
+                    if (!options.aggressive) return false;
+                }
             }
             for (auto &&gep_use : u->use_list()) {
                 if (auto gep_user = gep_use->user();
@@ -58,34 +87,19 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                              const SROAOptions &options) noexcept {
     auto type = alloca->type();
     luisa::vector<const Type *> elem_types;
+    collect_elem_types(type, elem_types, options.decompose_vectors, options.decompose_matrices);
 
-    if (type->is_structure()) {
-        auto members = type->members();
-        elem_types.assign(members.begin(), members.end());
-    } else if (type->is_array()) {
-        auto elem = type->element();
-        for (size_t i = 0; i < type->dimension(); ++i) {
-            elem_types.push_back(elem);
-        }
-    } else if (type->is_vector() && options.decompose_vectors) {
-        auto elem = type->element();
-        for (size_t i = 0; i < type->dimension(); ++i) {
-            elem_types.push_back(elem);
-        }
-    } else if (type->is_matrix() && options.decompose_matrices) {
-        auto col_type = Type::vector(type->element(), type->dimension());
-        for (size_t i = 0; i < type->dimension(); ++i) {
-            elem_types.push_back(col_type);
-        }
-    } else {
-        return;
-    }
+    if (elem_types.size() <= 1) return;
 
     // Create scalar allocas
     builder.set_insertion_point(alloca);
     luisa::vector<AllocaInst *> scalar_allocas;
+    auto original_name = alloca->name();
     for (auto et : elem_types) {
         auto sa = builder.alloca_local(et);
+        if (original_name.has_value()) {
+            sa->set_name(luisa::format("{}_{}", original_name.value(), scalar_allocas.size()));
+        }
         scalar_allocas.push_back(sa);
         info.inserted_alloca_count++;
     }
@@ -101,7 +115,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
     for (auto gep : geps) {
         LUISA_ASSERT(!gep->index_uses().empty(), "SROA: GEP has no indices.");
         auto first_idx_val = gep->index_uses()[0]->value();
-        LUISA_ASSERT(first_idx_val->isa<Constant>(), "SROA: GEP index not constant.");
+        if (!first_idx_val->isa<Constant>()) continue;
         uint32_t elem_idx = static_cast<const Constant *>(first_idx_val)->as<uint32_t>();
         LUISA_ASSERT(elem_idx < scalar_allocas.size(), "SROA: GEP index out of bounds.");
 
@@ -147,7 +161,6 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
             builder.set_insertion_point(store);
             auto val = store->value();
             for (size_t i = 0; i < elem_types.size(); ++i) {
-                // Create extract index constant
                 auto idx_val = static_cast<uint32_t>(i);
                 auto idx_const = alloca->parent_module()->create_constant(Type::of<uint32_t>(), &idx_val);
                 auto extract = builder.call(elem_types[i], ArithmeticOp::EXTRACT, {val, idx_const});
@@ -192,10 +205,14 @@ SROAInfo sroa_pass_run_on_function(Function *function, SROAOptions options) noex
     return info;
 }
 
-SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options) noexcept {
+SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options, PassReport *report) noexcept {
     SROAInfo info;
     for (auto f : module->function_list()) {
         detail::sroa_pass_on_function(f, info, options);
+    }
+    if (report != nullptr) {
+        report->set("decomposed_alloca", info.decomposed_alloca_count);
+        report->set("inserted_alloca", info.inserted_alloca_count);
     }
     return info;
 }

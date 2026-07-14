@@ -6,10 +6,12 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -32,7 +34,7 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         case DerivedInstructionTag::SWITCH: {
             auto sw = static_cast<SwitchInst *>(term);
             if (sw->default_block() == from) sw->set_default_block(to);
-            for (size_t i = 0u; i < sw->case_count(); ++i) {
+            for (size_t i = 0; i < sw->case_count(); ++i) {
                 if (sw->case_block(i) == from) sw->set_case_block(i, to);
             }
             break;
@@ -98,6 +100,40 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
     return luisa::nullopt;
 }
 
+template<typename Visit>
+static void traverse_structural_successors(BasicBlock *block, Visit &&visit) noexcept {
+    if (block == nullptr || !block->is_terminated()) { return; }
+    auto *term = block->terminator();
+    for (auto use : term->operand_uses()) {
+        if (auto *value = use->value(); value != nullptr && value->isa<BasicBlock>()) {
+            visit(static_cast<BasicBlock *>(value));
+        }
+    }
+    if (auto *merge = term->control_flow_merge(); merge != nullptr) {
+        if (auto *merge_block = merge->merge_block(); merge_block != nullptr) { visit(merge_block); }
+    }
+    if (term->isa<LoopInst>()) {
+        auto *loop = static_cast<LoopInst *>(term);
+        if (auto *body = loop->body_block(); body != nullptr) { visit(body); }
+        if (auto *update = loop->update_block(); update != nullptr) { visit(update); }
+    }
+}
+
+static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(FunctionDefinition *def) noexcept {
+    luisa::unordered_set<BasicBlock *> reachable;
+    luisa::vector<BasicBlock *> work;
+    auto add = [&](BasicBlock *block) noexcept {
+        if (block != nullptr && reachable.emplace(block).second) { work.emplace_back(block); }
+    };
+    add(def->body_block());
+    while (!work.empty()) {
+        auto *block = work.back();
+        work.pop_back();
+        traverse_structural_successors(block, add);
+    }
+    return reachable;
+}
+
 static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     luisa::vector<SwitchInst *> targets;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
@@ -107,7 +143,7 @@ static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexce
             if (default_block == nullptr) return;
             auto common = default_block;
             auto all_same = true;
-            for (size_t i = 0u; i < sw->case_count(); ++i) {
+            for (size_t i = 0; i < sw->case_count(); ++i) {
                 if (sw->case_block(i) != common) {
                     all_same = false;
                     break;
@@ -124,7 +160,7 @@ static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexce
         if (bb == nullptr) continue;
         auto target = sw->default_block();
         if (auto static_value = try_evaluate_static_switch_condition(sw->value())) {
-            for (size_t i = 0u; i < sw->case_count(); ++i) {
+            for (size_t i = 0; i < sw->case_count(); ++i) {
                 if (sw->case_value(i) == *static_value) {
                     target = sw->case_block(i);
                     break;
@@ -141,12 +177,6 @@ static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexce
     return true;
 }
 
-// Detect blocks that already have a back-edge predecessor (i.e., loop headers under any reasonable
-// dominance-aware analysis). A back-edge is a CFG edge p -> bb where bb dominates p; without a full
-// dominator computation here, we approximate using reverse-postorder index: any predecessor that
-// appears AFTER bb in RPO is a back-edge source. This is sufficient for guarding jump-threading of
-// blocks whose only successor is a loop header, where threading would collapse a structured if-merge
-// onto the loop's continue role (illegal in SPIR-V structured control flow).
 static luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinition *def) noexcept {
     luisa::unordered_map<BasicBlock *, size_t> rpo_index;
     size_t idx = 0;
@@ -165,9 +195,22 @@ static luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinitio
     return headers;
 }
 
+static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDefinition *def) noexcept {
+    luisa::unordered_set<BasicBlock *> targets;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        auto term = bb->terminator();
+        if (term == nullptr) return;
+        if (auto merge = term->control_flow_merge()) {
+            if (auto merge_block = merge->merge_block()) targets.emplace(merge_block);
+        }
+    });
+    return targets;
+}
+
 static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
     auto loop_headers = collect_loop_headers(def);
+    auto structural_targets = collect_structural_targets(def);
     luisa::vector<BasicBlock *> candidates;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (bb == entry) return;
@@ -178,10 +221,8 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         if (t == nullptr || !t->isa<BranchInst>()) return;
         auto br = static_cast<BranchInst *>(t);
         if (br->target_block() == bb) return;
-        // Preserve trampoline blocks that sit immediately before a loop header.
-        // Threading them out would force a structured merge block (the predecessor of bb)
-        // to serve as the loop's continue target, which violates SPIR-V structured CF.
         if (br->target_block() != nullptr && loop_headers.contains(br->target_block())) return;
+        if (structural_targets.contains(bb)) return;
         candidates.push_back(bb);
     });
     if (candidates.empty()) return false;
@@ -192,7 +233,10 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         auto target = br->target_block();
         bool target_has_phi = false;
         for (auto inst : target->instructions()) {
-            if (inst->isa<PhiInst>()) { target_has_phi = true; break; }
+            if (inst->isa<PhiInst>()) {
+                target_has_phi = true;
+                break;
+            }
         }
         if (target_has_phi) continue;
         luisa::vector<BasicBlock *> preds;
@@ -216,10 +260,7 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
 static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
     if (entry == nullptr) return false;
-    luisa::unordered_set<BasicBlock *> reachable;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        reachable.insert(bb);
-    });
+    auto reachable = collect_structurally_reachable_blocks(def);
     luisa::vector<BasicBlock *> dead;
     for (auto bb : def->basic_blocks()) {
         if (bb == entry) continue;
@@ -265,18 +306,6 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
     return sensitive;
 }
 
-static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDefinition *def) noexcept {
-    luisa::unordered_set<BasicBlock *> targets;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        auto term = bb->terminator();
-        if (term == nullptr) return;
-        if (auto merge = term->control_flow_merge()) {
-            if (auto merge_block = merge->merge_block()) targets.emplace(merge_block);
-        }
-    });
-    return targets;
-}
-
 static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
     auto structural_targets = collect_structural_targets(def);
@@ -292,13 +321,13 @@ static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo 
         if (structural_targets.contains(bb) || structural_targets.contains(succ)) return;
         if (block_has_phi(succ)) return;
         if (has_phi_sensitive_successor(bb, succ)) return;
-        size_t pred_count = 0u;
+        size_t pred_count = 0;
         BasicBlock *pred = nullptr;
         succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
             ++pred_count;
             pred = p;
         });
-        if (pred_count == 1u && pred == bb) {
+        if (pred_count == 1 && pred == bb) {
             candidate_block = bb;
             candidate_successor = succ;
         }
@@ -310,13 +339,13 @@ static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo 
     auto br = static_cast<BranchInst *>(bb->terminator());
     if (br->target_block() != succ || block_has_phi(succ)) return false;
     if (has_phi_sensitive_successor(bb, succ)) return false;
-    size_t pred_count = 0u;
+    size_t pred_count = 0;
     BasicBlock *pred = nullptr;
     succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
         ++pred_count;
         pred = p;
     });
-    if (pred_count != 1u || pred != bb) return false;
+    if (pred_count != 1 || pred != bb) return false;
     br->remove_self();
     XIRBuilder b;
     b.set_insertion_point(bb);
@@ -339,16 +368,31 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
     bool changed = true;
     while (changed) {
         changed = false;
-        if (detail::fold_constant_cond_br(def, info)) changed = true;
-        if (detail::fold_switches(def, info)) changed = true;
-        if (detail::thread_empty_blocks(def, info)) changed = true;
-        if (detail::merge_straight_line_blocks(def, info)) changed = true;
-        if (detail::remove_unreachable_blocks(def, info)) changed = true;
+        if (detail::fold_constant_cond_br(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::fold_switches(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::thread_empty_blocks(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::merge_straight_line_blocks(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::remove_unreachable_blocks(def, info)) {
+            changed = true;
+            continue;
+        }
     }
     return info;
 }
 
-SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module) noexcept {
+SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     SimplifyCFGInfo info;
     if (module == nullptr) return info;
     for (auto f : module->function_list()) {
@@ -358,6 +402,13 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module) noexcept {
         info.threaded_empty_block_count += sub.threaded_empty_block_count;
         info.merged_straight_line_count += sub.merged_straight_line_count;
         info.removed_unreachable_block_count += sub.removed_unreachable_block_count;
+    }
+    if (report != nullptr) {
+        report->set("folded_constant_cond_br", info.folded_constant_cond_br_count);
+        report->set("folded_switch", info.folded_switch_count);
+        report->set("threaded_empty_block", info.threaded_empty_block_count);
+        report->set("merged_straight_line", info.merged_straight_line_count);
+        report->set("removed_unreachable_block", info.removed_unreachable_block_count);
     }
     return info;
 }

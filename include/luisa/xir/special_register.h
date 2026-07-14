@@ -56,7 +56,7 @@ namespace detail {
 
 template<typename T>
 [[nodiscard]] auto get_special_register_type() noexcept {
-    if constexpr (std::is_same_v<T, uint>) {
+    if constexpr (std::is_same_v<T, uint32_t>) {
         return special_register_type_uint();
     } else if constexpr (std::is_same_v<T, uint3>) {
         return special_register_type_uint3();
@@ -67,7 +67,7 @@ template<typename T>
 
 }// namespace detail
 
-template<typename T, DerivedSpecialRegisterTag tag>
+template<typename T, DerivedSpecialRegisterTag Tag>
 class DerivedSpecialRegister final : public SpecialRegister {
 public:
     using derived_special_register_type = DerivedSpecialRegister;
@@ -76,7 +76,7 @@ public:
         : SpecialRegister{module, detail::get_special_register_type<T>()} {}
 
     [[nodiscard]] static constexpr auto
-    static_derived_special_register_tag() noexcept { return tag; }
+    static_derived_special_register_tag() noexcept { return Tag; }
 
     [[nodiscard]] DerivedSpecialRegisterTag
     derived_special_register_tag() const noexcept override {
@@ -88,13 +88,13 @@ public:
 // note that we add the `SPR` prefix to avoid potential name conflicts with macros
 using SPR_ThreadID = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::THREAD_ID>;
 using SPR_BlockID = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::BLOCK_ID>;
-using SPR_WarpLaneID = DerivedSpecialRegister<uint, DerivedSpecialRegisterTag::WARP_LANE_ID>;
+using SPR_WarpLaneID = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::WARP_LANE_ID>;
 using SPR_DispatchID = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::DISPATCH_ID>;
-using SPR_KernelID = DerivedSpecialRegister<uint, DerivedSpecialRegisterTag::KERNEL_ID>;
-using SPR_ObjectID = DerivedSpecialRegister<uint, DerivedSpecialRegisterTag::RASTER_OBJECT_ID>;
-using SPR_Barycentrics = DerivedSpecialRegister<uint, DerivedSpecialRegisterTag::RASTER_BARYCENTRICS>;
+using SPR_KernelID = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::KERNEL_ID>;
+using SPR_ObjectID = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::RASTER_OBJECT_ID>;
+using SPR_Barycentrics = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::RASTER_BARYCENTRICS>;
 using SPR_BlockSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::BLOCK_SIZE>;
-using SPR_WarpSize = DerivedSpecialRegister<uint, DerivedSpecialRegisterTag::WARP_SIZE>;
+using SPR_WarpSize = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::WARP_SIZE>;
 using SPR_DispatchSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::DISPATCH_SIZE>;
 
 }// namespace luisa::compute::xir

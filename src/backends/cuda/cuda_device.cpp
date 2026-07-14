@@ -13,7 +13,7 @@
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/ast/function_builder.h>
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
-#include <luisa/backends/ext/cuda_config_ext.h>
+#include <luisa/backends/ext/cuda/cuda_config_ext.h>
 #endif
 
 #ifdef LUISA_ENABLE_IR
@@ -38,6 +38,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 #include "cuda_codegen_xir.h"
 
@@ -99,62 +100,81 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
 
-    // run some simple optimization passes on XIR to reduce the size of LLVM IR
-    Clock opt_clk;
-    auto dce1_info = xir::dce_pass_run_on_module(xir_module.get());
-    auto store_forward_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
-    auto load_elim_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
-    auto dce2_info = xir::dce_pass_run_on_module(xir_module.get());
-    auto promote_arg_info = xir::promote_ref_arg_pass_run_on_module(xir_module.get());
+    xir::PassPipeline pipeline;
+    pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    pipeline.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    pipeline.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    pipeline.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
+        return i.promoted_ref_arg_count > 0u;
+    });
     if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
-        auto early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
-        LUISA_VERBOSE("Eliminated {} early return(s).", early_return_info.removed_return_count);
+        pipeline.add("early-return-elimination", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::early_return_elimination_pass_run_on_module(m, &r);
+            return i.removed_return_count > 0u;
+        });
     }
-    auto mem2reg_info = xir::mem2reg_pass_run_on_module(xir_module.get());
-    auto dce3_info = xir::dce_pass_run_on_module(xir_module.get());
+    pipeline.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::mem2reg_pass_run_on_module(m, &r);
+        return i.promoted_alloca_count > 0u;
+    });
+    pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    auto pre_cfg_stats = pipeline.run(xir_module.get());
+    pre_cfg_stats.log("CUDA backend pre-CFG optimization");
     if (LUISA_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
         std::ofstream f{filename.c_str()};
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
-    auto rq_lower_info = lower_rq ? xir::lower_ray_query_loop_pass_run_on_module(xir_module.get()) : xir::RayQueryLoopLowerInfo{};
-    auto reg2mem_info = lower_rq ? xir::reg2mem_pass_run_on_module(xir_module.get()) : xir::Reg2MemInfo{};
+    xir::PassPipeline cfg;
+    if (lower_rq) {
+        cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+            return i.lowered_loop_count > 0u;
+        });
+        cfg.add("reg2mem", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::reg2mem_pass_run_on_module(m, &r);
+            return i.lowered_phi_count > 0u;
+        });
+    }
     if (LUISA_XIR_NORMALIZE_CFG) {
-        auto destructure_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
-        auto simplify_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
-        LUISA_VERBOSE("Destructured CFG (if={}, loop={}, simple_loop={}); simplified CFG (folded={}, threaded={}, merged={}).",
-                      destructure_info.destructured_if_count,
-                      destructure_info.destructured_loop_count,
-                      destructure_info.destructured_simple_loop_count,
-                      simplify_info.folded_constant_cond_br_count,
-                      simplify_info.threaded_empty_block_count,
-                      simplify_info.merged_straight_line_count);
+        cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
+            return i.destructured_if_count > 0u ||
+                   i.destructured_loop_count > 0u ||
+                   i.destructured_simple_loop_count > 0u;
+        });
+        cfg.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
+            return i.folded_constant_cond_br_count > 0u ||
+                   i.threaded_empty_block_count > 0u ||
+                   i.merged_straight_line_count > 0u;
+        });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
-            auto restructure_info = xir::restructure_cfg_pass_run_on_module(xir_module.get());
-            LUISA_VERBOSE("Restructured CFG: {} if(s), {} loop(s).",
-                          restructure_info.restructured_if_count,
-                          restructure_info.restructured_loop_count);
+            cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+            });
         }
     }
-    LUISA_VERBOSE("XIR optimization done in {} ms:\n"
-                  "    forwarded {} store instruction(s),\n"
-                  "    eliminated {} load instruction(s),\n"
-                  "    promoted {} alloca instruction(s) with {} load and {} store instruction(s) removed and {} phi node(s) inserted,\n"
-                  "    removed {} + {} + {} = {} dead instruction(s) and {} + {} + {} = {} dead block(s),\n"
-                  "    promoted {} reference argument(s),\n"
-                  "    lowered {} ray query loop(s),\n"
-                  "    lowered {} phi node(s) to local variable(s).",
-                  opt_clk.toc(),
-                  store_forward_info.removed_load_count,
-                  load_elim_info.removed_load_count,
-                  mem2reg_info.promoted_alloca_count, mem2reg_info.removed_load_count, mem2reg_info.removed_store_count, mem2reg_info.inserted_phi_count,
-                  dce1_info.removed_inst_count, dce2_info.removed_inst_count, dce3_info.removed_inst_count,
-                  dce1_info.removed_inst_count + dce2_info.removed_inst_count + dce3_info.removed_inst_count,
-                  dce1_info.removed_block_count, dce2_info.removed_block_count, dce3_info.removed_block_count,
-                  dce1_info.removed_block_count + dce2_info.removed_block_count + dce3_info.removed_block_count,
-                  promote_arg_info.promoted_ref_arg_count,
-                  rq_lower_info.lowered_loop_count,
-                  reg2mem_info.lowered_phi_count);
+    auto cfg_stats = cfg.run(xir_module.get());
+    cfg_stats.log("CUDA backend CFG normalization");
 
     // dump for debugging
     if (LUISA_SHOULD_DUMP_XIR) {
@@ -201,6 +221,7 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
 #include "extensions/cuda_dstorage.h"
 #include "extensions/cuda_denoiser.h"
 #include "extensions/cuda_pinned_memory.h"
+#include "extensions/cuda_graph_ext.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 #include "extensions/cuda_texture_compression.h"
@@ -260,6 +281,9 @@ namespace luisa::compute::cuda {
         case PixelFormat::R32F: return CU_AD_FORMAT_FLOAT;
         case PixelFormat::RG32F: return CU_AD_FORMAT_FLOAT;
         case PixelFormat::RGBA32F: return CU_AD_FORMAT_FLOAT;
+        case PixelFormat::BC1UNorm: return CU_AD_FORMAT_BC1_UNORM;
+        case PixelFormat::BC2UNorm: return CU_AD_FORMAT_BC2_UNORM;
+        case PixelFormat::BC3UNorm: return CU_AD_FORMAT_BC3_UNORM;
         case PixelFormat::BC4UNorm: return CU_AD_FORMAT_BC4_UNORM;
         case PixelFormat::BC5UNorm: return CU_AD_FORMAT_BC5_UNORM;
         case PixelFormat::BC6HUF16: return CU_AD_FORMAT_BC6H_UF16;
@@ -1235,6 +1259,11 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
 #endif
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(PinnedMemory, _pinned_memory_ext)
+    if (name == CudaGraphExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (_cuda_graph_ext == nullptr) { _cuda_graph_ext = luisa::make_unique<CudaGraphExtImpl>(this); }
+        return _cuda_graph_ext.get();
+    }
     if (name == CUDAExternalExt::name) {
         std::scoped_lock lock{_ext_mutex};
         if (_external_ext == nullptr) { _external_ext = luisa::make_unique<CUDAExternalExtImpl>(this); }

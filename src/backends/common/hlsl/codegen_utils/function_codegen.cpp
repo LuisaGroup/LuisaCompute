@@ -21,41 +21,6 @@ namespace lc::hlsl {
 void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept;
 #endif
 
-// SpirvMatrixPack helper struct (also defined in hlsl_codegen_util.cpp)
-struct SpirvMatrixPack {
-    vstd::StringBuilder *_result;
-    luisa::string matrix_name;
-    SpirvMatrixPack(
-        CodegenUtility *util,
-        vstd::StringBuilder *result,
-        CallExpr const *call_expr)
-        : _result(result) {
-        if (!(util->opt->isSpirv && call_expr->type()->is_matrix())) {
-            _result = nullptr;
-            return;
-        }
-        switch (call_expr->type()->dimension()) {
-            case 2:
-                matrix_name = "_Alsfloat2x2";
-                *result << "to_float2x2(";
-                break;
-            case 3:
-                matrix_name = "_Alsfloat3x4";
-                *result << "to_float3x4(";
-                break;
-            case 4:
-                matrix_name = "_Alsfloat4x4";
-                *result << "to_float4x4(";
-                break;
-        }
-    }
-    ~SpirvMatrixPack() {
-        if (_result) {
-            *_result << ')';
-        }
-    }
-};
-
 // Generate function declaration
 void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
     vstd::StringBuilder data;
@@ -87,7 +52,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                 Usage usage = func.variable_usage(i.uid());
                 if (i.tag() == Variable::Tag::REFERENCE) {
                     if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) != 0) {
-                        data += "inout "sv;
+                        data += opt->isSpirv ? "[[vk::ext_reference]] inout "sv : "inout "sv;
                     }
                 }
                 RegistStructType(i.type());
@@ -265,17 +230,24 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::CLZ:
             LUISA_DEBUG_ASSERT(args.size() == 1);
+            // CLZ always returns uint (32-bit) per DSL semantics,
+            // so cast argument to uint and use 31 as the bit-width.
             str << "_clz("sv;
-            GetTypeName(*args[0]->type(), str, Usage::NONE);
-            str << ',';
-            args[0]->accept(vis);
-            str << ',';
             if (args[0]->type()->is_vector()) {
-                str << luisa::format("{}", args[0]->type()->element()->size() * 8 - 1);
+                str << "uint"sv << args[0]->type()->dimension() << ",("sv;
+                str << "uint"sv << args[0]->type()->dimension() << ")("sv;
+                args[0]->accept(vis);
+                str << "),31)"sv;
+            } else if (args[0]->type()->size() < 4u) {
+                str << "uint,("sv;
+                str << "uint)("sv;
+                args[0]->accept(vis);
+                str << "),31)"sv;
             } else {
-                str << luisa::format("{}", args[0]->type()->size() * 8 - 1);
+                str << "uint,"sv;
+                args[0]->accept(vis);
+                str << ",31)"sv;
             }
-            str << ')';
             return;
         case CallOp::CTZ:
             str << "_ctz"sv;
@@ -284,8 +256,23 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "countbits"sv;
             break;
         case CallOp::REVERSE:
-            str << "reversebits"sv;
-            break;
+            // REVERSE always returns uint (32-bit) per DSL semantics,
+            // so cast argument to uint before reversing bits.
+            LUISA_DEBUG_ASSERT(args.size() == 1);
+            str << "reversebits("sv;
+            if (args[0]->type()->is_vector()) {
+                str << "uint"sv << args[0]->type()->dimension() << '(';
+                args[0]->accept(vis);
+                str << ")"sv;
+            } else if (args[0]->type()->size() < 4u) {
+                str << "uint("sv;
+                args[0]->accept(vis);
+                str << ")"sv;
+            } else {
+                args[0]->accept(vis);
+            }
+            str << ')';
+            return;
         case CallOp::ISINF:
             str << "isinf"sv;
             break;
@@ -453,6 +440,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_USHORT2:
         case CallOp::MAKE_USHORT3:
         case CallOp::MAKE_USHORT4:
+        case CallOp::MAKE_BYTE2:
+        case CallOp::MAKE_BYTE3:
+        case CallOp::MAKE_BYTE4:
+        case CallOp::MAKE_UBYTE2:
+        case CallOp::MAKE_UBYTE3:
+        case CallOp::MAKE_UBYTE4:
         case CallOp::MAKE_HALF2:
         case CallOp::MAKE_HALF3:
         case CallOp::MAKE_HALF4:
@@ -494,13 +487,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_READ: {
             bool aliasStruct = TypeIsAliased(expr->type());
-            bool floatToInt = opt->atomicFloatToInt && (expr->type()->is_float32() || expr->type()->is_float64());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
-            }
-            if (floatToInt) {
-                str << "asfloat(";
             }
             str << "_bfread"sv;
             auto elem = args[0]->type()->element();
@@ -511,8 +500,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             str << '(';
             PrintArgs();
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
             str << ')';
-            if (aliasStruct || floatToInt) {
+            if (aliasStruct) {
                 str << ')';
             }
             return;
@@ -520,13 +517,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BUFFER_VOLATILE_READ: {
             mark_coherent(args[0]);
             bool aliasStruct = TypeIsAliased(expr->type());
-            bool floatToInt = opt->atomicFloatToInt && (expr->type()->is_float32() || expr->type()->is_float64());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
-            }
-            if (floatToInt) {
-                str << "asfloat(";
             }
             str << "_volatile_bfread"sv;
             auto elem = args[0]->type()->element();
@@ -539,20 +532,21 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             GetTypeName(*expr->type(), str, Usage::NONE);
             str << ">(";
             PrintArgs();
+            // Note: volatile reads use template functions (not macros), so we skip the debug vid
             str << ')';
-            if (aliasStruct || floatToInt) {
+            if (aliasStruct) {
                 str << ')';
             }
             return;
         }
         case CallOp::BUFFER_WRITE:
         case CallOp::BUFFER_VOLATILE_WRITE: {
-            if (expr->op() == CallOp::BUFFER_VOLATILE_WRITE) {
+            bool is_volatile = expr->op() == CallOp::BUFFER_VOLATILE_WRITE;
+            if (is_volatile) {
                 mark_coherent(args[0]);
                 str << "_volatile"sv;
             }
             auto elem = args[0]->type()->element();
-            bool floatToInt = opt->atomicFloatToInt && (elem->is_float32() || elem->is_float64());
             bool aliasStruct = TypeIsAliased(elem);
             str << "_bfwrite"sv;
             if (IsNumVec3(*elem)) {
@@ -560,6 +554,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 PrintArgs();
                 str << ',';
                 GetTypeName(*elem->element(), str, Usage::NONE);
+                if (opt->enable_debug_info && !is_volatile) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                        str << ',' << luisa::format("{}", it->second);
+                    }
+                }
                 str << ')';
                 return;
             } else if (elem->is_matrix()) {
@@ -576,12 +578,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << '(';
                 args.back()->accept(vis);
                 str << ')';
-            } else if (floatToInt) {
-                str << "asint("sv;
-                args.back()->accept(vis);
-                str << ')';
             } else {
                 args.back()->accept(vis);
+            }
+            if (opt->enable_debug_info && !is_volatile) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
             }
             str << ')';
             return;
@@ -612,6 +618,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args[0]->accept(vis);
                 str << ',';
                 args[1]->accept(vis);
+                // Note: volatile byte buffer reads use template functions, skip debug vid
                 str << ')';
 
             } else if (elem->is_matrix()) {
@@ -668,6 +675,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*elem->element(), str, Usage::NONE);
                 str << ',';
                 args[1]->accept(vis);
+                if (opt->enable_debug_info) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+                }
                 str << ')';
 
             } else if (elem->is_matrix()) {
@@ -687,6 +702,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 }
                 str << ',';
                 args[1]->accept(vis);
+                if (opt->enable_debug_info) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+                }
                 str << ')';
             } else {
                 str << '(';
@@ -699,6 +722,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 }
                 str << ',';
                 args[1]->accept(vis);
+                if (opt->enable_debug_info) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+                }
                 str << ')';
             }
             if (aliasStruct) {
@@ -708,7 +739,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::BYTE_BUFFER_WRITE:
         case CallOp::BYTE_BUFFER_VOLATILE_WRITE: {
-            if (expr->op() == CallOp::BYTE_BUFFER_VOLATILE_WRITE) {
+            bool is_volatile = expr->op() == CallOp::BYTE_BUFFER_VOLATILE_WRITE;
+            if (is_volatile) {
                 mark_coherent(args[0]);
                 str << "_volatile"sv;
             }
@@ -724,6 +756,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args[1]->accept(vis);
                 str << ',';
                 args[2]->accept(vis);
+                if (opt->enable_debug_info && !is_volatile) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                        str << ',' << luisa::format("{}", it->second);
+                    }
+                }
                 str << ')';
                 return;
             } else if (elem->is_matrix()) {
@@ -751,6 +791,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     str << ')';
                 } else {
                     args[2]->accept(vis);
+                }
+                if (opt->enable_debug_info && !is_volatile) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                        str << ',' << luisa::format("{}", it->second);
+                    }
                 }
                 str << ')';
                 return;
@@ -830,10 +878,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::BINDLESS_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -850,22 +894,25 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ',';
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
             return;
         }
         case CallOp::BINDLESS_BYTE_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -880,12 +927,19 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -903,10 +957,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::TYPED_BINDLESS_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -923,22 +973,25 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ',';
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
             return;
         }
         case CallOp::TYPED_BINDLESS_BYTE_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -953,12 +1006,19 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -976,10 +1036,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -996,22 +1052,25 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ',';
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
             return;
         }
         case CallOp::TYPED_UNIFORM_BINDLESS_BYTE_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -1026,12 +1085,19 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -1049,10 +1115,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::UNIFORM_BINDLESS_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -1069,22 +1131,25 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ',';
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
             return;
         }
         case CallOp::UNIFORM_BINDLESS_BYTE_BUFFER_READ: {
-            SpirvMatrixPack matrix_pack{
-                this,
-                &str,
-                expr};
             bool aliasStruct = TypeIsAliased(expr->type());
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
@@ -1099,8 +1164,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             if (aliasStruct) {
                 str << opt->CreateAliasedStruct(expr->type()).first;
-            } else if (matrix_pack._result) {
-                str << matrix_pack.matrix_name;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
@@ -1791,6 +1854,94 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
             str << luisa::format(",{}>", args[2]->type()->dimension());
         } break;
+        case CallOp::COOPERATIVE_VECTOR_LOAD: {
+            str << "dx::linalg::CoopVecLoad<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>", expr->type()->dimension());
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_STORE: {
+            str << "dx::linalg::CoopVecStore<";
+            GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
+            str << luisa::format(",{}>", args[2]->type()->dimension());
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_SPLAT: {
+            str << "dx::linalg::CoopVecSplat<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>", expr->type()->dimension());
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_CAST: {
+            str << "dx::linalg::CoopVecCast<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << ',';
+            GetTypeName(*args[0]->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>", expr->type()->dimension());
+        } break;
+        case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: {
+            opt->useBufferBindless = true;
+            str << "dx::linalg::CoopVecLoad<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << luisa::format(",{}>(", expr->type()->dimension());
+            str << "bdls[NonUniformResourceIndex(";
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) {
+                args[0]->accept(vis);
+                str << "[0]+";
+                args[1]->accept(vis);
+            } else {
+                str << "_ReadBdlsBuffer(";
+                args[0]->accept(vis);
+                str << ',';
+                args[1]->accept(vis);
+                str << ')';
+            }
+            str << ")],";
+            args[2]->accept(vis);
+            str << ')';
+        }
+            return;
+        case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE: {
+            opt->useBufferBindless = true;
+            str << "dx::linalg::CoopVecStore<";
+            GetTypeName(*args[3]->type()->element(), str, args[3]->usage());
+            str << luisa::format(",{}>(", args[3]->type()->dimension());
+            str << "bdls[NonUniformResourceIndex(";
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) {
+                args[0]->accept(vis);
+                str << "[0]+";
+                args[1]->accept(vis);
+            } else {
+                str << "_ReadBdlsBuffer(";
+                args[0]->accept(vis);
+                str << ',';
+                args[1]->accept(vis);
+                str << ')';
+            }
+            str << ")],";
+            args[2]->accept(vis);
+            str << ',';
+            args[3]->accept(vis);
+            str << ')';
+        }
+            return;
+        case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: {
+            str << "dx::linalg::CoopVecWorkgroupLoad<";
+            GetTypeName(*expr->type()->element(), str, Usage::NONE);
+            str << ',';
+            str << luisa::format("{}", expr->type()->dimension());
+            str << ',';
+            GetTypeName(*args[0]->type(), str, args[0]->usage());
+            str << '>';
+        } break;
+        case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: {
+            str << "dx::linalg::CoopVecWorkgroupStore<";
+            GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
+            str << ',';
+            str << luisa::format("{}", args[2]->type()->dimension());
+            str << ',';
+            GetTypeName(*args[0]->type(), str, args[0]->usage());
+            str << '>';
+        } break;
         case CallOp::COOPERATIVE_MUL_ADD: {
             auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
             str << "dx::linalg::CoopMulAdd<";
@@ -1866,6 +2017,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             TypeToCoop(args[1]->type()->coop_vec_ref_type(), str);
             str << luisa::format(",{},{}>", matrix_dimension.x, matrix_dimension.y);
         } break;
+        case CallOp::ASYNC_COPY: {
+            if (!opt->isSpirv) {
+                LUISA_NOT_IMPLEMENTED();
+            }
+            str << "__builtin_spirv_group_async_copy(";
+            for (size_t i = 0; i < args.size(); ++i) {
+                if (i) str << ",";
+                args[i]->accept(vis);
+            }
+            str << ")";
+            return;
+        }
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
         case CallOp::BINDLESS_COOPERATIVE_MUL: {
             opt->useBufferBindless = true;
@@ -1904,6 +2067,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     }
     str << '(';
     PrintArgs();
+    if (opt->enable_debug_info) {
+        // Append validate index for byte buffer write/read generic path
+        auto op = expr->op();
+        if (op == CallOp::BYTE_BUFFER_WRITE || op == CallOp::BYTE_BUFFER_READ) {
+            auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+            uint64_t func_hash = vis.f.hash();
+            auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+            if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                str << ',' << luisa::format("{}", it->second);
+            }
+        }
+    }
     str << ')';
 }
 

@@ -1186,7 +1186,9 @@ luisa::vector<FileBuilderResult> FileBuilder::search(
     luisa::vector<std::pair<int, double>> scored;
     scored.reserve(n);
     for (size_t i = 0; i < n; ++i) {
-        double final_score = bm25_weight * bm25_norm[i] + (1.0 - bm25_weight) * string_scores[i];
+        double final_score = use_string_similarity
+            ? (bm25_weight * bm25_norm[i] + (1.0 - bm25_weight) * string_scores[i])
+            : bm25_norm[i];
         scored.emplace_back(raw_results[i].first, final_score);
     }
     luisa::sort(scored.begin(), scored.end(), [](const auto &a, const auto &b) {

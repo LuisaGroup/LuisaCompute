@@ -4,6 +4,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 class Function;
 
 struct SimplifyCFGInfo {
@@ -15,6 +17,6 @@ struct SimplifyCFGInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

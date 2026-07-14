@@ -17,10 +17,9 @@ endfunction()
 # --- Tutorials ---
 luisa_compute_add_tutorial(tutorial_01_mandelbrot         01_mandelbrot/main.cpp)
 luisa_compute_add_tutorial(tutorial_02_path_tracing       02_path_tracing/main.cpp)
-luisa_compute_add_tutorial(tutorial_06_image_processing   06_image_processing/main.cpp)
-
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_tutorial(tutorial_03_mpm_fluid      03_mpm_fluid/main.cpp)
+    luisa_compute_add_tutorial(tutorial_06_image_processing   06_image_processing/main.cpp)
     luisa_compute_add_tutorial(tutorial_04_game_of_life    04_game_of_life/main.cpp)
     luisa_compute_add_tutorial(tutorial_05_wave_equation   05_wave_equation/main.cpp)
     luisa_compute_add_tutorial(tutorial_07_nbody           07_nbody/main.cpp)
@@ -33,10 +32,9 @@ endif ()
 # --- CTest registrations (all run in offline mode) ---
 luisa_compute_register_tutorial_ctest(tutorial_01_mandelbrot)
 luisa_compute_register_tutorial_ctest(tutorial_02_path_tracing)
-luisa_compute_register_tutorial_ctest(tutorial_06_image_processing)
-
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_register_tutorial_ctest(tutorial_03_mpm_fluid)
+    luisa_compute_register_tutorial_ctest(tutorial_06_image_processing)
     luisa_compute_register_tutorial_ctest(tutorial_04_game_of_life)
     luisa_compute_register_tutorial_ctest(tutorial_05_wave_equation)
     luisa_compute_register_tutorial_ctest(tutorial_07_nbody)

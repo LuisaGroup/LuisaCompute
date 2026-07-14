@@ -1,6 +1,6 @@
 #pragma once
 
-#include <luisa/backends/ext/cuda_external_ext.h>
+#include <luisa/backends/ext/cuda/cuda_external_ext.h>
 
 namespace luisa::compute::cuda {
 

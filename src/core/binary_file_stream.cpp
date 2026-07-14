@@ -3,7 +3,7 @@
 
 namespace luisa {
 
-#ifdef LUISA_PLATFORM_WINDOWS
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32)
 #define LUISA_FSEEK _fseeki64
 #define LUISA_FTELL _ftelli64
 #else

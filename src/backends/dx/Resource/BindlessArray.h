@@ -88,6 +88,14 @@ public:
         vstd::span<const BindlessArrayUpdateCommand::Texture2DModification> mods) const;
 
     DefaultBuffer const *BindlessBuffer() const { return &buffer; }
+    [[nodiscard]] uint size() const {
+        if (auto *v = typed_binded.try_get<vstd::vector<std::pair<BindlessStruct, MapIndicies>>>()) {
+            return static_cast<uint>(v->size());
+        } else if (auto *v = typed_binded.try_get<vstd::vector<MapIndex>>()) {
+            return static_cast<uint>(v->size());
+        }
+        return 0;
+    }
     Tag get_tag() const override { return Tag::BindlessArray; }
     BindlessArray(
         Device *device,

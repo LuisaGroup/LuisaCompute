@@ -35,7 +35,7 @@ void UniformityAnalysis::analyze(const Function *function) noexcept {
                 case DerivedInstructionTag::ARITHMETIC:
                 case DerivedInstructionTag::GEP: {
                     can_be_uniform = true;
-                    for (size_t i = 0u, n = inst->operand_count(); i < n; ++i) {
+                    for (size_t i = 0, n = inst->operand_count(); i < n; ++i) {
                         if (!is_uniform(inst->operand(i))) {
                             can_be_uniform = false;
                             break;

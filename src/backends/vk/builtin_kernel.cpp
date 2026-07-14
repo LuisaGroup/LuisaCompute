@@ -9,7 +9,7 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
-        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process_vk");
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process_vk.bytes");
         code.properties.resize(2);
         auto &set_buffer = code.properties[0];
         set_buffer.array_size = 1;
@@ -24,7 +24,7 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         return code;
     };
     vstd::vector<SavedArgument> saved_args;
-    return ComputeShader::compile(
+    return ComputeShader::compile_builtin_hlsl_to_spirv(
         device->binary_io(),
         device,
         std::move(saved_args),
@@ -42,7 +42,7 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
-        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("bindless_upload_vk");
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("bindless_upload_vk.bytes");
         code.properties.resize(2);
         auto &set_buffer = code.properties[0];
         set_buffer.array_size = 1;
@@ -57,7 +57,7 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         return code;
     };
     vstd::vector<SavedArgument> saved_args;
-    return ComputeShader::compile(
+    return ComputeShader::compile_builtin_hlsl_to_spirv(
         device->binary_io(),
         device,
         std::move(saved_args),

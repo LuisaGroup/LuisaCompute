@@ -5,7 +5,8 @@ includes("volk", "stb")
 lc_eastl_enable_custom_malloc = has_config("lc_enable_custom_malloc")
 lc_eastl_enable_mimalloc = has_config("lc_enable_mimalloc")
 includes("EASTL")
-if has_config('lc_vk_backend_use_xir_spirv') then
+local need_spv = has_config('lc_vk_backend_use_xir_spirv') or has_config('lc_vk_backend_use_ast_llvm_spirv')
+if need_spv then
     includes("glslang")
 end
 
@@ -38,7 +39,7 @@ if not has_config("lc_yyjson_use_xrepo") then
     end)
     target_end()
 end
-if has_config('lc_vk_backend_use_xir_spirv') then
+if need_spv then
     target('spirv-headers')
     set_kind('headeronly')
     add_includedirs("spirv-headers/include", "spirv-headers/include/spirv/unified1", {

@@ -1,6 +1,6 @@
 ---
 name: hlsl
-description: HLSL code generation with StringBuilder, formatting patterns, builtin headers, and DXIL embedding
+description: HLSL code generation, StringBuilder patterns, builtin headers, and DXIL embedding.
 ---
 
 # HLSL Code Generation
@@ -53,11 +53,15 @@ void GetFunctionDecl(Function func, vstd::StringBuilder &str) {
     if (func.return_type()) CodegenUtility::GetTypeName(*func.return_type(), data, Usage::READ);
     else data += "void"sv;
     data += " "sv;
-    GetFunctionName(func, data);
+    CodegenUtility::GetFunctionName(func, data);
     data += '(';
     for (auto &&arg : func.arguments()) {
-        GetTypeName(arg.type(), data);
-        data << ' ' << arg.name() << ',';
+        Usage usage = func.variable_usage(arg.uid());
+        CodegenUtility::GetTypeName(*arg.type(), data, usage);
+        data << ' ';
+        vstd::StringBuilder varName;
+        CodegenUtility::GetVariableName(func, arg, varName);
+        data << varName << ',';
     }
     if (!func.arguments().empty()) data[data.size() - 1] = ')';
     else data += ')';
@@ -143,9 +147,13 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 |---|---|
 | `hlsl_header` | Main HLSL header |
 | `hlsl_header_fallback` | Fallback header |
-| `work_graph` | Work graph shaders |
 | `spv_alias` | SPIR-V aliases |
-| `dx_linalg` | Linear algebra utils |
+| `bindless_upload.bytes` / `bindless_upload_vk.bytes` | Bindless upload helpers |
+| `accel_process.bytes` / `accel_process_vk.bytes` | Acceleration-structure processing |
+| `accel_process_vk_motion.bytes` | Acceleration-structure processing with motion blur |
+| `raytracing_motion_header` | Ray tracing motion blur |
+| `dx_linalg` | Linear algebra utils (DXIL) |
+| `vk_linalg` | Linear algebra utils (SPIR-V) |
 | `raytracing_header` | Ray tracing |
 | `tex2d_bindless` / `tex3d_bindless` | Bindless textures |
 | `compute_quad` | Compute quad ops |
@@ -175,7 +183,25 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 Build: `.hlsl` → `.bytes`, shaders → `.dxil`, embedded via `bin2obj`.
 
 ### Codegen Debug
-1. Set env `LUISA_DUMP_SOURCE`
-2. Delete old `hlsl_output.hlsl` in binary dir (new results append)
-3. Run program
-4. Read `hlsl_output.hlsl`
+
+Set env `LUISA_DUMP_SOURCE=1` to dump generated HLSL to per-shader files.  
+Output: `hlsl_output_<shader_name>.hlsl` in the working directory.
+
+**Naming priority** depends on the backend and shader path:
+
+*DX compute / raster / save paths:*
+1. `ShaderOption::name` / `fileName` — user-provided name
+2. `Function::name()` — kernel/callable debug name
+3. `Function::hash()` formatted as hex — fallback (e.g. `hlsl_output_a1b2c3d4.hlsl`)
+
+*VK internal builtin compute helpers only (`ComputeShader::compile_builtin_hlsl_to_spirv`):*
+1. `file_name` — user-provided / cached name
+2. Generated HLSL MD5 — fallback
+
+*VK raster (`VkRasterExt`):*
+`ShaderOption::name` is always required, so the dump file uses that name.
+
+VK user compute shaders must use native SPIR-V codegen (`LUISA_XIR_TO_SPIRV` or `LUISA_AST_LLVM_TO_SPIRV`); the Vulkan `Function` compute path must not call HLSL/DXC.
+
+Files are written with `"wb"` (overwrite) — no need to delete old files.  
+Each shader gets its own file; no more single `hlsl_output.hlsl` with appended content.

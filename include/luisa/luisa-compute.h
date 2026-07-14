@@ -230,11 +230,12 @@
 #include <luisa/xir/instructions/assert.h>
 #include <luisa/xir/instructions/assume.h>
 #include <luisa/xir/instructions/atomic.h>
-#include <luisa/xir/instructions/autodiff.h>
-#include <luisa/xir/instructions/branch.h>
-#include <luisa/xir/instructions/break.h>
-#include <luisa/xir/instructions/call.h>
-#include <luisa/xir/instructions/cast.h>
+        #include <luisa/xir/instructions/autodiff.h>
+        #include <luisa/xir/instructions/branch.h>
+        #include <luisa/xir/instructions/break.h>
+        #include <luisa/xir/instructions/coro.h>
+        #include <luisa/xir/instructions/call.h>
+        #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/debug_break.h>
@@ -290,4 +291,3 @@
 #include <luisa/xir/user.h>
 #include <luisa/xir/value.h>
 #endif
-

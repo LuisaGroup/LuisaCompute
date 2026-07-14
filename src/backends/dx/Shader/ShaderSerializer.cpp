@@ -16,6 +16,7 @@ struct Header {
     uint bindless_count;
     uint kernelArgCount;
     uint printerCount;
+    uint validationCount;
 };
 struct RasterHeader {
     uint64 headerVersion;
@@ -28,6 +29,7 @@ struct RasterHeader {
     uint bindless_count;
     uint kernelArgCount;
     uint printerCount;
+    uint validationCount;
 };
 }// namespace shader_ser
 namespace detail {
@@ -54,7 +56,7 @@ std::pair<vstd::string, Type const *> DeserPrinterSize(BinaryStream *streamer) {
 }
 }// namespace detail
 static constexpr size_t kRootSigReserveSize = 16384;
-static constexpr uint64 kHeaderVersion = 4ull;
+static constexpr uint64 kHeaderVersion = 5ull;// version 5: add validation count
 vstd::vector<std::byte>
 ShaderSerializer::Serialize(
     vstd::span<hlsl::Property const> properties,
@@ -63,6 +65,7 @@ ShaderSerializer::Serialize(
     vstd::MD5 const &checkMD5,
     vstd::MD5 const &typeMD5,
     uint bindless_count,
+    uint validation_count,
     uint3 blockSize,
     vstd::span<std::pair<vstd::string, Type const *> const> printers) {
     using namespace shader_ser;
@@ -81,7 +84,8 @@ ShaderSerializer::Serialize(
         .propertyCount = static_cast<uint>(properties.size()),
         .bindless_count = bindless_count,
         .kernelArgCount = static_cast<uint>(kernelArgs.size()),
-        .printerCount = static_cast<uint>(printers.size())};
+        .printerCount = static_cast<uint>(printers.size()),
+        .validationCount = validation_count};
     for (auto i : vstd::range(3)) {
         header.blockSize[i] = blockSize[i];
     }
@@ -103,6 +107,7 @@ vstd::vector<std::byte> ShaderSerializer::RasterSerialize(
     vstd::MD5 const &checkMD5,
     vstd::MD5 const &typeMD5,
     uint bindless_count,
+    uint validation_count,
     vstd::span<std::pair<vstd::string, Type const *> const> printers) {
     using namespace shader_ser;
     vstd::vector<std::byte> result;
@@ -118,7 +123,8 @@ vstd::vector<std::byte> ShaderSerializer::RasterSerialize(
         .propertyCount = static_cast<uint>(properties.size()),
         .bindless_count = bindless_count,
         .kernelArgCount = static_cast<uint>(kernelArgs.size()),
-        .printerCount = static_cast<uint>(printers.size())};
+        .printerCount = static_cast<uint>(printers.size()),
+        .validationCount = validation_count};
     *reinterpret_cast<RasterHeader *>(result.data()) = std::move(header);
     for (auto &i : printers) {
         detail::SerPrinterSize(i, result);
@@ -276,7 +282,8 @@ ComputeShader *ShaderSerializer::DeSerialize(
         std::move(bindings),
         std::move(printers),
         std::move(rootSig),
-        std::move(pso));
+        std::move(pso),
+        header.validationCount);
     cs->_bindless_count = header.bindless_count;
     return cs;
 }
@@ -289,8 +296,8 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     vstd::optional<vstd::MD5> const &typeMD5) {
     using namespace shader_ser;
     auto binStream = read_binary_io(cacheType, &streamFunc, name);
-    if (binStream == nullptr || binStream->length() <= sizeof(RasterHeader)){
-        if(binStream) {
+    if (binStream == nullptr || binStream->length() <= sizeof(RasterHeader)) {
+        if (binStream) {
             LUISA_INFO("size {}", binStream->length());
         }
         return nullptr;
@@ -388,7 +395,8 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         std::move(rootSig),
         std::move(printers),
         std::move(vertBin),
-        std::move(pixelBin));
+        std::move(pixelBin),
+        header.validationCount);
     s->_bindless_count = header.bindless_count;
     return s;
 }

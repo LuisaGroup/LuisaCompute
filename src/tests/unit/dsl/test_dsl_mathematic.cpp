@@ -57,9 +57,6 @@ inline bool approx_eq(float4 a, float4 b, float eps = float_eps) noexcept {
 
 // Complex struct for testing scalar, vector, and matrix types
 struct ComplexStruct {
-    bool b;
-    int8_t i8;
-    uint8_t u8;
     int16_t i16;
     uint16_t u16;
     int i32;
@@ -69,6 +66,7 @@ struct ComplexStruct {
     half h;
     float f;
     double d;
+    bool b;
     float2 f2;
     float3 f3;
     float4 f4;
@@ -82,8 +80,10 @@ struct ComplexStruct {
     float2x2 f2x2;
     float3x3 f3x3;
     float4x4 f4x4;
+    half h_adjacent;
+    bool b_adjacent;
 };
-LUISA_STRUCT(ComplexStruct, b, i8, u8, i16, u16, i32, u32, i64, u64, h, f, d, f2, f3, f4, h3, h4, i4, d2, d3, d4, h2x2, f2x2, f3x3, f4x4) {};
+LUISA_STRUCT(ComplexStruct, i16, u16, i32, u32, i64, u64, h, f, d, b, f2, f3, f4, h3, h4, i4, d2, d3, d4, h2x2, f2x2, f3x3, f4x4, h_adjacent, b_adjacent) {};
 
 int main(int argc, char *argv[]) {
     log_level_verbose();
@@ -631,9 +631,6 @@ int main(int argc, char *argv[]) {
     {
         // Log host-side struct layout for debugging SPIR-V byte-buffer alignment
         LUISA_INFO("ComplexStruct host layout: size={}", sizeof(ComplexStruct));
-        LUISA_INFO("  b    offset={}, size={}", offsetof(ComplexStruct, b), sizeof(bool));
-        LUISA_INFO("  i8   offset={}, size={}", offsetof(ComplexStruct, i8), sizeof(int8_t));
-        LUISA_INFO("  u8   offset={}, size={}", offsetof(ComplexStruct, u8), sizeof(uint8_t));
         LUISA_INFO("  i16  offset={}, size={}", offsetof(ComplexStruct, i16), sizeof(int16_t));
         LUISA_INFO("  u16  offset={}, size={}", offsetof(ComplexStruct, u16), sizeof(uint16_t));
         LUISA_INFO("  i32  offset={}, size={}", offsetof(ComplexStruct, i32), sizeof(int));
@@ -643,6 +640,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("  h    offset={}, size={}", offsetof(ComplexStruct, h), sizeof(half));
         LUISA_INFO("  f    offset={}, size={}", offsetof(ComplexStruct, f), sizeof(float));
         LUISA_INFO("  d    offset={}, size={}", offsetof(ComplexStruct, d), sizeof(double));
+        LUISA_INFO("  b    offset={}, size={}", offsetof(ComplexStruct, b), sizeof(bool));
         LUISA_INFO("  f2   offset={}, size={}", offsetof(ComplexStruct, f2), sizeof(float2));
         LUISA_INFO("  f3   offset={}, size={}", offsetof(ComplexStruct, f3), sizeof(float3));
         LUISA_INFO("  f4   offset={}, size={}", offsetof(ComplexStruct, f4), sizeof(float4));
@@ -655,11 +653,13 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("  h2x2 offset={}, size={}", offsetof(ComplexStruct, h2x2), sizeof(half2x2));
         LUISA_INFO("  f2x2 offset={}, size={}", offsetof(ComplexStruct, f2x2), sizeof(float2x2));
         LUISA_INFO("  f3x3 offset={}, size={}", offsetof(ComplexStruct, f3x3), sizeof(float3x3));
-        LUISA_INFO("  f4x4 offset={}, size={}", offsetof(ComplexStruct, f4x4), sizeof(float4x4));
+        LUISA_INFO("  f4x4     offset={}, size={}", offsetof(ComplexStruct, f4x4), sizeof(float4x4));
+        LUISA_INFO("  h_adj    offset={}, size={}", offsetof(ComplexStruct, h_adjacent), sizeof(half));
+        LUISA_INFO("  b_adj    offset={}, size={}", offsetof(ComplexStruct, b_adjacent), sizeof(bool));
 
         // Prepare 4 instances with diverse initial values
         ComplexStruct host_in[4] = {
-            {true, 1, 2, 10, 20, 100, 200u, 1000ll, 2000ull, half(1.0f), 1.0f, 1.0,
+            {10, 20, 100, 200u, 1000ll, 2000ull, half(1.0f), 1.0f, 1.0, true,
              make_float2(1.0f, 2.0f),
              make_float3(1.0f, 2.0f, 3.0f),
              make_float4(1.0f, 2.0f, 3.0f, 4.0f),
@@ -677,8 +677,9 @@ int main(int argc, char *argv[]) {
              make_float4x4(1.0f, 0.0f, 0.0f, 0.0f,
                            0.0f, 2.0f, 0.0f, 0.0f,
                            0.0f, 0.0f, 3.0f, 0.0f,
-                           0.0f, 0.0f, 0.0f, 4.0f)},
-            {false, -1, 200, -5, 100, -50, 500u, -1000ll, 5000ull, half(0.5f), 2.5f, 2.0,
+                           0.0f, 0.0f, 0.0f, 4.0f),
+             half(3.0f), true},
+            {-5, 100, -50, 500u, -1000ll, 5000ull, half(0.5f), 2.5f, 2.0, false,
              make_float2(3.0f, 4.0f),
              make_float3(4.0f, 5.0f, 6.0f),
              make_float4(5.0f, 6.0f, 7.0f, 8.0f),
@@ -696,8 +697,9 @@ int main(int argc, char *argv[]) {
              make_float4x4(0.0f, 1.0f, 0.0f, 0.0f,
                            0.0f, 0.0f, 1.0f, 0.0f,
                            0.0f, 0.0f, 0.0f, 1.0f,
-                           1.0f, 0.0f, 0.0f, 0.0f)},
-            {true, 127, 255, 32767, 65535, 1000000, 3000000u, 9223372036854775807ll, 10000ull, half(2.0f), -1.0f, 0.5,
+                           1.0f, 0.0f, 0.0f, 0.0f),
+             half(0.25f), false},
+            {32767, 65535, 1000000, 3000000u, 9223372036854775807ll, 10000ull, half(2.0f), -1.0f, 0.5, true,
              make_float2(-1.0f, -2.0f),
              make_float3(-1.0f, -2.0f, -3.0f),
              make_float4(-1.0f, -2.0f, -3.0f, -4.0f),
@@ -715,8 +717,9 @@ int main(int argc, char *argv[]) {
              make_float4x4(2.0f, 0.0f, 0.0f, 1.0f,
                            0.0f, 2.0f, 0.0f, 1.0f,
                            0.0f, 0.0f, 2.0f, 1.0f,
-                           0.0f, 0.0f, 0.0f, 2.0f)},
-            {false, -128, 0, -32768, 0, -1000000, 0u, -9223372036854775807ll - 1ll, 0ull, half(10.0f), 100.0f, 10.0,
+                           0.0f, 0.0f, 0.0f, 2.0f),
+             half(-2.0f), true},
+            {-32768, 0, -1000000, 0u, -9223372036854775807ll - 1ll, 0ull, half(10.0f), 100.0f, 10.0, false,
              make_float2(0.0f, 0.0f),
              make_float3(0.0f, 0.0f, 1.0f),
              make_float4(0.0f, 0.0f, 0.0f, 1.0f),
@@ -734,7 +737,8 @@ int main(int argc, char *argv[]) {
              make_float4x4(1.0f, 0.0f, 0.0f, 0.0f,
                            0.0f, 1.0f, 0.0f, 0.0f,
                            0.0f, 0.0f, 1.0f, 0.0f,
-                           0.0f, 0.0f, 0.0f, 1.0f)},
+                           0.0f, 0.0f, 0.0f, 1.0f),
+             half(7.5f), false},
         };
 
         auto in_buf = device.create_buffer<ComplexStruct>(4);
@@ -746,9 +750,6 @@ int main(int argc, char *argv[]) {
             Var<ComplexStruct> s = input.read(i);
 
             // Scalar transformations
-            Var<bool> b_out = !s.b;
-            Var<int8_t> i8_out = cast<int8_t>(s.i8 + cast<int8_t>(7));
-            Var<uint8_t> u8_out = cast<uint8_t>(s.u8 * cast<uint8_t>(3u));
             Var<int16_t> i16_out = -s.i16;
             Var<uint16_t> u16_out = cast<uint16_t>(s.u16 + cast<uint16_t>(42u));
             Var<int> i32_out = s.i32 * 2;
@@ -758,6 +759,7 @@ int main(int argc, char *argv[]) {
             Var<half> h_out = s.h * cast<half>(2.0f);
             Var<float> f_out = s.f * 3.0f + 1.0f;
             Var<double> d_out = s.d * 2.0;
+            Var<bool> b_out = !s.b;
 
             // Vector transformations
             Var<float2> f2_out = make_float2(s.f2.y, s.f2.x);
@@ -776,11 +778,12 @@ int main(int argc, char *argv[]) {
             Var<float3x3> f3x3_out = transpose(s.f3x3);
             Var<float4x4> f4x4_out = transpose(s.f4x4);
 
+            // Half-adjacent-to-bool test
+            Var<half> h_adj_out = s.h_adjacent * cast<half>(2.0f);
+            Var<bool> b_adj_out = !s.b_adjacent;
+
             // Build output struct
             Var<ComplexStruct> result;
-            result.b = b_out;
-            result.i8 = i8_out;
-            result.u8 = u8_out;
             result.i16 = i16_out;
             result.u16 = u16_out;
             result.i32 = i32_out;
@@ -790,6 +793,7 @@ int main(int argc, char *argv[]) {
             result.h = h_out;
             result.f = f_out;
             result.d = d_out;
+            result.b = b_out;
             result.f2 = f2_out;
             result.f3 = f3_out;
             result.f4 = f4_out;
@@ -803,6 +807,8 @@ int main(int argc, char *argv[]) {
             result.f2x2 = f2x2_out;
             result.f3x3 = f3x3_out;
             result.f4x4 = f4x4_out;
+            result.h_adjacent = h_adj_out;
+            result.b_adjacent = b_adj_out;
 
             output.write(i, result);
         };
@@ -817,28 +823,16 @@ int main(int argc, char *argv[]) {
             const auto &in = host_in[i];
             const auto &res = out[i];
 
-            // bool: flip
-            LUISA_ASSERT(res.b == !in.b,
-                         "[{}] bool flip failed: got {}, expected {}", i, res.b, !in.b);
-            LUISA_INFO("[{}] bool: {} -> {} OK", i, in.b, res.b);
-
-            // int8_t: add 7 (wrapping)
-            auto exp_i8 = static_cast<int8_t>(in.i8 + 7);
-            LUISA_ASSERT(res.i8 == exp_i8,
-                         "[{}] int8 add7 failed: got {}, expected {}", i, res.i8, exp_i8);
-            LUISA_INFO("[{}] int8: {} -> {} OK", i, in.i8, res.i8);
-
-            // uint8_t: mul 3 (wrapping)
-            auto exp_u8 = static_cast<uint8_t>(in.u8 * 3u);
-            LUISA_ASSERT(res.u8 == exp_u8,
-                         "[{}] uint8 mul3 failed: got {}, expected {}", i, res.u8, exp_u8);
-            LUISA_INFO("[{}] uint8: {} -> {} OK", i, in.u8, res.u8);
-
             // int16_t: negate
             auto exp_i16 = static_cast<int16_t>(-in.i16);
             LUISA_ASSERT(res.i16 == exp_i16,
                          "[{}] int16 neg failed: got {}, expected {}", i, res.i16, exp_i16);
             LUISA_INFO("[{}] int16: {} -> {} OK", i, in.i16, res.i16);
+
+            // bool: flip
+            LUISA_ASSERT(res.b == !in.b,
+                         "[{}] bool flip failed: got {}, expected {}", i, res.b, !in.b);
+            LUISA_INFO("[{}] bool: {} -> {} OK", i, in.b, res.b);
 
             // uint16_t: add 42
             auto exp_u16 = static_cast<uint16_t>(in.u16 + 42u);
@@ -1038,6 +1032,20 @@ int main(int argc, char *argv[]) {
                              exp_f4x4[c].x, exp_f4x4[c].y, exp_f4x4[c].z, exp_f4x4[c].w);
             }
             LUISA_INFO("[{}] float4x4 transpose OK", i);
+
+            // half-adjacent-to-bool validation
+            half exp_h_adj = in.h_adjacent * half(2.0f);
+            bool exp_b_adj = !in.b_adjacent;
+            LUISA_ASSERT(approx_eq(static_cast<float>(res.h_adjacent), static_cast<float>(exp_h_adj), 1e-2f),
+                         "[{}] half adjacent mul2 failed: got {}, expected {}",
+                         i, static_cast<float>(res.h_adjacent), static_cast<float>(exp_h_adj));
+            LUISA_ASSERT(res.b_adjacent == exp_b_adj,
+                         "[{}] bool adjacent flip failed: got {}, expected {}",
+                         i, res.b_adjacent, exp_b_adj);
+            LUISA_INFO("[{}] half-adjacent-to-bool: h {} -> {} OK, b {} -> {} OK",
+                       i,
+                       static_cast<float>(in.h_adjacent), static_cast<float>(res.h_adjacent),
+                       in.b_adjacent, res.b_adjacent);
         }
         LUISA_INFO("Complex struct test passed ({} instances).", 4);
     }

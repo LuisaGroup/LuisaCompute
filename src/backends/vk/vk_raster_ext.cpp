@@ -6,15 +6,8 @@
 #include "compute_shader.h"
 #include "raster_shader.h"
 #include "texture.h"
+#include "../common/backend_print_code.h"
 namespace lc::vk {
-static const bool kRasterPrintCode = ([] {
-    // read env LUISA_DUMP_SOURCE
-    auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) {
-        return false;
-    }
-    return std::string_view{env} == "1";
-})();
 ResourceCreationInfo VkRasterExt::create_raster_shader(
     Function vert,
     Function pixel,
@@ -28,11 +21,15 @@ ResourceCreationInfo VkRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, true);
-    if (kRasterPrintCode) {
-        auto f = fopen("hlsl_output.hlsl", "ab");
-        fwrite(code.result.data(), code.result.size(), 1, f);
-        fclose(f);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, true, false, option.enable_debug_info);
+    if (luisa::compute::backend_print_code_enabled()) {
+        auto dump_name = option.name;
+        auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+        auto f = fopen(dump_file_name.c_str(), "wb");
+        if (f) {
+            fwrite(code.result.data(), code.result.size(), 1, f);
+            fclose(f);
+        }
     }
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     auto comp_result = Device::compiler()->compile_raster(code.result.view(), !option.enable_debug_info, kShaderModel, option.enable_fast_math, true, option.enable_debug_info);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/mathematics.h>
+#include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/device_interface.h>
@@ -102,7 +103,13 @@ private:
                      if (size == 0) [[unlikely]] {
                          detail::error_buffer_size_is_zero();
                      }
-                     return device->create_buffer(Type::of<T>(), size, nullptr);
+                     auto info = device->create_buffer(Type::of<T>(), size, nullptr);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                     if (!info.valid()) {
+                         LUISA_ERROR("Failed to create buffer.");
+                     }
+#endif
+                     return info;
                  }()} {}
 
 public:

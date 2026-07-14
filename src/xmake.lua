@@ -6,6 +6,9 @@ end
 if has_config("lc_enable_dsl") then
     includes("dsl")
 end
+if has_config("lc_enable_xir") then
+    includes("coro")
+end
 if has_config("lc_enable_gui") then
     includes("gui")
 end

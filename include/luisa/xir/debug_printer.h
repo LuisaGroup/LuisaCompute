@@ -16,6 +16,7 @@ class Instruction;
 class Function;
 class Module;
 class Constant;
+class BasicBlock;
 
 class LUISA_XIR_API XIRDebugPrinter {
 

@@ -5,16 +5,9 @@
 #include "../../common/hlsl/shader_compiler.h"
 #include <luisa/vstl/md5.h>
 #include <luisa/core/logging.h>
+#include "../../common/backend_print_code.h"
 namespace lc::dx {
 namespace RasterShaderDetail {
-static const bool RASTER_PRINT_CODE = ([] {
-    // read env LUISA_DUMP_SOURCE
-    auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) {
-        return false;
-    }
-    return std::string_view{env} == "1";
-})();
 static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function pixelKernel) {
     if (vertexKernel.builder() == nullptr || pixelKernel.builder() == nullptr) {
         return {};
@@ -48,8 +41,9 @@ RasterShader::RasterShader(
     ComPtr<ID3D12RootSignature> &&root_sig,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     vstd::vector<std::byte> &&vert_bin_data,
-    vstd::vector<std::byte> &&pixel_bin_data)
-    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers)), _device(device), _md5{md5},
+    vstd::vector<std::byte> &&pixel_bin_data,
+    uint validation_count)
+    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers), validation_count), _device(device), _md5{md5},
       _vert_bin_data{std::move(vert_bin_data)}, _pixel_bin_data{std::move(pixel_bin_data)} {
 }
 void RasterShader::get_mesh_format_state(
@@ -94,8 +88,9 @@ RasterShader::RasterShader(
     vstd::vector<SavedArgument> &&args,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     vstd::vector<std::byte> &&vert_bin_data,
-    vstd::vector<std::byte> &&pixel_bin_data)
-    : Shader(std::move(prop), std::move(args), device->device.Get(), std::move(printers), true),
+    vstd::vector<std::byte> &&pixel_bin_data,
+    uint validation_count)
+    : Shader(std::move(prop), std::move(args), device->device.Get(), std::move(printers), validation_count, true),
       _device(device), _md5{md5},
       _vert_bin_data{std::move(vert_bin_data)}, _pixel_bin_data{std::move(pixel_bin_data)} {
 }
@@ -286,10 +281,18 @@ RasterShader *RasterShader::compile_raster(
         if (str.useBufferBindless) bdlsBufferCount++;
         if (str.useTex2DBindless) bdlsBufferCount++;
         if (str.useTex3DBindless) bdlsBufferCount++;
-        if (RasterShaderDetail::RASTER_PRINT_CODE) {
-            auto f = fopen("hlsl_output.hlsl", "wb");
-            fwrite(str.result.data(), str.result.size(), 1, f);
-            fclose(f);
+        if (luisa::compute::backend_print_code_enabled()) {
+            auto dump_name = [&]() -> luisa::string {
+                if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+                if (!vertexKernel.name().empty()) return luisa::string{vertexKernel.name()};
+                return luisa::format("{:x}", vertexKernel.hash());
+            }();
+            auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+            auto f = fopen(dump_file_name.c_str(), "wb");
+            if (f) {
+                fwrite(str.result.data(), str.result.size(), 1, f);
+                fclose(f);
+            }
         }
         auto compResult = Device::compiler()->compile_raster(
             str.result.view(),
@@ -318,6 +321,7 @@ RasterShader *RasterShader::compile_raster(
             auto serData = ShaderSerializer::RasterSerialize(
                 str.properties,
                 kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount,
+                str.validation_count,
                 str.printers);
             write_binary_io(cacheType, file_io, fileName, {reinterpret_cast<std::byte const *>(serData.data()), luisa::size_bytes(serData)});
         }
@@ -329,7 +333,8 @@ RasterShader *RasterShader::compile_raster(
             std::move(kernelArgs),
             std::move(str.printers),
             std::move(vertBin),
-            std::move(pixelBin));
+            std::move(pixelBin),
+            str.validation_count);
         s->_bindless_count = bdlsBufferCount;
         return s;
     };
@@ -358,10 +363,18 @@ void RasterShader::save_raster(
     uint shaderModel,
     bool enableUnsafeMath,
     bool debug) {
-    if (RasterShaderDetail::RASTER_PRINT_CODE) {
-        auto f = fopen("hlsl_output.hlsl", "ab");
-        fwrite(result.result.data(), result.result.size(), 1, f);
-        fclose(f);
+    if (luisa::compute::backend_print_code_enabled()) {
+        auto dump_name = [&]() -> luisa::string {
+            if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+            if (!vertexKernel.name().empty()) return luisa::string{vertexKernel.name()};
+            return luisa::format("{:x}", vertexKernel.hash());
+        }();
+        auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+        auto f = fopen(dump_file_name.c_str(), "wb");
+        if (f) {
+            fwrite(result.result.data(), result.result.size(), 1, f);
+            fclose(f);
+        }
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *file_io)) return;
     auto compiler = Device::compiler();
@@ -397,6 +410,7 @@ void RasterShader::save_raster(
             result.properties,
             kernelArgs,
             vertBin, pixelBin, md5, result.typeMD5, bdlsBufferCount,
+            result.validation_count,
             result.printers);
         static_cast<void>(file_io->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), luisa::size_bytes(serData)}));
     } else {

@@ -64,6 +64,10 @@ int main(int argc, char *argv[]) {
     }
     bool force_offline = false;
     std::optional<std::filesystem::path> compare_path;
+    auto executable_name = std::filesystem::path{argv[0]}.filename().string();
+    if (std::string_view{executable_name}.starts_with("test_")) {
+        force_offline = true;
+    }
     for (int i = 2; i < argc; i++) {
         if (std::string_view{argv[i]} == "--offline") {
             force_offline = true;

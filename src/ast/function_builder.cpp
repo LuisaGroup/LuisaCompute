@@ -108,6 +108,24 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
+void FunctionBuilder::suspend_() noexcept {
+    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), luisa::string{});
+}
+
+void FunctionBuilder::suspend_(uint32_t token) noexcept {
+    LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
+    _create_and_append_statement<SuspendStmt>(token);
+}
+
+void FunctionBuilder::suspend_(luisa::string name) noexcept {
+    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), std::move(name));
+}
+
+void FunctionBuilder::suspend_(uint32_t token, luisa::string name) noexcept {
+    LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
+    _create_and_append_statement<SuspendStmt>(token, std::move(name));
+}
+
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
     LUISA_ASSERT(query->builder() == this,
                  "Ray query must be created by the same function builder.");
@@ -312,6 +330,10 @@ uint32_t FunctionBuilder::_next_variable_uid() noexcept {
     return uid;
 }
 
+uint32_t FunctionBuilder::_next_suspend_token() noexcept {
+    return _next_coro_suspend_token++;
+}
+
 const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::THREAD_ID); }
 const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::BLOCK_ID); }
 const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::DISPATCH_ID); }
@@ -321,6 +343,8 @@ const RefExpr *FunctionBuilder::raster_object_id() noexcept { return _builtin(Ty
 const RefExpr *FunctionBuilder::raster_barycentrics() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::RASTER_BARYCENTRICS); }
 const RefExpr *FunctionBuilder::warp_lane_count() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_COUNT); }
 const RefExpr *FunctionBuilder::warp_lane_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_ID); }
+
+const RefExpr *FunctionBuilder::coro_token() noexcept { return local(Type::of<uint>()); }
 
 inline const RefExpr *FunctionBuilder::_builtin(Type const *type, Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
@@ -645,6 +669,7 @@ luisa::string FunctionBuilder::debug_name() const noexcept {
             case Tag::KERNEL: return "kernel"sv;
             case Tag::RASTER_STAGE: return "raster_stage"sv;
             case Tag::WORK_GRAPH_NODE: return "work_graph_node"sv;
+            case Tag::COROUTINE: return "coroutine"sv;
         }
         return "unknown"sv;
     }();

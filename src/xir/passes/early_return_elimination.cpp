@@ -15,6 +15,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -55,7 +56,10 @@ namespace detail {
         bool found = false;
         curr->traverse_successors(false, [&](BasicBlock *succ) noexcept {
             if (found || succ == stop || visited.contains(succ)) { return; }
-            if (succ == target) { found = true; return; }
+            if (succ == target) {
+                found = true;
+                return;
+            }
             visited.emplace(succ);
             stack.emplace_back(succ);
         });
@@ -65,10 +69,10 @@ namespace detail {
 }
 
 [[nodiscard]] static BasicBlock *find_merge_target(BasicBlock *early_return_block,
-                                                    const luisa::vector<BasicBlock *> &chain) noexcept {
+                                                   const luisa::vector<BasicBlock *> &chain) noexcept {
     auto n = chain.size();
-    for (size_t i = n - 1u; i > 0u; --i) {
-        auto candidate_container = chain[i - 1u];
+    for (size_t i = n - 1; i > 0; --i) {
+        auto candidate_container = chain[i - 1];
         auto candidate_merge = chain[i];
         if (is_reachable_avoiding(candidate_container, early_return_block, candidate_merge)) {
             return candidate_merge;
@@ -207,6 +211,7 @@ static void eliminate_early_return_in_function(Function *function, EarlyReturnEl
                 early_returns.emplace_back(static_cast<ReturnInst *>(terminator));
             }
         });
+        if (final_return == nullptr) { return; }
         if (!early_returns.empty()) {
             XIRBuilder b;
             b.set_insertion_point(def->body_block()->instructions().head_sentinel());
@@ -229,9 +234,12 @@ static void eliminate_early_return_in_function(Function *function, EarlyReturnEl
 
             luisa::unordered_set<BasicBlock *> conditionalized;
             for (auto &[r, merge_target] : return_targets) {
-                size_t idx = 0u;
-                for (size_t i = 0u; i < chain.size(); ++i) {
-                    if (chain[i] == merge_target) { idx = i; break; }
+                size_t idx = 0;
+                for (size_t i = 0; i < chain.size(); ++i) {
+                    if (chain[i] == merge_target) {
+                        idx = i;
+                        break;
+                    }
                 }
                 for (auto i = idx; i < chain.size(); ++i) {
                     conditionalized.emplace(chain[i]);
@@ -273,10 +281,13 @@ EarlyReturnEliminationInfo early_return_elimination_pass_run_on_function(Functio
     return info;
 }
 
-EarlyReturnEliminationInfo early_return_elimination_pass_run_on_module(Module *module) noexcept {
+EarlyReturnEliminationInfo early_return_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     EarlyReturnEliminationInfo info;
     for (auto f : module->function_list()) {
         detail::eliminate_early_return_in_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("removed_return", info.removed_return_count);
     }
     return info;
 }

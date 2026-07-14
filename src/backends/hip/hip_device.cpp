@@ -25,6 +25,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include "llvm_codegen/hip_codegen_llvm.h"
 #endif
 
@@ -432,23 +433,27 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                       early_return_info.removed_return_count);
     }
     if (LUISA_XIR_NORMALIZE_CFG) {
-        auto destructure_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
-        auto simplify_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
-        LUISA_VERBOSE("XIR CFG normalization: destructured {} if(s), {} loop(s), {} simple loop(s); "
-                      "simplified: folded {} cond_br(s), threaded {} block(s), removed {} unreachable block(s).",
-                      destructure_info.destructured_if_count,
-                      destructure_info.destructured_loop_count,
-                      destructure_info.destructured_simple_loop_count,
-                      simplify_info.folded_constant_cond_br_count,
-                      simplify_info.threaded_empty_block_count,
-                      simplify_info.removed_unreachable_block_count);
+        xir::PassPipeline cfg_pipeline;
+        cfg_pipeline.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
+            return i.destructured_if_count > 0u ||
+                   i.destructured_loop_count > 0u ||
+                   i.destructured_simple_loop_count > 0u;
+        });
+        cfg_pipeline.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
+            return i.folded_constant_cond_br_count > 0u ||
+                   i.threaded_empty_block_count > 0u ||
+                   i.removed_unreachable_block_count > 0u;
+        });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
-            auto restructure_info = xir::restructure_cfg_pass_run_on_module(xir_module.get());
-            LUISA_VERBOSE("XIR CFG restructuring: restructured {} loop(s), {} if(s); {} irreducible region(s) remained.",
-                          restructure_info.restructured_loop_count,
-                          restructure_info.restructured_if_count,
-                          restructure_info.irreducible_region_count);
+            cfg_pipeline.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+            });
         }
+        auto stats = cfg_pipeline.run(xir_module.get());
+        stats.log("HIP backend CFG normalization");
     }
 
     auto wave_size = 32u;

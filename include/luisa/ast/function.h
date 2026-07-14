@@ -52,7 +52,8 @@ public:
         KERNEL,
         CALLABLE,
         RASTER_STAGE,
-        WORK_GRAPH_NODE
+        WORK_GRAPH_NODE,
+        COROUTINE,
     };
 
     using FunctionAttribute = detail::LiteralValueVariant;

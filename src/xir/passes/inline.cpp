@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/call_graph.h>
 #include <luisa/xir/builder.h>
 #include <luisa/core/logging.h>
@@ -9,6 +10,7 @@
 #include <luisa/xir/argument.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/value.h>
 
 namespace luisa::compute::xir {
 
@@ -29,7 +31,10 @@ namespace detail {
 
 class InlineValueResolver final : public InstructionCloneValueResolver {
     luisa::unordered_map<const Value *, Value *> _map;
+    Module *_module;
 public:
+    explicit InlineValueResolver(Function *caller_func) noexcept
+        : _module{caller_func->parent_module()} {}
     void emplace(const Value *from, Value *to) noexcept { _map.emplace(from, to); }
     [[nodiscard]] Value *resolve(const Value *value) noexcept override {
         if (value == nullptr) return nullptr;
@@ -42,7 +47,17 @@ public:
             default: break;
         }
         auto it = _map.find(value);
-        LUISA_ASSERT(it != _map.end(), "Inline: unresolved value.");
+        if (it == _map.end()) {
+            if (value->derived_value_tag() == DerivedValueTag::BASIC_BLOCK) {
+                return nullptr;
+            }
+            if (value->type() != nullptr) {
+                auto undef = _module->create_undefined(value->type());
+                _map.emplace(value, undef);
+                return undef;
+            }
+            LUISA_ERROR("Inline: unresolved value (tag={}).", to_string(value->derived_value_tag()));
+        }
         return it->second;
     }
 };
@@ -63,15 +78,13 @@ public:
 
     auto module = caller_func->parent_module();
     XIRBuilder builder;
-    InlineValueResolver resolver;
+    InlineValueResolver resolver{caller_func};
 
     // Map callee args -> call args
     {
         size_t i = 0;
         for (auto arg : callee->arguments()) {
-            auto call_arg = i < call->argument_count()
-                                ? call->argument(i)
-                                : static_cast<Value *>(module->create_undefined(arg->type()));
+            auto call_arg = i < call->argument_count() ? call->argument(i) : static_cast<Value *>(module->create_undefined(arg->type()));
             if (arg->is_lvalue() && !call_arg->is_lvalue()) {
                 builder.set_insertion_point(call);
                 auto tmp = builder.alloca_local(arg->type());
@@ -84,7 +97,7 @@ public:
         }
     }
 
-    // Collect callee blocks and create mapped blocks in caller
+    // Collect reachable callee blocks in RPO for instruction cloning.
     luisa::vector<BasicBlock *> callee_blocks;
     callee_def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *bb) noexcept { callee_blocks.push_back(bb); });
 
@@ -99,6 +112,21 @@ public:
 
     // Create single-exit merge block and return value alloca
     auto merge_bb = caller_func->create_basic_block();
+
+    // Map unreachable blocks to dedicated empty blocks so structured
+    // terminators (IfInst, LoopInst) referencing them get valid targets.
+    {
+        luisa::unordered_set<BasicBlock *> reachable{callee_blocks.begin(), callee_blocks.end()};
+        for (auto bb : callee_def->basic_blocks()) {
+            if (reachable.find(bb) == reachable.end()) {
+                auto nb = caller_func->create_basic_block();
+                block_map[bb] = nb;
+                resolver.emplace(bb, nb);
+                builder.set_insertion_point(nb);
+                builder.unreachable_();
+            }
+        }
+    }
     Instruction *ret_alloca = nullptr;
     if (call->type()) {
         builder.set_insertion_point(call);
@@ -148,7 +176,7 @@ public:
     // Patch phi node operands now that all blocks and values are mapped.
     for (auto [original_phi, dup_phi] : phi_nodes) {
         dup_phi->set_incoming_count(original_phi->incoming_count());
-        for (auto i = 0u; i < original_phi->incoming_count(); i++) {
+        for (size_t i = 0; i < original_phi->incoming_count(); i++) {
             auto incoming = original_phi->incoming(i);
             auto resolved_value = resolver.resolve(incoming.value);
             auto resolved_block = resolver.resolve(incoming.block);
@@ -164,7 +192,10 @@ public:
     luisa::vector<Instruction *> to_move;
     bool past = false;
     for (auto inst : call_block->instructions()) {
-        if (inst == call) { past = true; continue; }
+        if (inst == call) {
+            past = true;
+            continue;
+        }
         if (past) to_move.push_back(inst);
     }
 
@@ -198,6 +229,13 @@ public:
     // Branch from call_block to inlined entry
     builder.set_insertion_point(call_block);
     builder.br(entry_block);
+
+    // Defensive: if merge_bb has no terminator (can happen when call_block
+    // was already unterminated in malformed IR), add unreachable.
+    if (!merge_bb->is_terminated()) {
+        builder.set_insertion_point(merge_bb);
+        builder.unreachable_();
+    }
 
     return true;
 }
@@ -247,13 +285,17 @@ static void run(Module *module, InlineInfo &info) noexcept {
 
 }// namespace detail
 
-InlineInfo inline_pass_run_on_module(Module *module) noexcept {
+InlineInfo inline_pass_run_on_module(Module *module, PassReport *report) noexcept {
     InlineInfo info;
     detail::run(module, info);
+    if (report != nullptr) {
+        report->set("inlined_call", info.inlined_call_count);
+        report->set("removed_callable", info.removed_callable_count);
+    }
     return info;
 }
 
-InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
+InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report) noexcept {
     InlineInfo info;
     if (!module) return info;
     for (;;) {
@@ -294,6 +336,10 @@ InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
             }
         }
         if (!progress) break;
+    }
+    if (report != nullptr) {
+        report->set("inlined_call", info.inlined_call_count);
+        report->set("removed_callable", info.removed_callable_count);
     }
     return info;
 }

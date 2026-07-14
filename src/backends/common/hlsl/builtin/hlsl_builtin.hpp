@@ -22,9 +22,13 @@
 #endif
 
 extern "C" {
+LC_HLSL_DECL_VARNAME(accel_process_vk_motion_bytes)
+LC_HLSL_DECL_VARNAME(accel_process_vk_bytes)
+LC_HLSL_DECL_VARNAME(bindless_upload_bytes)
 LC_HLSL_DECL_VARNAME(hlsl_header_bytes)
 LC_HLSL_DECL_VARNAME(work_graph_bytes)
 LC_HLSL_DECL_VARNAME(dx_linalg_bytes)
+LC_HLSL_DECL_VARNAME(vk_linalg_bytes)
 LC_HLSL_DECL_VARNAME(hlsl_header_fallback_bytes)
 LC_HLSL_DECL_VARNAME(raytracing_header_bytes)
 LC_HLSL_DECL_VARNAME(raytracing_motion_header_bytes)
@@ -36,6 +40,7 @@ LC_HLSL_DECL_VARNAME(inverse_bytes)
 LC_HLSL_DECL_VARNAME(indirect_bytes)
 LC_HLSL_DECL_VARNAME(resource_size_bytes)
 LC_HLSL_DECL_VARNAME(accel_header_bytes)
+LC_HLSL_DECL_VARNAME(accel_process_bytes)
 LC_HLSL_DECL_VARNAME(copy_sign_bytes)
 LC_HLSL_DECL_VARNAME(bindless_common_bytes)
 LC_HLSL_DECL_VARNAME(auto_diff_bytes)
@@ -52,6 +57,7 @@ LC_HLSL_DECL_VARNAME(bc7_trymode02_dxil)
 LC_HLSL_DECL_VARNAME(bc7_trymode137_dxil)
 LC_HLSL_DECL_VARNAME(bc7_trymode456_dxil)
 LC_HLSL_DECL_VARNAME(spv_alias_bytes)
+LC_HLSL_DECL_VARNAME(bindless_upload_vk_bytes)
 }
 
 namespace lc_hlsl {
@@ -63,16 +69,20 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
     struct Dict {
         luisa::unordered_map<luisa::string_view, HLSLCompressedHeader> dict;
         Dict() {
+            LC_HLSL_INSERT_VARNAME(bindless_upload_vk_bytes, "bindless_upload_vk.bytes")
+            LC_HLSL_INSERT_VARNAME(accel_process_vk_bytes, "accel_process_vk.bytes")
             LC_HLSL_INSERT_VARNAME(hlsl_header_bytes, "hlsl_header")
             LC_HLSL_INSERT_VARNAME(work_graph_bytes, "work_graph")
             LC_HLSL_INSERT_VARNAME(spv_alias_bytes, "spv_alias")
             LC_HLSL_INSERT_VARNAME(dx_linalg_bytes, "dx_linalg")
+            LC_HLSL_INSERT_VARNAME(vk_linalg_bytes, "vk_linalg")
             LC_HLSL_INSERT_VARNAME(hlsl_header_fallback_bytes, "hlsl_header_fallback")
             LC_HLSL_INSERT_VARNAME(raytracing_header_bytes, "raytracing_header")
             LC_HLSL_INSERT_VARNAME(raytracing_motion_header_bytes, "raytracing_motion_header")
             LC_HLSL_INSERT_VARNAME(tex2d_bindless_bytes, "tex2d_bindless")
             LC_HLSL_INSERT_VARNAME(tex3d_bindless_bytes, "tex3d_bindless")
             LC_HLSL_INSERT_VARNAME(compute_quad_bytes, "compute_quad")
+            LC_HLSL_INSERT_VARNAME(bindless_upload_bytes, "bindless_upload.bytes")
             LC_HLSL_INSERT_VARNAME(determinant_bytes, "determinant")
             LC_HLSL_INSERT_VARNAME(inverse_bytes, "inverse")
             LC_HLSL_INSERT_VARNAME(indirect_bytes, "indirect")
@@ -82,6 +92,7 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
             LC_HLSL_INSERT_VARNAME(bindless_common_bytes, "bindless_common")
             LC_HLSL_INSERT_VARNAME(auto_diff_bytes, "auto_diff")
             LC_HLSL_INSERT_VARNAME(reduce_bytes, "reduce")
+            LC_HLSL_INSERT_VARNAME(accel_process_bytes, "accel_process.bytes")
             LC_HLSL_INSERT_VARNAME(accel_process_vk_dxil, "accel_process_vk.dxil")
             LC_HLSL_INSERT_VARNAME(load_bdls_dxil, "load_bdls.dxil")
             LC_HLSL_INSERT_VARNAME(load_bdls_vk_dxil, "load_bdls_vk.dxil")
@@ -93,6 +104,7 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
             LC_HLSL_INSERT_VARNAME(bc7_trymode02_dxil, "bc7_trymode02.dxil")
             LC_HLSL_INSERT_VARNAME(bc7_trymode137_dxil, "bc7_trymode137.dxil")
             LC_HLSL_INSERT_VARNAME(bc7_trymode456_dxil, "bc7_trymode456.dxil")
+            LC_HLSL_INSERT_VARNAME(accel_process_vk_motion_bytes, "accel_process_vk_motion.bytes")
         }
     };
     static Dict dict;

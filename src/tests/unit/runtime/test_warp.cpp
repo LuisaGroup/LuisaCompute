@@ -34,8 +34,9 @@ void test_warp(Device &device) {
         return buffer.write(size.x * idx.y + idx.x, value);
     };
 
-    // Warp size constant (32 for NVIDIA/AMD, 64 for AMD in some cases)
-    constexpr uint k_warp_size = 32;
+    // Use the backend's native warp/subgroup width. Vulkan on AMD commonly
+    // exposes 64-lane subgroups, while CUDA/DX paths usually use 32.
+    auto warp_size = device.compute_warp_size();
 
     // Warp-level matrix multiplication kernel
     // Computes: result = lhs * rhs where lhs is [M x K] and rhs is [K x N]
@@ -47,26 +48,26 @@ void test_warp(Device &device) {
         set_block_size(128, 1, 1);
         // Note: Requires Shader Model 6.6 (DirectX) or CUDA
         // The warp size is implementation-defined for modern GPUs
-        set_warp_size(k_warp_size);
+        set_warp_size(warp_size);
 
         // Calculate matrix dimensions from dispatch size
         UInt2 lhs_matrix_size = make_uint2(lhs_row_size, dispatch_size().y);
-        UInt2 rhs_matrix_size = make_uint2(dispatch_size().x / k_warp_size, lhs_row_size);
+        UInt2 rhs_matrix_size = make_uint2(dispatch_size().x / warp_size, lhs_row_size);
 
         // Each warp processes one output tile
-        UInt lhs_y = dispatch_id().x / k_warp_size;// Row in output
+        UInt lhs_y = dispatch_id().x / warp_size;// Row in output
         UInt rhs_x = dispatch_id().y;              // Column in output
         UInt warp_local_id = warp_lane_id();       // Thread index within warp (0-31)
 
         // Calculate number of tiles along K dimension
-        UInt lhs_row_batch_count = (lhs_matrix_size.x + k_warp_size - 1) / k_warp_size;
+        UInt lhs_row_batch_count = (lhs_matrix_size.x + warp_size - 1) / warp_size;
         Float curr_lane_value = 0.f;
 
         Float local_v;
         // Process K dimension in tiles of warp_size
         for (auto lhs_row_batch : dynamic_range(lhs_row_batch_count)) {
             // Index within current tile
-            UInt lhs_x = lhs_row_batch * k_warp_size + warp_local_id;
+            UInt lhs_x = lhs_row_batch * warp_size + warp_local_id;
 
             // Load and multiply if within bounds
             $if (lhs_x < lhs_matrix_size.x) {
@@ -127,7 +128,7 @@ void test_warp(Device &device) {
         << lhs_buffer.copy_from(luisa::span{lhs_matrix})
         << rhs_buffer.copy_from(luisa::span{rhs_matrix})
         // Dispatch: x dimension accounts for warp grouping, y is matrix rows
-        << mat_mul_shader(lhs_buffer, rhs_buffer, result_buffer, k_matrix_size).dispatch(k_matrix_size * k_warp_size, k_matrix_size)
+        << mat_mul_shader(lhs_buffer, rhs_buffer, result_buffer, k_matrix_size).dispatch(k_matrix_size * warp_size, k_matrix_size)
         << result_buffer.copy_to(luisa::span{result_matrix})
         << synchronize();
 

@@ -8,7 +8,7 @@
 #include <luisa/runtime/volume.h>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/backends/ext/native_resource_ext.hpp>
-#include <luisa/backends/ext/cuda_config_ext.h>
+#include <luisa/backends/ext/cuda/cuda_config_ext.h>
 namespace luisa::compute {
 class VkCudaInterop;
 namespace vk_cuda_interop {

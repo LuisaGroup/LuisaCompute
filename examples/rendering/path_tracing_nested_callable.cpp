@@ -92,11 +92,7 @@ int main(int argc, char *argv[]) {
     for (Mesh &m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f));
     }
-    stream << heap.update()
-           << accel.build()
-           << synchronize();
-
-    Constant materials{
+    float3 materials_host[]{
         make_float3(0.725f, 0.710f, 0.680f),// floor
         make_float3(0.725f, 0.710f, 0.680f),// ceiling
         make_float3(0.725f, 0.710f, 0.680f),// back wall
@@ -106,6 +102,13 @@ int main(int argc, char *argv[]) {
         make_float3(0.725f, 0.710f, 0.680f),// tall box
         make_float3(0.000f, 0.000f, 0.000f),// light
     };
+    Buffer<float3> materials = device.create_buffer<float3>(8);
+    stream << heap.update()
+           << accel.build()
+           << materials.copy_from(luisa::span<float3>{materials_host})
+           << synchronize();
+
+    
 
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
         return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -222,7 +225,7 @@ int main(int argc, char *argv[]) {
                     Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
                     Float3 pp_light = offset_ray_origin(p_light, light_normal);
                     pp.emplace(offset_ray_origin(p, n));
-                    albedo.emplace(materials.read(hit.inst));
+                    albedo.emplace(materials->read(hit.inst));
                     Float d_light = distance(*pp, pp_light);
                     Float3 wi_light = normalize(pp_light - *pp);
                     $lambda({
@@ -300,14 +303,17 @@ int main(int argc, char *argv[]) {
     };
 
     ShaderOption o{.enable_debug_info = false};
+    o.name = "raytracing";
+    auto raytracing_shader = device.compile(raytracing_kernel, o);
+    // DO NOT CHANGE THIS
+    // return 0;
     o.name = "clear";
     auto clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     o.name = "accumulate";
     auto accumulate_shader = device.compile(accumulate_kernel, o);
-    o.name = "raytracing";
-    auto raytracing_shader = device.compile(raytracing_kernel, o);
+    
     o.name = "make_sampler";
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
 
@@ -315,10 +321,9 @@ int main(int argc, char *argv[]) {
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
-    CommandList cmd_list;
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    cmd_list << clear_shader(accum_image).dispatch(resolution)
-             << make_sampler_shader(seed_image).dispatch(resolution);
+    stream << clear_shader(accum_image).dispatch(resolution)
+           << make_sampler_shader(seed_image).dispatch(resolution);
 
     // Setup window and swapchain conditionally
     std::unique_ptr<Window> window;
@@ -344,17 +349,14 @@ int main(int argc, char *argv[]) {
     Clock clock;
     uint offline_total_spp = opts.spp == 0u ? 1024u : opts.spp;
     while (opts.offline ? (frame_count < offline_total_spp) : !window->should_close()) {
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
-                        .dispatch(resolution)
-                 << accumulate_shader(accum_image, framebuffer)
-                        .dispatch(resolution);
+        stream << raytracing_shader(framebuffer, seed_image, accel, resolution)
+                      .dispatch(resolution)
+               << accumulate_shader(accum_image, framebuffer)
+                      .dispatch(resolution);
         if (!opts.offline && swap_chain.has_value()) {
-            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution);
-            stream << cmd_list.commit()
-                   << swap_chain->present(ldr_image) << synchronize();
+            stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
+                   << swap_chain->present(ldr_image);
             window->poll_events();
-        } else {
-            stream << cmd_list.commit() << synchronize();
         }
         double dt = clock.toc() - last_time;
         last_time = clock.toc();

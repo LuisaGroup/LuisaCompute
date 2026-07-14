@@ -90,7 +90,15 @@ endif ()
 
 # compute (headless)
 luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
+luisa_compute_add_example(example_coro_sdf_renderer rendering/coro_sdf_renderer.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_multi_head_attention ml/multi_head_attention.cpp MIRROR_AS_TEST)
+
+# coroutine (headless)
+luisa_compute_add_example(example_coro_path_tracing rendering/coro_path_tracing.cpp)
+luisa_compute_add_example(example_coro_path_tracing_wavefront rendering/coro_path_tracing.cpp)
+target_compile_definitions(example_coro_path_tracing_wavefront
+        PRIVATE LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1)
 
 # --- GUI toolkit integration examples (wxWidgets, Qt) ---
 
@@ -109,6 +117,7 @@ if (LUISA_COMPUTE_ENABLE_DX)
     luisa_compute_add_example(example_dx_supersampling extension/dx_supersampling.cpp)
     luisa_compute_add_example(example_fsr3 extension/fsr3.cpp)
     luisa_compute_add_example(example_supersampling extension/supersampling.cpp)
+    luisa_compute_add_example(example_dx_custom_sdk dx/custom_sdk/custom_sdk.cpp)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_CLANG_CXX)

@@ -18,6 +18,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/load.h>
@@ -48,8 +49,8 @@ class XIR2TextTranslator final {
 private:
     StringScratch _prelude;
     StringScratch _main;
-    luisa::unordered_map<const Value *, uint> _value_uid_map;
-    luisa::unordered_map<const Type *, uint> _struct_uid_map;
+    luisa::unordered_map<const Value *, uint32_t> _value_uid_map;
+    luisa::unordered_map<const Type *, uint32_t> _struct_uid_map;
     luisa::unordered_set<const BasicBlock *> _emitted_blocks;
     bool _debug_info{false};
     bool _flat_blocks{false};
@@ -57,7 +58,7 @@ private:
 private:
     [[nodiscard]] auto _value_uid(const Value *value) noexcept {
         LUISA_ASSERT(value != nullptr, "Value must not be null.");
-        auto next_uid = static_cast<uint>(_value_uid_map.size());
+        auto next_uid = static_cast<uint32_t>(_value_uid_map.size());
         return _value_uid_map.try_emplace(value, next_uid).first->second;
     }
 
@@ -81,7 +82,7 @@ private:
             if (auto iter = _struct_uid_map.find(type); iter != _struct_uid_map.end()) {
                 return iter->second;
             }
-            auto next_uid = static_cast<uint>(_struct_uid_map.size());
+            auto next_uid = static_cast<uint32_t>(_struct_uid_map.size());
             _prelude << "type T" << next_uid << " = opaque \"" << type->description() << "\";\n\n";
             _struct_uid_map.emplace(type, next_uid);
             return next_uid;
@@ -99,7 +100,7 @@ private:
             desc.pop_back();
             desc.pop_back();
         }
-        auto next_uid = static_cast<uint>(_struct_uid_map.size());
+        auto next_uid = static_cast<uint32_t>(_struct_uid_map.size());
         _prelude << "type T" << next_uid << " = struct { " << desc << " };\n\n";
         _struct_uid_map.emplace(type, next_uid);
         return next_uid;
@@ -158,6 +159,8 @@ private:
             case Type::Tag::FLOAT16: return "f16";
             case Type::Tag::FLOAT32: return "f32";
             case Type::Tag::FLOAT64: return "f64";
+            case Type::Tag::FLOAT8_E4M3: return "f8e4m3";
+            case Type::Tag::FLOAT8_E5M2: return "f8e5m2";
             case Type::Tag::VECTOR: return luisa::format("vector<{}, {}>", _type_ident(type->element()), type->dimension());
             case Type::Tag::MATRIX: return luisa::format("matrix<{}, {}>", _type_ident(type->element()), type->dimension());
             case Type::Tag::ARRAY: return luisa::format("array<{}, {}>", _type_ident(type->element()), type->dimension());
@@ -221,7 +224,7 @@ private:
         auto size = c->type()->size();
         for (auto i = 0u; i < size; i++) {
             auto x = static_cast<const uint8_t *>(c->data())[i];
-            _prelude << luisa::format("{:02x}", static_cast<uint>(x));
+            _prelude << luisa::format("{:02x}", static_cast<uint32_t>(x));
         }
         _prelude << ";";
         _emit_use_debug_info(_prelude, c->use_list());
@@ -258,6 +261,20 @@ private:
         }
     }
 
+    void _emit_coro_suspend_inst(const CoroSuspendInst *inst) noexcept {
+        _main << "coro_suspend " << inst->token() << " ";
+        _emit_string_escaped(_main, inst->name());
+        _main << " " << _value_ident(inst->frame());
+    }
+
+    void _emit_coro_resume_inst(const CoroResumeInst *inst) noexcept {
+        _main << "coro_resume " << inst->token() << " " << _value_ident(inst->frame());
+    }
+
+    void _emit_coro_terminate_inst(const CoroTerminateInst *inst [[maybe_unused]]) noexcept {
+        _main << "coro_terminate";
+    }
+
     void _emit_assert_inst(const AssertInst *inst) noexcept {
         _main << "assert";
         if (!inst->message().empty()) {
@@ -285,6 +302,17 @@ private:
         _flat_blocks ? _emit_basic_block_ref(inst->true_block()) : _emit_basic_block(inst->true_block(), indent);
         _main << ", else ";
         _flat_blocks ? _emit_basic_block_ref(inst->false_block()) : _emit_basic_block(inst->false_block(), indent);
+        _main << ", merge ";
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
+    }
+
+    void _emit_autodiff_scope_inst(const AutodiffScopeInst *inst, int indent) noexcept {
+        if (inst->is_forward()) {
+            _main << "autodiff forward " << inst->n_forward_grads() << " entry ";
+        } else {
+            _main << "autodiff entry ";
+        }
+        _flat_blocks ? _emit_basic_block_ref(inst->entry_block()) : _emit_basic_block(inst->entry_block(), indent);
         _main << ", merge ";
         _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
@@ -490,6 +518,15 @@ private:
             case DerivedInstructionTag::UNREACHABLE:
                 _emit_unreachable_inst(static_cast<const UnreachableInst *>(inst));
                 break;
+            case DerivedInstructionTag::CORO_SUSPEND:
+                _emit_coro_suspend_inst(static_cast<const CoroSuspendInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_RESUME:
+                _emit_coro_resume_inst(static_cast<const CoroResumeInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_TERMINATE:
+                _emit_coro_terminate_inst(static_cast<const CoroTerminateInst *>(inst));
+                break;
             case DerivedInstructionTag::IF:
                 _emit_if_inst(static_cast<const IfInst *>(inst), indent);
                 break;
@@ -541,7 +578,9 @@ private:
             case DerivedInstructionTag::OUTLINE:
                 _emit_outline_inst(static_cast<const OutlineInst *>(inst), indent);
                 break;
-            case DerivedInstructionTag::AUTODIFF_SCOPE: LUISA_NOT_IMPLEMENTED();
+            case DerivedInstructionTag::AUTODIFF_SCOPE:
+                _emit_autodiff_scope_inst(static_cast<const AutodiffScopeInst *>(inst), indent);
+                break;
             case DerivedInstructionTag::AUTODIFF_INTRINSIC:
                 _emit_autodiff_intrinsic_inst(static_cast<const AutodiffIntrinsicInst *>(inst));
                 break;
