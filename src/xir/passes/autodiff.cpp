@@ -1182,24 +1182,29 @@ struct TransformAdScope {
         }
         if (auto if_inst = block->terminator(); if_inst != nullptr && if_inst->isa<IfInst>()) {
             auto structured_if = static_cast<IfInst *>(if_inst);
+            auto structured_merge = structured_if->merge_block();
             LUISA_ASSERT(owns_block(structured_if->true_block()) &&
                              owns_block(structured_if->false_block()) &&
-                             owns_block(structured_if->merge_block()),
+                             (structured_merge == nullptr || owns_block(structured_merge)),
                          "Invalid XIR if region in autodiff scope.");
             snapshot_if_condition(structured_if);
             luisa::vector<Instruction *> true_emit;
             luisa::vector<Instruction *> false_emit;
-            auto found = collect_forward(structured_if->true_block(), structured_if->merge_block(), visited, true_emit);
-            found |= collect_forward(structured_if->false_block(), structured_if->merge_block(), visited, false_emit);
+            // A null structured merge means the arms do not rejoin. Bound their
+            // traversal by the enclosing region instead.
+            auto branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            auto found = collect_forward(structured_if->true_block(), branch_merge, visited, true_emit);
+            found |= collect_forward(structured_if->false_block(), branch_merge, visited, false_emit);
             if_true_backward_emit_instructions[structured_if] = std::move(true_emit);
             if_false_backward_emit_instructions[structured_if] = std::move(false_emit);
-            if (found) { return true; }
-            return collect_forward(structured_if->merge_block(), merge, visited, emit_instructions);
+            if (found || structured_merge == nullptr) { return found; }
+            return collect_forward(structured_merge, merge, visited, emit_instructions);
         }
         if (auto switch_inst = block->terminator(); switch_inst != nullptr && switch_inst->isa<SwitchInst>()) {
             auto structured_switch = static_cast<SwitchInst *>(switch_inst);
+            auto structured_merge = structured_switch->merge_block();
             LUISA_ASSERT(owns_block(structured_switch->default_block()) &&
-                             owns_block(structured_switch->merge_block()),
+                             (structured_merge == nullptr || owns_block(structured_merge)),
                          "Invalid XIR switch region in autodiff scope.");
             for (auto i = 0u; i < structured_switch->case_count(); i++) {
                 LUISA_ASSERT(owns_block(structured_switch->case_block(i)),
@@ -1209,14 +1214,15 @@ struct TransformAdScope {
             luisa::vector<Instruction *> default_emit;
             luisa::vector<luisa::vector<Instruction *>> case_emits;
             case_emits.resize(structured_switch->case_count());
-            auto found = collect_forward(structured_switch->default_block(), structured_switch->merge_block(), visited, default_emit);
+            auto branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            auto found = collect_forward(structured_switch->default_block(), branch_merge, visited, default_emit);
             for (auto i = 0u; i < structured_switch->case_count(); i++) {
-                found |= collect_forward(structured_switch->case_block(i), structured_switch->merge_block(), visited, case_emits[i]);
+                found |= collect_forward(structured_switch->case_block(i), branch_merge, visited, case_emits[i]);
             }
             switch_default_backward_emit_instructions[structured_switch] = std::move(default_emit);
             switch_case_backward_emit_instructions[structured_switch] = std::move(case_emits);
-            if (found) { return true; }
-            return collect_forward(structured_switch->merge_block(), merge, visited, emit_instructions);
+            if (found || structured_merge == nullptr) { return found; }
+            return collect_forward(structured_merge, merge, visited, emit_instructions);
         }
         if (auto loop_inst = block->terminator(); loop_inst != nullptr &&
                                                 (loop_inst->isa<LoopInst>() || loop_inst->isa<SimpleLoopInst>())) {
