@@ -6,6 +6,10 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/arithmetic.h>
 
+#include "helpers.h"
+
+#include <algorithm>
+
 namespace luisa::compute::xir {
 
 namespace {
@@ -63,19 +67,26 @@ void fuse_buffer_reads_in_block(BasicBlock *bb, FunctionDefinition *def,
     // Collect all buffer reads in this block, grouped by buffer
     luisa::unordered_map<Value *, luisa::vector<ResourceReadInst *>> read_groups;
     luisa::unordered_map<Value *, luisa::vector<Value *>> index_groups;
+    luisa::unordered_map<Value *, luisa::vector<size_t>> epoch_groups;
+    size_t memory_epoch = 0u;
     for (auto *inst : bb->instructions()) {
-        if (inst->derived_instruction_tag() != DerivedInstructionTag::RESOURCE_READ) continue;
-        auto *read = static_cast<ResourceReadInst *>(inst);
-        if (read->op() != ResourceReadOp::BUFFER_READ) continue;
-        if (!is_fusable_scalar(read->type())) continue;
-        auto *buffer = read->operand(0);
-        auto *index = read->operand(1);
-        read_groups[buffer].push_back(read);
-        index_groups[buffer].push_back(index);
+        if (inst->derived_instruction_tag() == DerivedInstructionTag::RESOURCE_READ) {
+            auto *read = static_cast<ResourceReadInst *>(inst);
+            if (read->op() == ResourceReadOp::BUFFER_READ && is_fusable_scalar(read->type())) {
+                auto *buffer = read->operand(0);
+                auto *index = read->operand(1);
+                read_groups[buffer].push_back(read);
+                index_groups[buffer].push_back(index);
+                epoch_groups[buffer].push_back(memory_epoch);
+            }
+        }
+        auto mem = get_memory_info(inst);
+        if (mem.writes_memory() || mem.is_volatile) { ++memory_epoch; }
     }
 
     for (auto &[buffer, reads] : read_groups) {
         auto &indices = index_groups[buffer];
+        auto &epochs = epoch_groups[buffer];
         auto n = reads.size();
         if (n < 2u) continue;
 
@@ -84,30 +95,40 @@ void fuse_buffer_reads_in_block(BasicBlock *bb, FunctionDefinition *def,
             // Try to find reads at offsets +1, +2, ..., +(MaxGroupSize-1)
             int match[4] = {-1, -1, -1, -1};
             match[0] = static_cast<int>(i);
-            int found = 1;
-            for (size_t j = 0; j < n && found < MaxGroupSize; ++j) {
-                if (j == i || reads[j] == nullptr) continue;
+            for (size_t j = i + 1u; j < n; ++j) {
+                if (reads[j] == nullptr || epochs[j] != epochs[i] ||
+                    reads[j]->type() != reads[i]->type()) {
+                    continue;
+                }
                 auto offset = constant_offset_between(indices[i], indices[j]);
                 if (offset >= 1 && offset < MaxGroupSize) {
                     if (match[offset] == -1) {
                         match[offset] = static_cast<int>(j);
-                        found++;
                     }
                 }
             }
 
-            if (found >= 2) {
-                // We have 'found' consecutive reads
+            auto group_size = 1;
+            while (group_size < MaxGroupSize && match[group_size] != -1) {
+                ++group_size;
+            }
+
+            if (group_size >= 2) {
+                // Only fuse the contiguous prefix. A sparse set such as
+                // {base, base + 2} must not be treated as a two-lane read.
                 auto *base_idx = indices[match[0]];
                 auto *elem_type = reads[match[0]]->type();
-                auto *vec_type = Type::vector(elem_type, found);
+                auto *vec_type = Type::vector(elem_type, group_size);
 
                 // Collect valid reads
                 ResourceReadInst *fused_reads[4] = {};
                 bool all_valid = true;
-                for (int k = 0; k < found; ++k) {
+                for (int k = 0; k < group_size; ++k) {
                     fused_reads[k] = reads[match[k]];
-                    if (!fused_reads[k]->parent_block()) { all_valid = false; break; }
+                    if (fused_reads[k] == nullptr || !fused_reads[k]->parent_block()) {
+                        all_valid = false;
+                        break;
+                    }
                 }
                 if (!all_valid) continue;
 
@@ -118,7 +139,7 @@ void fuse_buffer_reads_in_block(BasicBlock *bb, FunctionDefinition *def,
 
                 // Create extracts and replace
                 auto *m = def->parent_module();
-                for (int k = 0; k < found; ++k) {
+                for (int k = 0; k < group_size; ++k) {
                     builder.set_insertion_point(fused_reads[k]);
                     auto idx_val = static_cast<uint32_t>(k);
                     auto *idx_const = m->create_constant(Type::of<uint32_t>(), &idx_val);
@@ -129,7 +150,7 @@ void fuse_buffer_reads_in_block(BasicBlock *bb, FunctionDefinition *def,
                 }
 
                 info.fused_group_count++;
-                info.fused_read_count += found;
+                info.fused_read_count += group_size;
             }
         }
     }
@@ -143,22 +164,42 @@ void fuse_buffer_writes_in_block(BasicBlock *bb, FuseConsecutiveBufferReadsInfo 
     luisa::unordered_map<Value *, luisa::vector<ResourceWriteInst *>> write_groups;
     luisa::unordered_map<Value *, luisa::vector<Value *>> index_groups;
     luisa::unordered_map<Value *, luisa::vector<Value *>> value_groups;
+    luisa::unordered_map<Value *, luisa::vector<size_t>> epoch_groups;
+    size_t memory_epoch = 0u;
+    Value *active_buffer = nullptr;
+    const Type *active_type = nullptr;
     for (auto *inst : bb->instructions()) {
-        if (inst->derived_instruction_tag() != DerivedInstructionTag::RESOURCE_WRITE) continue;
-        auto *write = static_cast<ResourceWriteInst *>(inst);
-        if (write->op() != ResourceWriteOp::BUFFER_WRITE) continue;
-        auto *value = write->operand(2);  // (buffer, index, value)
-        if (!is_fusable_scalar(value->type())) continue;
-        auto *buffer = write->operand(0);
-        auto *index = write->operand(1);
-        write_groups[buffer].push_back(write);
-        index_groups[buffer].push_back(index);
-        value_groups[buffer].push_back(value);
+        if (inst->derived_instruction_tag() == DerivedInstructionTag::RESOURCE_WRITE) {
+            auto *write = static_cast<ResourceWriteInst *>(inst);
+            if (write->op() == ResourceWriteOp::BUFFER_WRITE) {
+                auto *value = write->operand(2);// (buffer, index, value)
+                if (is_fusable_scalar(value->type())) {
+                    auto *buffer = write->operand(0);
+                    auto *index = write->operand(1);
+                    if (active_buffer != buffer || active_type != value->type()) {
+                        ++memory_epoch;
+                        active_buffer = buffer;
+                        active_type = value->type();
+                    }
+                    write_groups[buffer].push_back(write);
+                    index_groups[buffer].push_back(index);
+                    value_groups[buffer].push_back(value);
+                    epoch_groups[buffer].push_back(memory_epoch);
+                    continue;
+                }
+            }
+        }
+        if (!get_memory_info(inst).is_pure()) {
+            ++memory_epoch;
+            active_buffer = nullptr;
+            active_type = nullptr;
+        }
     }
 
     for (auto &[buffer, writes] : write_groups) {
         auto &indices = index_groups[buffer];
         auto &values = value_groups[buffer];
+        auto &epochs = epoch_groups[buffer];
         auto n = writes.size();
         if (n < 2u) continue;
 
@@ -166,36 +207,50 @@ void fuse_buffer_writes_in_block(BasicBlock *bb, FuseConsecutiveBufferReadsInfo 
             if (writes[i] == nullptr) continue;
             int match[4] = {-1, -1, -1, -1};
             match[0] = static_cast<int>(i);
-            int found = 1;
-            for (size_t j = 0; j < n && found < MaxGroupSize; ++j) {
-                if (j == i || writes[j] == nullptr) continue;
+            for (size_t j = i + 1u; j < n; ++j) {
+                if (writes[j] == nullptr || epochs[j] != epochs[i] ||
+                    values[j]->type() != values[i]->type()) {
+                    continue;
+                }
                 auto offset = constant_offset_between(indices[i], indices[j]);
                 if (offset >= 1 && offset < MaxGroupSize) {
                     if (match[offset] == -1) {
                         match[offset] = static_cast<int>(j);
-                        found++;
                     }
                 }
             }
 
-            if (found >= 2) {
+            auto group_size = 1;
+            while (group_size < MaxGroupSize && match[group_size] != -1) {
+                ++group_size;
+            }
+
+            if (group_size >= 2) {
                 ResourceWriteInst *fused_writes[4] = {};
                 bool all_valid = true;
-                for (int k = 0; k < found; ++k) {
+                auto last_match = match[0];
+                for (int k = 0; k < group_size; ++k) {
                     fused_writes[k] = writes[match[k]];
-                    if (!fused_writes[k]->parent_block()) { all_valid = false; break; }
+                    if (fused_writes[k] == nullptr || !fused_writes[k]->parent_block()) {
+                        all_valid = false;
+                        break;
+                    }
+                    last_match = std::max(last_match, match[k]);
                 }
                 if (!all_valid) continue;
 
                 // Construct the vector value
                 auto *elem_type = values[match[0]]->type();
-                auto *vec_type = Type::vector(elem_type, found);
+                auto *vec_type = Type::vector(elem_type, group_size);
                 auto *m = bb->parent_function()->parent_module();
 
-                builder.set_insertion_point(fused_writes[0]);
+                // Insert at the last write so every scalar value is already
+                // defined. The epoch construction guarantees that only pure
+                // instructions are crossed when delaying earlier writes.
+                builder.set_insertion_point(writes[last_match]);
                 auto *vec_undef = m->create_undefined(vec_type);
                 Value *vec_val = vec_undef;
-                for (int k = 0; k < found; ++k) {
+                for (int k = 0; k < group_size; ++k) {
                     auto idx_val = static_cast<uint32_t>(k);
                     auto *idx_const = m->create_constant(Type::of<uint32_t>(), &idx_val);
                     vec_val = builder.call(vec_type, ArithmeticOp::INSERT,
@@ -208,13 +263,13 @@ void fuse_buffer_writes_in_block(BasicBlock *bb, FuseConsecutiveBufferReadsInfo 
                             {buffer, base_idx, vec_val});
 
                 // Remove original writes
-                for (int k = 0; k < found; ++k) {
+                for (int k = 0; k < group_size; ++k) {
                     fused_writes[k]->remove_self();
                     writes[match[k]] = nullptr;
                 }
 
                 info.fused_group_count++;
-                info.fused_read_count += found;  // reused counter for fused operations
+                info.fused_read_count += group_size;// reused counter for fused operations
             }
         }
     }

@@ -32,6 +32,8 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/instructions/return.h>
 
+#include <limits>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
@@ -452,6 +454,50 @@ void reg_algebraic_simplify() {
         auto info = algebraic_simplify_pass_run_on_function(k, {.enable_fast_math = true});
         expect(info.simplified_inst_count == 0u);
     };
+
+    "algsimpl_float_sub_self_requires_fast_math"_test = [] {
+        {
+            Module m;
+            auto *f = m.create_callable(Type::of<float>());
+            auto *x = f->create_value_argument(Type::of<float>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *sub = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {x, x});
+            auto *ret = b.return_(sub);
+            auto info = algebraic_simplify_pass_run_on_function(f);
+            expect(info.simplified_inst_count == 0u);
+            expect(ret->return_value() == sub);
+        }
+        {
+            Module m;
+            auto *f = m.create_callable(Type::of<float>());
+            auto *x = f->create_value_argument(Type::of<float>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *sub = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {x, x});
+            auto *ret = b.return_(sub);
+            auto info = algebraic_simplify_pass_run_on_function(f, {.enable_fast_math = true});
+            expect(info.simplified_inst_count == 1u);
+            expect(ret->return_value()->isa<Constant>());
+            expect(static_cast<Constant *>(ret->return_value())->as<float>() == 0.0f);
+        }
+    };
+
+    "algsimpl_float_vector_sub_self_requires_fast_math"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float2>());
+        auto *x = f->create_value_argument(Type::of<float2>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *sub = b.call(Type::of<float2>(), ArithmeticOp::BINARY_SUB, {x, x});
+        auto *ret = b.return_(sub);
+        auto info = algebraic_simplify_pass_run_on_function(f);
+        expect(info.simplified_inst_count == 0u);
+        expect(ret->return_value() == sub);
+    };
 }
 
 // ---- const_fold ----
@@ -587,10 +633,11 @@ void reg_const_fold() {
         int32_t a_v = 1, b_v = 32;
         auto *a = m.create_constant(Type::of<int>(), &a_v);
         auto *bv = m.create_constant(Type::of<int>(), &b_v);
-        b.call(Type::of<int>(), ArithmeticOp::BINARY_SHIFT_LEFT, {a, bv});
-        b.return_void();
+        auto *shift = b.call(Type::of<int>(), ArithmeticOp::BINARY_SHIFT_LEFT, {a, bv});
+        auto *ret = b.return_(shift);
         auto info = const_fold_pass_run_on_function(k);
         expect(info.folded_inst_count == 0u);
+        expect(ret->return_value() == shift);
     };
 
     "constfold_int_shift_right_overflow_not_folded"_test = [] {
@@ -602,10 +649,11 @@ void reg_const_fold() {
         int32_t a_v = 8, b_v = 33;
         auto *a = m.create_constant(Type::of<int>(), &a_v);
         auto *bv = m.create_constant(Type::of<int>(), &b_v);
-        b.call(Type::of<int>(), ArithmeticOp::BINARY_SHIFT_RIGHT, {a, bv});
-        b.return_void();
+        auto *shift = b.call(Type::of<int>(), ArithmeticOp::BINARY_SHIFT_RIGHT, {a, bv});
+        auto *ret = b.return_(shift);
         auto info = const_fold_pass_run_on_function(k);
         expect(info.folded_inst_count == 0u);
+        expect(ret->return_value() == shift);
     };
 
     "constfold_int_unary_minus"_test = [] {
@@ -616,10 +664,11 @@ void reg_const_fold() {
         b.set_insertion_point(body);
         int32_t x_v = 5;
         auto *x = m.create_constant(Type::of<int>(), &x_v);
-        b.call(Type::of<int>(), ArithmeticOp::UNARY_MINUS, {x});
-        b.return_void();
+        auto *ret = b.return_(b.call(Type::of<int>(), ArithmeticOp::UNARY_MINUS, {x}));
         auto info = const_fold_pass_run_on_function(k);
         expect(info.folded_inst_count == 1u);
+        expect(ret->return_value()->isa<Constant>());
+        expect(static_cast<Constant *>(ret->return_value())->as<int32_t>() == -x_v);
     };
 
     "constfold_int_unary_minus_int_min"_test = [] {
@@ -630,10 +679,128 @@ void reg_const_fold() {
         b.set_insertion_point(body);
         int32_t x_v = std::numeric_limits<int32_t>::min();
         auto *x = m.create_constant(Type::of<int>(), &x_v);
-        b.call(Type::of<int>(), ArithmeticOp::UNARY_MINUS, {x});
-        b.return_void();
+        auto *ret = b.return_(b.call(Type::of<int>(), ArithmeticOp::UNARY_MINUS, {x}));
         auto info = const_fold_pass_run_on_function(k);
         expect(info.folded_inst_count == 1u);
+        expect(ret->return_value()->isa<Constant>());
+        expect(static_cast<Constant *>(ret->return_value())->as<int32_t>() == x_v);
+    };
+
+    "constfold_signed_overflow_wraps_without_ub"_test = [] {
+        Module m;
+        luisa::vector<ReturnInst *> returns;
+        auto add_case = [&](ArithmeticOp op, int32_t lhs, int32_t rhs) noexcept {
+            auto *f = m.create_callable(Type::of<int>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *a = m.create_constant(Type::of<int>(), &lhs);
+            auto *bv = m.create_constant(Type::of<int>(), &rhs);
+            returns.emplace_back(b.return_(b.call(Type::of<int>(), op, {a, bv})));
+        };
+        add_case(ArithmeticOp::BINARY_ADD, std::numeric_limits<int32_t>::max(), 1);
+        add_case(ArithmeticOp::BINARY_SUB, std::numeric_limits<int32_t>::min(), 1);
+        add_case(ArithmeticOp::BINARY_MUL, std::numeric_limits<int32_t>::max(), 2);
+        auto info = const_fold_pass_run_on_module(&m);
+        expect(info.folded_inst_count == 3u);
+        expect(static_cast<Constant *>(returns[0]->return_value())->as<int32_t>() == std::numeric_limits<int32_t>::min());
+        expect(static_cast<Constant *>(returns[1]->return_value())->as<int32_t>() == std::numeric_limits<int32_t>::max());
+        expect(static_cast<Constant *>(returns[2]->return_value())->as<int32_t>() == -2);
+    };
+
+    "constfold_int_min_div_mod_negative_one_not_folded"_test = [] {
+        Module m;
+        luisa::vector<ReturnInst *> returns;
+        for (auto op : {ArithmeticOp::BINARY_DIV, ArithmeticOp::BINARY_MOD}) {
+            auto *f = m.create_callable(Type::of<int>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            int32_t lhs = std::numeric_limits<int32_t>::min();
+            int32_t rhs = -1;
+            auto *a = m.create_constant(Type::of<int>(), &lhs);
+            auto *bv = m.create_constant(Type::of<int>(), &rhs);
+            returns.emplace_back(b.return_(b.call(Type::of<int>(), op, {a, bv})));
+        }
+        auto info = const_fold_pass_run_on_module(&m);
+        expect(info.folded_inst_count == 0u);
+        expect(returns[0]->return_value()->isa<ArithmeticInst>());
+        expect(returns[1]->return_value()->isa<ArithmeticInst>());
+    };
+
+    "constfold_signed_shifts_are_defined"_test = [] {
+        Module m;
+        luisa::vector<ReturnInst *> returns;
+        for (auto op : {ArithmeticOp::BINARY_SHIFT_LEFT, ArithmeticOp::BINARY_SHIFT_RIGHT}) {
+            auto *f = m.create_callable(Type::of<int>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            int32_t lhs = op == ArithmeticOp::BINARY_SHIFT_LEFT ? -1 : -4;
+            int32_t rhs = 1;
+            auto *a = m.create_constant(Type::of<int>(), &lhs);
+            auto *bv = m.create_constant(Type::of<int>(), &rhs);
+            returns.emplace_back(b.return_(b.call(Type::of<int>(), op, {a, bv})));
+        }
+        auto info = const_fold_pass_run_on_module(&m);
+        expect(info.folded_inst_count == 2u);
+        expect(static_cast<Constant *>(returns[0]->return_value())->as<int32_t>() == -2);
+        expect(static_cast<Constant *>(returns[1]->return_value())->as<int32_t>() == -2);
+    };
+
+    "constfold_signed_shift_boundaries"_test = [] {
+        Module m;
+        luisa::vector<ReturnInst *> returns;
+        auto add_case = [&](ArithmeticOp op, int32_t lhs, int32_t rhs) noexcept {
+            auto *f = m.create_callable(Type::of<int>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *a = m.create_constant(Type::of<int>(), &lhs);
+            auto *bv = m.create_constant(Type::of<int>(), &rhs);
+            returns.emplace_back(b.return_(b.call(Type::of<int>(), op, {a, bv})));
+        };
+        add_case(ArithmeticOp::BINARY_SHIFT_LEFT, 1, 31);
+        add_case(ArithmeticOp::BINARY_SHIFT_RIGHT, std::numeric_limits<int32_t>::min(), 31);
+        add_case(ArithmeticOp::BINARY_SHIFT_RIGHT, std::numeric_limits<int32_t>::min(), 0);
+        auto info = const_fold_pass_run_on_module(&m);
+        expect(info.folded_inst_count == 3u);
+        expect(static_cast<Constant *>(returns[0]->return_value())->as<int32_t>() == std::numeric_limits<int32_t>::min());
+        expect(static_cast<Constant *>(returns[1]->return_value())->as<int32_t>() == -1);
+        expect(static_cast<Constant *>(returns[2]->return_value())->as<int32_t>() == std::numeric_limits<int32_t>::min());
+    };
+
+    "constfold_negative_shift_counts_are_not_folded"_test = [] {
+        Module m;
+        luisa::vector<ReturnInst *> returns;
+        for (auto op : {ArithmeticOp::BINARY_SHIFT_LEFT, ArithmeticOp::BINARY_SHIFT_RIGHT}) {
+            auto *f = m.create_callable(Type::of<int>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            int32_t lhs = 1, rhs = -1;
+            auto *a = m.create_constant(Type::of<int>(), &lhs);
+            auto *bv = m.create_constant(Type::of<int>(), &rhs);
+            returns.emplace_back(b.return_(b.call(Type::of<int>(), op, {a, bv})));
+        }
+        auto info = const_fold_pass_run_on_module(&m);
+        expect(info.folded_inst_count == 0u);
+        expect(returns[0]->return_value()->isa<ArithmeticInst>());
+        expect(returns[1]->return_value()->isa<ArithmeticInst>());
+    };
+
+    "constfold_abs_int_min_wraps_without_ub"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<int>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        int32_t value = std::numeric_limits<int32_t>::min();
+        auto *v = m.create_constant(Type::of<int>(), &value);
+        auto *ret = b.return_(b.call(Type::of<int>(), ArithmeticOp::ABS, {v}));
+        auto info = const_fold_pass_run_on_function(f);
+        expect(info.folded_inst_count == 1u);
+        expect(static_cast<Constant *>(ret->return_value())->as<int32_t>() == value);
     };
 
     "constfold_float_add"_test = [] {
@@ -1425,10 +1592,10 @@ void reg_simplify_libcalls() {
         auto *x = m.create_constant(Type::of<float>(), &x_v);
         auto *y = m.create_constant(Type::of<float>(), &y_v);
         auto *t = m.create_constant(Type::of<float>(), &t_v);
-        b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t});
-        b.return_void();
+        auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t}));
         auto info = simplify_libcalls_pass_run_on_function(k);
         expect(info.simplified_count == 1u);
+        expect(ret->return_value() == x);
     };
 
     "simplify_libcalls_lerp_t_one"_test = [] {
@@ -1441,10 +1608,10 @@ void reg_simplify_libcalls() {
         auto *x = m.create_constant(Type::of<float>(), &x_v);
         auto *y = m.create_constant(Type::of<float>(), &y_v);
         auto *t = m.create_constant(Type::of<float>(), &t_v);
-        b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t});
-        b.return_void();
+        auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t}));
         auto info = simplify_libcalls_pass_run_on_function(k);
         expect(info.simplified_count == 1u);
+        expect(ret->return_value() == y);
     };
 
     "simplify_libcalls_clamp_01_to_saturate"_test = [] {
@@ -1457,10 +1624,12 @@ void reg_simplify_libcalls() {
         auto *x = m.create_constant(Type::of<float>(), &x_v);
         auto *lo = m.create_constant(Type::of<float>(), &lo_v);
         auto *hi = m.create_constant(Type::of<float>(), &hi_v);
-        b.call(Type::of<float>(), ArithmeticOp::CLAMP, {x, lo, hi});
-        b.return_void();
+        auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::CLAMP, {x, lo, hi}));
         auto info = simplify_libcalls_pass_run_on_function(k);
         expect(info.simplified_count == 1u);
+        expect(ret->return_value()->isa<ArithmeticInst>());
+        expect(static_cast<ArithmeticInst *>(ret->return_value())->op() == ArithmeticOp::SATURATE);
+        expect(static_cast<ArithmeticInst *>(ret->return_value())->operand(0) == x);
     };
 
     "simplify_libcalls_no_simplification"_test = [] {
@@ -1477,6 +1646,21 @@ void reg_simplify_libcalls() {
         b.return_void();
         auto info = simplify_libcalls_pass_run_on_function(k);
         expect(info.simplified_count == 0u);
+    };
+
+    "simplify_libcalls_step_zero_edge_keeps_sign_dependent_result"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *x = f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *zero = m.create_constant_zero(Type::of<float>());
+        auto *step = b.call(Type::of<float>(), ArithmeticOp::STEP, {zero, x});
+        auto *ret = b.return_(step);
+        auto info = simplify_libcalls_pass_run_on_function(f);
+        expect(info.simplified_count == 0u);
+        expect(ret->return_value() == step);
     };
 
     "simplify_libcalls_module_runs_all_functions"_test = [] {
@@ -1564,22 +1748,27 @@ void reg_cvp() {
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
+        auto *local = b.alloca_local(Type::of<int>());
+        auto *loaded = b.load(Type::of<int>(), local);
         int32_t val_v = 42;
         auto *val = m.create_constant(Type::of<int>(), &val_v);
-        auto *u = m.create_undefined(Type::of<int>());
-        auto *eq = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {u, val});
+        auto *eq = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {loaded, val});
         auto *if_inst = b.if_(eq);
         auto *true_b = if_inst->create_true_block();
         auto *false_b = if_inst->create_false_block();
         auto *merge_b = if_inst->create_merge_block();
         b.set_insertion_point(true_b);
+        auto *sum = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD,
+                           {loaded, m.create_constant_one(Type::of<int>())});
         b.br(merge_b);
         b.set_insertion_point(false_b);
         b.br(merge_b);
         b.set_insertion_point(merge_b);
         b.return_void();
         auto info = cvp_pass_run_on_function(k);
-        expect(info.replaced_inst_count >= 0u);// checks the pass runs without error
+        expect(info.replaced_inst_count == 1u);
+        expect(sum->operand(0) == val);
+        expect(eq->operand(0) == loaded) << "the condition itself is not dominated by the taken block";
     };
 
     "cvp_no_if_no_change"_test = [] {
@@ -2276,7 +2465,7 @@ void reg_reg2mem() {
 
 void reg_sroa() {
 
-    "sroa_decomposes_struct_alloca"_test = [] {
+    "sroa_decomposes_vector_alloca"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -2289,8 +2478,13 @@ void reg_sroa() {
         b.store(alloca, init);
         auto *ld = b.load(struct_ty, alloca);
         b.return_(ld);
-        auto info = sroa_pass_run_on_function(k, {.aggressive = true});
-        expect(info.decomposed_alloca_count >= 0u);// check it runs
+        auto info = sroa_pass_run_on_function(k, {.decompose_vectors = true});
+        expect(info.decomposed_alloca_count == 1u);
+        expect(info.inserted_alloca_count == 2u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::ALLOCA) == 2u);
+        auto *ret = static_cast<ReturnInst *>(body->terminator());
+        expect(ret->return_value() != ld);
+        expect(ret->return_value()->type() == struct_ty);
     };
 
     "sroa_no_struct_no_change"_test = [] {
@@ -2383,15 +2577,22 @@ void reg_trace_gep() {
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto struct_ty = Type::of<float2>();
-        auto *alloca = b.alloca_local(struct_ty);
-        uint32_t idx0_v = 0u;
+        auto inner_ty = Type::array(Type::of<float>(), 2u);
+        auto outer_ty = Type::array(inner_ty, 2u);
+        auto *alloca = b.alloca_local(outer_ty);
+        uint32_t idx0_v = 0u, idx1_v = 1u;
         auto *idx0 = m.create_constant(Type::of<uint>(), &idx0_v);
-        auto *gep1 = b.gep(Type::of<float>(), alloca, {idx0});
-        auto *val = b.load(Type::of<float>(), gep1);
+        auto *idx1 = m.create_constant(Type::of<uint>(), &idx1_v);
+        auto *gep1 = b.gep(inner_ty, alloca, {idx0});
+        auto *gep2 = b.gep(Type::of<float>(), gep1, {idx1});
+        auto *val = b.load(Type::of<float>(), gep2);
         b.return_(val);
         auto info = trace_gep_pass_run_on_function(k);
-        expect(info.traced_gep_count >= 0u);// check it runs without error
+        expect(info.traced_gep_count == 1u);
+        expect(gep2->base() == alloca);
+        expect(gep2->index_count() == 2u);
+        expect(gep2->index(0) == idx0);
+        expect(gep2->index(1) == idx1);
     };
 
     "trace_gep_no_gep_no_change"_test = [] {
@@ -2529,13 +2730,32 @@ void reg_mem2reg() {
 
 void reg_promote_ref_arg() {
 
-    "promote_ref_arg_runs_without_error"_test = [] {
+    "promote_ref_arg_rewrites_signature_body_and_call_site"_test = [] {
         Module m;
-        auto *c = m.create_callable(Type::of<void>());
-        c->create_reference_argument(Type::of<int>());
-        c->create_body_block();
+        auto *c = m.create_callable(Type::of<int>());
+        auto *ref_arg = c->create_reference_argument(Type::of<int>());
+        auto *callee_body = c->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        auto *callee_load = b.load(Type::of<int>(), ref_arg);
+        b.return_(callee_load);
+
+        BasicBlock *caller_body;
+        auto *k = make_kernel_with_body(m, caller_body);
+        b.set_insertion_point(caller_body);
+        auto *local = b.alloca_local(Type::of<int>());
+        b.store(local, m.create_constant_one(Type::of<int>()));
+        auto *call = b.call(Type::of<int>(), c, {local});
+        b.return_(call);
+
         auto info = promote_ref_arg_pass_run_on_module(&m);
-        expect(info.promoted_ref_arg_count >= 0u);// check it runs
+        expect(info.promoted_ref_arg_count == 1u);
+        expect(c->arguments().count_size() == 1u);
+        expect(!c->arguments().front()->is_reference());
+        expect(count_reachable_insts(c, DerivedInstructionTag::ALLOCA) == 1u);
+        expect(count_reachable_insts(c, DerivedInstructionTag::STORE) == 1u);
+        expect(call->argument(0)->isa<LoadInst>());
+        expect(static_cast<LoadInst *>(call->argument(0))->variable() == local);
     };
 
     "promote_ref_arg_no_ref_args_no_change"_test = [] {

@@ -14,6 +14,50 @@ namespace luisa::compute::xir {
 
 namespace {
 
+[[nodiscard]] Constant *create_case_constant(Module *module, const Type *type,
+                                             SwitchInst::case_value_type value) noexcept {
+    switch (type->tag()) {
+        case Type::Tag::BOOL: {
+            auto v = static_cast<bool>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::INT8: {
+            auto v = static_cast<int8_t>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::UINT8: {
+            auto v = static_cast<uint8_t>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::INT16: {
+            auto v = static_cast<int16_t>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::UINT16: {
+            auto v = static_cast<uint16_t>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::INT32: {
+            auto v = static_cast<int32_t>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::UINT32: {
+            auto v = static_cast<uint32_t>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::INT64: {
+            auto v = static_cast<int64_t>(value);
+            return module->create_constant(type, &v);
+        }
+        case Type::Tag::UINT64: {
+            auto v = static_cast<uint64_t>(value);
+            return module->create_constant(type, &v);
+        }
+        default: LUISA_ERROR_WITH_LOCATION(
+            "Invalid switch selector type {}.", type->description());
+    }
+}
+
 [[nodiscard]] LowerSwitchInfo lower_switch_on_definition(FunctionDefinition *def) noexcept {
     LowerSwitchInfo info{};
     if (def == nullptr) { return info; }
@@ -58,8 +102,7 @@ namespace {
             XIRBuilder b;
             b.set_insertion_point(if_header);
 
-            auto val_copy = static_cast<int>(case_val);
-            auto *case_const = mod->create_constant(value->type(), &val_copy);
+            auto *case_const = create_case_constant(mod, value->type(), case_val);
             auto *eq = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {value, case_const});
             auto *if_inst = b.if_(eq);
             if_inst->set_true_target(case_bb);

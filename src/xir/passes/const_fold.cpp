@@ -4,9 +4,11 @@
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/constant.h>
+#include <luisa/core/stl/memory.h>
 
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 namespace luisa::compute::xir {
 
@@ -28,7 +30,8 @@ namespace luisa::compute::xir {
                     *static_cast<double *>(data) = -*static_cast<const double *>(op0_data);
                     return true;
                 case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = static_cast<int32_t>(uint32_t{0} - static_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)));
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        uint32_t{0} - luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)));
                     return true;
                 case Type::Tag::UINT32:
                     *static_cast<uint32_t *>(data) = uint32_t{0} - *static_cast<const uint32_t *>(op0_data);
@@ -59,7 +62,9 @@ namespace luisa::compute::xir {
                     *static_cast<double *>(data) = *static_cast<const double *>(op0_data) + *static_cast<const double *>(op1_data);
                     return true;
                 case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) + *static_cast<const int32_t *>(op1_data);
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)) +
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op1_data)));
                     return true;
                 case Type::Tag::UINT32:
                     *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) + *static_cast<const uint32_t *>(op1_data);
@@ -79,7 +84,9 @@ namespace luisa::compute::xir {
                     *static_cast<double *>(data) = *static_cast<const double *>(op0_data) - *static_cast<const double *>(op1_data);
                     return true;
                 case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) - *static_cast<const int32_t *>(op1_data);
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)) -
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op1_data)));
                     return true;
                 case Type::Tag::UINT32:
                     *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) - *static_cast<const uint32_t *>(op1_data);
@@ -96,7 +103,9 @@ namespace luisa::compute::xir {
                     *static_cast<double *>(data) = *static_cast<const double *>(op0_data) * *static_cast<const double *>(op1_data);
                     return true;
                 case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) * *static_cast<const int32_t *>(op1_data);
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)) *
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op1_data)));
                     return true;
                 case Type::Tag::UINT32:
                     *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) * *static_cast<const uint32_t *>(op1_data);
@@ -113,9 +122,13 @@ namespace luisa::compute::xir {
                     *static_cast<double *>(data) = *static_cast<const double *>(op0_data) / *static_cast<const double *>(op1_data);
                     return true;
                 case Type::Tag::INT32: {
+                    auto dividend = *static_cast<const int32_t *>(op0_data);
                     auto divisor = *static_cast<const int32_t *>(op1_data);
-                    if (divisor == 0) return false;
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) / divisor;
+                    if (divisor == 0 ||
+                        (dividend == std::numeric_limits<int32_t>::min() && divisor == -1)) {
+                        return false;
+                    }
+                    *static_cast<int32_t *>(data) = dividend / divisor;
                     return true;
                 }
                 case Type::Tag::UINT32: {
@@ -136,9 +149,13 @@ namespace luisa::compute::xir {
                     *static_cast<double *>(data) = std::fmod(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
                     return true;
                 case Type::Tag::INT32: {
+                    auto dividend = *static_cast<const int32_t *>(op0_data);
                     auto divisor = *static_cast<const int32_t *>(op1_data);
-                    if (divisor == 0) return false;
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) % divisor;
+                    if (divisor == 0 ||
+                        (dividend == std::numeric_limits<int32_t>::min() && divisor == -1)) {
+                        return false;
+                    }
+                    *static_cast<int32_t *>(data) = dividend % divisor;
                     return true;
                 }
                 case Type::Tag::UINT32: {
@@ -197,7 +214,8 @@ namespace luisa::compute::xir {
                 case Type::Tag::INT32: {
                     auto shift = *static_cast<const int32_t *>(op1_data);
                     if (shift < 0 || shift >= 32) return false;
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) << shift;
+                    auto value = luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data));
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(value << shift);
                     return true;
                 }
                 case Type::Tag::UINT32: {
@@ -214,7 +232,13 @@ namespace luisa::compute::xir {
                 case Type::Tag::INT32: {
                     auto shift = *static_cast<const int32_t *>(op1_data);
                     if (shift < 0 || shift >= 32) return false;
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) >> shift;
+                    auto signed_value = *static_cast<const int32_t *>(op0_data);
+                    auto value = luisa::bit_cast<uint32_t>(signed_value);
+                    auto shifted = value >> shift;
+                    if (signed_value < 0 && shift != 0) {
+                        shifted |= ~uint32_t{0} << (32u - static_cast<uint32_t>(shift));
+                    }
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(shifted);
                     return true;
                 }
                 case Type::Tag::UINT32: {
@@ -234,9 +258,14 @@ namespace luisa::compute::xir {
                 case Type::Tag::FLOAT64:
                     *static_cast<double *>(data) = std::abs(*static_cast<const double *>(op0_data));
                     return true;
-                case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = std::abs(*static_cast<const int32_t *>(op0_data));
+                case Type::Tag::INT32: {
+                    auto value = *static_cast<const int32_t *>(op0_data);
+                    auto bits = luisa::bit_cast<uint32_t>(value);
+                    *static_cast<int32_t *>(data) = value < 0 ?
+                                                         luisa::bit_cast<int32_t>(uint32_t{0} - bits) :
+                                                         value;
                     return true;
+                }
                 case Type::Tag::UINT32:
                     *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data);
                     return true;

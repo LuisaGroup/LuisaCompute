@@ -41,7 +41,8 @@ namespace detail {
     return type != nullptr && type->is_float_or_float_vector();
 }
 
-[[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, Module *module, XIRBuilder &builder) noexcept {
+[[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, Module *module, XIRBuilder &builder,
+                                         AlgebraicSimplifyOptions options) noexcept {
     auto op = inst->op();
     auto type = inst->type();
     if (type == nullptr) return nullptr;
@@ -56,7 +57,8 @@ namespace detail {
         }
         case ArithmeticOp::BINARY_SUB: {
             if (is_const_zero(inst->operand(1))) return inst->operand(0);
-            if (inst->operand(0) == inst->operand(1)) {
+            if (inst->operand(0) == inst->operand(1) &&
+                (!is_float_like(type) || options.enable_fast_math)) {
                 return module->create_constant_zero(type);
             }
             break;
@@ -331,7 +333,7 @@ static void algebraic_simplify_on_function(Function *function, AlgebraicSimplify
     });
 
     for (auto inst : to_simplify) {
-        auto replacement = try_simplify(inst, module, builder);
+        auto replacement = try_simplify(inst, module, builder, options);
         if (replacement != nullptr) {
             inst->replace_all_uses_with(replacement);
             inst->remove_self();
