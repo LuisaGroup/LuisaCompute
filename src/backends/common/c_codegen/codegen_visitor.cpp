@@ -114,7 +114,7 @@ void CodegenVisitor::visit(const AccessExpr *expr) {
         auto lit = static_cast<LiteralExpr const *>(expr->index());
         is_deref = luisa::visit(
             [&]<typename T>(T const &t) {
-                if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>) {
+                if constexpr (std::is_integral_v<T> || luisa::is_floating_point_v<T>) {
                     return t == 0;
                 }
                 return false;
@@ -491,6 +491,8 @@ void CodegenVisitor::visit(const CommentStmt *stmt) {
 }
 void CodegenVisitor::visit(const RayQueryStmt *stmt) {
     LUISA_ERROR("Ray query not implemented.");
+}
+void CodegenVisitor::visit(const SuspendStmt *) {
 }
 void CodegenVisitor::visit(const PrintStmt *stmt) {
     sb << "{\nchar print_str[] = {";

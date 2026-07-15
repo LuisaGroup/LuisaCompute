@@ -12,7 +12,8 @@
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-static inline const auto reg_spin_mutex_basic = [] {
+void reg_spin_mutex_basic() {
+
     "spin_mutex_lock_unlock"_test = [] {
         luisa::spin_mutex m;
         m.lock();
@@ -20,10 +21,10 @@ static inline const auto reg_spin_mutex_basic = [] {
         // no crash = pass
         expect(true);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_spin_mutex_try_lock = [] {
+void reg_spin_mutex_try_lock() {
+
     "spin_mutex_try_lock"_test = [] {
         luisa::spin_mutex m;
 
@@ -42,10 +43,10 @@ static inline const auto reg_spin_mutex_try_lock = [] {
         expect(locked_after) << "try_lock should succeed after unlock";
         m.unlock();
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_spin_mutex_lock_guard = [] {
+void reg_spin_mutex_lock_guard() {
+
     "spin_mutex_with_lock_guard"_test = [] {
         luisa::spin_mutex m;
         {
@@ -59,10 +60,10 @@ static inline const auto reg_spin_mutex_lock_guard = [] {
         expect(locked) << "try_lock should succeed after lock_guard scope ends";
         m.unlock();
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_spin_mutex_contention = [] {
+void reg_spin_mutex_contention() {
+
     "spin_mutex_multi_thread_contention"_test = [] {
         luisa::spin_mutex m;
         std::atomic<int> counter{0};
@@ -87,10 +88,10 @@ static inline const auto reg_spin_mutex_contention = [] {
         expect(counter.load() == expected)
             << "counter should be " << expected << " but got " << counter.load();
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_spin_mutex_protected_data = [] {
+void reg_spin_mutex_protected_data() {
+
     "spin_mutex_data_integrity"_test = [] {
         luisa::spin_mutex m;
         int shared_data = 0;
@@ -118,7 +119,15 @@ static inline const auto reg_spin_mutex_protected_data = [] {
         expect(shared_data == expected)
             << "data integrity violated: expected " << expected << " got " << shared_data;
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_spin_mutex_basic();
+    reg_spin_mutex_try_lock();
+    reg_spin_mutex_lock_guard();
+    reg_spin_mutex_contention();
+    reg_spin_mutex_protected_data();
+    return 0;
+}

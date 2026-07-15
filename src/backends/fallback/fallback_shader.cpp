@@ -31,6 +31,11 @@
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 #include "../common/shader_print_formatter.h"
 
@@ -61,6 +66,27 @@ static const bool LUISA_SHOULD_DUMP_LLVM_IR = [] {
 
 static const bool LUISA_SHOULD_DUMP_ASM = [] {
     if (auto env = getenv("LUISA_DUMP_ASM")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_NORMALIZE_CFG = [] {
+    if (auto env = getenv("LUISA_XIR_NORMALIZE_CFG")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
+    if (auto env = getenv("LUISA_XIR_RESTRUCTURE_CFG")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
+    if (auto env = getenv("LUISA_XIR_ELIMINATE_EARLY_RETURN")) {
         return std::string_view{env} == "1";
     }
     return false;
@@ -155,38 +181,80 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
 
-    // run some simple optimization passes on XIR to reduce the size of LLVM IR
-    Clock opt_clk;
-    auto dce1_info = xir::dce_pass_run_on_module(xir_module.get());
-    auto store_forward_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
-    auto load_elim_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
-    auto dce2_info = xir::dce_pass_run_on_module(xir_module.get());
-    auto promote_arg_info = xir::promote_ref_arg_pass_run_on_module(xir_module.get());
-    auto mem2reg_info = xir::mem2reg_pass_run_on_module(xir_module.get());
-    auto dce3_info = xir::dce_pass_run_on_module(xir_module.get());
+    xir::PassPipeline pre_cfg;
+    pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    pre_cfg.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    pre_cfg.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    // pre_cfg.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
+    //     auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
+    //     return i.promoted_ref_arg_count > 0u;
+    // });
+    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
+        pre_cfg.add("early-return-elimination", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::early_return_elimination_pass_run_on_module(m, &r);
+            return i.removed_return_count > 0u;
+        });
+    }
+    pre_cfg.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::mem2reg_pass_run_on_module(m, &r);
+        return i.promoted_alloca_count > 0u;
+    });
+    pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    auto pre_cfg_stats = pre_cfg.run(xir_module.get());
+    pre_cfg_stats.log("Fallback backend pre-CFG optimization");
     if (LUISA_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
         std::ofstream f{filename.c_str()};
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
-    auto rq_lower_info = xir::lower_ray_query_loop_pass_run_on_module(xir_module.get());
-    LUISA_VERBOSE("XIR optimization done in {} ms:\n"
-                  "    forwarded {} store instruction(s),\n"
-                  "    eliminated {} load instruction(s),\n"
-                  "    promoted {} alloca instruction(s) with {} load and {} store instruction(s) removed and {} phi node(s) inserted,\n"
-                  "    removed {} + {} + {} = {} dead instruction(s) and {} + {} + {} = {} dead block(s),\n"
-                  "    promoted {} reference argument(s),\n"
-                  "    lowered {} ray query loop(s).",
-                  opt_clk.toc(),
-                  store_forward_info.removed_load_count,
-                  load_elim_info.removed_load_count,
-                  mem2reg_info.promoted_alloca_count, mem2reg_info.removed_load_count, mem2reg_info.removed_store_count, mem2reg_info.inserted_phi_count,
-                  dce1_info.removed_inst_count, dce2_info.removed_inst_count, dce3_info.removed_inst_count,
-                  dce1_info.removed_inst_count + dce2_info.removed_inst_count + dce3_info.removed_inst_count,
-                  dce1_info.removed_block_count, dce2_info.removed_block_count, dce3_info.removed_block_count,
-                  dce1_info.removed_block_count + dce2_info.removed_block_count + dce3_info.removed_block_count,
-                  promote_arg_info.promoted_ref_arg_count,
-                  rq_lower_info.lowered_loop_count);
+    xir::PassPipeline cfg;
+    cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+        return i.lowered_loop_count > 0u;
+    });
+    if (LUISA_XIR_NORMALIZE_CFG) {
+        cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
+            return i.destructured_if_count > 0u ||
+                   i.destructured_loop_count > 0u ||
+                   i.destructured_simple_loop_count > 0u;
+        });
+        cfg.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
+            return i.folded_constant_cond_br_count > 0u ||
+                   i.threaded_empty_block_count > 0u ||
+                   i.removed_unreachable_block_count > 0u;
+        });
+        if (LUISA_XIR_RESTRUCTURE_CFG) {
+            cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+            });
+        }
+    }
+    auto cfg_stats = cfg.run(xir_module.get());
+    cfg_stats.log("Fallback backend CFG normalization");
+    if (LUISA_XIR_NORMALIZE_CFG && LUISA_SHOULD_DUMP_XIR) {
+        auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());
+        std::ofstream f{filename.c_str()};
+        f << xir::xir_to_text_translate(xir_module.get(), true);
+    }
 
     // dump for debugging
     if (LUISA_SHOULD_DUMP_XIR) {

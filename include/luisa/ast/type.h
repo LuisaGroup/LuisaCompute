@@ -167,6 +167,16 @@ struct canonical_layout<ushort> {
 };
 
 template<>
+struct canonical_layout<int8_t> {
+    using type = std::tuple<int8_t>;
+};
+
+template<>
+struct canonical_layout<uint8_t> {
+    using type = std::tuple<uint8_t>;
+};
+
+template<>
 struct canonical_layout<slong> {
     using type = std::tuple<slong>;
 };
@@ -330,6 +340,8 @@ public:
         FLOAT16,
         FLOAT32,
         FLOAT64,
+        FLOAT8_E4M3,
+        FLOAT8_E5M2,
 
         VECTOR,
         MATRIX,
@@ -476,6 +488,9 @@ public:
     [[nodiscard]] bool is_float16() const noexcept;
     [[nodiscard]] bool is_float32() const noexcept;
     [[nodiscard]] bool is_float64() const noexcept;
+    [[nodiscard]] bool is_float8() const noexcept;
+    [[nodiscard]] bool is_float8_e4m3() const noexcept;
+    [[nodiscard]] bool is_float8_e5m2() const noexcept;
     [[nodiscard]] bool is_int8() const noexcept;
     [[nodiscard]] bool is_uint8() const noexcept;
     [[nodiscard]] bool is_int16() const noexcept;

@@ -1225,7 +1225,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
+        case CallOp::ASYNC_COPY: LUISA_NOT_IMPLEMENTED();
         case CallOp::CLOCK: _scratch << "clock64"; break;
     }
     _scratch << "(";
@@ -1446,6 +1447,9 @@ void CUDACodegenAST::visit(const AssignStmt *stmt) {
 
 void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
     _ray_query_lowering->lower(stmt);
+}
+
+void CUDACodegenAST::visit(const SuspendStmt *) {
 }
 
 void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {

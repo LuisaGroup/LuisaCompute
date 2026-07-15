@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/logging.h>
 #include <luisa/runtime/volume.h>
 #include <luisa/runtime/sparse_texture.h>
 #include <luisa/runtime/sparse_heap.h>
@@ -30,10 +31,16 @@ private:
                   if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
                       detail::volume_size_zero_error();
                   }
-                  return device->create_sparse_texture(
+                  auto info = device->create_sparse_texture(
                       pixel_storage_to_format<T>(storage), 3u,
                       size.x, size.y, size.x,
                       detail::max_mip_levels(size, mip_levels), simultaneous_access);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                  if (!info.valid()) {
+                      LUISA_ERROR("Failed to create sparse volume.");
+                  }
+#endif
+                  return info;
               }(),
               storage, size, mip_levels} {
     }

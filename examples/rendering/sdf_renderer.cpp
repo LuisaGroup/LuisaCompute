@@ -1,6 +1,8 @@
 #include <atomic>
 #include <cstdlib>
+#include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <numbers>
 #include <numeric>
@@ -41,14 +43,30 @@ int main(int argc, char *argv[]) {
     // Parse optional --spp and --offline flags
     uint user_spp = 0u;
     bool force_offline = false;
-    bool update_reference = false;
+    std::optional<std::filesystem::path> compare_path;
+    std::optional<std::filesystem::path> out_ref_path;
+    bool out_ref_write = false;
     for (int i = 2; i < argc; i++) {
         if (std::string_view{argv[i]} == "--offline") {
             force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
+        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
+            compare_path = std::filesystem::path{argv[++i]};
+            force_offline = true;
         } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
             user_spp = static_cast<uint>(std::atoi(argv[++i]));
+        } else if (std::string_view{argv[i]} == "--out_ref" && i + 1 < argc) {
+            std::string_view mode{argv[++i]};
+            if (mode == "write" && i + 1 < argc) {
+                out_ref_path = std::filesystem::path{argv[++i]};
+                out_ref_write = true;
+                force_offline = true;
+            } else if (mode == "read" && i + 1 < argc) {
+                out_ref_path = std::filesystem::path{argv[++i]};
+                out_ref_write = false;
+                force_offline = true;
+            } else {
+                LUISA_WARNING("--out_ref requires 'write <path>' or 'read <path>'");
+            }
         }
     }
 
@@ -173,7 +191,7 @@ int main(int argc, char *argv[]) {
         UInt seed = seed_image.read(coord).x;
         Float ux = rand(seed);
         Float uy = rand(seed);
-        Float2 uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1u - dispatch_id().y + uy);
+        Float2 uv = make_float2(cast<float>(dispatch_id().x) + ux, cast<float>(dispatch_size().y - 1u - dispatch_id().y) + uy);
         Float3 d = make_float3(
             2.0f * fov * uv / resolution.y - fov * make_float2(aspect_ratio, 1.0f) - 1e-5f, -1.0f);
         d = normalize(d);
@@ -296,16 +314,76 @@ int main(int argc, char *argv[]) {
            << ldr_image.copy_to(luisa::span{host_image})
            << synchronize();
     stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
+
+    // out_ref: compare raw floating-point accum data for precise debugging
+    if (out_ref_path) {
+        constexpr size_t pixel_count = width * height;
+        constexpr size_t float_count = pixel_count * 4u;
+        luisa::vector<float> accum_host(float_count);
+        stream << accum_image.copy_to(luisa::span{accum_host}) << synchronize();
+
+        if (out_ref_write) {
+            // Write reference: save raw float4 data to binary file
+            std::ofstream ofs(out_ref_path->string(), std::ios::binary);
+            if (!ofs) {
+                LUISA_ERROR("Failed to open out_ref file '{}' for writing.", out_ref_path->string());
+                return 1;
+            }
+            ofs.write(reinterpret_cast<const char *>(accum_host.data()),
+                      accum_host.size() * sizeof(float));
+            ofs.close();
+            LUISA_INFO("Reference written to {} ({} floats, {} pixels)",
+                       out_ref_path->string(), accum_host.size(), pixel_count);
+        } else {
+            // Read reference and compare
+            if (!std::filesystem::exists(*out_ref_path)) {
+                LUISA_WARNING("Reference file '{}' not found; skipping comparison.",
+                              out_ref_path->string());
+            } else {
+                auto file_size = std::filesystem::file_size(*out_ref_path);
+                auto expected_size = float_count * sizeof(float);
+                if (file_size != expected_size) {
+                    LUISA_ERROR("Reference file size mismatch: got {}, expected {} ({} floats).",
+                                file_size, expected_size, float_count);
+                    return 1;
+                }
+                luisa::vector<float> ref_host(float_count);
+                std::ifstream ifs(out_ref_path->string(), std::ios::binary);
+                if (!ifs) {
+                    LUISA_ERROR("Failed to open out_ref file '{}' for reading.", out_ref_path->string());
+                    return 1;
+                }
+                ifs.read(reinterpret_cast<char *>(ref_host.data()), expected_size);
+                ifs.close();
+
+                // Compute average absolute difference per color channel (RGB only, skip alpha)
+                double total_diff = 0.0;
+                size_t compared = 0;
+                for (size_t i = 0; i < pixel_count; ++i) {
+                    size_t base = i * 4u;
+                    for (size_t c = 0; c < 3u; ++c) {
+                        total_diff += std::abs(
+                            static_cast<double>(accum_host[base + c]) -
+                            static_cast<double>(ref_host[base + c]));
+                        ++compared;
+                    }
+                }
+                double avg_diff = total_diff / static_cast<double>(compared);
+                LUISA_INFO("Reference comparison (raw float accum): avg_abs_diff={:.9f} ({} pixels compared)",
+                           avg_diff, pixel_count);
+            }
+        }
+    }
+
     if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            width, height, 4,
-            "sdf_renderer",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                width, height, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

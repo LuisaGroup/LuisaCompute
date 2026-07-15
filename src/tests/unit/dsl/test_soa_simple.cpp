@@ -52,14 +52,13 @@ int test_soa_simple(Device &device) {
     return 0;
 }
 
-static inline const auto reg = [] {
-    "soa_simple"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_soa_simple(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_soa_simple(device);
+}

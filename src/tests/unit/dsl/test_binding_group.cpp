@@ -122,14 +122,13 @@ void test_binding_group(Device &device) {
                    host_image.data(), 0);
 }
 
-static inline const auto reg = [] {
-    "dsl_binding_group"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        test_binding_group(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_binding_group(device);
+}

@@ -10,11 +10,24 @@ namespace luisa::compute::cuda {
 
 /**
  * @brief Struct of surface on CUDA
- * 
+ *
+ * Layout of the `storage` field (packed):
+ *   bits [0:15]   = width  (uint16)
+ *   bits [16:31]  = height (uint16)
+ *   bits [32:47]  = depth  (uint16)
+ *   bits [48:55]  = PixelStorage enum (uint8)
+ *   bits [56:63]  = reserved (0)
  */
 struct alignas(16) CUDASurface {
     CUsurfObject handle;
     uint64_t storage;
+
+    [[nodiscard]] static uint64_t encode_storage(uint16_t w, uint16_t h, uint16_t d, uint8_t pixel_storage) noexcept {
+        return static_cast<uint64_t>(w) |
+               (static_cast<uint64_t>(h) << 16u) |
+               (static_cast<uint64_t>(d) << 32u) |
+               (static_cast<uint64_t>(pixel_storage) << 48u);
+    }
 };
 
 static_assert(sizeof(CUDASurface) == 16u);
@@ -54,4 +67,3 @@ public:
 static_assert(sizeof(CUDATexture) == 256u);
 
 }// namespace luisa::compute::cuda
-

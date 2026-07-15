@@ -28,7 +28,11 @@ CUDASurface CUDATexture::surface(uint32_t level) const noexcept {
                  level, _levels);
     LUISA_ASSERT(!is_block_compressed(format()),
                  "Block compressed textures cannot be used as CUDA surfaces.");
-    return CUDASurface{_mip_surfaces[level], to_underlying(storage())};
+    auto w = static_cast<uint16_t>(std::max(static_cast<uint32_t>(_size[0]) >> level, 1u));
+    auto h = static_cast<uint16_t>(std::max(static_cast<uint32_t>(_size[1]) >> level, 1u));
+    auto d = static_cast<uint16_t>(std::max(static_cast<uint32_t>(_size[2]) >> level, 1u));
+    auto packed = CUDASurface::encode_storage(w, h, d, static_cast<uint8_t>(storage()));
+    return CUDASurface{_mip_surfaces[level], packed};
 }
 
 namespace detail {

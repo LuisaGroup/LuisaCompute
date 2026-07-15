@@ -267,7 +267,12 @@ llvm::Type *HIPCodegenLLVMImpl::_get_llvm_bindless_array_slot_type() noexcept {
                 llvm_ptr_type,// buffer
                 llvm_i64_type,// size
                 llvm_i64_type,// tex2d
-                llvm_i64_type // tex3d
+                llvm_i64_type,// tex2d levels
+                llvm_i64_type,// tex2d size
+                llvm_i64_type,// tex3d
+                llvm_i64_type,// tex3d levels
+                llvm_i64_type,// tex3d size xy
+                llvm_i64_type // tex3d size z
             },
             "luisa.bindless.slot");
         detail::luisa_check_llvm_type_size_and_alignment(

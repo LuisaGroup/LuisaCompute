@@ -11,7 +11,54 @@ using namespace boost::ut::literals;
 
 // ---- Insertion point management ----
 
-static inline const auto reg_insertion_point = [] {
+// ---- Alloca instructions ----
+
+// ---- Load / Store instructions ----
+
+// ---- GEP instruction ----
+
+// ---- Arithmetic instructions ----
+
+// ---- Cast instructions ----
+
+// ---- Phi nodes ----
+
+// ---- Print / Clock instructions ----
+
+// ---- Assert / Assume instructions ----
+
+// ---- Branch terminators ----
+
+// ---- Return terminator ----
+
+// ---- Unreachable / Break / Continue terminators ----
+
+// ---- If control flow ----
+
+// ---- Switch control flow ----
+
+// ---- Loop control flow ----
+
+// ---- Outline ----
+
+// ---- Thread group ----
+
+// ---- Atomic instructions ----
+
+// ---- User / operand manipulation ----
+
+// ---- Use-def chains ----
+
+// ---- is_insertion_point_terminator ----
+
+// ---- Instruction tags to_string ----
+
+// ---- Multiple instructions in one block ----
+
+// ---- Call instruction (function call) ----
+
+void reg_insertion_point() {
+
     "xir_builder_default_insertion_point"_test = [] {
         XIRBuilder builder;
         expect(builder.insertion_point() == nullptr);
@@ -37,12 +84,10 @@ static inline const auto reg_insertion_point = [] {
         builder.set_insertion_point(alloc);
         expect(builder.insertion_point() == alloc);
     };
-    return 0;
-}();
+}
 
-// ---- Alloca instructions ----
+void reg_alloca() {
 
-static inline const auto reg_alloca = [] {
     "xir_builder_alloca_local"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -84,12 +129,10 @@ static inline const auto reg_alloca = [] {
         expect(alloc != nullptr);
         expect(alloc->is_local() == true);
     };
-    return 0;
-}();
+}
 
-// ---- Load / Store instructions ----
+void reg_load_store() {
 
-static inline const auto reg_load_store = [] {
     "xir_builder_load"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -120,12 +163,10 @@ static inline const auto reg_load_store = [] {
         expect(store->variable() == alloc);
         expect(store->value() == cst);
     };
-    return 0;
-}();
+}
 
-// ---- GEP instruction ----
+void reg_gep() {
 
-static inline const auto reg_gep = [] {
     "xir_builder_gep"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -143,12 +184,10 @@ static inline const auto reg_gep = [] {
         expect(gep->base() == alloc);
         expect(gep->index_count() == 1u);
     };
-    return 0;
-}();
+}
 
-// ---- Arithmetic instructions ----
+void reg_arithmetic() {
 
-static inline const auto reg_arithmetic = [] {
     "xir_builder_arithmetic_binary_add"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -204,12 +243,10 @@ static inline const auto reg_arithmetic = [] {
         expect(lt != nullptr);
         expect(lt->op() == ArithmeticOp::BINARY_LESS);
     };
-    return 0;
-}();
+}
 
-// ---- Cast instructions ----
+void reg_cast() {
 
-static inline const auto reg_cast = [] {
     "xir_builder_cast_static"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -271,12 +308,10 @@ static inline const auto reg_cast = [] {
         auto *result = builder.bit_cast_if_necessary(Type::of<float>(), arg);
         expect(result == arg) << "bit_cast to same type should return original value";
     };
-    return 0;
-}();
+}
 
-// ---- Phi nodes ----
+void reg_phi() {
 
-static inline const auto reg_phi = [] {
     "xir_builder_phi_empty"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -349,12 +384,10 @@ static inline const auto reg_phi = [] {
         expect(inc.value == c2);
         expect(inc.block == bb2);
     };
-    return 0;
-}();
+}
 
-// ---- Print / Clock instructions ----
+void reg_print_clock() {
 
-static inline const auto reg_print_clock = [] {
     "xir_builder_print"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -392,12 +425,10 @@ static inline const auto reg_print_clock = [] {
         expect(clk->derived_instruction_tag() == DerivedInstructionTag::CLOCK);
         expect(clk->is_terminator() == false);
     };
-    return 0;
-}();
+}
 
-// ---- Assert / Assume instructions ----
+void reg_assert_assume() {
 
-static inline const auto reg_assert_assume = [] {
     "xir_builder_assert"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -427,12 +458,10 @@ static inline const auto reg_assert_assume = [] {
         expect(a->condition() == cond);
         expect(a->message() == "test assumption");
     };
-    return 0;
-}();
+}
 
-// ---- Branch terminators ----
+void reg_branches() {
 
-static inline const auto reg_branches = [] {
     "xir_builder_br"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -479,12 +508,10 @@ static inline const auto reg_branches = [] {
         expect(cbr->true_block() == true_bb);
         expect(cbr->false_block() == false_bb);
     };
-    return 0;
-}();
+}
 
-// ---- Return terminator ----
+void reg_return() {
 
-static inline const auto reg_return = [] {
     "xir_builder_return_void"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -512,12 +539,10 @@ static inline const auto reg_return = [] {
         expect(ret->is_terminator() == true);
         expect(ret->return_value() == c);
     };
-    return 0;
-}();
+}
 
-// ---- Unreachable / Break / Continue terminators ----
+void reg_other_terminators() {
 
-static inline const auto reg_other_terminators = [] {
     "xir_builder_unreachable"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -554,12 +579,10 @@ static inline const auto reg_other_terminators = [] {
         expect(cont->derived_instruction_tag() == DerivedInstructionTag::CONTINUE);
         expect(cont->is_terminator() == true);
     };
-    return 0;
-}();
+}
 
-// ---- If control flow ----
+void reg_if() {
 
-static inline const auto reg_if = [] {
     "xir_builder_if"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -592,12 +615,10 @@ static inline const auto reg_if = [] {
         expect(fb != mb);
         expect(if_inst->control_flow_merge() != nullptr);
     };
-    return 0;
-}();
+}
 
-// ---- Switch control flow ----
+void reg_switch() {
 
-static inline const auto reg_switch = [] {
     "xir_builder_switch"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -661,12 +682,10 @@ static inline const auto reg_switch = [] {
         expect(sw->case_value(0) == 10);
         expect(sw->case_value(1) == 30);
     };
-    return 0;
-}();
+}
 
-// ---- Loop control flow ----
+void reg_loop() {
 
-static inline const auto reg_loop = [] {
     "xir_builder_loop"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -716,12 +735,10 @@ static inline const auto reg_loop = [] {
         expect(sloop->merge_block() == mb);
         expect(sloop->control_flow_merge() != nullptr);
     };
-    return 0;
-}();
+}
 
-// ---- Outline ----
+void reg_outline() {
 
-static inline const auto reg_outline = [] {
     "xir_builder_outline"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -741,12 +758,10 @@ static inline const auto reg_outline = [] {
         expect(outline->target_block() == tb);
         expect(outline->merge_block() == mb);
     };
-    return 0;
-}();
+}
 
-// ---- Thread group ----
+void reg_thread_group() {
 
-static inline const auto reg_thread_group = [] {
     "xir_builder_synchronize_block"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -759,12 +774,10 @@ static inline const auto reg_thread_group = [] {
         expect(sync->op() == ThreadGroupOp::SYNCHRONIZE_BLOCK);
         expect(sync->is_terminator() == false);
     };
-    return 0;
-}();
+}
 
-// ---- Atomic instructions ----
+void reg_atomic() {
 
-static inline const auto reg_atomic = [] {
     "xir_builder_atomic_fetch_add"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -808,12 +821,10 @@ static inline const auto reg_atomic = [] {
         expect(atomic != nullptr);
         expect(atomic->op() == AtomicOp::COMPARE_EXCHANGE);
     };
-    return 0;
-}();
+}
 
-// ---- User / operand manipulation ----
+void reg_user_operands() {
 
-static inline const auto reg_user_operands = [] {
     "xir_user_operand_count"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -827,12 +838,10 @@ static inline const auto reg_user_operands = [] {
         expect(add->operand(0) == arg1);
         expect(add->operand(1) == arg2);
     };
-    return 0;
-}();
+}
 
-// ---- Use-def chains ----
+void reg_use_def() {
 
-static inline const auto reg_use_def = [] {
     "xir_use_list_on_value"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -868,12 +877,10 @@ static inline const auto reg_use_def = [] {
         for ([[maybe_unused]] auto *u : alloc2->use_list()) { use_count_2++; }
         expect(use_count_2 == 1u) << "alloc2 should have 1 use after replacement";
     };
-    return 0;
-}();
+}
 
-// ---- is_insertion_point_terminator ----
+void reg_terminator_check() {
 
-static inline const auto reg_terminator_check = [] {
     "xir_builder_insertion_point_is_terminator_false"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -895,12 +902,10 @@ static inline const auto reg_terminator_check = [] {
         builder.set_insertion_point(ret);
         expect(builder.is_insertion_point_terminator() == true);
     };
-    return 0;
-}();
+}
 
-// ---- Instruction tags to_string ----
+void reg_instruction_tag_strings() {
 
-static inline const auto reg_instruction_tag_strings = [] {
     "xir_instruction_tag_to_string"_test = [] {
         expect(to_string(DerivedInstructionTag::IF) == "if");
         expect(to_string(DerivedInstructionTag::SWITCH) == "switch");
@@ -928,12 +933,10 @@ static inline const auto reg_instruction_tag_strings = [] {
         expect(to_string(DerivedInstructionTag::ASSUME) == "assume");
         expect(to_string(DerivedInstructionTag::OUTLINE) == "outline");
     };
-    return 0;
-}();
+}
 
-// ---- Multiple instructions in one block ----
+void reg_multi_inst() {
 
-static inline const auto reg_multi_inst = [] {
     "xir_builder_multiple_instructions_in_block"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -950,12 +953,10 @@ static inline const auto reg_multi_inst = [] {
         for ([[maybe_unused]] auto *inst : body->instructions()) { count++; }
         expect(count == 4u) << "block should have 4 instructions (2 alloca + 1 store + 1 load)";
     };
-    return 0;
-}();
+}
 
-// ---- Call instruction (function call) ----
+void reg_call() {
 
-static inline const auto reg_call = [] {
     "xir_builder_call_function"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -969,7 +970,34 @@ static inline const auto reg_call = [] {
         expect(call->derived_instruction_tag() == DerivedInstructionTag::CALL);
         expect(call->type() == Type::of<float>());
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_insertion_point();
+    reg_alloca();
+    reg_load_store();
+    reg_gep();
+    reg_arithmetic();
+    reg_cast();
+    reg_phi();
+    reg_print_clock();
+    reg_assert_assume();
+    reg_branches();
+    reg_return();
+    reg_other_terminators();
+    reg_if();
+    reg_switch();
+    reg_loop();
+    reg_outline();
+    reg_thread_group();
+    reg_atomic();
+    reg_user_operands();
+    reg_use_def();
+    reg_terminator_check();
+    reg_instruction_tag_strings();
+    reg_multi_inst();
+    reg_call();
+    return 0;
+}

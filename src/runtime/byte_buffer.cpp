@@ -21,7 +21,13 @@ ByteBuffer::ByteBuffer(DeviceInterface *device, size_t size_bytes) noexcept
                                               size_bytes, aligned_size);
                   size_bytes = aligned_size;
               }
-              return device->create_buffer(Type::of<void>(), size_bytes, nullptr);
+              auto info = device->create_buffer(Type::of<void>(), size_bytes, nullptr);
+#ifdef LUISA_ENABLE_SAFE_MODE
+              if (!info.valid()) {
+                  LUISA_ERROR("Failed to create byte buffer.");
+              }
+#endif
+              return info;
           }()} {}
 
 ByteBuffer::~ByteBuffer() noexcept {

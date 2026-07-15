@@ -209,44 +209,15 @@ int test_float4x4(Device &device) {
     return 0;
 }
 
-static inline const auto reg = [] {
-    "buffer_float3x3"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_float3x3(device);
-    };
-    "buffer_float3x3_order"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_float3x3_order(device);
-    };
-    "buffer_float4x4"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_float4x4(device);
-    };
-    "buffer_float4"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_floatx<float4>(device, 4, 4);
-    };
-    "buffer_float3"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_floatx<float3>(device, 3, 4);
-    };
-    "buffer_float2"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_floatx<float2>(device, 2, 2);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_float3x3(device);
+    test_float3x3_order(device);
+    test_float4x4(device);
+}

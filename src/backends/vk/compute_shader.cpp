@@ -23,8 +23,11 @@ ComputeShader::ComputeShader(
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
-    vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers)
-    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers)}, _block_size(block_size) {
+    vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
+    luisa::span<const std::byte> constant_ubo_data,
+    uint validation_count,
+    luisa::optional<uint8_t> required_subgroup_size)
+    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count}, _block_size(block_size) {
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     if (!cache_code.empty()) {
@@ -41,11 +44,30 @@ ComputeShader::ComputeShader(
     auto dispose_module = vstd::scope_exit([&] {
         vkDestroyShaderModule(device->logic_device(), shader_module, Device::alloc_callbacks());
     });
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_subgroup_size_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO};
+    void *stage_next = nullptr;
+    if (required_subgroup_size) {
+        if (!device->subgroup_size_control_enabled) {
+            LUISA_ERROR("Shader requested subgroup size {}, but Vulkan subgroup size control is not enabled.", *required_subgroup_size);
+        }
+        auto &props = device->subgroup_size_control_properties();
+        auto size = static_cast<uint32_t>(*required_subgroup_size);
+        if ((props.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) == 0u ||
+            size < props.minSubgroupSize ||
+            size > props.maxSubgroupSize) {
+            LUISA_ERROR("Shader requested subgroup size {}, but supported compute subgroup sizes are [{}..{}] with stages 0x{:x}.",
+                        size, props.minSubgroupSize, props.maxSubgroupSize, props.requiredSubgroupSizeStages);
+        }
+        required_subgroup_size_info.requiredSubgroupSize = size;
+        stage_next = &required_subgroup_size_info;
+    }
     VkComputePipelineCreateInfo pipe_ci{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .flags = 0,
         .stage = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .pNext = stage_next,
             .flags = 0,
             .stage = VK_SHADER_STAGE_COMPUTE_BIT,
             .module = shader_module,
@@ -79,11 +101,15 @@ ComputeShader *ComputeShader::compile(
     vstd::string_view file_name,
     SerdeType serde_type,
     uint shader_model,
-    bool unsafe_math) {
+    bool unsafe_math,
+    uint validation_count,
+    luisa::optional<uint8_t> required_subgroup_size) {
 
-    auto result = ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
+    auto result = required_subgroup_size ?
+                      ShaderSerializer::DeserResult{} :
+                      ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
     // cache invalid, need compile
-    bool write_cache = !file_name.empty();
+    bool write_cache = !required_subgroup_size && !file_name.empty();
     if (!result.shader) {
         auto str = codegen();
         vstd::MD5 md5;
@@ -95,9 +121,17 @@ ComputeShader *ComputeShader::compile(
             }
         }
         if (Device::print_code()) {
-            auto f = fopen("hlsl_output.hlsl", "ab");
-            fwrite(str.result.data(), str.result.size(), 1, f);
-            fclose(f);
+            auto dump_name = [&]() -> luisa::string {
+                if (!file_name.empty()) return luisa::string{file_name.data(), file_name.size()};
+                auto code_md5 = vstd::MD5({reinterpret_cast<uint8_t const *>(str.result.data()), str.result.size()});
+                return luisa::string{code_md5.to_string(false)};
+            }();
+            auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+            auto f = fopen(dump_file_name.c_str(), "wb");
+            if (f) {
+                fwrite(str.result.data(), str.result.size(), 1, f);
+                fclose(f);
+            }
         }
         auto comp_result = Device::compiler()->compile_compute(
             str.result.view(),
@@ -120,13 +154,16 @@ ComputeShader *ComputeShader::compile(
                     str.useTex2DBindless,
                     str.useTex3DBindless,
                     str.useBufferBindless,
-                    std::move(str.printers));
+                    std::move(str.printers),
+                    {},
+                    validation_count,
+                    required_subgroup_size);
                 if (write_cache) {
                     ShaderSerializer::serialize_bytecode(
                         shader->binds(),
                         shader->saved_arguments(),
                         md5,
-                        vstd::MD5(vstd::MD5::MD5Data{0, 0}),
+                        str.typeMD5,
                         block_size,
                         file_name,
                         {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
@@ -135,7 +172,8 @@ ComputeShader *ComputeShader::compile(
                         str.useTex2DBindless,
                         str.useTex3DBindless,
                         str.useBufferBindless,
-                        shader->printers());
+                        shader->printers(),
+                        validation_count);
                     ShaderSerializer::serialize_pso(
                         device,
                         shader,
@@ -150,5 +188,41 @@ ComputeShader *ComputeShader::compile(
             });
     }
     return static_cast<ComputeShader *>(result.shader);
+}
+
+ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
+    BinaryIO const *bin_io,
+    Device *device,
+    vstd::vector<SavedArgument> &&saved_args,
+    vstd::function<hlsl::CodegenResult()> const &codegen,
+    vstd::optional<vstd::MD5> const &code_md5,
+    vstd::vector<Argument> &&bindings,
+    uint3 block_size,
+    vstd::string_view file_name,
+    SerdeType serde_type,
+    uint shader_model,
+    bool unsafe_math,
+    uint validation_count,
+    luisa::optional<uint8_t> required_subgroup_size) {
+
+    if (serde_type != SerdeType::kBuiltin) [[unlikely]] {
+        LUISA_ERROR("Vulkan HLSL-to-SPIR-V compute compilation is restricted to internal builtins. "
+                    "User compute shaders must use native SPIR-V codegen.");
+    }
+
+    return compile(
+        bin_io,
+        device,
+        std::move(saved_args),
+        codegen,
+        code_md5,
+        std::move(bindings),
+        block_size,
+        file_name,
+        serde_type,
+        shader_model,
+        unsafe_math,
+        validation_count,
+        required_subgroup_size);
 }
 }// namespace lc::vk

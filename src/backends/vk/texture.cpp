@@ -169,7 +169,7 @@ void Texture::init_as_sparse(
     _dimension = dimension;
     _simultaneous_access = simultaneous_access;
     _layouts.resize(mip);
-    // TODO
+    // NOTE: layouts vector sized to mip level count for per-level layout tracking.
 }
 uint2 Texture::tex2d_tile_size(luisa::compute::PixelStorage storage) {
     auto size = pixel_storage_size(storage, is_block_compressed(storage) ? uint3(4, 4, 1) : uint3(1));

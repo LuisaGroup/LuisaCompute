@@ -21,6 +21,9 @@ AllocatedBuffer VkAllocator::allocate_buffer(size_t byte_size, VkBufferUsageFlag
     switch (access) {
         case AccessType::kReadBack:
             alloc_info.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+            // Prefer HOST_CACHED memory for faster CPU readback.
+            // VMA will fall back to uncached if cached is unavailable.
+            alloc_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
             break;
         case AccessType::kUpload:
             alloc_info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;

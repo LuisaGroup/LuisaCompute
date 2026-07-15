@@ -14,7 +14,7 @@
 
 #include "ut/ut.hpp"
 #include "test_device.h"
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 #include <luisa/luisa-compute.h>
@@ -134,11 +134,11 @@ void test_motion_blur(Device &device) {
     // Halton sequence for sampling
     Callable halton = [](UInt i, UInt b) noexcept {
         Float f = def(1.0f);
-        Float invB = 1.0f / b;
+        Float invB = 1.0f / cast<float>(b);
         Float r = def(0.0f);
         $while (i > 0u) {
             f = f * invB;
-            r = r + f * (i % b);
+            r = r + f * cast<float>(i % b);
             i = i / b;
         };
         return r;
@@ -209,7 +209,7 @@ void test_motion_blur(Device &device) {
         };
         // Progressive accumulation
         auto old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        auto t = 1.0f / (frame_index + 1.0f);
+        auto t = 1.0f / (cast<float>(frame_index) + 1.0f);
         image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
     };
 
@@ -251,26 +251,24 @@ void test_motion_blur(Device &device) {
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
     stbi_write_png("test_motion_blur.png", width, height, 4, pixels.data(), 0);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
-    auto result = luisa::test::save_and_compare(
-        pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
-        "test_motion_blur", opts.output_dir, ref_dir, opts.update_reference);
-    LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-    if (!result.passed) {
-        LUISA_ERROR("Reference comparison failed for test_motion_blur: {}", result.message);
-        boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-        return;
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_motion_blur]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
+        }
     }
 }
 
-static inline const auto reg = [] {
-    "test_motion_blur"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_motion_blur(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_motion_blur(device);
+}

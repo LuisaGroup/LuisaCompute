@@ -164,8 +164,8 @@ void Constant::_update_hash(luisa::optional<uint64_t> hash) noexcept {
     }
 }
 
-Constant::Constant(Module *module, const Type *type) noexcept
-    : Super{module, type} {
+Constant::Constant(Module *parent_module, const Type *type) noexcept
+    : Super{parent_module, type} {
     LUISA_DEBUG_ASSERT(type != nullptr && !type->is_custom() && !type->is_resource(),
                        "Invalid constant type: {}.", type == nullptr ? "void" : type->description());
     if (!_is_small()) { _large = luisa::allocate_with_allocator<std::byte>(type->size()); }
@@ -176,24 +176,24 @@ bool Constant::_is_small() const noexcept {
     return type()->size() <= sizeof(void *);
 }
 
-Constant::Constant(Module *module, const Type *type, const void *data,
+Constant::Constant(Module *parent_module, const Type *type, const void *data,
                    luisa::optional<uint64_t> hash) noexcept
-    : Constant{module, type} {
+    : Constant{parent_module, type} {
     LUISA_DEBUG_ASSERT(data != nullptr, "Data must not be null.");
     detail::xir_constant_fill_data(type, data, _data());
     _update_hash(std::move(hash));
 }
 
-Constant::Constant(Module *module, const Type *type, ctor_tag_zero,
+Constant::Constant(Module *parent_module, const Type *type, ctor_tag_zero,
                    luisa::optional<uint64_t> hash) noexcept
-    : Constant{module, type} {
+    : Constant{parent_module, type} {
     // already memset to zero in the delegate constructor
     _update_hash(std::move(hash));
 }
 
-Constant::Constant(Module *module, const Type *type, ctor_tag_one,
+Constant::Constant(Module *parent_module, const Type *type, ctor_tag_one,
                    luisa::optional<uint64_t> hash) noexcept
-    : Constant{module, type} {
+    : Constant{parent_module, type} {
     detail::xir_constant_fill_one(type, _data());
     _update_hash(std::move(hash));
 }

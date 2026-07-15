@@ -72,22 +72,6 @@ void FeatureCheck::check(Device const *device) {
         }
     }
 
-    // Check Cooperative Vector support (requires experimental features enabled)
-    {
-        D3D12_FEATURE_DATA_D3D12_OPTIONS_EXPERIMENTAL options_exp = {};
-        HRESULT hr = d3d_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS_EXPERIMENTAL,
-                                                     &options_exp,
-                                                     sizeof(options_exp));
-        if (SUCCEEDED(hr)) {
-            _cooperative_vector_tier = options_exp.CooperativeVectorTier;
-            _flags.cooperative_vector_supported = (options_exp.CooperativeVectorTier >= D3D12_COOPERATIVE_VECTOR_TIER_1_0);
-        } else {
-            // This is expected if experimental features are not enabled
-            _cooperative_vector_tier = D3D12_COOPERATIVE_VECTOR_TIER_NOT_SUPPORTED;
-            _flags.cooperative_vector_supported = false;
-        }
-    }
-
     // Check Work Graph support (D3D12_OPTIONS21)
     {
         D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21 = {};

@@ -8,8 +8,10 @@ namespace lc::vk {
 static constexpr uint32_t SpvMagicNumber = 0x07230203u;
 static constexpr uint32_t SpvOpCapability = 17u;
 static constexpr uint32_t SpvOpExtension = 10u;
-static constexpr uint32_t SpvOpTypeStruct = 30u;
 static constexpr uint32_t SpvOpCompositeConstruct = 80u;
+static constexpr uint32_t SpvOpConstant = 43u;
+static constexpr uint32_t SpvOpAccessChain = 65u;
+static constexpr uint32_t SpvOpInBoundsAccessChain = 66u;
 static constexpr uint32_t SpvOpStore = 62u;
 static constexpr uint32_t SpvOpTraceRayKHR = 4445u;
 static constexpr uint32_t SpvOpTraceRayMotionNV = 5339u;  // NOT 5338 (OpTraceMotionNV, reserved)
@@ -35,18 +37,6 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
         return {spirv.begin(), spirv.end()};
     }
 
-    // Strategy: The HLSL stores the time value as the last field (index 4)
-    // of the _MotionPayload struct in the payload variable before calling
-    // TraceRay. In SPIR-V this becomes:
-    //
-    //   %payload_val = OpCompositeConstruct %PayloadType ... %time_value
-    //   OpStore %payload_var %payload_val
-    //   OpTraceRayKHR ... %payload_var
-    //
-    // We find the OpStore to the payload variable preceding OpTraceRayKHR,
-    // then find the OpCompositeConstruct that produced the stored value,
-    // and extract the time value (last field of the struct).
-
     // Phase 1: Find all OpTraceRayKHR instructions and count them
     uint32_t trace_ray_count = 0;
     {
@@ -64,8 +54,9 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
     }
 
     // Phase 2: Build maps for analysis
-    // Map from result ID -> instruction offset (for OpCompositeConstruct lookups)
     vstd::unordered_map<uint32_t, size_t> result_id_to_offset;
+    vstd::unordered_map<uint32_t, uint32_t> constant_uint_values;
+    vstd::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> payload_member_ptrs;
 
     {
         size_t i = 5;
@@ -76,6 +67,15 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
 
             if (op == SpvOpCompositeConstruct && wc >= 3) {
                 result_id_to_offset[spirv[i + 2]] = i;
+            } else if (op == SpvOpConstant && wc >= 4) {
+                constant_uint_values[spirv[i + 2]] = spirv[i + 3];
+            } else if ((op == SpvOpAccessChain || op == SpvOpInBoundsAccessChain) && wc >= 5) {
+                auto result_id = spirv[i + 2];
+                auto base_id = spirv[i + 3];
+                auto member_index_id = spirv[i + wc - 1];
+                if (auto it = constant_uint_values.find(member_index_id); it != constant_uint_values.end()) {
+                    payload_member_ptrs[result_id] = {base_id, it->second};
+                }
             }
 
             i += wc;
@@ -118,8 +118,16 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
                 auto prev_wc = spv_word_count(spirv[prev_off]);
 
                 if (prev_op == SpvOpStore && prev_wc >= 3) {
-                    if (spirv[prev_off + 1] == payload_var_id) {
-                        uint32_t stored_value_id = spirv[prev_off + 2];
+                    auto store_ptr_id = spirv[prev_off + 1];
+                    auto stored_value_id = spirv[prev_off + 2];
+                    if (auto member_ptr_it = payload_member_ptrs.find(store_ptr_id);
+                        member_ptr_it != payload_member_ptrs.end() &&
+                        member_ptr_it->second.first == payload_var_id &&
+                        member_ptr_it->second.second == 4u) {
+                        time_value_id = stored_value_id;
+                        break;
+                    }
+                    if (store_ptr_id == payload_var_id) {
                         auto cc_it = result_id_to_offset.find(stored_value_id);
                         if (cc_it != result_id_to_offset.end()) {
                             auto cc_off = cc_it->second;
@@ -148,9 +156,7 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
     // Check if all patches have valid time values
     for (auto &p : patches) {
         if (p.time_value_id == 0) {
-            LUISA_WARNING("Some OpTraceRayKHR instructions could not be patched. "
-                          "Returning unpatched SPIR-V.");
-            return {spirv.begin(), spirv.end()};
+            LUISA_ERROR("Some OpTraceRayKHR instructions could not be patched for motion blur.");
         }
     }
 

@@ -28,6 +28,4 @@ struct BasicBlockPointerUsage {
     PointerUsageMap out;
 };
 
-
-
-}
+}// namespace luisa::compute::xir

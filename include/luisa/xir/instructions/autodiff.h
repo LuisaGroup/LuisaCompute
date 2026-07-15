@@ -9,8 +9,16 @@ class LUISA_XIR_API AutodiffScopeInst final : public ControlFlowMergeMixin<Deriv
 public:
     static constexpr size_t operand_index_entry_block = 0u;
 
+private:
+    bool _forward{false};
+    size_t _n_forward_grads{0u};
+
 public:
-    explicit AutodiffScopeInst(BasicBlock *parent_block) noexcept;
+    explicit AutodiffScopeInst(BasicBlock *parent_block, bool forward = false, size_t n_forward_grads = 0u) noexcept;
+    [[nodiscard]] bool is_forward() const noexcept { return _forward; }
+    [[nodiscard]] bool is_reverse() const noexcept { return !_forward; }
+    [[nodiscard]] size_t n_forward_grads() const noexcept { return _n_forward_grads; }
+    void set_forward(bool forward, size_t n_forward_grads = 0u) noexcept;
     void set_entry_block(BasicBlock *block) noexcept;
     BasicBlock *create_entry_block(bool overwrite_existing = false) noexcept;
     [[nodiscard]] BasicBlock *entry_block() noexcept;

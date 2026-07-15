@@ -7,7 +7,8 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 
-static inline const auto _luisa_reg_context = [] {
+void _luisa_reg_context() {
+
     boost::ut::detail::test{"test", "context"} = [] {
         auto argv = boost::ut::detail::cfg::largv;
         const char *exe = (argv && argv[0]) ? argv[0] : luisa::test::safe_argv0();
@@ -29,7 +30,11 @@ static inline const auto _luisa_reg_context = [] {
             }
         }
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    _luisa_reg_context();
+    return 0;
+}

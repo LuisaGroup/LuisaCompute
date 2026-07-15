@@ -36,16 +36,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-            force_offline = true;
-        }
-    }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
 
     Device device = context.create_device(argv[1]);
 
@@ -75,7 +66,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
     luisa::vector<Mesh> meshes;
@@ -101,11 +92,7 @@ int main(int argc, char *argv[]) {
     for (Mesh &m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f));
     }
-    stream << heap.update()
-           << accel.build()
-           << synchronize();
-
-    Constant materials{
+    float3 materials_host[]{
         make_float3(0.725f, 0.710f, 0.680f),// floor
         make_float3(0.725f, 0.710f, 0.680f),// ceiling
         make_float3(0.725f, 0.710f, 0.680f),// back wall
@@ -115,6 +102,13 @@ int main(int argc, char *argv[]) {
         make_float3(0.725f, 0.710f, 0.680f),// tall box
         make_float3(0.000f, 0.000f, 0.000f),// light
     };
+    Buffer<float3> materials = device.create_buffer<float3>(8);
+    stream << heap.update()
+           << accel.build()
+           << materials.copy_from(luisa::span<float3>{materials_host})
+           << synchronize();
+
+    
 
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
         return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -198,7 +192,7 @@ int main(int argc, char *argv[]) {
             $for (depth, 10u) {
                 // trace
                 Var<TriangleHit> hit = accel.intersect(ray, {});
-                reorder_shader_execution();
+                // reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float3 p0 = vertex_buffer->read(triangle.i0);
@@ -223,19 +217,19 @@ int main(int argc, char *argv[]) {
                 };
 
                 // sample light
-                Float3 pp = def(make_float3(0.0f));
-                Float3 albedo = def(make_float3(0.0f));
+                luisa::optional<Float3> pp;
+                luisa::optional<Float3> albedo;
                 $lambda({
                     Float ux_light = lcg();
                     Float uy_light = lcg();
                     Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
                     Float3 pp_light = offset_ray_origin(p_light, light_normal);
-                    pp = offset_ray_origin(p, n);
-                    albedo = materials.read(hit.inst);
-                    Float d_light = distance(pp, pp_light);
-                    Float3 wi_light = normalize(pp_light - pp);
+                    pp.emplace(offset_ray_origin(p, n));
+                    albedo.emplace(materials->read(hit.inst));
+                    Float d_light = distance(*pp, pp_light);
+                    Float3 wi_light = normalize(pp_light - *pp);
                     $lambda({
-                        Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
+                        Var<Ray> shadow_ray = make_ray(offset_ray_origin(*pp, n), wi_light, 0.f, d_light);
                         Bool occluded = accel.intersect_any(shadow_ray, {});
                         Float cos_wi_light = dot(wi_light, n);
                         Float cos_light = -dot(light_normal, wi_light);
@@ -243,7 +237,7 @@ int main(int argc, char *argv[]) {
                             Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                             Float pdf_bsdf = cos_wi_light * inv_pi;
                             Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                            Float3 bsdf = albedo * inv_pi * cos_wi_light;
+                            Float3 bsdf = *albedo * inv_pi * cos_wi_light;
                             radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
                         };
                     })();
@@ -255,9 +249,9 @@ int main(int argc, char *argv[]) {
                     Float3 wi_local = cosine_sample_hemisphere(make_float2(u.x, u.y));
                     Float cos_wi = abs(wi_local.z);
                     Float3 new_direction = onb.to_world(wi_local);
-                    ray = make_ray(pp, new_direction);
+                    ray = make_ray(*pp, new_direction);
                     pdf_bsdf = cos_wi * inv_pi;
-                    beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
+                    beta *= *albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
                 });
 
                 $lambda({
@@ -309,14 +303,17 @@ int main(int argc, char *argv[]) {
     };
 
     ShaderOption o{.enable_debug_info = false};
+    o.name = "raytracing";
+    auto raytracing_shader = device.compile(raytracing_kernel, o);
+    // DO NOT CHANGE THIS
+    // return 0;
     o.name = "clear";
     auto clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     o.name = "accumulate";
     auto accumulate_shader = device.compile(accumulate_kernel, o);
-    o.name = "raytracing";
-    auto raytracing_shader = device.compile(raytracing_kernel, o);
+    
     o.name = "make_sampler";
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
 
@@ -324,15 +321,14 @@ int main(int argc, char *argv[]) {
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
-    CommandList cmd_list;
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    cmd_list << clear_shader(accum_image).dispatch(resolution)
-             << make_sampler_shader(seed_image).dispatch(resolution);
+    stream << clear_shader(accum_image).dispatch(resolution)
+           << make_sampler_shader(seed_image).dispatch(resolution);
 
     // Setup window and swapchain conditionally
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -346,24 +342,21 @@ int main(int argc, char *argv[]) {
             }));
     }
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
-    static constexpr uint offline_total_spp = 1024u;
-    while (force_offline ? (frame_count < offline_total_spp) : !window->should_close()) {
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
-                        .dispatch(resolution)
-                 << accumulate_shader(accum_image, framebuffer)
-                        .dispatch(resolution);
-        if (!force_offline && swap_chain.has_value()) {
-            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution);
-            stream << cmd_list.commit()
-                   << swap_chain->present(ldr_image) << synchronize();
+    uint offline_total_spp = opts.spp == 0u ? 1024u : opts.spp;
+    while (opts.offline ? (frame_count < offline_total_spp) : !window->should_close()) {
+        stream << raytracing_shader(framebuffer, seed_image, accel, resolution)
+                      .dispatch(resolution)
+               << accumulate_shader(accum_image, framebuffer)
+                      .dispatch(resolution);
+        if (!opts.offline && swap_chain.has_value()) {
+            stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
+                   << swap_chain->present(ldr_image);
             window->poll_events();
-        } else {
-            stream << cmd_list.commit() << synchronize();
         }
         double dt = clock.toc() - last_time;
         last_time = clock.toc();
@@ -377,16 +370,15 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution.x, resolution.y, 4,
-            "test_path_tracing_nested_callable",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+    if (opts.offline) {
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

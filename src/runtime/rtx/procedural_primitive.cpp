@@ -7,7 +7,15 @@ ProceduralPrimitive::ProceduralPrimitive(DeviceInterface *device,
                                          BufferView<AABB> aabb,
                                          const AccelOption &option) noexcept
     : Resource(device, Resource::Tag::PROCEDURAL_PRIMITIVE,
-               device->create_procedural_primitive(option)),
+               [&] {
+                   auto info = device->create_procedural_primitive(option);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                   if (!info.valid()) {
+                       LUISA_ERROR("Failed to create procedural primitive.");
+                   }
+#endif
+                   return info;
+               }()),
       _aabb_buffer_native_handle{aabb.native_handle()},
       _aabb_buffer{aabb.handle()},
       _aabb_buffer_offset_bytes{aabb.offset_bytes()},

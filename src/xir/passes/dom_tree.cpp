@@ -19,7 +19,7 @@ inline void DomTreeNode::add_frontier(DomTreeNode *frontier) noexcept {
     _frontiers.emplace_back(frontier);
 }
 
-inline DomTree::DomTree() noexcept : _root{nullptr} {}
+DomTree::DomTree() noexcept : _root{nullptr} {}
 
 inline DomTreeNode *DomTree::add_or_get_node(BasicBlock *block) noexcept {
     auto iter = _nodes.try_emplace(block).first;
@@ -92,8 +92,8 @@ bool DomTree::strictly_dominates(BasicBlock *src, BasicBlock *dst) const noexcep
 }
 
 auto DomTree::immediate_dominator(BasicBlock *block) const noexcept -> BasicBlock * {
-    auto node = this->node(block);
-    if (node == _root) { return nullptr; }
+    auto node = this->node_or_null(block);
+    if (node == nullptr || node == _root) { return nullptr; }
     return node->parent()->block();
 }
 
@@ -102,13 +102,10 @@ DomTree compute_dom_tree(Function *function) noexcept {
     auto definition = function->definition();
     LUISA_ASSERT(definition != nullptr, "Function has no definition.");
     // compute reverse postorder
-    luisa::unordered_map<BasicBlock *, size_t> postorder_index;
     luisa::vector<BasicBlock *> reverse_postorder;
     definition->traverse_basic_blocks(
         BasicBlockTraversalOrder::POST_ORDER,
         [&](BasicBlock *block) noexcept {
-            auto index = reverse_postorder.size();
-            postorder_index.emplace(block, index);
             reverse_postorder.emplace_back(block);
         });
     auto root_block = definition->body_block();
@@ -116,34 +113,75 @@ DomTree compute_dom_tree(Function *function) noexcept {
                  "Invalid reverse postorder.");
     reverse_postorder.pop_back();// remove the root since we don't want to visit it during the traversal
     std::reverse(reverse_postorder.begin(), reverse_postorder.end());
-    // dominance information
-    luisa::unordered_map<BasicBlock *, BasicBlock *> doms;
+
+    // Assign dense block IDs and compute postorder indices.
+    size_t n = reverse_postorder.size() + 1;// +1 for root_block
+    luisa::unordered_map<BasicBlock *, size_t> block_id;
+    luisa::vector<size_t> postorder_index_vec(n, SIZE_MAX);
+    // The postorder index is the position in the original postorder (before reversal).
+    // Root was last in postorder (index = original_size - 1).
+    // Other blocks have indices 0..original_size-2.
+    size_t postorder_size = reverse_postorder.size() + 1;// original postorder size including root
+    for (size_t i = 0; i < reverse_postorder.size(); i++) {
+        auto *bb = reverse_postorder[i];
+        block_id[bb] = i;
+        // After reversal, reverse_postorder[i] was at postorder index (postorder_size - 2 - i).
+        // Let's just recompute: reverse_postorder is in reverse postorder now,
+        // so block at position i has postorder index = postorder_size - 1 - i - 1 (since root was last).
+        // Simpler: the block at reverse_postorder[i] was originally at index (original_size - 2 - i) in postorder.
+        postorder_index_vec[i] = postorder_size - 2 - i;
+    }
+    block_id[root_block] = reverse_postorder.size();// root gets the last slot
+    postorder_index_vec[reverse_postorder.size()] = postorder_size - 1;// root was last in postorder
+
+    // Dense dominator array.
+    luisa::vector<BasicBlock *> doms_vec(n, nullptr);
+    doms_vec[block_id[root_block]] = root_block;
+
+    // Helper to get postorder index.
+    auto get_postorder_idx = [&](BasicBlock *b) noexcept -> size_t {
+        if (b == nullptr) { return SIZE_MAX; }
+        auto it = block_id.find(b);
+        if (it == block_id.end()) { return SIZE_MAX; }
+        return postorder_index_vec[it->second];
+    };
+    // Helper to get dom.
+    auto get_dom = [&](BasicBlock *b) noexcept -> BasicBlock * {
+        if (b == nullptr) { return nullptr; }
+        auto it = block_id.find(b);
+        if (it == block_id.end()) { return nullptr; }
+        return doms_vec[it->second];
+    };
+
     auto intersect = [&](BasicBlock *b1, BasicBlock *b2) noexcept {
-        auto checked = [](BasicBlock *b) noexcept {
-            LUISA_DEBUG_ASSERT(b != nullptr, "Invalid block.");
-            return b;
-        };
+        LUISA_DEBUG_ASSERT(b1 != nullptr && b2 != nullptr, "Invalid block.");
         auto finger1 = b1;
         auto finger2 = b2;
-        while (checked(finger1) != checked(finger2)) {
-            while (postorder_index[checked(finger1)] < postorder_index[checked(finger2)]) {
-                finger1 = doms[finger1];
+        while (finger1 != finger2) {
+            auto i1 = get_postorder_idx(finger1);
+            auto i2 = get_postorder_idx(finger2);
+            while (i1 < i2) {
+                finger1 = get_dom(finger1);
+                LUISA_DEBUG_ASSERT(finger1 != nullptr, "Invalid dom tree.");
+                i1 = get_postorder_idx(finger1);
             }
-            while (postorder_index[checked(finger2)] < postorder_index[checked(finger1)]) {
-                finger2 = doms[finger2];
+            while (i2 < i1) {
+                finger2 = get_dom(finger2);
+                LUISA_DEBUG_ASSERT(finger2 != nullptr, "Invalid dom tree.");
+                i2 = get_postorder_idx(finger2);
             }
         }
         return finger1;
     };
-    // initialize
-    for (auto block : reverse_postorder) { doms[block] = nullptr; }
-    doms[root_block] = root_block;
+
+    // fixed-point iteration
     for (;;) {
         auto changed = false;
         for (auto block : reverse_postorder) {
             auto new_idom = static_cast<BasicBlock *>(nullptr);
             block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                if (auto iter = doms.find(pred); iter != doms.end() && iter->second != nullptr) {
+                auto dom_of_pred = get_dom(pred);
+                if (dom_of_pred != nullptr) {
                     if (new_idom == nullptr) {
                         new_idom = pred;
                     } else {
@@ -151,7 +189,8 @@ DomTree compute_dom_tree(Function *function) noexcept {
                     }
                 }
             });
-            if (auto &dom = doms[block]; dom != new_idom) {
+            auto &dom = doms_vec[block_id[block]];
+            if (dom != new_idom) {
                 dom = new_idom;
                 changed = true;
             }
@@ -161,7 +200,7 @@ DomTree compute_dom_tree(Function *function) noexcept {
     // create the dom tree
     DomTree tree;
     for (auto block : reverse_postorder) {
-        auto parent_node = tree.add_or_get_node(doms[block]);
+        auto parent_node = tree.add_or_get_node(doms_vec[block_id[block]]);
         auto block_node = tree.add_or_get_node(block);
         parent_node->add_child(block_node);
     }

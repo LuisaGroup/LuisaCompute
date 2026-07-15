@@ -163,8 +163,12 @@ void test_dsl(Device &device) {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
+    // Create image and volume resources for texture binding tests
+    auto tex2d = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
+    auto tex3d = device.create_volume<float>(PixelStorage::BYTE4, make_uint3(256u, 256u, 256u));
+
     // Main kernel definition demonstrating various DSL features
-    auto kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count, Var<BindlessArray> heap, BufferVar<int3> b0, BufferVar<float4x4> b1, Var<ByteBuffer> bb) noexcept -> void {
+    auto kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count, Var<BindlessArray> heap, BufferVar<int3> b0, ImageVar<float> img2d, BufferVar<float4x4> b1, Var<ByteBuffer> bb, VolumeVar<float> vol3d) noexcept -> void {
         using namespace dsl_literals;
 
         // Test volatile read/write operations on different buffer types
@@ -222,8 +226,8 @@ void test_dsl(Device &device) {
         Var v_float_copy = v_float;
 
         // Arithmetic operations with automatic type promotion
-        Var z = -1 + v_int * v_float + 1.0f;
-        z += 1;
+        Var z = -1.0f + v_int * v_float + 1.0f;
+        z += 1.0f;
         Var v_vec = float3{1.0f};
         Var v2 = float3{2.0f} - v_vec * 2.0f;
         v2 *= 5.0f + v_float;
@@ -273,6 +277,16 @@ void test_dsl(Device &device) {
         auto test_volatile = buffer_float.volatile_read(v_int + 1);
         buffer_float.volatile_write(v_int + 1, test_volatile);
         buffer->volatile_write(v_int + 1, float4(123.0f));
+
+        // Texture operations: read 2D image
+        Var img_coord = make_uint2(dispatch_x() % 1024u, dispatch_x() % 1024u);
+        Var<float4> tex_val = img2d->read(img_coord);
+        img2d->write(img_coord, tex_val + make_float4(0.1f));
+
+        // Texture operations: read 3D volume
+        Var vol_coord = make_uint3(dispatch_x() % 256u, 0u, 0u);
+        Var<float4> vol_val = vol3d->read(vol_coord);
+        vol3d->write(vol_coord, vol_val + make_float4(0.1f));
     };
     auto t1 = clock.toc();
 
@@ -281,15 +295,23 @@ void test_dsl(Device &device) {
     // auto command = kernel(float_buffer, 12u).dispatch(1024u);
     // auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }
+// TODO Change 'static inline const auto reg" to: 
+// int main(int argc, char *argv[]) {
+//     auto dc = luisa::test::create_device_from_ut(argc, argv);
+//     if (!dc) {
+//         return 0;
+//     }
+//     auto &device = dc->device;
+//     test_dsl(device);
+// }
 
-static inline const auto reg = [] {
-    "dsl"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        test_dsl(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_dsl(device);
+}

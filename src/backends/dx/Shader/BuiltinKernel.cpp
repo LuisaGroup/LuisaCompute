@@ -8,7 +8,7 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
-        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process");
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process.bytes");
         code.properties.resize(3);
         auto &global = code.properties[0];
         global.array_size = 1;
@@ -38,7 +38,8 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         uint3(256, 1, 1),
         62,
         "set_accel4.dxil"sv,
-        CacheType::Internal, true, false);
+        CacheType::Internal, true, false,
+        0);
 }
 ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
     auto func = [&] {
@@ -46,7 +47,7 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
-        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("bindless_upload");
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("bindless_upload.bytes");
         code.properties.resize(3);
         auto &global = code.properties[0];
         global.array_size = 1;
@@ -76,7 +77,8 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         uint3(256, 1, 1),
         62,
         "load_bdls.dxil"sv,
-        CacheType::Internal, true, false);
+        CacheType::Internal, true, false,
+        0);
 }
 namespace detail {
 static ComputeShader *_load_bc_kernel(
@@ -134,7 +136,8 @@ static ComputeShader *_load_bc_kernel(
         uint3(1, 1, 1),
         62,
         file_name,
-        CacheType::Internal, true, false);
+        CacheType::Internal, true, false,
+        0);
 }
 static vstd::string_view _bc6_header() {
     static auto bc6_header = hlsl::CodegenUtility::ReadInternalHLSLFile("bc6_header");

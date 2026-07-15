@@ -25,14 +25,13 @@ bool test_tensor_gemm(Device &device) {
 
 }// namespace
 
-static inline const auto _luisa_reg_tensor_gemm = [] {
-    "tensor_gemm"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        boost::ut::expect(test_tensor_gemm(device));
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_tensor_gemm(device);
+}

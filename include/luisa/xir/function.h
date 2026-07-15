@@ -67,14 +67,14 @@ public:
 
 using FunctionList = ManagedIntrusiveList<Function, SentinelFunction>;
 
-template<typename Derived, DerivedFunctionTag tag, typename Base = Function>
+template<typename Derived, DerivedFunctionTag Tag, typename Base = Function>
     requires std::derived_from<Base, Function>
 class DerivedFunction : public Base {
 public:
     using derived_function_type = Derived;
     using Super = DerivedFunction;
     using Base::Base;
-    [[nodiscard]] static constexpr DerivedFunctionTag static_derived_function_tag() noexcept { return tag; }
+    [[nodiscard]] static constexpr DerivedFunctionTag static_derived_function_tag() noexcept { return Tag; }
     [[nodiscard]] DerivedFunctionTag derived_function_tag() const noexcept final { return static_derived_function_tag(); }
 };
 
@@ -186,7 +186,7 @@ public:
     static constexpr auto default_block_size = luisa::make_uint3(64u, 1u, 1u);
 
 private:
-    std::array<uint, 3> _block_size;
+    std::array<uint32_t, 3> _block_size;
 
 public:
     explicit KernelFunction(Module *parent_module, luisa::uint3 block_size = default_block_size) noexcept;
