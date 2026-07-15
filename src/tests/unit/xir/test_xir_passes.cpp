@@ -872,7 +872,9 @@ void reg_loop_unroll() {
         b.set_insertion_point(merge);
         b.return_void();
 
-        auto info = loop_unroll_pass_run_on_function(k);
+        LoopUnrollOptions options;
+        options.max_trip_count = 16u;
+        auto info = loop_unroll_pass_run_on_function(k, options);
         expect(info.unrolled_loop_count == 0u);
     };
 
