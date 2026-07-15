@@ -303,28 +303,11 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             });
 
             if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
-                norm.add("loop-fusion", [](xir::Module *m, xir::PassReport &r) {
-                    auto i = xir::loop_fusion_pass_run_on_module(m, &r);
-                    return i.fused_loop_count > 0u;
-                });
+                // Keep structured loop transforms out of the production pipeline
+                // until they preserve loop ownership, PHIs, and break/continue.
                 norm.add("licm", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::licm_pass_run_on_module(m, &r);
                     return i.hoisted_count > 0u;
-                });
-                norm.add("indvar-simplify", [](xir::Module *m, xir::PassReport &r) {
-                    auto i = xir::indvar_simplify_pass_run_on_module(m, &r);
-                    return i.simplified_iv_count > 0u || i.removed_dead_iv_count > 0u;
-                });
-                norm.add("loop-unroll", [](xir::Module *m, xir::PassReport &r) {
-                    xir::LoopUnrollOptions unroll_opts;
-                    unroll_opts.max_trip_count = 256;
-                    unroll_opts.unroll_pure_only = true;
-                    auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
-                    return i.unrolled_loop_count > 0u;
-                });
-                norm.add("loop-vectorization", [](xir::Module *m, xir::PassReport &r) {
-                    auto i = xir::loop_vectorization_pass_run_on_module(m, &r);
-                    return i.vectorized_loop_count > 0u;
                 });
                 norm.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
@@ -335,10 +318,6 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                 norm.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::mem2reg_pass_run_on_module(m, &r);
                     return i.promoted_alloca_count > 0u;
-                });
-                norm.add("slp-vectorization", [](xir::Module *m, xir::PassReport &r) {
-                    auto i = xir::slp_vectorization_pass_run_on_module(m, &r);
-                    return i.vectorized_tree_count > 0u;
                 });
                 norm.add("algebraic-simplify", [algebraic_options](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
@@ -405,15 +384,6 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                 norm.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
                     return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
-                });
-                // After restructure_cfg, new loops may be exposed that were previously
-                // hidden in unstructured CFG. Run loop_unroll again to catch them.
-                norm.add("loop-unroll-post", [](xir::Module *m, xir::PassReport &r) {
-                    xir::LoopUnrollOptions unroll_opts;
-                    unroll_opts.max_trip_count = 256;
-                    unroll_opts.unroll_pure_only = true;
-                    auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
-                    return i.unrolled_loop_count > 0u;
                 });
                 norm.add("mem2reg-post-restructure", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::mem2reg_pass_run_on_module(m, &r);

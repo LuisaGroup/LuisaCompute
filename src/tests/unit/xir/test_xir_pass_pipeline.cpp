@@ -148,6 +148,22 @@ int main() {
         Module m;
         auto stats = p.run(&m);
         expect(stats.total_ms >= 0.0);
+        for (auto &&record : stats.records) {
+            expect(record.name != "loop-fusion");
+        }
+    };
+
+    "factory_ssa_optimization_excludes_unsafe_loop_transforms"_test = [] {
+        auto p = create_ssa_optimization_pipeline({.enable_fast_math = false});
+        expect(!p.empty());
+        Module m;
+        auto stats = p.run(&m);
+        for (auto &&record : stats.records) {
+            expect(record.name != "loop-fusion");
+            expect(record.name != "indvar-simplify");
+            expect(record.name != "loop-vectorization");
+            expect(record.name != "slp-vectorization");
+        }
     };
 
     "pass_report_set_overwrites"_test = [] {

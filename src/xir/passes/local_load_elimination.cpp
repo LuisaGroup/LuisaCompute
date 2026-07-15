@@ -51,12 +51,12 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
             switch (inst->derived_instruction_tag()) {
                 case DerivedInstructionTag::LOAD: {
                     auto load = static_cast<LoadInst *>(inst);
+                    auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable());
+                    if (alloca_inst == nullptr) { break; }
                     if (auto iter = already_loaded.find(load->variable()); iter != already_loaded.end()) {
                         removable_loads.emplace(load, iter->second);
                     } else {
-                        if (auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable())) {
-                            variable_pointers[alloca_inst].emplace_back(load->variable());
-                        }
+                        variable_pointers[alloca_inst].emplace_back(load->variable());
                         already_loaded[load->variable()] = load;
                     }
                     break;
@@ -140,6 +140,7 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                 if (inst->isa<LoadInst>()) {
                     auto load = static_cast<LoadInst *>(inst);
                     auto ptr = load->variable();
+                    if (trace_pointer_base_local_alloca_inst(ptr) == nullptr) { continue; }
                     auto it = current.find(ptr);
                     if (it != current.end() && it->second != load) {
                         to_remove.emplace_back(load, it->second);

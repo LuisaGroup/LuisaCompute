@@ -79,16 +79,10 @@ void licm_on_loop(LoopInst *loop, LICMInfo &info, DomTree &dom_tree) noexcept {
             if (!all_operands_invariant(inst, invariant)) { return; }
             auto *bb = inst->parent_block();
             auto mem = get_memory_info(inst);
-            // Allow hoisting of:
-            //   - instructions in the prepare block (runs once before loop)
-            //   - pure instructions (no memory effects)
-            //   - read-only global memory accesses (buffer reads) with invariant operands
-            bool can_hoist = bb == prepare ||
-                             mem.is_pure() ||
-                             (mem.scope == MemoryScope::GLOBAL &&
-                              mem.reads_memory() &&
-                              !mem.writes_memory() &&
-                              !mem.is_volatile);
+            // Moving a memory read from the body into prepare speculates it before
+            // the loop condition and also requires alias/clobber analysis. Keep
+            // memory operations in place until the pass can prove both properties.
+            bool can_hoist = bb == prepare || mem.is_pure();
             if (can_hoist) {
                 invariant.insert(inst);
                 changed = true;

@@ -140,6 +140,40 @@ void reg_licm() {
         expect(info.hoisted_count == 0u);
     };
 
+    "licm_no_speculative_global_read"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *buffer = k->create_resource_argument(Type::buffer(Type::of<int>()));
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prep = loop->create_prepare_block();
+        auto *lbody = loop->create_body_block();
+        auto *upd = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prep);
+        auto *false_const = m.create_constant_zero(Type::of<bool>());
+        b.cond_br(false_const, lbody, merge);
+
+        b.set_insertion_point(lbody);
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *read = b.call(Type::of<int>(), ResourceReadOp::BUFFER_READ, {buffer, zero});
+        b.br(upd);
+
+        b.set_insertion_point(upd);
+        b.br(prep);
+
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto info = licm_pass_run_on_function(k);
+        expect(info.hoisted_count == 0u);
+        expect(read->parent_block() == lbody);
+    };
+
     "licm_fixed_point_chained_invariant"_test = [] {
         Module m;
         BasicBlock *body;

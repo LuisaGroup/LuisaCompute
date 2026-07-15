@@ -1,11 +1,10 @@
 #include <luisa/core/logging.h>
-#include <luisa/core/stl/optional.h>
-#include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
@@ -17,30 +16,59 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
-    if (term == nullptr) return;
+[[nodiscard]] static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
+    if (term == nullptr || from == nullptr || to == nullptr) { return false; }
+    auto changed = false;
     switch (term->derived_instruction_tag()) {
         case DerivedInstructionTag::BRANCH: {
             auto br = static_cast<BranchInst *>(term);
-            if (br->target_block() == from) br->set_target_block(to);
+            if (br->target_block() == from) {
+                br->set_target_block(to);
+                changed = true;
+            }
             break;
         }
         case DerivedInstructionTag::CONDITIONAL_BRANCH: {
             auto cb = static_cast<ConditionalBranchInst *>(term);
-            if (cb->true_block() == from) cb->set_true_target(to);
-            if (cb->false_block() == from) cb->set_false_target(to);
+            if (cb->true_block() == from) {
+                cb->set_true_target(to);
+                changed = true;
+            }
+            if (cb->false_block() == from) {
+                cb->set_false_target(to);
+                changed = true;
+            }
+            break;
+        }
+        case DerivedInstructionTag::IF: {
+            auto if_inst = static_cast<IfInst *>(term);
+            if (if_inst->true_block() == from) {
+                if_inst->set_true_target(to);
+                changed = true;
+            }
+            if (if_inst->false_block() == from) {
+                if_inst->set_false_target(to);
+                changed = true;
+            }
             break;
         }
         case DerivedInstructionTag::SWITCH: {
             auto sw = static_cast<SwitchInst *>(term);
-            if (sw->default_block() == from) sw->set_default_block(to);
+            if (sw->default_block() == from) {
+                sw->set_default_block(to);
+                changed = true;
+            }
             for (size_t i = 0; i < sw->case_count(); ++i) {
-                if (sw->case_block(i) == from) sw->set_case_block(i, to);
+                if (sw->case_block(i) == from) {
+                    sw->set_case_block(i, to);
+                    changed = true;
+                }
             }
             break;
         }
         default: break;
     }
+    return changed;
 }
 
 static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
@@ -82,24 +110,6 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
     return true;
 }
 
-[[nodiscard]] static luisa::optional<SwitchInst::case_value_type> try_evaluate_static_switch_condition(Value *value) noexcept {
-    if (value == nullptr || !value->isa<Constant>()) return luisa::nullopt;
-    auto c = static_cast<Constant *>(value);
-    switch (c->type()->tag()) {
-        case Type::Tag::BOOL: return c->as<bool>() ? 1 : 0;
-        case Type::Tag::INT8: return c->as<int8_t>();
-        case Type::Tag::UINT8: return c->as<uint8_t>();
-        case Type::Tag::INT16: return c->as<int16_t>();
-        case Type::Tag::UINT16: return c->as<uint16_t>();
-        case Type::Tag::INT32: return c->as<int32_t>();
-        case Type::Tag::UINT32: return static_cast<SwitchInst::case_value_type>(c->as<uint32_t>());
-        case Type::Tag::INT64: return static_cast<SwitchInst::case_value_type>(c->as<int64_t>());
-        case Type::Tag::UINT64: return static_cast<SwitchInst::case_value_type>(c->as<uint64_t>());
-        default: break;
-    }
-    return luisa::nullopt;
-}
-
 template<typename Visit>
 static void traverse_structural_successors(BasicBlock *block, Visit &&visit) noexcept {
     if (block == nullptr || !block->is_terminated()) { return; }
@@ -134,64 +144,24 @@ static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(
     return reachable;
 }
 
-static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
-    luisa::vector<SwitchInst *> targets;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (auto t = bb->terminator(); t != nullptr && t->isa<SwitchInst>()) {
-            auto sw = static_cast<SwitchInst *>(t);
-            auto default_block = sw->default_block();
-            if (default_block == nullptr) return;
-            auto common = default_block;
-            auto all_same = true;
-            for (size_t i = 0; i < sw->case_count(); ++i) {
-                if (sw->case_block(i) != common) {
-                    all_same = false;
-                    break;
-                }
-            }
-            if (all_same || try_evaluate_static_switch_condition(sw->value())) {
-                targets.emplace_back(sw);
-            }
-        }
-    });
-    if (targets.empty()) return false;
-    for (auto sw : targets) {
-        auto bb = sw->parent_block();
-        if (bb == nullptr) continue;
-        auto target = sw->default_block();
-        if (auto static_value = try_evaluate_static_switch_condition(sw->value())) {
-            for (size_t i = 0; i < sw->case_count(); ++i) {
-                if (sw->case_value(i) == *static_value) {
-                    target = sw->case_block(i);
-                    break;
-                }
-            }
-        }
-        if (target == nullptr) continue;
-        sw->remove_self();
-        XIRBuilder b;
-        b.set_insertion_point(bb);
-        b.br(target);
-        ++info.folded_switch_count;
-    }
-    return true;
-}
-
 static luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinition *def) noexcept {
-    luisa::unordered_map<BasicBlock *, size_t> rpo_index;
-    size_t idx = 0;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        rpo_index.emplace(bb, idx++);
-    });
     luisa::unordered_set<BasicBlock *> headers;
-    for (auto &[bb, i] : rpo_index) {
-        bb->traverse_predecessors(true, [&](BasicBlock *p) noexcept {
-            auto it = rpo_index.find(p);
-            if (it != rpo_index.end() && it->second >= i && p != bb) {
-                headers.insert(bb);
+    luisa::unordered_set<BasicBlock *> visiting;
+    luisa::unordered_set<BasicBlock *> visited;
+    auto visit = [&](auto &&self, BasicBlock *block) noexcept -> void {
+        if (block == nullptr || visited.contains(block)) { return; }
+        visiting.emplace(block);
+        traverse_structural_successors(block, [&](BasicBlock *succ) noexcept {
+            if (visiting.contains(succ)) {
+                headers.emplace(succ);
+            } else if (!visited.contains(succ)) {
+                self(self, succ);
             }
         });
-    }
+        visiting.erase(block);
+        visited.emplace(block);
+    };
+    visit(visit, def->body_block());
     return headers;
 }
 
@@ -202,6 +172,15 @@ static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDef
         if (term == nullptr) return;
         if (auto merge = term->control_flow_merge()) {
             if (auto merge_block = merge->merge_block()) targets.emplace(merge_block);
+        }
+        if (term->isa<LoopInst>()) {
+            auto loop = static_cast<LoopInst *>(term);
+            if (auto prepare = loop->prepare_block()) { targets.emplace(prepare); }
+            if (auto body = loop->body_block()) { targets.emplace(body); }
+            if (auto update = loop->update_block()) { targets.emplace(update); }
+        } else if (term->isa<SimpleLoopInst>()) {
+            auto loop = static_cast<SimpleLoopInst *>(term);
+            if (auto body = loop->body_block()) { targets.emplace(body); }
         }
     });
     return targets;
@@ -231,6 +210,7 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         if (bb->terminator() == nullptr) continue;
         auto br = static_cast<BranchInst *>(bb->terminator());
         auto target = br->target_block();
+        if (target == nullptr) { continue; }
         bool target_has_phi = false;
         for (auto inst : target->instructions()) {
             if (inst->isa<PhiInst>()) {
@@ -246,8 +226,7 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         bool redirected = false;
         for (auto p : preds) {
             if (p == bb) continue;
-            retarget_terminator(p->terminator(), bb, target);
-            redirected = true;
+            redirected |= retarget_terminator(p->terminator(), bb, target);
         }
         if (redirected) {
             ++info.threaded_empty_block_count;
@@ -369,10 +348,6 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
     while (changed) {
         changed = false;
         if (detail::fold_constant_cond_br(def, info)) {
-            changed = true;
-            continue;
-        }
-        if (detail::fold_switches(def, info)) {
             changed = true;
             continue;
         }

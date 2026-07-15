@@ -1808,6 +1808,26 @@ void reg_local_load_elimination() {
         expect(info.removed_load_count == 0u);
     };
 
+    "local_load_elim_does_not_forward_reference_loads"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *p0 = k->create_reference_argument(Type::of<int>());
+        auto *p1 = k->create_reference_argument(Type::of<int>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *ld0 = b.load(Type::of<int>(), p0);
+        b.store(p1, m.create_constant_one(Type::of<int>()));
+        auto *ld1 = b.load(Type::of<int>(), p0);
+        auto *sum = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {ld0, ld1});
+        b.store(p1, sum);
+        b.return_void();
+        auto info = local_load_elimination_pass_run_on_function(k);
+        expect(info.removed_load_count == 0u);
+        expect(ld0->is_linked());
+        expect(ld1->is_linked());
+    };
+
     "local_load_elim_module_runs_all_functions"_test = [] {
         Module m;
         for (int i = 0; i < 2; ++i) {
