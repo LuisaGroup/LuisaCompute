@@ -74,6 +74,10 @@ struct CoroCfgDistillResult {
     luisa::vector<FrameValue> frame_values;
 };
 
+// These analysis entry points do not mutate the input, but their scope/liveness
+// results are supported only for unstructured CFG. Call lower_switch followed by
+// destructure_cfg before distilling a function that contains structured or
+// ambiguous control flow (including SWITCH with a null merge).
 [[nodiscard]] LUISA_XIR_API CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept;
 [[nodiscard]] LUISA_XIR_API size_t coro_cfg_distill_pass_run_on_module(Module *m) noexcept;
 

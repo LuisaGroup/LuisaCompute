@@ -96,12 +96,23 @@ struct PromotedArg {
 };
 
 static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo &info) {
+    // A reference that is only read through its own SSA value is not
+    // necessarily immutable: another reference argument may alias it and be
+    // written by the callee. Loading the "readonly" argument at the call site
+    // would then snapshot the old value and change program semantics. Without
+    // a call-site-aware no-alias proof, only promote references when every
+    // reference argument in the callable is recursively readonly.
+    for (auto arg : f->arguments()) {
+        if (arg->is_reference() && !is_pointer_readonly(arg)) {
+            return;
+        }
+    }
     // collect promotable reference arguments
     luisa::fixed_vector<PromotedArg, 16> promoted_args;
     {
         size_t index = 0;
         for (auto arg : f->arguments()) {
-            if (arg->is_reference() && !arg->type()->is_custom() && is_pointer_readonly(arg)) {
+            if (arg->is_reference() && !arg->type()->is_custom()) {
                 promoted_args.emplace_back(PromotedArg{
                     .arg = static_cast<ReferenceArgument *>(arg),
                     .index = index,

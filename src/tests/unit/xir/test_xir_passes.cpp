@@ -34,6 +34,7 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/core/stl/unordered_map.h>
 
 #include <limits>
 
@@ -77,6 +78,24 @@ static StoreInst *find_store_before(Instruction *before, Value *variable, Value 
         }
     }
     return nullptr;
+}
+
+static bool block_local_defs_precede_uses(BasicBlock *block) noexcept {
+    luisa::unordered_set<const Instruction *> seen;
+    for (auto *inst : block->instructions()) {
+        for (size_t i = 0u; i < inst->operand_count(); ++i) {
+            auto *operand = inst->operand(i);
+            if (operand->isa<Instruction>()) {
+                auto *operand_inst = static_cast<const Instruction *>(operand);
+                if (operand_inst->parent_block() == block &&
+                    seen.find(operand_inst) == seen.end()) {
+                    return false;
+                }
+            }
+        }
+        seen.emplace(inst);
+    }
+    return true;
 }
 
 // ---- algebraic_simplify: integer identities ----
@@ -275,6 +294,89 @@ void reg_algebraic_simplify() {
         b.return_void();
         auto info = algebraic_simplify_pass_run_on_function(k);
         expect(info.simplified_inst_count == 0u);
+    };
+
+    "algsimpl_float_sub_positive_zero_simplified"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *x = f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float zero_v = 0.0f;
+        auto *zero = m.create_constant(Type::of<float>(), &zero_v);
+        auto *sub = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {x, zero});
+        auto *ret = b.return_(sub);
+        auto info = algebraic_simplify_pass_run_on_function(f);
+        expect(info.simplified_inst_count == 1u);
+        expect(ret->return_value() == x);
+    };
+
+    "algsimpl_float_sub_negative_zero_not_simplified"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *x = f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float negative_zero_v = -0.0f;
+        auto *negative_zero = m.create_constant(Type::of<float>(), &negative_zero_v);
+        auto *sub = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {x, negative_zero});
+        auto *ret = b.return_(sub);
+        auto info = algebraic_simplify_pass_run_on_function(f);
+        expect(info.simplified_inst_count == 0u);
+        expect(ret->return_value() == sub);
+    };
+
+    "algsimpl_float_vector_sub_signed_zero_distinguished"_test = [] {
+        Module m;
+        auto type = Type::of<float2>();
+        auto *f = m.create_callable(type);
+        auto *x = f->create_value_argument(type);
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float negative_zero_data[2] = {-0.0f, 0.0f};
+        auto *negative_zero = m.create_constant(type, negative_zero_data);
+        auto *sub = b.call(type, ArithmeticOp::BINARY_SUB, {x, negative_zero});
+        auto *ret = b.return_(sub);
+        auto info = algebraic_simplify_pass_run_on_function(f);
+        expect(info.simplified_inst_count == 0u);
+        expect(ret->return_value() == sub);
+    };
+
+    "algsimpl_float_vector_unary_minus_zero_not_simplified"_test = [] {
+        Module m;
+        auto type = Type::of<float2>();
+        auto *f = m.create_callable(type);
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float zero_data[2] = {0.0f, -0.0f};
+        auto *zero = m.create_constant(type, zero_data);
+        auto *neg = b.call(type, ArithmeticOp::UNARY_MINUS, {zero});
+        auto *ret = b.return_(neg);
+        auto info = algebraic_simplify_pass_run_on_function(f);
+        expect(info.simplified_inst_count == 0u);
+        expect(ret->return_value() == neg);
+    };
+
+    "algsimpl_float_matrix_unary_minus_zero_not_simplified"_test = [] {
+        Module m;
+        auto type = Type::of<float2x2>();
+        auto *f = m.create_callable(type);
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float zero_data[4] = {0.0f, -0.0f, 0.0f, 0.0f};
+        auto *zero = m.create_constant(type, zero_data);
+        auto *neg = b.call(type, ArithmeticOp::UNARY_MINUS, {zero});
+        auto *ret = b.return_(neg);
+
+        auto info = algebraic_simplify_pass_run_on_function(f);
+
+        expect(info.simplified_inst_count == 0u);
+        expect(ret->return_value() == neg);
     };
 
     "algsimpl_float_mul_one_simplified"_test = [] {
@@ -925,6 +1027,63 @@ void reg_const_fold() {
         b.return_void();
         auto info = const_fold_pass_run_on_function(k);
         expect(info.folded_inst_count == 1u);
+    };
+
+    "constfold_lerp_keeps_backend_strict_fp_semantics"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float x_v = std::numeric_limits<float>::max();
+        float y_v = -std::numeric_limits<float>::max();
+        float t_v = 0.5f;
+        auto *x = m.create_constant(Type::of<float>(), &x_v);
+        auto *y = m.create_constant(Type::of<float>(), &y_v);
+        auto *t = m.create_constant(Type::of<float>(), &t_v);
+        auto *lerp = b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t});
+        auto *ret = b.return_(lerp);
+        auto info = const_fold_pass_run_on_function(f);
+        expect(info.folded_inst_count == 0u);
+        expect(ret->return_value() == lerp);
+    };
+
+    "constfold_float_special_values_remain_target_independent"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float4>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float nan_v = std::numeric_limits<float>::quiet_NaN();
+        float positive_zero_v = 0.0f;
+        float negative_zero_v = -0.0f;
+        float one_v = 1.0f;
+        auto *nan = m.create_constant(Type::of<float>(), &nan_v);
+        auto *positive_zero = m.create_constant(Type::of<float>(), &positive_zero_v);
+        auto *negative_zero = m.create_constant(Type::of<float>(), &negative_zero_v);
+        auto *one = m.create_constant(Type::of<float>(), &one_v);
+        auto *min_zero = b.call(Type::of<float>(), ArithmeticOp::MIN,
+                                {positive_zero, negative_zero});
+        auto *step_nan = b.call(Type::of<float>(), ArithmeticOp::STEP, {one, nan});
+        auto *saturate_zero = b.call(Type::of<float>(), ArithmeticOp::SATURATE,
+                                     {negative_zero});
+        auto *clamp_zero = b.call(Type::of<float>(), ArithmeticOp::CLAMP,
+                                  {negative_zero, positive_zero, one});
+        [[maybe_unused]] auto clamp_zero_lock = clamp_zero->lock();
+        auto *smooth = b.call(Type::of<float>(), ArithmeticOp::SMOOTHSTEP,
+                              {positive_zero, one, one});
+        auto *result = b.call(Type::of<float4>(), ArithmeticOp::AGGREGATE,
+                              {min_zero, step_nan, saturate_zero, smooth});
+        auto *ret = b.return_(result);
+
+        auto info = const_fold_pass_run_on_function(f);
+        expect(info.folded_inst_count == 0u);
+        expect(ret->return_value() == result);
+        expect(result->operand(0u) == min_zero);
+        expect(result->operand(1u) == step_nan);
+        expect(result->operand(2u) == saturate_zero);
+        expect(result->operand(3u) == smooth);
+        expect(clamp_zero->is_linked());
     };
 }
 
@@ -1723,42 +1882,48 @@ void reg_sccp() {
 
 void reg_simplify_libcalls() {
 
-    "simplify_libcalls_lerp_t_zero"_test = [] {
+    "simplify_libcalls_lerp_t_zero_keeps_strict_fp_semantics"_test = [] {
         Module m;
-        BasicBlock *body;
-        auto *k = make_kernel_with_body(m, body);
+        auto *f = m.create_callable(Type::of<float>());
+        auto *body = f->create_body_block();
         XIRBuilder b;
         b.set_insertion_point(body);
-        float x_v = 1.0f, y_v = 2.0f, t_v = 0.0f;
+        float x_v = std::numeric_limits<float>::max();
+        float y_v = -std::numeric_limits<float>::max();
+        float t_v = 0.0f;
         auto *x = m.create_constant(Type::of<float>(), &x_v);
         auto *y = m.create_constant(Type::of<float>(), &y_v);
         auto *t = m.create_constant(Type::of<float>(), &t_v);
-        auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t}));
-        auto info = simplify_libcalls_pass_run_on_function(k);
-        expect(info.simplified_count == 1u);
-        expect(ret->return_value() == x);
+        auto *lerp = b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t});
+        auto *ret = b.return_(lerp);
+        auto info = simplify_libcalls_pass_run_on_function(f);
+        expect(info.simplified_count == 0u);
+        expect(ret->return_value() == lerp);
     };
 
-    "simplify_libcalls_lerp_t_one"_test = [] {
+    "simplify_libcalls_lerp_t_one_keeps_strict_fp_semantics"_test = [] {
         Module m;
-        BasicBlock *body;
-        auto *k = make_kernel_with_body(m, body);
+        auto *f = m.create_callable(Type::of<float>());
+        auto *body = f->create_body_block();
         XIRBuilder b;
         b.set_insertion_point(body);
-        float x_v = 1.0f, y_v = 2.0f, t_v = 1.0f;
+        float x_v = std::numeric_limits<float>::max();
+        float y_v = -std::numeric_limits<float>::max();
+        float t_v = 1.0f;
         auto *x = m.create_constant(Type::of<float>(), &x_v);
         auto *y = m.create_constant(Type::of<float>(), &y_v);
         auto *t = m.create_constant(Type::of<float>(), &t_v);
-        auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t}));
-        auto info = simplify_libcalls_pass_run_on_function(k);
-        expect(info.simplified_count == 1u);
-        expect(ret->return_value() == y);
+        auto *lerp = b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t});
+        auto *ret = b.return_(lerp);
+        auto info = simplify_libcalls_pass_run_on_function(f);
+        expect(info.simplified_count == 0u);
+        expect(ret->return_value() == lerp);
     };
 
     "simplify_libcalls_clamp_01_to_saturate"_test = [] {
         Module m;
-        BasicBlock *body;
-        auto *k = make_kernel_with_body(m, body);
+        auto *f = m.create_callable(Type::of<float>());
+        auto *body = f->create_body_block();
         XIRBuilder b;
         b.set_insertion_point(body);
         float x_v = 0.5f, lo_v = 0.0f, hi_v = 1.0f;
@@ -1766,11 +1931,28 @@ void reg_simplify_libcalls() {
         auto *lo = m.create_constant(Type::of<float>(), &lo_v);
         auto *hi = m.create_constant(Type::of<float>(), &hi_v);
         auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::CLAMP, {x, lo, hi}));
-        auto info = simplify_libcalls_pass_run_on_function(k);
+        auto info = simplify_libcalls_pass_run_on_function(f);
         expect(info.simplified_count == 1u);
         expect(ret->return_value()->isa<ArithmeticInst>());
         expect(static_cast<ArithmeticInst *>(ret->return_value())->op() == ArithmeticOp::SATURATE);
         expect(static_cast<ArithmeticInst *>(ret->return_value())->operand(0) == x);
+    };
+
+    "simplify_libcalls_clamp_negative_zero_not_saturated"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *x = f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float lo_v = -0.0f, hi_v = 1.0f;
+        auto *lo = m.create_constant(Type::of<float>(), &lo_v);
+        auto *hi = m.create_constant(Type::of<float>(), &hi_v);
+        auto *clamp = b.call(Type::of<float>(), ArithmeticOp::CLAMP, {x, lo, hi});
+        auto *ret = b.return_(clamp);
+        auto info = simplify_libcalls_pass_run_on_function(f);
+        expect(info.simplified_count == 0u);
+        expect(ret->return_value() == clamp);
     };
 
     "simplify_libcalls_no_simplification"_test = [] {
@@ -1806,20 +1988,22 @@ void reg_simplify_libcalls() {
 
     "simplify_libcalls_module_runs_all_functions"_test = [] {
         Module m;
+        luisa::vector<Value *> arguments;
+        luisa::vector<ReturnInst *> returns;
         for (int i = 0; i < 2; ++i) {
-            BasicBlock *body;
-            auto *k = make_kernel_with_body(m, body);
+            auto *f = m.create_callable(Type::of<uint>());
+            auto *x = f->create_value_argument(Type::of<uint>());
+            auto *body = f->create_body_block();
             XIRBuilder b;
             b.set_insertion_point(body);
-            float x_v = 1.0f, y_v = 2.0f, t_v = 0.0f;
-            auto *x = m.create_constant(Type::of<float>(), &x_v);
-            auto *y = m.create_constant(Type::of<float>(), &y_v);
-            auto *t = m.create_constant(Type::of<float>(), &t_v);
-            b.call(Type::of<float>(), ArithmeticOp::LERP, {x, y, t});
-            b.return_void();
+            auto *abs = b.call(Type::of<uint>(), ArithmeticOp::ABS, {x});
+            arguments.emplace_back(x);
+            returns.emplace_back(b.return_(abs));
         }
         auto info = simplify_libcalls_pass_run_on_module(&m);
         expect(info.simplified_count == 2u);
+        expect(returns[0]->return_value() == arguments[0]);
+        expect(returns[1]->return_value() == arguments[1]);
     };
 }
 
@@ -2254,6 +2438,34 @@ void reg_local_load_elimination() {
         auto info = local_load_elimination_pass_run_on_module(&m);
         expect(info.removed_load_count == 2u);
     };
+
+    "local_load_elim_entry_backedge_does_not_forward_future_load"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *exit = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *alloca = b.alloca_local(Type::of<int>());
+        auto *first_load = b.load(Type::of<int>(), alloca);
+        auto first_load_lock = first_load->lock();
+        auto *increment = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD,
+                                 {first_load, m.create_constant_one(Type::of<int>())});
+        auto *store = b.store(alloca, increment);
+        auto *future_load = b.load(Type::of<int>(), alloca);
+        b.cond_br(m.create_undefined(Type::of<bool>()), body, exit);
+        b.set_insertion_point(exit);
+        b.return_(future_load);
+
+        auto info = local_load_elimination_pass_run_on_function(k);
+        expect(info.removed_load_count == 0u);
+        expect(first_load->is_linked());
+        expect(future_load->is_linked());
+        expect(increment->operand(0u) == first_load_lock.get());
+        expect(first_load->next() == increment);
+        expect(increment->next() == store);
+        expect(store->next() == future_load);
+    };
 }
 
 // ---- local_store_forward ----
@@ -2377,6 +2589,31 @@ void reg_dead_store_elimination() {
         b.return_(ld);
         auto info = dead_store_elimination_pass_run_on_function(k);
         expect(info.eliminated_store_count == 0u);
+    };
+
+    "dse_two_block_straight_line_cycle_terminates"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *loop_block = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *alloca = b.alloca_local(Type::of<int>());
+        auto *store0 = b.store(alloca, m.create_constant_zero(Type::of<int>()));
+        [[maybe_unused]] auto store0_lock = store0->lock();
+        b.br(loop_block);
+        b.set_insertion_point(loop_block);
+        auto *store1 = b.store(alloca, m.create_constant_one(Type::of<int>()));
+        b.br(body);
+
+        auto info = dead_store_elimination_pass_run_on_function(k);
+
+        expect(info.eliminated_store_count == 1u);
+        expect(!store0->is_linked());
+        expect(store1->is_linked());
+        auto rerun = dead_store_elimination_pass_run_on_function(k);
+        expect(rerun.eliminated_store_count == 0u);
+        expect(store1->is_linked());
     };
 
     "dse_module_runs_all_functions"_test = [] {
@@ -2568,11 +2805,11 @@ void reg_scalarizer() {
 
     "scalarizer_float3_add_scalarized"_test = [] {
         Module m;
-        BasicBlock *body;
-        auto *k = make_kernel_with_body(m, body);
+        auto vec_t = Type::of<float3>();
+        auto *f = m.create_callable(vec_t);
+        auto *body = f->create_body_block();
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto vec_t = Type::of<float3>();
         float a_data[3] = {1.0f, 2.0f, 3.0f};
         float b_data[3] = {4.0f, 5.0f, 6.0f};
         auto *a = m.create_constant(vec_t, a_data);
@@ -2580,14 +2817,14 @@ void reg_scalarizer() {
         auto *add = b.call(vec_t, ArithmeticOp::BINARY_ADD, {a, bv});
         auto add_locked = add->lock();
         auto *ret = b.return_(add);
-        auto info = scalarizer_pass_run_on_function(k);
+        auto info = scalarizer_pass_run_on_function(f);
         expect(info.scalarized_inst_count == 1u);
         expect(add_locked->use_list().empty());
         expect(ret->return_value()->isa<ArithmeticInst>());
         expect(static_cast<ArithmeticInst *>(ret->return_value())->op() == ArithmeticOp::AGGREGATE);
         size_t scalar_add_count = 0u;
         size_t vector_add_count = 0u;
-        k->traverse_instructions([&](Instruction *inst) noexcept {
+        f->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->isa<ArithmeticInst>() &&
                 static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::BINARY_ADD) {
                 if (inst->type() == Type::of<float>()) { ++scalar_add_count; }
@@ -2596,6 +2833,47 @@ void reg_scalarizer() {
         });
         expect(scalar_add_count == 3u);
         expect(vector_add_count == 0u);
+        expect(block_local_defs_precede_uses(body));
+    };
+
+    "scalarizer_chained_vector_ops_preserve_ssa_order"_test = [] {
+        Module m;
+        auto vec_t = Type::of<float3>();
+        auto *f = m.create_callable(vec_t);
+        auto *x = f->create_value_argument(vec_t);
+        auto *y = f->create_value_argument(vec_t);
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *add = b.call(vec_t, ArithmeticOp::BINARY_ADD, {x, y});
+        auto *mul = b.call(vec_t, ArithmeticOp::BINARY_MUL, {add, y});
+        auto *ret = b.return_(mul);
+
+        auto info = scalarizer_pass_run_on_function(f);
+
+        expect(info.scalarized_inst_count == 2u);
+        expect(ret->return_value()->isa<ArithmeticInst>());
+        expect(static_cast<ArithmeticInst *>(ret->return_value())->op() == ArithmeticOp::AGGREGATE);
+        expect(block_local_defs_precede_uses(body));
+
+        size_t scalar_add_count = 0u;
+        size_t scalar_mul_count = 0u;
+        size_t vector_component_op_count = 0u;
+        for (auto *inst : body->instructions()) {
+            if (!inst->isa<ArithmeticInst>()) continue;
+            auto *arith = static_cast<ArithmeticInst *>(inst);
+            if (arith->op() == ArithmeticOp::BINARY_ADD) {
+                if (arith->type() == Type::of<float>()) { ++scalar_add_count; }
+                if (arith->type() == vec_t) { ++vector_component_op_count; }
+            }
+            if (arith->op() == ArithmeticOp::BINARY_MUL) {
+                if (arith->type() == Type::of<float>()) { ++scalar_mul_count; }
+                if (arith->type() == vec_t) { ++vector_component_op_count; }
+            }
+        }
+        expect(scalar_add_count == 3u);
+        expect(scalar_mul_count == 3u);
+        expect(vector_component_op_count == 0u);
     };
 
     "scalarizer_no_vector_no_change"_test = [] {
@@ -3242,7 +3520,7 @@ void reg_mem2reg() {
         expect(info.promoted_alloca_count == 0u);
     };
 
-    "mem2reg_ignores_unreachable_alloca_users"_test = [] {
+    "mem2reg_retains_alloca_with_unreachable_load_store_users"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -3258,12 +3536,55 @@ void reg_mem2reg() {
         b.return_(ld);
         b.set_insertion_point(dead);
         auto *dead_load = b.load(Type::of<int>(), alloca);
-        b.store(alloca, dead_load);
+        auto *dead_store = b.store(alloca, dead_load);
         b.unreachable_();
+        [[maybe_unused]] auto alloca_lock = alloca->lock();
+        [[maybe_unused]] auto ld_lock = ld->lock();
+        [[maybe_unused]] auto dead_load_lock = dead_load->lock();
+        [[maybe_unused]] auto dead_store_lock = dead_store->lock();
         auto info = mem2reg_pass_run_on_function(k);
-        expect(info.promoted_alloca_count == 1u);
-        expect(info.removed_load_count >= 2u);
-        expect(info.removed_store_count >= 2u);
+        expect(info.promoted_alloca_count == 0u);
+        expect(info.removed_load_count == 0u);
+        expect(info.removed_store_count == 0u);
+        expect(alloca->is_linked());
+        expect(ld->is_linked());
+        expect(dead_load->is_linked());
+        expect(dead_store->is_linked());
+        expect(dead_store->value() == dead_load);
+    };
+
+    "mem2reg_retains_alloca_with_unreachable_load_used_by_owned_instruction"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *dead = k->definition()->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *alloca = b.alloca_local(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+        b.store(alloca, one);
+        auto *live_load = b.load(Type::of<int>(), alloca);
+        b.return_(live_load);
+
+        b.set_insertion_point(dead);
+        auto *dead_load = b.load(Type::of<int>(), alloca);
+        auto *sum = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {dead_load, one});
+        b.return_(sum);
+
+        [[maybe_unused]] auto alloca_lock = alloca->lock();
+        [[maybe_unused]] auto live_load_lock = live_load->lock();
+        [[maybe_unused]] auto dead_load_lock = dead_load->lock();
+        [[maybe_unused]] auto sum_lock = sum->lock();
+        auto info = mem2reg_pass_run_on_function(k);
+        expect(info.promoted_alloca_count == 0u);
+        expect(info.removed_load_count == 0u);
+        expect(info.removed_store_count == 0u);
+        expect(alloca->is_linked());
+        expect(live_load->is_linked());
+        expect(dead_load->is_linked());
+        expect(sum->is_linked());
+        expect(sum->operand(0u) == dead_load);
+        expect(!dead_load->use_list().empty());
     };
 }
 
@@ -3305,6 +3626,38 @@ void reg_promote_ref_arg() {
         c->create_body_block();
         auto info = promote_ref_arg_pass_run_on_module(&m);
         expect(info.promoted_ref_arg_count == 0u);
+    };
+
+    "promote_ref_arg_writable_alias_blocks_snapshot"_test = [] {
+        Module m;
+        auto *c = m.create_callable(Type::of<int>());
+        auto *read_ref = c->create_reference_argument(Type::of<int>());
+        auto *write_ref = c->create_reference_argument(Type::of<int>());
+        auto *callee_body = c->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        int32_t two_value = 2;
+        auto *two = m.create_constant(Type::of<int>(), &two_value);
+        b.store(write_ref, two);
+        auto *loaded_after_store = b.load(Type::of<int>(), read_ref);
+        b.return_(loaded_after_store);
+
+        BasicBlock *caller_body;
+        auto *k = make_kernel_with_body(m, caller_body);
+        b.set_insertion_point(caller_body);
+        auto *local = b.alloca_local(Type::of<int>());
+        b.store(local, m.create_constant_one(Type::of<int>()));
+        auto *call = b.call(Type::of<int>(), c, {local, local});
+        b.return_(call);
+
+        auto info = promote_ref_arg_pass_run_on_module(&m);
+        expect(info.promoted_ref_arg_count == 0u);
+        expect(c->arguments().count_size() == 2u);
+        expect(c->arguments().front()->is_reference());
+        expect(c->arguments().back()->is_reference());
+        expect(call->argument(0u) == local);
+        expect(call->argument(1u) == local);
+        expect(loaded_after_store->variable() == read_ref);
     };
 }
 

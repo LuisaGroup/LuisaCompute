@@ -28,8 +28,25 @@ struct CoroSplitInfo {
         Value *frame_argument{nullptr};
     };
     luisa::vector<Subroutine> subroutines;
+    // Coro splitting is an unstructured-CFG-only transform. A non-zero value
+    // means the complete request was rejected before any IR was mutated.
+    size_t structured_cfg_error_count{0u};
+    size_t invalid_cfg_error_count{0u};
+
+    [[nodiscard]] bool succeeded() const noexcept {
+        return structured_cfg_error_count == 0u && invalid_cfg_error_count == 0u;
+    }
 };
 
+// Coro split does not lower structured control flow. Call lower_switch first,
+// then destructure_cfg, before invoking this pass. SWITCH is treated as
+// structured/ambiguous even when its merge is null. Module entry points are
+// atomic: if any coroutine definition is unsupported, no definition is split.
+// Explicit distilled CFG input must be non-empty and wholly owned by the module
+// passed to the entry point.
+[[nodiscard]] LUISA_XIR_API CoroSplitInfo coro_split_pass_run_on_module_info(Module *m) noexcept;
+// Compatibility count-only entry points return zero on rejection. Use an
+// Info-returning entry point when the caller must inspect error counts.
 [[nodiscard]] LUISA_XIR_API size_t coro_split_pass_run_on_module(Module *m) noexcept;
 [[nodiscard]] LUISA_XIR_API size_t coro_split_pass_run_on_module_with_cfg(
     Module *m, const CoroCfgDistillResult &cfg) noexcept;

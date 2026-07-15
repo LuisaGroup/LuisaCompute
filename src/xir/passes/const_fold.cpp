@@ -274,12 +274,26 @@ namespace luisa::compute::xir {
         }
         case ArithmeticOp::MIN: {
             switch (tag) {
-                case Type::Tag::FLOAT32:
-                    *static_cast<float *>(data) = std::min(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data));
+                case Type::Tag::FLOAT32: {
+                    auto a = *static_cast<const float *>(op0_data);
+                    auto b = *static_cast<const float *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0f && b == 0.0f && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<float *>(data) = std::min(a, b);
                     return true;
-                case Type::Tag::FLOAT64:
-                    *static_cast<double *>(data) = std::min(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
+                }
+                case Type::Tag::FLOAT64: {
+                    auto a = *static_cast<const double *>(op0_data);
+                    auto b = *static_cast<const double *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0 && b == 0.0 && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<double *>(data) = std::min(a, b);
                     return true;
+                }
                 case Type::Tag::INT32:
                     *static_cast<int32_t *>(data) = std::min(*static_cast<const int32_t *>(op0_data), *static_cast<const int32_t *>(op1_data));
                     return true;
@@ -291,12 +305,26 @@ namespace luisa::compute::xir {
         }
         case ArithmeticOp::MAX: {
             switch (tag) {
-                case Type::Tag::FLOAT32:
-                    *static_cast<float *>(data) = std::max(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data));
+                case Type::Tag::FLOAT32: {
+                    auto a = *static_cast<const float *>(op0_data);
+                    auto b = *static_cast<const float *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0f && b == 0.0f && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<float *>(data) = std::max(a, b);
                     return true;
-                case Type::Tag::FLOAT64:
-                    *static_cast<double *>(data) = std::max(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
+                }
+                case Type::Tag::FLOAT64: {
+                    auto a = *static_cast<const double *>(op0_data);
+                    auto b = *static_cast<const double *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0 && b == 0.0 && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<double *>(data) = std::max(a, b);
                     return true;
+                }
                 case Type::Tag::INT32:
                     *static_cast<int32_t *>(data) = std::max(*static_cast<const int32_t *>(op0_data), *static_cast<const int32_t *>(op1_data));
                     return true;
@@ -308,85 +336,96 @@ namespace luisa::compute::xir {
         }
         case ArithmeticOp::CLAMP: {
             switch (tag) {
-                case Type::Tag::FLOAT32:
-                    *static_cast<float *>(data) = std::clamp(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data), *static_cast<const float *>(op2_data));
+                case Type::Tag::FLOAT32: {
+                    auto x = *static_cast<const float *>(op0_data);
+                    auto lo = *static_cast<const float *>(op1_data);
+                    auto hi = *static_cast<const float *>(op2_data);
+                    if (std::isnan(x) || std::isnan(lo) || std::isnan(hi) || hi < lo ||
+                        x == 0.0f ||
+                        (lo == 0.0f && hi == 0.0f && std::signbit(lo) != std::signbit(hi))) {
+                        return false;
+                    }
+                    *static_cast<float *>(data) = std::clamp(x, lo, hi);
                     return true;
-                case Type::Tag::FLOAT64:
-                    *static_cast<double *>(data) = std::clamp(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data), *static_cast<const double *>(op2_data));
+                }
+                case Type::Tag::FLOAT64: {
+                    auto x = *static_cast<const double *>(op0_data);
+                    auto lo = *static_cast<const double *>(op1_data);
+                    auto hi = *static_cast<const double *>(op2_data);
+                    if (std::isnan(x) || std::isnan(lo) || std::isnan(hi) || hi < lo ||
+                        x == 0.0 ||
+                        (lo == 0.0 && hi == 0.0 && std::signbit(lo) != std::signbit(hi))) {
+                        return false;
+                    }
+                    *static_cast<double *>(data) = std::clamp(x, lo, hi);
                     return true;
-                case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = std::clamp(*static_cast<const int32_t *>(op0_data), *static_cast<const int32_t *>(op1_data), *static_cast<const int32_t *>(op2_data));
+                }
+                case Type::Tag::INT32: {
+                    auto x = *static_cast<const int32_t *>(op0_data);
+                    auto lo = *static_cast<const int32_t *>(op1_data);
+                    auto hi = *static_cast<const int32_t *>(op2_data);
+                    if (hi < lo) { return false; }
+                    *static_cast<int32_t *>(data) = std::clamp(x, lo, hi);
                     return true;
-                case Type::Tag::UINT32:
-                    *static_cast<uint32_t *>(data) = std::clamp(*static_cast<const uint32_t *>(op0_data), *static_cast<const uint32_t *>(op1_data), *static_cast<const uint32_t *>(op2_data));
+                }
+                case Type::Tag::UINT32: {
+                    auto x = *static_cast<const uint32_t *>(op0_data);
+                    auto lo = *static_cast<const uint32_t *>(op1_data);
+                    auto hi = *static_cast<const uint32_t *>(op2_data);
+                    if (hi < lo) { return false; }
+                    *static_cast<uint32_t *>(data) = std::clamp(x, lo, hi);
                     return true;
+                }
                 default: return false;
             }
         }
         case ArithmeticOp::SATURATE: {
             switch (tag) {
-                case Type::Tag::FLOAT32:
-                    *static_cast<float *>(data) = std::clamp(*static_cast<const float *>(op0_data), 0.0f, 1.0f);
-                    return true;
-                case Type::Tag::FLOAT64:
-                    *static_cast<double *>(data) = std::clamp(*static_cast<const double *>(op0_data), 0.0, 1.0);
-                    return true;
-                default: return false;
-            }
-        }
-        case ArithmeticOp::LERP: {
-            switch (tag) {
                 case Type::Tag::FLOAT32: {
                     auto x = *static_cast<const float *>(op0_data);
-                    auto y = *static_cast<const float *>(op1_data);
-                    auto s = *static_cast<const float *>(op2_data);
-                    *static_cast<float *>(data) = x * (1.0f - s) + y * s;
+                    if (std::isnan(x) || x == 0.0f) { return false; }
+                    *static_cast<float *>(data) = std::clamp(x, 0.0f, 1.0f);
                     return true;
                 }
                 case Type::Tag::FLOAT64: {
                     auto x = *static_cast<const double *>(op0_data);
-                    auto y = *static_cast<const double *>(op1_data);
-                    auto s = *static_cast<const double *>(op2_data);
-                    *static_cast<double *>(data) = x * (1.0 - s) + y * s;
+                    if (std::isnan(x) || x == 0.0) { return false; }
+                    *static_cast<double *>(data) = std::clamp(x, 0.0, 1.0);
                     return true;
                 }
                 default: return false;
             }
         }
+        // LERP is intentionally not folded here. Backends may implement it as
+        // a fused multiply-add (for example, fma(t, y - x, x)); evaluating a
+        // different host expression changes overflow, rounding, NaN, and
+        // signed-zero behavior under strict floating-point semantics.
+        case ArithmeticOp::LERP: return false;
         case ArithmeticOp::STEP: {
             // STEP(edge, x) = x >= edge ? 1 : 0.
             // op0 = edge, op1 = x.
             switch (tag) {
-                case Type::Tag::FLOAT32:
-                    *static_cast<float *>(data) = (*static_cast<const float *>(op1_data) >= *static_cast<const float *>(op0_data)) ? 1.0f : 0.0f;
-                    return true;
-                case Type::Tag::FLOAT64:
-                    *static_cast<double *>(data) = (*static_cast<const double *>(op1_data) >= *static_cast<const double *>(op0_data)) ? 1.0 : 0.0;
-                    return true;
-                default: return false;
-            }
-        }
-        case ArithmeticOp::SMOOTHSTEP: {
-            switch (tag) {
                 case Type::Tag::FLOAT32: {
-                    auto edge0 = *static_cast<const float *>(op0_data);
-                    auto edge1 = *static_cast<const float *>(op1_data);
-                    auto x = *static_cast<const float *>(op2_data);
-                    auto t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-                    *static_cast<float *>(data) = t * t * (3.0f - 2.0f * t);
+                    auto edge = *static_cast<const float *>(op0_data);
+                    auto x = *static_cast<const float *>(op1_data);
+                    // Backends currently disagree on unordered STEP comparisons.
+                    if (std::isnan(edge) || std::isnan(x)) { return false; }
+                    *static_cast<float *>(data) = x >= edge ? 1.0f : 0.0f;
                     return true;
                 }
                 case Type::Tag::FLOAT64: {
-                    auto edge0 = *static_cast<const double *>(op0_data);
-                    auto edge1 = *static_cast<const double *>(op1_data);
-                    auto x = *static_cast<const double *>(op2_data);
-                    auto t = std::clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
-                    *static_cast<double *>(data) = t * t * (3.0 - 2.0 * t);
+                    auto edge = *static_cast<const double *>(op0_data);
+                    auto x = *static_cast<const double *>(op1_data);
+                    if (std::isnan(edge) || std::isnan(x)) { return false; }
+                    *static_cast<double *>(data) = x >= edge ? 1.0 : 0.0;
                     return true;
                 }
                 default: return false;
             }
         }
+        // Backends use target intrinsics/FMA for SMOOTHSTEP, so a host formula
+        // is not a strict constant-folding implementation.
+        case ArithmeticOp::SMOOTHSTEP: return false;
 
         // Float unary math
         case ArithmeticOp::ACOS:

@@ -101,6 +101,20 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
             taken = c->as<bool>() ? cb->true_block() : cb->false_block();
         }
         if (taken == nullptr) { continue; }
+        auto *dropped = taken == cb->true_block() ? cb->false_block() : cb->true_block();
+        // Replacing the conditional branch removes `bb` as a predecessor of the
+        // untaken successor. Keep its phi nodes in sync with that CFG update.
+        // Degenerate branches (`true == false`) still retain the edge, so there
+        // is no incoming to remove in that case.
+        if (dropped != nullptr && dropped != taken) {
+            for (auto *inst : dropped->instructions()) {
+                if (!inst->isa<PhiInst>()) { continue; }
+                auto *phi = static_cast<PhiInst *>(inst);
+                for (size_t i = phi->incoming_count(); i-- > 0u;) {
+                    if (phi->incoming(i).block == bb) { phi->remove_incoming(i); }
+                }
+            }
+        }
         cb->remove_self();
         XIRBuilder b;
         b.set_insertion_point(bb);

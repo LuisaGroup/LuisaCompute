@@ -8,15 +8,98 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/switch.h>
+#include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
+#include <algorithm>
+
 namespace luisa::compute::xir {
 
 namespace detail {
+
+[[nodiscard]] static bool contains_phi(BasicBlock *block) noexcept {
+    if (block == nullptr) { return false; }
+    for (auto *inst : block->instructions()) {
+        if (inst->isa<PhiInst>()) { return true; }
+    }
+    return false;
+}
+
+static void replace_phi_predecessor(BasicBlock *block,
+                                    BasicBlock *old_predecessor,
+                                    BasicBlock *new_predecessor) noexcept {
+    if (block == nullptr || old_predecessor == new_predecessor) { return; }
+    for (auto *inst : block->instructions()) {
+        if (!inst->isa<PhiInst>()) { continue; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        for (size_t i = 0u; i < phi->incoming_count(); ++i) {
+            auto incoming = phi->incoming(i);
+            if (incoming.block == old_predecessor) {
+                phi->set_incoming(i, incoming.value, new_predecessor);
+            }
+        }
+    }
+}
+
+struct RetargetableHandlerRegion {
+    luisa::unordered_set<BasicBlock *> blocks;
+};
+
+[[nodiscard]] static bool collect_retargetable_handler_region(
+    BasicBlock *entry, BasicBlock *dispatch, BasicBlock *loop_merge,
+    RetargetableHandlerRegion &region) noexcept {
+    if (entry == nullptr || dispatch == nullptr || loop_merge == nullptr) { return false; }
+    auto *owner = dispatch->parent_function();
+    luisa::vector<BasicBlock *> worklist{entry};
+    while (!worklist.empty()) {
+        auto *block = worklist.back();
+        worklist.pop_back();
+        if (block == dispatch) { continue; }
+        if (block == nullptr || block == loop_merge ||
+            block->parent_function() != owner) {
+            return false;
+        }
+        if (!region.blocks.emplace(block).second) { continue; }
+        if (!block->is_terminated()) { return false; }
+        auto *term = block->terminator();
+        auto valid = true;
+        block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+            if (successor == dispatch) {
+                valid &= term->isa<BranchInst>() &&
+                         static_cast<BranchInst *>(term)->target_block() == dispatch;
+            } else if (!region.blocks.contains(successor)) {
+                worklist.emplace_back(successor);
+            }
+        });
+        if (!valid) { return false; }
+    }
+    for (auto *block : region.blocks) {
+        if (auto *merge = block->terminator()->control_flow_merge(); merge != nullptr) {
+            auto *merge_block = merge->merge_block();
+            if (merge_block != nullptr && !region.blocks.contains(merge_block)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool handler_regions_overlap(
+    const RetargetableHandlerRegion &lhs,
+    const RetargetableHandlerRegion &rhs) noexcept {
+    auto *smaller = &lhs.blocks;
+    auto *larger = &rhs.blocks;
+    if (smaller->size() > larger->size()) { std::swap(smaller, larger); }
+    for (auto *block : *smaller) {
+        if (larger->contains(block)) { return true; }
+    }
+    return false;
+}
 
 // Lowers RayQueryLoopInst into a LoopInst with structured candidate dispatch.
 //
@@ -29,38 +112,73 @@ namespace detail {
 //   update:  br(prepare)
 //   merge:   (original merge — post-loop code)
 static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
-                                     LowerRayQueryLoopToLoopInfo &info) noexcept {
-    if (rq_loop == nullptr) { return false; }
+                                     LowerRayQueryLoopToLoopInfo &info,
+                                     bool preflight_only) noexcept {
+    auto reject = [&](luisa::string_view reason) noexcept {
+        LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop_to_loop: rejecting loop: {}", reason);
+        ++info.error_count;
+        return false;
+    };
+    if (rq_loop == nullptr) { return reject("null RayQueryLoopInst"); }
     auto parent_block = rq_loop->parent_block();
     auto dispatch_block = rq_loop->dispatch_block();
     auto merge_block = rq_loop->merge_block();
     if (parent_block == nullptr || dispatch_block == nullptr || merge_block == nullptr) {
-        LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop_to_loop: skipping RayQueryLoop with null parent/dispatch/merge block.");
-        return false;
+        return reject("null parent, dispatch, or merge block");
+    }
+    if (!dispatch_block->is_terminated()) {
+        return reject("dispatch block is unterminated");
     }
     auto dispatch_term = dispatch_block->terminator();
-    if (dispatch_term == nullptr || !dispatch_term->isa<RayQueryDispatchInst>()) {
-        LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop_to_loop: dispatch block not terminated with RayQueryDispatch.");
-        return false;
+    if (!dispatch_term->isa<RayQueryDispatchInst>()) {
+        return reject("dispatch block is not terminated with RayQueryDispatchInst");
     }
     auto dispatch_inst = static_cast<RayQueryDispatchInst *>(dispatch_term);
     auto query_object = dispatch_inst->query_object();
     auto on_surface_block = dispatch_inst->on_surface_candidate_block();
     auto on_procedural_block = dispatch_inst->on_procedural_candidate_block();
-    if (query_object == nullptr || on_surface_block == nullptr || on_procedural_block == nullptr) {
-        LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop_to_loop: RayQueryDispatch with null operand.");
-        return false;
+    if (query_object == nullptr || !query_object->is_lvalue() ||
+        on_surface_block == nullptr || on_procedural_block == nullptr) {
+        return reject("RayQueryDispatchInst has a null query or handler operand");
     }
     auto function = parent_block->parent_function();
     if (function == nullptr) {
-        LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop_to_loop: parent block without parent function.");
-        return false;
+        return reject("parent block has no parent function");
     }
     auto def = function->definition();
     if (def == nullptr) {
-        LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop_to_loop: function has no definition.");
-        return false;
+        return reject("parent function has no definition");
     }
+    if (dispatch_block->parent_function() != function ||
+        merge_block->parent_function() != function) {
+        return reject("RayQueryLoop references a block outside its function");
+    }
+    if (dispatch_inst->exit_block() != merge_block) {
+        return reject("dispatch exit does not match the RayQueryLoop merge block");
+    }
+    // Dispatch values and handler-entry PHIs would need edge-sensitive SSA
+    // migration. Reject them before creating a single replacement block.
+    if (contains_phi(dispatch_block) || contains_phi(on_surface_block) ||
+        contains_phi(on_procedural_block)) {
+        return reject("dispatch or handler-entry PHI requires SSA migration");
+    }
+    RetargetableHandlerRegion surface_region;
+    RetargetableHandlerRegion procedural_region;
+    if (!collect_retargetable_handler_region(on_surface_block, dispatch_block,
+                                             merge_block, surface_region) ||
+        !collect_retargetable_handler_region(on_procedural_block, dispatch_block,
+                                             merge_block, procedural_region)) {
+        return reject("handler has an unterminated or non-Branch edge to dispatch");
+    }
+    if (handler_regions_overlap(surface_region, procedural_region)) {
+        return reject("surface and procedural handler regions overlap");
+    }
+    for (auto *inst : dispatch_block->instructions()) {
+        if (inst != dispatch_term) {
+            return reject("dispatch block contains non-terminator instructions");
+        }
+    }
+    if (preflight_only) { return true; }
     auto bool_type = Type::of<bool>();
 
     rq_loop->remove_self();
@@ -75,6 +193,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED, {query_object});
     auto is_terminated = b.call(bool_type, RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, {query_object});
     b.cond_br(is_terminated, merge_block, body_block);
+    replace_phi_predecessor(merge_block, dispatch_block, prepare_block);
 
     b.set_insertion_point(update_block);
     b.br(prepare_block);
@@ -110,6 +229,8 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     // Retarget handler terminators: br(dispatch_block) → br(tri_merge)
     // Only retarget BranchInst targets, not merge_block fields of nested constructs.
     dispatch_inst->remove_self();
+    b.set_insertion_point(dispatch_block);
+    b.unreachable_();
     auto retarget_handler_branches = [&](BasicBlock *handler_entry, BasicBlock *target) noexcept {
         luisa::vector<BasicBlock *> worklist;
         luisa::unordered_set<BasicBlock *> visited;
@@ -145,22 +266,23 @@ static void lower_in_function(Function *function, LowerRayQueryLoopToLoopInfo &i
     if (function == nullptr) { return; }
     auto def = function->definition();
     if (def == nullptr) { return; }
-    for (;;) {
-        luisa::vector<RayQueryLoopInst *> rq_loops;
-        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            if (block == nullptr || !block->is_terminated()) { return; }
-            auto term = block->terminator();
-            if (term != nullptr && term->isa<RayQueryLoopInst>()) {
-                rq_loops.emplace_back(static_cast<RayQueryLoopInst *>(term));
+    luisa::vector<RayQueryLoopInst *> rq_loops;
+    for (auto *block : def->basic_blocks()) {
+        if (block != nullptr && block->is_terminated()) {
+            auto *terminator = block->terminator();
+            if (terminator->isa<RayQueryLoopInst>()) {
+                rq_loops.emplace_back(static_cast<RayQueryLoopInst *>(terminator));
             }
-        });
-        if (rq_loops.empty()) { break; }
-        XIRBuilder b;
-        bool any_lowered = false;
-        for (auto rq : rq_loops) {
-            any_lowered |= lower_one_ray_query_loop(rq, b, info);
         }
-        if (!any_lowered) { break; }
+    }
+    XIRBuilder b;
+    auto rejected = false;
+    for (auto *rq : rq_loops) {
+        rejected |= !lower_one_ray_query_loop(rq, b, info, true);
+    }
+    if (rejected) { return; }
+    for (auto *rq : rq_loops) {
+        (void)lower_one_ray_query_loop(rq, b, info, false);
     }
 }
 
@@ -181,6 +303,7 @@ LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Modu
     }
     if (report != nullptr) {
         report->set("lowered_ray_query_loop", info.lowered_ray_query_loop_count);
+        report->set("error", info.error_count);
     }
     return info;
 }

@@ -53,6 +53,120 @@ void check_phi_free(FunctionDefinition *def) noexcept {
     });
 }
 
+// Return the number of cyclic SCCs with more than one entry block. Such a
+// region cannot be represented by XIR's structured loop form without node
+// splitting. Detect it before the restructuring pipeline mutates anything so
+// failure is atomic and callers can choose a dedicated irreducible-CFG lowering.
+[[nodiscard]] size_t count_irreducible_regions(FunctionDefinition *def) noexcept {
+    luisa::vector<BasicBlock *> blocks;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept { blocks.emplace_back(bb); });
+    if (blocks.empty()) { return 0u; }
+
+    luisa::unordered_map<BasicBlock *, size_t> block_index;
+    block_index.reserve(blocks.size());
+    for (size_t i = 0u; i < blocks.size(); ++i) { block_index.emplace(blocks[i], i); }
+
+    luisa::vector<luisa::vector<size_t>> successors(blocks.size());
+    luisa::vector<luisa::vector<size_t>> predecessors(blocks.size());
+    for (size_t i = 0u; i < blocks.size(); ++i) {
+        auto *bb = blocks[i];
+        if (!bb->is_terminated()) { continue; }
+        bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (auto iter = block_index.find(succ); iter != block_index.end()) {
+                successors[i].emplace_back(iter->second);
+                predecessors[iter->second].emplace_back(i);
+            }
+        });
+    }
+
+    // Kosaraju's algorithm, written iteratively to avoid recursion depth limits
+    // on generated kernels with large CFGs.
+    luisa::vector<uint8_t> visited(blocks.size(), 0u);
+    luisa::vector<size_t> finish_order;
+    finish_order.reserve(blocks.size());
+    for (size_t root = 0u; root < blocks.size(); ++root) {
+        if (visited[root] != 0u) { continue; }
+        visited[root] = 1u;
+        luisa::vector<std::pair<size_t, size_t>> stack;
+        stack.emplace_back(root, 0u);
+        while (!stack.empty()) {
+            auto &[node, next_index] = stack.back();
+            if (next_index < successors[node].size()) {
+                auto next = successors[node][next_index++];
+                if (visited[next] == 0u) {
+                    visited[next] = 1u;
+                    stack.emplace_back(next, 0u);
+                }
+            } else {
+                finish_order.emplace_back(node);
+                stack.pop_back();
+            }
+        }
+    }
+
+    constexpr auto invalid_component = static_cast<size_t>(-1);
+    luisa::vector<size_t> component(blocks.size(), invalid_component);
+    luisa::vector<size_t> component_size;
+    for (size_t i = finish_order.size(); i-- > 0u;) {
+        auto root = finish_order[i];
+        if (component[root] != invalid_component) { continue; }
+        auto component_id = component_size.size();
+        auto size = size_t{0u};
+        luisa::vector<size_t> work{root};
+        component[root] = component_id;
+        while (!work.empty()) {
+            auto node = work.back();
+            work.pop_back();
+            ++size;
+            for (auto pred : predecessors[node]) {
+                if (component[pred] == invalid_component) {
+                    component[pred] = component_id;
+                    work.emplace_back(pred);
+                }
+            }
+        }
+        component_size.emplace_back(size);
+    }
+
+    luisa::vector<uint8_t> cyclic(component_size.size(), 0u);
+    for (size_t node = 0u; node < blocks.size(); ++node) {
+        auto cid = component[node];
+        if (component_size[cid] > 1u) {
+            cyclic[cid] = 1u;
+        } else {
+            for (auto succ : successors[node]) {
+                if (succ == node) {
+                    cyclic[cid] = 1u;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Count distinct entry *nodes*, not incoming edges. A natural loop may have
+    // several external edges to its single header and is still reducible.
+    luisa::vector<uint8_t> is_entry_node(blocks.size(), 0u);
+    if (auto iter = block_index.find(def->body_block()); iter != block_index.end()) {
+        is_entry_node[iter->second] = 1u;
+    }
+    for (size_t source = 0u; source < blocks.size(); ++source) {
+        for (auto target : successors[source]) {
+            if (component[source] != component[target]) { is_entry_node[target] = 1u; }
+        }
+    }
+    luisa::vector<size_t> entry_count(component_size.size(), 0u);
+    for (size_t node = 0u; node < blocks.size(); ++node) {
+        if (is_entry_node[node] != 0u && cyclic[component[node]] != 0u) {
+            ++entry_count[component[node]];
+        }
+    }
+    size_t irreducible_count = 0u;
+    for (size_t cid = 0u; cid < component_size.size(); ++cid) {
+        if (cyclic[cid] != 0u && entry_count[cid] > 1u) { ++irreducible_count; }
+    }
+    return irreducible_count;
+}
+
 [[nodiscard]] bool is_sink(BasicBlock *bb) noexcept {
     if (!bb->is_terminated()) { return true; }
     auto *t = bb->terminator();
@@ -2711,6 +2825,14 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
     ScopedTimer _timer_overall("restructure_cfg_on_definition");
     check_phi_free(def);
     RestructureCFGInfo info{};
+    if (auto count = count_irreducible_regions(def); count != 0u) {
+        info.irreducible_region_count = count;
+        LUISA_WARNING_WITH_LOCATION(
+            "restructure_cfg rejected {} irreducible multi-entry cyclic region(s); "
+            "the function was left unchanged.",
+            count);
+        return info;
+    }
     luisa::unordered_set<BasicBlock *> all_created_structural_merges;
     luisa::unordered_map<BasicBlock *, BasicBlock *> sm_to_header;
     size_t max_iters = 10000;

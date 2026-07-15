@@ -15,12 +15,13 @@ struct SimplifyLibCallsInfo {
 ///
 /// Recognizes math library patterns in ArithmeticInst and replaces them
 /// with simplified or canonical forms:
-///   - LERP(x, y, 0.0) → x
-///   - LERP(x, y, 1.0) → y
-///   - CLAMP(x, 0.0, 1.0) → SATURATE(x)
-///   - STEP(0.0, x) → 1.0
+///   - CLAMP(x, +0.0, 1.0) → SATURATE(x)
 ///   - ABS(x) for unsigned x → x
 ///   - SELECT(cond, x, x) → x
+///
+/// Floating-point rewrites are required to preserve strict semantics. In
+/// particular, LERP endpoint rewrites are deliberately not performed because
+/// target implementations may use a fused multiply-add formulation.
 [[nodiscard]] LUISA_XIR_API SimplifyLibCallsInfo simplify_libcalls_pass_run_on_function(FunctionDefinition *def) noexcept;
 
 /// Run the simplify-libcalls pass on every function definition in a module.

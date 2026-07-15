@@ -20,7 +20,6 @@
 #include <luisa/xir/passes/dead_store_elimination.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
-#include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -116,6 +115,8 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     //   restructure_cfg: unstructured -> structured.
     //   reg2mem after restructure_cfg: eliminates any remaining phis so that
     //   SPIR-V codegen doesn't need OpPhi (planned for future optimization).
+    //   Typed-buffer scalar-to-vector fusion is deliberately disabled: XIR
+    //   BUFFER_READ/WRITE access types must match the buffer element type.
 
     if (!LUISA_XIR_DISABLE_OPTIMIZATION) {
         Clock opt_clk;
@@ -130,10 +131,6 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         phase_a.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::trace_gep_pass_run_on_module(m);
             return i.traced_gep_count > 0u;
-        });
-        phase_a.add("fuse-consecutive-buffer-reads", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
-            return i.fused_group_count > 0u;
         });
         phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::dce_pass_run_on_module(m, &r);
@@ -182,16 +179,6 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         phase_a.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
             return i.promoted_ref_arg_count > 0u;
-        });
-        // Run fuse again after scalar optimizations to merge newly adjacent
-        // buffer reads into vector reads.
-        phase_a.add("fuse-consecutive-buffer-reads-after-scalar-opts", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
-            return i.fused_group_count > 0u;
-        });
-        phase_a.add("dce-after-fuse", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::dce_pass_run_on_module(m, &r);
-            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
         });
         phase_a.add("sroa", [](xir::Module *m, xir::PassReport &r) {
             xir::SROAOptions sroa_opts;

@@ -6,6 +6,8 @@
 #include <luisa/xir/undefined.h>
 #include <luisa/core/logging.h>
 
+#include <cmath>
+
 namespace luisa::compute::xir {
 
 namespace detail {
@@ -37,8 +39,40 @@ namespace detail {
 [[nodiscard]] static bool is_const_zero(const Value *v) noexcept { return is_const_value(v, 0); }
 [[nodiscard]] static bool is_const_one(const Value *v) noexcept { return is_const_value(v, 1); }
 
+// Unlike equality with zero, this distinguishes +0 from -0. The identity
+// x - (+0) == x preserves signed zero, while x - (-0) does not.
+[[nodiscard]] static bool is_const_positive_float_zero(const Value *v) noexcept {
+    if (!v->isa<Constant>()) return false;
+    auto c = static_cast<const Constant *>(v);
+    auto t = c->type();
+    auto check_scalar = [](const Type *st, const void *data) noexcept {
+        if (st->is_float32()) {
+            auto x = *static_cast<const float *>(data);
+            return x == 0.0f && !std::signbit(x);
+        }
+        if (st->is_float64()) {
+            auto x = *static_cast<const double *>(data);
+            return x == 0.0 && !std::signbit(x);
+        }
+        return false;
+    };
+    if (t->is_scalar()) return check_scalar(t, c->data());
+    if (t->is_vector()) {
+        auto elem = t->element();
+        auto stride = elem->size();
+        auto base = static_cast<const std::byte *>(c->data());
+        for (size_t i = 0; i < t->dimension(); ++i) {
+            if (!check_scalar(elem, base + i * stride)) return false;
+        }
+        return true;
+    }
+    return false;
+}
+
 [[nodiscard]] static bool is_float_like(const Type *type) noexcept {
-    return type != nullptr && type->is_float_or_float_vector();
+    return type != nullptr &&
+           (type->is_float_or_float_vector() ||
+            (type->is_matrix() && type->element()->is_float()));
 }
 
 [[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, Module *module, XIRBuilder &builder,
@@ -56,7 +90,10 @@ namespace detail {
             break;
         }
         case ArithmeticOp::BINARY_SUB: {
-            if (is_const_zero(inst->operand(1))) return inst->operand(0);
+            if ((!is_float_like(type) && is_const_zero(inst->operand(1))) ||
+                (is_float_like(type) && is_const_positive_float_zero(inst->operand(1)))) {
+                return inst->operand(0);
+            }
             if (inst->operand(0) == inst->operand(1) &&
                 (!is_float_like(type) || options.enable_fast_math)) {
                 return module->create_constant_zero(type);
@@ -99,7 +136,7 @@ namespace detail {
         }
         case ArithmeticOp::UNARY_MINUS: {
             // -0 → 0 (for non-float)
-            if (is_const_zero(inst->operand(0)) && !type->is_float())
+            if (is_const_zero(inst->operand(0)) && !is_float_like(type))
                 return inst->operand(0);
             break;
         }

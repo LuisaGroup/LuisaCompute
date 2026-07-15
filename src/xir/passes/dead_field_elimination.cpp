@@ -63,6 +63,7 @@ DeadFieldEliminationInfo dead_field_elimination_pass_run(
     }
     for (const auto &name : dead_names) {
         info.name_to_field.erase(name);
+        info.name_to_type.erase(name);
     }
 
     for (auto &edge : info.edges) {

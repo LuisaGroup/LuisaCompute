@@ -1,4 +1,3 @@
-#include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
@@ -18,8 +17,6 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static thread_local luisa::unordered_map<Instruction *, AllocaInst *> s_inst_to_base_alloca;
-
 static luisa::optional<int64_t> try_get_constant_int_value(Value *v) noexcept {
     if (v->isa<Constant>()) {
         auto c = static_cast<Constant *>(v);
@@ -35,10 +32,6 @@ static luisa::optional<int64_t> try_get_constant_int_value(Value *v) noexcept {
 }
 
 static AllocaInst *get_base_alloca(Instruction *inst) noexcept {
-    auto it = s_inst_to_base_alloca.find(inst);
-    if (it != s_inst_to_base_alloca.end()) {
-        return it->second;
-    }
     Value *ptr = nullptr;
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::LOAD:
@@ -50,11 +43,10 @@ static AllocaInst *get_base_alloca(Instruction *inst) noexcept {
         default:
             return nullptr;
     }
-    auto base = trace_pointer_base_local_alloca_inst(ptr);
-    if (base != nullptr) {
-        s_inst_to_base_alloca[inst] = base;
-    }
-    return base;
+    // Derive this from the current operand graph on every query. XIR passes can
+    // retarget GEPs after alias analysis has run, and a process-global cache
+    // keyed only by Instruction * otherwise returns stale (or recycled) data.
+    return trace_pointer_base_local_alloca_inst(ptr);
 }
 
 static Value *get_local_pointer(Instruction *inst) noexcept {
@@ -81,6 +73,10 @@ static Value *get_resource_handle(Instruction *inst) noexcept {
 }
 
 static AliasResult alias_gep_offsets(GEPInst *gep_a, GEPInst *gep_b) noexcept {
+    // Offsets are comparable only when they are relative to the exact same
+    // immediate base. For nested GEPs, index(0) belongs to a different aggregate
+    // level and a numeric mismatch does not prove disjointness.
+    if (gep_a->base() != gep_b->base()) { return AliasResult::MayAlias; }
     if (gep_a->index_count() == 0 || gep_b->index_count() == 0) {
         return AliasResult::MayAlias;
     }
@@ -142,31 +138,11 @@ static AliasResult alias_global_indices(Instruction *a, Instruction *b) noexcept
 
 AliasAnalysisInfo alias_analysis_pass_run_on_function(FunctionDefinition *def) noexcept {
     AliasAnalysisInfo info;
-    def->traverse_instructions([&](Instruction *inst) noexcept {
-        switch (inst->derived_instruction_tag()) {
-            case DerivedInstructionTag::LOAD: {
-                auto load = static_cast<LoadInst *>(inst);
-                if (auto base = trace_pointer_base_local_alloca_inst(load->variable())) {
-                    detail::s_inst_to_base_alloca[inst] = base;
-                }
-                break;
-            }
-            case DerivedInstructionTag::STORE: {
-                auto store = static_cast<StoreInst *>(inst);
-                if (auto base = trace_pointer_base_local_alloca_inst(store->variable())) {
-                    detail::s_inst_to_base_alloca[inst] = base;
-                }
-                break;
-            }
-            default:
-                break;
-        }
-    });
+    static_cast<void>(def);
     return info;
 }
 
 AliasAnalysisInfo alias_analysis_pass_run_on_module(Module *module, PassReport *report) noexcept {
-    detail::s_inst_to_base_alloca.clear();
     AliasAnalysisInfo info;
     for (auto f : module->function_list()) {
         if (auto def = f->definition()) {
@@ -181,6 +157,7 @@ AliasAnalysisInfo alias_analysis_pass_run_on_module(Module *module, PassReport *
 }
 
 AliasResult alias_analysis_query(Instruction *a, Instruction *b) noexcept {
+    if (a == nullptr || b == nullptr) { return AliasResult::MayAlias; }
     if (a == b) return AliasResult::MustAlias;
 
     auto mem_a = get_memory_info(a);
@@ -209,6 +186,7 @@ AliasResult alias_analysis_query(Instruction *a, Instruction *b) noexcept {
         }
         auto ptr_a = detail::get_local_pointer(a);
         auto ptr_b = detail::get_local_pointer(b);
+        if (ptr_a != nullptr && ptr_a == ptr_b) { return AliasResult::MustAlias; }
         if (ptr_a != nullptr && ptr_b != nullptr &&
             ptr_a->isa<GEPInst>() && ptr_b->isa<GEPInst>()) {
             return detail::alias_gep_offsets(
@@ -224,9 +202,10 @@ AliasResult alias_analysis_query(Instruction *a, Instruction *b) noexcept {
         if (handle_a == nullptr || handle_b == nullptr) {
             return AliasResult::MayAlias;
         }
-        if (handle_a != handle_b) {
-            return AliasResult::NoAlias;
-        }
+        // Distinct SSA handles are not a no-alias guarantee: two kernel
+        // resource arguments may be bound to the same buffer or overlapping
+        // views. Only compare indices once the handle itself is identical.
+        if (handle_a != handle_b) { return AliasResult::MayAlias; }
         return detail::alias_global_indices(a, b);
     }
 

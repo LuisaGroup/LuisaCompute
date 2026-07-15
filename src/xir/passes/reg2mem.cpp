@@ -12,6 +12,8 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/dom_tree.h>
 
+#include <atomic>
+
 #include "helpers.h"
 
 namespace luisa::compute::xir {
@@ -71,8 +73,9 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
         b.set_insertion_point(entry_head);
         auto slot = b.alloca_local(inst->type());
         slot->add_comment("alloca to lower cross-block value");
-        static int xblock_counter = 0;
-        slot->set_name(luisa::format("_xblock_{}", ++xblock_counter));
+        static std::atomic_uint64_t xblock_counter{0u};
+        auto xblock_id = xblock_counter.fetch_add(1u, std::memory_order_relaxed) + 1u;
+        slot->set_name(luisa::format("_xblock_{}", xblock_id));
         b.set_insertion_point(inst);
         b.store(slot, inst);
         luisa::vector<Use *> cross_block_uses;

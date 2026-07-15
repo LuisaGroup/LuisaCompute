@@ -805,7 +805,7 @@ struct TransformAdScope {
     void collect_first_level_loops(BasicBlock *block, BasicBlock *merge,
                                    luisa::unordered_set<BasicBlock *> &visited,
                                    luisa::vector<LoopInst *> &loops) noexcept {
-        if (block == merge || !visited.emplace(block).second) { return; }
+        if (block == nullptr || block == merge || !visited.emplace(block).second) { return; }
         auto term = block->terminator();
         if (term == nullptr) { return; }
         if (auto loop = term->isa<LoopInst>() ? static_cast<LoopInst *>(term) : nullptr) {
@@ -814,17 +814,27 @@ struct TransformAdScope {
         }
         if (term->isa<SimpleLoopInst>()) { reject_loop_autodiff(); }
         if (auto if_inst = term->isa<IfInst>() ? static_cast<IfInst *>(term) : nullptr) {
-            collect_first_level_loops(if_inst->true_block(), if_inst->merge_block(), visited, loops);
-            collect_first_level_loops(if_inst->false_block(), if_inst->merge_block(), visited, loops);
-            collect_first_level_loops(if_inst->merge_block(), merge, visited, loops);
+            auto *structured_merge = if_inst->merge_block();
+            // Match collect_forward: a null local merge means both arms are
+            // bounded by the enclosing structured region.
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            collect_first_level_loops(if_inst->true_block(), branch_merge, visited, loops);
+            collect_first_level_loops(if_inst->false_block(), branch_merge, visited, loops);
+            if (structured_merge != nullptr) {
+                collect_first_level_loops(structured_merge, merge, visited, loops);
+            }
             return;
         }
         if (auto switch_inst = term->isa<SwitchInst>() ? static_cast<SwitchInst *>(term) : nullptr) {
-            collect_first_level_loops(switch_inst->default_block(), switch_inst->merge_block(), visited, loops);
+            auto *structured_merge = switch_inst->merge_block();
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            collect_first_level_loops(switch_inst->default_block(), branch_merge, visited, loops);
             for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                collect_first_level_loops(switch_inst->case_block(i), switch_inst->merge_block(), visited, loops);
+                collect_first_level_loops(switch_inst->case_block(i), branch_merge, visited, loops);
             }
-            collect_first_level_loops(switch_inst->merge_block(), merge, visited, loops);
+            if (structured_merge != nullptr) {
+                collect_first_level_loops(structured_merge, merge, visited, loops);
+            }
             return;
         }
         block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
@@ -1278,7 +1288,7 @@ struct TransformAdScope {
     }
 
     void lower_epilogue_gradients(BasicBlock *block, BasicBlock *merge, luisa::unordered_set<BasicBlock *> &visited) noexcept {
-        if (block == merge || !visited.emplace(block).second) { return; }
+        if (block == nullptr || block == merge || !visited.emplace(block).second) { return; }
         luisa::vector<AutodiffIntrinsicInst *> gradients;
         for (auto inst : block->instructions()) {
             if (inst->isa<AutodiffIntrinsicInst>()) {
@@ -1291,15 +1301,23 @@ struct TransformAdScope {
                 }
             }
             if (auto if_inst = inst->isa<IfInst>() ? static_cast<IfInst *>(inst) : nullptr) {
-                lower_epilogue_gradients(if_inst->true_block(), if_inst->merge_block(), visited);
-                lower_epilogue_gradients(if_inst->false_block(), if_inst->merge_block(), visited);
-                lower_epilogue_gradients(if_inst->merge_block(), merge, visited);
-            } else if (auto switch_inst = inst->isa<SwitchInst>() ? static_cast<SwitchInst *>(inst) : nullptr) {
-                lower_epilogue_gradients(switch_inst->default_block(), switch_inst->merge_block(), visited);
-                for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                    lower_epilogue_gradients(switch_inst->case_block(i), switch_inst->merge_block(), visited);
+                auto *structured_merge = if_inst->merge_block();
+                auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+                lower_epilogue_gradients(if_inst->true_block(), branch_merge, visited);
+                lower_epilogue_gradients(if_inst->false_block(), branch_merge, visited);
+                if (structured_merge != nullptr) {
+                    lower_epilogue_gradients(structured_merge, merge, visited);
                 }
-                lower_epilogue_gradients(switch_inst->merge_block(), merge, visited);
+            } else if (auto switch_inst = inst->isa<SwitchInst>() ? static_cast<SwitchInst *>(inst) : nullptr) {
+                auto *structured_merge = switch_inst->merge_block();
+                auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+                lower_epilogue_gradients(switch_inst->default_block(), branch_merge, visited);
+                for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                    lower_epilogue_gradients(switch_inst->case_block(i), branch_merge, visited);
+                }
+                if (structured_merge != nullptr) {
+                    lower_epilogue_gradients(structured_merge, merge, visited);
+                }
             } else if (inst->isa<LoopInst>() || inst->isa<SimpleLoopInst>()) {
                 reject_loop_autodiff();
             }
@@ -2740,17 +2758,25 @@ struct TransformForwardAdScope {
         auto term = block->terminator();
         if (term == nullptr) { return; }
         if (auto if_inst = term->isa<IfInst>() ? static_cast<IfInst *>(term) : nullptr) {
-            transform_region(if_inst->true_block(), if_inst->merge_block(), visited);
-            transform_region(if_inst->false_block(), if_inst->merge_block(), visited);
-            transform_region(if_inst->merge_block(), merge, visited);
+            auto *structured_merge = if_inst->merge_block();
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            transform_region(if_inst->true_block(), branch_merge, visited);
+            transform_region(if_inst->false_block(), branch_merge, visited);
+            if (structured_merge != nullptr) {
+                transform_region(structured_merge, merge, visited);
+            }
             return;
         }
         if (auto switch_inst = term->isa<SwitchInst>() ? static_cast<SwitchInst *>(term) : nullptr) {
-            transform_region(switch_inst->default_block(), switch_inst->merge_block(), visited);
+            auto *structured_merge = switch_inst->merge_block();
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            transform_region(switch_inst->default_block(), branch_merge, visited);
             for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                transform_region(switch_inst->case_block(i), switch_inst->merge_block(), visited);
+                transform_region(switch_inst->case_block(i), branch_merge, visited);
             }
-            transform_region(switch_inst->merge_block(), merge, visited);
+            if (structured_merge != nullptr) {
+                transform_region(structured_merge, merge, visited);
+            }
             return;
         }
         if (auto loop = term->isa<LoopInst>() ? static_cast<LoopInst *>(term) : nullptr) {

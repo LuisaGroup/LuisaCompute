@@ -5,6 +5,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
@@ -105,6 +106,41 @@ void reg_simplify_cfg() {
         expect(info.folded_constant_cond_br_count == 1u);
         expect(info.removed_unreachable_block_count == 1u);
         expect(count_isa_cond_branch(def) == 0u);
+    };
+
+    "fold_constant_cond_br_removes_dropped_phi_incoming"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *live = def->create_basic_block();
+        auto *join = def->create_basic_block();
+        auto *from_dropped_edge = m.create_constant_zero(Type::of<int>());
+        auto *from_live_edge = m.create_constant_one(Type::of<int>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(m.create_constant_one(Type::of<bool>()), live, join);
+        b.set_insertion_point(live);
+        b.br(join);
+        b.set_insertion_point(join);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(from_dropped_edge, body);
+        phi->add_incoming(from_live_edge, live);
+        b.return_void();
+
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.folded_constant_cond_br_count == 1u);
+        expect(body->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(body->terminator())->target_block() == live);
+        expect(phi->incoming_count() == 1u);
+        expect(phi->incoming(0u).block == live);
+        expect(phi->incoming(0u).value == from_live_edge);
+        size_t predecessor_count = 0u;
+        join->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            expect(pred == live);
+            ++predecessor_count;
+        });
+        expect(predecessor_count == 1u);
     };
 
     "thread_empty_block"_test = [] {

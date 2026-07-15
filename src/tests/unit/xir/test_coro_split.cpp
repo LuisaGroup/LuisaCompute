@@ -5,10 +5,15 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/passes/coro_split.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/lower_switch.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -61,6 +66,38 @@ bool has_return(Module &m) noexcept {
         }
     }
     return false;
+}
+
+struct StructuredSwitchCoroutine {
+    KernelFunction *function;
+    SwitchInst *switch_inst;
+    BasicBlock *resume_block;
+    BasicBlock *merge_block;
+};
+
+[[nodiscard]] StructuredSwitchCoroutine make_structured_switch_coroutine(Module &m,
+                                                                          uint32_t token) noexcept {
+    BasicBlock *body;
+    auto *k = make_kernel_with_body(m, body);
+    XIRBuilder b;
+    b.set_insertion_point(body);
+    auto *selector = m.create_constant_zero(Type::of<int>());
+    auto *sw = b.switch_(selector);
+    auto *case_block = sw->create_case_block(0);
+    auto *default_block = sw->create_default_block();
+    auto *merge_block = sw->create_merge_block();
+    auto *resume_block = k->create_basic_block();
+
+    b.set_insertion_point(case_block);
+    b.coro_suspend(token, "structured-switch", nullptr);
+    b.set_insertion_point(default_block);
+    b.br(merge_block);
+    b.set_insertion_point(resume_block);
+    b.coro_resume(token, nullptr);
+    b.br(merge_block);
+    b.set_insertion_point(merge_block);
+    b.return_void();
+    return {k, sw, resume_block, merge_block};
 }
 
 }// namespace
@@ -678,6 +715,131 @@ void reg_coro_split() {
 
         // returns must exist (terminal scope ends properly)
         expect(has_return(m));
+    };
+
+    "cross_module_cfg_is_rejected_without_mutation"_test = [] {
+        Module source;
+        Module destination;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(source, body);
+        auto *suspend_block = kernel->create_basic_block();
+        auto *resume_block = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *entry_term = b.cond_br(source.create_constant_one(Type::of<bool>()),
+                                     suspend_block, resume_block);
+        b.set_insertion_point(suspend_block);
+        auto *suspend = b.coro_suspend(13u, "cross-module", nullptr);
+        b.set_insertion_point(resume_block);
+        b.coro_resume(13u, nullptr);
+        b.return_void();
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+
+        auto info = coro_split_pass_run_on_module_with_cfg_and_frame_info(
+            &destination, cfg, nullptr);
+
+        expect(!info.succeeded());
+        expect(info.invalid_cfg_error_count == 1u);
+        expect(info.structured_cfg_error_count == 0u);
+        expect(info.subroutines.empty());
+        expect(count_callables(destination) == 0u);
+        expect(count_callables(source) == 0u);
+        expect(body->terminator() == entry_term);
+        expect(suspend_block->terminator() == suspend);
+        expect(count_instructions_with_tag(source, DerivedInstructionTag::CORO_SUSPEND) == 1u);
+    };
+
+    "structured_switch_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto original = make_structured_switch_coroutine(m, 17u);
+        CoroCfgDistillResult cfg;
+        cfg.scopes.resize(2u);
+        cfg.scopes[0u].blocks.emplace_back(original.function->body_block());
+        cfg.scopes[1u].blocks.emplace_back(original.resume_block);
+
+        auto info = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
+
+        expect(!info.succeeded());
+        expect(info.structured_cfg_error_count == 1u);
+        expect(info.subroutines.empty());
+        expect(count_callables(m) == 0u);
+        expect(original.function->body_block()->terminator() == original.switch_inst);
+        expect(original.switch_inst->merge_block() == original.merge_block);
+        expect(count_instructions_with_tag(m, DerivedInstructionTag::CORO_SUSPEND) == 1u);
+    };
+
+    "structured_loop_rejection_is_module_atomic"_test = [] {
+        Module m;
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        // This definition is valid plain CFG and would be split if processed.
+        BasicBlock *plain_body;
+        auto *plain = make_kernel_with_body(m, plain_body);
+        auto *plain_suspend = plain->create_basic_block();
+        auto *plain_resume = plain->create_basic_block();
+        b.set_insertion_point(plain_body);
+        b.cond_br(cond, plain_suspend, plain_resume);
+        b.set_insertion_point(plain_suspend);
+        b.coro_suspend(3u, "plain", nullptr);
+        b.set_insertion_point(plain_resume);
+        b.coro_resume(3u, nullptr);
+        b.return_void();
+
+        // A later definition contains a real structured Loop/Continue region.
+        BasicBlock *loop_entry;
+        auto *structured = make_kernel_with_body(m, loop_entry);
+        b.set_insertion_point(loop_entry);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        auto *resume = structured->create_basic_block();
+        b.set_insertion_point(prepare);
+        b.br(loop_body);
+        b.set_insertion_point(loop_body);
+        b.coro_suspend(9u, "structured-loop", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(9u, nullptr);
+        b.continue_(update);
+        b.set_insertion_point(update);
+        b.break_(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto info = coro_split_pass_run_on_module_info(&m);
+
+        expect(!info.succeeded());
+        expect(info.structured_cfg_error_count == 1u);
+        expect(info.subroutines.empty());
+        expect(count_callables(m) == 0u);
+        expect(plain_body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::CONDITIONAL_BRANCH);
+        expect(loop_entry->terminator() == loop);
+        expect(resume->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::CONTINUE);
+        expect(count_instructions_with_tag(m, DerivedInstructionTag::CORO_SUSPEND) == 2u);
+    };
+
+    "explicit_switch_then_structured_normalization_allows_split"_test = [] {
+        Module m;
+        auto original = make_structured_switch_coroutine(m, 23u);
+
+        auto lowered = lower_switch_pass_run_on_function(original.function);
+        auto destructured = destructure_cfg_pass_run_on_function(original.function);
+        auto cfg = coro_cfg_distill_pass_run_on_function(original.function);
+        auto info = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
+        auto materialized = coro_materialize_pass_run_on_module_with_cfg(&m, cfg, info);
+
+        expect(lowered.lowered_switch_count == 1u);
+        expect(destructured.destructured_if_count >= 1u);
+        expect(info.succeeded());
+        expect(info.structured_cfg_error_count == 0u);
+        expect(info.subroutines.size() == 2u);
+        expect(materialized.succeeded());
+        expect(materialized.callable_count == 2u);
+        expect(count_callables(m) == 2u);
     };
 }
 

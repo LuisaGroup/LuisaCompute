@@ -4,6 +4,8 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 
+#include <atomic>
+
 #include "helpers.h"
 
 namespace luisa::compute::xir {
@@ -156,8 +158,9 @@ void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
         b.set_insertion_point(f->definition()->body_block()->instructions().head_sentinel());
         auto phi_alloca = b.alloca_local(phi->type());
         phi_alloca->add_comment("alloca to lower phi node");
-        static int phi_counter = 0;
-        phi_alloca->set_name(luisa::format("_phi_{}", ++phi_counter));
+        static std::atomic_uint64_t phi_counter{0u};
+        auto phi_id = phi_counter.fetch_add(1u, std::memory_order_relaxed) + 1u;
+        phi_alloca->set_name(luisa::format("_phi_{}", phi_id));
         if (auto m = f->parent_module()) {
             auto undef = m->create_undefined(phi->type());
             b.store(phi_alloca, undef);

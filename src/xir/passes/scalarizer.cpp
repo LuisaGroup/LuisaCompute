@@ -161,7 +161,11 @@ static void scalarize_on_function(FunctionDefinition *def, ScalarizerInfo &info)
                 LUISA_ASSERT(it != scalar_map.end(), "Missing scalarized component.");
                 components.emplace_back(it->second);
             }
-            builder.set_insertion_point(inst);
+            // The builder inserts *after* its insertion point. All scalar
+            // component instructions were emitted after `inst`, so inserting
+            // the aggregate after `inst` would place it before its operands
+            // and leave invalid same-block SSA once `inst` is removed.
+            builder.set_insertion_point(static_cast<Instruction *>(components.back()));
             return builder.call(vec_type, ArithmeticOp::AGGREGATE, components);
         }();
         if (replacement != nullptr) { inst->replace_all_uses_with(replacement); }
