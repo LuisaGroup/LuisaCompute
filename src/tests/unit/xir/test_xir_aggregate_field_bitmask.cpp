@@ -1,6 +1,6 @@
 #include "ut/ut.hpp"
 
-#include <luisa/ast/type.h>
+#include <luisa/ast/type_registry.h>
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
 
 using namespace luisa::compute;
