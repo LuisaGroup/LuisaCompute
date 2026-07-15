@@ -196,9 +196,17 @@ RayTracingShader *RayTracingShader::compile(
     auto str = codegen();
 
     if (Device::print_code()) {
-        auto f = fopen("hlsl_rt_output.hlsl", "ab");
-        fwrite(str.result.data(), str.result.size(), 1, f);
-        fclose(f);
+        auto dump_name = [&]() -> luisa::string {
+            if (!file_name.empty()) return luisa::string{file_name.data(), file_name.size()};
+            if (code_md5) return luisa::string{code_md5->to_string(false)};
+            return luisa::string{"rt_unknown"};
+        }();
+        auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+        auto f = fopen(dump_file_name.c_str(), "wb");
+        if (f) {
+            fwrite(str.result.data(), str.result.size(), 1, f);
+            fclose(f);
+        }
     }
 
     auto comp_result = Device::compiler()->compile_raytracing(

@@ -13,7 +13,7 @@
 
 #include <numeric>
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 
@@ -73,7 +73,6 @@ void test_runtime(Device &device_from_ut) {
     TimelineEvent graphics_event = device.create_timeline_event();
 
     static constexpr uint2 resolution = make_uint2(1024u);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
     if (!opts.offline) {
         Window window{"test runtime", resolution.x, resolution.x};
 
@@ -194,27 +193,26 @@ void test_runtime(Device &device_from_ut) {
             << ldr_image.copy_to(luisa::span{pixels})
             << synchronize();
 
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_runtime", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_runtime: {}", result.message);
-            boost::ut::expect(false) << result.message;
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_runtime]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }
 }
 
-static inline const auto reg = [] {
-    "test_runtime"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_runtime(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_runtime(device);
+}

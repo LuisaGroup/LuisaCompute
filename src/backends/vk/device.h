@@ -15,6 +15,7 @@ static constexpr uint kShaderModel = 65u;
 static constexpr uint kHighShaderModel = 66u;
 static constexpr uint kTensorShaderModel = 69u;
 class ComputeShader;
+class Stream;
 using namespace luisa;
 using namespace luisa::compute;
 static constexpr size_t kSparseBufferSize = 65536ull;
@@ -39,8 +40,10 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::spin_mutex _graphics_queue_mtx;
     luisa::spin_mutex _compute_queue_mtx;
     luisa::spin_mutex _copy_queue_mtx;
+    luisa::spin_mutex _stream_mtx;
     std::mutex _ext_mtx;
     vstd::unordered_map<vstd::string, Ext> _exts;
+    vstd::unordered_set<Stream *> _streams;
     luisa::unique_ptr<VulkanDeviceConfigExt> _config_ext;
     vstd::optional<vks::VulkanDevice> _vk_device;
     vstd::vector<vstd::string> _enable_device_exts;
@@ -60,12 +63,13 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     VkDescriptorSet _bdls_tex3d_set{};
     VkDescriptorSetLayout _bdls_tex3d_set_layout{};
     VkPipelineCacheHeaderVersionOne _pso_header{};
+    VkPhysicalDeviceSubgroupSizeControlProperties _subgroup_size_control_properties{};
     vstd::vector<VkSampler> _samplers;
     vstd::optional<VkAllocator> _allocator;
     BinaryIO const *_binary_io{};
     vstd::unique_ptr<DefaultBinaryIO> _default_file_io;
     bool _inqueue_limit = true;// TODO
-    void _init_device(VkPhysicalDevice external_physical_device, VkDevice external_device, uint32_t selectedDevice);
+    void _init_device(VkPhysicalDevice external_physical_device, VkDevice external_device, uint32_t selected_device);
 public:
     struct HeapAlloc {
         uint count = 0;
@@ -115,6 +119,10 @@ public:
     bool device_address_enabled : 1 {true};
     bool interop_enabled : 1 {true};
     bool motion_blur_enabled : 1 {false};
+    bool subgroup_size_control_enabled : 1 {false};
+    bool cooperative_vector_enabled : 1 {false};
+    bool cooperative_vector_fp32_enabled : 1 {false};
+    bool async_copy_enabled : 1 {false};
     auto &graphics_queue_mtx() { return _graphics_queue_mtx; }
     auto &compute_queue_mtx() { return _compute_queue_mtx; }
     auto &copy_queue_mtx() { return _copy_queue_mtx; }
@@ -131,6 +139,7 @@ public:
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
     bool enable_device_address() const { return device_address_enabled; }
+    bool enable_async_copy() const { return async_copy_enabled; }
     static hlsl::ShaderCompiler *compiler();
     static VkAllocationCallbacks *alloc_callbacks();
     static VkInstance instance();
@@ -140,6 +149,7 @@ public:
     auto physical_device() const { return _vk_device->physical_device; }
     auto logic_device() const { return _vk_device->logical_device; }
     auto const &pso_header() const { return _pso_header; }
+    auto const &subgroup_size_control_properties() const noexcept { return _subgroup_size_control_properties; }
     bool is_pso_same(VkPipelineCacheHeaderVersionOne const &pso);
     auto const &properties() const { return _vk_device->properties; }
     auto const &features() const { return _vk_device->features; }

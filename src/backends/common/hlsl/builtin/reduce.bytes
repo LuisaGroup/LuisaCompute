@@ -58,6 +58,22 @@ int16_t _reduce_min(int16_t4 a){return int16_t(min(a.x,min(a.y,min(a.z,a.w))));}
 int16_t _reduce_max(int16_t2 a){return int16_t(max(a.x,a.y));}
 int16_t _reduce_max(int16_t3 a){return int16_t(max(a.x,max(a.y,a.z)));}
 int16_t _reduce_max(int16_t4 a){return int16_t(max(a.x,max(a.y,max(a.z,a.w))));}
+#if ((__SHADER_TARGET_MAJOR > 6) ||                                            \
+     (__SHADER_TARGET_MAJOR == 6 && __SHADER_TARGET_MINOR >= 9)) &&            \
+    (__HLSL_VERSION >= 2021)
+int8_t _reduce_sum(int8_t2 a){return int8_t(a.x+a.y);}
+int8_t _reduce_sum(int8_t3 a){return int8_t(a.x+a.y+a.z);}
+int8_t _reduce_sum(int8_t4 a){return int8_t(a.x+a.y+a.z+a.w);}
+int8_t _reduce_prod(int8_t2 a){return int8_t(a.x*a.y);}
+int8_t _reduce_prod(int8_t3 a){return int8_t(a.x*a.y*a.z);}
+int8_t _reduce_prod(int8_t4 a){return int8_t(a.x*a.y*a.z*a.w);}
+int8_t _reduce_min(int8_t2 a){return int8_t(min(a.x,a.y));}
+int8_t _reduce_min(int8_t3 a){return int8_t(min(a.x,min(a.y,a.z)));}
+int8_t _reduce_min(int8_t4 a){return int8_t(min(a.x,min(a.y,min(a.z,a.w))));}
+int8_t _reduce_max(int8_t2 a){return int8_t(max(a.x,a.y));}
+int8_t _reduce_max(int8_t3 a){return int8_t(max(a.x,max(a.y,a.z)));}
+int8_t _reduce_max(int8_t4 a){return int8_t(max(a.x,max(a.y,max(a.z,a.w))));}
+#endif
 int64_t _reduce_sum(int64_t2 a){return int64_t(a.x+a.y);}
 int64_t _reduce_sum(int64_t3 a){return int64_t(a.x+a.y+a.z);}
 int64_t _reduce_sum(int64_t4 a){return int64_t(a.x+a.y+a.z+a.w);}
@@ -82,6 +98,22 @@ uint16_t _reduce_min(uint16_t4 a){return uint16_t(min(a.x,min(a.y,min(a.z,a.w)))
 uint16_t _reduce_max(uint16_t2 a){return uint16_t(max(a.x,a.y));}
 uint16_t _reduce_max(uint16_t3 a){return uint16_t(max(a.x,max(a.y,a.z)));}
 uint16_t _reduce_max(uint16_t4 a){return uint16_t(max(a.x,max(a.y,max(a.z,a.w))));}
+#if ((__SHADER_TARGET_MAJOR > 6) ||                                            \
+     (__SHADER_TARGET_MAJOR == 6 && __SHADER_TARGET_MINOR >= 9)) &&            \
+    (__HLSL_VERSION >= 2021)
+uint8_t _reduce_sum(uint8_t2 a){return uint8_t(a.x+a.y);}
+uint8_t _reduce_sum(uint8_t3 a){return uint8_t(a.x+a.y+a.z);}
+uint8_t _reduce_sum(uint8_t4 a){return uint8_t(a.x+a.y+a.z+a.w);}
+uint8_t _reduce_prod(uint8_t2 a){return uint8_t(a.x*a.y);}
+uint8_t _reduce_prod(uint8_t3 a){return uint8_t(a.x*a.y*a.z);}
+uint8_t _reduce_prod(uint8_t4 a){return uint8_t(a.x*a.y*a.z*a.w);}
+uint8_t _reduce_min(uint8_t2 a){return uint8_t(min(a.x,a.y));}
+uint8_t _reduce_min(uint8_t3 a){return uint8_t(min(a.x,min(a.y,a.z)));}
+uint8_t _reduce_min(uint8_t4 a){return uint8_t(min(a.x,min(a.y,min(a.z,a.w))));}
+uint8_t _reduce_max(uint8_t2 a){return uint8_t(max(a.x,a.y));}
+uint8_t _reduce_max(uint8_t3 a){return uint8_t(max(a.x,max(a.y,a.z)));}
+uint8_t _reduce_max(uint8_t4 a){return uint8_t(max(a.x,max(a.y,max(a.z,a.w))));}
+#endif
 uint64_t _reduce_sum(uint64_t2 a){return uint64_t(a.x+a.y);}
 uint64_t _reduce_sum(uint64_t3 a){return uint64_t(a.x+a.y+a.z);}
 uint64_t _reduce_sum(uint64_t4 a){return uint64_t(a.x+a.y+a.z+a.w);}

@@ -55,22 +55,19 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
     set(LUISA_HIP_RT_WRAPPER_SOURCE ${CMAKE_CURRENT_LIST_DIR}/hiprt_device_wrapper.hip)
     # Include both the generated header dir and the source tree
     set(_HIPRT_WRAPPER_INCLUDE_ARGS -I ${LUISA_COMPUTE_HIPRT_SDK_INCLUDE_DIR} -I ${HIPRT_SOURCE_DIR})
-    # Detect target GPU architecture from environment or use default
-    if (DEFINED ENV{HIPRT_GPU_ARCH} AND NOT "$ENV{HIPRT_GPU_ARCH}" STREQUAL "")
-        set(_hip_wrapper_arch "$ENV{HIPRT_GPU_ARCH}")
-    elseif (DEFINED HIPRT_GPU_ARCH AND NOT "${HIPRT_GPU_ARCH}" STREQUAL "")
-        set(_hip_wrapper_arch "${HIPRT_GPU_ARCH}")
-    else ()
-        # Default: compile for common RDNA architectures
-        set(_hip_wrapper_arch "gfx1030;gfx1100;gfx1200;gfx1201")
-    endif ()
+    # hip_codegen_llvm_impl.cpp dispatches among these wrappers at runtime and
+    # directly references every embedded symbol. They must therefore all be
+    # linked into the backend even when HIPRT_GPU_ARCHS restricts the HIPRT
+    # bitcode/fat-binary build to the GPU installed on the build machine. Keep
+    # this list in sync with the includes and switch in hip_codegen_llvm_impl.cpp.
+    set(_hip_wrapper_archs gfx1030 gfx1100 gfx1200 gfx1201)
 
     # Per-arch wrapper compilation and embedding
     set(_wrapper_bc_dir "${CMAKE_CURRENT_LIST_DIR}")
     set(_wrapper_all_bcs "")
     set(_wrapper_all_embedded_sources "")
 
-    foreach (_arch ${_hip_wrapper_arch})
+    foreach (_arch ${_hip_wrapper_archs})
         set(_wrapper_bc "${_wrapper_bc_dir}/hiprt_wrapper_${_arch}.bc")
         set(_wrapper_cpp "${_wrapper_bc_dir}/hiprt_wrapper_${_arch}_embedded.cpp")
         set(_wrapper_h "${_wrapper_bc_dir}/hiprt_wrapper_${_arch}_embedded.h")

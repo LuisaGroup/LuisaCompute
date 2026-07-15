@@ -14,7 +14,7 @@
 //
 #include "ut/ut.hpp"
 #include "test_device.h"
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 #include <luisa/core/clock.h>
@@ -58,11 +58,11 @@ void test_indirect_rtx(Device &device) {
     // Halton sequence for quasi-random sampling
     Callable halton = [](UInt i, UInt b) noexcept {
         Float f = def(1.0f);
-        Float invB = 1.0f / b;
+        Float invB = 1.0f / cast<float>(b);
         Float r = def(0.0f);
         $while (i > 0u) {
             f = f * invB;
-            r = r + f * (i % b);
+            r = r + f * cast<float>(i % b);
             i = i / b;
         };
         return r;
@@ -115,7 +115,7 @@ void test_indirect_rtx(Device &device) {
         };
         // Progressive accumulation
         Float3 old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        Float t = 1.0f / (frame_index + 1.0f);
+        Float t = 1.0f / (cast<float>(frame_index) + 1.0f);
         image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
     };
 
@@ -196,26 +196,24 @@ void test_indirect_rtx(Device &device) {
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
     stbi_write_png("test_indirect_rtx.png", width, height, 4, pixels.data(), 0);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
-    auto result = luisa::test::save_and_compare(
-        pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
-        "test_indirect_rtx", opts.output_dir, ref_dir, opts.update_reference);
-    LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-    if (!result.passed) {
-        LUISA_ERROR("Reference comparison failed for test_indirect_rtx: {}", result.message);
-        boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-        return;
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_indirect_rtx]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
+        }
     }
 }
 
-static inline const auto reg = [] {
-    "test_indirect_rtx"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_indirect_rtx(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_indirect_rtx(device);
+}

@@ -6,7 +6,16 @@ AccessChain::AccessChain(
     Variable const &root_var,
     luisa::span<Expression const *const> exprs,
     bool isSpirv)
-    : _op{op}, _root_var{root_var}, _nodes{nodes_from_exprs(exprs, isSpirv)} {
+    : _op{op}, _root_var{root_var} {
+    auto [nodes, elem_type] = nodes_from_exprs(exprs, isSpirv);
+    _nodes = std::move(nodes);
+    if (_op == CallOp::ATOMIC_COMPARE_EXCHANGE &&
+        _root_var.is_shared() &&
+        elem_type->is_float32()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Atomic compare-and-exchange (CAS) on groupshared float is not supported by the HLSL backend. "
+            "Please use an integer representation (e.g., bit-cast via asuint/asfloat) or avoid groupshared float CAS.");
+    }
     _hash = _get_hash();
 }
 void AccessChain::init_name() {
@@ -79,7 +88,7 @@ bool AccessChain::operator==(AccessChain const &node) const {
     }
     return true;
 }
-vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expression const *const> args, bool isSpirv) {
+std::pair<vstd::vector<AccessChain::Node>, Type const *> AccessChain::nodes_from_exprs(luisa::span<Expression const *const> args, bool isSpirv) {
     vstd::vector<Node> nodes;
     auto type = args.front()->type();
     nodes.reserve(args.size());
@@ -121,10 +130,10 @@ vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expres
                                           type->description());
         }
     }
-    if (isSpirv && type->is_float() && nodes.size() > 1) [[unlikely]] {
-        LUISA_ERROR("Spirv currently do not support complex-type atomic-float chain.");
-    }
-    return nodes;
+    // if (isSpirv && type->is_float() && nodes.size() > 1) [[unlikely]] {
+    //     LUISA_ERROR("Spirv currently do not support complex-type atomic-float chain.");
+    // }
+    return {std::move(nodes), type};
 }
 void AccessChain::gen_func_impl(Function f, CodegenUtility *util, TemplateFunction const &tmp, luisa::span<Expression const *const> args, vstd::StringBuilder &builder) {
     size_t arg_start;

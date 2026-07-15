@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 class Module;
 class Function;
 
@@ -32,6 +34,6 @@ struct Mem2RegInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API Mem2RegInfo mem2reg_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API Mem2RegInfo mem2reg_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API Mem2RegInfo mem2reg_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

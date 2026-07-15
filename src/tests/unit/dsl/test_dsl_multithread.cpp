@@ -78,8 +78,8 @@ int test_dsl_multithread(Device &device) {
                 Var v_float_copy = v_float;
 
                 // Arithmetic operations
-                Var z = -1 + v_int * v_float + 1.0f;
-                z += 1;
+                Var z = -1.0f + v_int * v_float + 1.0f;
+                z += 1.0f;
                 static_assert(std::is_same_v<decltype(z), Var<float>>);
 
                 // Loop with various DSL constructs
@@ -152,14 +152,13 @@ int test_dsl_multithread(Device &device) {
     return 0;
 }
 
-static inline const auto reg = [] {
-    "dsl_multithread"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_dsl_multithread(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_dsl_multithread(device);
+}

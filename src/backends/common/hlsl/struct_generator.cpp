@@ -62,21 +62,20 @@ void StructGenerator::ProvideAlignVariable(Type const *type, size_t tarAlign, si
     structSize = alignedSize;
 }
 
-bool StructGenerator::half_type_adjacent_with_bool(Type const *a, Type const *b) {
-    switch (a->tag() == Type::Tag::VECTOR ? a->element()->tag() : a->tag()) {
-        case Type::Tag::FLOAT16:
-        case Type::Tag::INT16:
-        case Type::Tag::UINT16:
-            break;
-        default:
-            return false;
+size_t StructGenerator::EmitBoolScalarType(size_t offset, vstd::StringBuilder &str) {
+    // Choose a bit-field container whose alignment does not push the bool past its
+    // C++ byte offset. C++ bool has size/alignment 1, so it can sit at any offset.
+    // HLSL only provides 4-byte (int) and 2-byte (uint16_t) integer containers in
+    // DXIL; a 1-byte container is unavailable. For offsets that are multiples of 4
+    // we use int. For offsets that are 2 mod 4 (e.g. after a half/int16) we use
+    // uint16_t so the bool occupies the same byte as in C++ instead of jumping to
+    // the next 4-byte boundary.
+    if ((offset & 3) == 0) {
+        str << "int"sv;
+        return 4;
     }
-    switch (b->tag() == Type::Tag::VECTOR ? b->element()->tag() : b->tag()) {
-        case Type::Tag::BOOL:
-            return true;
-        default:
-            return false;
-    }
+    str << "uint16_t"sv;
+    return 2;
 }
 
 void StructGenerator::InitAsStructAliased(
@@ -96,9 +95,6 @@ void StructGenerator::InitAsStructAliased(
     size_t varIdx = 0;
     for (auto &&i : vars) {
         Align(i->alignment());
-        if (last_type && (half_type_adjacent_with_bool(last_type, i) || half_type_adjacent_with_bool(i, last_type))) [[unlikely]] {
-            LUISA_ERROR("HLSL do not support 16-bit variables adjacent with bool");
-        }
         last_type = i;
         switch (i->tag()) {
             case Type::Tag::STRUCTURE:
@@ -108,31 +104,41 @@ void StructGenerator::InitAsStructAliased(
             default:
                 break;
         }
+        auto member_offset = structSize;
         structSize += i->size();
         if (i->is_structure() || i->is_array()) {
             auto name = util->opt->CreateAliasedStruct(i);
             structDesc << name.first;
+            structDesc << " v"sv << vstd::to_string(varIdx);
+            varIdx++;
+            structDesc << ";\n"sv;
         } else if (isSpirv && (i->is_vector() && i->dimension() >= 3 && i->element()->size() > 4)) {
             structDesc << "_Als";
             util->GetTypeName(*i->element(), structDesc, Usage::READ);
             structDesc << luisa::format("{}", i->dimension());
-        } else if (isSpirv && i->is_matrix()) {
-            structDesc << "_Als";
-            util->GetTypeName(*i, structDesc, Usage::READ);
+            structDesc << " v"sv << vstd::to_string(varIdx);
+            varIdx++;
+            structDesc << ";\n"sv;
         } else if (i->is_bool_vector()) {
             structDesc << "int"sv;
-        } else {
-            util->GetTypeName(*i, structDesc, Usage::READ, false);
-        }
-        structDesc << " v"sv << vstd::to_string(varIdx);
-        varIdx++;
-        if (i->tag() == Type::Tag::BOOL) {
-            structDesc << ":8"sv;
-        } else if (i->is_bool_vector()) {
+            structDesc << " v"sv << vstd::to_string(varIdx);
+            varIdx++;
             if (i->dimension() < 4)
                 structDesc << luisa::format(":{}", 8 * i->dimension());
+            structDesc << ";\n"sv;
+        } else if (i->tag() == Type::Tag::BOOL) {
+            auto container_size = EmitBoolScalarType(member_offset, structDesc);
+            structDesc << " v"sv << vstd::to_string(varIdx);
+            varIdx++;
+            structDesc << ":8"sv;
+            structDesc << ";\n"sv;
+            structSize += container_size - i->size();
+        } else {
+            util->GetTypeName(*i, structDesc, Usage::READ, false);
+            structDesc << " v"sv << vstd::to_string(varIdx);
+            varIdx++;
+            structDesc << ";\n"sv;
         }
-        structDesc << ";\n"sv;
         Align(i->alignment());
     }
     Align(originType->alignment());
@@ -141,7 +147,7 @@ void StructGenerator::InitAsStructAliased(
 void StructGenerator::InitAsArrayAliased(
     Type const *structureType,
     size_t /*structIdx*/,
-    Callback const &/*visitor*/,
+    Callback const & /*visitor*/,
     bool isSpirv) {
     auto i = structureType->element();
     if (i->is_structure() || i->is_array()) {
@@ -151,9 +157,6 @@ void StructGenerator::InitAsArrayAliased(
         structDesc << "_Als";
         util->GetTypeName(*i->element(), structDesc, Usage::READ);
         structDesc << luisa::format("{}", i->dimension());
-    } else if (isSpirv && i->is_matrix()) {
-        structDesc << "_Als";
-        util->GetTypeName(*i, structDesc, Usage::READ);
     } else {
         util->GetTypeName(*i, structDesc, Usage::READ, false);
     }
@@ -176,9 +179,6 @@ void StructGenerator::InitAsStruct(
     size_t varIdx = 0;
     for (auto &&i : vars) {
         Align(i->alignment());
-        if (last_type && (half_type_adjacent_with_bool(last_type, i) || half_type_adjacent_with_bool(i, last_type))) [[unlikely]] {
-            LUISA_ERROR("HLSL do not support 16-bit variables adjacent with bool");
-        }
         last_type = i;
         switch (i->tag()) {
             case Type::Tag::STRUCTURE:
@@ -188,14 +188,21 @@ void StructGenerator::InitAsStruct(
             default:
                 break;
         }
+        auto member_offset = structSize;
         structSize += i->size();
-        util->GetTypeName(*i, structDesc, Usage::READ, false);
-        structDesc << " v"sv << vstd::to_string(varIdx);
-        varIdx++;
         if (i->tag() == Type::Tag::BOOL) {
+            auto container_size = EmitBoolScalarType(member_offset, structDesc);
+            structDesc << " v"sv << vstd::to_string(varIdx);
+            varIdx++;
             structDesc << ":8"sv;
+            structDesc << ";\n"sv;
+            structSize += container_size - i->size();
+        } else {
+            util->GetTypeName(*i, structDesc, Usage::READ, false);
+            structDesc << " v"sv << vstd::to_string(varIdx);
+            varIdx++;
+            structDesc << ";\n"sv;
         }
-        structDesc << ";\n"sv;
         Align(i->alignment());
     }
     Align(originType->alignment());
@@ -203,7 +210,7 @@ void StructGenerator::InitAsStruct(
 void StructGenerator::InitAsArray(
     Type const *structureType,
     size_t /*structIdx*/,
-    Callback const &/*visitor*/,
+    Callback const & /*visitor*/,
     bool isSpirv) {
     const auto ele = structureType->element();
     util->GetTypeName(*ele, structDesc, Usage::READ, false);

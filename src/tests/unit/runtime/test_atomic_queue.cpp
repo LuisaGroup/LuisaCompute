@@ -95,8 +95,8 @@ void test_atomic_queue(Device &device) {
 
     log_level_verbose();
 
-    // Queue capacity: 16 million elements
-    static constexpr auto queue_size = 16_M;
+    // Queue capacity: max threads that fit in DX 1D dispatch limit (65535 groups * 256 threads/group)
+    static constexpr auto queue_size = 65535u * 256u;
     AtomicQueue<float> q1{device, queue_size};
     AtomicQueue<float> q2{device, queue_size};
 
@@ -183,14 +183,13 @@ void test_atomic_queue(Device &device) {
     do_test(test_select, "select", 1024u);
 }
 
-static inline const auto reg = [] {
-    "atomic_queue"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_atomic_queue(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_atomic_queue(device);
+}

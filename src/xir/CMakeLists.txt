@@ -25,6 +25,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         instructions/break.cpp
         instructions/call.cpp
         instructions/cast.cpp
+        instructions/coro.cpp
         instructions/clock.cpp
         instructions/continue.cpp
         instructions/debug_break.cpp
@@ -49,34 +50,77 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata/comment.cpp
         metadata/name.cpp
         metadata/curve_basis.cpp
+        metadata/signature_constraint.cpp
 
         # translators
         translators/ast2xir.cpp
         translators/json2xir.cpp
+        translators/xir2ast.cpp
         translators/xir2json.cpp
         translators/xir2text.cpp
 
         # passes
+        passes/early_cse.cpp
         passes/helpers.cpp
         passes/dce.cpp
+        passes/uniformity_analysis.cpp
         passes/dom_tree.cpp
         passes/call_graph.cpp
+        passes/convergence_region.cpp
+        passes/coro_cfg_distill.cpp
+        passes/coro_materialize.cpp
+        passes/dead_field_elimination.cpp
+        passes/coro_reg2mem.cpp
+        passes/coro_split.cpp
         passes/outline.cpp
+        passes/dead_store_elimination.cpp
         passes/sroa.cpp
         passes/trace_gep.cpp
         passes/aggregate_field_bitmask.cpp
         passes/early_return_elimination.cpp
+        passes/fix_self_referential.cpp
         passes/pointer_usage.cpp
+        passes/post_dom_tree.cpp
         passes/lex_scope_analysis.cpp
+        passes/licm.cpp
         passes/local_store_forward.cpp
         passes/local_load_elimination.cpp
         passes/lower_ray_query_loop.cpp
+        passes/lower_ray_query_loop_to_loop.cpp
+        passes/lower_switch.cpp
         passes/mem2reg.cpp
         passes/autodiff.cpp
         passes/transpose_gep.cpp
         passes/unused_callable_removal.cpp
         passes/reg2mem.cpp
         passes/promote_ref_arg.cpp
+        passes/reassociate.cpp
+        passes/algebraic_simplify.cpp
+        passes/alias_analysis.cpp
+        passes/const_fold.cpp
+        passes/dead_arg_elim.cpp
+        passes/cvp.cpp
+        passes/sccp.cpp
+        passes/scalarizer.cpp
+        passes/inline.cpp
+        passes/loop_fusion.cpp
+        passes/loop_rotation.cpp
+        passes/loop_unroll.cpp
+        passes/loop_vectorization.cpp
+        passes/slp_vectorization.cpp
+        passes/lower_break_continue.cpp
+        passes/destructure_cfg.cpp
+        passes/div_rem_pairs.cpp
+        passes/simplify_cfg.cpp
+        passes/simplify_libcalls.cpp
+        passes/restructure_cfg.cpp
+        passes/scalar_evolution.cpp
+        passes/gvn.cpp
+        passes/phi_cleanup.cpp
+        passes/if_conversion.cpp
+        passes/indvar_simplify.cpp
+        passes/pass_pipeline.cpp
+        passes/fuse_consecutive_buffer_reads.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})

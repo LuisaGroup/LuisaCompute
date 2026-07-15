@@ -12,7 +12,7 @@
 
 #include "ut/ut.hpp"
 #include "test_device.h"
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 #include <luisa/luisa-compute.h>
@@ -109,11 +109,11 @@ void test_motion_blur_vk(Device &device) {
     // Halton sequence for sampling
     Callable halton = [](UInt i, UInt b) noexcept {
         Float f = def(1.0f);
-        Float invB = 1.0f / b;
+        Float invB = 1.0f / cast<float>(b);
         Float r = def(0.0f);
         $while (i > 0u) {
             f = f * invB;
-            r = r + f * (i % b);
+            r = r + f * cast<float>(i % b);
             i = i / b;
         };
         return r;
@@ -180,7 +180,7 @@ void test_motion_blur_vk(Device &device) {
         };
         // Progressive accumulation
         auto old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        auto t = 1.0f / (frame_index + 1.0f);
+        auto t = 1.0f / (cast<float>(frame_index) + 1.0f);
         image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
     };
 
@@ -224,14 +224,12 @@ void test_motion_blur_vk(Device &device) {
     stbi_write_png("test_motion_blur_vk.png", width, height, 4, pixels.data(), 0);
 }
 
-static inline const auto reg = [] {
-    "test_motion_blur_vk"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_motion_blur_vk(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_motion_blur_vk(device);
+}

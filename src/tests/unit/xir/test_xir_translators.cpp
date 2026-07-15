@@ -14,7 +14,14 @@ using namespace boost::ut::literals;
 
 // ---- AST to XIR translation ----
 
-static inline const auto reg_ast2xir = [] {
+// ---- XIR to text translation ----
+
+// ---- XIR to JSON translation ----
+
+// ---- Direct XIR module to text/json ----
+
+void reg_ast2xir() {
+
     "xir_ast_to_xir_simple_kernel"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {
             auto idx = dispatch_id().x;
@@ -73,12 +80,30 @@ static inline const auto reg_ast2xir = [] {
         for ([[maybe_unused]] auto *f : module->function_list()) { func_count++; }
         expect(func_count >= 1u);
     };
-    return 0;
-}();
 
-// ---- XIR to text translation ----
+    "xir_ast_to_xir_does_not_merge_distinct_functions_by_hash"_test = [] {
+        Callable a = [](Float x) { return x + 1.0f; };
+        Callable b = [](Float x) { return x + 1.0f; };
+        expect(a.function().hash() == b.function().hash());
+        AST2XIRConfig config{};
+        auto *ctx = ast_to_xir_translate_begin(config);
+        expect(ctx != nullptr);
+        ast_to_xir_translate_add_function(ctx, a.function());
+        ast_to_xir_translate_add_function(ctx, b.function());
+        auto module = ast_to_xir_translate_finalize(ctx);
+        expect(module != nullptr);
+        auto callable_count = 0u;
+        for (auto *f : module->function_list()) {
+            if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE) {
+                callable_count++;
+            }
+        }
+        expect(callable_count == 2u) << "AST2XIR must key generated functions by builder identity, not only Function::hash()";
+    };
+}
 
-static inline const auto reg_xir2text = [] {
+void reg_xir2text() {
+
     "xir_to_text_basic"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {
             auto idx = dispatch_id().x;
@@ -101,12 +126,21 @@ static inline const auto reg_xir2text = [] {
         expect(!text_debug.empty());
         expect(text_debug.size() >= text_no_debug.size()) << "debug info should add content";
     };
-    return 0;
-}();
 
-// ---- XIR to JSON translation ----
+    "xir_to_flat_text_basic"_test = [] {
+        Kernel1D kernel = [](BufferFloat buf) {
+            auto idx = dispatch_id().x;
+            buf->write(idx, 1.0f);
+        };
+        auto module = ast_to_xir_translate(kernel.function()->function(), {});
+        auto text = xir_to_flat_text_translate(module.get(), true);
+        expect(!text.empty());
+        expect(text.find("define {") != luisa::string::npos);
+    };
+}
 
-static inline const auto reg_xir2json = [] {
+void reg_xir2json() {
+
     "xir_to_json_basic"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {
             auto idx = dispatch_id().x;
@@ -126,12 +160,10 @@ static inline const auto reg_xir2json = [] {
         auto json = xir_to_json_translate(module.get());
         expect(!json.empty());
     };
-    return 0;
-}();
+}
 
-// ---- Direct XIR module to text/json ----
+void reg_direct_module() {
 
-static inline const auto reg_direct_module = [] {
     "xir_text_translate_empty_module"_test = [] {
         Module module;
         auto text = xir_to_text_translate(&module, false);
@@ -155,8 +187,18 @@ static inline const auto reg_direct_module = [] {
         builder.return_void();
         auto text = xir_to_text_translate(&module, true);
         expect(!text.empty());
+        auto flat_text = xir_to_flat_text_translate(&module, true);
+        expect(!flat_text.empty());
+        expect(flat_text.find("define {") != luisa::string::npos);
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_ast2xir();
+    reg_xir2text();
+    reg_xir2json();
+    reg_direct_module();
+    return 0;
+}

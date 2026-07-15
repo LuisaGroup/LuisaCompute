@@ -82,7 +82,7 @@ static void walk_lexical_scopes_recursively(const BasicBlock *block,
             case DerivedInstructionTag::SWITCH: {
                 auto switch_inst = static_cast<const SwitchInst *>(inst);
                 // scopes of the case blocks
-                for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                for (size_t i = 0; i < switch_inst->case_count(); i++) {
                     stack.with_scope([&] {
                         walk_lexical_scopes_recursively(switch_inst->case_block(i), config, stack, info);
                     });

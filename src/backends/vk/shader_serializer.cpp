@@ -9,6 +9,7 @@ namespace lc::vk {
 namespace detail {
 struct ShaderSerHeader {
     uint64 header_ver;
+    uint pipeline_ver;
     vstd::MD5 md5;
     vstd::MD5 type_md5;
     uint64 property_size;
@@ -17,12 +18,15 @@ struct ShaderSerHeader {
     uint kernel_arg_count;
     uint printer_count;
     uint printer_size_bytes;
+    uint validation_count;
+    uint64 constant_ubo_size;
     bool use_bindless_buffer;
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
 };
 struct RasterSerHeader {
     uint64 header_ver;
+    uint pipeline_ver;
     vstd::MD5 md5;
     vstd::MD5 type_md5;
     uint64 property_size;
@@ -31,10 +35,13 @@ struct RasterSerHeader {
     uint kernel_arg_count;
     uint printer_count;
     uint printer_size_bytes;
+    uint validation_count;
     bool use_bindless_buffer;
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
 };
+constexpr uint32_t kShaderSerVersion = 3; // version: set to header_ver (3: +constant_ubo_data)
+constexpr uint kXIRPipelineVersion = 1; // bump when optimization pipeline changes to invalidate cache
 struct PSODataPackage {
     VkPipelineCacheHeaderVersionOne header;
     std::byte md5[sizeof(vstd::MD5)];
@@ -87,10 +94,13 @@ void ShaderSerializer::serialize_raster(
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
-    vstd::span<std::pair<vstd::string, Type const *> const> printers) {
+    vstd::span<std::pair<vstd::string, Type const *> const> printers,
+    uint validation_count) {
     vstd::vector<std::byte> results;
     using namespace detail;
     RasterSerHeader header{
+        .header_ver = kShaderSerVersion,
+        .pipeline_ver = kXIRPipelineVersion,
         .md5 = shader_md5,
         .type_md5 = type_md5,
         .property_size = binds.size(),
@@ -122,6 +132,7 @@ void ShaderSerializer::serialize_raster(
     header.use_bindless_tex3d = use_tex3d_bindless;
     header.printer_count = printers.size();
     header.printer_size_bytes = printer_size_bytes;
+    header.validation_count = validation_count;
     save(header);
     save_arr(binds.data(), binds.size());
     save_arr(saved_args.data(), saved_args.size());
@@ -147,6 +158,46 @@ void ShaderSerializer::serialize_raster(
             break;
     }
 }
+
+bool ShaderSerializer::require_recompile(
+    vstd::string_view file_name,
+    vstd::MD5 shader_md5,
+    vstd::MD5 type_md5,
+    SerdeType serde_type,
+    BinaryIO const *bin_io) {
+    using namespace detail;
+    auto read_stream = read_binary_io(serde_type, bin_io, file_name);
+    if (!read_stream) return true;
+    if (read_stream->length() < sizeof(ShaderSerHeader)) return true;
+    ShaderSerHeader header;
+    read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(ShaderSerHeader)});
+    if (header.header_ver != kShaderSerVersion) return true;
+    if (header.pipeline_ver != kXIRPipelineVersion) return true;
+    if (header.md5 != shader_md5) return true;
+    if (header.type_md5 != type_md5) return true;
+    return false;
+}
+
+bool ShaderSerializer::require_recompile_raster(
+    vstd::string_view file_name,
+    vstd::MD5 shader_md5,
+    vstd::MD5 type_md5,
+    SerdeType serde_type,
+    BinaryIO const *bin_io) {
+    using namespace detail;
+    auto read_stream = read_binary_io(serde_type, bin_io, file_name);
+    if (!read_stream) return true;
+    if (read_stream->length() < sizeof(RasterSerHeader)) return true;
+    RasterSerHeader header;
+    read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(RasterSerHeader)});
+    if (header.header_ver != kShaderSerVersion) return true;
+    if (header.pipeline_ver != kXIRPipelineVersion) return true;
+    if (header.md5 != shader_md5) return true;
+    if (header.type_md5 != type_md5) return true;
+    return false;
+}
+
+
 void ShaderSerializer::serialize_bytecode(
     vstd::span<const hlsl::Property> binds,
     vstd::span<const SavedArgument> saved_args,
@@ -160,10 +211,14 @@ void ShaderSerializer::serialize_bytecode(
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
-    vstd::span<std::pair<vstd::string, Type const *> const> printers) {
+    vstd::span<std::pair<vstd::string, Type const *> const> printers,
+    uint validation_count,
+    luisa::span<const std::byte> constant_ubo_data) {
     using namespace detail;
     vstd::vector<std::byte> results;
     ShaderSerHeader header{
+        .header_ver = kShaderSerVersion,
+        .pipeline_ver = kXIRPipelineVersion,
         .md5 = shader_md5,
         .type_md5 = type_md5,
         .property_size = binds.size(),
@@ -174,11 +229,13 @@ void ShaderSerializer::serialize_bytecode(
     for (auto &i : printers) {
         printer_size_bytes += i.first.size() + i.second->description().size() + 2;// zero-end string
     }
+    auto ubo_data_size = constant_ubo_data.size_bytes();
     uint64_t final_size = sizeof(ShaderSerHeader) +
                           header.property_size * sizeof(hlsl::Property) +
                           header.spv_byte_size +
                           header.kernel_arg_count * sizeof(SavedArgument) +
-                          printer_size_bytes;
+                          printer_size_bytes +
+                          ubo_data_size;
     luisa::enlarge_by(results, final_size);
     auto data_ptr = results.data();
     auto save = [&]<typename T>(T const &t) {
@@ -194,6 +251,8 @@ void ShaderSerializer::serialize_bytecode(
     header.use_bindless_tex3d = use_tex3d_bindless;
     header.printer_count = printers.size();
     header.printer_size_bytes = printer_size_bytes;
+    header.validation_count = validation_count;
+    header.constant_ubo_size = ubo_data_size;
     save(header);
     save_arr(binds.data(), binds.size());
     save_arr(saved_args.data(), saved_args.size());
@@ -204,6 +263,9 @@ void ShaderSerializer::serialize_bytecode(
         save_arr(desc.data(), desc.size());
         *data_ptr = (std::byte)0;
         ++data_ptr;
+    }
+    if (ubo_data_size > 0) {
+        save_arr(constant_ubo_data.data(), ubo_data_size);
     }
 
     switch (serde_type) {
@@ -253,6 +315,7 @@ auto ShaderSerializer::try_deser_raster(
     using namespace detail;
     RasterSerHeader header;
     vstd::vector<std::pair<luisa::string, Type const *>> printers;
+    vstd::vector<std::byte> constant_ubo_data;
     {
         auto read_stream = [&]() {
             return read_binary_io(serde_type, bin_io, file_name);
@@ -261,6 +324,8 @@ auto ShaderSerializer::try_deser_raster(
         auto stream_len = read_stream->length();
         if (stream_len < sizeof(RasterSerHeader)) return result;
         read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(RasterSerHeader)});
+        if (header.header_ver != kShaderSerVersion) return result;
+        if (header.pipeline_ver != kXIRPipelineVersion) return result;
         uint64_t final_size = sizeof(RasterSerHeader) +
                               header.property_size * sizeof(hlsl::Property) +
                               header.vert_spv_byte_size +
@@ -307,7 +372,8 @@ auto ShaderSerializer::try_deser_raster(
         std::move(pixel_spv),
         header.use_bindless_tex2d,
         header.use_bindless_tex3d,
-        header.use_bindless_buffer);
+        header.use_bindless_buffer,
+        header.validation_count);
     return result;
 }
 
@@ -328,6 +394,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
     uint3 block_size;
     ShaderSerHeader header;
     vstd::vector<std::pair<luisa::string, Type const *>> printers;
+    vstd::vector<std::byte> constant_ubo_data;
     {
         auto read_stream = [&]() {
             return read_binary_io(serde_type, bin_io, file_name);
@@ -336,7 +403,9 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         auto stream_len = read_stream->length();
         if (stream_len < sizeof(ShaderSerHeader)) return result;
         read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(ShaderSerHeader)});
-        if (stream_len != read_stream->pos() + (header.printer_size_bytes + header.property_size * sizeof(hlsl::Property) + header.spv_byte_size + header.kernel_arg_count * sizeof(SavedArgument)))
+        if (header.header_ver != kShaderSerVersion) return result;
+        if (header.pipeline_ver != kXIRPipelineVersion) return result;
+        if (stream_len != read_stream->pos() + (header.printer_size_bytes + header.property_size * sizeof(hlsl::Property) + header.spv_byte_size + header.kernel_arg_count * sizeof(SavedArgument) + header.constant_ubo_size))
             return result;
         if (shader_md5 && *shader_md5 != header.md5)
             return result;
@@ -364,6 +433,11 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
                 ptr += type_desc_len + 1;
                 printers.emplace_back(luisa::string{printer_val}, type);
             }
+        }
+        // Read constant UBO data if present
+        if (header.constant_ubo_size > 0) {
+            luisa::enlarge_by(constant_ubo_data, header.constant_ubo_size);
+            read_stream->read(constant_ubo_data);
         }
     }
     vstd::vector<std::byte> pso_data;
@@ -405,7 +479,9 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         header.use_bindless_tex2d,
         header.use_bindless_tex3d,
         header.use_bindless_buffer,
-        std::move(printers)};
+        std::move(printers),
+        constant_ubo_data,
+        header.validation_count};
     if (pso_data.empty() &&
         shader->serialize_pso(pso_data)) {
         bin_io->write_shader_cache(pso_name, pso_data);
@@ -421,6 +497,15 @@ vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(Function kern
         auto &&var = args[i];
         return SavedArgument(kernel, var);
     });
+    return result;
+}
+
+vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(luisa::span<const std::pair<Variable, Usage>> arguments) {
+    vstd::vector<SavedArgument> result;
+    result.reserve(arguments.size());
+    for (auto &&i : arguments) {
+        result.emplace_back(i.second, i.first);
+    }
     return result;
 }
 

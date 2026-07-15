@@ -7,6 +7,9 @@
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/passes/call_graph.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/metadata/comment.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 
 namespace luisa::compute::xir {
 
@@ -16,6 +19,8 @@ namespace detail {
 [[nodiscard]] static auto is_promotable_callable(FunctionDefinition *f) noexcept {
     // we may not process non-callable functions as their signatures might be imported/exported
     if (!f->isa<CallableFunction>()) { return false; }
+    // if the function has a signature constraint, we cannot modify its signature
+    if (f->find_metadata<SignatureConstraintMD>() != nullptr) { return false; }
     // otherwise, we check if all users of the callable are CallInst (non-call instructions
     // such as RayQueryPipelineInst may not allow changes to callee functions' signatures)
     for (auto &&use : f->use_list()) {
@@ -47,7 +52,7 @@ static void traverse_call_graph_post_order(Function *f, const CallGraph &call_gr
         if (auto user = use->user()) {
             LUISA_DEBUG_ASSERT(user->isa<Instruction>(), "Invalid user.");
             switch (static_cast<Instruction *>(user)->derived_instruction_tag()) {
-                case DerivedInstructionTag::LOAD: /* fine to check the next user */ break;
+                case DerivedInstructionTag::LOAD: [[fallthrough]];
                 case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: /* fine to check the next user */ break;
                 case DerivedInstructionTag::GEP: {
                     auto gep = static_cast<GEPInst *>(user);
@@ -91,12 +96,23 @@ struct PromotedArg {
 };
 
 static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo &info) {
+    // A reference that is only read through its own SSA value is not
+    // necessarily immutable: another reference argument may alias it and be
+    // written by the callee. Loading the "readonly" argument at the call site
+    // would then snapshot the old value and change program semantics. Without
+    // a call-site-aware no-alias proof, only promote references when every
+    // reference argument in the callable is recursively readonly.
+    for (auto arg : f->arguments()) {
+        if (arg->is_reference() && !is_pointer_readonly(arg)) {
+            return;
+        }
+    }
     // collect promotable reference arguments
-    luisa::fixed_vector<PromotedArg, 16u> promoted_args;
+    luisa::fixed_vector<PromotedArg, 16> promoted_args;
     {
-        auto index = 0u;
+        size_t index = 0;
         for (auto arg : f->arguments()) {
-            if (arg->is_reference() && !arg->type()->is_custom() && is_pointer_readonly(arg)) {
+            if (arg->is_reference() && !arg->type()->is_custom()) {
                 promoted_args.emplace_back(PromotedArg{
                     .arg = static_cast<ReferenceArgument *>(arg),
                     .index = index,
@@ -143,9 +159,12 @@ static void promote_ref_args_in_module(Module *m, PromoteRefArgInfo &info) noexc
 
 }// namespace detail
 
-PromoteRefArgInfo promote_ref_arg_pass_run_on_module(Module *module) noexcept {
+PromoteRefArgInfo promote_ref_arg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     PromoteRefArgInfo info;
     detail::promote_ref_args_in_module(module, info);
+    if (report != nullptr) {
+        report->set("promoted_ref_arg", info.promoted_ref_arg_count);
+    }
     return info;
 }
 

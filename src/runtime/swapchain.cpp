@@ -19,7 +19,15 @@ Swapchain Device::create_swapchain(Stream const &stream, const SwapchainOption &
 Swapchain::Swapchain(DeviceInterface *device,
                      const SwapchainOption &option,
                      uint64_t stream_handle) noexcept
-    : Swapchain{device, device->create_swapchain(option, stream_handle)} {}
+    : Swapchain{device, [&] {
+                    auto info = device->create_swapchain(option, stream_handle);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                    if (!info.valid()) {
+                        LUISA_ERROR("Failed to create swapchain.");
+                    }
+#endif
+                    return info;
+                }()} {}
 
 Swapchain::Present Swapchain::present(ImageView<float> frame) const noexcept {
     _check_is_valid();

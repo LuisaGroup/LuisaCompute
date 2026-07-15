@@ -20,7 +20,15 @@ DepthBuffer::DepthBuffer(DeviceInterface *device, RasterExt *raster_ext, DepthFo
     : Resource(
           device,
           Tag::DEPTH_BUFFER,
-          raster_ext->create_depth_buffer(format, size.x, size.y)),
+          [&] {
+              auto info = raster_ext->create_depth_buffer(format, size.x, size.y);
+#ifdef LUISA_ENABLE_SAFE_MODE
+              if (!info.valid()) {
+                  LUISA_ERROR("Failed to create depth buffer.");
+              }
+#endif
+              return info;
+          }()),
       _size{size}, _raster_ext{raster_ext}, _format{format} {
 #ifndef NDEBUG
     if (format == DepthFormat::None) {

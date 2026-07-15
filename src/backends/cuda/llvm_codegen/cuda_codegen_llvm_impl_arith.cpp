@@ -43,6 +43,7 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
         return op(llvm_a, llvm_b, llvm_c);
     };
     auto call_exp2 = [&](llvm::Value *v) noexcept -> llvm::Value * {
+#if LLVM_VERSION_MAJOR < 22
         if (_config.cuda_arch < nvvm_required_arch_exp2_f16 || !v->getType()->getScalarType()->isHalfTy()) {
             return _call_libdevice_unary_op(b, "exp2", v);
         }
@@ -66,6 +67,9 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
         }
         // scalar
         return b.CreateIntrinsic(llvm::Intrinsic::nvvm_ex2_approx_f16, {v});
+#else
+        return _call_libdevice_unary_op(b, "exp2", v);
+#endif
     };
     auto call_tanh = [&](llvm::Value *v) noexcept -> llvm::Value * {
 #if LLVM_VERSION_MAJOR >= 22// LLVM 22+ can correct handle llvm.nvvm.tanh.approx.f32 in libdevice

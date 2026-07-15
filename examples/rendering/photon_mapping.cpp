@@ -63,15 +63,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-        }
-    }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
     Device device = context.create_device(argv[1]);
     Callable lcg = [](UInt &state) noexcept {
         constexpr uint lcg_a = 1664525u;
@@ -156,7 +148,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
 
@@ -423,7 +415,7 @@ int main(int argc, char *argv[]) {
 
                 $if (cos_wi > 1e-4f) {
                     radiance = density_estimation_radius(coord, p, -ray->direction(), radius, material);
-                    radiance *= inv_pi / (radius * radius * photon_number);
+                    radiance *= inv_pi / (radius * radius * cast<float>(photon_number));
 
                     // $if(dot(radiance, radiance) > 10000) {
                     //     printer.info_with_location("p : ({}, {}, {}) o ({}, {}, {}) dir ({}, {}, {}) inst {} prim {}",
@@ -559,12 +551,12 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Photon tracing done");
 
     uint frame_count = 0;
-    bool infinite_render = !force_offline;
-    uint total_spp = force_offline ? 256u : 0u;
+    bool infinite_render = !opts.offline;
+    uint total_spp = opts.offline ? 256u : 0u;
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("Display", resolution.x, resolution.y);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -578,7 +570,7 @@ int main(int argc, char *argv[]) {
             }));
     }
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     Clock clk;
     while (infinite_render || frame_count < total_spp) {
@@ -592,12 +584,12 @@ int main(int argc, char *argv[]) {
         cmd_list
             << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution);
         stream << cmd_list.commit();
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             stream << swap_chain->present(ldr_image);
         }
         frame_count += spp_per_dispatch;
 
-        if (!force_offline && window) {
+        if (!opts.offline && window) {
             window->poll_events();
             if (window->should_close()) { break; }
         }
@@ -605,16 +597,15 @@ int main(int argc, char *argv[]) {
     stream << ldr_image.copy_to(luisa::span{host_image}) << synchronize();
 
     stbi_write_png("test_photon_mapping.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution.x, resolution.y, 4,
-            "test_photon_mapping",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+    if (opts.offline) {
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

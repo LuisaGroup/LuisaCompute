@@ -23,6 +23,7 @@ public:
         vstd::MD5 const &checkMD5,
         vstd::MD5 const &typeMD5,
         uint bindlessCount,
+        uint validation_count,
         uint3 blockSize,
         vstd::span<std::pair<vstd::string, Type const*> const> printers);
     static vstd::vector<std::byte> RasterSerialize(
@@ -33,6 +34,7 @@ public:
         vstd::MD5 const &checkMD5,
         vstd::MD5 const &typeMD5,
         uint bindlessCount,
+        uint validation_count,
         vstd::span<std::pair<vstd::string, Type const*> const> printers);
     static ComputeShader *DeSerialize(
         luisa::string_view fileName,

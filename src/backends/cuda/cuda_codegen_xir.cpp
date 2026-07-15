@@ -1358,7 +1358,7 @@ void CUDACodegenXIR::_emit_arithmetic_inst(const xir::ArithmeticInst *inst, int 
         case xir::ArithmeticOp::FRACT: f("lc_fract"); break;
         case xir::ArithmeticOp::TRUNC: f("lc_trunc"); break;
         case xir::ArithmeticOp::ROUND: f("lc_round"); break;
-        case xir::ArithmeticOp::RINT: f("lc_round"); break;// TODO: check if this is correct
+        case xir::ArithmeticOp::RINT: f("lc_rint"); break;
         case xir::ArithmeticOp::FMA: f("lc_fma"); break;
         case xir::ArithmeticOp::COPYSIGN: f("lc_copysign"); break;
         case xir::ArithmeticOp::CROSS: f("lc_cross"); break;

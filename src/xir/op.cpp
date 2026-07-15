@@ -272,6 +272,8 @@ luisa::string_view to_string(AutodiffIntrinsicOp op) noexcept {
         case AutodiffIntrinsicOp::AUTODIFF_ACCUMULATE_GRADIENT: return "autodiff_accumulate_gradient"sv;
         case AutodiffIntrinsicOp::AUTODIFF_BACKWARD: return "autodiff_backward"sv;
         case AutodiffIntrinsicOp::AUTODIFF_DETACH: return "autodiff_detach"sv;
+        case AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT: return "autodiff_propagate_gradient"sv;
+        case AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT: return "autodiff_output_gradient"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown autodiff_intrinsic operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -285,6 +287,8 @@ AutodiffIntrinsicOp autodiff_intrinsic_op_from_string(luisa::string_view name) n
         {"autodiff_accumulate_gradient"sv, AutodiffIntrinsicOp::AUTODIFF_ACCUMULATE_GRADIENT},
         {"autodiff_backward"sv, AutodiffIntrinsicOp::AUTODIFF_BACKWARD},
         {"autodiff_detach"sv, AutodiffIntrinsicOp::AUTODIFF_DETACH},
+        {"autodiff_propagate_gradient"sv, AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT},
+        {"autodiff_output_gradient"sv, AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown autodiff_intrinsic operation: {}.", name);

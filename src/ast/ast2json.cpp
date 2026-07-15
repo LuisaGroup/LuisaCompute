@@ -948,6 +948,7 @@ private:
             case Statement::Tag::RAY_QUERY: _convert_ray_query_stmt(j, static_cast<const RayQueryStmt *>(stmt)); break;
             case Statement::Tag::AUTO_DIFF: _convert_autodiff_stmt(j, static_cast<const AutoDiffStmt *>(stmt)); break;
             case Statement::Tag::PRINT: _convert_print_stmt(j, static_cast<const PrintStmt *>(stmt)); break;
+            case Statement::Tag::SUSPEND: _convert_suspend_stmt(j, static_cast<const SuspendStmt *>(stmt)); break;
             case Statement::Tag::DEBUG_BREAK: LUISA_NOT_IMPLEMENTED("Debug break statement is not supported.");
         }
         return j;
@@ -1020,6 +1021,10 @@ private:
     }
     void _convert_comment_stmt(JSON &j, const CommentStmt *stmt) noexcept {
         j["comment"] = stmt->comment();
+    }
+    void _convert_suspend_stmt(JSON &j, const SuspendStmt *stmt) noexcept {
+        j["token"] = stmt->token();
+        j["name"] = stmt->name();
     }
     void _convert_ray_query_stmt(JSON &j, const RayQueryStmt *stmt) noexcept {
         j["query"] = _convert_expr(stmt->query());
