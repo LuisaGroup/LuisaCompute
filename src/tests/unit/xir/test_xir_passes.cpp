@@ -1019,7 +1019,7 @@ void reg_dce() {
         expect(second.removed_block_count == 0u);
     };
 
-    "dce_structured_reachability_keeps_merge_and_loop_side_blocks"_test = [] {
+    "dce_exec_reachability_preserves_structured_cfg"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -1060,8 +1060,196 @@ void reg_dce() {
         b.set_insertion_point(loop_merge);
         b.return_void();
         auto info = dce_pass_run_on_function(k);
-        expect(info.removed_block_count == 0u);
-        expect(count_reachable_blocks(k) == 11u);
+        expect(info.removed_block_count == 1u);
+        expect(count_reachable_blocks(k) == 10u);
+        expect(body->terminator()->isa<IfInst>());
+        expect(if_true->terminator()->isa<BranchInst>());
+        expect(if_false->terminator()->isa<UnreachableInst>());
+        expect(if_merge->terminator()->isa<SwitchInst>());
+        expect(sw_case->terminator()->isa<BranchInst>());
+        expect(sw_default->terminator()->isa<UnreachableInst>());
+        expect(sw_merge->terminator()->isa<LoopInst>());
+        auto *result_loop = static_cast<LoopInst *>(sw_merge->terminator());
+        expect(result_loop->prepare_block() == prepare);
+        expect(result_loop->body_block() == loop_body);
+        expect(result_loop->update_block() == update);
+        expect(result_loop->merge_block() == nullptr);
+    };
+
+    "dce_constant_cond_br_becomes_taken_branch"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        auto *taken = k->create_basic_block();
+        auto *dead = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.cond_br(m.create_constant_one(Type::of<bool>()), taken, dead);
+        b.set_insertion_point(taken);
+        b.return_void();
+        b.set_insertion_point(dead);
+        b.return_void();
+
+        auto info = dce_pass_run_on_function(k);
+        expect(info.removed_block_count == 1u);
+        expect(entry->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(entry->terminator())->target_block() == taken);
+        expect(count_reachable_blocks(k) == 2u);
+    };
+
+    "dce_constant_if_preserves_taken_break_in_loop_scope"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prepare);
+        b.br(loop_body);
+        b.set_insertion_point(loop_body);
+        auto *if_inst = b.if_(m.create_constant_one(Type::of<bool>()));
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        b.set_insertion_point(if_true);
+        b.break_(merge);
+        b.set_insertion_point(if_false);
+        b.continue_(update);
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        (void)dce_pass_run_on_function(k);
+        expect(loop_body->terminator()->isa<IfInst>());
+        expect(if_true->terminator()->isa<BreakInst>());
+        expect(static_cast<BreakInst *>(if_true->terminator())->target_block() == merge);
+        expect(if_false->terminator()->isa<UnreachableInst>());
+        expect(loop->body_block() == loop_body);
+        expect(loop->update_block() == update);
+        expect(update->terminator()->isa<UnreachableInst>());
+        expect(loop->merge_block() == merge);
+    };
+
+    "dce_constant_switch_preserves_taken_continue_in_loop_scope"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prepare);
+        b.br(loop_body);
+        b.set_insertion_point(loop_body);
+        int32_t selector_value = 1;
+        auto *selector = m.create_constant(Type::of<int>(), &selector_value);
+        auto *switch_inst = b.switch_(selector);
+        auto *switch_case = switch_inst->create_case_block(1);
+        auto *switch_default = switch_inst->create_default_block();
+        b.set_insertion_point(switch_case);
+        b.continue_(update);
+        b.set_insertion_point(switch_default);
+        b.break_(merge);
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        (void)dce_pass_run_on_function(k);
+        expect(loop_body->terminator()->isa<SwitchInst>());
+        expect(switch_case->terminator()->isa<ContinueInst>());
+        expect(static_cast<ContinueInst *>(switch_case->terminator())->target_block() == update);
+        expect(switch_default->terminator()->isa<UnreachableInst>());
+        expect(loop->body_block() == loop_body);
+        expect(loop->update_block() == update);
+        expect(loop->merge_block() == nullptr);
+    };
+
+    "dce_loop_preserves_dead_body_and_update_shells"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        b.cond_br(m.create_constant_zero(Type::of<bool>()), loop_body, merge);
+        b.set_insertion_point(loop_body);
+        b.br(update);
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        (void)dce_pass_run_on_function(k);
+        expect(loop->prepare_block() == prepare);
+        expect(prepare->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(prepare->terminator())->target_block() == merge);
+        expect(loop->body_block() == loop_body);
+        expect(loop_body->terminator()->isa<UnreachableInst>());
+        expect(loop->update_block() == update);
+        expect(update->terminator()->isa<UnreachableInst>());
+        expect(loop->merge_block() == merge);
+        expect(count_reachable_blocks(k) == 3u);
+    };
+
+    "dce_clears_unreachable_if_merge_but_keeps_executable_unreachable"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *condition = k->create_value_argument(Type::of<bool>());
+        auto *entry = k->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *if_inst = b.if_(condition);
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        auto *merge = if_inst->create_merge_block();
+        b.set_insertion_point(if_true);
+        b.unreachable_("executable unreachable");
+        b.set_insertion_point(if_false);
+        b.return_void();
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        (void)dce_pass_run_on_function(k);
+        expect(if_inst->merge_block() == nullptr);
+        expect(if_true->terminator()->isa<UnreachableInst>());
+        expect(static_cast<UnreachableInst *>(if_true->terminator())->message() == "executable unreachable");
+        expect(count_reachable_blocks(k) == 3u);
+    };
+
+    "dce_keeps_reachable_self_loop_and_removes_disconnected_cycle"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        auto *dead_a = k->create_basic_block();
+        auto *dead_b = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.br(entry);
+        b.set_insertion_point(dead_a);
+        b.br(dead_b);
+        b.set_insertion_point(dead_b);
+        b.br(dead_a);
+
+        auto info = dce_pass_run_on_function(k);
+        expect(info.removed_block_count == 2u);
+        expect(entry->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(entry->terminator())->target_block() == entry);
+        expect(count_reachable_blocks(k) == 1u);
     };
 }
 
