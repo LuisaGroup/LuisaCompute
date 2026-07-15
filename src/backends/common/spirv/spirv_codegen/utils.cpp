@@ -20,7 +20,6 @@
 #include <luisa/xir/passes/dead_store_elimination.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
-#include <luisa/xir/passes/loop_unroll.h>
 #include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/passes/destructure_cfg.h>
@@ -36,10 +35,6 @@
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/indvar_simplify.h>
 #include <luisa/xir/passes/licm.h>
-#include <luisa/xir/passes/loop_rotation.h>
-#include <luisa/xir/passes/loop_fusion.h>
-#include <luisa/xir/passes/loop_vectorization.h>
-#include <luisa/xir/passes/slp_vectorization.h>
 #include <luisa/xir/passes/lower_break_continue.h>
 #include <luisa/xir/passes/reassociate.h>
 #include <luisa/xir/passes/scalarizer.h>
@@ -188,16 +183,9 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
             return i.promoted_ref_arg_count > 0u;
         });
-        phase_a.add("loop-unroll", [](xir::Module *m, xir::PassReport &r) {
-            xir::LoopUnrollOptions unroll_opts;
-            unroll_opts.max_trip_count = 256;
-            unroll_opts.unroll_pure_only = true;  // skip loops with buffer writes for safety
-            auto i = xir::loop_unroll_pass_run_on_module(m, unroll_opts);
-            return i.unrolled_loop_count > 0u;
-        });
-        // After loop unrolling, adjacent buffer reads may be exposed.
-        // Run fuse again to merge them into vector reads.
-        phase_a.add("fuse-consecutive-buffer-reads-after-unroll", [](xir::Module *m, xir::PassReport &r) {
+        // Run fuse again after scalar optimizations to merge newly adjacent
+        // buffer reads into vector reads.
+        phase_a.add("fuse-consecutive-buffer-reads-after-scalar-opts", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
             return i.fused_group_count > 0u;
         });

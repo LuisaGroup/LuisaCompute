@@ -22,6 +22,9 @@ struct InstructionCloneValueResolver;
 
 [[nodiscard]] LUISA_XIR_API Value *trace_pointer_base_value(Value *pointer) noexcept;
 [[nodiscard]] LUISA_XIR_API AllocaInst *trace_pointer_base_local_alloca_inst(Value *pointer) noexcept;
+// Returns true if the function still contains structured control-flow
+// instructions. CFG-only transforms use this as a hard mutation boundary.
+[[nodiscard]] LUISA_XIR_API bool contains_structured_control_flow(FunctionDefinition *function) noexcept;
 [[nodiscard]] LUISA_XIR_API bool remove_redundant_phi_instruction(PhiInst *phi) noexcept;
 [[nodiscard]] LUISA_XIR_API bool simplify_phi_instruction(PhiInst *phi, const DomTree *dom_tree = nullptr) noexcept;
 LUISA_XIR_API void lower_phi_node_to_local_variable(PhiInst *phi) noexcept;

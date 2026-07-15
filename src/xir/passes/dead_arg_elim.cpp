@@ -2,6 +2,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 
 namespace luisa::compute::xir {
 
@@ -12,6 +13,13 @@ static void dead_arg_elim_pass_on_function_def(FunctionDefinition *def, DeadArgE
     // the SPIR-V codegen's resource property index mapping which relies on
     // argument positions.
     if (def->derived_function_tag() == DerivedFunctionTag::KERNEL) { return; }
+    // Signature-constrained functions and functions referenced by anything
+    // other than an ordinary call have an externally fixed ABI (ray-query
+    // callbacks are the important example).
+    if (def->find_metadata<SignatureConstraintMD>() != nullptr) { return; }
+    for (auto *use : def->use_list()) {
+        if (use->user() == nullptr || !use->user()->isa<CallInst>()) { return; }
+    }
 
     // Collect indices of unused parameters (those with no uses within the function body).
     luisa::vector<size_t> unused_indices;

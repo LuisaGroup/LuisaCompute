@@ -46,52 +46,12 @@ struct InstKeyHash {
 };
 
 [[nodiscard]] bool is_side_effect_free(const Instruction *inst) noexcept {
-    auto tag = inst->derived_instruction_tag();
-    switch (tag) {
-        // Control flow terminators — cannot CSE
-        case DerivedInstructionTag::IF:
-        case DerivedInstructionTag::SWITCH:
-        case DerivedInstructionTag::LOOP:
-        case DerivedInstructionTag::SIMPLE_LOOP:
-        case DerivedInstructionTag::BRANCH:
-        case DerivedInstructionTag::CONDITIONAL_BRANCH:
-        case DerivedInstructionTag::UNREACHABLE:
-        case DerivedInstructionTag::BREAK:
-        case DerivedInstructionTag::CONTINUE:
-        case DerivedInstructionTag::RETURN:
-        case DerivedInstructionTag::RASTER_DISCARD:
-        // Memory & synchronization — cannot CSE
-        case DerivedInstructionTag::PHI:
-        case DerivedInstructionTag::ALLOCA:
-        case DerivedInstructionTag::LOAD:
-        case DerivedInstructionTag::STORE:
-        case DerivedInstructionTag::ATOMIC:
-        case DerivedInstructionTag::THREAD_GROUP:
-        // Resource access — has side effects
-        case DerivedInstructionTag::RESOURCE_READ:
-        case DerivedInstructionTag::RESOURCE_WRITE:
-        // Ray query — has side effects
-        case DerivedInstructionTag::RAY_QUERY_LOOP:
-        case DerivedInstructionTag::RAY_QUERY_DISPATCH:
-        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
-        case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
-        case DerivedInstructionTag::RAY_QUERY_PIPELINE:
-        // Autodiff — has side effects
-        case DerivedInstructionTag::AUTODIFF_SCOPE:
-        case DerivedInstructionTag::AUTODIFF_INTRINSIC:
-        // Calls, I/O, debug — cannot CSE
-        case DerivedInstructionTag::CALL:
-        case DerivedInstructionTag::PRINT:
-        case DerivedInstructionTag::CLOCK:
-        case DerivedInstructionTag::DEBUG_BREAK:
-        case DerivedInstructionTag::ASSERT:
-        case DerivedInstructionTag::ASSUME:
-        case DerivedInstructionTag::OUTLINE:
-            return false;
-        // Pure instructions — safe to CSE
-        // ARITHMETIC, CAST, GEP, RESOURCE_QUERY
-        default:
-            return true;
+    switch (inst->derived_instruction_tag()) {
+        case DerivedInstructionTag::ARITHMETIC:
+        case DerivedInstructionTag::CAST:
+        case DerivedInstructionTag::GEP:
+        case DerivedInstructionTag::RESOURCE_QUERY: return true;
+        default: return false;
     }
 }
 

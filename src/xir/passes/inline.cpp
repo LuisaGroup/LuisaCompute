@@ -1,6 +1,5 @@
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
-#include <luisa/xir/passes/call_graph.h>
 #include <luisa/xir/builder.h>
 #include <luisa/core/logging.h>
 #include <luisa/xir/instructions/call.h>
@@ -11,6 +10,8 @@
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/value.h>
+
+#include "helpers.h"
 
 namespace luisa::compute::xir {
 
@@ -68,7 +69,66 @@ public:
     return n;
 }
 
-[[nodiscard]] static bool inline_call(CallInst *call, Function *callee) noexcept {
+[[nodiscard]] static bool has_single_block(FunctionDefinition *def) noexcept {
+    size_t count = 0u;
+    for (auto *block : def->basic_blocks()) { static_cast<void>(block); ++count; }
+    return count == 1u && def->body_block() != nullptr;
+}
+
+[[nodiscard]] static bool inline_single_block_call(CallInst *call,
+                                                   Function *callee) noexcept {
+    auto *callee_def = callee->definition();
+    auto *caller = call->parent_function();
+    if (callee_def == nullptr || caller == nullptr || !has_single_block(callee_def)) {
+        return false;
+    }
+    auto *block = callee_def->body_block();
+    if (!block->is_terminated() || !block->terminator()->isa<ReturnInst>()) {
+        return false;
+    }
+    // Validate the shape before mutating the caller. A direct inline can be
+    // inserted safely even when the caller is structured because it neither
+    // splits a block nor introduces a BranchInst.
+    for (auto *inst : block->instructions()) {
+        if (inst->is_terminator() && !inst->isa<ReturnInst>()) { return false; }
+        if (inst->isa<PhiInst>()) { return false; }
+    }
+    XIRBuilder builder;
+    builder.set_insertion_point(call);
+    InlineValueResolver resolver{caller};
+    auto *module = caller->parent_module();
+    size_t i = 0u;
+    for (auto *arg : callee->arguments()) {
+        auto *call_arg = i < call->argument_count() ?
+                             call->argument(i) :
+                             static_cast<Value *>(module->create_undefined(arg->type()));
+        if (arg->is_lvalue() && !call_arg->is_lvalue()) {
+            auto *tmp = builder.alloca_local(arg->type());
+            builder.store(tmp, call_arg);
+            resolver.emplace(arg, tmp);
+        } else {
+            resolver.emplace(arg, call_arg);
+        }
+        ++i;
+    }
+    for (auto *inst : block->instructions()) {
+        if (inst->isa<ReturnInst>()) {
+            auto *ret = static_cast<ReturnInst *>(inst);
+            if (call->type() != nullptr) {
+                if (ret->return_value() == nullptr) { return false; }
+                call->replace_all_uses_with(resolver.resolve(ret->return_value()));
+            }
+            call->remove_self();
+            return true;
+        }
+        auto *clone = inst->clone_with_metadata(builder, resolver);
+        LUISA_ASSERT(clone != nullptr, "Inline: clone failed.");
+        resolver.emplace(inst, clone);
+    }
+    return false;
+}
+
+[[nodiscard]] static bool inline_multi_block_call(CallInst *call, Function *callee) noexcept {
     auto callee_def = callee->definition();
     if (!callee_def) return false;
     auto caller_func = call->parent_function();
@@ -240,6 +300,65 @@ public:
     return true;
 }
 
+[[nodiscard]] static bool inline_call(CallInst *call, Function *callee,
+                                      InlineInfo &info) noexcept {
+    auto *callee_def = callee->definition();
+    auto *caller = call->parent_function();
+    auto *caller_def = caller == nullptr ? nullptr : caller->definition();
+    if (callee_def == nullptr || caller_def == nullptr) { return false; }
+    if (has_single_block(callee_def)) {
+        return inline_single_block_call(call, callee);
+    }
+    if (contains_structured_control_flow(caller_def) ||
+        contains_structured_control_flow(callee_def)) {
+        ++info.skipped_structured_call_count;
+        LUISA_WARNING_WITH_LOCATION(
+            "Inline skipped a multi-block call involving structured CFG; "
+            "IR was left unchanged.");
+        return false;
+    }
+    return inline_multi_block_call(call, callee);
+}
+
+[[nodiscard]] static luisa::unordered_set<Function *>
+find_recursive_callables(luisa::span<Function *const> callables) noexcept {
+    luisa::unordered_set<Function *> callable_set;
+    callable_set.reserve(callables.size());
+    for (auto *callable : callables) { callable_set.emplace(callable); }
+    luisa::unordered_map<Function *, luisa::vector<Function *>> edges;
+    for (auto *function : callables) {
+        if (auto *def = function->definition()) {
+            def->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->isa<CallInst>()) {
+                    auto *callee = static_cast<CallInst *>(inst)->callee();
+                    if (callee != nullptr && callable_set.contains(callee)) {
+                        edges[function].emplace_back(callee);
+                    }
+                }
+            });
+        }
+    }
+    luisa::unordered_set<Function *> recursive;
+    for (auto *start : callables) {
+        luisa::unordered_set<Function *> visited;
+        luisa::vector<Function *> worklist{start};
+        while (!worklist.empty()) {
+            auto *current = worklist.back();
+            worklist.pop_back();
+            if (!visited.emplace(current).second) { continue; }
+            for (auto *next : edges[current]) {
+                if (next == start) {
+                    recursive.emplace(start);
+                    worklist.clear();
+                    break;
+                }
+                worklist.emplace_back(next);
+            }
+        }
+    }
+    return recursive;
+}
+
 static void run(Module *module, InlineInfo &info) noexcept {
     // Early exit if no callables
     bool has_callables = false;
@@ -251,19 +370,23 @@ static void run(Module *module, InlineInfo &info) noexcept {
     }
     if (!has_callables) return;
 
-    auto cg = compute_call_graph(module);
-
     // Collect callables (safe iteration before modification)
     luisa::vector<Function *> callables;
     for (auto f : module->function_list())
         if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
             callables.push_back(f);
 
+    auto recursive = find_recursive_callables(callables);
+
     // Defer removal to after iteration to avoid corrupting the list
     luisa::vector<Function *> to_remove;
     for (auto callee : callables) {
         auto def = callee->definition();
         if (!def) continue;
+        if (recursive.contains(callee)) {
+            ++info.skipped_recursive_callable_count;
+            continue;
+        }
         auto edges = collect_call_sites(callee);
         if (edges.empty()) continue;
 
@@ -272,10 +395,10 @@ static void run(Module *module, InlineInfo &info) noexcept {
         if (!doit) continue;
 
         for (auto call : edges)
-            if (inline_call(call, callee))
+            if (inline_call(call, callee, info))
                 info.inlined_call_count++;
 
-        to_remove.push_back(callee);
+        if (callee->use_list().empty()) { to_remove.push_back(callee); }
     }
     for (auto callee : to_remove) {
         callee->remove_self();
@@ -291,6 +414,8 @@ InlineInfo inline_pass_run_on_module(Module *module, PassReport *report) noexcep
     if (report != nullptr) {
         report->set("inlined_call", info.inlined_call_count);
         report->set("removed_callable", info.removed_callable_count);
+        report->set("skipped_recursive_callable", info.skipped_recursive_callable_count);
+        report->set("skipped_structured_call", info.skipped_structured_call_count);
     }
     return info;
 }
@@ -299,15 +424,19 @@ InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report) noe
     InlineInfo info;
     if (!module) return info;
     for (;;) {
-        auto cg = compute_call_graph(module);
         luisa::vector<Function *> callables;
         for (auto f : module->function_list())
             if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
                 callables.push_back(f);
         if (callables.empty()) break;
+        auto recursive = detail::find_recursive_callables(callables);
         luisa::unordered_set<Function *> callable_set{callables.begin(), callables.end()};
         luisa::vector<Function *> leaves;
         for (auto callee : callables) {
+            if (recursive.contains(callee)) {
+                ++info.skipped_recursive_callable_count;
+                continue;
+            }
             auto def = callee->definition();
             if (!def) continue;
             bool is_leaf = true;
@@ -329,17 +458,25 @@ InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report) noe
             if (!def) continue;
             auto edges = detail::collect_call_sites(callee);
             for (auto call : edges) {
-                if (detail::inline_call(call, callee)) {
+                if (detail::inline_call(call, callee, info)) {
                     info.inlined_call_count++;
                     progress = true;
                 }
             }
         }
         if (!progress) break;
+        for (auto *callee : leaves) {
+            if (callee->use_list().empty()) {
+                callee->remove_self();
+                ++info.removed_callable_count;
+            }
+        }
     }
     if (report != nullptr) {
         report->set("inlined_call", info.inlined_call_count);
         report->set("removed_callable", info.removed_callable_count);
+        report->set("skipped_recursive_callable", info.skipped_recursive_callable_count);
+        report->set("skipped_structured_call", info.skipped_structured_call_count);
     }
     return info;
 }

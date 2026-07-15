@@ -23,6 +23,32 @@ AllocaInst *trace_pointer_base_local_alloca_inst(Value *pointer) noexcept {
     return nullptr;
 }
 
+bool contains_structured_control_flow(FunctionDefinition *function) noexcept {
+    if (function == nullptr) { return false; }
+    // Inspect every block owned by the function, not just blocks reachable
+    // from the body. A temporarily unreachable structured region is still a
+    // hard boundary for CFG-only transforms and may become reachable again.
+    for (auto *block : function->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            switch (inst->derived_instruction_tag()) {
+                case DerivedInstructionTag::IF:
+                case DerivedInstructionTag::SWITCH:
+                case DerivedInstructionTag::LOOP:
+                case DerivedInstructionTag::SIMPLE_LOOP:
+                case DerivedInstructionTag::BREAK:
+                case DerivedInstructionTag::CONTINUE:
+                case DerivedInstructionTag::RAY_QUERY_LOOP:
+                case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+                case DerivedInstructionTag::AUTODIFF_SCOPE:
+                case DerivedInstructionTag::OUTLINE:
+                    return true;
+                default: break;
+            }
+        }
+    }
+    return false;
+}
+
 bool remove_redundant_phi_instruction(PhiInst *phi) noexcept {
     if (phi->use_list().empty()) {
         phi->remove_self();

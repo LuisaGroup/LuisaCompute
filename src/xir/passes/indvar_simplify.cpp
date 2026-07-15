@@ -92,6 +92,19 @@ void remove_dead_iv(IVInfo &iv, IndVarSimplifyInfo &info) noexcept {
         if (user == iv.phi) { continue; }
         return;
     }
+    // The increment is also a value. If anything other than the recurrence
+    // phi observes it, deleting the apparent phi/increment cycle would leave
+    // that user dangling.
+    for (auto *use : iv.increment->use_list()) {
+        if (use->user() != iv.phi) { return; }
+    }
+    // Break the recurrence through the public phi API before deleting either
+    // instruction so both use lists stay valid throughout the mutation.
+    for (size_t i = iv.phi->incoming_count(); i-- > 0u;) {
+        if (iv.phi->incoming(i).value == iv.increment) {
+            iv.phi->remove_incoming(i);
+        }
+    }
     iv.increment->remove_self();
     iv.phi->remove_self();
     info.removed_dead_iv_count++;

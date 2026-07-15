@@ -9,6 +9,7 @@ namespace luisa::compute::xir {
 class Constant;
 class LoopInst;
 class PassReport;
+class Value;
 
 class SCEV {
 public:
@@ -19,13 +20,18 @@ public:
 };
 
 class SCEVUnknown : public SCEV {
-    Instruction *_inst;
+    Value *_value;
 
 public:
-    explicit SCEVUnknown(Instruction *inst) noexcept;
+    explicit SCEVUnknown(Value *value) noexcept;
     [[nodiscard]] Kind kind() const noexcept override { return Kind::UNKNOWN; }
     [[nodiscard]] const Type *type() const noexcept override;
-    [[nodiscard]] Instruction *inst() const noexcept { return _inst; }
+    [[nodiscard]] Value *value() const noexcept { return _value; }
+    [[nodiscard]] Instruction *inst() const noexcept {
+        return _value != nullptr && _value->isa<Instruction>() ?
+                   static_cast<Instruction *>(_value) :
+                   nullptr;
+    }
 };
 
 class SCEVConstant : public SCEV {

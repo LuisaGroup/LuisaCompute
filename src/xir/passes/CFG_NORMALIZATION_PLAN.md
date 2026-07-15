@@ -1,5 +1,18 @@
 # CFG Normalization Plan
 
+## Loop/CFG transform safety boundary
+
+`loop_unroll`, `loop_rotation`, `loop_fusion`, `loop_vectorization`, and
+`if_conversion` must never lower structured XIR implicitly. Structured input is
+rejected before mutation with an explicit diagnostic and a non-zero
+`structured_cfg_error_count`; callers that intentionally want a plain CFG must
+run `destructure_cfg` themselves. The four loop transforms currently leave
+accepted plain CFG unchanged until natural-loop discovery, SSA repair, exit
+handling, and verifier-backed cloning are implemented. This is deliberate:
+`LoopInst`, `IfInst`, `BreakInst`, and `ContinueInst` carry source-codegen
+semantics that cannot be replaced by arbitrary `BranchInst` nodes inside an
+optimization pass.
+
 Two parallel pipelines for normalizing XIR control flow to the canonical structured form (only `IfInst`, `SwitchInst`, `LoopInst`, `SimpleLoopInst`, single final `ReturnInst`, plus `UnreachableInst`/`RasterDiscardInst`).
 
 ## Pipeline A — Per-Instruction Surgery (Low Priority, Fallback/Checker)

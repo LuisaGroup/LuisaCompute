@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/cvp.h>
+#include <luisa/ast/type.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/instructions/if.h>
@@ -51,6 +52,15 @@ static void cvp_pass_on_function(FunctionDefinition *def, CVPInfo &info) noexcep
         }
 
         if (var == nullptr || constant_val == nullptr) { continue; }
+        auto *constant_type = constant_val->type();
+        // Equality with a floating constant does not identify the exact bit
+        // pattern: +0 compares equal to -0, and replacing one with the other
+        // changes operations such as reciprocal and copysign.
+        if (constant_type == nullptr || !constant_type->is_scalar() ||
+            !(constant_type->is_bool() || constant_type->is_int() ||
+              constant_type->is_uint())) {
+            continue;
+        }
         if (!var->isa<Instruction>()) { continue; }
 
         // Determine the target block where var == constant_val.

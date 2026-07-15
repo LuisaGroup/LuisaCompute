@@ -101,9 +101,16 @@ void reg_loop_vectorization() {
         b.set_insertion_point(loop.merge);
         b.return_void();
 
+        auto *original_loop = body->terminator();
         auto info = loop_vectorization_pass_run_on_function(k);
-        expect(info.vectorized_loop_count == 1u);
-        expect(info.created_vector_inst_count > 0u);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(info.structured_cfg_error_count == 1u);
+        expect(body->terminator() == original_loop);
+        expect(loop.loop->prepare_block() == loop.prep);
+        expect(loop.loop->body_block() == loop.lbody);
+        expect(loop.loop->update_block() == loop.upd);
+        expect(loop.loop->merge_block() == loop.merge);
     };
 
     "loop_vectorization_non_unit_stride_rejected"_test = [] {
@@ -135,6 +142,7 @@ void reg_loop_vectorization() {
         auto info = loop_vectorization_pass_run_on_function(k);
         expect(info.vectorized_loop_count == 0u);
         expect(info.created_vector_inst_count == 0u);
+        expect(info.structured_cfg_error_count == 1u);
     };
 
     "loop_vectorization_no_memory_access_rejected"_test = [] {
@@ -152,6 +160,7 @@ void reg_loop_vectorization() {
         auto info = loop_vectorization_pass_run_on_function(k);
         expect(info.vectorized_loop_count == 0u);
         expect(info.created_vector_inst_count == 0u);
+        expect(info.structured_cfg_error_count == 1u);
     };
 
     "loop_vectorization_empty_module"_test = [] {
@@ -159,6 +168,7 @@ void reg_loop_vectorization() {
         auto info = loop_vectorization_pass_run_on_module(&m);
         expect(info.vectorized_loop_count == 0u);
         expect(info.created_vector_inst_count == 0u);
+        expect(info.succeeded());
     };
 
     "loop_vectorization_no_loop"_test = [] {
@@ -172,6 +182,7 @@ void reg_loop_vectorization() {
         auto info = loop_vectorization_pass_run_on_function(k);
         expect(info.vectorized_loop_count == 0u);
         expect(info.created_vector_inst_count == 0u);
+        expect(info.succeeded());
     };
 }
 

@@ -170,6 +170,13 @@ static void run_if_conversion_on_function(Function *function, IfConversionInfo &
     if (function == nullptr || !function->is_definition()) return;
     auto def = function->definition();
     if (def == nullptr || def->body_block() == nullptr) return;
+    if (contains_structured_control_flow(def)) {
+        ++info.structured_cfg_error_count;
+        LUISA_WARNING_WITH_LOCATION(
+            "If conversion rejected structured CFG; run destructure_cfg first. "
+            "IR was left unchanged.");
+        return;
+    }
     // A successful conversion deletes the two side blocks, so any snapshot of
     // the block list would dangle on the next pass. Re-traverse from the top
     // after each conversion until no eligible diamond remains.
@@ -200,6 +207,7 @@ IfConversionInfo if_conversion_pass_run_on_module(Module *module, PassReport *re
         report->set("converted_diamonds", info.converted_diamond_count);
         report->set("hoisted_insts", info.hoisted_inst_count);
         report->set("replaced_phis", info.replaced_phi_count);
+        report->set("structured_cfg_error_count", info.structured_cfg_error_count);
     }
     return info;
 }

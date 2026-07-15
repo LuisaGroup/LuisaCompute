@@ -28,29 +28,9 @@ struct ScalarKeyHash {
 };
 
 [[nodiscard]] static bool is_per_component_op(ArithmeticOp op) noexcept {
-    switch (op) {
-        case ArithmeticOp::CROSS:
-        case ArithmeticOp::NORMALIZE:
-        case ArithmeticOp::FACEFORWARD:
-        case ArithmeticOp::REFLECT:
-        case ArithmeticOp::OUTER_PRODUCT:
-        case ArithmeticOp::MATRIX_COMP_NEG:
-        case ArithmeticOp::MATRIX_COMP_ADD:
-        case ArithmeticOp::MATRIX_COMP_SUB:
-        case ArithmeticOp::MATRIX_COMP_MUL:
-        case ArithmeticOp::MATRIX_COMP_DIV:
-        case ArithmeticOp::MATRIX_LINALG_MUL:
-        case ArithmeticOp::MATRIX_DETERMINANT:
-        case ArithmeticOp::MATRIX_TRANSPOSE:
-        case ArithmeticOp::MATRIX_INVERSE:
-        case ArithmeticOp::AGGREGATE:
-        case ArithmeticOp::SHUFFLE:
-        case ArithmeticOp::INSERT:
-        case ArithmeticOp::EXTRACT:
-            return false;
-        default:
-            return true;
-    }
+    // Keep this an explicit, versioned allow-list boundary. New operations are
+    // conservative by default instead of being scalarized accidentally.
+    return op >= ArithmeticOp::UNARY_MINUS && op <= ArithmeticOp::COPYSIGN;
 }
 
 [[nodiscard]] static luisa::unordered_set<const Instruction *>
@@ -66,38 +46,16 @@ compute_scalarizable_set(FunctionDefinition *def) noexcept {
                 candidates.push_back(inst);
             }
         } else if (inst->isa<CastInst>()) {
-            candidates.push_back(inst);
+            auto *source_type = inst->operand(0)->type();
+            if (source_type != nullptr && source_type->is_vector() &&
+                source_type->dimension() == ty->dimension()) {
+                candidates.push_back(inst);
+            }
         }
     });
 
     luisa::unordered_set<const Instruction *> scalarizable;
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (auto inst : candidates) {
-            if (scalarizable.count(inst)) continue;
-
-            bool all_users_scalarizable = true;
-            bool has_use = false;
-            for (auto &&use : inst->use_list()) {
-                has_use = true;
-                auto user = use->user();
-                if (user == nullptr || !user->isa<Instruction>()) {
-                    all_users_scalarizable = false;
-                    break;
-                }
-                auto user_inst = static_cast<const Instruction *>(user);
-                if (!scalarizable.count(user_inst)) {
-                    all_users_scalarizable = false;
-                    break;
-                }
-            }
-            if (!has_use || all_users_scalarizable) {
-                scalarizable.insert(inst);
-                changed = true;
-            }
-        }
-    }
+    for (auto *inst : candidates) { scalarizable.emplace(inst); }
 
     return scalarizable;
 }
