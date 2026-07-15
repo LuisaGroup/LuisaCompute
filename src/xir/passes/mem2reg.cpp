@@ -340,14 +340,16 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
 
 static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &info) noexcept {
     if (auto def = f->definition()) {
-        // run the transpose GEP pass first so we can possibly handle more aggregates
-        if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
-            transpose_gep_info.transposed_load_count != 0 ||
-            transpose_gep_info.transposed_store_count != 0) {
-            LUISA_VERBOSE("Transposed {} load instruction(s) and {} store instruction(s) in mem2reg pass.",
-                          transpose_gep_info.transposed_load_count,
-                          transpose_gep_info.transposed_store_count);
-        }
+        
+        // run the transpose GEP pass first so we can possibly handle more aggregates (EDIT: disabled for better performance on CUDA)
+        // if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
+        //     transpose_gep_info.transposed_load_count != 0 ||
+        //     transpose_gep_info.transposed_store_count != 0) {
+        //     LUISA_VERBOSE("Transposed {} load instruction(s) and {} store instruction(s) in mem2reg pass.",
+        //                   transpose_gep_info.transposed_load_count,
+        //                   transpose_gep_info.transposed_store_count);
+        // }
+        
         // collect local alloca instructions that can be promoted
         luisa::vector<AllocaInst *> promotable;
         luisa::unordered_map<Instruction *, uint32_t> inst_indices;
