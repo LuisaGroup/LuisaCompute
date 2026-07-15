@@ -6,6 +6,7 @@
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/passes/alias_analysis.h>
 
+using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
 using namespace boost::ut;
