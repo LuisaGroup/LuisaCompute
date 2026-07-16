@@ -87,20 +87,24 @@ void CodegenUtility::GenerateCBuffer(
             } else {
                 size_cache++;
                 StructGenerator::ProvideAlignVariable(last_type, i.type()->alignment(), align, struct_size, result);
-                last_type = i.type();
-                auto arg_offset = struct_size;
-                if (i.type()->tag() == Type::Tag::BOOL) {
-                    auto container_size = StructGenerator::EmitBoolScalarType(arg_offset, result);
-                    result << " l" << vstd::to_string(i.uid() + size) << ":8;\n"sv;
-                    struct_size += container_size;
-                } else {
-                    if (opt->isSpirv && i.type()->alignment() < 4) [[unlikely]] {
-                        LUISA_ERROR("Member less than 4-byte can not be argument in SPIRV.");
-                    }
-                    GetTypeName(*i.type(), result, Usage::READ, true);
-                    struct_size += i.type()->size();
-                    result << " l" << vstd::to_string(i.uid() + size) << ";\n"sv;
+                if (last_type && (StructGenerator::half_type_adjacent_with_bool(last_type, i.type()) ||
+                                  StructGenerator::half_type_adjacent_with_bool(i.type(), last_type))) [[unlikely]] {
+                    LUISA_ERROR("HLSL do not support 16-bit variables adjacent with bool");
                 }
+                last_type = i.type();
+                if (opt->isSpirv && i.type()->tag() == Type::Tag::BOOL) {
+                    result << "int";
+                } else
+                    GetTypeName(*i.type(), result, Usage::READ, true);
+                if (opt->isSpirv && i.type()->tag() != Type::Tag::BOOL && i.type()->alignment() < 4) [[unlikely]] {
+                    LUISA_ERROR("Member less than 4-byte can not be argument in SPIRV.");
+                }
+                struct_size += i.type()->size();
+                result << " l" << vstd::to_string(i.uid() + size);
+                if (i.type()->tag() == Type::Tag::BOOL) {
+                    result << ":8"sv;
+                }
+                result << ";\n"sv;
                 if (i.type()->is_vector() && i.type()->dimension() == 3) {
                     GetTypeName(*i.type()->element(), result, Usage::READ, true);
                     result << " _a"sv;
