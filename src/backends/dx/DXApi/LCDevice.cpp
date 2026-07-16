@@ -376,7 +376,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             // lets callers skip device execution instead of failing here.
             return kTensorShaderModel;
         }
-        return kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel;
+        return kHighShaderModel;
     };
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
