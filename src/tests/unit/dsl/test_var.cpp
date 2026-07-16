@@ -21,20 +21,20 @@ using namespace boost::ut::literals;
 int test_var(Device &device) {
     uint64_t a = 1;
     boost::ut::expect(static_cast<bool>(sizeof(a) == 8));
-    printf("a = %llu\n", a);
-    printf("a = %llx\n", a);
+    printf("a = %llu\n", static_cast<unsigned long long>(a));
+    printf("a = %llx\n", static_cast<unsigned long long>(a));
     a <<= 32;
-    printf("a = %llu\n", a);
-    printf("a = %llx\n", a);
+    printf("a = %llu\n", static_cast<unsigned long long>(a));
+    printf("a = %llx\n", static_cast<unsigned long long>(a));
     a = a + 1;
-    printf("a = %llu\n", a);
-    printf("a = %llx\n", a);
+    printf("a = %llu\n", static_cast<unsigned long long>(a));
+    printf("a = %llx\n", static_cast<unsigned long long>(a));
     uint64_t bp = a & 0x00000000ffffffff;
-    printf("bp = %llu\n", bp);
-    printf("bp = %llx\n", bp);
+    printf("bp = %llu\n", static_cast<unsigned long long>(bp));
+    printf("bp = %llx\n", static_cast<unsigned long long>(bp));
     uint64_t up = a & 0xffffffff00000000 >> 32;
-    printf("up = %llu\n", up);
-    printf("up = %llx\n", up);
+    printf("up = %llu\n", static_cast<unsigned long long>(up));
+    printf("up = %llx\n", static_cast<unsigned long long>(up));
 
     ushort b = 0;
     boost::ut::expect(static_cast<bool>(sizeof(b) == 2));
@@ -43,14 +43,13 @@ int test_var(Device &device) {
     return 0;
 }
 
-static inline const auto reg = [] {
-    "dsl_var"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        test_var(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_var(device);
+}

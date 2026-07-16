@@ -58,14 +58,33 @@ void test_byte_buffer(Device &device) {
     expect(byte_buf_ok) << "byte_buffer_direct_write";
 }
 
-static inline const auto reg = [] {
-    "byte_buffer"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_byte_buffer(device);
-    };
-    return 0;
-}();
+void test_byte_buffer_bool_read(Device &device) {
+    log_level_verbose();
+    auto byte_buffer = device.create_byte_buffer(4u);
+    auto result_buffer = device.create_buffer<uint>(1u);
+    auto test_shader = device.compile<1>([&](ByteBufferVar buffer, BufferUInt result) {
+        auto b0 = buffer.read<bool>(0u);
+        auto b1 = buffer.read<bool>(1u);
+        result.write(0u, select(0u, 1u, b0) | select(0u, 2u, b1));
+    });
+    uint input = 0x00000100u;
+    uint result = 0u;
+    auto stream = device.create_stream();
+    stream << byte_buffer.copy_from(&input)
+           << test_shader(byte_buffer, result_buffer).dispatch(1u)
+           << result_buffer.copy_to(luisa::span{&result, 1u})
+           << synchronize();
+    expect(result == 2u) << "byte_buffer_bool_read_must_ignore_neighboring_bytes";
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+
+    auto &device = dc->device;
+    test_byte_buffer(device);
+    test_byte_buffer_bool_read(device);
+}

@@ -1,3 +1,4 @@
+#include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/event.h>
 
@@ -24,7 +25,15 @@ Event::Event(DeviceInterface *device, const ResourceCreationInfo &info) noexcept
 }
 
 Event::Event(DeviceInterface *device) noexcept
-    : Event{device, device->create_event()} {}
+    : Event{device, [&] {
+                auto info = device->create_event();
+#ifdef LUISA_ENABLE_SAFE_MODE
+                if (!info.valid()) {
+                    LUISA_ERROR("Failed to create event.");
+                }
+#endif
+                return info;
+            }()} {}
 
 Event::Event(Event &&rhs) noexcept
     : Resource{std::move(rhs)},
@@ -67,7 +76,15 @@ TimelineEvent::TimelineEvent(DeviceInterface *device, const ResourceCreationInfo
 }
 
 TimelineEvent::TimelineEvent(DeviceInterface *device) noexcept
-    : TimelineEvent{device, device->create_event()} {}
+    : TimelineEvent{device, [&] {
+                        auto info = device->create_event();
+#ifdef LUISA_ENABLE_SAFE_MODE
+                        if (!info.valid()) {
+                            LUISA_ERROR("Failed to create timeline event.");
+                        }
+#endif
+                        return info;
+                    }()} {}
 
 TimelineEvent::~TimelineEvent() noexcept {
     if (*this) { device()->destroy_event(handle()); }

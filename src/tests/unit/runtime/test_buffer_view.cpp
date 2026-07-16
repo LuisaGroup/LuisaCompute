@@ -76,14 +76,13 @@ int test_buffer_view(Device &device, size_t literal_size, size_t align_size = 4)
 
     return 0;
 }
-static inline const auto reg = [] {
-    "buffer_view"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_buffer_view<float4>(device, 4, 4);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_buffer_view<float4>(device, 4, 4);
+}

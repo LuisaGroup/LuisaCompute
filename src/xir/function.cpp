@@ -1,4 +1,4 @@
-#include "luisa/core/stl/unordered_map.h"
+#include <luisa/core/stl/unordered_map.h>
 
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
@@ -6,8 +6,8 @@
 
 namespace luisa::compute::xir {
 
-Function::Function(Module *module, const Type *type) noexcept
-    : Super{module, type}, _arguments{this}, _basic_blocks{this} {}
+Function::Function(Module *parent_module, const Type *type) noexcept
+    : Super{parent_module, type}, _arguments{this}, _basic_blocks{this} {}
 
 Argument *Function::create_argument(const Type *type, bool by_ref) noexcept {
     if (type->is_resource()) {
@@ -68,6 +68,7 @@ void traverse_basic_block_pre_order(luisa::unordered_set<BasicBlock *> &visited,
                                     void *visit_ctx, void (*visit)(void *, BasicBlock *)) noexcept {
     if (visited.emplace(block).second) {
         visit(visit_ctx, block);
+        if (!block->is_terminated()) { return; }
         auto terminator = block->terminator();
         for (auto use : terminator->operand_uses()) {
             if (auto v = use->value(); v != nullptr && v->isa<BasicBlock>()) {
@@ -80,10 +81,12 @@ void traverse_basic_block_pre_order(luisa::unordered_set<BasicBlock *> &visited,
 void traverse_basic_block_post_order(luisa::unordered_set<BasicBlock *> &visited, BasicBlock *block,
                                      void *visit_ctx, void (*visit)(void *, BasicBlock *)) noexcept {
     if (visited.emplace(block).second) {
-        auto terminator = block->terminator();
-        for (auto use : terminator->operand_uses()) {
-            if (auto v = use->value(); v != nullptr && v->isa<BasicBlock>()) {
-                traverse_basic_block_post_order(visited, static_cast<BasicBlock *>(v), visit_ctx, visit);
+        if (block->is_terminated()) {
+            auto terminator = block->terminator();
+            for (auto use : terminator->operand_uses()) {
+                if (auto v = use->value(); v != nullptr && v->isa<BasicBlock>()) {
+                    traverse_basic_block_post_order(visited, static_cast<BasicBlock *>(v), visit_ctx, visit);
+                }
             }
         }
         visit(visit_ctx, block);
@@ -123,8 +126,8 @@ void FunctionDefinition::_traverse_basic_block_reverse_post_order(BasicBlock *bl
     }
 }
 
-KernelFunction::KernelFunction(Module *module, luisa::uint3 block_size) noexcept
-    : Super{module}, _block_size{} { set_block_size(block_size); }
+KernelFunction::KernelFunction(Module *parent_module, luisa::uint3 block_size) noexcept
+    : Super{parent_module}, _block_size{} { set_block_size(block_size); }
 
 void KernelFunction::set_block_size(luisa::uint3 size) noexcept {
     auto thread_count = size.x * size.y * size.z;

@@ -3,6 +3,22 @@
 test_*.png
 result.png
 sdf-renderer.png
+coro_path_tracing.png
+coro_sdf.png
+
+# Local debug/build artifacts
+/build-debug/
+/.bak
+/.omo/
+/hlsl_output.hlsl
+/spirv_output*.spvasm
+/kernel.*.xir*
+
+# Benchmark / profiling artifacts
+/archlinux-desktop/
+/results.db
+/results.json
+/results.sysinfo.txt
 
 # Allow reference images in gallery
 !docs/gallery/*.png
@@ -10,6 +26,7 @@ sdf-renderer.png
 # Created by .ignore support plugin (hsz.mobi)
 ### Windows template
 # Windows thumbnail cache files
+nul
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db
@@ -130,7 +147,11 @@ xcuserdata/
 *.xccheckout
 
 ## compatibility with Xcode 3 and earlier (ignoring not required starting Xcode 4)
-build/
+/build
+/build-*
+/build_*
+/*_build
+/*-build
 DerivedData/
 *.moved-aside
 *.pbxuser

@@ -308,44 +308,18 @@ void test_autodiff_with_callable(Device &device) {
     expect(correct) << "callable: d(x^3)/dx = 3*x^2";
 }
 
-static inline const auto reg = [] {
-    "autodiff_basic"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_autodiff_basic(dc->device);
-    };
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-    "autodiff_trig"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_autodiff_trig(dc->device);
-    };
-
-    "autodiff_custom_grad"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_autodiff_custom_grad(dc->device);
-    };
-
-    "autodiff_chain_rule"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_autodiff_chain_rule(dc->device);
-    };
-
-    "autodiff_addition"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_autodiff_addition(dc->device);
-    };
-
-    "autodiff_with_callable"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_autodiff_with_callable(dc->device);
-    };
-
-    return 0;
-}();
-
-int main() {}
+    auto &device = dc->device;
+    test_autodiff_basic(device);
+    test_autodiff_trig(device);
+    test_autodiff_custom_grad(device);
+    test_autodiff_chain_rule(device);
+    test_autodiff_addition(device);
+    test_autodiff_with_callable(device);
+}

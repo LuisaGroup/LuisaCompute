@@ -23,7 +23,7 @@ struct TraceGEPInfo {
     size_t traced_gep_count{0u};
 };
 
-LUISA_XIR_API TraceGEPInfo trace_gep_pass_run_on_function(Function *function) noexcept;
-LUISA_XIR_API TraceGEPInfo trace_gep_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API TraceGEPInfo trace_gep_pass_run_on_function(Function *function) noexcept;
+[[nodiscard]] LUISA_XIR_API TraceGEPInfo trace_gep_pass_run_on_module(Module *module) noexcept;
 
 }// namespace luisa::compute::xir

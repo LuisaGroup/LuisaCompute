@@ -51,6 +51,14 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::FLOAT64:
             str << "float64_t"sv;
             return;
+        case Type::Tag::INT8:
+            opt->use_8bit = true;
+            str << "int8_t"sv;
+            return;
+        case Type::Tag::UINT8:
+            opt->use_8bit = true;
+            str << "uint8_t"sv;
+            return;
         case Type::Tag::INT16:
             str << "int16_t"sv;
             return;
@@ -103,8 +111,6 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                 if (ele->is_matrix()) {
                     auto n = vstd::to_string(ele->dimension());
                     str << "_WrappedFloat"sv << n << 'x' << n;
-                } else if (opt->atomicFloatToInt && (ele->is_float32() || ele->is_float64())) {
-                    str << "int"sv;
                 } else {
                     if (ele->is_vector() && ele->dimension() == 3) {
                         GetTypeName(*ele->element(), str, usage);
@@ -117,7 +123,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                 }
                 str << '>';
             }
-            // ByteAddressBuffer
+            // ByteAddressBuffer / RWByteAddressBuffer
             else {
                 str << "ByteAddressBuffer"sv;
             }
@@ -145,7 +151,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << '_' << type.description();
         } break;
         default:
-            LUISA_ERROR_WITH_LOCATION("Bad.");
+            LUISA_ERROR("Unsupported {}", luisa::to_string(type.tag()));
             break;
     }
 }
@@ -173,8 +179,7 @@ bool CodegenUtility::TypeIsAliased(luisa::compute::Type const *t) const {
 
 // Check if vector should use aliased type
 bool CodegenUtility::VectorShouldBeAliased(luisa::compute::Type const *t) const {
-    return (t->is_vector() && ((opt->isSpirv && t->element()->size() > 4 && t->dimension() >= 3) || t->element()->is_bool())) ||
-           (t->is_matrix() && opt->isSpirv);
+    return (t->is_vector() && ((opt->isSpirv && t->element()->size() > 4 && t->dimension() >= 3) || t->element()->is_bool()));
 }
 
 // Convert original type to aliased representation

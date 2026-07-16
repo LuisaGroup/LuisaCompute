@@ -54,7 +54,7 @@ public:
     LUISA_XIR_DEFINED_ISA_METHOD(Value, value)
 };
 
-template<typename Derived, DerivedValueTag tag, typename Base = Value>
+template<typename Derived, DerivedValueTag Tag, typename Base = Value>
     requires std::derived_from<Base, Value>
 class DerivedValue : public Base {
 public:
@@ -63,7 +63,7 @@ public:
     using Base::Base;
 
     [[nodiscard]] static constexpr DerivedValueTag
-    static_derived_value_tag() noexcept { return tag; }
+    static_derived_value_tag() noexcept { return Tag; }
 
     [[nodiscard]] DerivedValueTag
     derived_value_tag() const noexcept final {
@@ -91,15 +91,15 @@ public:
     [[nodiscard]] const Module *parent_module() const noexcept { return _parent_module; }
 };
 
-template<typename Derived, DerivedValueTag tag, typename Base = Value>
+template<typename Derived, DerivedValueTag Tag, typename Base = Value>
     requires std::derived_from<Base, Value>
-class DerivedGlobalValue : public ManagedIntrusiveNode<Derived, DerivedValue<Derived, tag, Base>>,
+class DerivedGlobalValue : public ManagedIntrusiveNode<Derived, DerivedValue<Derived, Tag, Base>>,
                            public GlobalValueModuleMixin {
 public:
     using Super = DerivedGlobalValue;
     template<typename... Args>
     explicit DerivedGlobalValue(Module *module, Args &&...args) noexcept
-        : ManagedIntrusiveNode<Derived, DerivedValue<Derived, tag, Base>>{std::forward<Args>(args)...},
+        : ManagedIntrusiveNode<Derived, DerivedValue<Derived, Tag, Base>>{std::forward<Args>(args)...},
           GlobalValueModuleMixin{module} {}
     [[nodiscard]] bool is_global() const noexcept final { return true; }
 };
@@ -123,15 +123,15 @@ public:
     [[nodiscard]] const Module *parent_module() const noexcept;
 };
 
-template<typename Derived, DerivedValueTag tag, typename Base = Value>
+template<typename Derived, DerivedValueTag Tag, typename Base = Value>
     requires std::derived_from<Base, Value>
-class DerivedFunctionScopeValue : public ManagedIntrusiveNode<Derived, DerivedValue<Derived, tag, Base>>,
+class DerivedFunctionScopeValue : public ManagedIntrusiveNode<Derived, DerivedValue<Derived, Tag, Base>>,
                                   public LocalValueFunctionMixin {
 public:
     using Super = DerivedFunctionScopeValue;
     template<typename... Args>
     explicit DerivedFunctionScopeValue(Function *function, Args &&...args) noexcept
-        : ManagedIntrusiveNode<Derived, DerivedValue<Derived, tag, Base>>{std::forward<Args>(args)...},
+        : ManagedIntrusiveNode<Derived, DerivedValue<Derived, Tag, Base>>{std::forward<Args>(args)...},
           LocalValueFunctionMixin{function} {}
 };
 
@@ -155,15 +155,15 @@ public:
     [[nodiscard]] const Module *parent_module() const noexcept;
 };
 
-template<typename Derived, DerivedValueTag tag, typename Base = Value>
+template<typename Derived, DerivedValueTag Tag, typename Base = Value>
     requires std::derived_from<Base, Value>
-class DerivedBlockScopeValue : public ManagedIntrusiveNode<Derived, DerivedValue<Derived, tag, Base>>,
+class DerivedBlockScopeValue : public ManagedIntrusiveNode<Derived, DerivedValue<Derived, Tag, Base>>,
                                public LocalValueBlockMixin {
 public:
     using Super = DerivedBlockScopeValue;
     template<typename... Args>
     explicit DerivedBlockScopeValue(BasicBlock *block, Args &&...args) noexcept
-        : ManagedIntrusiveNode<Derived, DerivedValue<Derived, tag, Base>>{std::forward<Args>(args)...},
+        : ManagedIntrusiveNode<Derived, DerivedValue<Derived, Tag, Base>>{std::forward<Args>(args)...},
           LocalValueBlockMixin{block} {}
 };
 

@@ -14,9 +14,6 @@ HIPTexture::~HIPTexture() noexcept {
         if (_mip_surfaces[i]) { LUISA_CHECK_HIP(hipDestroySurfaceObject(_mip_surfaces[i])); }
         LUISA_CHECK_HIP(hipArrayDestroy(_mip_arrays[i]));
     }
-    if (is_mipmapped()) {
-        LUISA_CHECK_HIP(hipMipmappedArrayDestroy(static_cast<hipMipmappedArray_t>(_base_array)));
-    }
 }
 
 hipArray_t HIPTexture::level(uint32_t i) const noexcept {
@@ -221,47 +218,55 @@ namespace {
            is_block_compressed(format);
 }
 
+[[nodiscard]] auto mip_size(uint3 size, uint32_t level) noexcept {
+    auto extent = size >> level;
+    return make_uint3(
+        std::max(extent.x, 1u),
+        std::max(extent.y, 1u),
+        std::max(extent.z, 1u));
+}
+
 }// namespace
 
-hipTextureObject_t HIPTexture::create_texture_object(Sampler s) const noexcept {
+void HIPTexture::create_texture_objects(std::span<hipTextureObject_t> objects, Sampler s) const noexcept {
     LUISA_ASSERT(hip_texture_is_samplable(format()),
-                 "Pixel format {} cannot be used for texture sampling.",
-                 luisa::to_underlying(format()));
-    HIP_RESOURCE_DESC res_desc{};
-    if (is_mipmapped()) {
-        res_desc.resType = HIP_RESOURCE_TYPE_MIPMAPPED_ARRAY;
-        res_desc.res.mipmap.hMipmappedArray = static_cast<hipMipmappedArray_t>(_base_array);
-    } else {
+                  "Pixel format {} cannot be used for texture sampling.",
+                  luisa::to_underlying(format()));
+    LUISA_ASSERT(objects.size() >= _levels,
+                 "Texture object span size {} is smaller than texture level count {}.",
+                 objects.size(), _levels);
+    auto base_size = size();
+    for (auto level = 0u; level < _levels; level++) {
+        HIP_RESOURCE_DESC res_desc{};
         res_desc.resType = HIP_RESOURCE_TYPE_ARRAY;
-        res_desc.res.array.hArray = static_cast<hipArray_t>(_base_array);
+        res_desc.res.array.hArray = _mip_arrays[level];
+        HIP_TEXTURE_DESC tex_desc{};
+        auto address_mode = hip_texture_address_mode(s.address());
+        tex_desc.addressMode[0] = address_mode;
+        tex_desc.addressMode[1] = address_mode;
+        tex_desc.addressMode[2] = address_mode;
+        tex_desc.filterMode = hip_texture_filter_mode(s.filter());
+        tex_desc.mipmapFilterMode = hip_texture_mipmap_filter_mode(s.filter(), false);
+        tex_desc.maxAnisotropy = hip_texture_max_anisotropy(s.filter(), false);
+        tex_desc.maxMipmapLevelClamp = hip_texture_mip_level_clamp(s.filter(), false);
+        tex_desc.flags = HIP_TRSF_NORMALIZED_COORDINATES;
+        if (is_srgb(format())) { tex_desc.flags |= HIP_TRSF_SRGB; }
+        if (is_block_compressed(format())) {
+            auto level_size = mip_size(base_size, level);
+            HIP_RESOURCE_VIEW_DESC view_desc{};
+            view_desc.format = hip_resource_view_format(format());
+            view_desc.width = level_size.x;
+            view_desc.height = level_size.y;
+            view_desc.depth = _dimension == 2u ? 0u : level_size.z;
+            view_desc.firstMipmapLevel = 0u;
+            view_desc.lastMipmapLevel = 0u;
+            view_desc.firstLayer = 0u;
+            view_desc.lastLayer = 0u;
+            LUISA_CHECK_HIP(hipTexObjectCreate(&objects[level], &res_desc, &tex_desc, &view_desc));
+        } else {
+            LUISA_CHECK_HIP(hipTexObjectCreate(&objects[level], &res_desc, &tex_desc, nullptr));
+        }
     }
-    HIP_TEXTURE_DESC tex_desc{};
-    auto address_mode = hip_texture_address_mode(s.address());
-    tex_desc.addressMode[0] = address_mode;
-    tex_desc.addressMode[1] = address_mode;
-    tex_desc.addressMode[2] = address_mode;
-    tex_desc.filterMode = hip_texture_filter_mode(s.filter());
-    tex_desc.mipmapFilterMode = hip_texture_mipmap_filter_mode(s.filter(), is_mipmapped());
-    tex_desc.maxAnisotropy = hip_texture_max_anisotropy(s.filter(), is_mipmapped());
-    tex_desc.maxMipmapLevelClamp = hip_texture_mip_level_clamp(s.filter(), is_mipmapped());
-    tex_desc.flags = HIP_TRSF_NORMALIZED_COORDINATES;
-    if (is_srgb(format())) { tex_desc.flags |= HIP_TRSF_SRGB; }
-    hipTextureObject_t texture_object{nullptr};
-    if (is_block_compressed(format())) {
-        HIP_RESOURCE_VIEW_DESC view_desc{};
-        view_desc.format = hip_resource_view_format(format());
-        view_desc.width = _size[0];
-        view_desc.height = _size[1];
-        view_desc.depth = _dimension == 2u ? 0u : _size[2];
-        view_desc.firstMipmapLevel = 0u;
-        view_desc.lastMipmapLevel = _levels - 1u;
-        view_desc.firstLayer = 0u;
-        view_desc.lastLayer = 0u;
-        LUISA_CHECK_HIP(hipTexObjectCreate(&texture_object, &res_desc, &tex_desc, &view_desc));
-    } else {
-        LUISA_CHECK_HIP(hipTexObjectCreate(&texture_object, &res_desc, &tex_desc, nullptr));
-    }
-    return texture_object;
 }
 
 HIPTexture *HIPTexture::create_device_texture(PixelFormat format, uint dim, uint3 size, uint32_t mip_levels) noexcept {
@@ -278,27 +283,19 @@ HIPTexture *HIPTexture::create_device_texture(PixelFormat format, uint dim, uint
     t->_levels = static_cast<uint8_t>(mip_levels);
     t->_dimension = static_cast<uint8_t>(dim);
     auto is_bc = is_block_compressed(format);
-    HIP_ARRAY3D_DESCRIPTOR array_desc{};
-    array_desc.Width = is_bc ? (size.x + 3u) / 4u : size.x;
-    array_desc.Height = is_bc ? (size.y + 3u) / 4u : size.y;
-    array_desc.Depth = dim == 2u ? 0u : size.z;
-    array_desc.Format = hip_array_format(format);
-    array_desc.NumChannels = hip_array_channel_count(format);
-    if (mip_levels == 1u) {
+    for (auto i = 0u; i < mip_levels; i++) {
+        auto level_size = mip_size(size, i);
+        HIP_ARRAY3D_DESCRIPTOR array_desc{};
+        array_desc.Width = is_bc ? (level_size.x + 3u) / 4u : level_size.x;
+        array_desc.Height = is_bc ? (level_size.y + 3u) / 4u : level_size.y;
+        array_desc.Depth = dim == 2u ? 0u : level_size.z;
+        array_desc.Format = hip_array_format(format);
+        array_desc.NumChannels = hip_array_channel_count(format);
         hipArray_t array_handle{nullptr};
         LUISA_CHECK_HIP(hipArray3DCreate(&array_handle, &array_desc));
-        t->_base_array = array_handle;
-        t->_mip_arrays[0] = array_handle;
-    } else {
-        hipMipmappedArray_t mipmapped_array_handle{nullptr};
-        LUISA_CHECK_HIP(hipMipmappedArrayCreate(&mipmapped_array_handle, &array_desc, mip_levels));
-        t->_base_array = mipmapped_array_handle;
-        for (auto i = 0u; i < mip_levels; i++) {
-            hipArray_t level_array{nullptr};
-            LUISA_CHECK_HIP(hipMipmappedArrayGetLevel(&level_array, mipmapped_array_handle, i));
-            t->_mip_arrays[i] = level_array;
-        }
+        t->_mip_arrays[i] = array_handle;
     }
+    t->_base_array = t->_mip_arrays[0];
     if (!is_bc) {
         for (auto i = 0u; i < mip_levels; i++) {
             hipResourceDesc res_desc{};

@@ -14,14 +14,20 @@ class HIPCommandEncoder;
 class HIPBindlessArray {
 
 public:
-    // ABI contract with hip_codegen_llvm_impl_type.cpp: { i64, i64, i64, i64 } = 32 bytes per slot
+    // ABI contract with hip_codegen_llvm_impl_type.cpp:
+    // { i64, i64, i64, i64, i64, i64, i64, i64, i64 } = 72 bytes per slot
     struct Slot {
         uint64_t buffer;
         size_t size;
         uint64_t tex2d;
+        uint64_t tex2d_levels;
+        uint64_t tex2d_size;
         uint64_t tex3d;
+        uint64_t tex3d_levels;
+        uint64_t tex3d_size_xy;
+        uint64_t tex3d_size_z;
     };
-    static_assert(sizeof(Slot) == 32u);
+    static_assert(sizeof(Slot) == 72u);
 
     struct Binding {
         hipDeviceptr_t slots;
@@ -29,12 +35,18 @@ public:
     };
 
 private:
+    struct TextureSlot {
+        hipDeviceptr_t handle_table{};
+        luisa::vector<hipTextureObject_t> objects;
+    };
+
     hipDeviceptr_t _handle{};
     size_t _capacity{};
     luisa::vector<Slot> _host_slots;
-    luisa::vector<hipTextureObject_t> _tex2d_slots;
-    luisa::vector<hipTextureObject_t> _tex3d_slots;
+    luisa::vector<TextureSlot> _tex2d_slots;
+    luisa::vector<TextureSlot> _tex3d_slots;
     ResourceTracker _texture_tracker;
+    ResourceTracker _texture_handle_table_tracker;
     luisa::string _name;
     spin_mutex _mutex;
 

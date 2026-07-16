@@ -9,6 +9,8 @@ class Module;
 class Function;
 
 struct AutodiffInfo {
+    size_t transformed_scope_count{0u};
+    size_t removed_instruction_count{0u};
 };
 
 struct AutodiffOptions {
@@ -16,7 +18,7 @@ struct AutodiffOptions {
     bool run_backward{true};
 };
 
-LUISA_XIR_API void autodiff_pass_run_on_function(Function *function, const AutodiffOptions &options = {}) noexcept;
-LUISA_XIR_API void autodiff_pass_run_on_module(Module *module, const AutodiffOptions &options = {}) noexcept;
+LUISA_XIR_API AutodiffInfo autodiff_pass_run_on_function(Function *function, const AutodiffOptions &options = {}) noexcept;
+LUISA_XIR_API AutodiffInfo autodiff_pass_run_on_module(Module *module, const AutodiffOptions &options = {}) noexcept;
 
 }// namespace luisa::compute::xir

@@ -6,7 +6,7 @@
 
 #include <cstdlib>
 #include <cstring>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/clock.h>
 #include <luisa/runtime/context.h>
@@ -43,38 +43,16 @@ LUISA_STRUCT(TRay, origin, direction) {};
 LUISA_STRUCT(Bbox, min, max) {};
 
 // credit: https://github.com/nvpro-samples/vk_mini_samples/tree/main/samples/texture_3d/shaders (Apache License 2.0)
-void test_texture3d(Device &device) {
+void test_texture3d(Device &device, int argc, const char *const *argv) {
 
-    auto argc = boost::ut::detail::cfg::largc;
-    auto argv = boost::ut::detail::cfg::largv;
-
-    bool offline_mode = false;
-    luisa::string output_filename = "texture3d_output.png";
+    auto opts = luisa::test::ImageTestOptions::parse(argc, argv);
     int samples = 64;
-
-    // Parse command line arguments
-    int device_arg_index = 1;
     for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--offline") == 0) {
-            offline_mode = true;
-        } else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
-            output_filename = argv[i + 1];
-            ++i;
-        } else if (strcmp(argv[i], "--samples") == 0 && i + 1 < argc) {
+        if (!argv[i]) break;
+        if ((strcmp(argv[i], "--spp") == 0 || strcmp(argv[i], "--samples") == 0) && i + 1 < argc) {
             samples = atoi(argv[i + 1]);
             ++i;
-        } else if (argv[i][0] != '-') {
-            device_arg_index = i;
         }
-    }
-
-    if (device_arg_index >= argc) {
-        LUISA_INFO("Usage: {} <backend> [options]. <backend>: cuda, dx, cpu, metal, hip, fallback", argv[0]);
-        LUISA_INFO("Options:");
-        LUISA_INFO("  --offline          Render without window to file");
-        LUISA_INFO("  --output <file>    Output filename (default: texture3d_output.png)");
-        LUISA_INFO("  --samples <n>      Number of samples per pixel (default: 64)");
-        exit(1);
     }
     static constexpr auto mod289 = [](auto x) noexcept { return x - floor(x * (1.f / 289.f)) * 289.f; };
     static constexpr auto permute = [](auto x) noexcept { return mod289(((x * 34.f) + 1.f) * x); };
@@ -356,11 +334,8 @@ void test_texture3d(Device &device) {
     float fov = 30.f;
     float3 camera_pos = make_float3(2.f, -2.f, -2.f);
 
-    if (offline_mode) {
+    if (opts.offline) {
         LUISA_INFO("Running in offline mode with {} samples", samples);
-        LUISA_INFO("Output file: {}", output_filename);
-        LUISA_INFO("Camera position: ({}, {}, {})", camera_pos.x, camera_pos.y, camera_pos.z);
-        LUISA_INFO("FOV: {}", fov);
 
         Stream render_stream = device.create_stream(StreamTag::GRAPHICS);
 
@@ -390,27 +365,25 @@ void test_texture3d(Device &device) {
             }
         }
 
-        int success = stbi_write_png(output_filename.c_str(), resolution.x, resolution.y, 4, image_data.data(), resolution.x * 4);
+        auto output_path = std::filesystem::path{opts.output_dir} / "texture3d_output.png";
+        int success = stbi_write_png(output_path.string().c_str(), resolution.x, resolution.y, 4, image_data.data(), resolution.x * 4);
         boost::ut::expect(static_cast<bool>(success != 0)) << "Failed to save output image.";
         if (!success) {
-            LUISA_ERROR("Failed to save output to {}", output_filename);
+            LUISA_ERROR("Failed to save output to {}", output_path.string());
             return;
         }
-        if (success) {
-            LUISA_INFO("Saved output to {}", output_filename);
-        } else {
-            LUISA_ERROR("Failed to save output to {}", output_filename);
-        }
+        LUISA_INFO("Saved output to {}", output_path.string());
 
-        auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
-        auto result = luisa::test::compare_with_reference(
-            image_data.data(), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_texture3d", ref_dir, false);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_texture3d: {}", result.message);
-            return;
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                image_data.data(), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_texture3d]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            if (!result.passed) {
+                LUISA_ERROR("Reference comparison failed for test_texture3d: {}", result.message);
+                return;
+            }
         }
 
         return;
@@ -515,14 +488,12 @@ void test_texture3d(Device &device) {
     stream << synchronize();
 }
 
-static inline const auto reg = [] {
-    "test_texture3d"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_texture3d(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_texture3d(device, argc, const_cast<const char *const *>(argv));
+}

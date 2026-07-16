@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/curve_basis.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/command.h>
@@ -42,7 +43,13 @@ private:
         DeviceInterface *device, const AccelOption &option,
         const CPBuffer &control_point_buffer [[maybe_unused]],
         const SegBuffer &segment_buffer [[maybe_unused]]) noexcept {
-        return device->create_curve(option);
+        auto info = device->create_curve(option);
+#ifdef LUISA_ENABLE_SAFE_MODE
+        if (!info.valid()) {
+            LUISA_ERROR("Failed to create curve.");
+        }
+#endif
+        return info;
     }
 
 private:

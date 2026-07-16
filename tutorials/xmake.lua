@@ -6,7 +6,7 @@ local function tutorial_proj(name, source, gui_dep, callable)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
     _config_project({project_kind = "binary"})
     add_files(source)
-    add_includedirs("$(projectdir)/src/tests/")
+    add_includedirs("$(projectdir)/src/tests/", "$(projectdir)/src/tests/common/")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
     if lc_enable_gui then add_deps("lc-gui") end
     if gui_dep then add_defines("LUISA_ENABLE_GUI") end

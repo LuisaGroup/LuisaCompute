@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/mathematics.h>
+#include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/mipmap.h>
 #include <luisa/runtime/rhi/sampler.h>
@@ -69,10 +70,16 @@ private:
                     if (size.x == 0 || size.y == 0) [[unlikely]] {
                         detail::image_size_zero_error();
                     }
-                    return device->create_texture(
+                    auto info = device->create_texture(
                         pixel_storage_to_format<T>(storage), 2u, size.x, size.y, 1u,
                         detail::max_mip_levels(make_uint3(size, 1u), mip_levels), nullptr,
                         simultaneous_access, allow_raster_target);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                    if (!info.valid()) {
+                        LUISA_ERROR("Failed to create image.");
+                    }
+#endif
+                    return info;
                 }(),
                 storage, size, mip_levels} {}
 
@@ -83,10 +90,16 @@ private:
                     if (size.x == 0 || size.y == 0) [[unlikely]] {
                         detail::image_size_zero_error();
                     }
-                    return device->create_texture(
+                    auto info = device->create_texture(
                         pixel_storage_to_format<T>(storage), 2u, size.x, size.y, 1u,
                         detail::max_mip_levels(make_uint3(size, 1u), mip_levels), external_native_handle,
                         simultaneous_access, allow_raster_target);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                    if (!info.valid()) {
+                        LUISA_ERROR("Failed to create image from external memory.");
+                    }
+#endif
+                    return info;
                 }(),
                 storage, size, mip_levels} {}
 

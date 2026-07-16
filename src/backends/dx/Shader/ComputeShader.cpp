@@ -4,16 +4,8 @@
 #include "../../common/hlsl/shader_compiler.h"
 #include <luisa/core/logging.h>
 #include <luisa/vstl/md5.h>
+#include "../../common/backend_print_code.h"
 namespace lc::dx {
-namespace ComputeShaderDetail {
-static const bool PRINT_CODE = ([] {
-    auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) {
-        return false;
-    }
-    return std::string_view{env} == "1";
-})();
-}// namespace ComputeShaderDetail
 class StringViewBinaryStream : public BinaryStream {
 
 public:
@@ -52,7 +44,6 @@ ComputeShader *ComputeShader::load_preset_compute(
     Device *device,
     vstd::span<Type const *const> types,
     vstd::string_view fileName) {
-    using namespace ComputeShaderDetail;
     auto pso_name = Shader::pso_name(device, fileName);
     bool old_deleted = false;
     auto result = ShaderSerializer::DeSerialize(
@@ -88,9 +79,9 @@ ComputeShader *ComputeShader::compile_compute(
     vstd::string_view fileName,
     CacheType cacheType,
     bool enableUnsafeMath,
-    bool debug) {
+    bool debug,
+    uint validation_count) {
 
-    using namespace ComputeShaderDetail;
     auto compile_new_compute = [&](bool WriteCache, vstd::string_view pso_name) {
         auto str = codegen();
         vstd::MD5 md5;
@@ -102,9 +93,19 @@ ComputeShader *ComputeShader::compile_compute(
             }
         }
 
-        if (PRINT_CODE) {
-            vstd::string dump_file_name{"hlsl_output.hlsl"};
-            if (auto f = fopen(dump_file_name.c_str(), "ab")) {
+        if (luisa::compute::backend_print_code_enabled()) {
+            auto dump_name = [&]() -> luisa::string {
+                if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+                if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                return luisa::format("{:x}", kernel.hash());
+            }();
+            for (auto &c : dump_name) {
+                if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+                    c = '_';
+                }
+            }
+            auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+            if (auto f = fopen(dump_file_name.c_str(), "wb")) {
                 fwrite(str.result.data(), str.result.size(), 1, f);
                 fclose(f);
             }
@@ -144,6 +145,7 @@ ComputeShader *ComputeShader::compile_compute(
                         md5,
                         str.typeMD5,
                         bdls_buffer_count,
+                        str.validation_count,
                         blockSize,
                         str.printers);
                     write_binary_io(cacheType, file_io, fileName, {reinterpret_cast<std::byte const *>(ser_data.data()), luisa::size_bytes(ser_data)});
@@ -156,6 +158,7 @@ ComputeShader *ComputeShader::compile_compute(
                      buffer->GetBufferSize()},
                     std::move(bindings),
                     std::move(str.printers),
+                    validation_count,
                     device);
                 cs->_bindless_count = bdls_buffer_count;
                 if (WriteCache) {
@@ -189,6 +192,14 @@ ComputeShader *ComputeShader::compile_compute(
             }
             return result;
         }
+        if (cacheType == CacheType::Internal) [[unlikely]] {
+            LUISA_WARNING("Cached DXIL {} is invalid!", fileName);
+            result = compile_new_compute(true, pso_name);
+#ifndef NDEBUG
+// TODO save
+#endif
+            return result;
+        }
 
         return compile_new_compute(true, pso_name);
     } else {
@@ -205,12 +216,24 @@ void ComputeShader::save_compute(
     vstd::string_view fileName,
     bool enableUnsafeMath,
     bool debug) {
-    using namespace ComputeShaderDetail;
     vstd::MD5 md5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
-    if (PRINT_CODE) {
-        auto f = fopen("hlsl_output.hlsl", "wb");
-        fwrite(str.result.data(), str.result.size(), 1, f);
-        fclose(f);
+    if (luisa::compute::backend_print_code_enabled()) {
+        auto dump_name = [&]() -> luisa::string {
+            if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+            if (!kernel.name().empty()) return luisa::string{kernel.name()};
+            return luisa::format("{:x}", kernel.hash());
+        }();
+        for (auto &c : dump_name) {
+            if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+                c = '_';
+            }
+        }
+        auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+        auto f = fopen(dump_file_name.c_str(), "wb");
+        if (f) {
+            fwrite(str.result.data(), str.result.size(), 1, f);
+            fclose(f);
+        }
     }
     if (profiler) [[unlikely]] {
         profiler->before_load_shader_bytecode(fileName);
@@ -254,6 +277,7 @@ void ComputeShader::save_compute(
                     md5,
                     str.typeMD5,
                     bdls_buffer_count,
+                    str.validation_count,
                     blockSize,
                     str.printers);
                 static_cast<void>(file_io->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(ser_data.data()), luisa::size_bytes(ser_data)}));
@@ -292,8 +316,9 @@ ComputeShader::ComputeShader(
     vstd::span<std::byte const> binData,
     vstd::vector<luisa::compute::Argument> &&bindings,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
+    uint validation_count,
     Device *device)
-    : Shader(std::move(prop), std::move(args), device->device, std::move(printers), false),
+    : Shader(std::move(prop), std::move(args), device->device, std::move(printers), validation_count, false),
       _arg_bindings(std::move(bindings)),
       _device(device),
       _block_size(blockSize) {
@@ -312,8 +337,9 @@ ComputeShader::ComputeShader(
     vstd::vector<luisa::compute::Argument> &&bindings,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     ComPtr<ID3D12RootSignature> &&root_sig,
-    ComPtr<ID3D12PipelineState> &&pso)
-    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers)),
+    ComPtr<ID3D12PipelineState> &&pso,
+    uint validation_count)
+    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers), validation_count),
       _arg_bindings(std::move(bindings)),
       _device(device),
       _block_size(blockSize) {

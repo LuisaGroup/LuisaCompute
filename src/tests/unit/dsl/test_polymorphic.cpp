@@ -317,44 +317,17 @@ void test_polymorphic_with_default(Device &device) {
 
 // ======================== Registration ========================
 
-static inline const auto reg = [] {
-    // Host-only tests (no device needed)
-    "polymorphic_host_api"_test = [] {
-        test_polymorphic_host_api();
-    };
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-    // GPU dispatch tests
-    "polymorphic_dispatch"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_polymorphic_dispatch(dc->device);
-    };
-
-    "polymorphic_dispatch_range"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_polymorphic_dispatch_range(dc->device);
-    };
-
-    "polymorphic_dispatch_group"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_polymorphic_dispatch_group(dc->device);
-    };
-
-    "polymorphic_single_impl"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_polymorphic_single_impl(dc->device);
-    };
-
-    "polymorphic_with_default"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_polymorphic_with_default(dc->device);
-    };
-
-    return 0;
-}();
-
-int main() {}
+    auto &device = dc->device;
+    test_polymorphic_dispatch(device);
+    test_polymorphic_dispatch_range(device);
+    test_polymorphic_dispatch_group(device);
+    test_polymorphic_single_impl(device);
+    test_polymorphic_with_default(device);
+}

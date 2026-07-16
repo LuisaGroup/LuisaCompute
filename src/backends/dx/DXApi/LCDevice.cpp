@@ -366,7 +366,18 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     constexpr uint compiler_version = 202403u;// dxc version at march 2024
     mask |= (1 << 2);
     mask |= compiler_version << 3u;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info);
+    // TODO get result from codegen
+    auto choose_shader_model = [&]() -> uint {
+        if (kernel.use_cooperative_operations() || code.use_8bit) {
+            // Cooperative-vector kernels are always compiled to SM 6.9 because
+            // the long-vector types they use require it.  When the runtime does
+            // not actually support the feature, the device-level feature check
+            // lets callers skip device execution instead of failing here.
+            return kTensorShaderModel;
+        }
+        return kHighShaderModel;
+    };
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
         ComputeShader::save_compute(
@@ -375,7 +386,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel,
             code,
             kernel.block_size(),
-            kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+            choose_shader_model(),
             option.name,
             option.enable_fast_math,
             option.enable_debug_info);
@@ -406,11 +417,12 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             check_md5,
             hlsl::binding_to_arg(kernel.bound_arguments()),
             kernel.block_size(),
-            kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+            choose_shader_model(),
             file_name,
             cache_type,
             option.enable_fast_math,
-            option.enable_debug_info);
+            option.enable_debug_info,
+            code.validation_count);
         info.block_size = kernel.block_size();
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->pso();
@@ -557,7 +569,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info);
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());

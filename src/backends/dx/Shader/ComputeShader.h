@@ -22,7 +22,8 @@ private:
         vstd::vector<luisa::compute::Argument> &&bindings,
         vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
         ComPtr<ID3D12RootSignature> &&rootSig,
-        ComPtr<ID3D12PipelineState> &&pso);
+        ComPtr<ID3D12PipelineState> &&pso,
+        uint validation_count);
 
     mutable ComPtr<ID3D12CommandSignature> _cmd_sig;
     mutable std::mutex _cmd_sig_mtx;
@@ -48,7 +49,8 @@ public:
         vstd::string_view fileName,
         CacheType cacheType,
         bool enableUnsafeMath,
-        bool debug);
+        bool debug,
+        uint validation_count);
     static void save_compute(
         luisa::BinaryIO const *file_io,
         luisa::compute::Profiler *profiler,
@@ -72,6 +74,7 @@ public:
         vstd::span<std::byte const> binData,
         vstd::vector<luisa::compute::Argument> &&bindings,
         vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
+        uint validation_count,
         Device *device);
     ~ComputeShader();
     KILL_COPY_CONSTRUCT(ComputeShader)

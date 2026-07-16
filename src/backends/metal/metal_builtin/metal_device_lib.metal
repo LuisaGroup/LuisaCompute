@@ -8,6 +8,13 @@ using namespace metal;
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
 #define lc_assert(...)// TODO: implement assert?
 
+#ifdef LUISA_ENABLE_EXTENDED_LIMITS
+#define LC_EXTENDED_LIMITS_TAG , extended_limits
+#else
+#define LC_EXTENDED_LIMITS_TAG
+#endif
+#define LC_INSTANCE_ACCELERATION_STRUCTURE instance_acceleration_structure
+
 template<typename Ptr>
 [[nodiscard]] inline auto lc_address_of_impl(Ptr ptr) {
     return reinterpret_cast<ulong>(ptr);
@@ -778,9 +785,9 @@ struct LCAccel {
 [[nodiscard]] inline auto lc_intersector_base() {
 #ifdef LUISA_ENABLE_CURVE
 #ifdef LUISA_ENABLE_MOTION_BLUR
-    intersector<triangle_data, curve_data, instancing, primitive_motion, instance_motion> i;
+    intersector<triangle_data, curve_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> i;
 #else
-    intersector<triangle_data, curve_data, instancing> i;
+    intersector<triangle_data, curve_data, instancing LC_EXTENDED_LIMITS_TAG> i;
 #endif
     i.assume_geometry_type(geometry_type::triangle | geometry_type::curve);
     i.assume_curve_type(curve_type::round);
@@ -807,9 +814,9 @@ struct LCAccel {
 #endif
 #else
 #ifdef LUISA_ENABLE_MOTION_BLUR
-    intersector<triangle_data, instancing, primitive_motion, instance_motion> i;
+    intersector<triangle_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> i;
 #else
-    intersector<triangle_data, instancing> i;
+    intersector<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> i;
 #endif
     i.assume_geometry_type(geometry_type::triangle);
 #endif
@@ -899,15 +906,15 @@ struct LCRayQuery {
     bool terminate_on_first_hit;
 #ifdef LUISA_ENABLE_CURVE
 #ifdef LUISA_ENABLE_MOTION_BLUR
-    thread intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion> *i;
+    thread intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> *i;
 #else
-    thread intersection_query<triangle_data, curve_data, instancing> *i;
+    thread intersection_query<triangle_data, curve_data, instancing LC_EXTENDED_LIMITS_TAG> *i;
 #endif
 #else
 #ifdef LUISA_ENABLE_MOTION_BLUR
-    thread intersection_query<triangle_data, instancing, primitive_motion, instance_motion> *i;
+    thread intersection_query<triangle_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> *i;
 #else
-    thread intersection_query<triangle_data, instancing> *i;
+    thread intersection_query<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> *i;
 #endif
 #endif
 };
@@ -941,15 +948,15 @@ struct LCRayQuery {
 void ray_query_init(thread LCRayQuery &q,
 #ifdef LUISA_ENABLE_CURVE
 #ifdef LUISA_ENABLE_MOTION_BLUR
-                    thread intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion> &i,
+                    thread intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> &i,
 #else
-                    thread intersection_query<triangle_data, curve_data, instancing> &i,
+                    thread intersection_query<triangle_data, curve_data, instancing LC_EXTENDED_LIMITS_TAG> &i,
 #endif
 #else
 #ifdef LUISA_ENABLE_MOTION_BLUR
-                    thread intersection_query<triangle_data, instancing, primitive_motion, instance_motion> &i,
+                    thread intersection_query<triangle_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> &i,
 #else
-                    thread intersection_query<triangle_data, instancing> &i,
+                    thread intersection_query<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> &i,
 #endif
 #endif
                     bool has_procedural_branch) {
@@ -993,18 +1000,18 @@ void ray_query_init(thread LCRayQuery &q,
 #ifdef LUISA_ENABLE_CURVE
 #ifdef LUISA_ENABLE_MOTION_BLUR
 #define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
-    intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion> q##_i
+    intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> q##_i
 #else
 #define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
-    intersection_query<triangle_data, curve_data, instancing> q##_i
+    intersection_query<triangle_data, curve_data, instancing LC_EXTENDED_LIMITS_TAG> q##_i
 #endif
 #else
 #ifdef LUISA_ENABLE_MOTION_BLUR
 #define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
-    intersection_query<triangle_data, instancing, primitive_motion, instance_motion> q##_i
+    intersection_query<triangle_data, instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> q##_i
 #else
 #define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
-    intersection_query<triangle_data, instancing> q##_i
+    intersection_query<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> q##_i
 #endif
 #endif
 

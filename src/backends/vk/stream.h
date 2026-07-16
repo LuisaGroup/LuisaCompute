@@ -187,6 +187,7 @@ public:
         bool inqueue_limit);
     void update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_update) noexcept;
     void sync();
+    void remove_resource_state(Resource const *resource) noexcept;
     void signal(Event *event, uint64_t value);
     void wait(Event *event, uint64_t value);
 private:

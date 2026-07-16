@@ -7,6 +7,10 @@
 
 namespace luisa::compute::metal {
 
+namespace {
+constexpr auto metal_accel_default_instance_limit = 1u << 24u;
+}// namespace
+
 MetalAccel::MetalAccel(MetalDevice *device, const AccelOption &option) noexcept
     : _update{device->builtin_update_accel_instances()},
       _option{option} { _resources.reserve(reserved_primitive_count); }
@@ -25,6 +29,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
 
     auto device = encoder.device();
     auto instance_count = command->instance_count();
+    auto requires_extended_limits = instance_count > metal_accel_default_instance_limit;
     LUISA_ASSERT(instance_count > 0u, "Empty acceleration structure is not allowed.");
     if (auto size = instance_count * sizeof(MTL::AccelerationStructureInstanceDescriptor);
         _instance_buffer == nullptr || _instance_buffer->length() < size) {
@@ -91,8 +96,10 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
     _requires_rebuild = _requires_rebuild /* pending rebuild */ ||
                         _descriptor == nullptr || old_instance_count != instance_count /* instance count has changed */ ||
                         _handle == nullptr /* not built before */ ||
+                        _requires_extended_limits != requires_extended_limits /* extended limits mode has changed */ ||
                         !_option.allow_update /* accel cannot be refitted */ ||
                         command->request() == AccelBuildRequest::FORCE_BUILD /* rebuild is forced */;
+    _requires_extended_limits = requires_extended_limits;
 
     // prepare the descriptor
     if (_requires_rebuild) {
@@ -114,6 +121,9 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
             break;
     }
     if (_option.allow_update) { usage |= MTL::AccelerationStructureUsageRefit; }
+    if (_requires_extended_limits) {
+        usage |= MTL::AccelerationStructureUsageExtendedLimits;
+    }
     _descriptor->setUsage(usage);
 
     // update the descriptor

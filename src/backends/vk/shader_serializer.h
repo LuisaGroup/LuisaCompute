@@ -31,7 +31,8 @@ public:
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
-        vstd::span<std::pair<vstd::string, luisa::compute::Type const *> const> printers);
+        vstd::span<std::pair<vstd::string, luisa::compute::Type const *> const> printers,
+        uint validation_count = 0);
     static void serialize_bytecode(
         vstd::span<const hlsl::Property> binds,
         vstd::span<const SavedArgument> saved_args,
@@ -45,7 +46,23 @@ public:
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
-        vstd::span<std::pair<vstd::string, luisa::compute::Type const *> const> printers);
+        vstd::span<std::pair<vstd::string, luisa::compute::Type const *> const> printers,
+        uint validation_count = 0,
+        luisa::span<const std::byte> constant_ubo_data = {});
+    static bool require_recompile(
+        vstd::string_view file_name,
+        vstd::MD5 shader_md5,
+        vstd::MD5 type_md5,
+        SerdeType serde_type,
+        BinaryIO const *bin_io
+    );
+    static bool require_recompile_raster(
+        vstd::string_view file_name,
+        vstd::MD5 shader_md5,
+        vstd::MD5 type_md5,
+        SerdeType serde_type,
+        BinaryIO const *bin_io
+    );
     static void serialize_pso(
         Device *device,
         Shader const *shader,
@@ -77,6 +94,7 @@ public:
         SerdeType serde_type,
         BinaryIO const *bin_io);
     static vstd::vector<SavedArgument> serialize_saved_args(Function kernel);
+    static vstd::vector<SavedArgument> serialize_saved_args(luisa::span<const std::pair<Variable, Usage>> arguments);
     static vstd::vector<SavedArgument> serialize_saved_args(vstd::IRange<std::pair<Variable, Usage>> &arguments);
 };
 }// namespace lc::vk
