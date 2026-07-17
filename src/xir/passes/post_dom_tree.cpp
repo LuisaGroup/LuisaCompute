@@ -1,8 +1,5 @@
 #include <luisa/core/logging.h>
 #include <luisa/xir/passes/post_dom_tree.h>
-#include <luisa/xir/instructions/return.h>
-#include <luisa/xir/instructions/unreachable.h>
-#include <luisa/xir/instructions/raster_discard.h>
 
 namespace luisa::compute::xir {
 
@@ -111,7 +108,7 @@ bool PostDomTree::strictly_post_dominates(BasicBlock *a, BasicBlock *b) const no
 
 auto PostDomTree::immediate_post_dominator(BasicBlock *block) const noexcept -> BasicBlock * {
     auto n = this->node_or_null(block);
-    if (n == nullptr || n->parent() == _root) { return nullptr; }
+    if (n == nullptr || n == _root || n->parent() == nullptr || n->parent() == _root) { return nullptr; }
     return n->parent()->block();
 }
 
@@ -120,17 +117,42 @@ static const auto kUnknownDom = reinterpret_cast<BasicBlock *>(uintptr_t(-1));
 PostDomTree compute_post_dom_tree(Function *function) noexcept {
     auto definition = function->definition();
     LUISA_ASSERT(definition != nullptr, "Function has no definition.");
-    // collect all blocks and identify sink blocks
+    // Collect all blocks and identify real exits. Testing the CFG successor set
+    // instead of enumerating instruction tags also covers CoroTerminateInst and
+    // future zero-successor terminators.
     luisa::vector<BasicBlock *> all_blocks;
-    luisa::unordered_set<BasicBlock *> sinks;
+    luisa::unordered_set<BasicBlock *> real_sinks;
     definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
         all_blocks.emplace_back(block);
-        if (auto term = block->terminator()) {
-            if (term->isa<ReturnInst>() || term->isa<UnreachableInst>() || term->isa<RasterDiscardInst>()) {
-                sinks.emplace(block);
-            }
-        }
+        if (!block->is_terminated()) { return; }
+        auto has_successor = false;
+        block->traverse_successors(false, [&](BasicBlock *) noexcept { has_successor = true; });
+        if (!has_successor) { real_sinks.emplace(block); }
     });
+
+    // A CFG can contain a path that never reaches a real exit (for example an
+    // infinite loop). Ignoring that path would make the other branch appear to
+    // post-dominate its fork. Conservatively model every block in a non-exiting
+    // region as an edge to the virtual exit. This may lose precision inside an
+    // infinite SCC, but it never invents a post-dominance relation.
+    luisa::unordered_set<BasicBlock *> can_reach_real_sink;
+    luisa::vector<BasicBlock *> reverse_worklist;
+    for (auto *sink : real_sinks) {
+        can_reach_real_sink.emplace(sink);
+        reverse_worklist.emplace_back(sink);
+    }
+    while (!reverse_worklist.empty()) {
+        auto *block = reverse_worklist.back();
+        reverse_worklist.pop_back();
+        block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            if (can_reach_real_sink.emplace(pred).second) { reverse_worklist.emplace_back(pred); }
+        });
+    }
+    auto sinks = std::move(real_sinks);
+    for (auto *block : all_blocks) {
+        if (!can_reach_real_sink.contains(block)) { sinks.emplace(block); }
+    }
+
     // compute postorder on reversed CFG (follow original predecessors)
     luisa::unordered_set<BasicBlock *> visited;
     luisa::vector<BasicBlock *> postorder;

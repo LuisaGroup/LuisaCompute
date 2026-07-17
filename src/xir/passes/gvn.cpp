@@ -32,18 +32,27 @@ struct GVNLeader {
 
 struct GVNState;
 
-[[nodiscard]] static bool is_commutative_arithmetic(ArithmeticOp op) noexcept {
+[[nodiscard]] static bool is_commutative_arithmetic(ArithmeticOp op,
+                                                    const Type *type) noexcept {
     switch (op) {
-        case ArithmeticOp::BINARY_ADD:
-        case ArithmeticOp::BINARY_MUL:
         case ArithmeticOp::BINARY_BIT_AND:
         case ArithmeticOp::BINARY_BIT_OR:
         case ArithmeticOp::BINARY_BIT_XOR:
         case ArithmeticOp::BINARY_EQUAL:
         case ArithmeticOp::BINARY_NOT_EQUAL:
-        case ArithmeticOp::MIN:
-        case ArithmeticOp::MAX:
             return true;
+        case ArithmeticOp::BINARY_ADD:
+        case ArithmeticOp::BINARY_MUL:
+        case ArithmeticOp::MIN:
+        case ArithmeticOp::MAX: {
+            while (type != nullptr &&
+                   (type->is_vector() || type->is_array())) {
+                type = type->element();
+            }
+            // Reordering strict floating-point operands can change NaN payload
+            // selection and signed-zero results (notably min/max).
+            return type != nullptr && (type->is_int() || type->is_uint());
+        }
         default: return false;
     }
 }
@@ -141,7 +150,8 @@ struct GVNState {
             auto ari_a = static_cast<ArithmeticInst *>(a);
             auto ari_b = static_cast<ArithmeticInst *>(b);
             if (ari_a->op() != ari_b->op()) return false;
-            if (is_commutative_arithmetic(ari_a->op()) && a->operand_count() == 2) {
+            if (is_commutative_arithmetic(ari_a->op(), a->type()) &&
+                a->operand_count() == 2) {
                 auto a0 = state.get_vn(a->operand(0));
                 auto a1 = state.get_vn(a->operand(1));
                 auto b0 = state.get_vn(b->operand(0));
@@ -204,7 +214,7 @@ struct GVNState {
             auto op = ari->op();
             h = luisa::hash64(&op, sizeof(op), h);
             auto vns = state.get_operand_vns(inst);
-            h = hash_operand_vns(vns, is_commutative_arithmetic(op), h);
+            h = hash_operand_vns(vns, is_commutative_arithmetic(op, inst->type()), h);
             break;
         }
         case DerivedInstructionTag::CAST: {

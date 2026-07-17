@@ -18,7 +18,6 @@ int main() {
         Module m;
         auto stats = p.run(&m);
         expect(stats.records.empty());
-        expect(stats.total_ms >= 0.0);
     };
 
     "single_pass"_test = [] {
@@ -32,7 +31,6 @@ int main() {
         expect(stats.records[0].name == "noop");
         expect(stats.records[0].invocations == 1u);
         expect(!stats.records[0].changed);
-        expect(stats.records[0].elapsed_ms >= 0.0);
         expect(stats.records[0].children.empty());
     };
 
@@ -51,7 +49,8 @@ int main() {
         p.add("second", [&](Module *, PassReport &) { order.push_back(2); return false; });
         p.add("third", [&](Module *, PassReport &) { order.push_back(3); return false; });
         Module m;
-        p.run(&m);
+        auto stats = p.run(&m);
+        expect(stats.records.size() == 3u);
         expect(order.size() == 3u);
         expect(order[0] == 1);
         expect(order[1] == 2);
@@ -89,8 +88,10 @@ int main() {
         PassPipeline p;
         p.add_fixed_point("bounded", std::move(sub), 5u);
         Module m;
-        p.run(&m);
+        auto stats = p.run(&m);
         expect(counter == 5);
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].invocations == 5u);
     };
 
     "real_dce_pass_wrapper"_test = [] {
@@ -147,7 +148,24 @@ int main() {
         expect(!p.empty());
         Module m;
         auto stats = p.run(&m);
-        expect(stats.total_ms >= 0.0);
+        expect(stats.records.size() == p.size());
+        for (auto &&record : stats.records) {
+            expect(record.name != "loop-fusion");
+        }
+    };
+
+    "factory_ssa_optimization_excludes_unsafe_loop_transforms"_test = [] {
+        auto p = create_ssa_optimization_pipeline({.enable_fast_math = false});
+        expect(!p.empty());
+        Module m;
+        auto stats = p.run(&m);
+        expect(stats.records.size() == p.size());
+        for (auto &&record : stats.records) {
+            expect(record.name != "loop-fusion");
+            expect(record.name != "indvar-simplify");
+            expect(record.name != "loop-vectorization");
+            expect(record.name != "slp-vectorization");
+        }
     };
 
     "pass_report_set_overwrites"_test = [] {

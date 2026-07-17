@@ -51,12 +51,12 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
             switch (inst->derived_instruction_tag()) {
                 case DerivedInstructionTag::LOAD: {
                     auto load = static_cast<LoadInst *>(inst);
+                    auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable());
+                    if (alloca_inst == nullptr) { break; }
                     if (auto iter = already_loaded.find(load->variable()); iter != already_loaded.end()) {
                         removable_loads.emplace(load, iter->second);
                     } else {
-                        if (auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable())) {
-                            variable_pointers[alloca_inst].emplace_back(load->variable());
-                        }
+                        variable_pointers[alloca_inst].emplace_back(load->variable());
                         already_loaded[load->variable()] = load;
                     }
                     break;
@@ -113,43 +113,65 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
     }
     using ReachingMap = luisa::unordered_map<Value *, LoadInst *>;
     luisa::unordered_map<BasicBlock *, ReachingMap> reaching_load;
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (auto block : rpo) {
-            ReachingMap in;
-            auto &preds = predecessors[block];
-            if (!preds.empty()) {
-                in = reaching_load[preds.front()];
-                for (size_t i = 1; i < preds.size(); ++i) {
-                    auto &pred_map = reaching_load[preds[i]];
-                    for (auto it = in.begin(); it != in.end();) {
-                        auto jt = pred_map.find(it->first);
-                        if (jt == pred_map.end() || jt->second != it->second) {
-                            it = in.erase(it);
+
+    auto block_input = [&](BasicBlock *block) noexcept {
+        ReachingMap in;
+        // The function entry has an implicit predecessor outside the CFG. A
+        // backedge to the body block must never make a value available on the
+        // first invocation of the function.
+        if (block == function->body_block()) { return in; }
+        auto &preds = predecessors[block];
+        if (!preds.empty()) {
+            in = reaching_load[preds.front()];
+            for (size_t i = 1; i < preds.size(); ++i) {
+                auto &pred_map = reaching_load[preds[i]];
+                for (auto it = in.begin(); it != in.end();) {
+                    auto jt = pred_map.find(it->first);
+                    if (jt == pred_map.end() || jt->second != it->second) {
+                        it = in.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+        }
+        return in;
+    };
+
+    auto transfer = [](BasicBlock *block, ReachingMap current,
+                       luisa::vector<std::pair<LoadInst *, LoadInst *>> *removable) noexcept {
+        for (auto inst : block->instructions()) {
+            if (inst->isa<LoadInst>()) {
+                auto load = static_cast<LoadInst *>(inst);
+                auto ptr = load->variable();
+                if (trace_pointer_base_local_alloca_inst(ptr) == nullptr) { continue; }
+                auto it = current.find(ptr);
+                if (it != current.end() && it->second != load) {
+                    if (removable != nullptr) { removable->emplace_back(load, it->second); }
+                } else {
+                    current[ptr] = load;
+                }
+            } else if (inst->isa<StoreInst>()) {
+                auto store = static_cast<StoreInst *>(inst);
+                auto ptr = store->variable();
+                auto base = trace_pointer_base_local_alloca_inst(ptr);
+                if (base) {
+                    for (auto it = current.begin(); it != current.end();) {
+                        if (trace_pointer_base_local_alloca_inst(it->first) == base) {
+                            it = current.erase(it);
                         } else {
                             ++it;
                         }
                     }
+                } else {
+                    current.erase(ptr);
+                    auto value_base = trace_pointer_base_value(ptr);
+                    if (value_base != ptr) { current.erase(value_base); }
                 }
-            }
-            auto &block_reaching = reaching_load[block];
-            auto current = in;
-            luisa::vector<std::pair<LoadInst *, LoadInst *>> to_remove;
-            for (auto inst : block->instructions()) {
-                if (inst->isa<LoadInst>()) {
-                    auto load = static_cast<LoadInst *>(inst);
-                    auto ptr = load->variable();
-                    auto it = current.find(ptr);
-                    if (it != current.end() && it->second != load) {
-                        to_remove.emplace_back(load, it->second);
-                    } else {
-                        current[ptr] = load;
-                    }
-                } else if (inst->isa<StoreInst>()) {
-                    auto store = static_cast<StoreInst *>(inst);
-                    auto ptr = store->variable();
-                    auto base = trace_pointer_base_local_alloca_inst(ptr);
+            } else {
+                for (auto op_use : inst->operand_uses()) {
+                    auto val = op_use->value();
+                    auto base = trace_pointer_base_local_alloca_inst(val);
                     if (base) {
                         for (auto it = current.begin(); it != current.end();) {
                             if (trace_pointer_base_local_alloca_inst(it->first) == base) {
@@ -159,40 +181,43 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                             }
                         }
                     } else {
-                        current.erase(ptr);
-                        auto value_base = trace_pointer_base_value(ptr);
-                        if (value_base != ptr) { current.erase(value_base); }
-                    }
-                } else {
-                    for (auto op_use : inst->operand_uses()) {
-                        auto val = op_use->value();
-                        auto base = trace_pointer_base_local_alloca_inst(val);
-                        if (base) {
-                            for (auto it = current.begin(); it != current.end();) {
-                                if (trace_pointer_base_local_alloca_inst(it->first) == base) {
-                                    it = current.erase(it);
-                                } else {
-                                    ++it;
-                                }
-                            }
-                        } else {
-                            current.erase(val);
-                            auto value_base = trace_pointer_base_value(val);
-                            if (value_base != val) { current.erase(value_base); }
-                        }
+                        current.erase(val);
+                        auto value_base = trace_pointer_base_value(val);
+                        if (value_base != val) { current.erase(value_base); }
                     }
                 }
             }
+        }
+        return current;
+    };
+
+    // First solve the data-flow equations without mutating the IR. In
+    // particular, the maps must never retain pointers to loads deleted during
+    // an earlier iteration.
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto block : rpo) {
+            auto &block_reaching = reaching_load[block];
+            auto current = transfer(block, block_input(block), nullptr);
             if (block_reaching != current) {
                 block_reaching = std::move(current);
                 changed = true;
             }
-            for (auto [load, earlier] : to_remove) {
-                load->replace_all_uses_with(earlier);
-                load->remove_self();
-                info.removed_load_count++;
-            }
         }
+    }
+
+    // With stable inputs, collect every replacement and apply them only after
+    // all blocks have been inspected. The transfer function keeps the reaching
+    // load rather than a removable load, so replacement targets stay alive.
+    luisa::vector<std::pair<LoadInst *, LoadInst *>> removable_loads;
+    for (auto *block : rpo) {
+        static_cast<void>(transfer(block, block_input(block), &removable_loads));
+    }
+    for (auto [load, earlier] : removable_loads) {
+        load->replace_all_uses_with(earlier);
+        load->remove_self();
+        info.removed_load_count++;
     }
 }
 

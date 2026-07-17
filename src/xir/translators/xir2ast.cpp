@@ -44,6 +44,7 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/loop_unroll.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -1067,6 +1068,11 @@ luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate_finalize(XIR2AS
 }
 
 void xir_to_ast_normalize_module(Module *module) noexcept {
+    // Generic normalization exposes generated continuation callables but does
+    // not replace/remove the source coroutine definition. Once continuations
+    // exist, keep them even though they intentionally have no IR call users;
+    // full source-coroutine ownership belongs to compile_coroutine_pipeline.
+    auto preserve_generated_coro_continuations = false;
     PassPipeline pipeline;
     pipeline.add_fixed_point("phase-A", create_basic_optimization_pipeline(), 1u);
     pipeline.add("inline-all", [](Module *m, PassReport &r) {
@@ -1076,7 +1082,23 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     pipeline.add_fixed_point("post-inline-cleanup", create_post_inline_cleanup_pipeline(), 1u);
     pipeline.add("lower-ray-query-loop-to-loop", [](Module *m, PassReport &r) {
         auto i = lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR-to-AST normalization rejected {} unsupported ray-query loop(s); "
+                "the normalization pipeline cannot continue safely.",
+                i.error_count);
+        }
         return i.lowered_ray_query_loop_count > 0u;
+    });
+    pipeline.add("lower-switch", [](Module *m, PassReport &r) {
+        auto i = lower_switch_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR-to-AST normalization rejected {} structured switch(es); "
+                "the normalization pipeline cannot continue safely.",
+                i.rejected_switch_count);
+        }
+        return i.lowered_switch_count > 0u;
     });
     pipeline.add("destructure-cfg", [](Module *m, PassReport &r) {
         auto i = destructure_cfg_pass_run_on_module(m, &r);
@@ -1087,7 +1109,7 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     // Coroutine pipeline: runs only if module contains CoroSuspendInst.
     // Must run after destructure_cfg (needs destructured CFG) but BEFORE
     // mem2reg/ssa-opt which may eliminate dead resume blocks.
-    pipeline.add("coro-pipeline", [](Module *m, PassReport & /*r*/) {
+    pipeline.add("coro-pipeline", [&preserve_generated_coro_continuations](Module *m, PassReport & /*r*/) {
         bool changed = false;
         for (auto *f : m->function_list()) {
             if (auto *def = f->definition()) {
@@ -1100,9 +1122,28 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                 if (!has_coro) { continue; }
                 auto cfg = coro_cfg_distill_pass_run_on_function(f);
                 auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(m, cfg, nullptr);
-                (void)coro_materialize_pass_run_on_module_with_cfg(m, cfg, split);
+                if (!split.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "XIR-to-AST coroutine normalization rejected its input "
+                        "(structured={}, invalid_cfg={}); the pipeline cannot continue safely.",
+                        split.structured_cfg_error_count, split.invalid_cfg_error_count);
+                }
+                if (split.subroutines.empty()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "XIR-to-AST coroutine normalization found a suspend but produced no "
+                        "continuation scopes; the pipeline cannot continue safely.");
+                }
+                auto materialized = coro_materialize_pass_run_on_module_with_cfg(m, cfg, split);
+                if (!materialized.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "XIR-to-AST coroutine materialization rejected its input "
+                        "(structured={}, invalid_input={}); the pipeline cannot continue safely.",
+                        materialized.structured_cfg_error_count,
+                        materialized.invalid_input_error_count);
+                }
                 (void)coro_reg2mem_pass_run_on_split(split);
-                changed = true;
+                preserve_generated_coro_continuations = true;
+                changed |= !split.subroutines.empty();
             }
         }
         return changed;
@@ -1112,7 +1153,11 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
         return i.promoted_alloca_count > 0u;
     });
     pipeline.add_fixed_point("ssa-opt", create_ssa_optimization_pipeline(), 1u);
-    pipeline.add("unused-callable-removal", [](Module *m, PassReport &r) {
+    pipeline.add("unused-callable-removal", [&preserve_generated_coro_continuations](Module *m, PassReport &r) {
+        if (preserve_generated_coro_continuations) {
+            r.set("skipped_for_coro_continuations", 1u);
+            return false;
+        }
         auto i = unused_callable_removal_pass_run_on_module(m, &r);
         return i.removed_callable_count > 0u;
     });
@@ -1144,7 +1189,11 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
         auto i = reg2mem_pass_run_on_module(m, &r);
         return i.lowered_phi_count > 0u;
     });
-    pipeline.add("unused-callable-removal-final", [](Module *m, PassReport &r) {
+    pipeline.add("unused-callable-removal-final", [&preserve_generated_coro_continuations](Module *m, PassReport &r) {
+        if (preserve_generated_coro_continuations) {
+            r.set("skipped_for_coro_continuations", 1u);
+            return false;
+        }
         auto i = unused_callable_removal_pass_run_on_module(m, &r);
         return i.removed_callable_count > 0u;
     });

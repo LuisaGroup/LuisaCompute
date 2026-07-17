@@ -14,8 +14,8 @@
 namespace luisa::compute::xir {
 
 // SCEV base class implementations
-SCEVUnknown::SCEVUnknown(Instruction *inst) noexcept : _inst{inst} {}
-const Type *SCEVUnknown::type() const noexcept { return _inst->type(); }
+SCEVUnknown::SCEVUnknown(Value *value) noexcept : _value{value} {}
+const Type *SCEVUnknown::type() const noexcept { return _value->type(); }
 
 SCEVConstant::SCEVConstant(Constant *c) noexcept : _constant{c} {}
 const Type *SCEVConstant::type() const noexcept { return _constant->type(); }
@@ -35,6 +35,8 @@ namespace {
 // Global storage for SCEV query interface
 struct SCEVStorage {
     luisa::unordered_map<Instruction *, const SCEV *> value_to_scev;
+    luisa::unordered_map<FunctionDefinition *, luisa::vector<Instruction *>> function_values;
+    luisa::unordered_map<FunctionDefinition *, luisa::vector<luisa::unique_ptr<SCEV>>> owned;
 };
 
 SCEVStorage &get_scev_storage() noexcept {
@@ -47,6 +49,7 @@ struct SCEVAnalyzer {
     DomTree dom_tree;
     luisa::vector<luisa::unique_ptr<SCEV>> allocated;
     luisa::unordered_map<Value *, const SCEV *> cache;
+    luisa::unordered_map<Instruction *, const SCEV *> results;
     luisa::unordered_set<BasicBlock *> loop_blocks;
     LoopInst *current_loop{nullptr};
 
@@ -64,7 +67,7 @@ struct SCEVAnalyzer {
         }
 
         if (!v->isa<Instruction>()) {
-            auto scev = luisa::make_unique<SCEVUnknown>(static_cast<Instruction *>(v));
+            auto scev = luisa::make_unique<SCEVUnknown>(v);
             auto *ptr = scev.get();
             allocated.emplace_back(std::move(scev));
             cache[v] = ptr;
@@ -98,14 +101,26 @@ struct SCEVAnalyzer {
     [[nodiscard]] bool is_loop_invariant_impl(Value *v, luisa::unordered_set<Value *> &visited) noexcept {
         if (v == nullptr) { return false; }
         if (v->isa<Constant>()) { return true; }
-        if (!v->isa<Instruction>()) { return false; }
-        if (!visited.emplace(v).second) { return false; }
+        // Arguments, constants and special registers are defined outside the
+        // loop and are therefore invariant.
+        if (!v->isa<Instruction>()) { return true; }
         auto *inst = static_cast<Instruction *>(v);
         auto *bb = inst->parent_block();
         if (loop_blocks.contains(bb)) {
-            for (size_t i = 0; i < inst->operand_count(); ++i) {
-                if (!is_loop_invariant_impl(inst->operand(i), visited)) { return false; }
+            switch (inst->derived_instruction_tag()) {
+                case DerivedInstructionTag::ARITHMETIC:
+                case DerivedInstructionTag::CAST:
+                case DerivedInstructionTag::GEP: break;
+                default: return false;
             }
+            if (!visited.emplace(v).second) { return false; }
+            for (size_t i = 0; i < inst->operand_count(); ++i) {
+                if (!is_loop_invariant_impl(inst->operand(i), visited)) {
+                    visited.erase(v);
+                    return false;
+                }
+            }
+            visited.erase(v);
             return true;
         }
         return true;
@@ -149,13 +164,20 @@ struct SCEVAnalyzer {
             if (recur_inst->isa<ArithmeticInst>()) {
                 auto *arith = static_cast<ArithmeticInst *>(recur_inst);
                 if (arith->op() == ArithmeticOp::BINARY_ADD) {
-                    // Check if one operand is the phi itself
+                    // Exactly one operand must be the phi itself. Accepting a
+                    // recurrence with zero phi operands invents an induction
+                    // variable; accepting two loses the stride entirely.
                     Value *stride_val = nullptr;
+                    size_t phi_operand_count = 0u;
                     for (size_t i = 0; i < arith->operand_count(); ++i) {
-                        if (arith->operand(i) == phi) { continue; }
-                        stride_val = arith->operand(i);
+                        if (arith->operand(i) == phi) {
+                            ++phi_operand_count;
+                        } else {
+                            stride_val = arith->operand(i);
+                        }
                     }
-                    if (stride_val != nullptr && is_loop_invariant(stride_val)) {
+                    if (phi_operand_count == 1u && stride_val != nullptr &&
+                        is_loop_invariant(stride_val)) {
                         auto *start = get_scev(start_val);
                         auto *stride = get_scev(stride_val);
                         auto scev = luisa::make_unique<SCEVAddRec>(start, stride, current_loop);
@@ -249,26 +271,9 @@ struct SCEVAnalyzer {
             auto *add = static_cast<const SCEVAddExpr *>(scev);
             auto ops = add->operands();
             if (ops.size() == 1) { return ops[0]; }
-            // Fold constants
-            luisa::vector<const SCEV *> non_const;
-            const SCEVConstant *folded_const = nullptr;
-            for (auto *op : ops) {
-                if (op->kind() == SCEV::Kind::CONSTANT) {
-                    folded_const = static_cast<const SCEVConstant *>(op);
-                } else {
-                    non_const.emplace_back(op);
-                }
-            }
-            if (folded_const != nullptr && non_const.empty()) {
-                return folded_const;
-            }
-            if (folded_const != nullptr && non_const.size() + 1 == ops.size()) {
-                non_const.emplace_back(folded_const);
-                auto scev_new = luisa::make_unique<SCEVAddExpr>(std::move(non_const));
-                auto *ptr = scev_new.get();
-                allocated.emplace_back(std::move(scev_new));
-                return ptr;
-            }
+            // Constant evaluation belongs to const-fold. Keeping the complete
+            // operand list is essential: retaining only the last constant
+            // silently changes e.g. (x + 1) + 2 into x + 2.
             return scev;
         }
         if (scev->kind() == SCEV::Kind::MUL) {
@@ -293,9 +298,8 @@ struct SCEVAnalyzer {
                         }
                         if (c->constant()->as<uint32_t>() == 1u) { continue; }
                     } else if (type->is_float32()) {
-                        if (c->constant()->as<float>() == 0.0f) {
-                            return op;
-                        }
+                        // x * 0 is not valid under strict floating point: NaN
+                        // and infinity must be preserved.
                         if (c->constant()->as<float>() == 1.0f) { continue; }
                     }
                 }
@@ -350,6 +354,7 @@ struct SCEVAnalyzer {
 
     void analyze_loop(LoopInst *loop) noexcept {
         current_loop = loop;
+        cache.clear();
         collect_loop_blocks(loop);
 
         // Process all instructions in loop blocks to build SCEVs
@@ -361,6 +366,11 @@ struct SCEVAnalyzer {
         for (auto *bb : blocks) {
             for (auto *inst : bb->instructions()) {
                 static_cast<void>(get_scev(inst));
+            }
+        }
+        for (auto [value, scev] : cache) {
+            if (value->isa<Instruction>()) {
+                results[static_cast<Instruction *>(value)] = scev;
             }
         }
     }
@@ -383,19 +393,23 @@ struct SCEVAnalyzer {
             info.analyzed_loop_count++;
         }
 
-        // Store results for global query. Release ownership from the analyzer's
-        // unique_ptrs so the cached SCEVs stay alive for later passes to query.
+        // Replace the previous result atomically for this function. Keeping
+        // ownership per function prevents both leaks and dangling query data
+        // after the analysis is rerun.
         auto &storage = get_scev_storage();
-        for (auto &uptr : allocated) {
-            auto *raw = uptr.release();
-            for (auto &[val, scev_ptr] : cache) {
-                if (scev_ptr == raw && val->isa<Instruction>()) {
-                    storage.value_to_scev[static_cast<Instruction *>(val)] = raw;
-                    break;
-                }
-            }
+        if (auto iter = storage.function_values.find(def);
+            iter != storage.function_values.end()) {
+            for (auto *inst : iter->second) { storage.value_to_scev.erase(inst); }
+            storage.function_values.erase(iter);
         }
-        allocated.clear();
+        storage.owned.erase(def);
+        auto &values = storage.function_values[def];
+        values.reserve(results.size());
+        for (auto [inst, scev] : results) {
+            storage.value_to_scev[inst] = scev;
+            values.emplace_back(inst);
+        }
+        storage.owned[def] = std::move(allocated);
 
         return info;
     }

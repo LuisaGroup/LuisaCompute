@@ -133,7 +133,16 @@ static void reassociate_on_function(FunctionDefinition *def, ReassociateInfo &in
         if (inst->isa<ArithmeticInst>()) {
             auto arith = static_cast<ArithmeticInst *>(inst);
             auto op = arith->op();
-            if (op == ArithmeticOp::BINARY_ADD || op == ArithmeticOp::BINARY_MUL || op == ArithmeticOp::BINARY_SUB) {
+            auto *type = arith->type();
+            auto *element = type != nullptr && type->is_vector() ? type->element() : type;
+            auto exact_integer = type != nullptr &&
+                                 (type->is_scalar() || type->is_vector()) &&
+                                 element != nullptr &&
+                                 (element->is_int() || element->is_uint());
+            if (exact_integer &&
+                (op == ArithmeticOp::BINARY_ADD ||
+                 op == ArithmeticOp::BINARY_MUL ||
+                 op == ArithmeticOp::BINARY_SUB)) {
                 worklist.push_back(arith);
             }
         }

@@ -10,13 +10,18 @@ namespace detail {
 static void collect_reachable_callables(Function *f, luisa::unordered_set<Function *> &reachable) noexcept {
     if (reachable.emplace(f).second) {
         if (auto def = f->definition()) {
-            def->traverse_instructions([&](Instruction *inst) noexcept {
-                for (auto &&op_use : inst->operand_uses()) {
-                    if (auto op = op_use->value(); op != nullptr && op->isa<Function>()) {
-                        collect_reachable_callables(static_cast<Function *>(op), reachable);
+            // Inspect every owned block, not only CFG-reachable blocks. This
+            // pass does not delete disconnected blocks, so a function operand
+            // in one of them must remain valid after the pass returns.
+            for (auto *block : def->basic_blocks()) {
+                for (auto *inst : block->instructions()) {
+                    for (auto &&op_use : inst->operand_uses()) {
+                        if (auto op = op_use->value(); op != nullptr && op->isa<Function>()) {
+                            collect_reachable_callables(static_cast<Function *>(op), reachable);
+                        }
                     }
                 }
-            });
+            }
         }
     }
 }
@@ -30,17 +35,33 @@ UnusedCallableRemovalInfo unused_callable_removal_pass_run_on_module(Module *mod
             detail::collect_reachable_callables(f, reachable);
         }
     }
-    luisa::vector<Function *> removable;
+    luisa::unordered_set<Function *> removable;
     for (auto f : module->function_list()) {
         if (f->isa<CallableFunction>() && !reachable.contains(f)) {
-            removable.emplace_back(f);
+            removable.emplace(f);
         }
     }
-    for (auto f : removable) { f->remove_self(); }
-    if (report != nullptr) {
-        report->set("removed_callable", removable.size());
+    // Destroy callers before callees so removing a caller first drops its
+    // callee uses. An unreachable recursive SCC has no use-free root; keep it
+    // conservatively instead of destroying a Function with live operands.
+    size_t removed_count = 0u;
+    for (;;) {
+        Function *next = nullptr;
+        for (auto *f : removable) {
+            if (f->use_list().empty()) {
+                next = f;
+                break;
+            }
+        }
+        if (next == nullptr) { break; }
+        removable.erase(next);
+        next->remove_self();
+        ++removed_count;
     }
-    return {.removed_callable_count = removable.size()};
+    if (report != nullptr) {
+        report->set("removed_callable", removed_count);
+    }
+    return {.removed_callable_count = removed_count};
 }
 
 }// namespace luisa::compute::xir

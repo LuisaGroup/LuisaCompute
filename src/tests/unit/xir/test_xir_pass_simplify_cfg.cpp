@@ -4,6 +4,8 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
@@ -106,6 +108,41 @@ void reg_simplify_cfg() {
         expect(count_isa_cond_branch(def) == 0u);
     };
 
+    "fold_constant_cond_br_removes_dropped_phi_incoming"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *live = def->create_basic_block();
+        auto *join = def->create_basic_block();
+        auto *from_dropped_edge = m.create_constant_zero(Type::of<int>());
+        auto *from_live_edge = m.create_constant_one(Type::of<int>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(m.create_constant_one(Type::of<bool>()), live, join);
+        b.set_insertion_point(live);
+        b.br(join);
+        b.set_insertion_point(join);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(from_dropped_edge, body);
+        phi->add_incoming(from_live_edge, live);
+        b.return_void();
+
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.folded_constant_cond_br_count == 1u);
+        expect(body->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(body->terminator())->target_block() == live);
+        expect(phi->incoming_count() == 1u);
+        expect(phi->incoming(0u).block == live);
+        expect(phi->incoming(0u).value == from_live_edge);
+        size_t predecessor_count = 0u;
+        join->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            expect(pred == live);
+            ++predecessor_count;
+        });
+        expect(predecessor_count == 1u);
+    };
+
     "thread_empty_block"_test = [] {
         Module m;
         BasicBlock *body;
@@ -168,6 +205,33 @@ void reg_simplify_cfg() {
         expect(sw->case_block(0) == real_case);
     };
 
+    "structured_if_thread_preserves_if"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *cond = m.create_undefined(Type::of<bool>());
+        auto *if_inst = b.if_(cond);
+        auto *true_bb = if_inst->create_true_block();
+        auto *false_bb = if_inst->create_false_block();
+        auto *merge_bb = if_inst->create_merge_block();
+        b.set_insertion_point(true_bb);
+        b.br(merge_bb);
+        b.set_insertion_point(false_bb);
+        b.return_void();
+        b.set_insertion_point(merge_bb);
+        b.return_void();
+
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.threaded_empty_block_count == 1u);
+        expect(body->terminator()->isa<IfInst>());
+        expect(if_inst->true_block() == merge_bb);
+        expect(if_inst->false_block() == false_bb);
+        expect(count_blocks(def) == 3u);
+    };
+
     "idempotent_on_simplified"_test = [] {
         Module m;
         BasicBlock *body;
@@ -202,7 +266,7 @@ void reg_simplify_cfg() {
         expect(info.folded_constant_cond_br_count == 1u);
     };
 
-    "fold_constant_switch"_test = [] {
+    "preserve_constant_structured_switch"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -219,12 +283,13 @@ void reg_simplify_cfg() {
         b.set_insertion_point(case_bb);
         b.return_void();
         auto info = simplify_cfg_pass_run_on_function(k);
-        expect(info.folded_switch_count == 1u);
-        expect(info.removed_unreachable_block_count == 1u);
-        expect(count_blocks(def) == 1u);
+        expect(info.folded_switch_count == 0u);
+        expect(body->terminator()->isa<SwitchInst>());
+        expect(body->terminator() == sw);
+        expect(count_blocks(def) == 3u);
     };
 
-    "fold_degenerate_switch"_test = [] {
+    "preserve_degenerate_structured_switch"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -238,7 +303,9 @@ void reg_simplify_cfg() {
         b.set_insertion_point(target);
         b.return_void();
         auto info = simplify_cfg_pass_run_on_function(k);
-        expect(info.folded_switch_count == 1u);
+        expect(info.folded_switch_count == 0u);
+        expect(body->terminator()->isa<SwitchInst>());
+        expect(body->terminator() == sw);
     };
 
     "merge_straight_line_blocks"_test = [] {

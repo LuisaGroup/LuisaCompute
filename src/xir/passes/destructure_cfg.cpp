@@ -27,10 +27,10 @@ static void terminate_leaked_blocks(Function *function, DestructureCFGInfo &info
     auto def = function->definition();
     if (def == nullptr) { return; }
     luisa::vector<BasicBlock *> leaked;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr) { return; }
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr) { continue; }
         if (!block->is_terminated()) { leaked.emplace_back(block); }
-    });
+    }
     if (leaked.empty()) { return; }
     XIRBuilder b;
     for (auto block : leaked) {
@@ -47,13 +47,13 @@ static void spill_early_returns(Function *function, DestructureCFGInfo &info) no
     auto body = def->body_block();
     if (body == nullptr) { return; }
     luisa::vector<ReturnInst *> returns;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr || !block->is_terminated()) { return; }
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || !block->is_terminated()) { continue; }
         auto term = block->terminator();
         if (term != nullptr && term->isa<ReturnInst>()) {
             returns.emplace_back(static_cast<ReturnInst *>(term));
         }
-    });
+    }
     if (returns.size() <= 1) { return; }
     auto ret_type = function->type();
     XIRBuilder b;
@@ -95,17 +95,17 @@ static void verify_terminators(Function *function) noexcept {
     auto def = function->definition();
     if (def == nullptr) { return; }
     size_t return_count = 0;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr) { return; }
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr) { continue; }
         if (!block->is_terminated()) {
             LUISA_WARNING_WITH_LOCATION(
                 "destructure_cfg: unterminated basic block survived destructuring "
                 "(function={}, block={}).",
                 static_cast<void *>(function), static_cast<void *>(block));
-            return;
+            continue;
         }
         auto term = block->terminator();
-        if (term == nullptr) { return; }
+        if (term == nullptr) { continue; }
         switch (term->derived_instruction_tag()) {
             case DerivedInstructionTag::BRANCH:
             case DerivedInstructionTag::CONDITIONAL_BRANCH:
@@ -126,7 +126,7 @@ static void verify_terminators(Function *function) noexcept {
                     static_cast<int>(term->derived_instruction_tag()));
                 break;
         }
-    });
+    }
     if (return_count > 1) {
         LUISA_WARNING_WITH_LOCATION(
             "destructure_cfg: function still has {} ReturnInsts after early-return spill.",
@@ -144,10 +144,10 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
         luisa::vector<SimpleLoopInst *> simple_loop_insts;
         luisa::vector<BreakInst *> break_insts;
         luisa::vector<ContinueInst *> continue_insts;
-        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            if (block == nullptr || !block->is_terminated()) { return; }
+        for (auto *block : def->basic_blocks()) {
+            if (block == nullptr || !block->is_terminated()) { continue; }
             auto term = block->terminator();
-            if (term == nullptr) { return; }
+            if (term == nullptr) { continue; }
             switch (term->derived_instruction_tag()) {
                 case DerivedInstructionTag::IF:
                     if_insts.emplace_back(static_cast<IfInst *>(term));
@@ -166,12 +166,13 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                     break;
                 default: break;
             }
-        });
+        }
         if (if_insts.empty() && loop_insts.empty() && simple_loop_insts.empty() &&
             break_insts.empty() && continue_insts.empty()) {
             break;
         }
         XIRBuilder b;
+        auto any_destructured = false;
         for (auto brk : break_insts) {
             if (brk == nullptr) { continue; }
             auto block = brk->parent_block();
@@ -183,6 +184,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             brk->remove_self();
             b.set_insertion_point(block);
             b.br(target);
+            ++info.destructured_break_count;
+            any_destructured = true;
         }
         for (auto cont : continue_insts) {
             if (cont == nullptr) { continue; }
@@ -195,6 +198,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             cont->remove_self();
             b.set_insertion_point(block);
             b.br(target);
+            ++info.destructured_continue_count;
+            any_destructured = true;
         }
         for (auto if_inst : if_insts) {
             if (if_inst == nullptr) { continue; }
@@ -209,6 +214,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             if_inst->remove_self();
             b.set_insertion_point(block);
             b.cond_br(cond, true_block, false_block);
+            ++info.destructured_if_count;
+            any_destructured = true;
         }
         for (auto loop_inst : loop_insts) {
             if (loop_inst == nullptr) { continue; }
@@ -221,6 +228,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             loop_inst->remove_self();
             b.set_insertion_point(block);
             b.br(prepare);
+            ++info.destructured_loop_count;
+            any_destructured = true;
         }
         for (auto sl : simple_loop_insts) {
             if (sl == nullptr) { continue; }
@@ -233,12 +242,12 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             sl->remove_self();
             b.set_insertion_point(block);
             b.br(body);
+            ++info.destructured_simple_loop_count;
+            any_destructured = true;
         }
-        info.destructured_if_count += if_insts.size();
-        info.destructured_loop_count += loop_insts.size();
-        info.destructured_simple_loop_count += simple_loop_insts.size();
-        info.destructured_break_count += break_insts.size();
-        info.destructured_continue_count += continue_insts.size();
+        // Malformed structured terminators are left unchanged after emitting a
+        // warning. Do not spin forever or claim they were transformed.
+        if (!any_destructured) { break; }
     }
     terminate_leaked_blocks(function, info);
     spill_early_returns(function, info);

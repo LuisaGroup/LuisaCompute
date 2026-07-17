@@ -49,6 +49,9 @@ void reg_coro_dead_field() {
         expect(info.name_to_field.contains("x"));
         expect(info.name_to_field.contains("y"));
         expect(!info.name_to_field.contains("z"));
+        expect(info.name_to_type.contains("x"));
+        expect(info.name_to_type.contains("y"));
+        expect(!info.name_to_type.contains("z"));
         expect(info.name_to_field.at("x") == r);
         expect(info.name_to_field.at("y") == r + 1u);
         expect(info.frame_field_count == r + 2u);

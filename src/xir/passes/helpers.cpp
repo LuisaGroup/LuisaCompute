@@ -4,6 +4,8 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 
+#include <atomic>
+
 #include "helpers.h"
 
 namespace luisa::compute::xir {
@@ -21,6 +23,32 @@ AllocaInst *trace_pointer_base_local_alloca_inst(Value *pointer) noexcept {
         return static_cast<AllocaInst *>(base);
     }
     return nullptr;
+}
+
+bool contains_structured_control_flow(FunctionDefinition *function) noexcept {
+    if (function == nullptr) { return false; }
+    // Inspect every block owned by the function, not just blocks reachable
+    // from the body. A temporarily unreachable structured region is still a
+    // hard boundary for CFG-only transforms and may become reachable again.
+    for (auto *block : function->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            switch (inst->derived_instruction_tag()) {
+                case DerivedInstructionTag::IF:
+                case DerivedInstructionTag::SWITCH:
+                case DerivedInstructionTag::LOOP:
+                case DerivedInstructionTag::SIMPLE_LOOP:
+                case DerivedInstructionTag::BREAK:
+                case DerivedInstructionTag::CONTINUE:
+                case DerivedInstructionTag::RAY_QUERY_LOOP:
+                case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+                case DerivedInstructionTag::AUTODIFF_SCOPE:
+                case DerivedInstructionTag::OUTLINE:
+                    return true;
+                default: break;
+            }
+        }
+    }
+    return false;
 }
 
 bool remove_redundant_phi_instruction(PhiInst *phi) noexcept {
@@ -130,8 +158,9 @@ void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
         b.set_insertion_point(f->definition()->body_block()->instructions().head_sentinel());
         auto phi_alloca = b.alloca_local(phi->type());
         phi_alloca->add_comment("alloca to lower phi node");
-        static int phi_counter = 0;
-        phi_alloca->set_name(luisa::format("_phi_{}", ++phi_counter));
+        static std::atomic_uint64_t phi_counter{0u};
+        auto phi_id = phi_counter.fetch_add(1u, std::memory_order_relaxed) + 1u;
+        phi_alloca->set_name(luisa::format("_phi_{}", phi_id));
         if (auto m = f->parent_module()) {
             auto undef = m->create_undefined(phi->type());
             b.store(phi_alloca, undef);

@@ -29,6 +29,7 @@ if (hip_FOUND)
     target_link_libraries(luisa-compute-backend-hip PRIVATE
             luisa-compute-ast
             luisa-compute-runtime
+            luisa-compute-xir
             hip::host
     )
     if (TARGET hiprtc::hiprtc)

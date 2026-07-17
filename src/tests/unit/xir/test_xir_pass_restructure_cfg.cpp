@@ -173,6 +173,92 @@ void reg_restructure_cfg() {
         expect(info.restructured_loop_count == 0u);
     };
 
+    "restructure_switch_with_duplicate_targets"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *selector = kernel->create_value_argument(Type::of<int>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *sw = b.switch_(selector);
+        auto *shared_target = sw->create_default_block();
+        sw->add_case(1, shared_target);
+        sw->add_case(2, shared_target);
+        auto *merge = sw->create_merge_block();
+        b.set_insertion_point(shared_target);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        size_t successor_count = 0u;
+        body->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+            expect(successor == shared_target);
+            ++successor_count;
+        });
+        expect(successor_count == 1u);
+        size_t predecessor_count = 0u;
+        shared_target->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+            expect(predecessor == body);
+            ++predecessor_count;
+        });
+        expect(predecessor_count == 1u);
+
+        // Dominance and post-dominance traversal must accept multiple switch
+        // operands that represent the same CFG successor. The restructurer then
+        // gives each switch label a unique proxy as required by code generation.
+        (void)restructure_cfg_pass_run_on_function(kernel);
+        expect(body->terminator()->isa<SwitchInst>());
+        auto *normalized = static_cast<SwitchInst *>(body->terminator());
+        expect(normalized->case_count() == 2u);
+        auto *default_target = normalized->default_block();
+        auto *case_0_target = normalized->case_block(0u);
+        auto *case_1_target = normalized->case_block(1u);
+        expect(default_target != case_0_target);
+        expect(default_target != case_1_target);
+        expect(case_0_target != case_1_target);
+        expect(branch_chain_reaches(default_target, merge));
+        expect(branch_chain_reaches(case_0_target, merge));
+        expect(branch_chain_reaches(case_1_target, merge));
+    };
+
+    "restructure_irreducible_scc_rejected_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *condition0 = kernel->create_value_argument(Type::of<bool>());
+        auto *condition1 = kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *left = definition->create_basic_block();
+        auto *right = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *entry_branch = b.cond_br(condition0, left, right);
+        b.set_insertion_point(left);
+        auto *left_branch = b.br(right);
+        b.set_insertion_point(right);
+        auto *right_branch = b.cond_br(condition1, left, exit);
+        b.set_insertion_point(exit);
+        auto *exit_return = b.return_void();
+        auto block_count = definition->basic_blocks().count_size();
+
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+
+        expect(!info.succeeded());
+        expect(info.irreducible_region_count == 1u);
+        expect(info.restructured_loop_count == 0u);
+        expect(info.restructured_if_count == 0u);
+        expect(definition->basic_blocks().count_size() == block_count);
+        expect(body->terminator() == entry_branch);
+        expect(left->terminator() == left_branch);
+        expect(right->terminator() == right_branch);
+        expect(exit->terminator() == exit_return);
+        expect(entry_branch->true_block() == left);
+        expect(entry_branch->false_block() == right);
+        expect(right_branch->true_block() == left);
+        expect(right_branch->false_block() == exit);
+    };
+
     "restructure_if_from_destructured"_test = [] {
         Module m;
         BasicBlock *body;

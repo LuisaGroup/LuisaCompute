@@ -90,6 +90,42 @@ namespace detail {
     return static_cast<LoadInst *>(cond)->variable() == not_returned_flag;
 }
 
+static void replace_phi_predecessor(BasicBlock *successor,
+                                    BasicBlock *old_predecessor,
+                                    BasicBlock *new_predecessor) noexcept {
+    if (successor == nullptr || old_predecessor == new_predecessor) { return; }
+    for (auto *inst : successor->instructions()) {
+        if (!inst->isa<PhiInst>()) { continue; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        for (size_t i = 0u; i < phi->incoming_count(); ++i) {
+            auto incoming = phi->incoming(i);
+            if (incoming.block == old_predecessor) {
+                phi->set_incoming(i, incoming.value, new_predecessor);
+            }
+        }
+    }
+}
+
+static void add_undef_phi_predecessor(BasicBlock *successor,
+                                      BasicBlock *new_predecessor,
+                                      Module *module) noexcept {
+    if (successor == nullptr || new_predecessor == nullptr || module == nullptr) { return; }
+    for (auto *inst : successor->instructions()) {
+        if (!inst->isa<PhiInst>()) { continue; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        auto already_present = false;
+        for (size_t i = 0u; i < phi->incoming_count(); ++i) {
+            already_present |= phi->incoming(i).block == new_predecessor;
+        }
+        if (!already_present) {
+            // The false wrapper edge is taken only after an early return. Code
+            // consuming this PHI remains guarded by not_returned_flag, so undef
+            // is the only semantically observable-free incoming value.
+            phi->add_incoming(module->create_undefined(phi->type()), new_predecessor);
+        }
+    }
+}
+
 static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_returned_flag,
                                         FunctionDefinition *def) noexcept {
     if (is_already_conditionalized(block, not_returned_flag)) {
@@ -103,6 +139,10 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
 
     auto cfm = term->control_flow_merge();
     auto next_merge = cfm ? cfm->merge_block() : nullptr;
+    luisa::vector<BasicBlock *> old_successors;
+    block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+        old_successors.emplace_back(successor);
+    });
 
     luisa::vector<ManagedPtr<Instruction>> non_terms;
     Instruction *insert_after_phi = head;
@@ -130,9 +170,13 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
     BasicBlock *merge_new = nullptr;
     if (next_merge != nullptr) {
         t_new->instructions().tail_sentinel()->insert_before_self(std::move(managed_term));
+        for (auto *successor : old_successors) {
+            replace_phi_predecessor(successor, block, t_new);
+        }
 
         b.set_insertion_point(f_new);
         b.br(next_merge);
+        add_undef_phi_predecessor(next_merge, f_new, def->parent_module());
 
         merge_new = next_merge;
     } else {
@@ -145,6 +189,9 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
         b.br(merge_new);
 
         merge_new->instructions().tail_sentinel()->insert_before_self(std::move(managed_term));
+        for (auto *successor : old_successors) {
+            replace_phi_predecessor(successor, block, merge_new);
+        }
     }
 
     b.set_insertion_point(insert_after_phi);

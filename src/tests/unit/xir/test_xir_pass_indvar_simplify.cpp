@@ -65,6 +65,8 @@ void reg_indvar_simplify() {
 
         b.set_insertion_point(fix.upd);
         auto *inc = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv, c1});
+        auto iv_locked = iv->lock();
+        auto inc_locked = inc->lock();
         iv->add_incoming(inc, fix.upd);
         auto *true_const = m.create_constant_one(Type::of<bool>());
         b.cond_br(true_const, fix.prep, fix.merge);
@@ -74,6 +76,47 @@ void reg_indvar_simplify() {
 
         auto info = indvar_simplify_pass_run_on_function(fix.k);
         expect(info.removed_dead_iv_count == 1u);
+        expect(iv_locked->use_list().empty());
+        expect(inc_locked->use_list().empty());
+        size_t phi_count = 0u;
+        size_t add_count = 0u;
+        fix.k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<PhiInst>()) { ++phi_count; }
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::BINARY_ADD) {
+                ++add_count;
+            }
+        });
+        expect(phi_count == 0u);
+        expect(add_count == 0u);
+    };
+
+    "indvar_increment_with_external_user_is_kept"_test = [] {
+        LoopFixture fix;
+        auto &m = fix.m;
+        auto &b = fix.b;
+        b.set_insertion_point(fix.body->instructions().head_sentinel());
+        auto *sink = b.alloca_local(Type::of<int>());
+        b.set_insertion_point(fix.prep);
+        auto *c0 = m.create_constant_zero(Type::of<int>());
+        auto *c1 = m.create_constant_one(Type::of<int>());
+        auto *iv = b.phi(Type::of<int>(), {{c0, fix.body}});
+        b.cond_br(m.create_constant_one(Type::of<bool>()), fix.lbody, fix.merge);
+        b.set_insertion_point(fix.lbody);
+        b.br(fix.upd);
+        b.set_insertion_point(fix.upd);
+        auto *inc = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv, c1});
+        iv->add_incoming(inc, fix.upd);
+        auto *store = b.store(sink, inc);
+        b.cond_br(m.create_constant_one(Type::of<bool>()), fix.prep, fix.merge);
+        b.set_insertion_point(fix.merge);
+        b.return_void();
+        auto info = indvar_simplify_pass_run_on_function(fix.k);
+        expect(info.removed_dead_iv_count == 0u);
+        expect(iv->is_linked());
+        expect(inc->is_linked());
+        expect(store->value() == inc);
+        expect(iv->incoming_count() == 2u);
     };
 
     "indvar_keep_used_iv"_test = [] {

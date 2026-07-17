@@ -262,12 +262,17 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
 static void forward_uniform_store_to_loads_on_function(FunctionDefinition *function, LocalStoreForwardInfo &info) noexcept {
     // find allocas where all direct stores store the same value
     luisa::unordered_map<AllocaInst *, luisa::vector<StoreInst *>> alloca_stores;
+    luisa::unordered_set<AllocaInst *> partially_stored_allocas;
     function->traverse_instructions([&](Instruction *inst) noexcept {
         if (inst->isa<StoreInst>()) {
             auto store = static_cast<StoreInst *>(inst);
             if (auto base = trace_pointer_base_local_alloca_inst(store->variable())) {
                 if (store->variable() == base) {
                     alloca_stores[base].push_back(store);
+                } else {
+                    // This includes arbitrarily nested GEP chains. Looking at
+                    // only direct GEP users misses stores through gep(gep(A)).
+                    partially_stored_allocas.emplace(base);
                 }
             }
         }
@@ -275,20 +280,7 @@ static void forward_uniform_store_to_loads_on_function(FunctionDefinition *funct
     luisa::unordered_map<AllocaInst *, Value *> uniform_value;
     for (auto &[alloca_inst, stores] : alloca_stores) {
         if (stores.empty()) continue;
-        // Skip allocas that have stores through GEPs (partial updates)
-        bool has_gep_store = false;
-        for (auto &&use : alloca_inst->use_list()) {
-            if (auto user = use->user(); user != nullptr && user->isa<GEPInst>()) {
-                for (auto &&gep_use : user->use_list()) {
-                    if (gep_use->user() != nullptr && gep_use->user()->isa<StoreInst>()) {
-                        has_gep_store = true;
-                        break;
-                    }
-                }
-                if (has_gep_store) break;
-            }
-        }
-        if (has_gep_store) continue;
+        if (partially_stored_allocas.contains(alloca_inst)) continue;
         Value *common = stores.front()->value();
         bool all_same = true;
         for (size_t i = 1; i < stores.size(); ++i) {

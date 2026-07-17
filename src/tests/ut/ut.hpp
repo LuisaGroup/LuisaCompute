@@ -841,6 +841,14 @@ struct cfg {
   }
 
   static void parse(int argc, const char* argv[]) {
+    // The runner singleton may re-enter parse at program exit (from ~runner ->
+    // run -> on(run_begin)). By that time the lazily-initialized static strings
+    // below may already be destroyed (static destruction order fiasco), so only
+    // ever parse once: the first invocation happens in main() while the statics
+    // are guaranteed alive; later invocations reuse the already-parsed state.
+    static bool already_parsed = false;
+    if (already_parsed) { return; }
+    already_parsed = true;
     const std::size_t n_args = argc > 0 ? static_cast<std::size_t>(argc) : 0U;
     if (n_args > 0 && argv != nullptr) {
       executable_name = argv[0];

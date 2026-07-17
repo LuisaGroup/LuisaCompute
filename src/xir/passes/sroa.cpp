@@ -64,10 +64,13 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
         if (u->isa<LoadInst>() || u->isa<StoreInst>()) continue;
         if (u->isa<GEPInst>()) {
             auto gep = static_cast<const GEPInst *>(u);
-            for (auto idx_use : gep->index_uses()) {
-                if (!idx_use->value()->isa<Constant>()) {
-                    if (!options.aggressive) return false;
-                }
+            // Only the first index of a GEP directly rooted at the alloca
+            // chooses which replacement alloca to use. It must be constant.
+            // Indices below that level may remain dynamic in the rebuilt GEP.
+            if (gep->base() == alloca &&
+                (gep->index_uses().empty() ||
+                 !gep->index_uses().front()->value()->isa<Constant>())) {
+                return false;
             }
             for (auto &&gep_use : u->use_list()) {
                 if (auto gep_user = gep_use->user();

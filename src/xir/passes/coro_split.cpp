@@ -505,6 +505,14 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
     const CoroCfgDistillResult &result,
     const Type *frame_type = nullptr) noexcept {
     CoroSplitInfo info;
+    if (mod == nullptr || def == nullptr) { return info; }
+    if (contains_structured_control_flow(def)) {
+        info.structured_cfg_error_count = 1u;
+        LUISA_WARNING_WITH_LOCATION(
+            "Coro split rejected structured or ambiguous CFG; run lower_switch "
+            "followed by destructure_cfg first. IR was left unchanged.");
+        return info;
+    }
     if (result.scopes.size() <= 1u) { return info; }
 
     auto *actual_frame_type = frame_type ? frame_type : create_frame_type();
@@ -553,77 +561,123 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
     return info;
 }
 
-[[nodiscard]] static size_t split_function_with_cfg(
-    Module *mod, FunctionDefinition *def,
-    const CoroCfgDistillResult &result,
-    const Type *frame_type = nullptr) noexcept {
-    return split_function_with_cfg_info(mod, def, result, frame_type).subroutines.size();
+[[nodiscard]] static CoroSplitInfo split_function(Module *mod, FunctionDefinition *def) noexcept {
+    auto result = coro_cfg_distill_pass_run_on_function(def);
+    return split_function_with_cfg_info(mod, def, result);
 }
 
-[[nodiscard]] static size_t split_function(Module *mod, FunctionDefinition *def) noexcept {
-    auto result = coro_cfg_distill_pass_run_on_function(def);
-    return split_function_with_cfg(mod, def, result);
+[[nodiscard]] static bool has_coroutine_instruction(FunctionDefinition *def) noexcept {
+    if (def == nullptr) { return false; }
+    for (auto *block : def->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            switch (inst->derived_instruction_tag()) {
+                case DerivedInstructionTag::CORO_SUSPEND:
+                case DerivedInstructionTag::CORO_RESUME:
+                case DerivedInstructionTag::CORO_TERMINATE:
+                    return true;
+                default: break;
+            }
+        }
+    }
+    return false;
+}
+
+static void append_split_info(CoroSplitInfo &dst, CoroSplitInfo src) noexcept {
+    dst.structured_cfg_error_count += src.structured_cfg_error_count;
+    dst.invalid_cfg_error_count += src.invalid_cfg_error_count;
+    dst.subroutines.reserve(dst.subroutines.size() + src.subroutines.size());
+    for (auto &subroutine : src.subroutines) {
+        dst.subroutines.emplace_back(std::move(subroutine));
+    }
+}
+
+struct CfgOwner {
+    FunctionDefinition *definition{nullptr};
+    bool valid{false};
+};
+
+[[nodiscard]] static CfgOwner find_cfg_owner(Module *module,
+                                             const CoroCfgDistillResult &cfg) noexcept {
+    FunctionDefinition *owner = nullptr;
+    if (module == nullptr || cfg.scopes.empty()) { return {}; }
+    for (auto &scope : cfg.scopes) {
+        if (scope.blocks.empty()) { return {}; }
+        for (auto *block : scope.blocks) {
+            if (block == nullptr) { return {}; }
+            auto *parent = block->parent_function();
+            if (parent == nullptr || !parent->is_definition()) { return {}; }
+            auto *definition = static_cast<FunctionDefinition *>(parent);
+            if (definition->parent_module() != module) { return {}; }
+            if (owner != nullptr && owner != definition) { return {}; }
+            owner = definition;
+        }
+    }
+    return {.definition = owner, .valid = owner != nullptr};
 }
 
 }// namespace detail
 
-size_t coro_split_pass_run_on_module(Module *m) noexcept {
-    size_t total = 0u;
+CoroSplitInfo coro_split_pass_run_on_module_info(Module *m) noexcept {
+    CoroSplitInfo info;
+    if (m == nullptr) { return info; }
     luisa::vector<FunctionDefinition *> defs;
     for (auto *f : m->function_list()) {
         if (f->is_definition()) {
-            defs.push_back(static_cast<FunctionDefinition *>(f));
+            auto *def = static_cast<FunctionDefinition *>(f);
+            if (detail::has_coroutine_instruction(def)) {
+                defs.push_back(def);
+            }
         }
     }
+    // The module entry point is all-or-nothing: preflight every candidate
+    // before cfg distillation or creation of the first continuation callable.
     for (auto *def : defs) {
-        total += detail::split_function(m, def);
+        if (contains_structured_control_flow(def)) {
+            ++info.structured_cfg_error_count;
+        }
     }
-    return total;
+    if (info.structured_cfg_error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Coro split rejected {} coroutine definition(s) with structured or "
+            "ambiguous CFG; run lower_switch followed by destructure_cfg first. "
+            "The module was left unchanged.",
+            info.structured_cfg_error_count);
+        return info;
+    }
+    for (auto *def : defs) {
+        detail::append_split_info(info, detail::split_function(m, def));
+    }
+    return info;
+}
+
+size_t coro_split_pass_run_on_module(Module *m) noexcept {
+    return coro_split_pass_run_on_module_info(m).subroutines.size();
 }
 
 size_t coro_split_pass_run_on_module_with_cfg(
     Module *m, const CoroCfgDistillResult &cfg) noexcept {
-    LUISA_DEBUG_ASSERT(!cfg.scopes.empty(), "CoroCfgDistillResult has no scopes.");
-    for (auto &scope : cfg.scopes) {
-        for (auto *bb : scope.blocks) {
-            auto *parent = bb->parent_function();
-            if (parent != nullptr && parent->is_definition()) {
-                return detail::split_function_with_cfg(
-                    m, static_cast<FunctionDefinition *>(parent), cfg);
-            }
-        }
-    }
-    return 0u;
+    return coro_split_pass_run_on_module_with_cfg_and_frame_info(m, cfg, nullptr)
+        .subroutines.size();
 }
 
 size_t coro_split_pass_run_on_module_with_cfg_and_frame(
     Module *m, const CoroCfgDistillResult &cfg, const Type *frame_type) noexcept {
-    LUISA_DEBUG_ASSERT(!cfg.scopes.empty(), "CoroCfgDistillResult has no scopes.");
-    for (auto &scope : cfg.scopes) {
-        for (auto *bb : scope.blocks) {
-            auto *parent = bb->parent_function();
-            if (parent != nullptr && parent->is_definition()) {
-                return detail::split_function_with_cfg(
-                    m, static_cast<FunctionDefinition *>(parent), cfg, frame_type);
-            }
-        }
-    }
-    return 0u;
+    return coro_split_pass_run_on_module_with_cfg_and_frame_info(m, cfg, frame_type)
+        .subroutines.size();
 }
 
 CoroSplitInfo coro_split_pass_run_on_module_with_cfg_and_frame_info(
     Module *m, const CoroCfgDistillResult &cfg, const Type *frame_type) noexcept {
-    LUISA_DEBUG_ASSERT(!cfg.scopes.empty(), "CoroCfgDistillResult has no scopes.");
-    for (auto &scope : cfg.scopes) {
-        for (auto *bb : scope.blocks) {
-            auto *parent = bb->parent_function();
-            if (parent != nullptr && parent->is_definition()) {
-                return detail::split_function_with_cfg_info(
-                    m, static_cast<FunctionDefinition *>(parent), cfg, frame_type);
-            }
-        }
+    auto owner = detail::find_cfg_owner(m, cfg);
+    if (!owner.valid) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Coro split rejected an invalid or cross-function distilled CFG. "
+            "IR was left unchanged.");
+        CoroSplitInfo info;
+        info.invalid_cfg_error_count = 1u;
+        return info;
     }
-    return {};
+    return detail::split_function_with_cfg_info(m, owner.definition, cfg, frame_type);
 }
 
 }// namespace luisa::compute::xir

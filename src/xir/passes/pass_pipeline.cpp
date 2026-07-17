@@ -196,10 +196,9 @@ void PassPipeline::Stats::log(luisa::string_view pipeline_name) const noexcept {
 PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
-    p.add("loop-fusion", [](Module *m, PassReport &r) {
-        auto i = loop_fusion_pass_run_on_module(m, &r);
-        return i.fused_loop_count > 0u;
-    });
+    // Structured loop transforms remain available as explicit passes, but are
+    // excluded from default pipelines until they preserve structured ownership,
+    // loop-carried PHIs, and break/continue semantics.
     p.add("licm", [](Module *m, PassReport &r) {
         auto i = licm_pass_run_on_module(m, &r);
         return i.hoisted_count > 0u;
@@ -300,25 +299,11 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
 PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
-    p.add("loop-fusion", [](Module *m, PassReport &r) {
-        auto i = loop_fusion_pass_run_on_module(m, &r);
-        return i.fused_loop_count > 0u;
-    });
+    // See create_basic_optimization_pipeline: unsafe structured loop transforms
+    // are intentionally opt-in for now.
     p.add("licm", [](Module *m, PassReport &r) {
         auto i = licm_pass_run_on_module(m, &r);
         return i.hoisted_count > 0u;
-    });
-    p.add("indvar-simplify", [](Module *m, PassReport &r) {
-        auto i = indvar_simplify_pass_run_on_module(m, &r);
-        return i.simplified_iv_count > 0u || i.removed_dead_iv_count > 0u;
-    });
-    p.add("loop-vectorization", [](Module *m, PassReport &r) {
-        auto i = loop_vectorization_pass_run_on_module(m, &r);
-        return i.vectorized_loop_count > 0u;
-    });
-    p.add("slp-vectorization", [](Module *m, PassReport &r) {
-        auto i = slp_vectorization_pass_run_on_module(m, &r);
-        return i.vectorized_tree_count > 0u;
     });
     p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
         auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);

@@ -97,10 +97,9 @@ static size_t run_straight_line_dse(FunctionDefinition *function) noexcept {
         luisa::unordered_map<Value *, StoreInst *> last_store;
         luisa::vector<StoreInst *> dead_stores;
         BasicBlock *current = block;
-        while (true) {
+        while (visited.emplace(current).second) {
             auto block_dead = process_block_dse(current, last_store);
             dead_stores.insert(dead_stores.end(), block_dead.begin(), block_dead.end());
-            visited.emplace(current);
             BasicBlock *next = nullptr;
             size_t successor_count = 0;
             current->traverse_successors(true, [&](BasicBlock *succ) noexcept {

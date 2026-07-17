@@ -13,11 +13,21 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-[[nodiscard]] static bool is_alloca_promotable(AllocaInst *inst) noexcept {
+[[nodiscard]] static bool is_alloca_promotable(
+    AllocaInst *inst,
+    const luisa::unordered_set<BasicBlock *> &reachable_blocks) noexcept {
     if (inst->op() != AllocaOp::LOCAL) { return false; }
     for (auto &&use : inst->use_list()) {
         LUISA_DEBUG_ASSERT(use->user() != nullptr && use->user()->isa<Instruction>(), "Invalid user.");
         auto user_inst = static_cast<Instruction *>(use->user());
+        // Disconnected blocks remain owned by the function. Removing a load or
+        // store from such a block while promoting the reachable uses can leave
+        // retained instructions there with dangling operands. Keep the alloca
+        // intact unless every direct user participates in this CFG rewrite.
+        if (auto *parent = user_inst->parent_block();
+            parent == nullptr || !reachable_blocks.contains(parent)) {
+            return false;
+        }
         if (user_inst->isa<LoadInst>()) { continue; }
         if (!user_inst->isa<StoreInst>()) { return false; }
         // Reject allocas whose pointer value escapes via being stored.
@@ -217,25 +227,6 @@ struct PhiInsertionAndRenaming {
         for (auto [def_block, store_inst] : analysis.def_blocks) {
             remove_store(store_inst, ctx, info);
         }
-        luisa::vector<Instruction *> unreachable_users;
-        for (auto &&use : inst->use_list()) {
-            if (auto user = use->user(); user != nullptr && user->isa<Instruction>()) {
-                auto *user_inst = static_cast<Instruction *>(user);
-                auto *parent = user_inst->parent_block();
-                if (parent != nullptr && !analysis.reachable_blocks.contains(parent)) {
-                    unreachable_users.emplace_back(user_inst);
-                }
-            }
-        }
-        for (auto *user_inst : unreachable_users) {
-            if (user_inst->isa<LoadInst>()) {
-                ctx.mark_as_removed(user_inst->remove_self());
-                info.removed_load_count++;
-            } else if (user_inst->isa<StoreInst>()) {
-                ctx.mark_as_removed(user_inst->remove_self());
-                info.removed_store_count++;
-            }
-        }
         // remove the local variable (which should have no uses now) and record the promotion
         LUISA_ASSERT(inst->use_list().empty(), "Invalid state.");
         remove_alloca(inst, ctx, info);
@@ -340,15 +331,18 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
 
 static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &info) noexcept {
     if (auto def = f->definition()) {
-        // run the transpose GEP pass first so we can possibly handle more aggregates
-        if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
-            transpose_gep_info.transposed_load_count != 0 ||
-            transpose_gep_info.transposed_store_count != 0) {
-            LUISA_VERBOSE("Transposed {} load instruction(s) and {} store instruction(s) in mem2reg pass.",
-                          transpose_gep_info.transposed_load_count,
-                          transpose_gep_info.transposed_store_count);
-        }
+        
+        // run the transpose GEP pass first so we can possibly handle more aggregates (EDIT: disabled for better performance on CUDA)
+        // if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
+        //     transpose_gep_info.transposed_load_count != 0 ||
+        //     transpose_gep_info.transposed_store_count != 0) {
+        //     LUISA_VERBOSE("Transposed {} load instruction(s) and {} store instruction(s) in mem2reg pass.",
+        //                   transpose_gep_info.transposed_load_count,
+        //                   transpose_gep_info.transposed_store_count);
+        // }
+        
         // collect local alloca instructions that can be promoted
+        luisa::vector<AllocaInst *> local_allocas;
         luisa::vector<AllocaInst *> promotable;
         luisa::unordered_map<Instruction *, uint32_t> inst_indices;
         luisa::unordered_map<BasicBlock *, uint32_t> block_indices;
@@ -359,9 +353,7 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
             block->traverse_instructions([&](Instruction *inst) noexcept {
                 switch (inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::ALLOCA: {
-                        if (auto alloca_inst = static_cast<AllocaInst *>(inst); is_alloca_promotable(alloca_inst)) {
-                            promotable.emplace_back(alloca_inst);
-                        }
+                        local_allocas.emplace_back(static_cast<AllocaInst *>(inst));
                         break;
                     }
                     case DerivedInstructionTag::LOAD: [[fallthrough]];
@@ -373,6 +365,11 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                 }
             });
         });
+        for (auto *alloca_inst : local_allocas) {
+            if (is_alloca_promotable(alloca_inst, reachable_blocks)) {
+                promotable.emplace_back(alloca_inst);
+            }
+        }
         // do some simplification first
         Mem2RegPassContext ctx;
         if (!promotable.empty()) {

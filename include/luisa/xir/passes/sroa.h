@@ -10,7 +10,10 @@ class PassReport;
 struct SROAOptions {
     bool decompose_vectors{false};
     bool decompose_matrices{false};
-    bool aggressive{false};// If true, decompose structs even without all-constant indices
+    // Reserved for future profitability heuristics. Dynamic indices in the
+    // decomposed (first) dimension are never rewritten: selecting among the
+    // replacement allocas would require an explicit control-flow lowering.
+    bool aggressive{false};
 };
 
 struct SROAInfo {

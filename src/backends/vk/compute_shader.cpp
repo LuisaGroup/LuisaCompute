@@ -34,7 +34,8 @@ ComputeShader::ComputeShader(
         pso_ci.initialDataSize = cache_code.size();
         pso_ci.pInitialData = cache_code.data();
     }
-    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &_pipe_cache));
+    VkPipelineCache pipe_cache{VK_NULL_HANDLE};
+    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &pipe_cache));
     VkShaderModuleCreateInfo module_create_info{
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = spv_code.size_bytes(),
@@ -74,21 +75,27 @@ ComputeShader::ComputeShader(
             .pName = "main"},
         .layout = _pipeline_layout};
 
-    VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), _pipe_cache, 1, &pipe_ci, Device::alloc_callbacks(), &_pipeline));
+    VkPipeline pipeline;
+    VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), pipe_cache, 1, &pipe_ci, Device::alloc_callbacks(), &pipeline));
+    _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, pipe_cache, Device::alloc_callbacks());
 }
 bool ComputeShader::serialize_pso(vstd::vector<std::byte> &result) const {
+    if (!_pipeline_ref) { return false; }
+    auto cache = _pipeline_ref->pipeline_cache;
+    if (cache == VK_NULL_HANDLE) { return false; }
     auto last_size = result.size();
     size_t pso_size = 0;
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), _pipe_cache, &pso_size, nullptr));
+    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, nullptr));
     luisa::vector_resize(result, last_size + pso_size);
     if (pso_size <= sizeof(VkPipelineCacheHeaderVersionOne)) return false;
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), _pipe_cache, &pso_size, result.data() + last_size));
+    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, result.data() + last_size));
     luisa::vector_resize(result, last_size + pso_size);
     return true;
 }
 ComputeShader::~ComputeShader() {
-    vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
-    vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+    if (_pipeline_ref) {
+        _pipeline_ref->release();
+    }
 }
 ComputeShader *ComputeShader::compile(
     BinaryIO const *bin_io,

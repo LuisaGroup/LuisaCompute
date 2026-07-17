@@ -21,6 +21,7 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -86,6 +87,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(coro_func != nullptr,
                  "Coroutine compilation failed: no coroutine function found in XIR module");
 
+    // Coro cfg distill/split/materialize intentionally accept only plain CFG.
+    // Destructure preserves SwitchInst, so lower switches explicitly first.
+    auto lower_switch_info = xir::lower_switch_pass_run_on_module(module.get());
+    LUISA_ASSERT(lower_switch_info.succeeded(),
+                 "Coroutine normalization rejected {} unsupported structured switch(es)",
+                 lower_switch_info.rejected_switch_count);
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
     auto pre_distill_pipeline = create_coro_pre_distill_pipeline();
     auto pre_distill_stats = pre_distill_pipeline.run(module.get());
@@ -121,9 +128,13 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto *frame_type = Type::structure(frame_alignment, frame_fields);
 
     auto split_info = xir::coro_split_pass_run_on_module_with_cfg_and_frame_info(module.get(), cfg, frame_type);
+    LUISA_ASSERT(split_info.succeeded(),
+                 "coro-split rejected structured or ambiguous CFG after normalization");
     LUISA_ASSERT(!split_info.subroutines.empty(), "coro-split produced no callables");
 
     auto materialize_info = xir::coro_materialize_pass_run_on_module_with_cfg(module.get(), cfg, split_info);
+    LUISA_ASSERT(materialize_info.succeeded(),
+                 "coro-materialize rejected structured or ambiguous CFG after normalization");
     LUISA_ASSERT(materialize_info.callable_count != 0u, "coro-materialize found no callables");
 
     (void)xir::coro_reg2mem_pass_run_on_split(split_info);

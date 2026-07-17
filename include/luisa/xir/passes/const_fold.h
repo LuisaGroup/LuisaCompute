@@ -10,6 +10,10 @@ class PassReport;
 // This pass folds constant expressions at compile time.
 // Arithmetic operations with all-constant operands are evaluated
 // and replaced with a Constant value.
+// Target-dependent floating-point operations such as LERP and SMOOTHSTEP are
+// left intact when a host evaluation would not preserve strict backend
+// semantics. NaN and signed-zero cases are folded only when backend behavior is
+// unambiguous.
 
 struct ConstFoldInfo {
     size_t folded_inst_count{0u};

@@ -4,6 +4,8 @@
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/constant.h>
 
+#include <cmath>
+
 namespace luisa::compute::xir {
 
 namespace detail {
@@ -36,48 +38,50 @@ namespace detail {
     return false;
 }
 
-[[nodiscard]] static bool is_const_float_zero(const Value *v) noexcept { return is_const_float_value(v, 0.0f); }
+[[nodiscard]] static bool is_const_positive_float_zero(const Value *v) noexcept {
+    if (!is_const_float_value(v, 0.0f)) return false;
+    auto c = static_cast<const Constant *>(v);
+    auto t = c->type();
+    if (t->is_float32()) return !std::signbit(*static_cast<const float *>(c->data()));
+    if (t->is_float64()) return !std::signbit(*static_cast<const double *>(c->data()));
+    if (t->is_vector()) {
+        auto elem = t->element();
+        auto stride = elem->size();
+        auto base = static_cast<const std::byte *>(c->data());
+        if (elem->is_float32()) {
+            for (size_t i = 0; i < t->dimension(); ++i) {
+                if (std::signbit(*reinterpret_cast<const float *>(base + i * stride))) return false;
+            }
+            return true;
+        }
+        if (elem->is_float64()) {
+            for (size_t i = 0; i < t->dimension(); ++i) {
+                if (std::signbit(*reinterpret_cast<const double *>(base + i * stride))) return false;
+            }
+            return true;
+        }
+    }
+    return false;
+}
 [[nodiscard]] static bool is_const_float_one(const Value *v) noexcept { return is_const_float_value(v, 1.0f); }
 
 /// Attempt to simplify a single ArithmeticInst.
 /// Returns a replacement Value* if simplification applies, nullptr otherwise.
-[[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, Module *module, XIRBuilder &builder) noexcept {
+[[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, XIRBuilder &builder) noexcept {
     auto op = inst->op();
     auto type = inst->type();
     if (type == nullptr) return nullptr;
 
     switch (op) {
 
-        case ArithmeticOp::LERP: {
-            // LERP(x, y, 0.0) → x
-            // LERP(x, y, 1.0) → y
-            if (inst->operand_count() < 3) break;
-            auto s = inst->operand(2);
-            if (is_const_float_zero(s)) return inst->operand(0);
-            if (is_const_float_one(s)) return inst->operand(1);
-            break;
-        }
-
         case ArithmeticOp::CLAMP: {
-            // CLAMP(x, lo, hi) where lo == 0.0 and hi == 1.0 → SATURATE(x)
+            // CLAMP(x, lo, hi) where lo == +0.0 and hi == 1.0 → SATURATE(x)
             if (inst->operand_count() < 3) break;
             auto lo = inst->operand(1);
             auto hi = inst->operand(2);
-            if (is_const_float_zero(lo) && is_const_float_one(hi)) {
+            if (is_const_positive_float_zero(lo) && is_const_float_one(hi)) {
                 builder.set_insertion_point(inst);
                 return builder.call(type, ArithmeticOp::SATURATE, {inst->operand(0)});
-            }
-            break;
-        }
-
-        case ArithmeticOp::STEP: {
-            // STEP(edge, x): returns (x >= edge) ? 1 : 0.
-            // If edge is 0.0, then for all float x, x >= 0.0 → 1.0
-            // (IEEE 754: -0.0 >= 0.0 is true)
-            if (inst->operand_count() < 2) break;
-            auto edge = inst->operand(0);
-            if (is_const_float_zero(edge)) {
-                return module->create_constant_one(type);
             }
             break;
         }
@@ -118,7 +122,6 @@ namespace detail {
 static void simplify_libcalls_on_function(Function *function, SimplifyLibCallsInfo &info) noexcept {
     auto def = function->definition();
     if (!def) return;
-    auto module = function->parent_module();
     XIRBuilder builder;
 
     luisa::vector<ArithmeticInst *> to_simplify;
@@ -129,7 +132,7 @@ static void simplify_libcalls_on_function(Function *function, SimplifyLibCallsIn
     });
 
     for (auto inst : to_simplify) {
-        auto replacement = try_simplify(inst, module, builder);
+        auto replacement = try_simplify(inst, builder);
         if (replacement != nullptr) {
             inst->replace_all_uses_with(replacement);
             inst->remove_self();

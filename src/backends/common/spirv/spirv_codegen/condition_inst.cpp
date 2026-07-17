@@ -226,16 +226,63 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     }
     bool merge_already_used = _used_merge_blocks.contains(merge_block->getId());
 
+    // Compute the ultimate block the declared merge block forwards to by
+    // following a chain of empty forward blocks (e.g. merge -> next -> ...).
+    // This identifies the true structural continuation of the construct when
+    // one arm bypasses the declared merge block entirely.
+    const xir::BasicBlock *merge_ultimate_forward = nullptr;
+    {
+        luisa::unordered_set<const xir::BasicBlock *> forward_seen;
+        auto *forward_cursor = inst->merge_block();
+        forward_seen.emplace(forward_cursor);
+        while (auto *next = single_forward_target(forward_cursor)) {
+            if (!forward_seen.emplace(next).second) { break; }// cycle guard
+            forward_cursor = next;
+        }
+        if (forward_cursor != inst->merge_block() &&
+            forward_cursor != inst->true_block() &&
+            forward_cursor != inst->false_block()) {
+            merge_ultimate_forward = forward_cursor;
+        }
+    }
+    // An arm "bypasses" the declared merge when the merge does not reach the
+    // arm, but the arm still converges to the merge's ultimate forward target
+    // (which then post-dominates the arm).  In this situation neither the
+    // fall-through scheme (the arm is not the continuation) nor a synthetic
+    // dead-end merge is structurally correct; instead the declared merge is
+    // kept as the SPIR-V selection merge and the forward target is redirected
+    // back to the merge while the bypassing arm is emitted, so nested merge
+    // blocks chain through this merge instead of jumping past the whole
+    // construct.
+    auto arm_bypasses_merge = [&](const xir::BasicBlock *arm) noexcept {
+        return merge_ultimate_forward != nullptr &&
+               !block_reaches(inst->merge_block(), arm) &&
+               block_reaches(arm, merge_ultimate_forward) &&
+               _dom_tree != nullptr &&
+               _dom_tree->strictly_post_dominates(
+                   const_cast<xir::BasicBlock *>(merge_ultimate_forward),
+                   const_cast<xir::BasicBlock *>(arm));
+    };
+    bool bypass_with_merge_redirect = false;
+    bool bypass_true_arm = false;
+
     // In a normal two-sided if both arms reach the merge block and we can use
     // it as the SPIR-V selection merge.  If neither arm reaches it, we need a
     // synthetic dead-end merge.  If exactly one arm reaches it, the other arm
     // is the fall-through continuation: use that arm's block as the SPIR-V
     // selection merge and make the reaching arm branch to the original merge.
+    // When the merge block coincides with one arm and the other arm is a
+    // terminal exit (return/unreachable/discard), the merge arm is the live
+    // continuation of the construct rather than a dead end, so no synthetic
+    // dead-end merge is needed — the merge arm is emitted with its content.
+    bool non_merge_arm_terminal =
+        (inst->merge_block() == inst->true_block() && block_is_terminal_exit(inst->false_block())) ||
+        (inst->merge_block() == inst->false_block() && block_is_terminal_exit(inst->true_block()));
     spv::Block *synthetic_merge = nullptr;
     spv::Block *selection_merge_target = merge_block;
     spv::Block *true_branch_target = merge_block;
     spv::Block *false_branch_target = merge_block;
-    if (merge_already_used || (!true_post_dom && !false_post_dom)) {
+    if (merge_already_used || (!true_post_dom && !false_post_dom && !non_merge_arm_terminal)) {
         // Both arms exit the construct (or the merge is already reserved), so a
         // synthetic merge is required for SPIR-V structural correctness.
         synthetic_merge = new spv::Block(_builder.getUniqueId(), function);
@@ -245,6 +292,12 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     } else if (!true_post_dom && false_post_dom) {
         if (block_is_terminal_exit(inst->true_block())) {
             true_branch_target = nullptr;
+        } else if (arm_bypasses_merge(inst->true_block())) {
+            // True arm bypasses the merge: keep the merge as the selection
+            // merge and chain the bypassing region through it (see above).
+            bypass_with_merge_redirect = true;
+            bypass_true_arm = true;
+            true_branch_target = merge_block;
         } else {
             // True arm falls through: the true target is also the SPIR-V merge.
             selection_merge_target = true_block;
@@ -254,6 +307,11 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     } else if (true_post_dom && !false_post_dom) {
         if (block_is_terminal_exit(inst->false_block())) {
             false_branch_target = nullptr;
+        } else if (arm_bypasses_merge(inst->false_block())) {
+            // False arm bypasses the merge: keep the merge as the selection
+            // merge and chain the bypassing region through it (see above).
+            bypass_with_merge_redirect = true;
+            false_branch_target = merge_block;
         } else {
             // False arm falls through: the false target is also the SPIR-V merge.
             selection_merge_target = false_block;
@@ -350,8 +408,39 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
             _builder.createBranch(false, branch_to);
         }
     };
-    emit_arm(inst->true_block(), true_target, true_branch_target);
-    emit_arm(inst->false_block(), false_target, false_branch_target);
+    // When an arm bypasses the declared merge, redirect the merge's ultimate
+    // forward target back to the merge block while that arm is emitted.
+    // Nested merge blocks that would otherwise jump directly to the forward
+    // target then branch to this merge instead, forming a properly nested
+    // chain of merge blocks that converges to the forward target only through
+    // this construct's merge.  The redirect is removed before the real merge
+    // block itself is emitted so that the merge still forwards to the
+    // (possibly redirected-by-an-outer-construct) forward target.
+    auto emit_arm_guarded = [&](const xir::BasicBlock *xb, spv::Block *target,
+                                spv::Block *branch_to, bool is_bypass_arm) noexcept {
+        spv::Block *old_redirect = nullptr;
+        bool had_old_redirect = false;
+        bool redirect_installed = false;
+        if (bypass_with_merge_redirect && is_bypass_arm) {
+            if (auto it = _branch_target_redirect.find(merge_ultimate_forward);
+                it != _branch_target_redirect.end()) {
+                had_old_redirect = true;
+                old_redirect = it->second;
+            }
+            _branch_target_redirect[merge_ultimate_forward] = merge_block;
+            redirect_installed = true;
+        }
+        emit_arm(xb, target, branch_to);
+        if (redirect_installed) {
+            if (had_old_redirect) {
+                _branch_target_redirect[merge_ultimate_forward] = old_redirect;
+            } else {
+                _branch_target_redirect.erase(merge_ultimate_forward);
+            }
+        }
+    };
+    emit_arm_guarded(inst->true_block(), true_target, true_branch_target, bypass_true_arm);
+    emit_arm_guarded(inst->false_block(), false_target, false_branch_target, !bypass_true_arm);
     if (synthetic_merge != nullptr) {
         function.addBlock(synthetic_merge);
         _added_blocks.emplace(synthetic_merge);
@@ -728,6 +817,15 @@ void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBran
             if (op == spv::Op::OpSelectionMerge) { has_selection_merge = true; }
         }
     }
+    bool selection_merge_added = false;
+    auto add_selection_merge = [&](spv::Block *merge_target) noexcept {
+        auto selection_merge_inst = new spv::Instruction(spv::Op::OpSelectionMerge);
+        selection_merge_inst->reserveOperands(2);
+        selection_merge_inst->addIdOperand(merge_target->getId());
+        selection_merge_inst->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+        _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge_inst));
+        selection_merge_added = true;
+    };
     if (!has_loop_merge && !has_selection_merge && !_loop_boundary_stack.empty()) {
         // Stack layout per loop: (merge, continue/update). The innermost loop
         // boundaries are at the top two entries.
@@ -744,11 +842,52 @@ void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBran
         if (true_reaches_continue != false_reaches_continue &&
             !true_is_loop_boundary && !false_is_loop_boundary) {
             auto selection_merge = true_reaches_continue ? true_block : false_block;
-            auto selection_merge_inst = new spv::Instruction(spv::Op::OpSelectionMerge);
-            selection_merge_inst->reserveOperands(2);
-            selection_merge_inst->addIdOperand(selection_merge->getId());
-            selection_merge_inst->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-            _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge_inst));
+            add_selection_merge(selection_merge);
+        }
+    }
+
+    // A divergent conditional branch that is not covered by an enclosing
+    // structured loop or selection (e.g. one produced for irreducible CFGs
+    // such as coroutine state machines) still forms a selection in SPIR-V:
+    // the validator requires it to be preceded by an OpSelectionMerge whenever
+    // both targets are fresh (not yet a merge/branch target).  The merge point
+    // is the block where the two arms reconverge: when one arm's region flows
+    // into the other target's block, that block is the merge; otherwise fall
+    // back to the immediate post-dominator of the current block.  When one arm
+    // is a terminal exit, the other arm is the continuation and serves as the
+    // merge.  The merge is only emitted when it is not already another
+    // construct's merge block — in that case the branch is already structured
+    // through that construct and needs no merge of its own.
+    if (!has_loop_merge && !has_selection_merge && !selection_merge_added &&
+        inst->true_block() != inst->false_block() &&
+        !_is_direct_structured_branch_target(inst->true_block()) &&
+        !_is_direct_structured_branch_target(inst->false_block())) {
+        spv::Block *selection_merge = nullptr;
+        if (block_reaches(inst->false_block(), inst->true_block())) {
+            // The false arm's region flows back to the true target block.
+            selection_merge = true_block;
+        } else if (block_reaches(inst->true_block(), inst->false_block())) {
+            // The true arm's region flows back to the false target block.
+            selection_merge = false_block;
+        } else if (block_is_terminal_exit(inst->true_block())) {
+            selection_merge = false_block;
+        } else if (block_is_terminal_exit(inst->false_block())) {
+            selection_merge = true_block;
+        } else if (_dom_tree != nullptr) {
+            if (auto *ipdom = _dom_tree->immediate_post_dominator(
+                    const_cast<xir::BasicBlock *>(inst->parent_block()));
+                ipdom != nullptr && ipdom != inst->parent_block()) {
+                selection_merge = _resolve_branch_target(ipdom);
+            }
+        }
+        // Do not reuse a block that is already the merge of an enclosing
+        // construct: that would make it the merge of two headers (invalid),
+        // and the branch is already structured through that construct anyway.
+        bool merge_is_enclosing = std::find(_outer_merge_stack.begin(),
+                                            _outer_merge_stack.end(),
+                                            selection_merge) != _outer_merge_stack.end();
+        if (selection_merge != nullptr && !merge_is_enclosing) {
+            add_selection_merge(selection_merge);
         }
     }
 
