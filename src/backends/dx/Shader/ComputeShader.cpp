@@ -99,11 +99,6 @@ ComputeShader *ComputeShader::compile_compute(
                 if (!kernel.name().empty()) return luisa::string{kernel.name()};
                 return luisa::format("{:x}", kernel.hash());
             }();
-            for (auto &c : dump_name) {
-                if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
-                    c = '_';
-                }
-            }
             auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
             if (auto f = fopen(dump_file_name.c_str(), "wb")) {
                 fwrite(str.result.data(), str.result.size(), 1, f);
@@ -223,11 +218,6 @@ void ComputeShader::save_compute(
             if (!kernel.name().empty()) return luisa::string{kernel.name()};
             return luisa::format("{:x}", kernel.hash());
         }();
-        for (auto &c : dump_name) {
-            if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
-                c = '_';
-            }
-        }
         auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
         auto f = fopen(dump_file_name.c_str(), "wb");
         if (f) {

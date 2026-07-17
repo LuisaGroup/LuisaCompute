@@ -154,9 +154,6 @@ CompileResult ShaderCompiler::compile_compute(
         } else if (shaderModel > 60) {
             args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
-        args.emplace_back(L"-fspv-extension=SPV_KHR_physical_storage_buffer");
-        args.emplace_back(L"-fspv-extension=SPV_EXT_descriptor_indexing");
-        args.emplace_back(L"-fspv-extension=SPV_KHR_ray_query");
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());
