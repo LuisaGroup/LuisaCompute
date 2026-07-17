@@ -23,6 +23,7 @@
 #include <luisa/ast/interface.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/bindless_array.h>
+#include <luisa/runtime/stream.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -70,6 +71,13 @@ LUISA_STRUCT(Test2, a, b) {};
 LUISA_STRUCT(Test3, a, b, c) {};
 LUISA_STRUCT(Point3D, v) {};
 LUISA_STRUCT(MDArray, v) {};
+
+// Structure with bool vector fields for testing
+struct BoolVecTest {
+    bool2 b;
+    bool c;
+};
+LUISA_STRUCT(BoolVecTest, b, c) {};
 
 // Template structure for key-value pairs
 template<typename IndexType, typename ValueType>
@@ -292,6 +300,97 @@ void test_dsl(Device &device) {
 
     auto kernel = device.compile<2>(kernel_def);
     expect(true) << "DSL kernel compiled successfully";
+
+    // Test Bool + ite kernel
+    {
+        auto result_buffer = device.create_buffer<uint>(1u);
+        Stream test_stream = device.create_stream();
+
+        Kernel1D k_bool_ite = [](Var<bool> value, BufferVar<uint> result) noexcept {
+            result.write(0u, ite(value, 1u, 0u));
+        };
+
+        auto bool_ite_shader = device.compile(k_bool_ite);
+
+        // Test with true
+        test_stream << bool_ite_shader(true, result_buffer).dispatch(1u) << synchronize();
+
+        std::array<uint, 1> result_data{};
+        test_stream << result_buffer.copy_to(luisa::span{result_data}) << synchronize();
+
+        expect(result_data[0] == 1u) << "ite(true, 1, 0) should be 1";
+
+        // Test with false
+        test_stream << bool_ite_shader(false, result_buffer).dispatch(1u) << synchronize();
+        test_stream << result_buffer.copy_to(luisa::span{result_data}) << synchronize();
+
+        expect(result_data[0] == 0u) << "ite(false, 1, 0) should be 0";
+    }
+    // Test struct with bool vector fields as local variable (non-aliased InitAsStruct path)
+    {
+        auto result_buffer = device.create_buffer<uint>(3u);
+        Stream test_stream = device.create_stream();
+
+        Kernel1D k_bool_vec = [](BufferUInt result) noexcept {
+            Var<BoolVecTest> s;
+            s.c = true;
+            s.b = make_bool2(true, false);
+            result.write(0u, cast<uint>(s.c));
+            result.write(1u, cast<uint>(s.b.x));
+            result.write(2u, cast<uint>(s.b.y));
+        };
+
+        auto shader = device.compile(k_bool_vec);
+        test_stream << shader(result_buffer).dispatch(1u) << synchronize();
+
+        std::array<uint, 3> result_data{};
+        test_stream << result_buffer.copy_to(luisa::span{result_data}) << synchronize();
+
+        expect(result_data[0] == 1u) << "local bool c should be 1 (true)";
+        expect(result_data[1] == 1u) << "local bool2.x should be 1 (true)";
+        expect(result_data[2] == 0u) << "local bool2.y should be 0 (false)";
+    }
+    // Test kernel with multiple bool arguments (exercises cbuffer GenerateCBuffer bool codegen)
+    {
+        auto result_buffer = device.create_buffer<uint>(3u);
+        Stream test_stream = device.create_stream();
+
+        // Multiple bool arguments exercise GenerateCBuffer which emits int l<uid>:8 for each
+        Kernel1D k_multi_bool = [](Var<bool> a, Var<bool> b, BufferUInt result) noexcept {
+            result.write(0u, cast<uint>(a));
+            result.write(1u, cast<uint>(b));
+            result.write(2u, cast<uint>(a & b));
+        };
+
+        auto shader = device.compile(k_multi_bool);
+        test_stream << shader(true, false, result_buffer).dispatch(1u) << synchronize();
+
+        std::array<uint, 3> result_data{};
+        test_stream << result_buffer.copy_to(luisa::span{result_data}) << synchronize();
+
+        expect(result_data[0] == 1u) << "cbuffer bool a should be 1 (true)";
+        expect(result_data[1] == 0u) << "cbuffer bool b should be 0 (false)";
+        expect(result_data[2] == 0u) << "cbuffer bool a & b should be 0 (false)";
+    }
+    // Test kernel with bool2 kernel argument (exercises cbuffer GenerateCBuffer bool-vector codegen)
+    {
+        auto result_buffer = device.create_buffer<uint>(2u);
+        Stream test_stream = device.create_stream();
+
+        Kernel1D k_bool2_arg = [](Var<bool2> v, BufferUInt result) noexcept {
+            result.write(0u, cast<uint>(v.x));
+            result.write(1u, cast<uint>(v.y));
+        };
+
+        auto shader = device.compile(k_bool2_arg);
+        test_stream << shader(make_bool2(true, false), result_buffer).dispatch(1u) << synchronize();
+
+        std::array<uint, 2> result_data{};
+        test_stream << result_buffer.copy_to(luisa::span{result_data}) << synchronize();
+
+        expect(result_data[0] == 1u) << "cbuffer bool2.x should be 1 (true)";
+        expect(result_data[1] == 0u) << "cbuffer bool2.y should be 0 (false)";
+    }
     // auto command = kernel(float_buffer, 12u).dispatch(1024u);
     // auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }

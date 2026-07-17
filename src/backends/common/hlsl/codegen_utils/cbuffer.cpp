@@ -92,7 +92,16 @@ void CodegenUtility::GenerateCBuffer(
                     LUISA_ERROR("HLSL do not support 16-bit variables adjacent with bool");
                 }
                 last_type = i.type();
-                if (opt->isSpirv && i.type()->tag() == Type::Tag::BOOL) {
+                // Note: BOOL scalar kernel arguments go through this cbuffer code path.
+                // They are emitted as `int l<uid>:8` bitfields to match C++ bool size (1 byte).
+                // Verified by test with Var<bool> kernel arguments in
+                // src/tests/unit/dsl/test_dsl.cpp (bool+ite test + multi_bool test).
+                //
+                // Bool vectors (bool2/3/4) do NOT need the same treatment because:
+                // - GetTypeName with local_var=true emits boolN (e.g. bool2)
+                // - In HLSL/DXIL, boolN maps to <N x i32>, not i8, so no I8 error.
+                // - Verified by test with Var<bool2> kernel argument in the same file.
+                if (i.type()->tag() == Type::Tag::BOOL) {
                     result << "int";
                 } else
                     GetTypeName(*i.type(), result, Usage::READ, true);

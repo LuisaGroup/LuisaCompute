@@ -31,7 +31,8 @@ RayTracingShader::RayTracingShader(
         pso_ci.initialDataSize = cache_code.size();
         pso_ci.pInitialData = cache_code.data();
     }
-    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &_pipe_cache));
+    VkPipelineCache pipe_cache{VK_NULL_HANDLE};
+    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &pipe_cache));
 
     // Create shader module from SPIR-V
     VkShaderModuleCreateInfo module_create_info{
@@ -93,9 +94,12 @@ RayTracingShader::RayTracingShader(
     // OpTraceRayMotionNV to work correctly with motion TLAS/BLAS.
     rt_pipeline_ci.flags = VK_PIPELINE_CREATE_RAY_TRACING_ALLOW_MOTION_BIT_NV;
 
+    VkPipeline pipeline{};
     VK_CHECK_RESULT(vkCreateRayTracingPipelinesKHR(
-        device->logic_device(), VK_NULL_HANDLE, _pipe_cache,
-        1, &rt_pipeline_ci, Device::alloc_callbacks(), &_pipeline));
+        device->logic_device(), VK_NULL_HANDLE, pipe_cache,
+        1, &rt_pipeline_ci, Device::alloc_callbacks(), &pipeline));
+
+    _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, pipe_cache, Device::alloc_callbacks());
 
     // Query RT pipeline properties for SBT
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props{};
@@ -119,7 +123,7 @@ RayTracingShader::RayTracingShader(
     auto group_count = 3u;
     vstd::vector<uint8_t> handles(handle_size * group_count);
     VK_CHECK_RESULT(vkGetRayTracingShaderGroupHandlesKHR(
-        device->logic_device(), _pipeline, 0, group_count,
+        device->logic_device(), pipeline, 0, group_count,
         handles.size(), handles.data()));
 
     // Create SBT buffer with VMA - needs host-visible + shader device address
@@ -158,15 +162,18 @@ RayTracingShader::RayTracingShader(
 }
 
 bool RayTracingShader::serialize_pso(vstd::vector<std::byte> &result) const {
+    if (!_pipeline_ref) { return false; }
+    auto cache = _pipeline_ref->pipeline_cache;
+    if (cache == VK_NULL_HANDLE) { return false; }
     auto last_size = result.size();
     size_t pso_size = 0;
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), _pipe_cache, &pso_size, nullptr));
+    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, nullptr));
     if (pso_size <= sizeof(VkPipelineCacheHeaderVersionOne)) {
         luisa::vector_resize(result, last_size);
         return false;
     }
     luisa::vector_resize(result, last_size + pso_size);
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), _pipe_cache, &pso_size, result.data() + last_size));
+    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, result.data() + last_size));
     luisa::vector_resize(result, last_size + pso_size);
     return true;
 }
@@ -175,8 +182,9 @@ RayTracingShader::~RayTracingShader() {
     if (_sbt_vk_buffer) {
         vmaDestroyBuffer(device()->allocator().allocator(), _sbt_vk_buffer, _sbt_allocation);
     }
-    vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
-    vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+    if (_pipeline_ref) {
+        _pipeline_ref->release();
+    }
 }
 
 RayTracingShader *RayTracingShader::compile(

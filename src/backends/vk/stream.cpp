@@ -1170,7 +1170,7 @@ void CommandBuffer::end() {
 }
 CommandBuffer::CommandBuffer(CommandBuffer &&rhs) noexcept
     : Resource(std::move(rhs)),
-      _stream(rhs._stream),            // NOLINT(bugprone-use-after-move)
+      _stream(rhs._stream),          // NOLINT(bugprone-use-after-move)
       _cmdbuffer(rhs._cmdbuffer),    // NOLINT(bugprone-use-after-move)
       _state(std::move(rhs._state)) {// NOLINT(bugprone-use-after-move)
     rhs._cmdbuffer = nullptr;
@@ -1599,12 +1599,11 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     VkBuffer src = chunk.buffer->vk_buffer();
                     VkBuffer dst = reinterpret_cast<Buffer const *>(c->handle())->vk_buffer();
                     auto &regions = pending_upload.copies[BufferPair{src, dst}];
-                    regions.push_back({
-                        VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-                        nullptr,
-                        chunk.offset,
-                        c->offset(),
-                        c->size()});
+                    regions.push_back({VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                                       nullptr,
+                                       chunk.offset,
+                                       c->offset(),
+                                       c->size()});
                 } break;
                 case Command::Tag::EBufferDownloadCommand: {
                     auto c = static_cast<BufferDownloadCommand const *>(cmd);
@@ -1615,12 +1614,11 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     VkBuffer src = reinterpret_cast<Buffer const *>(c->handle())->vk_buffer();
                     VkBuffer dst = chunk.buffer->vk_buffer();
                     auto &regions = pending_download.copies[BufferPair{src, dst}];
-                    regions.push_back({
-                        VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-                        nullptr,
-                        c->offset(),
-                        chunk.offset,
-                        c->size()});
+                    regions.push_back({VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                                       nullptr,
+                                       c->offset(),
+                                       chunk.offset,
+                                       c->size()});
                 } break;
                 case Command::Tag::EBufferCopyCommand: {
                     flush_all_pending();
@@ -1672,6 +1670,10 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     flush_all_pending();
                     auto c = static_cast<ShaderDispatchCommand const *>(cmd);
                     auto shader = reinterpret_cast<Shader *>(c->handle());
+                    // Keep the shader's pipeline alive until this command buffer completes.
+                    if (auto *ref = shader->pipeline_ref()) {
+                        _state->dispose_after_flush(PipelineRefHolder{ref});
+                    }
                     bool is_rt_shader = (shader->shader_tag() == Shader::ShaderTag::kRayTracingShader);
                     BindPropVisitor visitor{};
                     set_dispatch_args(visitor, c, shader);
@@ -1764,8 +1766,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     }
                     auto bind_point = is_rt_shader ? VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR : VK_PIPELINE_BIND_POINT_COMPUTE;
                     auto push_stage = is_rt_shader ?
-                        static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_RAYGEN_BIT_KHR) :
-                        static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_COMPUTE_BIT);
+                                          static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_RAYGEN_BIT_KHR) :
+                                          static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_COMPUTE_BIT);
                     // Get pipeline and block_size from the correct shader type
                     VkPipeline vk_pipeline;
                     uint3 blk;
@@ -1800,9 +1802,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             if (is_rt_shader) {
                                 auto rt = static_cast<RayTracingShader const *>(shader);
                                 vkCmdTraceRaysKHR(_cmdbuffer,
-                                    &rt->raygen_region(), &rt->miss_region(),
-                                    &rt->hit_region(), &rt->callable_region(),
-                                    disp_size.x, disp_size.y, disp_size.z);
+                                                  &rt->raygen_region(), &rt->miss_region(),
+                                                  &rt->hit_region(), &rt->callable_region(),
+                                                  disp_size.x, disp_size.y, disp_size.z);
                             } else {
                                 vkCmdDispatch(_cmdbuffer, calc(disp_size.x, blk.x), calc(disp_size.y, blk.y), calc(disp_size.z, blk.z));
                             }
@@ -1820,9 +1822,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         if (is_rt_shader) {
                             auto rt = static_cast<RayTracingShader const *>(shader);
                             vkCmdTraceRaysKHR(_cmdbuffer,
-                                &rt->raygen_region(), &rt->miss_region(),
-                                &rt->hit_region(), &rt->callable_region(),
-                                disp_size.x, disp_size.y, disp_size.z);
+                                              &rt->raygen_region(), &rt->miss_region(),
+                                              &rt->hit_region(), &rt->callable_region(),
+                                              disp_size.x, disp_size.y, disp_size.z);
                         } else {
                             vkCmdDispatch(_cmdbuffer, calc(disp_size.x, blk.x), calc(disp_size.y, blk.y), calc(disp_size.z, blk.z));
                         }
@@ -1939,9 +1941,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     auto pixel_size = pixel_storage_size(c->storage(), c->size());
                     auto buffer = _state->readback_alloc.allocate(pixel_size, 16);
                     _state->callbacks.emplace_back([buffer = buffer.buffer,
-                                                     offset = buffer.offset,
-                                                     pixel_size,
-                                                     data = c->data()]() {
+                                                    offset = buffer.offset,
+                                                    pixel_size,
+                                                    data = c->data()]() {
                         static_cast<ReadbackBuffer const *>(buffer)->copy_to(data, offset, pixel_size);
                     });
                     auto tex = reinterpret_cast<Texture const *>(c->handle());

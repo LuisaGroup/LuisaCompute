@@ -116,7 +116,7 @@ void StructGenerator::InitAsStructAliased(
             structDesc << "_Als";
             util->GetTypeName(*i->element(), structDesc, Usage::READ);
             structDesc << luisa::format("{}", i->dimension());
-        } else if (i->is_bool_vector()) {
+        } else if (i->tag() == Type::Tag::BOOL || i->is_bool_vector()) { 
             structDesc << "int"sv;
         } else {
             util->GetTypeName(*i, structDesc, Usage::READ, false);
@@ -183,7 +183,19 @@ void StructGenerator::InitAsStruct(
                 break;
         }
         structSize += i->size();
-        util->GetTypeName(*i, structDesc, Usage::READ, false);
+        // Note: This non-aliased path does NOT need bool-vector bitfield support
+        // (like line 119 in InitAsStructAliased) because:
+        // 1. VectorShouldBeAliased() always returns true for bool vectors
+        //    (element()->is_bool()), so any struct with bool vectors goes through
+        //    CreateAliasedStruct → InitAsStructAliased, never here.
+        // 2. Even if a bool vector reached here, GetTypeName emits native HLSL
+        //    bool2/bool3/bool4 types which are valid for non-aliased local structs.
+        // Verified by test BoolVecTest in src/tests/unit/dsl/test_dsl.cpp
+        if (i->tag() == Type::Tag::BOOL) {
+            structDesc << "int"sv;
+        } else {
+            util->GetTypeName(*i, structDesc, Usage::READ, false);
+        }
         structDesc << " v"sv << vstd::to_string(varIdx);
         varIdx++;
         if (i->tag() == Type::Tag::BOOL) {
