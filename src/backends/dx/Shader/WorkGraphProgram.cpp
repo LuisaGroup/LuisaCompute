@@ -2,6 +2,7 @@
 #include "ShaderSerializer.h"
 
 #include "../../common/hlsl/shader_compiler.h"
+#include "LCAgilitySDK/d3dx12/d3dx12.h"
 #include <Resource/GpuAllocator.h>
 
 #include <utility>
@@ -159,7 +160,7 @@ WorkGraphProgram::WorkGraphProgram(
     size_t backing_memory_size,
     D3D12_PROGRAM_IDENTIFIER program_id,
     vstd::vector<luisa::compute::Argument> arg_bindings
-) : Shader { std::move(prop), std::move(saved_args), std::move(root_signature), std::move(printers) },
+) : Shader { std::move(prop), std::move(saved_args), std::move(root_signature), std::move(printers), 0 },
     _state_object(std::move(state_object)),
     _backing_memory(std::move(backing_memory)),
     _backing_memory_size(backing_memory_size),

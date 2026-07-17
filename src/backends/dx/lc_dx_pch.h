@@ -3,10 +3,6 @@
 #ifndef LUISA_COMPUTE_DX_BACKEND_PCH_H
 #define LUISA_COMPUTE_DX_BACKEND_PCH_H
 
-#ifdef LCDX_ENABLE_AGILITY_SDK
-#include <agility/d3d12.h>
-#endif
-
 #include <dxgi1_6.h>
 #include <Windows.h>
 #include <d3dx12.h>

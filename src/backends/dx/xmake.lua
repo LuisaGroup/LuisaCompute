@@ -21,9 +21,6 @@ end
 	        target:add("links", "WinPixEventRuntime")
 	        target:add("defines", "LCDX_ENABLE_WINPIX")
 	    end
-	    if has_config("lc_enable_dxagsdk") then
-	        target:add("defines", "LCDX_ENABLE_AGILITY_SDK")
-	    end
 	    if has_config("lc_dx_cuda_interop") then
 	        import("detect.sdks.find_cuda")
 	        target:add("links", "nvrtc_static", "cudart_static", "cuda")
