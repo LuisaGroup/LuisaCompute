@@ -226,6 +226,46 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     }
     bool merge_already_used = _used_merge_blocks.contains(merge_block->getId());
 
+    // Compute the ultimate block the declared merge block forwards to by
+    // following a chain of empty forward blocks (e.g. merge -> next -> ...).
+    // This identifies the true structural continuation of the construct when
+    // one arm bypasses the declared merge block entirely.
+    const xir::BasicBlock *merge_ultimate_forward = nullptr;
+    {
+        luisa::unordered_set<const xir::BasicBlock *> forward_seen;
+        auto *forward_cursor = inst->merge_block();
+        forward_seen.emplace(forward_cursor);
+        while (auto *next = single_forward_target(forward_cursor)) {
+            if (!forward_seen.emplace(next).second) { break; }// cycle guard
+            forward_cursor = next;
+        }
+        if (forward_cursor != inst->merge_block() &&
+            forward_cursor != inst->true_block() &&
+            forward_cursor != inst->false_block()) {
+            merge_ultimate_forward = forward_cursor;
+        }
+    }
+    // An arm "bypasses" the declared merge when the merge does not reach the
+    // arm, but the arm still converges to the merge's ultimate forward target
+    // (which then post-dominates the arm).  In this situation neither the
+    // fall-through scheme (the arm is not the continuation) nor a synthetic
+    // dead-end merge is structurally correct; instead the declared merge is
+    // kept as the SPIR-V selection merge and the forward target is redirected
+    // back to the merge while the bypassing arm is emitted, so nested merge
+    // blocks chain through this merge instead of jumping past the whole
+    // construct.
+    auto arm_bypasses_merge = [&](const xir::BasicBlock *arm) noexcept {
+        return merge_ultimate_forward != nullptr &&
+               !block_reaches(inst->merge_block(), arm) &&
+               block_reaches(arm, merge_ultimate_forward) &&
+               _dom_tree != nullptr &&
+               _dom_tree->strictly_post_dominates(
+                   const_cast<xir::BasicBlock *>(merge_ultimate_forward),
+                   const_cast<xir::BasicBlock *>(arm));
+    };
+    bool bypass_with_merge_redirect = false;
+    bool bypass_true_arm = false;
+
     // In a normal two-sided if both arms reach the merge block and we can use
     // it as the SPIR-V selection merge.  If neither arm reaches it, we need a
     // synthetic dead-end merge.  If exactly one arm reaches it, the other arm
@@ -245,6 +285,12 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     } else if (!true_post_dom && false_post_dom) {
         if (block_is_terminal_exit(inst->true_block())) {
             true_branch_target = nullptr;
+        } else if (arm_bypasses_merge(inst->true_block())) {
+            // True arm bypasses the merge: keep the merge as the selection
+            // merge and chain the bypassing region through it (see above).
+            bypass_with_merge_redirect = true;
+            bypass_true_arm = true;
+            true_branch_target = merge_block;
         } else {
             // True arm falls through: the true target is also the SPIR-V merge.
             selection_merge_target = true_block;
@@ -254,6 +300,11 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     } else if (true_post_dom && !false_post_dom) {
         if (block_is_terminal_exit(inst->false_block())) {
             false_branch_target = nullptr;
+        } else if (arm_bypasses_merge(inst->false_block())) {
+            // False arm bypasses the merge: keep the merge as the selection
+            // merge and chain the bypassing region through it (see above).
+            bypass_with_merge_redirect = true;
+            false_branch_target = merge_block;
         } else {
             // False arm falls through: the false target is also the SPIR-V merge.
             selection_merge_target = false_block;
@@ -350,8 +401,39 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
             _builder.createBranch(false, branch_to);
         }
     };
-    emit_arm(inst->true_block(), true_target, true_branch_target);
-    emit_arm(inst->false_block(), false_target, false_branch_target);
+    // When an arm bypasses the declared merge, redirect the merge's ultimate
+    // forward target back to the merge block while that arm is emitted.
+    // Nested merge blocks that would otherwise jump directly to the forward
+    // target then branch to this merge instead, forming a properly nested
+    // chain of merge blocks that converges to the forward target only through
+    // this construct's merge.  The redirect is removed before the real merge
+    // block itself is emitted so that the merge still forwards to the
+    // (possibly redirected-by-an-outer-construct) forward target.
+    auto emit_arm_guarded = [&](const xir::BasicBlock *xb, spv::Block *target,
+                                spv::Block *branch_to, bool is_bypass_arm) noexcept {
+        spv::Block *old_redirect = nullptr;
+        bool had_old_redirect = false;
+        bool redirect_installed = false;
+        if (bypass_with_merge_redirect && is_bypass_arm) {
+            if (auto it = _branch_target_redirect.find(merge_ultimate_forward);
+                it != _branch_target_redirect.end()) {
+                had_old_redirect = true;
+                old_redirect = it->second;
+            }
+            _branch_target_redirect[merge_ultimate_forward] = merge_block;
+            redirect_installed = true;
+        }
+        emit_arm(xb, target, branch_to);
+        if (redirect_installed) {
+            if (had_old_redirect) {
+                _branch_target_redirect[merge_ultimate_forward] = old_redirect;
+            } else {
+                _branch_target_redirect.erase(merge_ultimate_forward);
+            }
+        }
+    };
+    emit_arm_guarded(inst->true_block(), true_target, true_branch_target, bypass_true_arm);
+    emit_arm_guarded(inst->false_block(), false_target, false_branch_target, !bypass_true_arm);
     if (synthetic_merge != nullptr) {
         function.addBlock(synthetic_merge);
         _added_blocks.emplace(synthetic_merge);
