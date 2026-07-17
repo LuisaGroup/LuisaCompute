@@ -219,6 +219,7 @@ inline const char *d3d12_error_name(HRESULT hr) {
         case DXGI_ERROR_UNSUPPORTED: return "DXGI_ERROR_UNSUPPORTED";
         case DXGI_ERROR_WAIT_TIMEOUT: return "DXGI_ERROR_WAIT_TIMEOUT";
         case DXGI_ERROR_WAS_STILL_DRAWING: return "DXGI_ERROR_WAS_STILL_DRAWING";
+        case D3D12_ERROR_INVALID_REDIST: return "D3D12_ERROR_INVALID_REDIST";
         case E_FAIL: return "E_FAIL";
         case E_INVALIDARG: return "E_INVALIDARG";
         case E_OUTOFMEMORY: return "E_OUTOFMEMORY";
@@ -231,15 +232,15 @@ inline const char *d3d12_error_name(HRESULT hr) {
 }
 
 #ifndef ThrowIfFailed
-#define ThrowIfFailed(x)                                                          \
-    do {                                                                          \
-        HRESULT hr_ = (x);                                                        \
-        if (hr_ != S_OK) [[unlikely]] {                                           \
-            LUISA_ERROR_WITH_LOCATION("D3D12 call '{}' failed with "              \
-                                      "error {} (code = {}).",                    \
-                                      #x, d3d12_error_name(hr_), (long long)hr_); \
-            abort();                                                              \
-        }                                                                         \
+#define ThrowIfFailed(x)                                                                   \
+    do {                                                                                   \
+        HRESULT hr_ = (x);                                                                 \
+        if (hr_ != S_OK) [[unlikely]] {                                                    \
+            LUISA_ERROR_WITH_LOCATION("D3D12 call '{}' failed with "                       \
+                                      "error {} (code = {:#x}).",                          \
+                                      #x, d3d12_error_name(hr_), (uint32_t)hr_); \
+            abort();                                                                       \
+        }                                                                                  \
     } while (false)
 #endif
 #include <luisa/vstl/unique_ptr.h>
