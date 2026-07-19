@@ -18,6 +18,10 @@ struct DestructureCFGInfo {
     size_t destructured_continue_count{0u};
     size_t destructured_early_return_count{0u};
     size_t leaked_block_count{0u};
+    size_t error_count{0u};
+    [[nodiscard]] bool succeeded() const noexcept {
+        return error_count == 0u && leaked_block_count == 0u;
+    }
 };
 
 // Explicitly lowers structured IF/LOOP/SIMPLE_LOOP/BREAK/CONTINUE constructs

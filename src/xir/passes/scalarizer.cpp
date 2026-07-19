@@ -79,7 +79,6 @@ compute_scalarizable_set(FunctionDefinition *def) noexcept {
     auto idx_const = make_index_constant(module, component);
     auto extract = builder.call(elem_type, ArithmeticOp::EXTRACT,
                                 {vector_val, idx_const});
-    scalar_map[key] = extract;
     return extract;
 }
 

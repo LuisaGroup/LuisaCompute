@@ -8,6 +8,7 @@
 // - Interactive mouse input via callbacks
 // - Real-time water surface rendering with caustics
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -50,7 +51,6 @@ int main(int argc, char *argv[]) {
             force_offline = true;
         } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
             compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
             force_offline = true;
         }
     }
@@ -305,7 +305,46 @@ int main(int argc, char *argv[]) {
         }
         luisa::vector<uint8_t> host_image(display_width * display_height * 4u);
         stream << display.copy_to(luisa::span{host_image}) << synchronize();
-        stbi_write_png("test_wave_equation.png", display_width, display_height, 4, host_image.data(), 0);
+        static constexpr uint feature_tile_size = 32u;
+        luisa::vector<uint8_t> feature_tiles(
+            (display_width / feature_tile_size) * (display_height / feature_tile_size), 0u);
+        size_t bright_pixel_count = 0u;
+        size_t wave_pixel_count = 0u;
+        size_t strong_wave_pixel_count = 0u;
+        for (auto i = 0u; i < display_width * display_height; i++) {
+            auto offset = static_cast<size_t>(i) * 4u;
+            auto peak = std::max({host_image[offset + 0u],
+                                  host_image[offset + 1u],
+                                  host_image[offset + 2u]});
+            bright_pixel_count += peak >= 128u;
+            auto red = host_image[offset];
+            if (red >= 20u) {
+                wave_pixel_count++;
+                auto x = i % display_width;
+                auto y = i / display_width;
+                auto tile_x = x / feature_tile_size;
+                auto tile_y = y / feature_tile_size;
+                feature_tiles[tile_y * (display_width / feature_tile_size) + tile_x] = 1u;
+            }
+            strong_wave_pixel_count += red >= 40u;
+        }
+        auto feature_tile_count = static_cast<size_t>(std::count(feature_tiles.cbegin(), feature_tiles.cend(), uint8_t{1u}));
+        auto scene_is_valid = bright_pixel_count >= 2000u && bright_pixel_count <= 20000u &&
+                              wave_pixel_count >= 2000u && wave_pixel_count <= 20000u &&
+                              strong_wave_pixel_count >= 500u && strong_wave_pixel_count <= 10000u &&
+                              feature_tile_count >= 8u && feature_tile_count <= 64u;
+        if (!scene_is_valid) {
+            LUISA_ERROR(
+                "Wave output failed feature checks: {} bright pixels (expected 2000-20000), "
+                "{} wave pixels (expected 2000-20000), {} strong wave pixels (expected 500-10000), "
+                "{} occupied feature tiles (expected 8-64).",
+                bright_pixel_count, wave_pixel_count, strong_wave_pixel_count, feature_tile_count);
+            return 1;
+        }
+        if (stbi_write_png("test_wave_equation.png", display_width, display_height, 4, host_image.data(), 0) == 0) {
+            LUISA_ERROR("Failed to write test_wave_equation.png.");
+            return 1;
+        }
         if (compare_path) {
             auto result = luisa::ref::compare_with_reference_file(
                 reinterpret_cast<const uint8_t *>(host_image.data()),

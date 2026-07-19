@@ -203,16 +203,20 @@ int main(int argc, char *argv[]) {
 
     constexpr uint photon_number = 1000000u;
     constexpr uint max_depth = 8u;
+    constexpr uint photon_capacity = photon_number * max_depth;
     // constexpr auto scale = 1000u;
 
     luisa::vector<uint> seeds(photon_number);
-    std::mt19937 rng{std::random_device{}()};
+    // Reference-image comparisons must see the same photon distribution on
+    // every run. Interactive runs may still use a fresh distribution.
+    std::mt19937 rng{opts.offline ? 42u : std::random_device{}()};
     for (uint i = 0u; i < photon_number; i++) {
         seeds[i] = rng();
     }
     Buffer<uint> seed_buffer = device.create_buffer<uint>(photon_number);
-    Buffer<Photon> photon_buffer = device.create_buffer<Photon>(photon_number * max_depth);
+    Buffer<Photon> photon_buffer = device.create_buffer<Photon>(photon_capacity);
     Buffer<uint> photon_limit_buffer = device.create_buffer<uint>(1u);
+    std::array<uint, 1u> photon_count{0u};
 
     constexpr uint split_per_dim = 128u;
     float3 grid_real_size = grid_max - grid_min;
@@ -225,7 +229,8 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("grid_len = {}", grid_len);
 
-    stream << seed_buffer.copy_from(luisa::span{seeds});
+    stream << seed_buffer.copy_from(luisa::span{seeds})
+           << photon_limit_buffer.copy_from(luisa::span{photon_count});
 
     Kernel1D clear_grid_kernel = [&]() noexcept {
         UInt index = static_cast<UInt>(dispatch_x());
@@ -277,13 +282,14 @@ int main(int argc, char *argv[]) {
 
             // store photons
             UInt index = photon_limit_buffer->atomic(0).fetch_add(1u);
+            $if (index < photon_capacity) {
+                UInt3 grid_index = make_uint3((p - grid_min) / grid_len);
+                UInt grid_index_m = grid_index.x * grid_size.y * grid_size.z + grid_index.y * grid_size.z + grid_index.z;
+                UInt link_head = grid_head_buffer->atomic(grid_index_m).exchange(index);
 
-            UInt3 grid_index = make_uint3((p - grid_min) / grid_len);
-            UInt grid_index_m = grid_index.x * grid_size.y * grid_size.z + grid_index.y * grid_size.z + grid_index.z;
-            UInt link_head = grid_head_buffer->atomic(grid_index_m).exchange(index);
-
-            Var<Photon> photon{p, power, -light_ray->direction(), link_head};
-            photon_buffer->write(index, photon);
+                Var<Photon> photon{p, power, -light_ray->direction(), link_head};
+                photon_buffer->write(index, photon);
+            };
 
             // sample BxDF
             Var<Onb> onb = make_onb(n);
@@ -547,12 +553,16 @@ int main(int argc, char *argv[]) {
            << make_sampler_shader(seed_image).dispatch(resolution)
            << clear_grid_shader().dispatch(grid_size.x * grid_size.y * grid_size.z)
            << photon_tracing_shader(accel).dispatch(photon_number)
+           << photon_limit_buffer.copy_to(luisa::span{photon_count})
            << synchronize();
+    LUISA_ASSERT(photon_count[0] <= photon_capacity,
+                 "Photon buffer overflow: generated {} photons for a capacity of {}.",
+                 photon_count[0], photon_capacity);
     LUISA_INFO("Photon tracing done");
 
     uint frame_count = 0;
     bool infinite_render = !opts.offline;
-    uint total_spp = opts.offline ? 256u : 0u;
+    uint total_spp = opts.offline ? (opts.spp == 0u ? 256u : opts.spp) : 0u;
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;

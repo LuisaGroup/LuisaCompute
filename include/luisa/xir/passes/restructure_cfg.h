@@ -14,7 +14,15 @@ struct RestructureCFGInfo {
     size_t restructured_loop_count{0u};
     size_t restructured_if_count{0u};
     size_t irreducible_region_count{0u};
-    [[nodiscard]] bool succeeded() const noexcept { return irreducible_region_count == 0u; }
+    size_t unstructured_branch_count{0u};
+    size_t invalid_construct_count{0u};
+    size_t iteration_limit_count{0u};
+    [[nodiscard]] bool succeeded() const noexcept {
+        return irreducible_region_count == 0u &&
+               unstructured_branch_count == 0u &&
+               invalid_construct_count == 0u &&
+               iteration_limit_count == 0u;
+    }
 };
 
 // Converts reducible plain CFG regions into structured control flow. A function

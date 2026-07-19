@@ -11,6 +11,11 @@ class Function;
 struct LowerBreakContinueInfo {
     size_t lowered_break_count{0u};
     size_t lowered_continue_count{0u};
+    size_t rejected_break_count{0u};
+    size_t rejected_continue_count{0u};
+    [[nodiscard]] bool succeeded() const noexcept {
+        return rejected_break_count == 0u && rejected_continue_count == 0u;
+    }
 };
 
 [[nodiscard]] LUISA_XIR_API LowerBreakContinueInfo lower_break_continue_pass_run_on_function(Function *function) noexcept;

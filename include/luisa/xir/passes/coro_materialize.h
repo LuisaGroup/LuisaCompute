@@ -19,6 +19,12 @@ struct CoroCfgDistillResult;
 struct CoroSplitInfo;
 
 struct CoroMaterializeInfo {
+    struct FrameField {
+        luisa::string name;
+        const Type *type{nullptr};
+        size_t index{0u};
+    };
+
     size_t register_count{0u};
     size_t frame_field_count{0u};
     size_t callable_count{0u};
@@ -43,6 +49,7 @@ struct CoroMaterializeInfo {
         luisa::vector<size_t> store_fields;
     };
     luisa::vector<TransitionEdge> edges;
+    luisa::vector<FrameField> frame_fields;
     luisa::unordered_map<luisa::string, size_t> name_to_field;
     luisa::unordered_map<luisa::string, const Type *> name_to_type;
 };

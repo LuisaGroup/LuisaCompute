@@ -71,8 +71,84 @@ public:
 
 [[nodiscard]] static bool has_single_block(FunctionDefinition *def) noexcept {
     size_t count = 0u;
-    for (auto *block : def->basic_blocks()) { static_cast<void>(block); ++count; }
+    for (auto *block : def->basic_blocks()) {
+        static_cast<void>(block);
+        ++count;
+    }
     return count == 1u && def->body_block() != nullptr;
+}
+
+[[nodiscard]] static bool contains_inline_barrier(FunctionDefinition *def,
+                                                  bool allow_autodiff_scope) noexcept {
+    if (!allow_autodiff_scope) { return contains_structured_control_flow(def); }
+    for (auto *block : def->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            switch (inst->derived_instruction_tag()) {
+                case DerivedInstructionTag::IF:
+                case DerivedInstructionTag::SWITCH:
+                case DerivedInstructionTag::LOOP:
+                case DerivedInstructionTag::SIMPLE_LOOP:
+                case DerivedInstructionTag::BREAK:
+                case DerivedInstructionTag::CONTINUE:
+                case DerivedInstructionTag::RAY_QUERY_LOOP:
+                case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+                case DerivedInstructionTag::OUTLINE:
+                    return true;
+                default: break;
+            }
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] static bool typed_value_operand_valid(const Value *value) noexcept {
+    return value != nullptr && value->type() != nullptr &&
+           !value->isa<BasicBlock>() && !value->isa<Function>() &&
+           !value->type()->is_resource();
+}
+
+[[nodiscard]] static bool rvalue_operand_valid(const Value *value) noexcept {
+    return typed_value_operand_valid(value) && !value->is_lvalue();
+}
+
+[[nodiscard]] static bool argument_matches(const Argument *formal,
+                                           const Value *actual) noexcept {
+    if (formal == nullptr || actual == nullptr ||
+        actual->type() != formal->type()) {
+        return false;
+    }
+    if (formal->is_resource()) {
+        return actual->isa<ResourceArgument>() && !actual->is_lvalue();
+    }
+    if (formal->is_reference()) {
+        return typed_value_operand_valid(actual) && actual->is_lvalue();
+    }
+    return rvalue_operand_valid(actual);
+}
+
+[[nodiscard]] static bool validate_call_shape(CallInst *call,
+                                              Function *callee) noexcept {
+    if (call->type() != callee->type()) { return false; }
+    if (call->argument_count() != callee->arguments().count_size()) { return false; }
+    auto argument_index = 0u;
+    for (auto *formal : callee->arguments()) {
+        auto *actual = call->argument(argument_index++);
+        if (!argument_matches(formal, actual)) { return false; }
+    }
+    auto *definition = callee->definition();
+    if (definition == nullptr) { return false; }
+    auto return_count = 0u;
+    for (auto *block : definition->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (!inst->isa<ReturnInst>()) { continue; }
+            auto *return_inst = static_cast<ReturnInst *>(inst);
+            auto *return_value = return_inst->return_value();
+            if ((call->type() == nullptr) != (return_value == nullptr)) { return false; }
+            if (return_value != nullptr && return_value->type() != call->type()) { return false; }
+            return_count++;
+        }
+    }
+    return call->type() == nullptr || return_count != 0u;
 }
 
 [[nodiscard]] static bool inline_single_block_call(CallInst *call,
@@ -135,6 +211,17 @@ public:
     if (!caller_func) return false;
     auto caller_def = caller_func->definition();
     if (!caller_def) return false;
+
+    auto call_block = call->parent_block();
+    luisa::vector<Instruction *> to_move;
+    auto past_call = false;
+    for (auto *inst : call_block->instructions()) {
+        if (inst == call) {
+            past_call = true;
+        } else if (past_call) {
+            to_move.emplace_back(inst);
+        }
+    }
 
     auto module = caller_func->parent_module();
     XIRBuilder builder;
@@ -245,19 +332,7 @@ public:
     }
 
     // Wire caller: split the call block
-    auto call_block = call->parent_block();
     auto entry_block = block_map[callee_def->body_block()];
-
-    // Collect instructions after the call
-    luisa::vector<Instruction *> to_move;
-    bool past = false;
-    for (auto inst : call_block->instructions()) {
-        if (inst == call) {
-            past = true;
-            continue;
-        }
-        if (past) to_move.push_back(inst);
-    }
 
     // Load return value in merge block
     if (ret_alloca) {
@@ -301,15 +376,24 @@ public:
 }
 
 [[nodiscard]] static bool inline_call(CallInst *call, Function *callee,
-                                      InlineInfo &info) noexcept {
+                                      InlineInfo &info,
+                                      InlineOptions options = {},
+                                      luisa::unordered_set<CallInst *> *reported_malformed_calls = nullptr) noexcept {
     auto *callee_def = callee->definition();
     auto *caller = call->parent_function();
     auto *caller_def = caller == nullptr ? nullptr : caller->definition();
     if (callee_def == nullptr || caller_def == nullptr) { return false; }
+    if (!validate_call_shape(call, callee)) {
+        if (reported_malformed_calls == nullptr ||
+            reported_malformed_calls->emplace(call).second) {
+            ++info.rejected_malformed_call_count;
+        }
+        return false;
+    }
     if (has_single_block(callee_def)) {
         return inline_single_block_call(call, callee);
     }
-    if (contains_structured_control_flow(caller_def) ||
+    if (contains_inline_barrier(caller_def, options.allow_autodiff_scope_in_caller) ||
         contains_structured_control_flow(callee_def)) {
         ++info.skipped_structured_call_count;
         LUISA_WARNING_WITH_LOCATION(
@@ -416,13 +500,19 @@ InlineInfo inline_pass_run_on_module(Module *module, PassReport *report) noexcep
         report->set("removed_callable", info.removed_callable_count);
         report->set("skipped_recursive_callable", info.skipped_recursive_callable_count);
         report->set("skipped_structured_call", info.skipped_structured_call_count);
+        report->set("rejected_malformed_call", info.rejected_malformed_call_count);
     }
     return info;
 }
 
 InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report) noexcept {
+    return inline_all_pass_run_on_module(module, {}, report);
+}
+
+InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, PassReport *report) noexcept {
     InlineInfo info;
     if (!module) return info;
+    luisa::unordered_set<CallInst *> reported_malformed_calls;
     for (;;) {
         luisa::vector<Function *> callables;
         for (auto f : module->function_list())
@@ -458,7 +548,7 @@ InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report) noe
             if (!def) continue;
             auto edges = detail::collect_call_sites(callee);
             for (auto call : edges) {
-                if (detail::inline_call(call, callee, info)) {
+                if (detail::inline_call(call, callee, info, options, &reported_malformed_calls)) {
                     info.inlined_call_count++;
                     progress = true;
                 }
@@ -477,6 +567,7 @@ InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report) noe
         report->set("removed_callable", info.removed_callable_count);
         report->set("skipped_recursive_callable", info.skipped_recursive_callable_count);
         report->set("skipped_structured_call", info.skipped_structured_call_count);
+        report->set("rejected_malformed_call", info.rejected_malformed_call_count);
     }
     return info;
 }

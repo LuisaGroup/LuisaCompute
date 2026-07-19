@@ -1,3 +1,5 @@
+// Test for reconstructing structured XIR control flow from explicit CFGs.
+
 #include "ut/ut.hpp"
 #include <luisa/luisa-compute.h>
 #include <luisa/ast/type_registry.h>
@@ -21,6 +23,7 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -29,6 +32,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -124,6 +128,7 @@ namespace {
 void run_spirv_normalize_before_restructure(Module *m) noexcept {
     auto algebraic_options = AlgebraicSimplifyOptions{};
     (void)lower_ray_query_loop_to_loop_pass_run_on_module(m);
+    (void)lower_switch_pass_run_on_module(m);
     (void)destructure_cfg_pass_run_on_module(m);
     (void)mem2reg_pass_run_on_module(m);
     (void)algebraic_simplify_pass_run_on_module(m, algebraic_options);
@@ -689,9 +694,11 @@ void reg_restructure_cfg() {
         run_spirv_normalize_before_restructure(&m);
         expect_no_structured_cfg(def);
         auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.iteration_limit_count == 0u);
         expect(info.restructured_loop_count == 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) +
-               count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP) == 2u);
+                   count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP) ==
+               2u);
         expect(count_non_canonical_loop_prepare(def) == 0u);
         expect(count_non_canonical_loop_update(def) == 0u);
     };
@@ -814,7 +821,8 @@ void reg_restructure_cfg() {
         auto info = restructure_cfg_pass_run_on_function(k);
         expect(info.restructured_loop_count == 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) +
-               count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP) == 2u);
+                   count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP) ==
+               2u);
         expect(count_non_canonical_loop_prepare(def) == 0u);
         expect(count_non_canonical_loop_update(def) == 0u);
     };
@@ -854,6 +862,7 @@ void reg_restructure_cfg() {
             }
         }
         auto info = restructure_cfg_pass_run_on_module(m.get());
+        expect(info.iteration_limit_count == 0u);
         expect(info.restructured_loop_count > 0u);
         for (auto *f : m->function_list()) {
             if (auto *def = f->definition(); def != nullptr) {
@@ -861,6 +870,9 @@ void reg_restructure_cfg() {
                 expect(count_non_canonical_loop_update(def) == 0u);
             }
         }
+        expect(xir_verify_module(
+                   m.get(), {.require_unique_merge_blocks = true})
+                   .succeeded());
     };
     "restructure_converts_remaining_divergent_conditional"_test = [] {
         Module m;
@@ -917,6 +929,7 @@ void reg_restructure_cfg() {
         expect_no_structured_cfg(def);
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) >= 2u);
         auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.iteration_limit_count == 0u);
         expect(info.restructured_if_count >= 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
     };
@@ -957,6 +970,7 @@ void reg_restructure_cfg() {
         b.return_void();
 
         auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.iteration_limit_count == 0u);
         expect(info.irreducible_region_count == 0u);
         expect(inner->merge_block() != inner_merge);
         expect(outer->merge_block() != outer_merge);
@@ -1003,6 +1017,7 @@ void reg_restructure_cfg() {
         b.return_void();
 
         auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.iteration_limit_count == 0u);
         expect(info.irreducible_region_count == 0u);
         expect(inner->merge_block() != inner_merge);
         expect(outer->merge_block() != outer_merge);
@@ -1011,6 +1026,185 @@ void reg_restructure_cfg() {
         expect(static_cast<BranchInst *>(inner->merge_block()->terminator())->target_block() == outer->merge_block());
         expect(static_cast<BranchInst *>(outer_else->terminator())->target_block() == outer->merge_block());
         expect(branch_chain_reaches(outer->merge_block(), ret));
+    };
+
+    "restructure_structurizes_raw_branch_inside_structured_if"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *condition = k->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *outer = b.if_(condition);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+        auto *inner_tail = k->create_basic_block();
+        b.set_insertion_point(outer_true);
+        b.cond_br(condition, outer_merge, inner_tail);
+        b.set_insertion_point(inner_tail);
+        b.br(outer_merge);
+        b.set_insertion_point(outer_false);
+        b.br(outer_merge);
+        b.set_insertion_point(outer_merge);
+        b.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.unstructured_branch_count == 0u);
+        expect(info.invalid_construct_count == 0u);
+        expect(info.iteration_limit_count == 0u);
+        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_structurizes_one_sided_branch_before_nested_selection"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *condition = k->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *outer = b.if_(condition);
+        auto *raw_header = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+        auto *nested_header = k->create_basic_block();
+
+        b.set_insertion_point(raw_header);
+        b.cond_br(condition, nested_header, outer_merge);
+        b.set_insertion_point(nested_header);
+        auto *nested = b.if_(condition);
+        auto *nested_true = nested->create_true_block();
+        auto *nested_false = nested->create_false_block();
+        auto *nested_merge = nested->create_merge_block();
+        b.set_insertion_point(nested_true);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_false);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_merge);
+        b.br(outer_merge);
+        b.set_insertion_point(outer_false);
+        b.br(outer_merge);
+        b.set_insertion_point(outer_merge);
+        b.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(k);
+        auto verification = xir_verify_module(
+            &m, {.require_unique_merge_blocks = true});
+        expect(info.succeeded());
+        expect(info.restructured_if_count >= 1u);
+        expect(raw_header->terminator()->isa<IfInst>());
+        auto *structured = static_cast<IfInst *>(raw_header->terminator());
+        expect(structured->merge_block() != outer_merge);
+        expect(nested_header->terminator() == nested);
+        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(verification.succeeded());
+    };
+
+    "restructure_structurizes_loop_early_exit_ladder"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *condition = k->create_value_argument(Type::of<bool>());
+        auto *def = k->definition();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *first_guard = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        auto *first_break = def->create_basic_block();
+        auto *second_guard = def->create_basic_block();
+        auto *second_break = def->create_basic_block();
+        auto *third_guard = def->create_basic_block();
+        auto *third_break = def->create_basic_block();
+        auto *continue_block = def->create_basic_block();
+
+        b.set_insertion_point(prepare);
+        b.cond_br(condition, first_guard, merge);
+        b.set_insertion_point(first_guard);
+        b.cond_br(condition, first_break, second_guard);
+        b.set_insertion_point(first_break);
+        b.break_(merge);
+        b.set_insertion_point(second_guard);
+        b.cond_br(condition, second_break, third_guard);
+        b.set_insertion_point(second_break);
+        b.break_(merge);
+        b.set_insertion_point(third_guard);
+        b.cond_br(condition, third_break, continue_block);
+        b.set_insertion_point(third_break);
+        b.break_(merge);
+        b.set_insertion_point(continue_block);
+        b.continue_(update);
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(k);
+        auto verification = xir_verify_module(
+            &m, {.require_unique_merge_blocks = true});
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(first_guard->terminator()->isa<IfInst>());
+        expect(second_guard->terminator()->isa<IfInst>());
+        expect(third_guard->terminator()->isa<IfInst>());
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 1u);
+        expect(count_non_canonical_loop_prepare(def) == 0u);
+        expect(verification.succeeded());
+    };
+
+    "spirv_normalization_lowers_switch_before_if_conversion"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *selector = k->create_value_argument(Type::of<uint32_t>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *sw = b.switch_(selector);
+        auto *case_block = sw->create_case_block(1);
+        auto *default_block = sw->create_default_block();
+        auto *merge = sw->create_merge_block();
+        b.set_insertion_point(case_block);
+        b.br(merge);
+        b.set_insertion_point(default_block);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto lower_info = lower_switch_pass_run_on_module(&m);
+        auto destructure_info = destructure_cfg_pass_run_on_module(&m);
+        auto if_conversion_info = if_conversion_pass_run_on_module(&m);
+        expect(lower_info.succeeded());
+        expect(lower_info.lowered_switch_count == 1u);
+        expect(destructure_info.succeeded());
+        expect(if_conversion_info.succeeded());
+        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::SWITCH) == 0u);
+        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::IF) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "restructure_reports_unhandled_raw_conditional"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *condition = k->create_value_argument(Type::of<bool>());
+        auto *return_block = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *branch = b.cond_br(condition, return_block, nullptr);
+        b.set_insertion_point(return_block);
+        b.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(!info.succeeded());
+        expect(info.unstructured_branch_count == 1u);
+        expect(info.invalid_construct_count >= 1u);
+        expect(body->terminator() == branch);
     };
 }
 

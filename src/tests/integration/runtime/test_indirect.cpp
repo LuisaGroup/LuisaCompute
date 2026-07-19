@@ -1,3 +1,5 @@
+// Validates GPU-authored direct and batched indirect dispatch commands.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 
@@ -61,6 +63,11 @@ void test_indirect(Device &device) {
     }
     LUISA_INFO("Result should be: 0 2 8 18 32 50 72 98 128 162 200 242 288 338 392 450");
     LUISA_INFO("Result: {}", result);
+    constexpr std::array expected{0u, 2u, 8u, 18u, 32u, 50u, 72u, 98u,
+                                  128u, 162u, 200u, 242u, 288u, 338u, 392u, 450u};
+    for (auto i = 0u; i < dispatch_count; ++i) {
+        expect(buffer_data[i] == expected[i]) << "indirect dispatch result mismatch at index " << i;
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -68,7 +75,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_indirect(device);
 }

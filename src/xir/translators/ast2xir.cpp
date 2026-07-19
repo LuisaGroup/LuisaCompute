@@ -67,6 +67,7 @@ private:
     [[maybe_unused]] AST2XIRConfig _config;
     luisa::unique_ptr<Module> _module;
     luisa::unordered_map<const compute::detail::FunctionBuilder *, Function *> _generated_functions;
+    luisa::unordered_map<uint64_t, ExternalFunction *> _generated_external_functions;
     luisa::unordered_map<ConstantData, Constant *> _generated_constants;
     luisa::unordered_map<TypedLiteral, Constant *> _generated_literals;
     luisa::unordered_map<const Type *, Constant *> _generated_zero_constants;
@@ -146,7 +147,8 @@ private:
                 case BinaryOp::ADD: return has_matrix ? ArithmeticOp::MATRIX_COMP_ADD : ArithmeticOp::BINARY_ADD;
                 case BinaryOp::SUB: return has_matrix ? ArithmeticOp::MATRIX_COMP_SUB : ArithmeticOp::BINARY_SUB;
                 case BinaryOp::MUL: {
-                    if (lhs->type()->is_matrix() && (rhs->type()->is_matrix() || rhs->type()->is_vector())) {
+                    if ((lhs->type()->is_matrix() && (rhs->type()->is_matrix() || rhs->type()->is_vector())) ||
+                        (lhs->type()->is_vector() && rhs->type()->is_matrix())) {
                         return ArithmeticOp::MATRIX_LINALG_MUL;
                     }
                     return has_matrix ? ArithmeticOp::MATRIX_COMP_MUL : ArithmeticOp::BINARY_MUL;
@@ -311,8 +313,20 @@ private:
     [[nodiscard]] Value *_translate_call_expr(XIRBuilder &b, const CallExpr *expr) noexcept {
         if (expr->is_external()) {
             auto ast = expr->external();
-            (void)add_external_function(*ast);
-            LUISA_NOT_IMPLEMENTED();
+            auto f = add_external_function(*ast);
+            LUISA_ASSERT(f->type() == expr->type(), "External function return type mismatch.");
+            auto ast_args = expr->arguments();
+            LUISA_ASSERT(ast_args.size() == f->arguments().count_size(),
+                         "External function argument count mismatch.");
+            luisa::fixed_vector<Value *, 16u> args;
+            args.reserve(ast_args.size());
+            auto formal = f->arguments().begin();
+            for (auto ast_arg : ast_args) {
+                auto arg = _translate_expression(b, ast_arg, !(*formal)->is_reference());
+                args.emplace_back(arg);
+                ++formal;
+            }
+            return b.call(f->type(), f, args);
         }
         if (expr->is_custom()) {
             auto ast = expr->custom();
@@ -336,6 +350,13 @@ private:
                 args.emplace_back(arg);
             }
             return b.call(expr->type(), target_op, args);
+        };
+        auto same_type_unary_alu_call = [&](ArithmeticOp target_op) noexcept {
+            LUISA_ASSERT(expr->arguments().size() == 1u,
+                         "Unary arithmetic operation expects one argument.");
+            auto arg = _translate_expression(b, expr->arguments().front(), true);
+            arg = _type_cast_if_necessary(b, expr->type(), arg);
+            return b.call(expr->type(), target_op, {arg});
         };
         auto cta_call = [&](ThreadGroupOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
@@ -467,13 +488,13 @@ private:
             case CallOp::LERP: return alu_call(ArithmeticOp::LERP);
             case CallOp::SMOOTHSTEP: return alu_call(ArithmeticOp::SMOOTHSTEP);
             case CallOp::STEP: return alu_call(ArithmeticOp::STEP);
-            case CallOp::ABS: return alu_call(ArithmeticOp::ABS);
+            case CallOp::ABS: return same_type_unary_alu_call(ArithmeticOp::ABS);
             case CallOp::MIN: return alu_call(ArithmeticOp::MIN);
             case CallOp::MAX: return alu_call(ArithmeticOp::MAX);
-            case CallOp::CLZ: return alu_call(ArithmeticOp::CLZ);
-            case CallOp::CTZ: return alu_call(ArithmeticOp::CTZ);
-            case CallOp::POPCOUNT: return alu_call(ArithmeticOp::POPCOUNT);
-            case CallOp::REVERSE: return alu_call(ArithmeticOp::REVERSE);
+            case CallOp::CLZ: return same_type_unary_alu_call(ArithmeticOp::CLZ);
+            case CallOp::CTZ: return same_type_unary_alu_call(ArithmeticOp::CTZ);
+            case CallOp::POPCOUNT: return same_type_unary_alu_call(ArithmeticOp::POPCOUNT);
+            case CallOp::REVERSE: return same_type_unary_alu_call(ArithmeticOp::REVERSE);
             case CallOp::ISINF: return alu_call(ArithmeticOp::ISINF);
             case CallOp::ISNAN: return alu_call(ArithmeticOp::ISNAN);
             case CallOp::ACOS: return alu_call(ArithmeticOp::ACOS);
@@ -495,7 +516,16 @@ private:
             case CallOp::LOG: return alu_call(ArithmeticOp::LOG);
             case CallOp::LOG2: return alu_call(ArithmeticOp::LOG2);
             case CallOp::LOG10: return alu_call(ArithmeticOp::LOG10);
-            case CallOp::POW: return alu_call(ArithmeticOp::POW);
+            case CallOp::POW: {
+                LUISA_ASSERT(expr->arguments().size() == 2u,
+                             "POW expects two arguments.");
+                auto exponent_type = expr->arguments()[1]->type();
+                auto op = exponent_type->is_int_or_int_vector() ||
+                                  exponent_type->is_uint_or_uint_vector() ?
+                              ArithmeticOp::POW_INT :
+                              ArithmeticOp::POW;
+                return alu_call(op);
+            }
             case CallOp::SQRT: return alu_call(ArithmeticOp::SQRT);
             case CallOp::RSQRT: return alu_call(ArithmeticOp::RSQRT);
             case CallOp::CEIL: return alu_call(ArithmeticOp::CEIL);
@@ -784,7 +814,12 @@ private:
             case CallOp::TEXTURE3D_SAMPLE_GRAD: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD);
             case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL);
             case CallOp::CLOCK: return b.clock();
-            case CallOp::ASYNC_COPY: LUISA_NOT_IMPLEMENTED("AST Op ASYNC_COPY is not implemented in XIR.");
+            case CallOp::ASYNC_COPY:
+                LUISA_NOT_IMPLEMENTED(
+                    "AST ASYNC_COPY cannot be represented faithfully in XIR: the AST API models "
+                    "SPIR-V events as uint32 values and exposes only ordinary lvalue references, "
+                    "but OpUntypedGroupAsyncCopyKHR requires OpTypeEvent values and opposite "
+                    "Workgroup/CrossWorkgroup untyped pointers.");
             default: LUISA_NOT_IMPLEMENTED("AST Op {} is not implemented.", luisa::to_string(expr->op()));
         }
         LUISA_NOT_IMPLEMENTED();
@@ -1235,7 +1270,22 @@ public:
 
     Function *add_external_function(const ASTExternalFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
-        LUISA_NOT_IMPLEMENTED();
+        auto [iter, just_inserted] =
+            _generated_external_functions.try_emplace(f.hash(), nullptr);
+        if (!just_inserted) { return iter->second; }
+        auto external = _module->create_external_function(f.return_type());
+        external->set_name(luisa::string{f.name()});
+        auto argument_types = f.argument_types();
+        auto argument_usages = f.argument_usages();
+        LUISA_ASSERT(argument_types.size() == argument_usages.size(),
+                     "External function argument metadata is inconsistent.");
+        for (auto i = 0u; i < argument_types.size(); i++) {
+            auto usage = argument_usages[i];
+            auto by_ref = usage == Usage::WRITE || usage == Usage::READ_WRITE;
+            external->create_argument(argument_types[i], by_ref);
+        }
+        iter->second = external;
+        return external;
     }
 
     [[nodiscard]] luisa::unique_ptr<Module> finalize() noexcept {

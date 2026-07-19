@@ -11,54 +11,83 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static void lower_break_continue_in_function(Function *function, LowerBreakContinueInfo &info) noexcept {
+struct LowerBreakContinueWorklist {
+    luisa::vector<BreakInst *> breaks;
+    luisa::vector<ContinueInst *> continues;
+};
+
+[[nodiscard]] static LowerBreakContinueWorklist collect_break_continue_in_function(
+    Function *function, LowerBreakContinueInfo &info) noexcept {
+    LowerBreakContinueWorklist worklist;
+    if (function == nullptr) { return worklist; }
     auto def = function->definition();
-    if (def == nullptr) { return; }
-    luisa::vector<BasicBlock *> break_blocks;
-    luisa::vector<BasicBlock *> continue_blocks;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (!block->is_terminated()) { return; }
-        auto terminator = block->terminator();
+    if (def == nullptr) { return worklist; }
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || !block->is_terminated()) { continue; }
+        auto *terminator = block->terminator();
         if (terminator->isa<BreakInst>()) {
-            break_blocks.emplace_back(block);
+            auto *break_inst = static_cast<BreakInst *>(terminator);
+            auto *target = break_inst->target_block();
+            if (target == nullptr || target->parent_function() != function) {
+                ++info.rejected_break_count;
+            } else {
+                worklist.breaks.emplace_back(break_inst);
+            }
         } else if (terminator->isa<ContinueInst>()) {
-            continue_blocks.emplace_back(block);
+            auto *continue_inst = static_cast<ContinueInst *>(terminator);
+            auto *target = continue_inst->target_block();
+            if (target == nullptr || target->parent_function() != function) {
+                ++info.rejected_continue_count;
+            } else {
+                worklist.continues.emplace_back(continue_inst);
+            }
         }
-    });
-    if (break_blocks.empty() && continue_blocks.empty()) { return; }
+    }
+    return worklist;
+}
+
+static void lower_break_continue_worklist(
+    LowerBreakContinueWorklist &&worklist, LowerBreakContinueInfo &info) noexcept {
     XIRBuilder b;
-    for (auto block : break_blocks) {
-        auto break_inst = static_cast<BreakInst *>(block->terminator());
-        auto target = break_inst->target_block();
-        LUISA_DEBUG_ASSERT(target != nullptr, "BreakInst with null target block.");
+    for (auto *break_inst : worklist.breaks) {
+        auto *block = break_inst->parent_block();
+        auto *target = break_inst->target_block();
         break_inst->remove_self();
         b.set_insertion_point(block);
         b.br(target);
     }
-    for (auto block : continue_blocks) {
-        auto continue_inst = static_cast<ContinueInst *>(block->terminator());
-        auto target = continue_inst->target_block();
-        LUISA_DEBUG_ASSERT(target != nullptr, "ContinueInst with null target block.");
+    for (auto *continue_inst : worklist.continues) {
+        auto *block = continue_inst->parent_block();
+        auto *target = continue_inst->target_block();
         continue_inst->remove_self();
         b.set_insertion_point(block);
         b.br(target);
     }
-    info.lowered_break_count += break_blocks.size();
-    info.lowered_continue_count += continue_blocks.size();
+    info.lowered_break_count += worklist.breaks.size();
+    info.lowered_continue_count += worklist.continues.size();
 }
 
 }// namespace detail
 
 LowerBreakContinueInfo lower_break_continue_pass_run_on_function(Function *function) noexcept {
     LowerBreakContinueInfo info;
-    detail::lower_break_continue_in_function(function, info);
+    auto worklist = detail::collect_break_continue_in_function(function, info);
+    if (info.succeeded()) {
+        detail::lower_break_continue_worklist(std::move(worklist), info);
+    }
     return info;
 }
 
 LowerBreakContinueInfo lower_break_continue_pass_run_on_module(Module *module) noexcept {
     LowerBreakContinueInfo info;
+    if (module == nullptr) { return info; }
+    luisa::vector<detail::LowerBreakContinueWorklist> worklists;
     for (auto f : module->function_list()) {
-        detail::lower_break_continue_in_function(f, info);
+        worklists.emplace_back(detail::collect_break_continue_in_function(f, info));
+    }
+    if (!info.succeeded()) { return info; }
+    for (auto &&worklist : worklists) {
+        detail::lower_break_continue_worklist(std::move(worklist), info);
     }
     return info;
 }

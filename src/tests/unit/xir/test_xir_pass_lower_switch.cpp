@@ -1,3 +1,5 @@
+// Test for lowering structured switch instructions to conditional CFG form.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
@@ -276,6 +278,57 @@ void reg_lower_switch() {
         expect(lowered->merge_block() == nullptr);
         expect(lowered->true_block() == case_bb);
         expect(lowered->false_block() == default_bb);
+    };
+
+    "lower_switch_null_default_is_rejected_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *sw = b.switch_(m.create_constant_zero(Type::of<int>()));
+        auto *case_bb = sw->create_case_block(0);
+        b.set_insertion_point(case_bb);
+        b.return_void();
+
+        auto info = lower_switch_pass_run_on_function(k);
+        expect(!info.succeeded());
+        expect(info.rejected_switch_count == 1u);
+        expect(info.lowered_switch_count == 0u);
+        expect(body->terminator() == sw);
+        expect(sw->default_block() == nullptr);
+    };
+
+    "lower_switch_foreign_case_is_rejected_module_atomically"_test = [] {
+        Module m;
+        BasicBlock *body0;
+        BasicBlock *body1;
+        auto *k0 = make_kernel_with_body(m, body0);
+        auto *k1 = make_kernel_with_body(m, body1);
+        XIRBuilder b;
+        b.set_insertion_point(body0);
+        auto *sw0 = b.switch_(m.create_constant_zero(Type::of<int>()));
+        auto *default0 = sw0->create_default_block();
+        sw0->add_case(0, body1);
+        b.set_insertion_point(default0);
+        b.return_void();
+        b.set_insertion_point(body1);
+        auto *sw1 = b.switch_(m.create_constant_zero(Type::of<int>()));
+        auto *case1 = sw1->create_case_block(0);
+        auto *default1 = sw1->create_default_block();
+        b.set_insertion_point(case1);
+        b.return_void();
+        b.set_insertion_point(default1);
+        b.return_void();
+
+        auto info = lower_switch_pass_run_on_module(&m);
+        expect(!info.succeeded());
+        expect(info.rejected_switch_count == 1u);
+        expect(info.lowered_switch_count == 0u);
+        expect(body0->terminator() == sw0);
+        expect(body1->terminator() == sw1);
+        expect(body1->parent_function() == k1);
+        expect(body0->parent_function() == k0);
     };
 }
 

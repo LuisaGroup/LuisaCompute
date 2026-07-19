@@ -5,6 +5,8 @@
 #include "compute_shader.h"
 #include "raster_shader.h"
 
+#include <limits>
+
 namespace lc::vk {
 namespace detail {
 struct ShaderSerHeader {
@@ -19,6 +21,7 @@ struct ShaderSerHeader {
     uint printer_count;
     uint printer_size_bytes;
     uint validation_count;
+    uint required_subgroup_size;
     uint64 constant_ubo_size;
     bool use_bindless_buffer;
     bool use_bindless_tex2d;
@@ -40,8 +43,8 @@ struct RasterSerHeader {
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
 };
-constexpr uint32_t kShaderSerVersion = 3; // version: set to header_ver (3: +constant_ubo_data)
-constexpr uint kXIRPipelineVersion = 1; // bump when optimization pipeline changes to invalidate cache
+constexpr uint32_t kShaderSerVersion = 4;
+constexpr uint kXIRPipelineVersion = 1;// bump when optimization pipeline changes to invalidate cache
 struct PSODataPackage {
     VkPipelineCacheHeaderVersionOne header;
     std::byte md5[sizeof(vstd::MD5)];
@@ -196,8 +199,6 @@ bool ShaderSerializer::require_recompile_raster(
     if (header.type_md5 != type_md5) return true;
     return false;
 }
-
-
 void ShaderSerializer::serialize_bytecode(
     vstd::span<const hlsl::Property> binds,
     vstd::span<const SavedArgument> saved_args,
@@ -213,7 +214,8 @@ void ShaderSerializer::serialize_bytecode(
     bool use_buffer_bindless,
     vstd::span<std::pair<vstd::string, Type const *> const> printers,
     uint validation_count,
-    luisa::span<const std::byte> constant_ubo_data) {
+    luisa::span<const std::byte> constant_ubo_data,
+    luisa::optional<uint8_t> required_subgroup_size) {
     using namespace detail;
     vstd::vector<std::byte> results;
     ShaderSerHeader header{
@@ -252,6 +254,7 @@ void ShaderSerializer::serialize_bytecode(
     header.printer_count = printers.size();
     header.printer_size_bytes = printer_size_bytes;
     header.validation_count = validation_count;
+    header.required_subgroup_size = required_subgroup_size.value_or(0u);
     header.constant_ubo_size = ubo_data_size;
     save(header);
     save_arr(binds.data(), binds.size());
@@ -395,6 +398,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
     ShaderSerHeader header;
     vstd::vector<std::pair<luisa::string, Type const *>> printers;
     vstd::vector<std::byte> constant_ubo_data;
+    luisa::optional<uint8_t> required_subgroup_size;
     {
         auto read_stream = [&]() {
             return read_binary_io(serde_type, bin_io, file_name);
@@ -439,6 +443,12 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
             luisa::enlarge_by(constant_ubo_data, header.constant_ubo_size);
             read_stream->read(constant_ubo_data);
         }
+        if (header.required_subgroup_size != 0u) {
+            if (header.required_subgroup_size > std::numeric_limits<uint8_t>::max()) {
+                return result;
+            }
+            required_subgroup_size = static_cast<uint8_t>(header.required_subgroup_size);
+        }
     }
     vstd::vector<std::byte> pso_data;
     vstd::string pso_name;
@@ -481,7 +491,8 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         header.use_bindless_buffer,
         std::move(printers),
         constant_ubo_data,
-        header.validation_count};
+        header.validation_count,
+        required_subgroup_size};
     if (pso_data.empty() &&
         shader->serialize_pso(pso_data)) {
         bin_io->write_shader_cache(pso_name, pso_data);

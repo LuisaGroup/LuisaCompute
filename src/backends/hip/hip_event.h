@@ -4,21 +4,20 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <hip/hip_runtime.h>
 
 namespace luisa::compute::hip {
 
 class HIPDevice;
 
-// timeline semaphore style event implemented with stream memory operations
+// Timeline-semaphore-style event backed by coherent HSA signal memory.
 class HIPEvent {
 
 private:
     hipDeviceptr_t _semaphore_device_ptr{};
-    volatile uint64_t *_semaphore_host_ptr;
-    uint64_t _initial_value;
-
-    [[nodiscard]] uint64_t _remap_value(uint64_t value) const noexcept;
+    int64_t *_semaphore_host_ptr{};
 
 public:
     explicit HIPEvent(HIPDevice *device) noexcept;

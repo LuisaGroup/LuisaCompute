@@ -1,3 +1,5 @@
+// Test for lowering structured break and continue instructions.
+
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/basic_block.h>
@@ -360,6 +362,55 @@ void reg_lower_break_continue() {
         auto info = lower_break_continue_pass_run_on_module(&m);
         expect(info.lowered_break_count == 0u);
         expect(info.lowered_continue_count == 0u);
+    };
+
+    "lower_bc_null_target_rejects_function_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *valid_block = k->create_basic_block();
+        auto *target = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *invalid_break = b.break_(nullptr);
+        b.set_insertion_point(valid_block);
+        auto *valid_continue = b.continue_(target);
+        b.set_insertion_point(target);
+        b.return_void();
+
+        auto info = lower_break_continue_pass_run_on_function(k);
+        expect(!info.succeeded());
+        expect(info.rejected_break_count == 1u);
+        expect(info.rejected_continue_count == 0u);
+        expect(info.lowered_break_count == 0u);
+        expect(info.lowered_continue_count == 0u);
+        expect(body->terminator() == invalid_break);
+        expect(valid_block->terminator() == valid_continue);
+    };
+
+    "lower_bc_foreign_target_rejects_module_atomically"_test = [] {
+        Module m;
+        BasicBlock *body0;
+        BasicBlock *body1;
+        auto *k0 = make_kernel_with_body(m, body0);
+        auto *k1 = make_kernel_with_body(m, body1);
+        auto *target0 = k0->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body0);
+        auto *valid_break = b.break_(target0);
+        b.set_insertion_point(target0);
+        b.return_void();
+        b.set_insertion_point(body1);
+        auto *foreign_continue = b.continue_(target0);
+
+        auto info = lower_break_continue_pass_run_on_module(&m);
+        expect(!info.succeeded());
+        expect(info.rejected_continue_count == 1u);
+        expect(info.lowered_break_count == 0u);
+        expect(info.lowered_continue_count == 0u);
+        expect(body0->terminator() == valid_break);
+        expect(body1->terminator() == foreign_continue);
+        expect(target0->parent_function() != k1);
     };
 }
 

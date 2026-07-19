@@ -48,6 +48,7 @@ static void replace_phi_predecessor(BasicBlock *block,
 
 struct RetargetableHandlerRegion {
     luisa::unordered_set<BasicBlock *> blocks;
+    size_t dispatch_exit_count{0u};
 };
 
 [[nodiscard]] static bool collect_retargetable_handler_region(
@@ -68,16 +69,29 @@ struct RetargetableHandlerRegion {
         if (!block->is_terminated()) { return false; }
         auto *term = block->terminator();
         auto valid = true;
+        if (term->isa<BranchInst>() &&
+            static_cast<BranchInst *>(term)->target_block() == nullptr) {
+            return false;
+        }
+        if (term->isa<ConditionalBranchInst>()) {
+            auto *branch = static_cast<ConditionalBranchInst *>(term);
+            if (branch->condition() == nullptr || branch->true_block() == nullptr ||
+                branch->false_block() == nullptr) {
+                return false;
+            }
+        }
         block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
             if (successor == dispatch) {
                 valid &= term->isa<BranchInst>() &&
                          static_cast<BranchInst *>(term)->target_block() == dispatch;
+                if (valid) { ++region.dispatch_exit_count; }
             } else if (!region.blocks.contains(successor)) {
                 worklist.emplace_back(successor);
             }
         });
         if (!valid) { return false; }
     }
+    if (region.dispatch_exit_count == 0u) { return false; }
     for (auto *block : region.blocks) {
         if (auto *merge = block->terminator()->control_flow_merge(); merge != nullptr) {
             auto *merge_block = merge->merge_block();
@@ -87,6 +101,20 @@ struct RetargetableHandlerRegion {
         }
     }
     return true;
+}
+
+[[nodiscard]] static bool handler_region_has_external_predecessor(
+    BasicBlock *entry, BasicBlock *dispatch,
+    const RetargetableHandlerRegion &region) noexcept {
+    for (auto *block : region.blocks) {
+        auto invalid = false;
+        block->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+            invalid |= !region.blocks.contains(predecessor) &&
+                       !(block == entry && predecessor == dispatch);
+        });
+        if (invalid) { return true; }
+    }
+    return false;
 }
 
 [[nodiscard]] static bool handler_regions_overlap(
@@ -156,6 +184,12 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     if (dispatch_inst->exit_block() != merge_block) {
         return reject("dispatch exit does not match the RayQueryLoop merge block");
     }
+    if (dispatch_block == merge_block || dispatch_block == parent_block ||
+        merge_block == parent_block || on_surface_block == dispatch_block ||
+        on_procedural_block == dispatch_block || on_surface_block == merge_block ||
+        on_procedural_block == merge_block) {
+        return reject("ray-query loop reuses a parent, dispatch, merge, or handler block");
+    }
     // Dispatch values and handler-entry PHIs would need edge-sensitive SSA
     // migration. Reject them before creating a single replacement block.
     if (contains_phi(dispatch_block) || contains_phi(on_surface_block) ||
@@ -172,6 +206,10 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     }
     if (handler_regions_overlap(surface_region, procedural_region)) {
         return reject("surface and procedural handler regions overlap");
+    }
+    if (handler_region_has_external_predecessor(on_surface_block, dispatch_block, surface_region) ||
+        handler_region_has_external_predecessor(on_procedural_block, dispatch_block, procedural_region)) {
+        return reject("handler has a predecessor outside its region");
     }
     for (auto *inst : dispatch_block->instructions()) {
         if (inst != dispatch_term) {

@@ -1,3 +1,5 @@
+// Test for the conservative XIR loop-fusion contract.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
@@ -75,7 +77,7 @@ struct CountedLoopFixture {
 
 void reg_loop_fusion() {
 
-    "loop_fusion_two_independent_loops"_test = [] {
+    "loop_fusion_rejects_structured_independent_loops"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -114,7 +116,7 @@ void reg_loop_fusion() {
         expect(loop2.loop->merge_block() == loop2.merge);
     };
 
-    "loop_fusion_flow_dependence_not_fused"_test = [] {
+    "loop_fusion_rejects_structured_dependent_loops"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);

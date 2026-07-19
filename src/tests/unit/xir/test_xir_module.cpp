@@ -1,3 +1,5 @@
+// Exercises XIR module ownership, function kinds, arguments, values, and metadata.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
@@ -186,6 +188,17 @@ void reg_arguments() {
         auto *ref_arg = kernel->create_argument(Type::of<int>(), true);
         expect(val_arg->is_value() == true);
         expect(ref_arg->is_reference() == true);
+    };
+
+    "xir_create_argument_routes_opaque_types_to_references"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *opaque_type = Type::custom("LC_IndirectDispatchBuffer");
+        auto *opaque_arg = kernel->create_argument(opaque_type, false);
+        expect(opaque_arg != nullptr);
+        expect(opaque_arg->type() == opaque_type);
+        expect(opaque_arg->is_reference());
+        expect(opaque_arg->is_lvalue());
     };
 }
 

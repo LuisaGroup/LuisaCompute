@@ -75,11 +75,43 @@ namespace {
     return switches;
 }
 
-[[nodiscard]] size_t count_unsupported_switches(
-    luisa::span<SwitchInst *const> switches) noexcept {
+[[nodiscard]] bool is_supported_switch_selector_type(const Type *type) noexcept {
+    if (type == nullptr) { return false; }
+    switch (type->tag()) {
+        case Type::Tag::BOOL:
+        case Type::Tag::INT8:
+        case Type::Tag::UINT8:
+        case Type::Tag::INT16:
+        case Type::Tag::UINT16:
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32:
+        case Type::Tag::INT64:
+        case Type::Tag::UINT64: return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] size_t count_rejected_switches(
+    FunctionDefinition *def, luisa::span<SwitchInst *const> switches) noexcept {
     size_t count = 0u;
     for (auto *sw : switches) {
-        count += sw->case_count() == 0u && sw->merge_block() != nullptr ? 1u : 0u;
+        auto rejected = sw == nullptr || sw->parent_block() == nullptr ||
+                        sw->parent_block()->parent_function() != def ||
+                        sw->value() == nullptr ||
+                        !is_supported_switch_selector_type(sw->value()->type()) ||
+                        sw->default_block() == nullptr ||
+                        sw->default_block()->parent_function() != def;
+        if (!rejected && sw->merge_block() != nullptr) {
+            rejected = sw->merge_block()->parent_function() != def;
+        }
+        if (!rejected && sw->case_count() == 0u && sw->merge_block() != nullptr) {
+            rejected = true;
+        }
+        for (size_t i = 0u; i < sw->case_count() && !rejected; ++i) {
+            auto *case_block = sw->case_block(i);
+            rejected = case_block == nullptr || case_block->parent_function() != def;
+        }
+        count += rejected ? 1u : 0u;
     }
     return count;
 }
@@ -89,7 +121,7 @@ namespace {
     if (def == nullptr) { return info; }
 
     auto switches = collect_switches(def);
-    info.rejected_switch_count = count_unsupported_switches(switches);
+    info.rejected_switch_count = count_rejected_switches(def, switches);
     if (info.rejected_switch_count != 0u) {
         LUISA_WARNING_WITH_LOCATION(
             "lower_switch: refusing to erase {} structured zero-case merge frame(s); "
@@ -216,7 +248,7 @@ LowerSwitchInfo lower_switch_pass_run_on_module(Module *module, PassReport *repo
     for (auto *f : module->function_list()) {
         if (auto *def = f->definition()) {
             auto switches = collect_switches(def);
-            total.rejected_switch_count += count_unsupported_switches(switches);
+            total.rejected_switch_count += count_rejected_switches(def, switches);
         }
     }
     if (total.rejected_switch_count != 0u) {

@@ -5,8 +5,10 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/optional.h>
 
 #include <cmath>
+#include <limits>
 
 namespace luisa::compute::xir {
 
@@ -73,6 +75,59 @@ namespace detail {
     return type != nullptr &&
            (type->is_float_or_float_vector() ||
             (type->is_matrix() && type->element()->is_float()));
+}
+
+[[nodiscard]] static luisa::optional<size_t> decode_constant_index(const Value *value) noexcept {
+    if (value == nullptr || !value->isa<Constant>()) { return luisa::nullopt; }
+    auto constant = static_cast<const Constant *>(value);
+    if (constant->type() == nullptr) { return luisa::nullopt; }
+    auto decode_unsigned = [](uint64_t index) noexcept -> luisa::optional<size_t> {
+        if constexpr (sizeof(size_t) < sizeof(uint64_t)) {
+            if (index > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+                return luisa::nullopt;
+            }
+        }
+        return static_cast<size_t>(index);
+    };
+    switch (constant->type()->tag()) {
+        case Type::Tag::INT8: {
+            auto index = constant->as<int8_t>();
+            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
+        }
+        case Type::Tag::UINT8: return decode_unsigned(constant->as<uint8_t>());
+        case Type::Tag::INT16: {
+            auto index = constant->as<int16_t>();
+            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
+        }
+        case Type::Tag::UINT16: return decode_unsigned(constant->as<uint16_t>());
+        case Type::Tag::INT32: {
+            auto index = constant->as<int32_t>();
+            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
+        }
+        case Type::Tag::UINT32: return decode_unsigned(constant->as<uint32_t>());
+        case Type::Tag::INT64: {
+            auto index = constant->as<int64_t>();
+            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
+        }
+        case Type::Tag::UINT64: return decode_unsigned(constant->as<uint64_t>());
+        default: return luisa::nullopt;
+    }
+}
+
+[[nodiscard]] static bool indices_equal(Value *a, Value *b) noexcept {
+    if (a == nullptr || b == nullptr) { return false; }
+    if (a == b && !a->isa<Constant>()) {
+        return a->type() != nullptr && (a->type()->is_int() || a->type()->is_uint());
+    }
+    auto lhs = decode_constant_index(a);
+    auto rhs = decode_constant_index(b);
+    return lhs.has_value() && rhs.has_value() && *lhs == *rhs;
+}
+
+[[nodiscard]] static bool indices_provably_different(Value *a, Value *b) noexcept {
+    auto lhs = decode_constant_index(a);
+    auto rhs = decode_constant_index(b);
+    return lhs.has_value() && rhs.has_value() && *lhs != *rhs;
 }
 
 [[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, Module *module, XIRBuilder &builder,
@@ -142,26 +197,36 @@ namespace detail {
         }
         case ArithmeticOp::EXTRACT: {
             auto idx = inst->operand(1);
-            if (!idx->isa<Constant>()) break;
-            auto idx_val = static_cast<const Constant *>(idx)->as<uint32_t>();
+            auto idx_val = decode_constant_index(idx);
+            if (!idx_val.has_value()) break;
             auto src = inst->operand(0);
             while (src->isa<Instruction>()) {
                 auto src_inst = static_cast<Instruction *>(src);
                 if (!src_inst->isa<ArithmeticInst>()) break;
                 auto src_arith = static_cast<ArithmeticInst *>(src_inst);
                 if (src_arith->op() == ArithmeticOp::AGGREGATE) {
-                    if (idx_val < src_arith->operand_count()) {
-                        return src_arith->operand(idx_val);
+                    if (inst->operand_count() == 2u && *idx_val < src_arith->operand_count()) {
+                        return src_arith->operand(*idx_val);
                     }
                     break;
                 }
                 if (src_arith->op() == ArithmeticOp::INSERT) {
-                    auto insert_idx = src_arith->operand(2);
-                    if (!insert_idx->isa<Constant>()) break;
-                    auto insert_idx_val = static_cast<const Constant *>(insert_idx)->as<uint32_t>();
-                    if (insert_idx_val == idx_val) {
+                    auto extract_index_count = inst->operand_count() - 1u;
+                    auto insert_index_count = src_arith->operand_count() - 2u;
+                    auto index_count = std::min(extract_index_count, insert_index_count);
+                    auto all_indices_match = extract_index_count == insert_index_count;
+                    auto indices_differ = false;
+                    for (size_t i = 0u; i < index_count; ++i) {
+                        auto extract_index = inst->operand(i + 1u);
+                        auto insert_index = src_arith->operand(i + 2u);
+                        all_indices_match &= indices_equal(extract_index, insert_index);
+                        indices_differ |= indices_provably_different(extract_index, insert_index);
+                        if (indices_differ) { break; }
+                    }
+                    if (all_indices_match) {
                         return src_arith->operand(1);
                     }
+                    if (!indices_differ) { break; }
                     src = src_arith->operand(0);
                     continue;
                 }
@@ -197,16 +262,15 @@ namespace detail {
             if (!common_src->type()->is_vector()) break;
             if (common_src->type()->element() != inst->type()->element()) break;
             auto first_idx = first_arith->operand(1);
-            if (!first_idx->isa<Constant>()) break;
             auto src_dim = common_src->type()->dimension();
             luisa::vector<Value *> shuffle_operands;
             shuffle_operands.reserve(inst->operand_count() + 1);
             shuffle_operands.emplace_back(common_src);
-            auto first_idx_val = static_cast<const Constant *>(first_idx)->as<uint32_t>();
-            if (first_idx_val >= src_dim) break;
+            auto first_idx_val = decode_constant_index(first_idx);
+            if (!first_idx_val.has_value() || *first_idx_val >= src_dim) break;
             shuffle_operands.emplace_back(first_idx);
             bool all_match = true;
-            bool identity = common_src->type() == inst->type() && first_idx_val == 0;
+            bool identity = common_src->type() == inst->type() && *first_idx_val == 0u;
             for (size_t i = 1; i < inst->operand_count(); ++i) {
                 auto op_i = inst->operand(i);
                 if (!op_i->isa<Instruction>()) {
@@ -228,16 +292,12 @@ namespace detail {
                     break;
                 }
                 auto op_idx = op_arith->operand(1);
-                if (!op_idx->isa<Constant>()) {
+                auto op_idx_val = decode_constant_index(op_idx);
+                if (!op_idx_val.has_value() || *op_idx_val >= src_dim) {
                     all_match = false;
                     break;
                 }
-                auto op_idx_val = static_cast<const Constant *>(op_idx)->as<uint32_t>();
-                if (op_idx_val >= src_dim) {
-                    all_match = false;
-                    break;
-                }
-                identity &= op_idx_val == static_cast<uint32_t>(i);
+                identity &= *op_idx_val == i;
                 shuffle_operands.emplace_back(op_idx);
             }
             if (all_match) {
@@ -251,38 +311,28 @@ namespace detail {
             auto base = inst->operand(0);
             auto val = inst->operand(1);
             auto idx = inst->operand(2);
-            if (!idx->isa<Constant>()) break;
-            auto idx_val = static_cast<const Constant *>(idx)->as<uint32_t>();
+            auto idx_val = decode_constant_index(idx);
+            if (!idx_val.has_value()) break;
             if (base->isa<Instruction>()) {
                 auto base_inst = static_cast<Instruction *>(base);
                 if (base_inst->isa<ArithmeticInst>()) {
                     auto base_arith = static_cast<ArithmeticInst *>(base_inst);
-                    if (base_arith->op() == ArithmeticOp::AGGREGATE && idx_val < base_arith->operand_count()) {
+                    if (base_arith->op() == ArithmeticOp::AGGREGATE &&
+                        inst->operand_count() == 3u && *idx_val < base_arith->operand_count()) {
                         luisa::vector<Value *> elems;
                         elems.reserve(base_arith->operand_count());
                         for (size_t i = 0; i < base_arith->operand_count(); ++i) {
-                            elems.emplace_back(i == idx_val ? val : base_arith->operand(i));
+                            elems.emplace_back(i == *idx_val ? val : base_arith->operand(i));
                         }
                         builder.set_insertion_point(inst);
                         return builder.call(inst->type(), ArithmeticOp::AGGREGATE, elems);
                     }
                     if (base_arith->op() == ArithmeticOp::INSERT) {
-                        // Compare all index operands, not just the first one,
-                        // to handle multi-dimensional inserts correctly.
-                        bool all_indices_match = true;
-                        for (size_t i = 2; i < inst->operand_count(); ++i) {
-                            if (i >= base_arith->operand_count()) {
-                                all_indices_match = false;
-                                break;
-                            }
+                        bool all_indices_match = inst->operand_count() == base_arith->operand_count();
+                        for (size_t i = 2; all_indices_match && i < inst->operand_count(); ++i) {
                             auto outer_idx = inst->operand(i);
                             auto inner_idx = base_arith->operand(i);
-                            if (!outer_idx->isa<Constant>() || !inner_idx->isa<Constant>()) {
-                                all_indices_match = false;
-                                break;
-                            }
-                            if (static_cast<const Constant *>(outer_idx)->as<uint32_t>() !=
-                                static_cast<const Constant *>(inner_idx)->as<uint32_t>()) {
+                            if (!indices_equal(outer_idx, inner_idx)) {
                                 all_indices_match = false;
                                 break;
                             }
@@ -294,11 +344,12 @@ namespace detail {
                     }
                 }
             }
-            if (inst->type() != nullptr && (inst->type()->is_vector() || inst->type()->is_array())) {
+            if (inst->operand_count() == 3u && inst->type() != nullptr &&
+                (inst->type()->is_vector() || inst->type()->is_array())) {
                 auto dim = inst->type()->dimension();
-                if (idx_val == dim - 1) {
+                if (*idx_val == dim - 1u) {
                     luisa::vector<Value *> elems(dim, nullptr);
-                    elems[idx_val] = val;
+                    elems[*idx_val] = val;
                     auto cur = base;
                     bool valid = true;
                     for (auto slot = static_cast<int32_t>(dim) - 2; slot >= 0; --slot) {
@@ -316,17 +367,13 @@ namespace detail {
                             break;
                         }
                         auto cur_arith = static_cast<ArithmeticInst *>(cur_inst);
-                        if (cur_arith->op() != ArithmeticOp::INSERT) {
+                        if (cur_arith->op() != ArithmeticOp::INSERT || cur_arith->operand_count() != 3u) {
                             valid = false;
                             break;
                         }
                         auto ci = cur_arith->operand(2);
-                        if (!ci->isa<Constant>()) {
-                            valid = false;
-                            break;
-                        }
-                        auto ci_val = static_cast<const Constant *>(ci)->as<uint32_t>();
-                        if (ci_val != static_cast<uint32_t>(slot)) {
+                        auto ci_val = decode_constant_index(ci);
+                        if (!ci_val.has_value() || *ci_val != static_cast<size_t>(slot)) {
                             valid = false;
                             break;
                         }

@@ -32,7 +32,7 @@ class LUISA_XIR_API PassPipeline {
 public:
     struct Stats {
         struct Record {
-            luisa::string_view name;
+            luisa::string name;
             uint32_t invocations{0u};
             double elapsed_ms{0.0};
             bool changed{false};
@@ -56,6 +56,10 @@ private:
 
     luisa::vector<Entry> _entries;
 
+    static void _merge_record(Stats::Record &record,
+                              const Stats::Record &other) noexcept;
+    [[nodiscard]] static Stats::Record _run_entry(const Entry &entry,
+                                                  Module *module) noexcept;
     static void _run_entries(luisa::span<const Entry> entries,
                              Module *module, Stats &stats) noexcept;
 

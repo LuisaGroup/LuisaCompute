@@ -34,6 +34,7 @@ public:
         std::scoped_lock lock{_mutex};
         return _geometry;
     }
+    [[nodiscard]] Kind kind() const noexcept override { return Kind::PROCEDURAL; }
     [[nodiscard]] auto option() const noexcept { return _option; }
 };
 

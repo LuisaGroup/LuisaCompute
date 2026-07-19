@@ -1,14 +1,19 @@
+// Test for lowering ray-query loop control flow and invalid-shape rejection.
+
 #include "ut/ut.hpp"
 
 #include <luisa/ast/type_registry.h>
+#include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -33,6 +38,7 @@ namespace {
 struct RayQueryFixture {
     KernelFunction *kernel;
     BasicBlock *body;
+    Value *query;
     RayQueryLoopInst *loop;
     BasicBlock *dispatch;
     BasicBlock *merge;
@@ -46,7 +52,7 @@ struct RayQueryFixture {
     auto *body = kernel->create_body_block();
     XIRBuilder b;
     b.set_insertion_point(body);
-    auto *query = b.alloca_local(Type::of<int>());
+    auto *query = b.alloca_local(Type::of<RayQueryAll>());
     auto *loop = b.ray_query_loop();
     auto *dispatch = loop->create_dispatch_block();
     auto *merge = loop->create_merge_block();
@@ -59,7 +65,7 @@ struct RayQueryFixture {
     b.br(dispatch);
     b.set_insertion_point(merge);
     b.return_void();
-    return {kernel, body, loop, dispatch, merge, dispatch_inst, surface, procedural};
+    return {kernel, body, query, loop, dispatch, merge, dispatch_inst, surface, procedural};
 }
 
 }// namespace
@@ -72,16 +78,103 @@ void register_tests() {
         b.set_insertion_point(f.surface);
         b.br(f.dispatch);
 
+        expect(xir_verify_module(&m).succeeded());
         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
         expect(info.lowered_loop_count == 1u);
         expect(info.error_count == 0u);
         expect(info.succeeded());
-        bool found_pipeline = false;
+        RayQueryPipelineInst *pipeline = nullptr;
         f.body->traverse_instructions([&](Instruction *inst) noexcept {
-            found_pipeline |= inst->isa<RayQueryPipelineInst>();
+            if (inst->isa<RayQueryPipelineInst>()) {
+                expect(pipeline == nullptr);
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
         });
-        expect(found_pipeline);
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        expect(pipeline->query_object() == f.query);
+        expect(pipeline->query_object()->type() == Type::of<RayQueryAll>());
+        expect(pipeline->captured_argument_count() == 0u);
+        for (auto *callback : {pipeline->on_surface_function(),
+                               pipeline->on_procedural_function()}) {
+            expect(callback != nullptr);
+            expect(callback->isa<CallableFunction>());
+            expect(callback->type() == nullptr);
+            expect(callback->arguments().count_size() == 1u);
+            auto *query_argument = callback->arguments().front();
+            expect(query_argument->is_reference());
+            expect(query_argument->type() == Type::of<RayQueryAll>());
+            expect(callback->definition()->body_block()->terminator()->isa<ReturnInst>());
+        }
         expect(count_functions(m) == 3u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "captured_callback_abi_is_exact_and_verifier_valid"_test = [] {
+        Module m;
+        auto *kernel = m.create_kernel();
+        auto *value = kernel->create_value_argument(Type::of<int>());
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *mutable_state = b.alloca_local(Type::of<int>());
+        auto *loop = b.ray_query_loop();
+        auto *dispatch = loop->create_dispatch_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface = dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural = dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        b.store(mutable_state, value);
+        b.br(dispatch);
+        b.set_insertion_point(procedural);
+        b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(info.error_count == 0u);
+
+        RayQueryPipelineInst *pipeline = nullptr;
+        body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                expect(pipeline == nullptr);
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        expect(pipeline->query_object() == query);
+        expect(pipeline->captured_argument_count() == 2u);
+        expect(pipeline->captured_argument(0u) == mutable_state);
+        expect(pipeline->captured_argument(1u) == value);
+        for (auto *callback : {pipeline->on_surface_function(),
+                               pipeline->on_procedural_function()}) {
+            expect(callback != nullptr);
+            expect(callback->isa<CallableFunction>());
+            expect(callback->type() == nullptr);
+            expect(callback->arguments().count_size() == 3u);
+            auto argument = callback->arguments().begin();
+            auto *query_argument = *argument;
+            ++argument;
+            auto *mutable_argument = *argument;
+            ++argument;
+            auto *value_argument = *argument;
+            expect(query_argument->is_reference());
+            expect(query_argument->type() == Type::of<RayQueryAll>());
+            expect(mutable_argument->is_reference());
+            expect(mutable_argument->type() == Type::of<int>());
+            expect(value_argument->is_value());
+            expect(value_argument->type() == Type::of<int>());
+        }
+        expect(count_functions(m) == 3u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "multiple_handler_exits_are_rejected_atomically"_test = [] {
@@ -160,7 +253,7 @@ void register_tests() {
         // First loop is fully valid and would be outlined without a
         // function-wide preflight.
         b.set_insertion_point(body);
-        auto *query0 = b.alloca_local(Type::of<int>());
+        auto *query0 = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop0 = b.ray_query_loop();
         auto *dispatch0 = loop0->create_dispatch_block();
         auto *merge0 = loop0->create_merge_block();
@@ -177,7 +270,7 @@ void register_tests() {
         // The later loop has two surface exits and must reject the complete
         // function before the first callback or alloca move is created.
         b.set_insertion_point(merge0);
-        auto *query1 = b.alloca_local(Type::of<int>());
+        auto *query1 = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop1 = b.ray_query_loop();
         auto *dispatch1 = loop1->create_dispatch_block();
         auto *merge1 = loop1->create_merge_block();
@@ -228,7 +321,7 @@ void register_tests() {
         auto *body = kernel->create_body_block();
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *query = b.alloca_local(Type::of<int>());
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop = b.ray_query_loop();
         auto *dispatch = loop->create_dispatch_block();
         auto *merge = loop->create_merge_block();
@@ -253,6 +346,50 @@ void register_tests() {
         expect(body->terminator() == loop);
         expect(dispatch->terminator() == dispatch_inst);
         expect(dispatch_inst->on_procedural_candidate_block() == nullptr);
+    };
+
+    "merge_phi_is_rejected_before_outlining"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.surface);
+        b.br(f.dispatch);
+        b.set_insertion_point(f.merge->instructions().head_sentinel());
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(m.create_constant_zero(Type::of<int>()), f.dispatch);
+        auto function_count = count_functions(m);
+        auto block_count = count_blocks(f.kernel->definition());
+
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.lowered_loop_count == 0u);
+        expect(count_functions(m) == function_count);
+        expect(count_blocks(f.kernel->definition()) == block_count);
+        expect(f.body->terminator() == f.loop);
+        expect(phi->is_linked());
+    };
+
+    "external_handler_predecessor_is_rejected_before_outlining"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.surface);
+        auto *surface_exit = b.br(f.dispatch);
+        auto *external = f.kernel->create_basic_block();
+        b.set_insertion_point(external);
+        auto *external_edge = b.br(f.surface);
+        auto function_count = count_functions(m);
+        auto block_count = count_blocks(f.kernel->definition());
+
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.lowered_loop_count == 0u);
+        expect(count_functions(m) == function_count);
+        expect(count_blocks(f.kernel->definition()) == block_count);
+        expect(f.surface->terminator() == surface_exit);
+        expect(external->terminator() == external_edge);
     };
 }
 

@@ -25,6 +25,79 @@ AllocaInst *trace_pointer_base_local_alloca_inst(Value *pointer) noexcept {
     return nullptr;
 }
 
+InstructionMemoryInfo get_memory_info(Instruction *inst) noexcept {
+    auto pointer_scope = [](Value *pointer) noexcept {
+        auto base = trace_pointer_base_value(pointer);
+        if (base != nullptr && base->isa<AllocaInst>() &&
+            static_cast<AllocaInst *>(base)->is_shared()) {
+            return MemoryScope::SHARED;
+        }
+        return MemoryScope::LOCAL;
+    };
+    switch (inst->derived_instruction_tag()) {
+        case DerivedInstructionTag::ARITHMETIC:
+        case DerivedInstructionTag::CAST:
+        case DerivedInstructionTag::GEP:
+        case DerivedInstructionTag::PHI:
+            return {MemoryScope::NONE, MemoryEffects::NONE, false};
+        case DerivedInstructionTag::CLOCK:
+            return {MemoryScope::GLOBAL, MemoryEffects::READ, false};
+        case DerivedInstructionTag::RESOURCE_QUERY:
+            return {MemoryScope::GLOBAL, MemoryEffects::NONE, false};
+        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+            return {MemoryScope::LOCAL, MemoryEffects::READ, false};
+        case DerivedInstructionTag::ALLOCA: {
+            auto alloca = static_cast<AllocaInst *>(inst);
+            return {alloca->is_shared() ? MemoryScope::SHARED : MemoryScope::LOCAL,
+                    MemoryEffects::NONE, false};
+        }
+        case DerivedInstructionTag::LOAD: {
+            auto load = static_cast<LoadInst *>(inst);
+            return {pointer_scope(load->variable()), MemoryEffects::READ, false};
+        }
+        case DerivedInstructionTag::STORE: {
+            auto store = static_cast<StoreInst *>(inst);
+            return {pointer_scope(store->variable()), MemoryEffects::WRITE, false};
+        }
+        case DerivedInstructionTag::RESOURCE_READ: {
+            auto read = static_cast<ResourceReadInst *>(inst);
+            auto is_volatile = read->op() == ResourceReadOp::BUFFER_VOLATILE_READ ||
+                               read->op() == ResourceReadOp::BYTE_BUFFER_VOLATILE_READ;
+            return {MemoryScope::GLOBAL, MemoryEffects::READ, is_volatile};
+        }
+        case DerivedInstructionTag::RESOURCE_WRITE: {
+            auto write = static_cast<ResourceWriteInst *>(inst);
+            auto is_volatile = write->op() == ResourceWriteOp::BUFFER_VOLATILE_WRITE ||
+                               write->op() == ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE;
+            return {MemoryScope::GLOBAL, MemoryEffects::WRITE, is_volatile};
+        }
+        case DerivedInstructionTag::ATOMIC: {
+            auto atomic = static_cast<AtomicInst *>(inst);
+            auto base = trace_pointer_base_value(atomic->base());
+            auto scope = base != nullptr && base->isa<AllocaInst>() ?
+                             pointer_scope(base) :
+                             MemoryScope::GLOBAL;
+            return {scope, MemoryEffects::READ_WRITE, false};
+        }
+        case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
+            return {MemoryScope::LOCAL, MemoryEffects::WRITE, false};
+        case DerivedInstructionTag::THREAD_GROUP:
+            return {MemoryScope::SHARED, MemoryEffects::READ_WRITE, true};
+        case DerivedInstructionTag::CALL:
+            return {MemoryScope::GLOBAL, MemoryEffects::READ_WRITE, false};
+        case DerivedInstructionTag::PRINT:
+        case DerivedInstructionTag::DEBUG_BREAK:
+        case DerivedInstructionTag::ASSERT:
+        case DerivedInstructionTag::ASSUME:
+            return {MemoryScope::NONE, MemoryEffects::NONE, true};
+        case DerivedInstructionTag::AUTODIFF_SCOPE:
+        case DerivedInstructionTag::AUTODIFF_INTRINSIC:
+            return {MemoryScope::GLOBAL, MemoryEffects::READ_WRITE, true};
+        default:
+            return {MemoryScope::NONE, MemoryEffects::NONE, true};
+    }
+}
+
 bool contains_structured_control_flow(FunctionDefinition *function) noexcept {
     if (function == nullptr) { return false; }
     // Inspect every block owned by the function, not just blocks reachable

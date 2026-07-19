@@ -46,6 +46,7 @@
 #include <fstream>
 #endif
 #include <algorithm>
+#include <cstdlib>
 
 namespace lc::vk {
 using namespace std::string_literals;
@@ -1531,6 +1532,21 @@ bool Device::print_code() {
 }
 
 #ifdef LUISA_XIR_TO_SPIRV
+[[nodiscard]] static uint64_t xir_spirv_environment_hash() noexcept {
+    auto hash_env = [](const char *name) noexcept {
+        auto *value = std::getenv(name);
+        return value == nullptr ? 0ull :
+                                  luisa::hash_value(luisa::string_view{value});
+    };
+    return luisa::hash_combine({
+        hash_env("LUISA_XIR_DISABLE_NORMALIZE_CFG"),
+        hash_env("LUISA_XIR_DISABLE_RESTRUCTURE_CFG"),
+        hash_env("LUISA_XIR_DISABLE_OPTIMIZATION"),
+        hash_env("LUISA_SPIRV_OPT_LEVEL"),
+        hash_env("LUISA_SPIRV_OPT_PASSES"),
+    });
+}
+
 [[nodiscard]] static vstd::MD5 compute_shader_cache_md5(Function kernel, const ShaderOption &option,
                                                         bool use_native_float_atomics) noexcept {
     using namespace std::string_view_literals;
@@ -1540,7 +1556,7 @@ bool Device::print_code() {
         (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v3"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v5"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),
@@ -1552,6 +1568,8 @@ bool Device::print_code() {
         luisa::hash_value(option.native_include),
         option.native_include.size(),
         static_cast<uint64_t>(use_native_float_atomics),
+        xir_spirv_environment_hash(),
+        static_cast<uint64_t>(kernel.allowed_warp_size().value_or(0u)),
     };
     return vstd::MD5{vstd::span<const uint8_t>{
         reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
@@ -1565,15 +1583,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     // Check if this shader uses motion blur trace operations
     bool requires_motion_blur = kernel.propagated_builtin_callables().uses_raytracing_motion_blur();
 
-    if (requires_motion_blur && !motion_blur_enabled) {
-        LUISA_WARNING("Shader uses motion blur but device does not support it. "
-                      "Falling back to non-motion compute shader.");
-        requires_motion_blur = false;
-    }
-
     if (requires_motion_blur) {
-        LUISA_ERROR("Vulkan compute shaders must use native SPIR-V codegen. "
-                    "The legacy HLSL ray-tracing fallback for motion-blur compute shaders is disabled.");
+        if (!motion_blur_enabled) {
+            LUISA_ERROR("Vulkan device does not support VK_NV_ray_tracing_motion_blur; "
+                        "motion-time compute tracing cannot be compiled.");
+        }
+        LUISA_ERROR("Native Vulkan XIR-to-SPIR-V compute codegen does not implement "
+                    "motion-time ray tracing.");
     }
 #ifdef LUISA_XIR_TO_SPIRV
     static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
@@ -1649,7 +1665,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result->useBufferBindless,
                 spv_result->printers,
                 0,
-                spv_result->constant_ubo_data);
+                spv_result->constant_ubo_data,
+                kernel.allowed_warp_size());
         }
     }
     if (option.compile_only) {
@@ -1720,7 +1737,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             llvm_result.useBufferBindless,
             llvm_result.printers,
             0,
-            llvm_result.constant_ubo_data);
+            llvm_result.constant_ubo_data,
+            kernel.allowed_warp_size());
     } else {
         auto shader = new ComputeShader(
             this,
@@ -1812,7 +1830,10 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                         code.useTex2DBindless,
                         code.useTex3DBindless,
                         code.useBufferBindless,
-                        code.printers);
+                        code.printers,
+                        0,
+                        {},
+                        kernel.allowed_warp_size());
                 },
                 [](auto &&err) {
                     LUISA_ERROR("Compile Error: {}", err);

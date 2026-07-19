@@ -88,7 +88,9 @@ size_t ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span<const Variable
         static_cast<size_t>(0u), [](auto size, auto arg) noexcept {
             auto arg_type = arg.type();
             // Do not allocate redundant uniform buffer
-            return size + (arg_type->is_resource() ? 0u : arg_type->size());
+            return size + (arg_type->is_resource() || arg_type->is_custom() ?
+                               0u :
+                               arg_type->size());
         });
 }
 
@@ -98,7 +100,9 @@ size_t ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span<const Type *co
         static_cast<size_t>(0u), [](auto size, auto arg_type) noexcept {
             LUISA_ASSERT(arg_type != nullptr, "Invalid argument type.");
             // Do not allocate redundant uniform buffer
-            return size + (arg_type->is_resource() ? 0u : arg_type->size());
+            return size + (arg_type->is_resource() || arg_type->is_custom() ?
+                               0u :
+                               arg_type->size());
         });
 }
 

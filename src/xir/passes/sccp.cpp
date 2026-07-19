@@ -384,15 +384,19 @@ Constant *try_fold_arithmetic_for_sccp(Module *module, ArithmeticOp op,
         return i < operands.size() ? operands[i]->data() : nullptr;
     };
 
-    bool ok = eval_scalar_op(type, op, result_data.data(),
-                             get_data(0), get_data(1), get_data(2));
+    auto ok = op == ArithmeticOp::POW_INT && operands.size() > 1u ?
+                  eval_pow_int_op(
+                      type, operands[1]->type(), result_data.data(),
+                      get_data(0), get_data(1)) :
+                  eval_scalar_op(type, op, result_data.data(),
+                                 get_data(0), get_data(1), get_data(2));
     if (!ok) return nullptr;
     return module->create_constant(type, result_data.data());
 }
 
 static void run_sccp_on_function(Function *function, SCCPInfo &info) noexcept {
     auto def = function->definition();
-    if (!def) return;
+    if (def == nullptr || def->body_block() == nullptr) return;
     SCCPSolver solver;
     solver.module = function->parent_module();
     solver.solve(def);

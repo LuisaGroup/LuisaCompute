@@ -5,6 +5,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/phi.h>
 
 #include "helpers.h"
@@ -22,14 +23,35 @@ static constexpr size_t kIfConversionInstructionCap = 16u;
 [[nodiscard]] static bool is_speculation_safe(Instruction *inst) noexcept {
     auto info = get_memory_info(inst);
     if (!info.is_pure()) return false;
-    switch (inst->derived_instruction_tag()) {
-        case DerivedInstructionTag::ARITHMETIC: [[fallthrough]];
-        case DerivedInstructionTag::CAST: [[fallthrough]];
-        case DerivedInstructionTag::GEP:
-            return true;
-        default:
+    if (inst->isa<CastInst>()) { return true; }
+    if (!inst->isa<ArithmeticInst>()) { return false; }
+    switch (static_cast<ArithmeticInst *>(inst)->op()) {
+        case ArithmeticOp::BINARY_DIV:
+        case ArithmeticOp::BINARY_MOD:
+        case ArithmeticOp::BINARY_SHIFT_LEFT:
+        case ArithmeticOp::BINARY_SHIFT_RIGHT:
             return false;
+        default: return true;
     }
+}
+
+[[nodiscard]] static bool can_rewrite_phis(BasicBlock *merge,
+                                           BasicBlock *t_block,
+                                           BasicBlock *f_block) noexcept {
+    for (auto *inst : merge->instructions()) {
+        if (!inst->isa<PhiInst>()) { continue; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        auto true_count = 0u;
+        auto false_count = 0u;
+        for (auto i = 0u; i < phi->incoming_count(); i++) {
+            auto incoming = phi->incoming(i);
+            if (incoming.value == nullptr || incoming.value->type() != phi->type()) { return false; }
+            true_count += incoming.block == t_block;
+            false_count += incoming.block == f_block;
+        }
+        if (true_count != 1u || false_count != 1u) { return false; }
+    }
+    return true;
 }
 
 [[nodiscard]] static size_t count_predecessors(BasicBlock *block) noexcept {
@@ -134,6 +156,8 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     if (t_merge != f_merge) return false;
     auto merge = t_merge;
     auto cond = cond_br->condition();
+    if (cond == nullptr || cond->type() == nullptr || !cond->type()->is_bool()) { return false; }
+    if (!can_rewrite_phis(merge, t_block, f_block)) { return false; }
     // Hoist non-terminator instructions from each side into b before the
     // current cond_br terminator.
     auto hoist = [&](BasicBlock *side) noexcept {

@@ -1,5 +1,5 @@
 import sys
-from common import run_cmd, get_targets, get_backends
+from common import run_cmd, get_targets, get_backends, format_backends
 
 CORE_TARGETS = [
     "test_basic_traits",
@@ -19,7 +19,7 @@ CORE_TARGETS = [
 ]
 
 def main():
-    backends = get_backends(["dx", "vk", "cuda", "metal"])
+    backends = get_backends(["dx", "vk", "cuda", "hip", "metal"])
     available = set(get_targets())
     targets = [t for t in CORE_TARGETS if t in available]
 
@@ -45,7 +45,7 @@ def main():
             print(f"  {f}")
         sys.exit(1)
     else:
-        print("\nAll core tests passed.")
+        print(f"\nAll core tests passed; device-backed coverage used: {format_backends(backends)}.")
         sys.exit(0)
 
 

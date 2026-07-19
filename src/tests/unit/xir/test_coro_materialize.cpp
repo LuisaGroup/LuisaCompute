@@ -1,3 +1,5 @@
+// Test for coroutine state materialization and verifier-preserving failure paths.
+
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/vector.h>
@@ -255,6 +257,7 @@ void reg_coro_materialize() {
         // Production uses the split-aware public entry; it must be atomic too.
         CoroCfgDistillResult cfg;
         cfg.scopes.resize(2u);
+        cfg.scopes[1u].trigger_token = 1u;
         CoroSplitInfo split;
         split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
             .scope_index = 0u,
@@ -263,6 +266,7 @@ void reg_coro_materialize() {
         });
         split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
             .scope_index = 1u,
+            .trigger_token = 1u,
             .callable = structured,
             .frame_argument = structured_frame,
         });
@@ -319,6 +323,9 @@ void reg_coro_materialize() {
 
         CoroCfgDistillResult cfg;
         cfg.scopes.resize(4u);// scope 3 is deliberately missing
+        cfg.scopes[1u].trigger_token = 1u;
+        cfg.scopes[2u].trigger_token = 2u;
+        cfg.scopes[3u].trigger_token = 3u;
         CoroSplitInfo split;
         split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
             .scope_index = 0u,
@@ -332,11 +339,13 @@ void reg_coro_materialize() {
         });
         split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
             .scope_index = 1u,
+            .trigger_token = 1u,
             .callable = mismatched,
             .frame_argument = valid_frame,// belongs to a different callable
         });
         split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
             .scope_index = 2u,
+            .trigger_token = 2u,
             .callable = foreign,
             .frame_argument = foreign_frame,
         });
@@ -360,6 +369,31 @@ void reg_coro_materialize() {
         expect(count_inst_tag(m, DerivedInstructionTag::STORE) == 0u);
         expect(count_inst_tag(m, DerivedInstructionTag::CORO_SUSPEND) == 3u);
         expect(count_inst_tag(foreign_module, DerivedInstructionTag::CORO_SUSPEND) == 1u);
+    };
+
+    "duplicate_cfg_trigger_tokens_are_rejected_before_materialization"_test = [] {
+        Module m;
+        Value *frame_arg;
+        BasicBlock *body;
+        auto *callable = make_post_split_callable(m, frame_arg, body);
+        static_cast<void>(callable);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *resume = b.coro_resume(1u, frame_arg);
+        b.return_void();
+        CoroCfgDistillResult cfg;
+        cfg.scopes.resize(3u);
+        cfg.scopes[0u].trigger_token = 0u;
+        cfg.scopes[1u].trigger_token = 1u;
+        cfg.scopes[2u].trigger_token = 1u;
+
+        auto info = coro_materialize_pass_run_on_module_with_cfg(&m, cfg);
+
+        expect(!info.succeeded());
+        expect(info.invalid_input_error_count == 1u);
+        expect(info.callable_count == 0u);
+        expect(count_inst_tag(m, DerivedInstructionTag::CORO_RESUME) == 1u);
+        expect(resume->parent_block() == body);
     };
 }
 

@@ -327,7 +327,16 @@ private:
             auto word_count = static_cast<uint>((_global_frame_layout.size_bytes + sizeof(uint) - 1u) / sizeof(uint));
             stream << _clear_global_frames_shader(_global_frames, word_count).dispatch(word_count);
         }
-        stream << _pt_shader(_global, _global_frames, dispatch_size_prefix_product, args...).dispatch(_config.thread_count);
+        // The configured thread count is the scheduler's worker-capacity ceiling.
+        // Launching more workers than logical coroutine instances only creates idle
+        // workgroups contending on the global work counter. Keep a complete final
+        // workgroup because the persistent kernel contains block barriers.
+        auto worker_count = _config.thread_count;
+        if (dispatch_size_prefix_product.z < worker_count) {
+            worker_count = static_cast<uint>(
+                luisa::align(dispatch_size_prefix_product.z, _config.block_size));
+        }
+        stream << _pt_shader(_global, _global_frames, dispatch_size_prefix_product, args...).dispatch(worker_count);
     }
 
 public:

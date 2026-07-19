@@ -67,14 +67,10 @@ static void process_add_or_mul(ArithmeticInst *inst, ArithmeticOp op,
 
     if (!operands_changed(operands, inst->operand(0), inst->operand(1))) return;
 
-    // Phase 2: Sort by rank, then by pointer for grouping
-    std::sort(operands.begin(), operands.end(),
-              [&inst_ranks](Value *a, Value *b) noexcept {
-                  auto ra = get_operand_rank(a, inst_ranks);
-                  auto rb = get_operand_rank(b, inst_ranks);
-                  if (ra != rb) return ra < rb;
-                  return a < b;
-              });
+    std::stable_sort(operands.begin(), operands.end(),
+                     [&inst_ranks](Value *a, Value *b) noexcept {
+                         return get_operand_rank(a, inst_ranks) < get_operand_rank(b, inst_ranks);
+                     });
 
     // Phase 3: Rebuild
     builder.set_insertion_point(inst);
@@ -98,14 +94,10 @@ static void process_sub(ArithmeticInst *inst,
     linearize_add_mul_operands(inst->operand(0), ArithmeticOp::BINARY_ADD, operands);
     operands.push_back(neg_rhs);
 
-    // Sort
-    std::sort(operands.begin(), operands.end(),
-              [&inst_ranks](Value *a, Value *b) noexcept {
-                  auto ra = get_operand_rank(a, inst_ranks);
-                  auto rb = get_operand_rank(b, inst_ranks);
-                  if (ra != rb) return ra < rb;
-                  return a < b;
-              });
+    std::stable_sort(operands.begin(), operands.end(),
+                     [&inst_ranks](Value *a, Value *b) noexcept {
+                         return get_operand_rank(a, inst_ranks) < get_operand_rank(b, inst_ranks);
+                     });
 
     // Rebuild as add chain
     auto replacement = rebuild_left_associative(inst->type(), ArithmeticOp::BINARY_ADD, operands, builder);

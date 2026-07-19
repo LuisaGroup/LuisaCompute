@@ -107,6 +107,20 @@ struct RayQueryHandlerRegion {
     return false;
 }
 
+[[nodiscard]] static bool handler_region_has_external_predecessor(
+    BasicBlock *entry, BasicBlock *dispatch,
+    const RayQueryHandlerRegion &handler) noexcept {
+    for (auto *block : handler.blocks) {
+        auto invalid = false;
+        block->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+            invalid |= !handler.blocks.contains(predecessor) &&
+                       !(block == entry && predecessor == dispatch);
+        });
+        if (invalid) { return true; }
+    }
+    return false;
+}
+
 [[nodiscard]] static bool value_is_outline_resolvable(
     Value *value, Value *query_object, BasicBlock *dispatch,
     const RayQueryHandlerRegion &handler,
@@ -236,6 +250,36 @@ struct RayQueryHandlerRegion {
         reason = "dispatch has a null candidate handler";
         return false;
     }
+    if (dispatch_block == merge_block || dispatch_block == loop->parent_block() ||
+        merge_block == loop->parent_block() || surface == dispatch_block ||
+        procedural == dispatch_block || surface == merge_block ||
+        procedural == merge_block) {
+        reason = "ray-query loop reuses a parent, dispatch, merge, or handler block";
+        return false;
+    }
+    for (auto *inst : merge_block->instructions()) {
+        if (inst->isa<PhiInst>()) {
+            reason = "ray-query loop merge contains a PHI that cannot be moved atomically";
+            return false;
+        }
+    }
+    auto merge_has_external_predecessor = false;
+    merge_block->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+        merge_has_external_predecessor |= predecessor != dispatch_block &&
+                                          predecessor != loop->parent_block();
+    });
+    if (merge_has_external_predecessor) {
+        reason = "ray-query loop merge has a predecessor outside the loop";
+        return false;
+    }
+    auto merge_has_self_successor = false;
+    merge_block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+        merge_has_self_successor |= successor == merge_block;
+    });
+    if (merge_has_self_successor) {
+        reason = "ray-query loop merge has a self edge";
+        return false;
+    }
     RayQueryHandlerRegion surface_region;
     RayQueryHandlerRegion procedural_region;
     if (!collect_outlineable_handler_region(surface, dispatch_block, merge_block,
@@ -246,6 +290,11 @@ struct RayQueryHandlerRegion {
     }
     if (handler_regions_overlap(surface_region, procedural_region)) {
         reason = "surface and procedural candidate handler regions overlap";
+        return false;
+    }
+    if (handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
+        handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
+        reason = "candidate handler has a predecessor outside its outline region";
         return false;
     }
     luisa::unordered_set<BasicBlock *> loop_blocks;

@@ -51,6 +51,13 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
         auto llvm_c = _get_llvm_value(b, func_ctx, inst->operand(2));
         return op(llvm_a, llvm_b, llvm_c);
     };
+    auto broadcast_like = [&](llvm::Value *value, llvm::Value *shape) noexcept {
+        if (value->getType() == shape->getType()) { return value; }
+        auto shape_type = llvm::dyn_cast<llvm::FixedVectorType>(shape->getType());
+        LUISA_DEBUG_ASSERT(shape_type != nullptr &&
+                           value->getType() == shape_type->getElementType());
+        return b.CreateVectorSplat(shape_type->getNumElements(), value);
+    };
     auto translate_matrix_comp_unary_op = [&](auto op) noexcept {
         LUISA_DEBUG_ASSERT(inst->operand_count() == 1 &&
                            inst->operand(0)->type() == inst->type() &&
@@ -283,12 +290,23 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
             auto one = llvm::ConstantFP::get(v->getType(), 1.);
             return b.CreateMinNum(b.CreateMaxNum(v, zero), one);
         });
-        case xir::ArithmeticOp::LERP: return translate_ternary([&](auto x, auto y, auto t) noexcept {
+        case xir::ArithmeticOp::LERP: {
+            LUISA_DEBUG_ASSERT(inst->operand_count() == 3 &&
+                               inst->operand(0)->type() == inst->type() &&
+                               inst->operand(1)->type() == inst->type());
+            auto x = _get_llvm_value(b, func_ctx, inst->operand(0));
+            auto y = _get_llvm_value(b, func_ctx, inst->operand(1));
+            auto t = broadcast_like(_get_llvm_value(b, func_ctx, inst->operand(2)), x);
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
             auto d = b.CreateFSub(y, x);
             return b.CreateFMA(t, d, x);
-        });
-        case xir::ArithmeticOp::SMOOTHSTEP: return translate_ternary([&](auto e0, auto e1, auto x) noexcept {
+        }
+        case xir::ArithmeticOp::SMOOTHSTEP: {
+            LUISA_DEBUG_ASSERT(inst->operand_count() == 3 &&
+                               inst->operand(2)->type() == inst->type());
+            auto x = _get_llvm_value(b, func_ctx, inst->operand(2));
+            auto e0 = broadcast_like(_get_llvm_value(b, func_ctx, inst->operand(0)), x);
+            auto e1 = broadcast_like(_get_llvm_value(b, func_ctx, inst->operand(1)), x);
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
             auto zero = llvm::Constant::getNullValue(x->getType());
             auto one = llvm::ConstantFP::get(x->getType(), 1.);
@@ -298,14 +316,18 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
             auto three = llvm::ConstantFP::get(x->getType(), 3.);
             auto minus_two = llvm::ConstantFP::get(x->getType(), -2.);
             return b.CreateFMul(t_squared, b.CreateFMA(minus_two, t, three));
-        });
-        case xir::ArithmeticOp::STEP: return translate_binary([&](auto edge, auto x) noexcept {
+        }
+        case xir::ArithmeticOp::STEP: {
+            LUISA_DEBUG_ASSERT(inst->operand_count() == 2 &&
+                               inst->operand(1)->type() == inst->type());
+            auto x = _get_llvm_value(b, func_ctx, inst->operand(1));
+            auto edge = broadcast_like(_get_llvm_value(b, func_ctx, inst->operand(0)), x);
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
             auto zero = llvm::Constant::getNullValue(x->getType());
             auto one = llvm::ConstantFP::get(x->getType(), 1.);
             auto cmp = b.CreateFCmpOLT(x, edge);
             return b.CreateSelect(cmp, zero, one);
-        });
+        }
         case xir::ArithmeticOp::ABS: return translate_unary([&](auto v) noexcept {
             return inst->type()->is_float_or_float_vector() ? b.CreateUnaryIntrinsic(llvm::Intrinsic::fabs, v) :
                    inst->type()->is_int_or_int_vector()     ? b.CreateIntrinsic(llvm::Intrinsic::abs, v->getType(), {v, b.getInt1(false)}) :
@@ -437,14 +459,130 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
             LUISA_DEBUG_ASSERT(base->getType()->isFPOrFPVectorTy() &&
                                exponent->getType()->isIntOrIntVectorTy() &&
                                inst->type()->is_float_or_float_vector());
-            if (!exponent->getType()->getScalarType()->isIntegerTy(32)) {
-                auto i32_type = static_cast<llvm::Type *>(b.getInt32Ty());
-                if (inst->type()->is_vector()) {
-                    i32_type = llvm::FixedVectorType::get(i32_type, inst->type()->dimension());
+            auto call_scalar_power_magnitude = [&](llvm::Value *scalar_base,
+                                                   llvm::Value *magnitude,
+                                                   llvm::Value *negative) noexcept {
+                auto base_type = scalar_base->getType();
+                auto exponent_type = llvm::cast<llvm::IntegerType>(magnitude->getType());
+                auto name = fmt::format("luisa.pow_int.{}.u{}",
+                                        _to_string(base_type),
+                                        exponent_type->getBitWidth());
+                auto helper = _llvm_module->getFunction(name);
+                if (helper == nullptr) {
+                    auto helper_type = llvm::FunctionType::get(
+                        base_type,
+                        {base_type, exponent_type, b.getInt1Ty()}, false);
+                    helper = llvm::Function::Create(
+                        helper_type, llvm::Function::PrivateLinkage,
+                        name, *_llvm_module);
+                    helper->addFnAttr(llvm::Attribute::AlwaysInline);
+
+                    auto entry = llvm::BasicBlock::Create(
+                        _llvm_context, "entry", helper);
+                    auto positive = llvm::BasicBlock::Create(
+                        _llvm_context, "positive", helper);
+                    auto negative_block = llvm::BasicBlock::Create(
+                        _llvm_context, "negative", helper);
+                    auto loop = llvm::BasicBlock::Create(
+                        _llvm_context, "loop", helper);
+                    auto body = llvm::BasicBlock::Create(
+                        _llvm_context, "body", helper);
+                    auto exit = llvm::BasicBlock::Create(
+                        _llvm_context, "exit", helper);
+                    IB helper_b{entry};
+                    helper_b.setFastMathFlags(b.getFastMathFlags());
+                    helper_b.CreateCondBr(
+                        helper->getArg(2), negative_block, positive);
+
+                    auto one = llvm::ConstantFP::get(base_type, 1.0);
+                    helper_b.SetInsertPoint(positive);
+                    helper_b.CreateBr(loop);
+
+                    helper_b.SetInsertPoint(negative_block);
+                    auto reciprocal_base = helper_b.CreateFDiv(
+                        one, helper->getArg(0));
+                    helper_b.CreateBr(loop);
+
+                    helper_b.SetInsertPoint(loop);
+                    auto current_magnitude = helper_b.CreatePHI(
+                        exponent_type, 3u, "magnitude");
+                    auto current_result = helper_b.CreatePHI(
+                        base_type, 3u, "result");
+                    auto current_factor = helper_b.CreatePHI(
+                        base_type, 3u, "factor");
+                    auto zero = llvm::ConstantInt::get(exponent_type, 0u);
+                    current_magnitude->addIncoming(helper->getArg(1), positive);
+                    current_magnitude->addIncoming(helper->getArg(1), negative_block);
+                    current_result->addIncoming(one, positive);
+                    current_result->addIncoming(one, negative_block);
+                    current_factor->addIncoming(helper->getArg(0), positive);
+                    current_factor->addIncoming(reciprocal_base, negative_block);
+                    auto done = helper_b.CreateICmpEQ(
+                        current_magnitude, zero);
+                    helper_b.CreateCondBr(done, exit, body);
+
+                    helper_b.SetInsertPoint(body);
+                    auto odd = helper_b.CreateTrunc(
+                        current_magnitude, helper_b.getInt1Ty());
+                    auto multiplied = helper_b.CreateFMul(
+                        current_result, current_factor);
+                    auto next_result = helper_b.CreateSelect(
+                        odd, multiplied, current_result);
+                    auto next_magnitude = helper_b.CreateLShr(
+                        current_magnitude, 1u);
+                    auto next_factor = helper_b.CreateFMul(
+                        current_factor, current_factor);
+                    helper_b.CreateBr(loop);
+                    current_magnitude->addIncoming(next_magnitude, body);
+                    current_result->addIncoming(next_result, body);
+                    current_factor->addIncoming(next_factor, body);
+
+                    helper_b.SetInsertPoint(exit);
+                    helper_b.CreateRet(current_result);
                 }
-                exponent = b.CreateIntCast(exponent, i32_type, true);
+                return b.CreateCall(
+                    helper, {scalar_base, magnitude, negative});
+            };
+            auto exponent_xir_type = inst->operand(1)->type();
+            auto exponent_element_type = exponent_xir_type->is_vector() ?
+                                             exponent_xir_type->element() :
+                                             exponent_xir_type;
+            auto exponent_is_signed = exponent_element_type->is_int();
+            auto call_scalar_power = [&](llvm::Value *scalar_base,
+                                         llvm::Value *scalar_exponent) noexcept {
+                if (!exponent_is_signed) {
+                    return call_scalar_power_magnitude(
+                        scalar_base, scalar_exponent, b.getFalse());
+                }
+                auto exponent_type = llvm::cast<llvm::IntegerType>(
+                    scalar_exponent->getType());
+                auto zero = llvm::ConstantInt::get(exponent_type, 0u);
+                auto negative = b.CreateICmpSLT(scalar_exponent, zero);
+                auto magnitude = b.CreateSelect(
+                    negative,
+                    b.CreateSub(zero, scalar_exponent),
+                    scalar_exponent);
+                return call_scalar_power_magnitude(
+                    scalar_base, magnitude, negative);
+            };
+            if (auto base_type = llvm::dyn_cast<llvm::FixedVectorType>(
+                    base->getType())) {
+                auto result = static_cast<llvm::Value *>(
+                    llvm::PoisonValue::get(base_type));
+                auto exponent_is_vector = exponent->getType()->isVectorTy();
+                for (auto i = 0u; i < base_type->getNumElements(); i++) {
+                    auto base_element = b.CreateExtractElement(base, i);
+                    auto exponent_element = exponent_is_vector ?
+                                                b.CreateExtractElement(exponent, i) :
+                                                exponent;
+                    auto element_result = call_scalar_power(
+                        base_element, exponent_element);
+                    result = b.CreateInsertElement(
+                        result, element_result, i);
+                }
+                return result;
             }
-            return call_binary_fp_intrinsic(base, exponent, llvm::Intrinsic::pow);
+            return call_scalar_power(base, exponent);
         }
         case xir::ArithmeticOp::SQRT: return translate_unary([&](auto v) noexcept {
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
@@ -593,22 +731,27 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
             return b.CreateFDiv(lhs_col, rhs_col);
         });
         case xir::ArithmeticOp::MATRIX_LINALG_MUL: {
+            auto lhs_type = inst->operand(0)->type();
+            auto rhs_type = inst->operand(1)->type();
             LUISA_DEBUG_ASSERT(inst->operand_count() == 2 &&
-                                   inst->operand(0)->type()->is_matrix() &&
-                                   (inst->operand(1)->type()->is_matrix() || inst->operand(1)->type()->is_vector()) &&
-                                   inst->operand(0)->type()->dimension() == inst->operand(1)->type()->dimension() &&
-                                   inst->operand(0)->type()->element() == inst->operand(1)->type()->element(),
+                                   (lhs_type->is_matrix() || lhs_type->is_float_vector()) &&
+                                   (rhs_type->is_matrix() || rhs_type->is_float_vector()) &&
+                                   (lhs_type->is_matrix() || rhs_type->is_matrix()) &&
+                                   lhs_type->dimension() == rhs_type->dimension() &&
+                                   lhs_type->element() == rhs_type->element(),
                                "Invalid types in matrix multiply instruction: {} x {}",
-                               inst->operand(0)->type()->description(),
-                               inst->operand(1)->type()->description());
+                               lhs_type->description(), rhs_type->description());
             auto lhs = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto rhs = _get_llvm_value(b, func_ctx, inst->operand(1));
             return _translate_matrix_multiply(b, lhs, rhs);
         }
-        case xir::ArithmeticOp::MATRIX_DETERMINANT: return translate_unary([&](auto m) noexcept {
-            LUISA_DEBUG_ASSERT(inst->type()->is_matrix());
+        case xir::ArithmeticOp::MATRIX_DETERMINANT: {
+            LUISA_DEBUG_ASSERT(inst->operand_count() == 1 &&
+                               inst->operand(0)->type()->is_matrix() &&
+                               inst->type() == inst->operand(0)->type()->element());
+            auto m = _get_llvm_value(b, func_ctx, inst->operand(0));
             return _translate_matrix_determinant(b, m);
-        });
+        }
         case xir::ArithmeticOp::MATRIX_TRANSPOSE: return translate_unary([&](auto m) noexcept {
             LUISA_DEBUG_ASSERT(inst->type()->is_matrix());
             return _translate_matrix_transpose(b, m);
@@ -642,6 +785,24 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_outer_product(IB &b, llvm::Value *lh
 }
 
 llvm::Value *HIPCodegenLLVMImpl::_translate_matrix_multiply(IB &b, llvm::Value *lhs, llvm::Value *rhs) noexcept {
+    if (auto lhs_type = llvm::dyn_cast<llvm::FixedVectorType>(lhs->getType())) {
+        auto rhs_type = llvm::cast<llvm::ArrayType>(rhs->getType());
+        auto dim = rhs_type->getNumElements();
+        LUISA_DEBUG_ASSERT(lhs_type == rhs_type->getElementType() &&
+                           lhs_type->getNumElements() == dim);
+        auto result = static_cast<llvm::Value *>(
+            llvm::PoisonValue::get(lhs_type));
+        for (auto i = 0u; i < dim; i++) {
+            auto rhs_col = b.CreateExtractValue(rhs, i);
+            auto product = b.CreateFMul(lhs, rhs_col);
+            auto component = b.CreateFAddReduce(
+                llvm::ConstantFP::getNegativeZero(
+                    lhs_type->getElementType()),
+                product);
+            result = b.CreateInsertElement(result, component, i);
+        }
+        return result;
+    }
     LUISA_DEBUG_ASSERT(lhs->getType()->isArrayTy());
     auto dim = lhs->getType()->getArrayNumElements();
     if (rhs->getType()->isVectorTy()) {

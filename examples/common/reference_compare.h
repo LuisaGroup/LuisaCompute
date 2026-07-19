@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -14,6 +15,9 @@
 namespace luisa::ref {
 
 static constexpr double DEFAULT_PSNR_THRESHOLD = 30.0;
+static constexpr double DEFAULT_CORRELATION_THRESHOLD = 0.5;
+static constexpr double MIN_CONTRAST_RATIO = 0.25;
+static constexpr double MAX_CONTRAST_RATIO = 4.0;
 
 struct ExampleOptions {
     bool offline{false};
@@ -53,22 +57,75 @@ struct ExampleOptions {
 
 inline double compute_psnr(const uint8_t *img_a, const uint8_t *img_b,
                            int width, int height, int channels) {
-    if (width <= 0 || height <= 0 || channels <= 0) { return 0.0; }
+    if (img_a == nullptr || img_b == nullptr || width <= 0 || height <= 0 || channels <= 0) { return 0.0; }
     double mse = 0.0;
-    auto total = static_cast<size_t>(width) * height * channels;
-    for (size_t i = 0; i < total; ++i) {
-        double diff = static_cast<double>(img_a[i]) - static_cast<double>(img_b[i]);
-        mse += diff * diff;
+    auto pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
+    auto compared_channels = channels == 2 ? 1 : std::min(channels, 3);
+    for (size_t pixel = 0u; pixel < pixel_count; ++pixel) {
+        auto offset = pixel * static_cast<size_t>(channels);
+        for (int channel = 0; channel < compared_channels; ++channel) {
+            double diff = static_cast<double>(img_a[offset + static_cast<size_t>(channel)]) -
+                          static_cast<double>(img_b[offset + static_cast<size_t>(channel)]);
+            mse += diff * diff;
+        }
     }
-    mse /= static_cast<double>(total);
+    mse /= static_cast<double>(pixel_count * static_cast<size_t>(compared_channels));
     if (mse < 1e-10) { return 100.0; }
     return 10.0 * std::log10(255.0 * 255.0 / mse);
+}
+
+struct StructuralMetrics {
+    double correlation{0.0};
+    double contrast_ratio{0.0};
+};
+
+inline StructuralMetrics compute_structural_metrics(
+    const uint8_t *img_a, const uint8_t *img_b,
+    int width, int height, int channels) noexcept {
+    if (img_a == nullptr || img_b == nullptr || width <= 0 || height <= 0 || channels <= 0) { return {}; }
+    auto luminance = [channels](const uint8_t *pixel) noexcept {
+        if (channels >= 3) {
+            return 0.2126 * static_cast<double>(pixel[0]) +
+                   0.7152 * static_cast<double>(pixel[1]) +
+                   0.0722 * static_cast<double>(pixel[2]);
+        }
+        return static_cast<double>(pixel[0]);
+    };
+    auto pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
+    double mean_a = 0.0;
+    double mean_b = 0.0;
+    double covariance = 0.0;
+    double variance_a = 0.0;
+    double variance_b = 0.0;
+    for (size_t i = 0u; i < pixel_count; ++i) {
+        auto offset = i * static_cast<size_t>(channels);
+        auto a = luminance(img_a + offset);
+        auto b = luminance(img_b + offset);
+        auto count = static_cast<double>(i + 1u);
+        auto delta_a = a - mean_a;
+        auto delta_b = b - mean_b;
+        mean_a += delta_a / count;
+        mean_b += delta_b / count;
+        variance_a += delta_a * (a - mean_a);
+        variance_b += delta_b * (b - mean_b);
+        covariance += delta_a * (b - mean_b);
+    }
+    static constexpr double epsilon = 1e-12;
+    if (variance_a <= epsilon && variance_b <= epsilon) {
+        return {1.0, 1.0};
+    }
+    if (variance_a <= epsilon || variance_b <= epsilon) { return {}; }
+    return {
+        covariance / std::sqrt(variance_a * variance_b),
+        std::sqrt(variance_a / variance_b)};
 }
 
 struct CompareResult {
     bool passed{false};
     double psnr{0.0};
     std::string message;
+    double correlation{0.0};
+    double contrast_ratio{0.0};
 };
 
 inline CompareResult compare_with_reference_file(
@@ -76,6 +133,9 @@ inline CompareResult compare_with_reference_file(
     const std::filesystem::path &reference_path,
     double threshold = DEFAULT_PSNR_THRESHOLD) {
 
+    if (rendered == nullptr || width <= 0 || height <= 0 || channels <= 0 || !std::isfinite(threshold)) {
+        return {false, 0.0, "invalid rendered image or comparison threshold"};
+    }
     if (!std::filesystem::exists(reference_path)) {
         return {false, 0.0, "reference not found: " + reference_path.string()};
     }
@@ -93,10 +153,25 @@ inline CompareResult compare_with_reference_file(
                       " (" + reference_path.string() + ")"};
     } else {
         result.psnr = compute_psnr(rendered, ref_data, width, height, channels);
-        result.passed = result.psnr >= threshold;
-        result.message = "PSNR=" + std::to_string(result.psnr) +
+        auto structural = compute_structural_metrics(rendered, ref_data, width, height, channels);
+        result.correlation = structural.correlation;
+        result.contrast_ratio = structural.contrast_ratio;
+        auto metrics_are_finite = std::isfinite(result.psnr) &&
+                                  std::isfinite(result.correlation) &&
+                                  std::isfinite(result.contrast_ratio);
+        result.passed = metrics_are_finite &&
+                        result.psnr >= threshold &&
+                        result.correlation >= DEFAULT_CORRELATION_THRESHOLD &&
+                        result.contrast_ratio >= MIN_CONTRAST_RATIO &&
+                        result.contrast_ratio <= MAX_CONTRAST_RATIO;
+        result.message = "RGB PSNR=" + std::to_string(result.psnr) +
                          "dB (threshold=" + std::to_string(threshold) +
-                         "dB) ref=" + reference_path.string();
+                         "dB), luminance correlation=" + std::to_string(result.correlation) +
+                         " (threshold=" + std::to_string(DEFAULT_CORRELATION_THRESHOLD) +
+                         "), contrast ratio=" + std::to_string(result.contrast_ratio) +
+                         " (range=" + std::to_string(MIN_CONTRAST_RATIO) +
+                         "-" + std::to_string(MAX_CONTRAST_RATIO) +
+                         ") ref=" + reference_path.string();
     }
     stbi_image_free(ref_data);
     return result;

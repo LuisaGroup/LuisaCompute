@@ -3,6 +3,7 @@
 // - non-power-of-two bucket sorting used by small hint ranges
 // - multi-pass radix sorting used by larger hint ranges
 // - sort_switch output-buffer selection used by wavefront hint sorting
+// - required subgroup size preservation through the Vulkan shader cache
 
 #include "ut/ut.hpp"
 #include "coro_test_utils.h"
@@ -133,6 +134,28 @@ void run_sort_case(Device &device, const luisa::vector<uint> &keys, uint mode,
 }
 
 void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
+
+    "coro_radix_sort_repeated_compilation_preserves_required_subgroup_size"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto output = dc.device.create_buffer<uint>(1u);
+        Kernel1D kernel = [](BufferUInt result) noexcept {
+            set_block_size(radix_sort::warp_size);
+            set_warp_size(radix_sort::warp_size);
+            $if (dispatch_x() == 0u) {
+                result.write(0u, warp_lane_count());
+            };
+        };
+        auto first_shader = dc.device.compile(kernel);
+        auto second_shader = dc.device.compile(kernel);
+        static_cast<void>(first_shader);
+        auto stream = dc.device.create_stream();
+        uint subgroup_size{};
+        stream << second_shader(output).dispatch(radix_sort::warp_size)
+               << output.copy_to(luisa::span{&subgroup_size, 1u})
+               << synchronize();
+        expect(subgroup_size == radix_sort::warp_size)
+            << "repeated compilation must preserve the required subgroup size";
+    };
 
     "coro_radix_sort_bucket_direct_non_power_of_two"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);

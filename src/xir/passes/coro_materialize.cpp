@@ -3,6 +3,7 @@
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
@@ -107,6 +108,37 @@ struct RegisterInfo {
         map.emplace(regs[i].name, FRAME_RESERVED_FIELD_COUNT + i);
     }
     return map;
+}
+
+[[nodiscard]] static bool frame_type_matches_cfg(Value *frame,
+                                                 const CoroCfgDistillResult &cfg) noexcept {
+    if (frame == nullptr || frame->type() == nullptr || !frame->type()->is_structure()) { return false; }
+    auto members = frame->type()->members();
+    if (members.size() != FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size()) { return false; }
+    for (auto i = 0u; i < FRAME_RESERVED_FIELD_COUNT; ++i) {
+        if (members[i] != Type::of<uint>()) { return false; }
+    }
+    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
+        if (cfg.frame_values[i].type == nullptr ||
+            members[FRAME_RESERVED_FIELD_COUNT + i] != cfg.frame_values[i].type) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool validate_cfg_trigger_tokens(const CoroCfgDistillResult &cfg) noexcept {
+    if (cfg.scopes.empty()) { return false; }
+    luisa::unordered_set<uint32_t> tokens;
+    for (size_t i = 0u; i < cfg.scopes.size(); ++i) {
+        auto token = cfg.scopes[i].trigger_token;
+        if ((i == 0u && token != 0u) ||
+            (i != 0u && (token == 0u || token == TERMINAL_TOKEN)) ||
+            !tokens.emplace(token).second) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void store_user_vars_to_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
@@ -433,6 +465,14 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
     auto field_map = detail::build_field_map(regs);
     info.name_to_field = field_map;
     info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + regs.size();
+    info.frame_fields.reserve(regs.size());
+    for (size_t i = 0u; i < regs.size(); ++i) {
+        info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
+            .name = regs[i].name,
+            .type = regs[i].type,
+            .index = detail::FRAME_RESERVED_FIELD_COUNT + i,
+        });
+    }
 
     for (auto *func : callables) {
         detail::process_callable(m, func, detail::find_frame_operand(func), regs, field_map, nullptr, nullptr, true, info);
@@ -446,6 +486,10 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     Module *m, const CoroCfgDistillResult &cfg) noexcept {
     CoroMaterializeInfo info;
     if (m == nullptr) { return info; }
+    if (!detail::validate_cfg_trigger_tokens(cfg)) {
+        info.invalid_input_error_count = 1u;
+        return info;
+    }
     auto callables = detail::collect_materialize_callables(m);
     info.structured_cfg_error_count = detail::count_structured_inputs(&cfg, callables);
     if (info.structured_cfg_error_count != 0u) {
@@ -461,6 +505,9 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     if (m == nullptr) { return info; }
     info.structured_cfg_error_count = split.structured_cfg_error_count;
     info.invalid_input_error_count = split.invalid_cfg_error_count;
+    if (!detail::validate_cfg_trigger_tokens(cfg)) {
+        ++info.invalid_input_error_count;
+    }
 
     // Validate the complete request before projecting it by scope index. Doing
     // this after projection would let a duplicate or out-of-range entry hide a
@@ -491,6 +538,11 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
             if (!argument->is_reference() || argument->parent_function() != callable) {
                 valid = false;
             }
+        }
+        if (!detail::frame_type_matches_cfg(frame, cfg)) { valid = false; }
+        if (subroutine.scope_index < cfg.scopes.size() &&
+            subroutine.trigger_token != cfg.scopes[subroutine.scope_index].trigger_token) {
+            valid = false;
         }
         if (!valid) {
             ++info.invalid_input_error_count;
@@ -523,11 +575,26 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     luisa::unordered_map<Value *, size_t> value_field_map;
     info.register_count = cfg.frame_values.size();
     info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size();
+    info.frame_fields.reserve(cfg.frame_values.size());
+    luisa::unordered_set<luisa::string> used_names;
     for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
         auto &value = cfg.frame_values[i];
         auto field_index = i + detail::FRAME_RESERVED_FIELD_COUNT;
-        info.name_to_field.emplace(value.name, field_index);
-        info.name_to_type.emplace(value.name, value.type);
+        auto name = value.name;
+        if (!used_names.emplace(name).second) {
+            auto base = name;
+            auto suffix = i;
+            do {
+                name = luisa::format("{}#{}", base, suffix++);
+            } while (!used_names.emplace(name).second);
+        }
+        info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
+            .name = name,
+            .type = value.type,
+            .index = field_index,
+        });
+        info.name_to_field.emplace(name, field_index);
+        info.name_to_type.emplace(name, value.type);
         value_field_map.emplace(value.value, field_index);
     }
     detail::populate_value_transition_edges(info, cfg, value_field_map);

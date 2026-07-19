@@ -11,6 +11,7 @@
 #include "luisa/dsl/struct.h"
 #include "ut/ut.hpp"
 #include "test_device.h"
+#include <array>
 #include <iostream>
 #include <chrono>
 #include <numeric>
@@ -20,6 +21,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/context.h>
+#include <luisa/runtime/stream.h>
 #include <luisa/ast/interface.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/bindless_array.h>
@@ -94,9 +96,7 @@ struct KeyValuePair {
 // Register template structure with the DSL
 LUISA_TEMPLATE_STRUCT(LUISA_KEY_VALUE_PAIR_TEMPLATE, LUISA_KEY_VALUE_PAIR, key, value){};
 
-void test_dsl(Device &device) {
-
-    constexpr auto f = 10;
+[[nodiscard]] int test_dsl(Device &device) {
 
     luisa::log_level_verbose();
 
@@ -170,10 +170,6 @@ void test_dsl(Device &device) {
     Clock clock;
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
-
-    // Create image and volume resources for texture binding tests
-    auto tex2d = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
-    auto tex3d = device.create_volume<float>(PixelStorage::BYTE4, make_uint3(256u, 256u, 256u));
 
     // Main kernel definition demonstrating various DSL features
     auto kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count, Var<BindlessArray> heap, BufferVar<int3> b0, ImageVar<float> img2d, BufferVar<float4x4> b1, Var<ByteBuffer> bb, VolumeVar<float> vol3d) noexcept -> void {
@@ -298,8 +294,10 @@ void test_dsl(Device &device) {
     };
     auto t1 = clock.toc();
 
-    auto kernel = device.compile<2>(kernel_def);
-    expect(true) << "DSL kernel compiled successfully";
+    auto complex_shader = device.compile<2>(kernel_def);
+    auto complex_shader_valid = static_cast<bool>(complex_shader);
+    expect(complex_shader_valid) << "the broad DSL feature kernel must compile to a valid shader";
+    LUISA_INFO("Broad DSL AST construction took {:.3f} ms.", t1);
 
     // Test Bool + ite kernel
     {
@@ -391,19 +389,90 @@ void test_dsl(Device &device) {
         expect(result_data[0] == 1u) << "cbuffer bool2.x should be 1 (true)";
         expect(result_data[1] == 0u) << "cbuffer bool2.y should be 0 (false)";
     }
-    // auto command = kernel(float_buffer, 12u).dispatch(1024u);
-    // auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
-}
-// TODO Change 'static inline const auto reg" to: 
-// int main(int argc, char *argv[]) {
-//     auto dc = luisa::test::create_device_from_ut(argc, argv);
-//     if (!dc) {
-//         return 0;
-//     }
-//     auto &device = dc->device;
-//     test_dsl(device);
-// }
 
+    // The broad kernel above deliberately exercises resource signatures that are
+    // impractical to bind together in a focused unit test. Execute a compact
+    // kernel covering the same core DSL constructs and compare every lane with
+    // an independently computed integer oracle.
+    constexpr auto validation_count = 31u;
+    const luisa::vector<int> validation_constants{4, -3, 7, 11, 2};
+    Callable validation_add_mul = [](Int a, Int b) noexcept {
+        return compose(a + b, a * b);
+    };
+    Kernel1D validation_kernel = [&](BufferVar<int4> output) noexcept {
+        auto index = dispatch_x();
+        Constant constants = validation_constants;
+        Int a = cast<int>(index % 7u) - 3;
+        Int b = constants[index % static_cast<uint>(validation_constants.size())];
+        Var add_mul_result = validation_add_mul(a, b);
+
+        Int loop_sum = 0;
+        Int loop_count = cast<int>(index % 4u) + 1;
+        for (auto i : dynamic_range(loop_count)) {
+            loop_sum += i;
+        }
+
+        Int branch = 0;
+        if_(a < 0, [&] {
+            branch = -10;
+        }).else_([&] {
+            if_(a == 0, [&] {
+                branch = 0;
+            }).else_([&] {
+                branch = 10;
+            });
+        });
+        switch_(cast<int>(index % 3u))
+            .case_(0, [&] { branch += 100; })
+            .case_(1, [&] { branch += 200; })
+            .default_([&] { branch -= 300; });
+
+        Var<Test1> value{make_int3(a, b, loop_sum), cast<float>(branch)};
+        Var<KeyValuePair<int, int>> pair{value.something.x + value.something.y,
+                                         cast<int>(value.a)};
+        output.write(index,
+                     make_int4(add_mul_result.get<0>(),
+                               add_mul_result.get<1>(),
+                               value.something.z,
+                               pair.key + pair.value));
+    };
+
+    auto validation_output = device.create_buffer<int4>(validation_count);
+    auto validation_shader = device.compile(validation_kernel);
+    luisa::vector<int4> host_output(validation_count);
+    auto stream = device.create_stream();
+    stream << validation_shader(validation_output).dispatch(validation_count)
+           << validation_output.copy_to(luisa::span{host_output})
+           << synchronize();
+
+    auto all_correct = complex_shader_valid;
+    for (auto i = 0u; i < validation_count; ++i) {
+        auto a = static_cast<int>(i % 7u) - 3;
+        auto b = validation_constants[i % validation_constants.size()];
+        auto loop_count = static_cast<int>(i % 4u) + 1;
+        auto loop_sum = loop_count * (loop_count - 1) / 2;
+        auto branch = a < 0 ? -10 : a == 0 ? 0 :
+                                             10;
+        switch (i % 3u) {
+            case 0u: branch += 100; break;
+            case 1u: branch += 200; break;
+            default: branch -= 300; break;
+        }
+        auto expected = make_int4(a + b, a * b, loop_sum, a + b + branch);
+        auto actual = host_output[i];
+        if (actual.x != expected.x || actual.y != expected.y ||
+            actual.z != expected.z || actual.w != expected.w) {
+            LUISA_WARNING(
+                "DSL validation mismatch at {}: got ({}, {}, {}, {}), expected ({}, {}, {}, {}).",
+                i, actual.x, actual.y, actual.z, actual.w,
+                expected.x, expected.y, expected.z, expected.w);
+            all_correct = false;
+            break;
+        }
+    }
+    expect(all_correct) << "DSL callable, constant, struct, loop, branch, and switch results must match the host oracle";
+    return all_correct ? 0 : 1;
+}
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -412,5 +481,5 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
     auto &device = dc->device;
-    test_dsl(device);
+    return test_dsl(device);
 }

@@ -228,6 +228,7 @@ private:
     int64_t _dispatch_layer;
     bool _use_bindless_in_pass;
     bool _use_accel_in_pass;
+    bool _write_accel_in_pass;
     ResourceHandle *get_handle(
         uint64_t target_handle,
         ResourceType target_type) {
@@ -597,6 +598,7 @@ private:
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
+        _write_accel_in_pass = false;
         _dispatch_layer = 0;
 
         auto f = [&]<typename T>(T const &t, Usage usage) {
@@ -637,11 +639,13 @@ private:
                     false);
             } else {
                 _use_accel_in_pass = true;
+                auto is_write = (static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0u;
+                _write_accel_in_pass |= is_write;
                 add_dispatch_handle(
                     t.handle,
                     ResourceType::Accel,
                     Range(),
-                    false);
+                    is_write);
             }
         };
         command->traverse_arguments(f);
@@ -670,7 +674,11 @@ private:
             _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
         }
         if (_use_accel_in_pass) {
-            _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            if (_write_accel_in_pass) {
+                _max_accel_write_level = std::max<int64_t>(_max_accel_write_level, _dispatch_layer);
+            } else {
+                _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            }
         }
     }
 
@@ -680,6 +688,7 @@ private:
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
+        _write_accel_in_pass = false;
         _dispatch_layer = 0;
         size_t arg_idx = 0;
         using Argument = ShaderDispatchCommandBase::Argument;
@@ -737,11 +746,14 @@ private:
                 case Tag::ACCEL: {
                     auto &&acc = i.accel;
                     _use_accel_in_pass = true;
+                    auto is_write = (static_cast<uint>(_func_table.get_usage(shader_handle, arg_idx)) &
+                                     static_cast<uint>(Usage::WRITE)) != 0u;
+                    _write_accel_in_pass |= is_write;
                     add_dispatch_handle(
                         acc.handle,
                         ResourceType::Accel,
                         Range(),
-                        false);
+                        is_write);
                     ++arg_idx;
                 } break;
             }
@@ -766,7 +778,11 @@ private:
             _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
         }
         if (_use_accel_in_pass) {
-            _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            if (_write_accel_in_pass) {
+                _max_accel_write_level = std::max<int64_t>(_max_accel_write_level, _dispatch_layer);
+            } else {
+                _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            }
         }
     }
 
@@ -790,6 +806,7 @@ public:
         _dispatch_layer = 0;
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
+        _write_accel_in_pass = false;
         _cmd_lists.clear();
         _max_dispatch_blocks.clear();
         _dispatch_read_handle.clear();

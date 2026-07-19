@@ -13,6 +13,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         use.cpp
         user.cpp
         value.cpp
+        verifier.cpp
 
         # derived instructions
         instructions/alloca.cpp
@@ -55,6 +56,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         # translators
         translators/ast2xir.cpp
         translators/json2xir.cpp
+        translators/xir_interchange.cpp
         translators/xir2ast.cpp
         translators/xir2json.cpp
         translators/xir2text.cpp

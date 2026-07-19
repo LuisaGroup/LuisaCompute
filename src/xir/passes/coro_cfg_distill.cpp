@@ -7,6 +7,7 @@
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/atomic.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
@@ -290,10 +291,28 @@ static void transfer_instruction(Instruction *inst, ScopeDataflowState &state) n
             use_value(store->value(), state);
             use_pointer_indices(store->variable(), state);
             if (auto *alloca = trace_local_alloca(store->variable())) {
-                touch_value(alloca, state);
+                if (store->variable() == alloca) {
+                    touch_value(alloca, state);
+                } else {
+                    use_value(alloca, state);
+                    may_touch_value(alloca, state);
+                }
             } else {
                 use_value(store->variable(), state);
             }
+            break;
+        }
+        case DerivedInstructionTag::ATOMIC: {
+            auto *atomic = static_cast<AtomicInst *>(inst);
+            for (auto *index : atomic->index_uses()) { use_value(index->value(), state); }
+            for (auto *value : atomic->value_uses()) { use_value(value->value(), state); }
+            if (auto *alloca = trace_local_alloca(atomic->base())) {
+                use_value(alloca, state);
+                may_touch_value(alloca, state);
+            } else {
+                use_value(atomic->base(), state);
+            }
+            if (atomic->type() != nullptr && !atomic->is_lvalue()) { touch_value(atomic, state); }
             break;
         }
         case DerivedInstructionTag::CORO_SUSPEND:
@@ -566,8 +585,16 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     append_ordered_values(ordered_frame_values, frame_value_set, order);
     sort_frame_values_by_layout(ordered_frame_values);
     luisa::unordered_map<Value *, luisa::string> names;
+    luisa::unordered_set<luisa::string> used_names;
     for (auto *value : ordered_frame_values) {
         auto name = frame_value_name(value, result.frame_values.size());
+        if (!used_names.emplace(name).second) {
+            auto base = name;
+            auto suffix = result.frame_values.size();
+            do {
+                name = luisa::format("{}#{}", base, suffix++);
+            } while (!used_names.emplace(name).second);
+        }
         names.emplace(value, name);
         result.frame_values.emplace_back(CoroCfgDistillResult::FrameValue{
             .value = value,

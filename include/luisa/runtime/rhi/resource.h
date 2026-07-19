@@ -168,9 +168,11 @@ struct ShaderOption {
     /// \sa DeviceConfig
     /// \sa BinaryIO
     luisa::string name;
-    /// \brief Include code written in the native shading language.
-    /// \details If provided, backend will include this string into the generated
-    ///   shader code. This field is useful for interoperation with external callables.
+    /// \brief Include code in the backend's native shader representation.
+    /// \details If provided, the backend incorporates this string into the generated
+    ///   shader module. The accepted representation is backend-specific (for example,
+    ///   source code for source-generating backends and LLVM IR/bitcode for the direct
+    ///   LLVM HIP backend). This field is useful for interoperation with external callables.
     /// \sa ExternalCallable
     luisa::string native_include;
 };

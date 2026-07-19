@@ -204,16 +204,153 @@ public:
     }
 };
 
-[[nodiscard]] static const Type *create_frame_type() noexcept {
-    return Type::structure({
-        Type::of<uint>(),
-        Type::of<uint>(),
-        Type::of<uint>(),
-        Type::of<uint>(),
-        Type::of<uint>(),
-        Type::of<uint>(),
-        Type::of<uint>(),
-    });
+[[nodiscard]] static const Type *create_frame_type(const CoroCfgDistillResult &result) noexcept {
+    luisa::vector<const Type *> fields;
+    fields.reserve(FRAME_USER_FIELD_OFFSET + result.frame_values.size());
+    auto alignment = Type::of<uint>()->alignment();
+    for (auto i = 0u; i < FRAME_USER_FIELD_OFFSET; ++i) {
+        fields.emplace_back(Type::of<uint>());
+    }
+    for (auto &value : result.frame_values) {
+        fields.emplace_back(value.type);
+        alignment = std::max(alignment, value.type->alignment());
+    }
+    return Type::structure(alignment, fields);
+}
+
+[[nodiscard]] static bool validate_frame_type(const Type *frame_type,
+                                              const CoroCfgDistillResult &result) noexcept {
+    if (frame_type == nullptr || !frame_type->is_structure()) { return false; }
+    auto members = frame_type->members();
+    if (members.size() != FRAME_USER_FIELD_OFFSET + result.frame_values.size()) { return false; }
+    for (auto i = 0u; i < FRAME_USER_FIELD_OFFSET; ++i) {
+        if (members[i] != Type::of<uint>()) { return false; }
+    }
+    for (size_t i = 0u; i < result.frame_values.size(); ++i) {
+        if (result.frame_values[i].type == nullptr ||
+            members[FRAME_USER_FIELD_OFFSET + i] != result.frame_values[i].type) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool validate_coroutine_tokens(FunctionDefinition *def) noexcept {
+    if (def == nullptr) { return false; }
+    luisa::unordered_set<uint32_t> suspend_tokens;
+    luisa::unordered_set<uint32_t> resume_tokens;
+    auto valid = true;
+    for (auto *block : def->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
+                auto token = static_cast<CoroSuspendInst *>(inst)->token();
+                valid &= token != 0u && token != TERMINAL_TOKEN && suspend_tokens.emplace(token).second;
+            } else if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_RESUME) {
+                auto token = static_cast<CoroResumeInst *>(inst)->token();
+                valid &= token != 0u && token != TERMINAL_TOKEN && resume_tokens.emplace(token).second;
+            }
+        }
+    }
+    if (suspend_tokens.size() != resume_tokens.size()) { return false; }
+    for (auto token : suspend_tokens) {
+        if (!resume_tokens.contains(token)) { return false; }
+    }
+    return valid;
+}
+
+[[nodiscard]] static bool validate_distilled_cfg(FunctionDefinition *def,
+                                                 const CoroCfgDistillResult &result) noexcept {
+    if (def == nullptr || result.scopes.empty() || result.edges.size() != result.scopes.size()) { return false; }
+    if (!validate_coroutine_tokens(def)) { return false; }
+    auto canonical = coro_cfg_distill_pass_run_on_function(def);
+    if (canonical.scopes.size() != result.scopes.size()) { return false; }
+    luisa::unordered_set<uint32_t> triggers;
+    luisa::unordered_set<uint32_t> suspends;
+    for (size_t i = 0u; i < result.scopes.size(); ++i) {
+        auto &scope = result.scopes[i];
+        if (scope.blocks.empty() || scope.scope_id != static_cast<int>(i)) { return false; }
+        auto token = scope.trigger_token;
+        if ((i == 0u && token != 0u) ||
+            (i != 0u && (token == 0u || token == TERMINAL_TOKEN)) ||
+            !triggers.emplace(token).second) {
+            return false;
+        }
+        if (i == 0u) {
+            if (scope.blocks.front() != def->body_block()) { return false; }
+        } else {
+            auto found_resume = false;
+            for (auto *inst : scope.blocks.front()->instructions()) {
+                if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_RESUME &&
+                    static_cast<CoroResumeInst *>(inst)->token() == token) {
+                    found_resume = true;
+                    break;
+                }
+            }
+            if (!found_resume) { return false; }
+        }
+        luisa::unordered_set<BasicBlock *> scope_blocks;
+        luisa::unordered_set<BasicBlock *> scope_suspend_blocks;
+        for (auto *block : scope.blocks) {
+            if (block == nullptr || block->parent_function() != def) { return false; }
+            if (!scope_blocks.emplace(block).second) { return false; }
+            if (block->is_terminated() && block->terminator()->isa<CoroSuspendInst>()) {
+                scope_suspend_blocks.emplace(block);
+            }
+        }
+        if (scope_blocks.size() != canonical.scopes[i].blocks.size()) { return false; }
+        for (auto *block : canonical.scopes[i].blocks) {
+            if (!scope_blocks.contains(block)) { return false; }
+        }
+        for (auto &point : scope.suspend_points) {
+            if (point.block == nullptr || point.token == 0u || point.token == TERMINAL_TOKEN) {
+                return false;
+            }
+            if (!scope_blocks.contains(point.block) ||
+                scope_suspend_blocks.erase(point.block) != 1u) {
+                return false;
+            }
+            auto *suspend = static_cast<CoroSuspendInst *>(point.block->terminator());
+            if (suspend->token() != point.token) { return false; }
+            suspends.emplace(point.token);
+        }
+        if (!scope_suspend_blocks.empty()) { return false; }
+        for (auto target : result.edges[i]) {
+            if (target >= result.scopes.size()) { return false; }
+        }
+    }
+    for (size_t i = 1u; i < result.scopes.size(); ++i) {
+        if (!suspends.contains(result.scopes[i].trigger_token)) { return false; }
+    }
+    for (auto token : suspends) {
+        if (!triggers.contains(token)) { return false; }
+    }
+    luisa::unordered_set<const Value *> values;
+    for (auto &frame_value : result.frame_values) {
+        if (frame_value.value == nullptr || frame_value.type == nullptr ||
+            frame_value.value->type() != frame_value.type ||
+            !values.emplace(frame_value.value).second) {
+            return false;
+        }
+        if (frame_value.value->isa<Instruction>()) {
+            auto *inst = static_cast<Instruction *>(frame_value.value);
+            if (inst->parent_block() == nullptr || inst->parent_block()->parent_function() != def) {
+                return false;
+            }
+        }
+    }
+    for (auto &edge : result.transition_edges) {
+        if (edge.from_scope >= result.scopes.size() || edge.to_scope >= result.scopes.size() ||
+            edge.token != result.scopes[edge.to_scope].trigger_token) {
+            return false;
+        }
+        for (auto *value : edge.live_values) {
+            if (!values.contains(value)) { return false; }
+        }
+        for (auto *value : edge.store_values) {
+            if (!values.contains(value)) { return false; }
+        }
+    }
+    return true;
 }
 
 static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint32_t token) noexcept {
@@ -325,23 +462,31 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
 
     XIRBuilder b;
 
-    auto clone_order = scope.blocks;
-    luisa::unordered_map<const BasicBlock *, size_t> block_order;
-    if (!scope.blocks.empty()) {
-        if (auto *parent = scope.blocks.front()->parent_function()) {
-            size_t index = 0u;
-            for (auto *bb : parent->basic_blocks()) {
-                block_order.emplace(bb, index++);
+    luisa::vector<BasicBlock *> clone_order;
+    clone_order.reserve(scope.blocks.size());
+    luisa::unordered_set<BasicBlock *> visited_blocks;
+    luisa::vector<BasicBlock *> block_worklist{scope.blocks.front()};
+    while (!block_worklist.empty()) {
+        auto *block = block_worklist.back();
+        block_worklist.pop_back();
+        if (block == nullptr || !scope_block_set.contains(block) ||
+            !visited_blocks.emplace(block).second) {
+            continue;
+        }
+        clone_order.emplace_back(block);
+        luisa::vector<BasicBlock *> successors;
+        block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+            if (scope_block_set.contains(successor) && !visited_blocks.contains(successor)) {
+                successors.emplace_back(successor);
             }
+        });
+        for (auto iter = successors.rbegin(); iter != successors.rend(); ++iter) {
+            block_worklist.emplace_back(*iter);
         }
     }
-    std::sort(clone_order.begin(), clone_order.end(), [&](auto *lhs, auto *rhs) noexcept {
-        auto li = block_order.find(lhs);
-        auto ri = block_order.find(rhs);
-        auto lo = li == block_order.end() ? static_cast<size_t>(-1) : li->second;
-        auto ro = ri == block_order.end() ? static_cast<size_t>(-1) : ri->second;
-        return lo < ro;
-    });
+    for (auto *block : scope.blocks) {
+        if (visited_blocks.emplace(block).second) { clone_order.emplace_back(block); }
+    }
 
     auto *first_cloned_bb = static_cast<BasicBlock *>(resolver.resolve(scope.blocks.front()));
     resolver.set_builder(&b, first_cloned_bb);
@@ -513,9 +658,23 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
             "followed by destructure_cfg first. IR was left unchanged.");
         return info;
     }
+    if (!validate_distilled_cfg(def, result)) {
+        info.invalid_cfg_error_count = 1u;
+        LUISA_WARNING_WITH_LOCATION(
+            "Coro split rejected invalid coroutine tokens or distilled CFG metadata. "
+            "IR was left unchanged.");
+        return info;
+    }
     if (result.scopes.size() <= 1u) { return info; }
 
-    auto *actual_frame_type = frame_type ? frame_type : create_frame_type();
+    auto *actual_frame_type = frame_type ? frame_type : create_frame_type(result);
+    if (!validate_frame_type(actual_frame_type, result)) {
+        info.invalid_cfg_error_count = 1u;
+        LUISA_WARNING_WITH_LOCATION(
+            "Coro split rejected a frame type that does not match the distilled frame layout. "
+            "IR was left unchanged.");
+        return info;
+    }
     luisa::unordered_map<const Value *, size_t> frame_value_indices;
     for (size_t i = 0u; i < result.frame_values.size(); ++i) {
         frame_value_indices.emplace(result.frame_values[i].value, i);
@@ -629,23 +788,36 @@ CoroSplitInfo coro_split_pass_run_on_module_info(Module *m) noexcept {
             }
         }
     }
-    // The module entry point is all-or-nothing: preflight every candidate
-    // before cfg distillation or creation of the first continuation callable.
+    luisa::vector<CoroCfgDistillResult> cfgs;
+    cfgs.reserve(defs.size());
     for (auto *def : defs) {
         if (contains_structured_control_flow(def)) {
             ++info.structured_cfg_error_count;
         }
+        cfgs.emplace_back(coro_cfg_distill_pass_run_on_function(def));
+        if (!detail::validate_coroutine_tokens(def) ||
+            !detail::validate_distilled_cfg(def, cfgs.back())) {
+            ++info.invalid_cfg_error_count;
+        }
     }
-    if (info.structured_cfg_error_count != 0u) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Coro split rejected {} coroutine definition(s) with structured or "
-            "ambiguous CFG; run lower_switch followed by destructure_cfg first. "
-            "The module was left unchanged.",
-            info.structured_cfg_error_count);
+    if (!info.succeeded()) {
+        if (info.structured_cfg_error_count != 0u) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Coro split rejected {} coroutine definition(s) with structured or "
+                "ambiguous CFG; run lower_switch followed by destructure_cfg first. "
+                "The module was left unchanged.",
+                info.structured_cfg_error_count);
+        }
+        if (info.invalid_cfg_error_count != 0u) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Coro split rejected {} coroutine definition(s) with invalid tokens or CFG metadata. "
+                "The module was left unchanged.",
+                info.invalid_cfg_error_count);
+        }
         return info;
     }
-    for (auto *def : defs) {
-        detail::append_split_info(info, detail::split_function(m, def));
+    for (size_t i = 0u; i < defs.size(); ++i) {
+        detail::append_split_info(info, detail::split_function_with_cfg_info(m, defs[i], cfgs[i]));
     }
     return info;
 }

@@ -1,3 +1,5 @@
+// Test for the conservative XIR loop-vectorization contract.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
@@ -75,7 +77,7 @@ struct CountedLoopFixture {
 
 void reg_loop_vectorization() {
 
-    "loop_vectorization_simple_array_add"_test = [] {
+    "loop_vectorization_rejects_structured_array_add"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -113,7 +115,7 @@ void reg_loop_vectorization() {
         expect(loop.loop->merge_block() == loop.merge);
     };
 
-    "loop_vectorization_non_unit_stride_rejected"_test = [] {
+    "loop_vectorization_rejects_structured_non_unit_stride"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -145,7 +147,7 @@ void reg_loop_vectorization() {
         expect(info.structured_cfg_error_count == 1u);
     };
 
-    "loop_vectorization_no_memory_access_rejected"_test = [] {
+    "loop_vectorization_rejects_structured_empty_body"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);

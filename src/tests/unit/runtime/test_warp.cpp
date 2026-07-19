@@ -15,12 +15,51 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/device.h>
 #include <luisa/dsl/sugar.h>
+#include <algorithm>
 #include <random>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
+
+void test_warp_lane_id_multidimensional(Device &device) {
+    auto warp_size = device.compute_warp_size();
+    constexpr uint block_size_x = 8u;
+    expect(warp_size != 0u && warp_size % block_size_x == 0u) << "warp size must be a non-zero multiple of the test block width";
+    if (warp_size == 0u || warp_size % block_size_x != 0u) { return; }
+
+    auto block_size_y = 2u * warp_size / block_size_x;
+    auto thread_count = block_size_x * block_size_y;
+    auto lane_ids = device.create_buffer<uint>(thread_count);
+    auto shader = device.compile<2>([=](BufferUInt output) noexcept {
+        set_block_size(block_size_x, block_size_y, 1u);
+        set_warp_size(warp_size);
+        auto index = dispatch_id().y * block_size_x + dispatch_id().x;
+        output.write(index, warp_lane_id());
+    });
+
+    luisa::vector<uint> host_lane_ids(thread_count);
+    auto stream = device.create_stream();
+    stream << shader(lane_ids).dispatch(block_size_x, block_size_y)
+           << lane_ids.copy_to(luisa::span{host_lane_ids})
+           << synchronize();
+
+    luisa::vector<uint> lane_counts(warp_size);
+    auto all_in_range = true;
+    for (auto lane_id : host_lane_ids) {
+        if (lane_id < warp_size) {
+            lane_counts[lane_id]++;
+        } else {
+            all_in_range = false;
+        }
+    }
+    auto every_lane_seen_twice = std::all_of(
+        lane_counts.cbegin(), lane_counts.cend(),
+        [](auto count) noexcept { return count == 2u; });
+    expect(all_in_range) << "warp lane IDs must be smaller than the native warp size";
+    expect(every_lane_seen_twice) << "two complete multidimensional warps must each contain every lane ID exactly once";
+}
 
 void test_warp(Device &device) {
     auto stream = device.create_stream();
@@ -93,8 +132,7 @@ void test_warp(Device &device) {
     auto mat_mul_shader = device.compile<2>(std::move(mat_mul_kernel));
 
     // Initialize random data for testing
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen{42u};
     std::uniform_real_distribution<float> dist(0.5, 1.5);
 
     // Matrix dimensions
@@ -133,7 +171,7 @@ void test_warp(Device &device) {
         << synchronize();
 
     // Host-side validation
-    auto all_correct = true;
+    auto mismatch_count = 0u;
     for (int x = 0; x < k_matrix_size; ++x) {
         for (int y = 0; y < k_matrix_size; ++y) {
             float result = 0.f;
@@ -143,13 +181,18 @@ void test_warp(Device &device) {
             }
             // Validate with tolerance for floating point errors
             if (abs(result - result_matrix[idx(x, y)]) > 1e-2f) {
-                LUISA_WARNING("Warp matmul mismatch at ({},{}): expected {} got {}",
-                              x, y, result, result_matrix[idx(x, y)]);
-                all_correct = false;
+                if (mismatch_count < 16u) {
+                    LUISA_WARNING("Warp matmul mismatch at ({},{}): expected {} got {}",
+                                  x, y, result, result_matrix[idx(x, y)]);
+                }
+                mismatch_count++;
             }
         }
     }
-    expect(all_correct) << "warp_matmul_correctness";
+    if (mismatch_count > 16u) {
+        LUISA_WARNING("Warp matmul had {} mismatches (only the first 16 are shown).", mismatch_count);
+    }
+    expect(mismatch_count == 0u) << "warp_matmul_correctness";
 }
 
 int main(int argc, char *argv[]) {
@@ -160,5 +203,6 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
     auto &device = dc->device;
+    test_warp_lane_id_multidimensional(device);
     test_warp(device);
 }

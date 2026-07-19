@@ -212,12 +212,18 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     // both arms.  If the merge only post-dominates one arm, the other arm is
     // the fall-through continuation and the SPIR-V selection merge must be
     // that arm's block.
-    bool true_post_dom = _dom_tree != nullptr && _dom_tree->strictly_post_dominates(
-                                                     const_cast<xir::BasicBlock *>(inst->merge_block()),
-                                                     const_cast<xir::BasicBlock *>(inst->true_block()));
-    bool false_post_dom = _dom_tree != nullptr && _dom_tree->strictly_post_dominates(
-                                                      const_cast<xir::BasicBlock *>(inst->merge_block()),
-                                                      const_cast<xir::BasicBlock *>(inst->false_block()));
+    auto strictly_post_dominates = [&](const xir::BasicBlock *a, const xir::BasicBlock *b) noexcept {
+        auto *mutable_a = const_cast<xir::BasicBlock *>(a);
+        auto *mutable_b = const_cast<xir::BasicBlock *>(b);
+        return _dom_tree != nullptr &&
+               _dom_tree->contains(mutable_a) &&
+               _dom_tree->contains(mutable_b) &&
+               _dom_tree->strictly_post_dominates(mutable_a, mutable_b);
+    };
+    bool true_post_dom = inst->true_block() == inst->merge_block() ||
+                         strictly_post_dominates(inst->merge_block(), inst->true_block());
+    bool false_post_dom = inst->false_block() == inst->merge_block() ||
+                          strictly_post_dominates(inst->merge_block(), inst->false_block());
     auto true_reaches_merge = block_reaches(inst->true_block(), inst->merge_block());
     auto false_reaches_merge = block_reaches(inst->false_block(), inst->merge_block());
     if (true_reaches_merge && false_reaches_merge && (true_post_dom || false_post_dom)) {

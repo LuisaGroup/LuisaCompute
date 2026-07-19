@@ -77,6 +77,34 @@ void test_byte_buffer_bool_read(Device &device) {
     expect(result == 2u) << "byte_buffer_bool_read_must_ignore_neighboring_bytes";
 }
 
+void test_byte_buffer_volatile_io(Device &device) {
+    constexpr uint element_count = 16u;
+    auto byte_buffer = device.create_byte_buffer(element_count * sizeof(uint));
+    auto result_buffer = device.create_buffer<uint>(element_count);
+    auto shader = device.compile<1>([](ByteBufferVar buffer, BufferUInt result) noexcept {
+        auto index = dispatch_id().x;
+        auto byte_offset = index * static_cast<uint>(sizeof(uint));
+        auto expected = 0x9e3779b9u ^ index;
+        buffer.volatile_write(byte_offset, expected);
+        result.write(index, buffer.volatile_read<uint>(byte_offset));
+    });
+
+    luisa::vector<uint> result(element_count);
+    auto stream = device.create_stream();
+    stream << shader(byte_buffer, result_buffer).dispatch(element_count)
+           << result_buffer.copy_to(luisa::span{result})
+           << synchronize();
+
+    auto all_correct = true;
+    for (auto i = 0u; i < element_count; i++) {
+        if (result[i] != (0x9e3779b9u ^ i)) {
+            all_correct = false;
+            break;
+        }
+    }
+    expect(all_correct) << "volatile byte-buffer reads must observe preceding volatile writes";
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -87,4 +115,5 @@ int main(int argc, char *argv[]) {
     auto &device = dc->device;
     test_byte_buffer(device);
     test_byte_buffer_bool_read(device);
+    test_byte_buffer_volatile_io(device);
 }

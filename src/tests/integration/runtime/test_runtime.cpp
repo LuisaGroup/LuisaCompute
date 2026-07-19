@@ -193,6 +193,13 @@ void test_runtime(Device &device_from_ut) {
             << ldr_image.copy_to(luisa::span{pixels})
             << synchronize();
 
+        auto output_path = std::filesystem::path{opts.output_dir} / "test_runtime.png";
+        auto saved = stbi_write_png(output_path.string().c_str(),
+                                    resolution.x, resolution.y, 4,
+                                    pixels.data(), resolution.x * 4u);
+        boost::ut::expect(static_cast<bool>(saved != 0)) << "Failed to save output image.";
+        if (!saved) { return; }
+
         if (opts.compare_path) {
             auto result = luisa::test::compare_with_reference_file(
                 reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,

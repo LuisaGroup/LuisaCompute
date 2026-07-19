@@ -1,3 +1,6 @@
+// Direct-storage decompression integration test.
+// This test covers extension discovery, GDeflate-to-image decompression, and readback.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 
@@ -23,15 +26,28 @@ using namespace boost::ut::literals;
 
 void test_dstorage_decompression(Device &device) {
 
-    auto argv = boost::ut::detail::cfg::largv;
-
     auto opts = luisa::test::ImageTestOptions::parse(
         boost::ut::detail::cfg::largc,
         boost::ut::detail::cfg::largv);
     auto dstorage_ext = device.extension<DStorageExt>();
+    if (dstorage_ext == nullptr) {
+        LUISA_INFO("Skipping direct-storage decompression test: backend '{}' does not provide DStorageExt.", device.backend_name());
+        return;
+    }
+    if (!opts.input_path) {
+        boost::ut::expect(false)
+            << "Direct-storage decompression requires --input <file.gdeflate>.";
+        return;
+    }
+    auto compressed_path = *opts.input_path;
+    if (!std::filesystem::is_regular_file(compressed_path)) {
+        boost::ut::expect(false) << "Missing direct-storage test input: " << compressed_path;
+        return;
+    }
 
     auto dstorage_stream = dstorage_ext->create_stream();
-    auto dstorage_file = dstorage_ext->open_file("test_dstorage_texture_compressed.gdeflate");
+    auto compressed_path_string = compressed_path.string();
+    auto dstorage_file = dstorage_ext->open_file(compressed_path_string);
     auto image = device.create_image<float>(PixelStorage::BYTE4, make_uint2(4096));
     dstorage_stream << dstorage_file.copy_to(image, DStorageCompression::GDeflate) << synchronize();
 
@@ -57,7 +73,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_dstorage_decompression(device);
 }

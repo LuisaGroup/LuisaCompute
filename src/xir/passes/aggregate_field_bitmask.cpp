@@ -133,11 +133,15 @@ AggregateFieldBitmask::~AggregateFieldBitmask() {
 }
 
 AggregateFieldBitmask::AggregateFieldBitmask(const AggregateFieldBitmask &other) noexcept
-    : _field_tree{other._field_tree}, _bits_small{} { *this = other; }
+    : AggregateFieldBitmask{other.type()} { *this = other; }
 
 AggregateFieldBitmask::AggregateFieldBitmask(AggregateFieldBitmask &&other) noexcept
-    : _field_tree{other._field_tree}, _bits_small{other._bits_small} {
-    if (!_is_small()) { other._bits_large = nullptr; }
+    : AggregateFieldBitmask{other.type()} {
+    if (_is_small()) {
+        _bits_small = other._bits_small;
+    } else {
+        std::swap(_bits_large, other._bits_large);
+    }
 }
 
 AggregateFieldBitmask &AggregateFieldBitmask::operator=(const AggregateFieldBitmask &other) noexcept {
@@ -158,8 +162,11 @@ AggregateFieldBitmask &AggregateFieldBitmask::operator=(const AggregateFieldBitm
 AggregateFieldBitmask &AggregateFieldBitmask::operator=(AggregateFieldBitmask &&other) noexcept {
     if (this != &other) [[likely]] {
         LUISA_ASSERT(type() == other.type(), "Type mismatch.");
-        this->~AggregateFieldBitmask();
-        new (this) AggregateFieldBitmask{std::move(other)};
+        if (_is_small()) {
+            _bits_small = other._bits_small;
+        } else {
+            std::swap(_bits_large, other._bits_large);
+        }
     }
     return *this;
 }

@@ -57,6 +57,7 @@
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
+#include <luisa/xir/verifier.h>
 
 #include <type_traits>
 
@@ -68,14 +69,14 @@ namespace detail {
     LUISA_ASSERT(type->is_vector(), "Expected vector type, got {}.", type->description());
     auto elem = type->element();
     auto dim = type->dimension();
-#define LUISA_XIR2AST_VEC_OP(T, PREFIX)            \
-    if (elem == Type::of<T>()) {                   \
-        switch (dim) {                             \
+#define LUISA_XIR2AST_VEC_OP(T, PREFIX)               \
+    if (elem == Type::of<T>()) {                      \
+        switch (dim) {                                \
             case 2u: return CallOp::MAKE_##PREFIX##2; \
             case 3u: return CallOp::MAKE_##PREFIX##3; \
             case 4u: return CallOp::MAKE_##PREFIX##4; \
-            default: break;                       \
-        }                                         \
+            default: break;                           \
+        }                                             \
     }
     LUISA_XIR2AST_VEC_OP(bool, BOOL)
     LUISA_XIR2AST_VEC_OP(byte, BYTE)
@@ -318,6 +319,50 @@ namespace detail {
 
 }// namespace detail
 
+namespace {
+
+void verify_xir_for_ast(const Function *function, luisa::string_view stage,
+                        const XIRVerificationOptions &options = {}) noexcept {
+    auto verification = xir_verify_function(function, options);
+    if (!verification.succeeded()) {
+        auto &first = verification.errors.front();
+        auto function_name = first.function == nullptr ?
+                                 luisa::string_view{"<none>"} :
+                                 first.function->name().value_or("<unnamed>");
+        auto instruction_name = first.instruction == nullptr ?
+                                    luisa::string_view{"<none>"} :
+                                    to_string(first.instruction->derived_instruction_tag());
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid XIR at XIR-to-AST {} in {} '{}' at {}: {} ({} error(s) total).",
+            stage,
+            first.function == nullptr ? luisa::string_view{"unknown"} :
+                                        to_string(first.function->derived_function_tag()),
+            function_name, instruction_name, first.message, verification.errors.size());
+    }
+}
+
+void verify_xir_for_ast(const Module *module, luisa::string_view stage,
+                        const XIRVerificationOptions &options = {}) noexcept {
+    auto verification = xir_verify_module(module, options);
+    if (!verification.succeeded()) {
+        auto &first = verification.errors.front();
+        auto function_name = first.function == nullptr ?
+                                 luisa::string_view{"<none>"} :
+                                 first.function->name().value_or("<unnamed>");
+        auto instruction_name = first.instruction == nullptr ?
+                                    luisa::string_view{"<none>"} :
+                                    to_string(first.instruction->derived_instruction_tag());
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid XIR at XIR-to-AST {} in {} '{}' at {}: {} ({} error(s) total).",
+            stage,
+            first.function == nullptr ? luisa::string_view{"unknown"} :
+                                        to_string(first.function->derived_function_tag()),
+            function_name, instruction_name, first.message, verification.errors.size());
+    }
+}
+
+}// namespace
+
 class XIR2ASTContext {
 private:
     XIR2ASTConfig _config;
@@ -327,6 +372,11 @@ private:
     luisa::unordered_set<const BasicBlock *> _active_blocks;
     luisa::unordered_map<const Value *, const Expression *> _value_map;
     luisa::vector<luisa::unordered_map<const Value *, const Expression *>> _value_map_stack;
+    struct LoopUpdateContext {
+        const BasicBlock *prepare;
+        const BasicBlock *update;
+    };
+    luisa::vector<LoopUpdateContext> _loop_update_stack;
 
 private:
     [[nodiscard]] ASTFunctionBuilder *_current_builder() const noexcept {
@@ -336,7 +386,7 @@ private:
     [[nodiscard]] const Expression *_literal(const Constant *c) noexcept {
         auto b = _current_builder();
         auto type = c->type();
-#define LUISA_XIR2AST_CONST(T)                         \
+#define LUISA_XIR2AST_CONST(T) \
     if (type == Type::of<T>()) { return b->literal(type, c->as<T>()); }
 #define LUISA_XIR2AST_CONST_VEC(T) \
     LUISA_XIR2AST_CONST(T)         \
@@ -572,13 +622,16 @@ private:
                     luisa::vector<const Expression *> args;
                     args.reserve(call->argument_count());
                     for (auto i = 0u; i < call->argument_count(); i++) { args.emplace_back(_expr(call->argument(i))); }
-                    return _current_builder()->call(call->type(), callee_builder->function(), args);
+                    return _materialize(call->type(), _current_builder()->call(call->type(), callee_builder->function(), args));
                 }
                 case DerivedInstructionTag::RESOURCE_QUERY: return _current_builder()->call(inst->type(), detail::xir2ast_resource_query_op(static_cast<const ResourceQueryInst *>(inst)->op()), _operands(inst));
-                case DerivedInstructionTag::RESOURCE_READ: return _current_builder()->call(inst->type(), detail::xir2ast_resource_read_op(static_cast<const ResourceReadInst *>(inst)->op()), _operands(inst));
-                case DerivedInstructionTag::ATOMIC: return _atomic(static_cast<const AtomicInst *>(inst));
-                case DerivedInstructionTag::THREAD_GROUP: return _current_builder()->call(inst->type(), detail::xir2ast_thread_group_op(static_cast<const ThreadGroupInst *>(inst)->op()), _operands(inst));
-                case DerivedInstructionTag::CLOCK: return _current_builder()->call(Type::of<uint64_t>(), CallOp::CLOCK, {});
+                case DerivedInstructionTag::RESOURCE_READ: return _materialize(inst->type(), _current_builder()->call(inst->type(), detail::xir2ast_resource_read_op(static_cast<const ResourceReadInst *>(inst)->op()), _operands(inst)));
+                case DerivedInstructionTag::ATOMIC: return _materialize(inst->type(), _atomic(static_cast<const AtomicInst *>(inst)));
+                case DerivedInstructionTag::THREAD_GROUP: {
+                    auto expr = _current_builder()->call(inst->type(), detail::xir2ast_thread_group_op(static_cast<const ThreadGroupInst *>(inst)->op()), _operands(inst));
+                    return inst->type() == nullptr ? expr : _materialize(inst->type(), expr);
+                }
+                case DerivedInstructionTag::CLOCK: return _materialize(Type::of<uint64_t>(), _current_builder()->call(Type::of<uint64_t>(), CallOp::CLOCK, {}));
                 case DerivedInstructionTag::ASSERT: return _assert_or_assume(static_cast<const AssertInst *>(inst));
                 case DerivedInstructionTag::ASSUME: return _assert_or_assume(static_cast<const AssumeInst *>(inst));
                 default: break;
@@ -594,6 +647,13 @@ private:
         for (auto use : inst->index_uses()) { args.emplace_back(_expr(use->value())); }
         for (auto use : inst->value_uses()) { args.emplace_back(_expr(use->value())); }
         return _current_builder()->call(inst->type(), detail::xir2ast_atomic_op(inst->op()), args);
+    }
+
+    [[nodiscard]] const Expression *_materialize(const Type *type, const Expression *expr) noexcept {
+        LUISA_ASSERT(type != nullptr && expr != nullptr, "Cannot materialize a void expression.");
+        auto tmp = _current_builder()->local(type);
+        _current_builder()->assign(tmp, expr);
+        return tmp;
     }
 
     template<typename F>
@@ -693,6 +753,7 @@ private:
     }
 
     void _predeclare_allocas(const BasicBlock *block) noexcept {
+        if (block == nullptr) { return; }
         for (auto inst : block->instructions()) {
             switch (inst->derived_instruction_tag()) {
                 case DerivedInstructionTag::ALLOCA: static_cast<void>(_expr(inst)); break;
@@ -894,6 +955,12 @@ private:
                     return;
                 }
                 case DerivedInstructionTag::CONTINUE: {
+                    auto continue_inst = static_cast<const ContinueInst *>(inst);
+                    if (continue_inst->target_block() == stop) { return; }
+                    if (!_loop_update_stack.empty() && continue_inst->target_block() == _loop_update_stack.back().update) {
+                        auto context = _loop_update_stack.back();
+                        _emit_block(context.update, context.prepare);
+                    }
                     _current_builder()->continue_();
                     return;
                 }
@@ -983,6 +1050,7 @@ private:
                         return;
                     }
                     auto ast_loop = _current_builder()->loop_();
+                    _loop_update_stack.emplace_back(LoopUpdateContext{loop->prepare_block(), loop->update_block()});
                     _current_builder()->with(ast_loop->body(), [&] {
                         _with_value_map_checkpoint([&] {
                             _emit_loop_prepare_prefix(loop->prepare_block());
@@ -999,6 +1067,7 @@ private:
                             _emit_block(loop->update_block(), loop->prepare_block());
                         });
                     });
+                    _loop_update_stack.pop_back();
                     _emit_block(loop->merge_block(), stop);
                     return;
                 }
@@ -1026,6 +1095,10 @@ private:
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate_callable(const FunctionDefinition &f) noexcept {
         LUISA_ASSERT(f.derived_function_tag() == DerivedFunctionTag::CALLABLE, "Expected callable function.");
         if (auto iter = _function_map.find(&f); iter != _function_map.end()) { return iter->second; }
+        verify_xir_for_ast(
+            &f, "callable translation input",
+            {.require_no_phi = true,
+             .require_canonical_break_continue_targets = true});
         if (!_translating_functions.emplace(&f).second) {
             LUISA_ERROR_WITH_LOCATION("Recursive XIR callables are not supported by XIR-to-AST.");
         }
@@ -1044,6 +1117,10 @@ public:
 
     void add_function(const FunctionDefinition &f) noexcept {
         LUISA_ASSERT(_builder == nullptr, "XIR2ASTContext currently accepts one function.");
+        verify_xir_for_ast(
+            &f, "translation input",
+            {.require_no_phi = true,
+             .require_canonical_break_continue_targets = true});
         _builder = _translate(f);
         _function_map.emplace(&f, _builder);
     }
@@ -1068,6 +1145,8 @@ luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate_finalize(XIR2AS
 }
 
 void xir_to_ast_normalize_module(Module *module) noexcept {
+    verify_xir_for_ast(module, "normalization input",
+                       {.require_terminated_blocks = false});
     // Generic normalization exposes generated continuation callables but does
     // not replace/remove the source coroutine definition. Once continuations
     // exist, keep them even though they intentionally have no IR call users;
@@ -1102,6 +1181,11 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     });
     pipeline.add("destructure-cfg", [](Module *m, PassReport &r) {
         auto i = destructure_cfg_pass_run_on_module(m, &r);
+        if (i.error_count != 0u) {
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR-to-AST destructuring failed (errors={}, leaked_blocks={}).",
+                i.error_count, i.leaked_block_count);
+        }
         return i.destructured_if_count > 0u ||
                i.destructured_loop_count > 0u ||
                i.destructured_simple_loop_count > 0u;
@@ -1174,6 +1258,12 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     });
     pipeline.add("restructure-cfg", [](Module *m, PassReport &r) {
         auto i = restructure_cfg_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR-to-AST restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+                i.irreducible_region_count, i.unstructured_branch_count,
+                i.invalid_construct_count, i.iteration_limit_count);
+        }
         return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
     });
     pipeline.add("dce", [](Module *m, PassReport &r) {
@@ -1198,6 +1288,10 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
         return i.removed_callable_count > 0u;
     });
     auto stats = pipeline.run(module);
+    verify_xir_for_ast(
+        module, "normalization output",
+        {.require_no_phi = true,
+         .require_canonical_break_continue_targets = true});
     stats.log("xir_to_ast_normalize_module");
 }
 
