@@ -27,8 +27,8 @@ int main(int argc, char *argv[]) {
             R"(Shape "curve"
                "string type" ["cylinder"]
                "point3 P" [0 0 0 1 2 3 2 4 6 3 6 9 4 8 12]
-               "float width0" [0.5]
-               "float width1" [0.1])");
+               "float width0" [5e-1]
+               "float width1" [1e-1])");
         expect(static_cast<bool>(result)) << result.error;
         if (!result) { return; }
         expect(result.data.control_points.size() == 5u);
@@ -59,6 +59,7 @@ int main(int argc, char *argv[]) {
             R"(Shape "curve)",
             R"(Shape "curve" "point3 P" [0 0 nope 1 0 0 2 0 0 3 0 0] "float width" [1])",
             R"(Shape "curve" "point3 P" [0 0 0 1 0 0 2 0 0 1e999 0 0] "float width" [1])",
+            R"(Shape "curve" "point3 P" [0 0 0 1 0 0 2 0 0 1e2e3 0 0] "float width" [1])",
             R"(Shape "curve" "point3 P" [0 0 0 1 0 0 2 0 0] "float width" [1])",
             R"(Shape "curve" "point3 P" [0 0 0 1 0 0 2 0 0 3 0 0])",
             R"(Shape "curve" "point3 P" [0 0 0 1 0 0 2 0 0 3 0 0] "float width" [0])",
