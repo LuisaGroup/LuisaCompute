@@ -5440,6 +5440,69 @@ OpName %8 "Fma"
         expect(std::abs(smoothstep_result[0][1] - 0.5f) < 1e-5f);
     };
 
+    "vk_user_compute_float_minimum_family_prefers_numbers_over_nan"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_number_minmax"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input = dc.device.create_buffer<float>(4u);
+        auto output = dc.device.create_buffer<float>(10u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferFloat in, BufferFloat out) noexcept {
+            auto nan = in.read(0u);
+            auto positive = in.read(1u);
+            auto negative = in.read(2u);
+            auto upper = in.read(3u);
+            out.write(0u, min(nan, positive));
+            out.write(1u, min(positive, nan));
+            out.write(2u, max(nan, positive));
+            out.write(3u, max(positive, nan));
+            out.write(4u, clamp(nan, negative, upper));
+            out.write(5u, clamp(positive, nan, 8.0f));
+            out.write(6u, clamp(positive, -8.0f, nan));
+            out.write(7u, saturate(nan));
+            auto values = make_float4(nan, positive, negative, upper);
+            out.write(8u, reduce_min(values));
+            out.write(9u, reduce_max(values));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        auto nan = std::numeric_limits<float>::quiet_NaN();
+        std::array input_values{nan, 4.0f, -3.0f, 2.0f};
+        std::array<float, 10u> result{};
+        stream << input.copy_from(luisa::span{input_values})
+               << shader(input, output).dispatch(1u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        constexpr std::array expected{
+            4.0f, 4.0f, 4.0f, 4.0f, -3.0f,
+            4.0f, 4.0f, 0.0f, -3.0f, 4.0f};
+        expect(result == expected)
+            << "floating min/max/clamp/saturate/reductions must match minnum/maxnum when exactly one operand is NaN";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "number-minimum regression should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_extended_instruction(disassembly, "NMin") == 5u);
+            expect(count_spirv_extended_instruction(disassembly, "NMax") == 5u);
+            expect(count_spirv_extended_instruction(disassembly, "NClamp") == 4u);
+            expect(count_spirv_extended_instruction(disassembly, "FMin") == 0u);
+            expect(count_spirv_extended_instruction(disassembly, "FMax") == 0u);
+            expect(count_spirv_extended_instruction(disassembly, "FClamp") == 0u);
+        }
+    };
+
     "vk_user_compute_direct_surface_trace_uses_valid_primitive_culling"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;

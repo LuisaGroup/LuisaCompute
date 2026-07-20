@@ -601,7 +601,13 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
 
         // Math builtins via GLSL.std.450
         case xir::ArithmeticOp::CLAMP:
-            id = glsl_typed(GLSLstd450FClamp, GLSLstd450SClamp, GLSLstd450UClamp,
+            // Luisa's floating min/max contract matches C fmin/fmax and the
+            // LLVM minnum/maxnum intrinsics used by the CUDA, HIP, and
+            // fallback XIR backends: a lone NaN yields the numeric operand.
+            // GLSL FClamp inherits the implementation-dependent NaN behavior
+            // of FMin/FMax, while NClamp has the required number-preferring
+            // semantics.
+            id = glsl_typed(GLSLstd450NClamp, GLSLstd450SClamp, GLSLstd450UClamp,
                             operand(0), operand(1), operand(2));
             break;
         case xir::ArithmeticOp::SATURATE:
@@ -612,7 +618,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     zero = _builder.smearScalar(spv::NoPrecision, zero, type);
                     one = _builder.smearScalar(spv::NoPrecision, one, type);
                 }
-                id = glsl(GLSLstd450FClamp, operand(0), zero, one);
+                id = glsl(GLSLstd450NClamp, operand(0), zero, one);
             } else {
                 LUISA_NOT_IMPLEMENTED("SPIR-V saturate for integer types.");
             }
@@ -643,11 +649,11 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 id = operand(0);// uint abs is identity
             break;
         case xir::ArithmeticOp::MIN:
-            id = glsl_typed(GLSLstd450FMin, GLSLstd450SMin, GLSLstd450UMin,
+            id = glsl_typed(GLSLstd450NMin, GLSLstd450SMin, GLSLstd450UMin,
                             operand(0), operand(1));
             break;
         case xir::ArithmeticOp::MAX:
-            id = glsl_typed(GLSLstd450FMax, GLSLstd450SMax, GLSLstd450UMax,
+            id = glsl_typed(GLSLstd450NMax, GLSLstd450SMax, GLSLstd450UMax,
                             operand(0), operand(1));
             break;
         case xir::ArithmeticOp::CLZ: {
@@ -969,7 +975,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         break;
                     case xir::ArithmeticOp::REDUCE_MIN:
                         if (elem_type->is_float())
-                            id = make_glsl_call(GLSLstd450FMin, elem_spv_type, {id, comp});
+                            id = make_glsl_call(GLSLstd450NMin, elem_spv_type, {id, comp});
                         else if (elem_type->is_int())
                             id = make_glsl_call(GLSLstd450SMin, elem_spv_type, {id, comp});
                         else
@@ -977,7 +983,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         break;
                     case xir::ArithmeticOp::REDUCE_MAX:
                         if (elem_type->is_float())
-                            id = make_glsl_call(GLSLstd450FMax, elem_spv_type, {id, comp});
+                            id = make_glsl_call(GLSLstd450NMax, elem_spv_type, {id, comp});
                         else if (elem_type->is_int())
                             id = make_glsl_call(GLSLstd450SMax, elem_spv_type, {id, comp});
                         else
