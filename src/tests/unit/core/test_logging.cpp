@@ -14,7 +14,10 @@ struct CapturedMessage {
     luisa::string message;
 };
 
-static inline const auto _reg_logging_custom_sink = [] {
+#endif
+
+void _reg_logging_custom_sink() {
+
     "logging_custom_sink_captures_messages"_test = [] {
         std::mutex mtx;
         luisa::vector<CapturedMessage> captured;
@@ -51,10 +54,10 @@ static inline const auto _reg_logging_custom_sink = [] {
         expect(found_info) << "custom sink should capture info message";
         expect(found_warning) << "custom sink should capture warning message";
     };
-    return 0;
-}();
+}
 
-static inline const auto _reg_logging_level_filtering = [] {
+void _reg_logging_level_filtering() {
+
     "logging_level_filtering_via_sink"_test = [] {
         std::mutex mtx;
         luisa::vector<CapturedMessage> captured;
@@ -93,10 +96,10 @@ static inline const auto _reg_logging_level_filtering = [] {
         expect(!found_filtered_info) << "info should be filtered at warning level";
         expect(found_warning) << "warning should pass at warning level";
     };
-    return 0;
-}();
+}
 
-static inline const auto _reg_logging_add_sink = [] {
+void _reg_logging_add_sink() {
+
     "logging_add_sink_preserves_existing"_test = [] {
         std::mutex mtx;
         luisa::vector<CapturedMessage> captured;
@@ -122,10 +125,10 @@ static inline const auto _reg_logging_add_sink = [] {
         }
         expect(found) << "added sink should capture messages alongside default sink";
     };
-    return 0;
-}();
+}
 
-static inline const auto _reg_logging_formatted_args = [] {
+void _reg_logging_formatted_args() {
+
     "logging_formatted_args_in_sink"_test = [] {
         std::mutex mtx;
         luisa::vector<CapturedMessage> captured;
@@ -160,12 +163,10 @@ static inline const auto _reg_logging_formatted_args = [] {
         expect(found_pi) << "formatted float arg should appear in sink";
         expect(found_bool) << "formatted bool/string args should appear in sink";
     };
-    return 0;
-}();
+}
 
-#endif
+void _luisa_reg_logging_basic_functionality() {
 
-static inline const auto _luisa_reg_logging_basic_functionality = [] {
     "logging_basic_no_crash"_test = [] {
         luisa::log_level_verbose();
         luisa::log_verbose("Verbose message from test");
@@ -177,10 +178,10 @@ static inline const auto _luisa_reg_logging_basic_functionality = [] {
         luisa::log_flush();
         expect(true) << "basic logging calls completed without crash";
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_logging_macros = [] {
+void _luisa_reg_logging_macros() {
+
     "logging_macros_no_crash"_test = [] {
         luisa::log_level_verbose();
         LUISA_VERBOSE("Macro verbose message");
@@ -191,10 +192,10 @@ static inline const auto _luisa_reg_logging_macros = [] {
         LUISA_WARNING("Warning macro: value = {}", 3.14159);
         expect(true) << "logging macros completed without crash";
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_logging_with_location_macros = [] {
+void _luisa_reg_logging_with_location_macros() {
+
     "logging_location_macros_no_crash"_test = [] {
         luisa::log_level_verbose();
         LUISA_VERBOSE_WITH_LOCATION("Verbose with location: {}", 100);
@@ -202,10 +203,10 @@ static inline const auto _luisa_reg_logging_with_location_macros = [] {
         LUISA_WARNING_WITH_LOCATION("Warning with location: {}", 300);
         expect(true) << "location macros completed without crash";
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_logging_log_level_transitions = [] {
+void _luisa_reg_logging_log_level_transitions() {
+
     "logging_level_transitions_no_crash"_test = [] {
         luisa::log_level_verbose();
         luisa::log_level_info();
@@ -218,10 +219,10 @@ static inline const auto _luisa_reg_logging_log_level_transitions = [] {
         luisa::log_flush();
         expect(true) << "rapid level transitions completed without crash";
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_logging_complex_format_strings = [] {
+void _luisa_reg_logging_complex_format_strings() {
+
     "logging_complex_format_strings"_test = [] {
         luisa::log_level_verbose();
         LUISA_INFO("Integer: {}", -123456);
@@ -237,10 +238,10 @@ static inline const auto _luisa_reg_logging_complex_format_strings = [] {
         LUISA_INFO("Fixed: {:.2f}", 3.14159);
         expect(true) << "complex format strings completed without crash";
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_logging_empty_and_special_messages = [] {
+void _luisa_reg_logging_empty_and_special_messages() {
+
     "logging_empty_and_special_messages"_test = [] {
         luisa::log_level_verbose();
         LUISA_INFO("");
@@ -254,7 +255,20 @@ static inline const auto _luisa_reg_logging_empty_and_special_messages = [] {
         LUISA_INFO("Long message: {}", long_message);
         expect(long_message.size() > 4000u) << "long message should be substantial";
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    _reg_logging_custom_sink();
+    _reg_logging_level_filtering();
+    _reg_logging_add_sink();
+    _reg_logging_formatted_args();
+    _luisa_reg_logging_basic_functionality();
+    _luisa_reg_logging_macros();
+    _luisa_reg_logging_with_location_macros();
+    _luisa_reg_logging_log_level_transitions();
+    _luisa_reg_logging_complex_format_strings();
+    _luisa_reg_logging_empty_and_special_messages();
+    return 0;
+}

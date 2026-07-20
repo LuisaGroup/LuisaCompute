@@ -57,35 +57,40 @@ private:
     Node *root;
     template<typename Key>
     Node *searchTreeHelper(Node *node, Key const &key) const {
-        if (node == nullptr)
-            return nullptr;
-        auto compResult = comp(GetFirst(node->data), key);
-        static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
-        if (compResult == 0) {
-            return node;
+        while (node != nullptr) {
+            auto compResult = comp(GetFirst(node->data), key);
+            static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
+            if (compResult == 0) {
+                return node;
+            }
+            if (compResult > 0) {
+                node = node->left;
+            } else {
+                node = node->right;
+            }
         }
-
-        if (compResult > 0) {
-            return searchTreeHelper(node->left, key);
-        }
-        return searchTreeHelper(node->right, key);
+        return nullptr;
     }
 
     template<typename Key>
     std::pair<Node *, int32> searchClosestTreeHelper(Node *node, Key const &key, Node *lastNode, int32_t lastFlag) const {
-        if (node == nullptr) {
-            return {lastNode, lastFlag};
+        while (node != nullptr) {
+            auto compResult = comp(GetFirst(node->data), key);
+            static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
+            if (compResult == 0) {
+                return {node, 0};
+            }
+            if (compResult > 0) {
+                lastNode = node;
+                lastFlag = 1;
+                node = node->left;
+            } else {
+                lastNode = node;
+                lastFlag = -1;
+                node = node->right;
+            }
         }
-        auto compResult = comp(GetFirst(node->data), key);
-        static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
-        if (compResult == 0) {
-            return {node, 0};
-        }
-
-        if (compResult > 0) {
-            return searchClosestTreeHelper(node->left, key, node, 1);
-        }
-        return searchClosestTreeHelper(node->right, key, node, -1);
+        return {lastNode, lastFlag};
     }
     template<typename POOL>
     void deleteOneNode(Node *z, POOL &pool) {
@@ -550,7 +555,7 @@ private:
     }
     void TryResize() {
         TryInit();
-        size_t targetCapacity = (size_t)((mSize + 1));
+        size_t targetCapacity = (size_t)(((mSize + 1) * 4 + 2) / 3);
         if (targetCapacity < 16) targetCapacity = 16;
         if (targetCapacity > mCapacity) {
             Resize(GetPow2Size(targetCapacity));

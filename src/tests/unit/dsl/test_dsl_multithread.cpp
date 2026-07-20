@@ -8,14 +8,16 @@
 // - Buffer and constant access from multiple threads
 // - DSL syntax operations in multi-threaded context
 
-#include <iostream>
-#include <chrono>
+#include <array>
+#include <cmath>
 #include <numeric>
 #include <thread>
+#include <vector>
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
 #include <luisa/ast/interface.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/runtime/context.h>
@@ -36,10 +38,9 @@ struct Test {
 // Register the structure with the DSL
 LUISA_STRUCT(Test, something, a) {};
 
-int test_dsl_multithread(Device &device) {
-    // Create buffers for kernel operations
-    Buffer<float4> buffer = device.create_buffer<float4>(1024u);
-    Buffer<float> float_buffer = device.create_buffer<float>(1024u);
+[[nodiscard]] int test_dsl_multithread(Device &device) {
+    constexpr auto worker_count = 8u;
+    constexpr auto element_count = 32u;
 
     // Create constant vector
     std::vector<int> const_vector(128u);
@@ -51,115 +52,118 @@ int test_dsl_multithread(Device &device) {
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
 
-    // Create worker threads for concurrent kernel compilation
-    std::vector<std::thread> threads;
-    threads.reserve(8u);
+    using CompiledShader = Shader1D<Buffer<float>, Buffer<float>, uint>;
+    std::array<CompiledShader, worker_count> shaders;
+    std::array<double, worker_count> compile_times{};
 
-    for (size_t i = 0u; i < 8u; i++) {
-        threads.emplace_back([&, worker = i] {
+    // Create worker threads for concurrent AST construction and compilation.
+    // Every worker calls the same Callable, which exercises its thread-safe
+    // capture into independent function builders.
+    std::vector<std::thread> threads;
+    threads.reserve(worker_count);
+
+    for (auto worker = 0u; worker < worker_count; ++worker) {
+        threads.emplace_back([&, worker] {
             Clock clock;
 
-            // Define constants for kernel
-            Constant float_consts = {1.0f, 2.0f};
-            Constant int_consts = const_vector;
+            Kernel1D kernel_def = [&, worker](BufferVar<float> input,
+                                              BufferVar<float> output,
+                                              Var<uint> output_offset) noexcept {
+                set_block_size(element_count, 1u, 1u);
+                Shared<float> shared_values{element_count};
 
-            // Define kernel with various DSL operations
-            Kernel1D kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept {
-                // Shared memory allocation
-                Shared<float4> shared_floats{16};
+                auto index = dispatch_x();
+                shared_values[thread_x()] = input.read(index);
+                sync_block();
 
-                // Variable declarations and operations
-                Var v_int = 10;
-                Var vv_int = int_consts[v_int];
-                Var v_float = buffer_float.read(count + thread_id().x);
-                Var vv_float = float_consts[vv_int];
-                Var call_ret = callable(10, v_int, v_float);
-
-                Var v_float_copy = v_float;
-
-                // Arithmetic operations
-                Var z = -1 + v_int * v_float + 1.0f;
-                z += 1;
-                static_assert(std::is_same_v<decltype(z), Var<float>>);
-
-                // Loop with various DSL constructs
-                for (size_t i = 0u; i < 3u; i++) {
-                    Var v_vec = float3{1.0f};
-                    Var v2 = float3{2.0f} - v_vec * 2.0f;
-                    v2 *= 5.0f + v_float;
-
-                    Var<float2> w{cast<float>(v_int), v_float};
-                    w *= float2{1.2f};
-
-                    // Conditional statements
-                    if_(1 + 1 == 2, [] {
-                        Var a = 0.0f;
-                    }).else_([] {
-                        Var c = 2.0f;
-                    });
-
-                    // Loop with break
-                    loop([&] {
-                        z += 1;
-                        if_(true, break_);
-                    });
-
-                    // Switch statement
-                    switch_(123)
-                        .case_(1, [] {
-
-                        })
-                        .case_(2, [] {
-
-                        })
-                        .default_([] {
-
-                        });
-
-                    Var x = w.x;
+                Int table_index = cast<int>((index + worker) % 8u);
+                Float value = callable(3, table_index, shared_values[thread_x()]);
+                for (auto i : dynamic_range(3)) {
+                    value += cast<float>(i + 1);
                 }
+                if_(index % 2u == 0u, [&] {
+                    value += 10.0f;
+                }).else_([&] {
+                    value -= 5.0f;
+                });
+                switch_(cast<int>(index % 3u))
+                    .case_(0, [&] { value += 100.0f; })
+                    .case_(1, [&] { value += 200.0f; })
+                    .default_([&] { value -= 300.0f; });
 
-                // Struct variable usage
-                Var<int3> s;
-                Var<Test> vvt{s, v_float_copy};
-                Var<Test> vt{vvt};
-
-                Var vt_copy = vt;
-                Var c = 0.5f + vt.a * 1.0f;
-
-                // Buffer access operations
-                Var vec4 = buffer->read(10);           // indexing into captured buffer (with literal)
-                Var another_vec4 = buffer->read(v_int);// indexing into captured buffer (with Var)
+                Var<Test> result{
+                    make_int3(table_index,
+                              static_cast<int>(worker),
+                              cast<int>(index)),
+                    value};
+                output.write(output_offset + index,
+                             result.a + cast<float>(result.something.x + result.something.y));
             };
-            double t1 = clock.toc();
-
-            // Compile and dispatch kernel
-            auto kernel = device.compile(kernel_def);
-            luisa::unique_ptr<Command> command = kernel(float_buffer, 12u).dispatch(1024u);
 
             clock.tic();
-            auto shader = device.compile<1>(kernel_def);
-            double t2 = clock.toc();
-            LUISA_INFO("Thread: {}, AST: {:.3f} ms, Codegen & Compile: {:.3f} ms",
-                       worker, t1, t2);
+            shaders[worker] = device.compile(kernel_def);
+            compile_times[worker] = clock.toc();
         });
     }
 
     // Wait for all threads to complete
     for (std::thread &t : threads) { t.join(); }
 
-    expect(true) << "multithreaded compilation completed";
-    return 0;
+    auto all_compiled = true;
+    for (auto worker = 0u; worker < worker_count; ++worker) {
+        all_compiled &= static_cast<bool>(shaders[worker]);
+        LUISA_INFO("Worker {} compile: {:.3f} ms", worker, compile_times[worker]);
+    }
+    expect(all_compiled) << "all concurrently compiled shaders must be valid";
+    if (!all_compiled) { return 1; }
+
+    luisa::vector<float> host_input(element_count);
+    for (auto i = 0u; i < element_count; ++i) {
+        host_input[i] = 1.0f + static_cast<float>(i) * 0.25f;
+    }
+    auto input = device.create_buffer<float>(element_count);
+    auto output = device.create_buffer<float>(worker_count * element_count);
+    luisa::vector<float> host_output(worker_count * element_count);
+    auto stream = device.create_stream();
+    stream << input.copy_from(luisa::span{host_input});
+    for (auto worker = 0u; worker < worker_count; ++worker) {
+        stream << shaders[worker](input, output, worker * element_count).dispatch(element_count);
+    }
+    stream << output.copy_to(luisa::span{host_output}) << synchronize();
+
+    auto all_correct = true;
+    for (auto worker = 0u; worker < worker_count && all_correct; ++worker) {
+        for (auto i = 0u; i < element_count; ++i) {
+            auto table_index = static_cast<int>((i + worker) % 8u);
+            auto expected = 3.0f + static_cast<float>(table_index) * host_input[i] + 6.0f;
+            expected += i % 2u == 0u ? 10.0f : -5.0f;
+            switch (i % 3u) {
+                case 0u: expected += 100.0f; break;
+                case 1u: expected += 200.0f; break;
+                default: expected -= 300.0f; break;
+            }
+            expected += static_cast<float>(table_index + static_cast<int>(worker));
+            auto actual = host_output[worker * element_count + i];
+            if (std::abs(actual - expected) > 1e-5f) {
+                LUISA_WARNING(
+                    "Multithreaded DSL mismatch for worker {}, lane {}: got {}, expected {}.",
+                    worker, i, actual, expected);
+                all_correct = false;
+                break;
+            }
+        }
+    }
+    expect(all_correct) << "every concurrently compiled shader must execute according to the host oracle";
+    return all_correct ? 0 : 1;
 }
 
-static inline const auto reg = [] {
-    "dsl_multithread"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_dsl_multithread(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    return test_dsl_multithread(device);
+}

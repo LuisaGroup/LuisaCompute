@@ -115,22 +115,28 @@ void UploadBuffer::copy_from(void const *data, size_t offset, size_t size) const
     _flusher.mark_dirty(offset, offset + size);
 }
 void ReadbackBuffer::copy_to(void *data, size_t offset, size_t size) const {
+    vmaInvalidateAllocation(
+        device()->allocator().allocator(),
+        _res.allocation,
+        offset,
+        size);
     memcpy(data, reinterpret_cast<std::byte *>(_mapped_ptr) + offset, size);
-    flusher.mark_dirty(offset, offset + size);
 }
 bool UploadBuffer::flush_host() const {
     _flusher.flush(device(), _res.allocation);
     return true;
 }
 bool ReadbackBuffer::flush_host() const {
-    flusher.flush(device(), _res.allocation);
+    // ReadbackBuffer uses vmaInvalidateAllocation inline in copy_to();
+    // no flush needed here. Return true to signal host-visibility.
     return true;
 }
 void ReadbackBuffer::flush_range(size_t begin, size_t end) {
-    VK_CHECK_RESULT(vmaFlushAllocation(
+    VK_CHECK_RESULT(vmaInvalidateAllocation(
         device()->allocator().allocator(),
         _res.allocation,
-        begin, end - begin));
+        begin,
+        end - begin));
 }
 void UploadBuffer::flush_range(size_t begin, size_t end) {
     VK_CHECK_RESULT(vmaFlushAllocation(
@@ -228,21 +234,17 @@ SparseBuffer::~SparseBuffer() {
     }
 }
 void BufferFlusher::mark_dirty(size_t range_begin, size_t range_end) {
-    {
-        auto t = begin.load();
-        while (true) {
-            auto desired = std::min(range_begin, t);
-            if (begin.compare_exchange_weak(t, desired))
-                break;
-        }
+    // Track the minimal begin and maximal end across all dirty ranges.
+    // Use CAS loops for thread safety (though contention is typically low).
+    size_t prev_begin = begin.load(std::memory_order_relaxed);
+    while (range_begin < prev_begin) {
+        if (begin.compare_exchange_weak(prev_begin, range_begin, std::memory_order_release, std::memory_order_relaxed))
+            break;
     }
-    {
-        auto t = end.load();
-        while (true) {
-            auto desired = std::max(range_end, t);
-            if (end.compare_exchange_weak(t, desired))
-                break;
-        }
+    size_t prev_end = end.load(std::memory_order_relaxed);
+    while (range_end > prev_end) {
+        if (end.compare_exchange_weak(prev_end, range_end, std::memory_order_release, std::memory_order_relaxed))
+            break;
     }
 }
 void BufferFlusher::flush(Device *device, void *alloc) {

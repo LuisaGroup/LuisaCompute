@@ -86,7 +86,7 @@ public:
     };
     struct RangeHash {
         size_t operator()(Range const &r) const {
-            return hash64(this, sizeof(Range), hash64_default_seed);
+            return hash64(&r, sizeof(Range), hash64_default_seed);
         }
     };
     struct ResourceView {
@@ -228,6 +228,7 @@ private:
     int64_t _dispatch_layer;
     bool _use_bindless_in_pass;
     bool _use_accel_in_pass;
+    bool _write_accel_in_pass;
     ResourceHandle *get_handle(
         uint64_t target_handle,
         ResourceType target_type) {
@@ -268,7 +269,9 @@ private:
     }
     // Texture, Buffer
     int64_t get_last_layer_write(RangeHandle *handle, Range range) {
-        int64_t layer = handle->get_max_read_layer(range);
+        int64_t layer = std::max(
+            handle->get_max_read_layer(range),
+            handle->get_max_write_layer(range));
         if (_bindless_max_layer >= layer) {
             for (auto &&i : _bindless_map) {
                 _func_table.lock_bindless(i.first);
@@ -317,7 +320,7 @@ private:
         return handle->view.write_layer + 1;
     }
     void add_command(Command const *cmd, int64_t layer) {
-        if (_cmd_lists.size() <= layer) {
+        if (static_cast<int64_t>(_cmd_lists.size()) <= layer) {
             _cmd_lists.resize(layer + 1);
         }
         auto &v = _cmd_lists[layer];
@@ -595,6 +598,7 @@ private:
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
+        _write_accel_in_pass = false;
         _dispatch_layer = 0;
 
         auto f = [&]<typename T>(T const &t, Usage usage) {
@@ -635,17 +639,19 @@ private:
                     false);
             } else {
                 _use_accel_in_pass = true;
+                auto is_write = (static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0u;
+                _write_accel_in_pass |= is_write;
                 add_dispatch_handle(
                     t.handle,
                     ResourceType::Accel,
                     Range(),
-                    false);
+                    is_write);
             }
         };
         command->traverse_arguments(f);
         auto max_disp_size_vec = command->max_dispatch_size();
         auto max_disp_size = std::max<size_t>(max_disp_size_vec.x, std::max(max_disp_size_vec.y, max_disp_size_vec.z));
-        if (_dispatch_layer >= _max_dispatch_blocks.size()) {
+        if (_dispatch_layer >= static_cast<int64_t>(_max_dispatch_blocks.size())) {
             _max_dispatch_blocks.resize(_dispatch_layer + 1);
         }
         while (_max_dispatch_blocks[_dispatch_layer] > 0 && _max_dispatch_blocks[_dispatch_layer] + max_disp_size > max_allowed_dispatch_size) {
@@ -668,7 +674,11 @@ private:
             _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
         }
         if (_use_accel_in_pass) {
-            _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            if (_write_accel_in_pass) {
+                _max_accel_write_level = std::max<int64_t>(_max_accel_write_level, _dispatch_layer);
+            } else {
+                _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            }
         }
     }
 
@@ -678,6 +688,7 @@ private:
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
         _use_accel_in_pass = false;
+        _write_accel_in_pass = false;
         _dispatch_layer = 0;
         size_t arg_idx = 0;
         using Argument = ShaderDispatchCommandBase::Argument;
@@ -735,11 +746,14 @@ private:
                 case Tag::ACCEL: {
                     auto &&acc = i.accel;
                     _use_accel_in_pass = true;
+                    auto is_write = (static_cast<uint>(_func_table.get_usage(shader_handle, arg_idx)) &
+                                     static_cast<uint>(Usage::WRITE)) != 0u;
+                    _write_accel_in_pass |= is_write;
                     add_dispatch_handle(
                         acc.handle,
                         ResourceType::Accel,
                         Range(),
-                        false);
+                        is_write);
                     ++arg_idx;
                 } break;
             }
@@ -764,7 +778,11 @@ private:
             _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
         }
         if (_use_accel_in_pass) {
-            _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            if (_write_accel_in_pass) {
+                _max_accel_write_level = std::max<int64_t>(_max_accel_write_level, _dispatch_layer);
+            } else {
+                _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+            }
         }
     }
 
@@ -778,21 +796,30 @@ public:
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     void clear() noexcept {
-        auto re_construct_map = [&]<typename T>(T &t) {
+        auto destroy_map = []<typename T>(T &t) noexcept {
             t.~T();
-            new (&t) T(64, ArenaRef{_arena});
         };
         _bindless_max_layer = -1;
         _max_accel_read_level = -1;
         _max_accel_write_level = -1;
         _max_mesh_level = -1;
+        _dispatch_layer = 0;
+        _use_bindless_in_pass = false;
+        _use_accel_in_pass = false;
+        _write_accel_in_pass = false;
         _cmd_lists.clear();
-        _arena.clear();
         _max_dispatch_blocks.clear();
-        re_construct_map(_res_map);
-        re_construct_map(_no_range_resmap);
-        re_construct_map(_bindless_map);
-        re_construct_map(_write_res_map);
+        _dispatch_read_handle.clear();
+        _dispatch_write_handle.clear();
+        destroy_map(_res_map);
+        destroy_map(_no_range_resmap);
+        destroy_map(_bindless_map);
+        destroy_map(_write_res_map);
+        _arena.clear();
+        new (&_res_map) decltype(_res_map)(64, ArenaRef{_arena});
+        new (&_no_range_resmap) decltype(_no_range_resmap)(64, ArenaRef{_arena});
+        new (&_bindless_map) decltype(_bindless_map)(64, ArenaRef{_arena});
+        new (&_write_res_map) decltype(_write_res_map)(64, ArenaRef{_arena});
     }
     ~CommandReorderVisitor() noexcept {}
     [[nodiscard]] auto command_lists() const noexcept {
@@ -829,12 +856,12 @@ public:
                 auto i = command->indirect_dispatch().max_dispatch_size;
                 max_disp_size = i;
             }
-            if (_dispatch_layer >= _max_dispatch_blocks.size()) {
+            if (_dispatch_layer >= static_cast<int64_t>(_max_dispatch_blocks.size())) {
                 _max_dispatch_blocks.resize(_dispatch_layer + 1);
             }
             while (_max_dispatch_blocks[_dispatch_layer] + max_disp_size > max_allowed_dispatch_size) {
                 _dispatch_layer++;
-                if (_dispatch_layer == _max_dispatch_blocks.size()) {
+                if (_dispatch_layer == static_cast<int64_t>(_max_dispatch_blocks.size())) {
                     _max_dispatch_blocks.emplace_back(0);
                     break;
                 }

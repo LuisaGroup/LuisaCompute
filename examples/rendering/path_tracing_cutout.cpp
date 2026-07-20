@@ -48,20 +48,19 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N]. <backend>: cuda, dx, cpu, metal, hip", argv[0]);
         exit(1);
     }
 
-    uint user_spp = 0u;
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
-            user_spp = static_cast<uint>(std::atoi(argv[++i]));
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    // The filtered HIPRT traversal has a large resumable state machine. On
+    // gfx12, constraining it to 176 VGPRs improves this example's steady trace
+    // time without changing the rendered result. Keep other backends uncapped
+    // and retain the command-line override for architecture-specific tuning.
+    auto max_registers = std::string_view{argv[1]} == "hip" ? 176u : 0u;
+    for (auto i = 2; i + 1 < argc; i++) {
+        if (std::string_view{argv[i]} == "--max-registers") {
+            max_registers = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         }
     }
 
@@ -95,7 +94,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
     luisa::vector<Mesh> meshes;
@@ -121,8 +120,15 @@ int main(int argc, char *argv[]) {
                              .allow_compaction = true,
                              .allow_update = true};
     Accel accel = device.create_accel(accel_option);
-    for (Mesh &m : meshes) {
-        accel.emplace_back(m, make_float4x4(1.0f), 0xffu, false);
+    auto mesh_count = static_cast<uint>(meshes.size());
+    uint light_inst = mesh_count - 1u;
+    uint tall_inst = mesh_count - 2u;
+    uint short_inst = mesh_count - 3u;
+    for (auto i = 0u; i < mesh_count; i++) {
+        // Only the two alpha-cutout boxes need surface-candidate filtering.
+        // Marking the room and light opaque lets ray queries auto-commit them.
+        auto opaque = i != short_inst && i != tall_inst;
+        accel.emplace_back(meshes[i], make_float4x4(1.0f), 0xffu, opaque);
     }
     stream << heap.update()
            << accel.build()
@@ -140,10 +146,6 @@ int main(int argc, char *argv[]) {
     materials.emplace_back(Material{make_float3(0.0f), make_float3(17.0f, 12.0f, 4.0f)});  // light
     Buffer<Material> material_buffer = device.create_buffer<Material>(materials.size());
     stream << material_buffer.copy_from(luisa::span{materials});
-
-    uint light_inst = static_cast<uint>(meshes.size() - 1u);
-    uint tall_inst = static_cast<uint>(meshes.size() - 2u);
-    uint short_inst = static_cast<uint>(meshes.size() - 3u);
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -211,8 +213,8 @@ int main(int argc, char *argv[]) {
     };
 
     auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
-    bool infinite_render = !force_offline && user_spp == 0u;
-    uint total_spp = (force_offline && user_spp == 0u) ? 256u : user_spp;
+    bool infinite_render = !opts.offline && opts.spp == 0u;
+    uint total_spp = opts.offline ? (opts.spp == 0u ? 1024u : opts.spp) : opts.spp;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);
@@ -285,7 +287,6 @@ int main(int argc, char *argv[]) {
                                      .on_surface_candidate([&](auto &c) noexcept {
                                          $if (filter_triangle_hit(c.hit())) {
                                              c.commit();
-                                             c.terminate();
                                          };
                                      })
                                      .trace()
@@ -359,7 +360,8 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
-    auto raytracing_shader = device.compile(raytracing_kernel);
+    auto raytracing_shader = device.compile(
+        raytracing_kernel, ShaderOption{.max_registers = max_registers});
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
     static constexpr uint2 resolution = make_uint2(1024u);
@@ -373,7 +375,7 @@ int main(int argc, char *argv[]) {
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -387,13 +389,15 @@ int main(int argc, char *argv[]) {
             }));
     }
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
 
-    std::mt19937 rand{std::random_device{}()};
+    // Keep offline/reference runs reproducible while preserving fresh animation
+    // sequences for the interactive example.
+    std::mt19937 rand{opts.offline ? 42u : std::random_device{}()};
     std::normal_distribution<float> dist{0.f, 1.f};
     while (infinite_render || frame_count < total_spp) {
         float4x4 t = translation(make_float3(0.f, dist(rand) * .03f + .1f, 0.f));
@@ -403,7 +407,7 @@ int main(int argc, char *argv[]) {
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain->backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
             stream << cmd_list.commit()
                    << swap_chain->present(ldr_image);
@@ -423,16 +427,15 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing_cutout.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution.x, resolution.y, 4,
-            "test_path_tracing_cutout",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+    if (opts.offline) {
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

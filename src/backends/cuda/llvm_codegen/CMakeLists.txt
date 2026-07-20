@@ -1,5 +1,5 @@
 luisa_compute_link_llvm_into_backend(cuda
-        COMPONENTS core ir nvptxcodegen support irreader passes analysis
+        COMPONENTS core nvptxcodegen support irreader passes analysis
         DEFINITIONS LUISA_COMPUTE_ENABLE_LLVM=1)
 if (LUISA_COMPUTE_CUDA_LINKED_LLVM)
     message(STATUS "Linking LLVM into the CUDA backend")

@@ -21,9 +21,9 @@ namespace detail {
     if (!inst->base()->isa<GEPInst>()) { return false; }
     luisa::vector<Value *> indices;
     auto origin = collect_gep_indices_recursive(inst, indices);
-    inst->set_operand_count(1u + indices.size());
+    inst->set_operand_count(1 + indices.size());
     inst->set_operand(0, origin);
-    for (auto i = 0u; i < indices.size(); i++) {
+    for (size_t i = 0; i < indices.size(); i++) {
         inst->set_operand(i + 1, indices[i]);
     }
     return true;
@@ -39,7 +39,7 @@ static void trace_gep_instructions_in_function(Function *function, TraceGEPInfo 
         });
         for (auto gep : geps) {
             if (try_trace_gep_inst(gep)) { info.traced_gep_count++; }
-            if (gep->index_count() == 0u) {
+            if (gep->index_count() == 0) {
                 gep->replace_all_uses_with(gep->base());
                 gep->remove_self();
             }

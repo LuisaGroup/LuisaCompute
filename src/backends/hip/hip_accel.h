@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <hip/hip_runtime.h>
 #include <hiprt/hiprt.h>
 
@@ -10,6 +12,7 @@ namespace luisa::compute::hip {
 
 class HIPDevice;
 class HIPCommandEncoder;
+class HIPPrimitive;
 
 class HIPAccel {
 
@@ -22,30 +25,55 @@ public:
     // Codegen-visible per-instance data. Must match the LLVM accel_instance_type layout:
     //   { [3 x <4 x float>] affine, u32 user_id, u32 sbt_offset, u32 mask, u32 flags, u64 handle }
     struct alignas(16) CodegenInstance {
+        static constexpr uint32_t flag_opaque = 1u << 0u;
+
         float affine[3][4];// row-major 3x4
         uint32_t user_id;
         uint32_t sbt_offset;
         uint32_t visibility_mask;
         uint32_t flags;
         uint64_t mesh_handle;
+        uint64_t motion_data;
     };
+
+    static_assert(sizeof(CodegenInstance) == 80u);
+    static_assert(alignof(CodegenInstance) == 16u);
+    static_assert(offsetof(CodegenInstance, affine) == 0u);
+    static_assert(offsetof(CodegenInstance, user_id) == 48u);
+    static_assert(offsetof(CodegenInstance, sbt_offset) == 52u);
+    static_assert(offsetof(CodegenInstance, visibility_mask) == 56u);
+    static_assert(offsetof(CodegenInstance, flags) == 60u);
+    static_assert(offsetof(CodegenInstance, mesh_handle) == 64u);
+    static_assert(offsetof(CodegenInstance, motion_data) == 72u);
+    static_assert(offsetof(hiprtFrameMatrix, matrix) == 0u);
+    static_assert(sizeof(hiprtFrameMatrix::matrix) == sizeof(CodegenInstance::affine));
+    static_assert(offsetof(hiprtFrameMatrix, time) == sizeof(CodegenInstance::affine));
 
 private:
     AccelOption _option;
     hiprtContext _hiprt_ctx{nullptr};
     hiprtScene _scene{nullptr};
     bool _requires_rebuild{true};
+    bool _hiprt_instances_dirty{true};
     mutable spin_mutex _mutex;
 
     hipDeviceptr_t _instance_buffer{};
     size_t _instance_buffer_size{};
+    hipDeviceptr_t _scene_build_buffer{};
+    size_t _scene_build_capacity{};
+    hipDeviceptr_t _scene_instances{};
+    hipDeviceptr_t _scene_frames{};
+    hipDeviceptr_t _scene_masks{};
 
     luisa::vector<CodegenInstance> _host_instances;
     luisa::vector<hiprtInstance> _hiprt_instances;
-    luisa::vector<hiprtFrameMatrix> _hiprt_frames;
+    luisa::vector<const HIPPrimitive *> _primitives;
+    luisa::vector<const AccelBuildCommand::Modification *> _sorted_modifications;
 
     size_t _instance_count{};
+    size_t _scene_instance_count{};
 
+    [[nodiscard]] hiprtSceneBuildInput _make_scene_build_input(HIPCommandEncoder &encoder) noexcept;
     void _build(HIPCommandEncoder &encoder) noexcept;
     void _update(HIPCommandEncoder &encoder) noexcept;
 

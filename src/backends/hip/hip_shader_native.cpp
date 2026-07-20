@@ -1,6 +1,7 @@
 #include <luisa/runtime/rhi/command.h>
 #include <hip/hiprtc.h>
 #include <hiprt/hiprt.h>
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include "hip_device.h"
@@ -11,21 +12,43 @@
 #include "hip_command_encoder.h"
 #include "hip_shader.h"
 #include "hip_shader_native.h"
+#include "hip_shader_printer.h"
 #include "hip_check.h"
 
 namespace luisa::compute::hip {
 
+namespace {
+
+void validate_register_limit(hipFunction_t function,
+                             uint32_t requested_limit) noexcept {
+    if (requested_limit == 0u) { return; }
+    auto effective_limit = std::min(requested_limit, 256u);
+    auto actual_register_count = 0;
+    LUISA_CHECK_HIP(hipFuncGetAttribute(
+        &actual_register_count, HIP_FUNC_ATTRIBUTE_NUM_REGS, function));
+    LUISA_ASSERT(
+        actual_register_count <= static_cast<int>(effective_limit),
+        "HIP compiler ignored ShaderOption::max_registers: requested at most "
+        "{} VGPRs, but the loaded kernel uses {}.",
+        effective_limit, actual_register_count);
+    LUISA_VERBOSE("HIP kernel register limit satisfied: {} / {} VGPRs.",
+                  actual_register_count, effective_limit);
+}
+
+}// namespace
+
 HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
                                  const char *entry, const HIPShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : HIPShader{metadata.argument_usages},
+    : HIPShader{HIPShaderPrinter::create(metadata.format_types),
+                metadata.argument_usages},
       _entry{entry},
       _block_size{metadata.block_size.x,
                   metadata.block_size.y,
                   metadata.block_size.z},
       _bound_arguments{std::move(bound_arguments)},
       _device{device},
-      _is_rt{false} {
+      _requires_global_rt_stack{false} {
 
     hiprtcLinkState link_state{};
     auto create_result = hiprtcLinkCreate(0, nullptr, nullptr, &link_state);
@@ -70,20 +93,24 @@ HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
         LUISA_ERROR_WITH_LOCATION("Failed to load HIP module: {}", hipGetErrorString(ret));
     }
     LUISA_CHECK_HIP(hipModuleGetFunction(&_function, _module, entry));
+    validate_register_limit(_function, metadata.max_register_count);
 }
 
 HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
                                  const char *entry, const HIPShaderMetadata &metadata,
                                  hiprtContext hiprt_ctx,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : HIPShader{metadata.argument_usages},
+    : HIPShader{HIPShaderPrinter::create(metadata.format_types),
+                metadata.argument_usages},
       _entry{entry},
       _block_size{metadata.block_size.x,
                   metadata.block_size.y,
                   metadata.block_size.z},
       _bound_arguments{std::move(bound_arguments)},
       _device{device},
-      _is_rt{true} {
+      _requires_global_rt_stack{metadata.requires_global_rt_stack} {
+
+    LUISA_ASSERT(hiprt_ctx != nullptr, "HIPRT context is null for ray-tracing shader.");
 
     // RT shaders now have HIPRT library fully inlined by our LLVM pipeline.
     // Use the same hiprtc ISA-generation path as non-RT shaders.
@@ -130,6 +157,7 @@ HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
         LUISA_ERROR_WITH_LOCATION("Failed to load HIP RT module: {}", hipGetErrorString(ret));
     }
     LUISA_CHECK_HIP(hipModuleGetFunction(&_function, _module, entry));
+    validate_register_limit(_function, metadata.max_register_count);
     LUISA_INFO("RT shader compiled via LTO pipeline (bypassing HIPRT compiler).");
 }
 
@@ -158,9 +186,16 @@ void HIPShaderNative::_launch(HIPCommandEncoder &encoder, ShaderDispatchCommand 
         switch (arg.tag) {
             case Tag::BUFFER: {
                 auto buffer = reinterpret_cast<const HIPBuffer *>(arg.buffer.handle);
-                auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
-                auto ptr = allocate_argument(sizeof(binding));
-                std::memcpy(ptr, &binding, sizeof(binding));
+                if (buffer->is_indirect()) {
+                    auto binding = buffer->indirect_binding(
+                        arg.buffer.offset, arg.buffer.size);
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                } else {
+                    auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                }
                 break;
             }
             case Tag::TEXTURE: {
@@ -198,12 +233,17 @@ void HIPShaderNative::_launch(HIPCommandEncoder &encoder, ShaderDispatchCommand 
     for (auto &&arg : _bound_arguments) { encode_argument(arg); }
     for (auto &&arg : command->arguments()) { encode_argument(arg); }
 
-    auto ptr = allocate_argument(sizeof(uint4));
-    auto dispatch_size = command->dispatch_size();
-    uint4 launch_size_and_kernel_id = make_uint4(dispatch_size, 0u);
-    std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
+    auto printer_encode = HIPShaderPrinter::Encode{};
+    if (printer() != nullptr) {
+        printer_encode = printer()->encode(encoder);
+        auto binding = printer_encode.binding();
+        auto printer_arg = allocate_argument(sizeof(binding));
+        std::memcpy(printer_arg, &binding, sizeof(binding));
+    }
 
-    if (_is_rt) {
+    auto launch_size_and_kernel_id = allocate_argument(sizeof(uint4));
+
+    if (_requires_global_rt_stack) {
         // RT stack fields must be packed contiguously to match LLVM struct layout:
         //   i32 (stack_size) | i32 (stack_count) | ptr (stack_data) = 16 bytes total
         // We allocate a single 16-byte-aligned block rather than 3 separate aligned fields.
@@ -225,18 +265,74 @@ void HIPShaderNative::_launch(HIPCommandEncoder &encoder, ShaderDispatchCommand 
 
     auto hip_stream = encoder.stream()->handle();
     auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-    auto blocks = (dispatch_size + block_size - 1u) / block_size;
-
     auto arg_size = argument_buffer_offset;
     void *extra[] = {
         HIP_LAUNCH_PARAM_BUFFER_POINTER, argument_buffer.data(),
         HIP_LAUNCH_PARAM_BUFFER_SIZE, &arg_size,
         HIP_LAUNCH_PARAM_END};
-    LUISA_CHECK_HIP(hipModuleLaunchKernel(
-        _function,
-        blocks.x, blocks.y, blocks.z,
-        block_size.x, block_size.y, block_size.z,
-        0u, hip_stream, nullptr, extra));
+    auto launch = [&](uint3 dispatch_size, uint kernel_id) noexcept {
+        if (any(dispatch_size == make_uint3(0u))) { return; }
+        auto launch_info = make_uint4(dispatch_size, kernel_id);
+        std::memcpy(launch_size_and_kernel_id, &launch_info, sizeof(launch_info));
+        auto blocks = (dispatch_size + block_size - 1u) / block_size;
+        LUISA_CHECK_HIP(hipModuleLaunchKernel(
+            _function,
+            blocks.x, blocks.y, blocks.z,
+            block_size.x, block_size.y, block_size.z,
+            0u, hip_stream, nullptr, extra));
+    };
+
+    if (command->is_indirect()) {
+        // HIP has no CUDA-device-runtime equivalent for launching arbitrary
+        // GPU-authored grids. Preserve correctness by resolving the launch
+        // records at this command boundary, then enqueue the resulting grids
+        // back onto the same stream.
+        auto indirect = command->indirect_dispatch();
+        auto buffer = reinterpret_cast<const HIPBuffer *>(indirect.handle);
+        LUISA_ASSERT(buffer->is_indirect(),
+                     "Indirect dispatch command references a regular HIP buffer.");
+        auto binding = buffer->indirect_binding(
+            indirect.offset, indirect.max_dispatch_size);
+        auto offset = static_cast<uint32_t>(binding.offset_and_capacity);
+        auto end = static_cast<uint32_t>(binding.offset_and_capacity >> 32u);
+        HIPBuffer::IndirectHeader header{};
+        LUISA_CHECK_HIP(hipStreamSynchronize(hip_stream));
+        LUISA_CHECK_HIP(hipMemcpyDtoH(
+            &header, binding.ptr, sizeof(header)));
+        auto count = std::min<uint32_t>(header.size, end - offset);
+        luisa::vector<HIPBuffer::IndirectDispatch> dispatches(count);
+        if (count != 0u) {
+            auto src = static_cast<const std::byte *>(binding.ptr) +
+                       sizeof(HIPBuffer::IndirectHeader) +
+                       sizeof(HIPBuffer::IndirectDispatch) * offset;
+            LUISA_CHECK_HIP(hipMemcpyDtoH(
+                dispatches.data(), const_cast<std::byte *>(src),
+                sizeof(HIPBuffer::IndirectDispatch) * count));
+        }
+        for (auto &&dispatch : dispatches) {
+            auto record_block_size = make_uint3(
+                dispatch.block_size[0], dispatch.block_size[1],
+                dispatch.block_size[2]);
+            LUISA_ASSERT(all(record_block_size == block_size),
+                         "Indirect HIP block-size mismatch: record is ({}, {}, {}), "
+                         "shader requires ({}, {}, {}).",
+                         record_block_size.x, record_block_size.y,
+                         record_block_size.z, block_size.x, block_size.y,
+                         block_size.z);
+            launch(make_uint3(
+                       dispatch.dispatch_size_and_kernel_id[0],
+                       dispatch.dispatch_size_and_kernel_id[1],
+                       dispatch.dispatch_size_and_kernel_id[2]),
+                   dispatch.dispatch_size_and_kernel_id[3]);
+        }
+    } else if (command->is_multiple_dispatch()) {
+        for (auto dispatch_size : command->dispatch_sizes()) {
+            launch(dispatch_size, 0u);
+        }
+    } else {
+        launch(command->dispatch_size(), 0u);
+    }
+    printer_encode.commit(encoder);
 }
 
 }// namespace luisa::compute::hip

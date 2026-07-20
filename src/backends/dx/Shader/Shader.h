@@ -56,6 +56,7 @@ protected:
     vstd::vector<SavedArgument> _kernel_arguments;
     vstd::vector<std::pair<vstd::string, Type const *>> _printers;
     uint _bindless_count;
+    uint _validation_count;
     void _save_pso(ID3D12PipelineState *pso, vstd::string_view pso_name, luisa::BinaryIO const *file_stream, Device const *device) const;
 
 public:
@@ -63,6 +64,7 @@ public:
     virtual ~Shader() noexcept = default;
     vstd::span<const std::pair<vstd::string, Type const *>> printers() const { return _printers; }
     uint bindless_count() const { return _bindless_count; }
+    uint validation_count() const { return _validation_count; }
     vstd::span<hlsl::Property const> properties() const { return _properties; }
     vstd::span<SavedArgument const> args() const { return _kernel_arguments; }
     Shader(
@@ -70,12 +72,14 @@ public:
         vstd::vector<SavedArgument> &&args,
         ID3D12Device *device,
         vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
+        uint validation_count,
         bool isRaster);
     Shader(
         vstd::vector<hlsl::Property> &&properties,
         vstd::vector<SavedArgument> &&args,
         ComPtr<ID3D12RootSignature> &&root_sig,
-        vstd::vector<std::pair<vstd::string, Type const *>> &&printers);
+        vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
+        uint validation_count);
     ID3D12RootSignature *root_sig() const { return _root_sig.Get(); }
 
     void set_compute_resource(

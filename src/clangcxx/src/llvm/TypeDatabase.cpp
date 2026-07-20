@@ -1,4 +1,5 @@
 #include "Utils/Defer.hpp"
+#include "Utils/ClangCompat.hpp"
 #include "TypeDatabase.h"
 
 #include <clang/AST/DeclTemplate.h>
@@ -446,7 +447,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         return _type;
     } else {
         auto S = GetRecordDeclFromQualType(Ty);
-        bool ignore = (S->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
+        bool ignore = (luisa::clangcxx::compat::get_type_for_decl(S)->getTypeClass() == clang::Type::InjectedClassName);
         bool is_builtin = false;
         for (auto Anno : S->specific_attrs<clang::AnnotateAttr>()) {
             is_builtin |= isBuiltinType(Anno);
@@ -521,7 +522,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
             type_attributes.resize(types.size());
         }
         auto lcType = Type::structure(alignment, types, type_attributes);
-        QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
+        QualType Ty = luisa::clangcxx::compat::get_type_for_decl(S)->getCanonicalTypeInternal();
         registerType(Ty, lcType);
         return lcType;
     }

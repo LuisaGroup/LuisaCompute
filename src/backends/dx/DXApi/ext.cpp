@@ -372,12 +372,15 @@ void DXOidnDenoiser::prepare() noexcept {
     auto cmd_list = CommandList{};
     for (auto &&img : _interop_images) {
         if (img.read) {
-            cmd_list.append(luisa::make_unique<BufferCopyCommand>(
-                img.img.buffer_handle,
-                img.shared_buffer.handle,
-                img.img.offset,
-                0ull,
-                img.img.size_bytes)));
+            cmd_list.append(
+                luisa::make_unique<BufferCopyCommand>(
+                    img.img.buffer_handle,
+                    img.shared_buffer.handle,
+                    img.img.offset,
+                    0ull,
+                    img.img.size_bytes
+                )
+            );
         }
     }
 
@@ -387,12 +390,15 @@ void DXOidnDenoiser::post_sync() noexcept {
     auto cmd_list = CommandList{};
     for (auto &&img : _interop_images) {
         if (!img.read) {
-            cmd_list.append(luisa::make_unique<BufferCopyCommand>(
-                img.shared_buffer.handle,
-                img.img.buffer_handle,
-                0ull,
-                img.img.offset,
-                img.img.size_bytes)));
+            cmd_list.append(
+                luisa::make_unique<BufferCopyCommand>(
+                    img.shared_buffer.handle,
+                    img.img.buffer_handle,
+                    0ull,
+                    img.img.offset,
+                    img.img.size_bytes
+                )
+            );
         }
     }
 

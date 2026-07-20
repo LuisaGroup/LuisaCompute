@@ -1,0 +1,1194 @@
+#include <luisa/xir/passes/const_fold.h>
+#include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/cast.h>
+#include <luisa/xir/constant.h>
+#include <luisa/core/stl/memory.h>
+
+#include <cmath>
+#include <algorithm>
+#include <cstring>
+#include <limits>
+#include <type_traits>
+
+namespace luisa::compute::xir {
+
+namespace {
+
+template<typename T>
+[[nodiscard]] T eval_round_even(T value) noexcept {
+    if (!std::isfinite(value) || value == T{0}) { return value; }
+    auto lower = std::floor(value);
+    auto fraction = value - lower;
+    auto result = lower;
+    if (fraction > T{0.5} ||
+        (fraction == T{0.5} && std::fmod(std::abs(lower), T{2}) != T{0})) {
+        result = lower + T{1};
+    }
+    return result == T{0} ? std::copysign(T{0}, value) : result;
+}
+
+template<typename T>
+[[nodiscard]] T eval_pow_int(T base, uint64_t magnitude,
+                             bool negative) noexcept {
+    auto result = T{1};
+    auto factor = base;
+    while (magnitude != 0u) {
+        if ((magnitude & 1u) != 0u) { result *= factor; }
+        magnitude >>= 1u;
+        if (magnitude != 0u) { factor *= factor; }
+    }
+    return negative ? T{1} / result : result;
+}
+
+template<typename T>
+[[nodiscard]] bool decode_integer_exponent_value(
+    const void *data, uint64_t &magnitude, bool &negative) noexcept {
+    T value{};
+    std::memcpy(&value, data, sizeof(T));
+    if constexpr (std::is_signed_v<T>) {
+        using U = std::make_unsigned_t<T>;
+        negative = value < 0;
+        auto bits = static_cast<U>(value);
+        magnitude = negative ?
+                        static_cast<uint64_t>(static_cast<U>(U{0} - bits)) :
+                        static_cast<uint64_t>(bits);
+    } else {
+        negative = false;
+        magnitude = static_cast<uint64_t>(value);
+    }
+    return true;
+}
+
+[[nodiscard]] bool decode_integer_exponent(
+    const Type *type, const void *data,
+    uint64_t &magnitude, bool &negative) noexcept {
+    if (type == nullptr || data == nullptr) { return false; }
+    switch (type->tag()) {
+        case Type::Tag::INT8:
+            return decode_integer_exponent_value<int8_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT8:
+            return decode_integer_exponent_value<uint8_t>(
+                data, magnitude, negative);
+        case Type::Tag::INT16:
+            return decode_integer_exponent_value<int16_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT16:
+            return decode_integer_exponent_value<uint16_t>(
+                data, magnitude, negative);
+        case Type::Tag::INT32:
+            return decode_integer_exponent_value<int32_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT32:
+            return decode_integer_exponent_value<uint32_t>(
+                data, magnitude, negative);
+        case Type::Tag::INT64:
+            return decode_integer_exponent_value<int64_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT64:
+            return decode_integer_exponent_value<uint64_t>(
+                data, magnitude, negative);
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool eval_typed_pow_int(
+    const Type *result_type, const Type *exponent_type,
+    void *data, const void *base_data,
+    const void *exponent_data) noexcept {
+    uint64_t magnitude{};
+    bool negative{};
+    if (!decode_integer_exponent(
+            exponent_type, exponent_data, magnitude, negative)) {
+        return false;
+    }
+    if (result_type->is_float32()) {
+        *static_cast<float *>(data) = eval_pow_int(
+            *static_cast<const float *>(base_data), magnitude, negative);
+        return true;
+    }
+    if (result_type->is_float64()) {
+        *static_cast<double *>(data) = eval_pow_int(
+            *static_cast<const double *>(base_data), magnitude, negative);
+        return true;
+    }
+    return false;
+}
+
+}// namespace
+
+bool eval_pow_int_op(const Type *result_type,
+                     const Type *exponent_type,
+                     void *data,
+                     const void *base_data,
+                     const void *exponent_data) noexcept {
+    return eval_typed_pow_int(result_type, exponent_type, data,
+                              base_data, exponent_data);
+}
+
+[[nodiscard]] bool eval_scalar_op(const Type *type, ArithmeticOp op,
+                                  void *data,
+                                  const void *op0_data,
+                                  const void *op1_data,
+                                  const void *op2_data) noexcept {
+
+    auto tag = type->tag();
+
+    switch (op) {
+        case ArithmeticOp::UNARY_MINUS: {
+            switch (tag) {
+                case Type::Tag::FLOAT32:
+                    *static_cast<float *>(data) = -*static_cast<const float *>(op0_data);
+                    return true;
+                case Type::Tag::FLOAT64:
+                    *static_cast<double *>(data) = -*static_cast<const double *>(op0_data);
+                    return true;
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        uint32_t{0} - luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)));
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = uint32_t{0} - *static_cast<const uint32_t *>(op0_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::UNARY_BIT_NOT: {
+            switch (tag) {
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = ~*static_cast<const int32_t *>(op0_data);
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = ~*static_cast<const uint32_t *>(op0_data);
+                    return true;
+                case Type::Tag::BOOL:
+                    *static_cast<bool *>(data) = !*static_cast<const bool *>(op0_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_ADD: {
+            switch (tag) {
+                case Type::Tag::FLOAT32:
+                    *static_cast<float *>(data) = *static_cast<const float *>(op0_data) + *static_cast<const float *>(op1_data);
+                    return true;
+                case Type::Tag::FLOAT64:
+                    *static_cast<double *>(data) = *static_cast<const double *>(op0_data) + *static_cast<const double *>(op1_data);
+                    return true;
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)) +
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op1_data)));
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) + *static_cast<const uint32_t *>(op1_data);
+                    return true;
+                case Type::Tag::BOOL:
+                    *static_cast<bool *>(data) = *static_cast<const bool *>(op0_data) || *static_cast<const bool *>(op1_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_SUB: {
+            switch (tag) {
+                case Type::Tag::FLOAT32:
+                    *static_cast<float *>(data) = *static_cast<const float *>(op0_data) - *static_cast<const float *>(op1_data);
+                    return true;
+                case Type::Tag::FLOAT64:
+                    *static_cast<double *>(data) = *static_cast<const double *>(op0_data) - *static_cast<const double *>(op1_data);
+                    return true;
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)) -
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op1_data)));
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) - *static_cast<const uint32_t *>(op1_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_MUL: {
+            switch (tag) {
+                case Type::Tag::FLOAT32:
+                    *static_cast<float *>(data) = *static_cast<const float *>(op0_data) * *static_cast<const float *>(op1_data);
+                    return true;
+                case Type::Tag::FLOAT64:
+                    *static_cast<double *>(data) = *static_cast<const double *>(op0_data) * *static_cast<const double *>(op1_data);
+                    return true;
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)) *
+                        luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op1_data)));
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) * *static_cast<const uint32_t *>(op1_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_DIV: {
+            switch (tag) {
+                case Type::Tag::FLOAT32:
+                    *static_cast<float *>(data) = *static_cast<const float *>(op0_data) / *static_cast<const float *>(op1_data);
+                    return true;
+                case Type::Tag::FLOAT64:
+                    *static_cast<double *>(data) = *static_cast<const double *>(op0_data) / *static_cast<const double *>(op1_data);
+                    return true;
+                case Type::Tag::INT32: {
+                    auto dividend = *static_cast<const int32_t *>(op0_data);
+                    auto divisor = *static_cast<const int32_t *>(op1_data);
+                    if (divisor == 0 ||
+                        (dividend == std::numeric_limits<int32_t>::min() && divisor == -1)) {
+                        return false;
+                    }
+                    *static_cast<int32_t *>(data) = dividend / divisor;
+                    return true;
+                }
+                case Type::Tag::UINT32: {
+                    auto divisor = *static_cast<const uint32_t *>(op1_data);
+                    if (divisor == 0) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) / divisor;
+                    return true;
+                }
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_MOD: {
+            switch (tag) {
+                case Type::Tag::FLOAT32:
+                    *static_cast<float *>(data) = std::fmod(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data));
+                    return true;
+                case Type::Tag::FLOAT64:
+                    *static_cast<double *>(data) = std::fmod(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
+                    return true;
+                case Type::Tag::INT32: {
+                    auto dividend = *static_cast<const int32_t *>(op0_data);
+                    auto divisor = *static_cast<const int32_t *>(op1_data);
+                    if (divisor == 0 ||
+                        (dividend == std::numeric_limits<int32_t>::min() && divisor == -1)) {
+                        return false;
+                    }
+                    *static_cast<int32_t *>(data) = dividend % divisor;
+                    return true;
+                }
+                case Type::Tag::UINT32: {
+                    auto divisor = *static_cast<const uint32_t *>(op1_data);
+                    if (divisor == 0) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) % divisor;
+                    return true;
+                }
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_BIT_AND: {
+            switch (tag) {
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) & *static_cast<const int32_t *>(op1_data);
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) & *static_cast<const uint32_t *>(op1_data);
+                    return true;
+                case Type::Tag::BOOL:
+                    *static_cast<bool *>(data) = *static_cast<const bool *>(op0_data) && *static_cast<const bool *>(op1_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_BIT_OR: {
+            switch (tag) {
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) | *static_cast<const int32_t *>(op1_data);
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) | *static_cast<const uint32_t *>(op1_data);
+                    return true;
+                case Type::Tag::BOOL:
+                    *static_cast<bool *>(data) = *static_cast<const bool *>(op0_data) || *static_cast<const bool *>(op1_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_BIT_XOR: {
+            switch (tag) {
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) ^ *static_cast<const int32_t *>(op1_data);
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) ^ *static_cast<const uint32_t *>(op1_data);
+                    return true;
+                case Type::Tag::BOOL:
+                    *static_cast<bool *>(data) = *static_cast<const bool *>(op0_data) != *static_cast<const bool *>(op1_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_SHIFT_LEFT: {
+            switch (tag) {
+                case Type::Tag::INT32: {
+                    auto shift = *static_cast<const int32_t *>(op1_data);
+                    if (shift < 0 || shift >= 32) return false;
+                    auto value = luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data));
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(value << shift);
+                    return true;
+                }
+                case Type::Tag::UINT32: {
+                    auto shift = *static_cast<const uint32_t *>(op1_data);
+                    if (shift >= 32) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) << shift;
+                    return true;
+                }
+                default: return false;
+            }
+        }
+        case ArithmeticOp::BINARY_SHIFT_RIGHT: {
+            switch (tag) {
+                case Type::Tag::INT32: {
+                    auto shift = *static_cast<const int32_t *>(op1_data);
+                    if (shift < 0 || shift >= 32) return false;
+                    auto signed_value = *static_cast<const int32_t *>(op0_data);
+                    auto value = luisa::bit_cast<uint32_t>(signed_value);
+                    auto shifted = value >> shift;
+                    if (signed_value < 0 && shift != 0) {
+                        shifted |= ~uint32_t{0} << (32u - static_cast<uint32_t>(shift));
+                    }
+                    *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(shifted);
+                    return true;
+                }
+                case Type::Tag::UINT32: {
+                    auto shift = *static_cast<const uint32_t *>(op1_data);
+                    if (shift >= 32) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) >> shift;
+                    return true;
+                }
+                default: return false;
+            }
+        }
+        case ArithmeticOp::ABS: {
+            switch (tag) {
+                case Type::Tag::FLOAT32:
+                    *static_cast<float *>(data) = std::abs(*static_cast<const float *>(op0_data));
+                    return true;
+                case Type::Tag::FLOAT64:
+                    *static_cast<double *>(data) = std::abs(*static_cast<const double *>(op0_data));
+                    return true;
+                case Type::Tag::INT32: {
+                    auto value = *static_cast<const int32_t *>(op0_data);
+                    auto bits = luisa::bit_cast<uint32_t>(value);
+                    *static_cast<int32_t *>(data) = value < 0 ?
+                                                        luisa::bit_cast<int32_t>(uint32_t{0} - bits) :
+                                                        value;
+                    return true;
+                }
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data);
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::MIN: {
+            switch (tag) {
+                case Type::Tag::FLOAT32: {
+                    auto a = *static_cast<const float *>(op0_data);
+                    auto b = *static_cast<const float *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0f && b == 0.0f && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<float *>(data) = std::min(a, b);
+                    return true;
+                }
+                case Type::Tag::FLOAT64: {
+                    auto a = *static_cast<const double *>(op0_data);
+                    auto b = *static_cast<const double *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0 && b == 0.0 && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<double *>(data) = std::min(a, b);
+                    return true;
+                }
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = std::min(*static_cast<const int32_t *>(op0_data), *static_cast<const int32_t *>(op1_data));
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = std::min(*static_cast<const uint32_t *>(op0_data), *static_cast<const uint32_t *>(op1_data));
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::MAX: {
+            switch (tag) {
+                case Type::Tag::FLOAT32: {
+                    auto a = *static_cast<const float *>(op0_data);
+                    auto b = *static_cast<const float *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0f && b == 0.0f && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<float *>(data) = std::max(a, b);
+                    return true;
+                }
+                case Type::Tag::FLOAT64: {
+                    auto a = *static_cast<const double *>(op0_data);
+                    auto b = *static_cast<const double *>(op1_data);
+                    if (std::isnan(a) || std::isnan(b) ||
+                        (a == 0.0 && b == 0.0 && std::signbit(a) != std::signbit(b))) {
+                        return false;
+                    }
+                    *static_cast<double *>(data) = std::max(a, b);
+                    return true;
+                }
+                case Type::Tag::INT32:
+                    *static_cast<int32_t *>(data) = std::max(*static_cast<const int32_t *>(op0_data), *static_cast<const int32_t *>(op1_data));
+                    return true;
+                case Type::Tag::UINT32:
+                    *static_cast<uint32_t *>(data) = std::max(*static_cast<const uint32_t *>(op0_data), *static_cast<const uint32_t *>(op1_data));
+                    return true;
+                default: return false;
+            }
+        }
+        case ArithmeticOp::CLAMP: {
+            switch (tag) {
+                case Type::Tag::FLOAT32: {
+                    auto x = *static_cast<const float *>(op0_data);
+                    auto lo = *static_cast<const float *>(op1_data);
+                    auto hi = *static_cast<const float *>(op2_data);
+                    if (std::isnan(x) || std::isnan(lo) || std::isnan(hi) || hi < lo ||
+                        x == 0.0f ||
+                        (lo == 0.0f && hi == 0.0f && std::signbit(lo) != std::signbit(hi))) {
+                        return false;
+                    }
+                    *static_cast<float *>(data) = std::clamp(x, lo, hi);
+                    return true;
+                }
+                case Type::Tag::FLOAT64: {
+                    auto x = *static_cast<const double *>(op0_data);
+                    auto lo = *static_cast<const double *>(op1_data);
+                    auto hi = *static_cast<const double *>(op2_data);
+                    if (std::isnan(x) || std::isnan(lo) || std::isnan(hi) || hi < lo ||
+                        x == 0.0 ||
+                        (lo == 0.0 && hi == 0.0 && std::signbit(lo) != std::signbit(hi))) {
+                        return false;
+                    }
+                    *static_cast<double *>(data) = std::clamp(x, lo, hi);
+                    return true;
+                }
+                case Type::Tag::INT32: {
+                    auto x = *static_cast<const int32_t *>(op0_data);
+                    auto lo = *static_cast<const int32_t *>(op1_data);
+                    auto hi = *static_cast<const int32_t *>(op2_data);
+                    if (hi < lo) { return false; }
+                    *static_cast<int32_t *>(data) = std::clamp(x, lo, hi);
+                    return true;
+                }
+                case Type::Tag::UINT32: {
+                    auto x = *static_cast<const uint32_t *>(op0_data);
+                    auto lo = *static_cast<const uint32_t *>(op1_data);
+                    auto hi = *static_cast<const uint32_t *>(op2_data);
+                    if (hi < lo) { return false; }
+                    *static_cast<uint32_t *>(data) = std::clamp(x, lo, hi);
+                    return true;
+                }
+                default: return false;
+            }
+        }
+        case ArithmeticOp::SATURATE: {
+            switch (tag) {
+                case Type::Tag::FLOAT32: {
+                    auto x = *static_cast<const float *>(op0_data);
+                    if (std::isnan(x) || x == 0.0f) { return false; }
+                    *static_cast<float *>(data) = std::clamp(x, 0.0f, 1.0f);
+                    return true;
+                }
+                case Type::Tag::FLOAT64: {
+                    auto x = *static_cast<const double *>(op0_data);
+                    if (std::isnan(x) || x == 0.0) { return false; }
+                    *static_cast<double *>(data) = std::clamp(x, 0.0, 1.0);
+                    return true;
+                }
+                default: return false;
+            }
+        }
+        // LERP is intentionally not folded here. Backends may implement it as
+        // a fused multiply-add (for example, fma(t, y - x, x)); evaluating a
+        // different host expression changes overflow, rounding, NaN, and
+        // signed-zero behavior under strict floating-point semantics.
+        case ArithmeticOp::LERP: return false;
+        case ArithmeticOp::STEP: {
+            // STEP(edge, x) = x >= edge ? 1 : 0.
+            // op0 = edge, op1 = x.
+            switch (tag) {
+                case Type::Tag::FLOAT32: {
+                    auto edge = *static_cast<const float *>(op0_data);
+                    auto x = *static_cast<const float *>(op1_data);
+                    // Backends currently disagree on unordered STEP comparisons.
+                    if (std::isnan(edge) || std::isnan(x)) { return false; }
+                    *static_cast<float *>(data) = x >= edge ? 1.0f : 0.0f;
+                    return true;
+                }
+                case Type::Tag::FLOAT64: {
+                    auto edge = *static_cast<const double *>(op0_data);
+                    auto x = *static_cast<const double *>(op1_data);
+                    if (std::isnan(edge) || std::isnan(x)) { return false; }
+                    *static_cast<double *>(data) = x >= edge ? 1.0 : 0.0;
+                    return true;
+                }
+                default: return false;
+            }
+        }
+        // Backends use target intrinsics/FMA for SMOOTHSTEP, so a host formula
+        // is not a strict constant-folding implementation.
+        case ArithmeticOp::SMOOTHSTEP: return false;
+
+        // Float unary math
+        case ArithmeticOp::ACOS:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::acos(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::acos(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::ACOSH:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::acosh(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::acosh(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::ASIN:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::asin(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::asin(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::ASINH:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::asinh(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::asinh(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::ATAN:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::atan(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::atan(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::ATANH:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::atanh(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::atanh(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::COS:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::cos(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::cos(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::COSH:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::cosh(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::cosh(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::SIN:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::sin(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::sin(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::SINH:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::sinh(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::sinh(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::TAN:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::tan(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::tan(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::TANH:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::tanh(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::tanh(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::EXP:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::exp(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::exp(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::EXP2:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::exp2(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::exp2(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::LOG:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::log(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::log(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::LOG2:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::log2(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::log2(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::SQRT:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::sqrt(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::sqrt(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::RSQRT:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = 1.0f / std::sqrt(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = 1.0 / std::sqrt(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::CEIL:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::ceil(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::ceil(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::FLOOR:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::floor(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::floor(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::TRUNC:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::trunc(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::trunc(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::RINT:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = eval_round_even(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = eval_round_even(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::FRACT:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = *static_cast<const float *>(op0_data) - std::floor(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = *static_cast<const double *>(op0_data) - std::floor(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::ROUND:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::round(*static_cast<const float *>(op0_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::round(*static_cast<const double *>(op0_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::ATAN2:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::atan2(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::atan2(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::POW:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::pow(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::pow(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::POW_INT:
+            return false;
+        case ArithmeticOp::FMA:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::fma(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data), *static_cast<const float *>(op2_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::fma(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data), *static_cast<const double *>(op2_data));
+                return true;
+            }
+            return false;
+        case ArithmeticOp::COPYSIGN:
+            if (tag == Type::Tag::FLOAT32) {
+                *static_cast<float *>(data) = std::copysign(*static_cast<const float *>(op0_data), *static_cast<const float *>(op1_data));
+                return true;
+            }
+            if (tag == Type::Tag::FLOAT64) {
+                *static_cast<double *>(data) = std::copysign(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
+                return true;
+            }
+            return false;
+
+        case ArithmeticOp::ISINF: [[fallthrough]];
+        case ArithmeticOp::ISNAN:
+            // Handled in try_fold_scalar/try_fold_vector
+            break;
+        default:
+            break;
+    }
+    return false;
+}
+
+namespace detail {
+
+// Try to fold a scalar arithmetic instruction
+[[nodiscard]] static Constant *try_fold_scalar(Module *module, const ArithmeticInst *inst) noexcept {
+    auto type = inst->type();
+    auto op = inst->op();
+
+    // All operands must be Constant
+    for (size_t i = 0; i < inst->operand_count(); ++i) {
+        if (!inst->operand(i)->isa<Constant>()) { return nullptr; }
+    }
+
+    // ISINF/ISNAN: operand is float, result is bool
+    if (op == ArithmeticOp::ISINF || op == ArithmeticOp::ISNAN) {
+        auto op_type = inst->operand(0)->type();
+        auto op_data = static_cast<const Constant *>(inst->operand(0))->data();
+        bool result = false;
+        if (op_type->is_float32()) {
+            auto v = *static_cast<const float *>(op_data);
+            result = (op == ArithmeticOp::ISINF) ? std::isinf(v) : std::isnan(v);
+        } else if (op_type->is_float64()) {
+            auto v = *static_cast<const double *>(op_data);
+            result = (op == ArithmeticOp::ISINF) ? std::isinf(v) : std::isnan(v);
+        } else {
+            return nullptr;
+        }
+        return module->create_constant(Type::of<bool>(), &result);
+    }
+
+    // Comparisons: operand types may differ from result type (bool)
+    if (op == ArithmeticOp::BINARY_LESS || op == ArithmeticOp::BINARY_GREATER ||
+        op == ArithmeticOp::BINARY_LESS_EQUAL || op == ArithmeticOp::BINARY_GREATER_EQUAL ||
+        op == ArithmeticOp::BINARY_EQUAL || op == ArithmeticOp::BINARY_NOT_EQUAL) {
+        auto op_type = inst->operand(0)->type();
+        auto op0_data = static_cast<const Constant *>(inst->operand(0))->data();
+        auto op1_data = static_cast<const Constant *>(inst->operand(1))->data();
+        bool result = false;
+        if (op_type->is_float32()) {
+            auto a = *static_cast<const float *>(op0_data);
+            auto b = *static_cast<const float *>(op1_data);
+            switch (op) {
+                case ArithmeticOp::BINARY_LESS: result = a < b; break;
+                case ArithmeticOp::BINARY_GREATER: result = a > b; break;
+                case ArithmeticOp::BINARY_LESS_EQUAL: result = a <= b; break;
+                case ArithmeticOp::BINARY_GREATER_EQUAL: result = a >= b; break;
+                case ArithmeticOp::BINARY_EQUAL: result = a == b; break;
+                case ArithmeticOp::BINARY_NOT_EQUAL: result = a != b; break;
+                default: break;
+            }
+        } else if (op_type->is_float64()) {
+            auto a = *static_cast<const double *>(op0_data);
+            auto b = *static_cast<const double *>(op1_data);
+            switch (op) {
+                case ArithmeticOp::BINARY_LESS: result = a < b; break;
+                case ArithmeticOp::BINARY_GREATER: result = a > b; break;
+                case ArithmeticOp::BINARY_LESS_EQUAL: result = a <= b; break;
+                case ArithmeticOp::BINARY_GREATER_EQUAL: result = a >= b; break;
+                case ArithmeticOp::BINARY_EQUAL: result = a == b; break;
+                case ArithmeticOp::BINARY_NOT_EQUAL: result = a != b; break;
+                default: break;
+            }
+        } else if (op_type->is_int32()) {
+            auto a = *static_cast<const int32_t *>(op0_data);
+            auto b = *static_cast<const int32_t *>(op1_data);
+            switch (op) {
+                case ArithmeticOp::BINARY_LESS: result = a < b; break;
+                case ArithmeticOp::BINARY_GREATER: result = a > b; break;
+                case ArithmeticOp::BINARY_LESS_EQUAL: result = a <= b; break;
+                case ArithmeticOp::BINARY_GREATER_EQUAL: result = a >= b; break;
+                case ArithmeticOp::BINARY_EQUAL: result = a == b; break;
+                case ArithmeticOp::BINARY_NOT_EQUAL: result = a != b; break;
+                default: break;
+            }
+        } else if (op_type->is_uint32()) {
+            auto a = *static_cast<const uint32_t *>(op0_data);
+            auto b = *static_cast<const uint32_t *>(op1_data);
+            switch (op) {
+                case ArithmeticOp::BINARY_LESS: result = a < b; break;
+                case ArithmeticOp::BINARY_GREATER: result = a > b; break;
+                case ArithmeticOp::BINARY_LESS_EQUAL: result = a <= b; break;
+                case ArithmeticOp::BINARY_GREATER_EQUAL: result = a >= b; break;
+                case ArithmeticOp::BINARY_EQUAL: result = a == b; break;
+                case ArithmeticOp::BINARY_NOT_EQUAL: result = a != b; break;
+                default: break;
+            }
+        } else {
+            return nullptr;
+        }
+        return module->create_constant(Type::of<bool>(), &result);
+    }
+
+    auto get_data = [&](size_t i) -> const void * {
+        if (i >= inst->operand_count()) return nullptr;
+        return static_cast<const Constant *>(inst->operand(i))->data();
+    };
+
+    auto size = type->size();
+    luisa::vector<std::byte> result_data(size);
+    std::memset(result_data.data(), 0, size);
+
+    auto ok = op == ArithmeticOp::POW_INT ?
+                  eval_pow_int_op(
+                      type, inst->operand(1)->type(), result_data.data(),
+                      get_data(0), get_data(1)) :
+                  eval_scalar_op(type, op,
+                                 result_data.data(),
+                                 get_data(0),
+                                 get_data(1),
+                                 get_data(2));
+    if (!ok) { return nullptr; }
+    return module->create_constant(type, result_data.data());
+}
+
+// Try to fold a vector arithmetic instruction element-wise
+[[nodiscard]] static Constant *try_fold_vector(Module *module, const ArithmeticInst *inst) noexcept {
+    auto type = inst->type();
+    auto elem_type = type->element();
+    auto dim = type->dimension();
+    auto op = inst->op();
+
+    // All operands must be Constant
+    for (size_t i = 0; i < inst->operand_count(); ++i) {
+        if (!inst->operand(i)->isa<Constant>()) { return nullptr; }
+    }
+
+    // ISINF/ISNAN: operand is float vector, result is bool vector
+    if (op == ArithmeticOp::ISINF || op == ArithmeticOp::ISNAN) {
+        auto op_type = inst->operand(0)->type();
+        auto op_data = static_cast<const Constant *>(inst->operand(0))->data();
+        auto op_elem_type = op_type->element();
+        auto op_elem_size = op_elem_type->size();
+        luisa::vector<std::byte> result_data(type->size());
+        for (uint32_t i = 0; i < dim; ++i) {
+            auto elem_data = static_cast<const std::byte *>(op_data) + i * op_elem_size;
+            bool v = false;
+            if (op_elem_type->is_float32()) {
+                auto f = *static_cast<const float *>(static_cast<const void *>(elem_data));
+                v = (op == ArithmeticOp::ISINF) ? std::isinf(f) : std::isnan(f);
+            } else if (op_elem_type->is_float64()) {
+                auto d = *static_cast<const double *>(static_cast<const void *>(elem_data));
+                v = (op == ArithmeticOp::ISINF) ? std::isinf(d) : std::isnan(d);
+            } else {
+                return nullptr;
+            }
+            std::memcpy(result_data.data() + i, &v, 1);
+        }
+        return module->create_constant(type, result_data.data());
+    }
+
+    // Comparison ops: operand is float/int vector, result is bool vector
+    if (op == ArithmeticOp::BINARY_LESS || op == ArithmeticOp::BINARY_GREATER ||
+        op == ArithmeticOp::BINARY_LESS_EQUAL || op == ArithmeticOp::BINARY_GREATER_EQUAL ||
+        op == ArithmeticOp::BINARY_EQUAL || op == ArithmeticOp::BINARY_NOT_EQUAL) {
+        auto op_type = inst->operand(0)->type();
+        auto op_elem_type = op_type->element();
+        auto op_elem_size = op_elem_type->size();
+        auto op0_data = static_cast<const Constant *>(inst->operand(0))->data();
+        auto op1 = inst->operand(1);
+        auto op1_type = op1->type();
+        auto op1_data = static_cast<const Constant *>(op1)->data();
+        luisa::vector<std::byte> result_data(type->size());
+        for (uint32_t i = 0; i < dim; ++i) {
+            auto elem0 = static_cast<const std::byte *>(op0_data) + i * op_elem_size;
+            auto elem1 = op1_type->is_scalar() ? static_cast<const std::byte *>(op1_data) : static_cast<const std::byte *>(op1_data) + i * op_elem_size;
+            bool v = false;
+            if (op_elem_type->is_float32()) {
+                auto a = *static_cast<const float *>(static_cast<const void *>(elem0));
+                auto b = *static_cast<const float *>(static_cast<const void *>(elem1));
+                switch (op) {
+                    case ArithmeticOp::BINARY_LESS: v = a < b; break;
+                    case ArithmeticOp::BINARY_GREATER: v = a > b; break;
+                    case ArithmeticOp::BINARY_LESS_EQUAL: v = a <= b; break;
+                    case ArithmeticOp::BINARY_GREATER_EQUAL: v = a >= b; break;
+                    case ArithmeticOp::BINARY_EQUAL: v = a == b; break;
+                    case ArithmeticOp::BINARY_NOT_EQUAL: v = a != b; break;
+                    default: break;
+                }
+            } else if (op_elem_type->is_int32()) {
+                auto a = *static_cast<const int32_t *>(static_cast<const void *>(elem0));
+                auto b = *static_cast<const int32_t *>(static_cast<const void *>(elem1));
+                switch (op) {
+                    case ArithmeticOp::BINARY_LESS: v = a < b; break;
+                    case ArithmeticOp::BINARY_GREATER: v = a > b; break;
+                    case ArithmeticOp::BINARY_LESS_EQUAL: v = a <= b; break;
+                    case ArithmeticOp::BINARY_GREATER_EQUAL: v = a >= b; break;
+                    case ArithmeticOp::BINARY_EQUAL: v = a == b; break;
+                    case ArithmeticOp::BINARY_NOT_EQUAL: v = a != b; break;
+                    default: break;
+                }
+            } else if (op_elem_type->is_uint32()) {
+                auto a = *static_cast<const uint32_t *>(static_cast<const void *>(elem0));
+                auto b = *static_cast<const uint32_t *>(static_cast<const void *>(elem1));
+                switch (op) {
+                    case ArithmeticOp::BINARY_LESS: v = a < b; break;
+                    case ArithmeticOp::BINARY_GREATER: v = a > b; break;
+                    case ArithmeticOp::BINARY_LESS_EQUAL: v = a <= b; break;
+                    case ArithmeticOp::BINARY_GREATER_EQUAL: v = a >= b; break;
+                    case ArithmeticOp::BINARY_EQUAL: v = a == b; break;
+                    case ArithmeticOp::BINARY_NOT_EQUAL: v = a != b; break;
+                    default: break;
+                }
+            } else {
+                return nullptr;
+            }
+            std::memcpy(result_data.data() + i, &v, 1);
+        }
+        return module->create_constant(type, result_data.data());
+    }
+
+    auto elem_size = elem_type->size();
+    luisa::vector<std::byte> result_data(type->size());
+    std::memset(result_data.data(), 0, type->size());
+
+    // Get element data for a given operand index and component index
+    // Scalars broadcast to all components
+    auto get_elem = [&](size_t op_idx, uint32_t comp_idx) -> const void * {
+        auto op = inst->operand(op_idx);
+        auto op_type = op->type();
+        auto op_data = static_cast<const Constant *>(op)->data();
+        if (op_type->is_scalar()) {
+            return op_data;// scalar broadcast
+        }
+        auto op_elem_size = op_type->element()->size();
+        return static_cast<const std::byte *>(op_data) + comp_idx * op_elem_size;
+    };
+
+    for (uint32_t i = 0; i < dim; ++i) {
+        auto dst = result_data.data() + i * elem_size;
+        auto exponent_type = inst->operand_count() > 1u ?
+                                 inst->operand(1)->type() :
+                                 nullptr;
+        if (exponent_type != nullptr && exponent_type->is_vector()) {
+            exponent_type = exponent_type->element();
+        }
+        auto ok = op == ArithmeticOp::POW_INT ?
+                      eval_pow_int_op(
+                          elem_type, exponent_type, dst,
+                          get_elem(0, i), get_elem(1, i)) :
+                      eval_scalar_op(
+                          elem_type, op, dst,
+                          inst->operand_count() > 0 ? get_elem(0, i) : nullptr,
+                          inst->operand_count() > 1 ? get_elem(1, i) : nullptr,
+                          inst->operand_count() > 2 ? get_elem(2, i) : nullptr);
+        if (!ok) { return nullptr; }
+    }
+    return module->create_constant(type, result_data.data());
+}
+
+// Try to fold arithmetic with all constant operands
+[[nodiscard]] static Constant *try_fold_arithmetic(Module *module, const ArithmeticInst *inst) noexcept {
+    auto type = inst->type();
+    if (type == nullptr) { return nullptr; }
+
+    // Don't fold aggregate/shuffle/extract/insert, reductions, matrix ops, cross/dot etc.
+    switch (inst->op()) {
+        case ArithmeticOp::AGGREGATE:
+        case ArithmeticOp::SHUFFLE:
+        case ArithmeticOp::INSERT:
+        case ArithmeticOp::EXTRACT:
+        case ArithmeticOp::ALL:
+        case ArithmeticOp::ANY:
+        case ArithmeticOp::REDUCE_SUM:
+        case ArithmeticOp::REDUCE_PRODUCT:
+        case ArithmeticOp::REDUCE_MIN:
+        case ArithmeticOp::REDUCE_MAX:
+        case ArithmeticOp::OUTER_PRODUCT:
+        case ArithmeticOp::MATRIX_COMP_NEG:
+        case ArithmeticOp::MATRIX_COMP_ADD:
+        case ArithmeticOp::MATRIX_COMP_SUB:
+        case ArithmeticOp::MATRIX_COMP_MUL:
+        case ArithmeticOp::MATRIX_COMP_DIV:
+        case ArithmeticOp::MATRIX_LINALG_MUL:
+        case ArithmeticOp::MATRIX_DETERMINANT:
+        case ArithmeticOp::MATRIX_TRANSPOSE:
+        case ArithmeticOp::MATRIX_INVERSE:
+        case ArithmeticOp::CROSS:
+        case ArithmeticOp::DOT:
+        case ArithmeticOp::LENGTH:
+        case ArithmeticOp::LENGTH_SQUARED:
+        case ArithmeticOp::NORMALIZE:
+        case ArithmeticOp::FACEFORWARD:
+        case ArithmeticOp::REFLECT:
+        case ArithmeticOp::SELECT:
+            return nullptr;
+        default:
+            break;
+    }
+
+    // No type means void or no result
+    if (type == nullptr) { return nullptr; }
+
+    if (type->is_scalar()) {
+        return try_fold_scalar(module, inst);
+    }
+    if (type->is_vector()) {
+        return try_fold_vector(module, inst);
+    }
+    return nullptr;
+}
+
+static void const_fold_pass_on_function(Function *function, ConstFoldInfo &info) noexcept {
+    auto def = function->definition();
+    if (def == nullptr) { return; }
+    auto module = function->parent_module();
+
+    luisa::vector<ArithmeticInst *> to_fold;
+    def->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<ArithmeticInst>()) {
+            auto *ari = static_cast<ArithmeticInst *>(inst);
+            if (ari->type() != nullptr) {
+                // Check all operands are constants
+                bool all_const = true;
+                for (size_t i = 0; i < ari->operand_count(); ++i) {
+                    if (!ari->operand(i)->isa<Constant>()) {
+                        all_const = false;
+                        break;
+                    }
+                }
+                if (all_const && ari->operand_count() > 0) {
+                    to_fold.push_back(ari);
+                }
+            }
+        }
+    });
+
+    for (auto inst : to_fold) {
+        auto folded = try_fold_arithmetic(module, inst);
+        if (folded != nullptr) {
+            inst->replace_all_uses_with(folded);
+            inst->remove_self();
+            info.folded_inst_count++;
+        }
+    }
+}
+
+}// namespace detail
+
+ConstFoldInfo const_fold_pass_run_on_function(Function *function) noexcept {
+    ConstFoldInfo info;
+    detail::const_fold_pass_on_function(function, info);
+    return info;
+}
+
+ConstFoldInfo const_fold_pass_run_on_module(Module *module, PassReport *report) noexcept {
+    ConstFoldInfo info;
+    for (auto f : module->function_list()) {
+        detail::const_fold_pass_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("folded_inst", info.folded_inst_count);
+    }
+    return info;
+}
+
+}// namespace luisa::compute::xir

@@ -13,6 +13,7 @@ on_load(function(target)
         target:add('defines', 'LUISA_ENABLE_SAFE_MODE', {public = true})
     end
     if has_config("lc_enable_xir") then
+        target:add("defines", "LUISA_ENABLE_XIR", {public = true})
         if has_config("lc_yyjson_use_xrepo") then
             target:add("packages", "yyjson")
         else

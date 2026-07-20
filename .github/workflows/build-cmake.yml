@@ -13,7 +13,7 @@ jobs:
           - os: ubuntu-24.04
             arch: x86_64
             cuda-keyring: x86_64
-            jobs: 16
+            jobs: 8
             unity: OFF
           - os: ubuntu-24.04-arm
             arch: aarch64

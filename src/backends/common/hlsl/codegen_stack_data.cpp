@@ -45,8 +45,8 @@ void CodegenStackData::Clear() {
     useTex2DBindless = false;
     useTex3DBindless = false;
     useBufferBindless = false;
+    use_8bit = false;
     pixelUseBarycentric = false;
-    atomicFloatToInt = false;
     internalStruct.clear();
     internalStruct.emplace(Type::of<CommittedHit>(), "_Hit0");
     internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");
@@ -58,16 +58,6 @@ std::pair<vstd::string_view, bool> CodegenStackData::CreateAliasedStruct(Type co
     if (!util->TypeIsAliased(t)) {
         return {CreateStruct(t), false};
     }
-    // if (isSpirv && t->is_matrix()) {
-    //     switch (t->dimension()) {
-    //         case 2:
-    //             return {"_Alsfloat2x2"sv, true};
-    //         case 3:
-    //             return {"_Alsfloat3x4"sv, true};
-    //         case 4:
-    //             return {"_Alsfloat4x4"sv, true};
-    //     }
-    // }
     auto ite = customStructAliased.try_emplace(
         t,
         vstd::lazy_eval([&] {
@@ -176,8 +166,6 @@ static vstd::string_view _atomic_compare_exchange =
     R"(# r;InterlockedCompareExchange($,@,r);return r;)"sv;
 static vstd::string_view _atomic_compare_exchange_float =
     R"(# r;InterlockedCompareExchangeFloatBitwise($,@,r);return r;)"sv;
-static vstd::string_view _atomic_compare_exchange_float_spirv =
-    R"(# r;InterlockedCompareExchange($,asint(@),r);return asfloat(r);)"sv;
 static vstd::string_view _atomic_add =
     R"(# r;InterlockedAdd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_add_float =
@@ -186,13 +174,6 @@ static vstd::string_view _atomic_add_float =
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,old+@,r);
 if(old==r)return old;
-})"sv;
-static vstd::string_view _atomic_add_float_spirv =
-    R"(while(true){
-# old=asint($);
-# r;
-InterlockedCompareExchange($,old,asint(asfloat(old)+@),r);
-if(old==r)return asfloat(old);
 })"sv;
 static vstd::string_view _atomic_sub =
     R"(# r;
@@ -205,13 +186,6 @@ static vstd::string_view _atomic_sub_float =
 InterlockedCompareExchangeFloatBitwise($,old,old-@,r);
 if(old==r)return old;
 })"sv;
-static vstd::string_view _atomic_sub_float_spirv =
-    R"(while(true){
-# old=asint($);
-# r;
-InterlockedCompareExchange($,old,asint(asfloat(old)-@),r);
-if(old==r)return asfloat(old);
-})"sv;
 static vstd::string_view _atomic_and =
     R"(# r;InterlockedAnd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_or =
@@ -223,37 +197,21 @@ static vstd::string_view _atomic_min =
 static vstd::string_view _atomic_min_float =
     R"(while(true){
 # old=$;
-if(old<=@){
+if(old<=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
-}})"sv;
-static vstd::string_view _atomic_min_float_spirv =
-    R"(while(true){
-# old=asint($);
-if(asfloat(old)<=@){
-# r;
-InterlockedCompareExchange($,old,asint(@),r);
-if(r==old) return asfloat(old);
-}})"sv;
+})"sv;
 static vstd::string_view _atomic_max =
     R"(# r;InterlockedMax($,@,r);return r;)"sv;
 static vstd::string_view _atomic_max_float =
     R"(while(true){
 # old=$;
-if(old>=@){
+if(old>=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
-}})"sv;
-static vstd::string_view _atomic_max_float_spirv =
-    R"(while(true){
-# old=asint($);
-if(asfloat(old)>=@){
-# r;
-InterlockedCompareExchange($,old,asint(@),r);
-if(r==old) return asfloat(old);
-}})"sv;
+})"sv;
 AccessChain const &CodegenStackData::GetAtomicFunc(
     Function func,
     CallOp op,
@@ -262,15 +220,7 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
     luisa::span<Expression const *const> exprs) {
     size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
     vstd::StringBuilder retTypeName;
-    if (atomicFloatToInt && (retType->is_float32() || retType->is_float64())) {
-        if (retType->is_float32()) {
-            util->GetTypeName(*Type::of<int>(), retTypeName, Usage::NONE, true);
-        } else {
-            util->GetTypeName(*Type::of<int64_t>(), retTypeName, Usage::NONE, true);
-        }
-    } else {
-        util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
-    }
+    util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
     TemplateFunction tmp{
         .ret_type = retTypeName.view(),
         .tmp_type_name = retTypeName.view(),
@@ -282,19 +232,15 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = _atomic_exchange;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_compare_exchange_float_spirv : _atomic_compare_exchange_float)
-                           : _atomic_compare_exchange;
+            tmp.body = (retType->is_float32()) ? _atomic_compare_exchange_float : _atomic_compare_exchange;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_add_float_spirv : _atomic_add_float)
-                           : _atomic_add;
+            // SPIR-V: native InterlockedAdd supports float directly
+            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_add_float : _atomic_add;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_sub_float_spirv : _atomic_sub_float)
-                           : _atomic_sub;
+            // SPIR-V: native InterlockedAdd with negation supports float directly
+            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_sub_float : _atomic_sub;
             break;
         case CallOp::ATOMIC_FETCH_AND:
             tmp.body = _atomic_and;
@@ -306,14 +252,12 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = _atomic_xor;
             break;
         case CallOp::ATOMIC_FETCH_MIN:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_min_float_spirv : _atomic_min_float)
-                           : _atomic_min;
+            // SPIR-V: native InterlockedMin supports float directly
+            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_min_float : _atomic_min;
             break;
         case CallOp::ATOMIC_FETCH_MAX:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_max_float_spirv : _atomic_max_float)
-                           : _atomic_max;
+            // SPIR-V: native InterlockedMax supports float directly
+            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_max_float : _atomic_max;
             break;
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid atomic operator.");

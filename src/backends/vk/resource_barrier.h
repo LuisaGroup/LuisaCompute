@@ -133,6 +133,7 @@ public:
     void force_refresh_layout(
         Resource const *res, uint level,
         VkImageLayout before_layout);
+    void remove_resource(Resource const *res) noexcept;
     void update_states(
         VkCommandBuffer cmd_buffer);
     void restore_states(VkCommandBuffer cmd_buffer);

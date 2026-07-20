@@ -41,6 +41,7 @@ public:
         uint64 targetSize,
         uint64 align);
     void clear();
+    void soft_clear();
     void dispose();
     template<typename T, bool clearMemory = true>
         requires(std::is_trivially_constructible_v<T>)

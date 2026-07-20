@@ -53,14 +53,14 @@ ResourceCreationInfo VkNativeResourceExt::register_external_depth_buffer(
     uint height,
     // custom data see backends' header
     void *custom_data) noexcept {
-    // TODO
+    // NOTE: external depth buffer registration not yet implemented.
     return ResourceCreationInfo::make_invalid();
 }
 
 SwapchainCreationInfo VkNativeResourceExt::register_external_swapchain(
     void *swapchain_ptr,
     bool vsync) noexcept {
-    // TODO
+    // NOTE: external swapchain registration not yet implemented.
     SwapchainCreationInfo s{};
     s.invalidate();
     return s;

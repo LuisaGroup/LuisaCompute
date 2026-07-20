@@ -12,7 +12,9 @@ message(STATUS "Output directory for downloaded SDKs: ${OUTPUT_DIR}")
 
 file(LOCK ${OUTPUT_DIR} DIRECTORY)
 
-function(download_sdk name url sha256)
+function(download_sdk name url_and_hash)
+    list(GET url_and_hash 0 url)
+    list(GET url_and_hash 1 sha256)
     message(STATUS "Downloading ${name} from ${url}")
     FetchContent_Populate(${name}
             URL ${url}
@@ -26,13 +28,13 @@ option(COMPONENTS "Components to download" "")
 string(TOLOWER "${COMPONENTS}" COMPONENTS)
 message(STATUS "Downloading SDKs: ${COMPONENTS}")
 
+include(${CMAKE_CURRENT_LIST_DIR}/sdks.cmake)
+
 set(LUISA_COMPUTE_DOWNLOADED_SDKS)
 foreach (sdk ${COMPONENTS})
     set(valid TRUE)
     if (sdk STREQUAL "dx")
-        download_sdk(${sdk}
-                "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk_20250816.zip"
-                "5b2b59a687ceeab14b9a49bbd1635cb43ed8c4101df99abcca102376076f7787")
+        download_sdk(${sdk} "${LUISA_COMPUTE_DX_SDK}")
     else ()
         set(valid FALSE)
         message(WARNING "Unknown SDK: ${sdk}")

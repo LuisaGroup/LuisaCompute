@@ -46,12 +46,13 @@ int main(int argc, char *argv[]) {
 
     // Parse --offline flag
     bool force_offline = false;
-    bool update_reference = false;
+    std::optional<std::filesystem::path> compare_path;
     for (int i = 2; i < argc; i++) {
         if (std::string_view{argv[i]} == "--offline") {
             force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
+        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
+            compare_path = std::filesystem::path{argv[++i]};
+            force_offline = true;
         }
     }
 
@@ -387,16 +388,24 @@ int main(int argc, char *argv[]) {
         luisa::vector<std::array<uint8_t, 4u>> host_image(width * height);
         stream << display.copy_to(luisa::span{host_image})
                << synchronize();
-        stbi_write_png("test_blackhole.png", width, height, 4, host_image.data(), 0);
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            width, height, 4,
-            "test_blackhole",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        if (stbi_write_png("test_blackhole.png", width, height, 4,
+                           host_image.data(), 0) == 0) {
+            LUISA_ERROR("Failed to write test_blackhole.png.");
+            return 1;
+        }
+        if (compare_path) {
+            // The sin-based star/turbulence hashes intentionally amplify small
+            // cross-backend floating-point differences. Keep a tight raw RGB
+            // threshold while the common correlation/contrast checks enforce
+            // the large-scale lensing and accretion-disk structure.
+            static constexpr auto blackhole_psnr_threshold = 29.5;
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                width, height, 4,
+                *compare_path, blackhole_psnr_threshold);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
         LUISA_INFO("Saved offline render to test_blackhole.png");
     } else {
         Clock app_clock;

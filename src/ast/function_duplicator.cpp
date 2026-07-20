@@ -28,48 +28,92 @@ private:
         luisa::shared_ptr<const FunctionBuilder> /* copy */>
         _duplicated;
     luisa::vector<DupCtx *> _contexts;
+
+    // Keyed by (source FunctionBuilder*, Variable uid) so that all RefExpr
+    // nodes referring to the same leaked source variable share a single
+    // kernel-local bridge. Pointer identity of RefExpr is NOT a robust
+    // alias key because FunctionBuilder::_ref() may create multiple
+    // RefExpr nodes for the same Variable.
+    struct LeakedRefKey {
+        const FunctionBuilder *builder;
+        uint32_t uid;
+        [[nodiscard]] bool operator==(const LeakedRefKey &rhs) const noexcept {
+            return builder == rhs.builder && uid == rhs.uid;
+        }
+    };
+    struct LeakedRefKeyHash {
+        [[nodiscard]] uint64_t operator()(LeakedRefKey k) const noexcept {
+            return luisa::hash_combine({luisa::hash_value(k.builder),
+                                        luisa::hash_value(k.uid)});
+        }
+    };
+    struct LeakedRefInfo {
+        LeakedRefKey key;
+        const Type *type;
+    };
     luisa::unordered_map<
-        const Expression * /* leaked */,
-        const Expression * /* hoisted */>
-        _hoisted;
+        LeakedRefKey,
+        const RefExpr * /* hoisted kernel-local bridge */,
+        LeakedRefKeyHash>
+        _hoisted_refs;
 
 private:
-    static void _collect_leaked_variables(luisa::unordered_set<const Expression *> &collected,
-                                          luisa::unordered_set<const FunctionBuilder *> &visited,
-                                          const FunctionBuilder &f) noexcept {
+    [[nodiscard]] static luisa::optional<LeakedRefInfo>
+    _try_make_leaked_ref(const Expression *e) noexcept {
+        if (e == nullptr || e->tag() != Expression::Tag::REF) { return luisa::nullopt; }
+        auto ref = static_cast<const RefExpr *>(e);
+        auto v = ref->variable();
+        if (v.tag() == Variable::Tag::LOCAL ||
+            v.tag() == Variable::Tag::REFERENCE) {
+            return LeakedRefInfo{
+                .key = {.builder = e->builder(), .uid = v.uid()},
+                .type = e->type()};
+        }
+        return luisa::nullopt;
+    }
+
+    static void _collect_leaked_refs(
+        luisa::unordered_map<LeakedRefKey, LeakedRefInfo, LeakedRefKeyHash> &collected,
+        luisa::unordered_set<const FunctionBuilder *> &visited,
+        const FunctionBuilder &kernel,
+        const FunctionBuilder &f) noexcept {
         if (!visited.emplace(&f).second) { return; }
         traverse_expressions<true>(
             f.body(),
             [&](const Expression *e) noexcept {
                 if (e->builder() != &f) {
-                    collected.emplace(e);
+                    // Only hoist foreign REF leaves whose source builder is
+                    // ANOTHER callable. Refs to the kernel's own variables
+                    // are already handled by var_map + _internalize lvalue path.
+                    if (e->tag() == Expression::Tag::REF &&
+                        e->builder() != &kernel) {
+                        if (auto leaked = _try_make_leaked_ref(e)) {
+                            auto [iter, inserted] = collected.emplace(leaked->key, *leaked);
+                            if (!inserted) {
+                                LUISA_ASSERT(*iter->second.type == *leaked->type,
+                                             "Inconsistent leaked ref type.");
+                            }
+                        }
+                    }
                 }
                 if (e->tag() == Expression::Tag::CALL) {
                     auto call = static_cast<const CallExpr *>(e);
                     if (call->is_custom()) {
-                        _collect_leaked_variables(collected, visited, *call->custom().builder());
+                        _collect_leaked_refs(collected, visited, kernel, *call->custom().builder());
                     }
                 }
             },
             [](auto) noexcept {},
             [](auto) noexcept {});
     }
-    void _hoist_leaked_variables(const luisa::unordered_set<const Expression *> &leaked) noexcept {
+
+    void _hoist_leaked_refs(
+        const luisa::unordered_map<LeakedRefKey, LeakedRefInfo, LeakedRefKeyHash> &leaked) noexcept {
         auto fb = FunctionBuilder::current();
-        for (auto e : leaked) {
-            LUISA_ASSERT(e->tag() == Expression::Tag::REF,
-                         "Leaked expression should be a reference.");
-            auto ref = static_cast<const RefExpr *>(e);
-            switch (auto vt = ref->variable().tag()) {
-                case Variable::Tag::LOCAL: [[fallthrough]];
-                case Variable::Tag::REFERENCE: {
-                    _hoisted.emplace(e, fb->local(e->type()));
-                    break;
-                }
-                default: LUISA_ERROR_WITH_LOCATION(
-                    "Leaked variable should be either "
-                    "local or reference (received {}).",
-                    luisa::to_string(vt));
+        for (auto &&[key, info] : leaked) {
+            if (_hoisted_refs.find(key) == _hoisted_refs.end()) {
+                auto bridge = fb->local(info.type);
+                _hoisted_refs.emplace(key, bridge);
             }
         }
     }
@@ -81,10 +125,10 @@ private:
         fb->set_name(f.name());
         if (f.tag() == Function::Tag::KERNEL) {
             fb->set_block_size(f.block_size());
-            luisa::unordered_set<const Expression *> collected;
+            luisa::unordered_map<LeakedRefKey, LeakedRefInfo, LeakedRefKeyHash> collected;
             luisa::unordered_set<const FunctionBuilder *> visited;
-            _collect_leaked_variables(collected, visited, f);
-            _hoist_leaked_variables(collected);
+            _collect_leaked_refs(collected, visited, f, f);
+            _hoist_leaked_refs(collected);
         }
         auto dup_arg = [this, fb](Variable original) noexcept {
             auto dup = [&] {
@@ -146,11 +190,17 @@ private:
             iter != _contexts.back()->expr_map.end()) {
             return iter->second;
         }
-        auto copy = static_cast<const Expression *>(nullptr);
         auto fb = FunctionBuilder::current();
-        if (auto iter = _hoisted.find(original); iter != _hoisted.end()) {
-            original = fb->_internalize(iter->second);
+        auto cache_key = original;
+        if (auto leaked = _try_make_leaked_ref(original)) {
+            if (auto iter = _hoisted_refs.find(leaked->key);
+                iter != _hoisted_refs.end()) {
+                auto copy = fb->_internalize(iter->second);
+                _contexts.back()->expr_map.emplace(cache_key, copy);
+                return copy;
+            }
         }
+        auto copy = static_cast<const Expression *>(nullptr);
         switch (original->tag()) {
             case Expression::Tag::UNARY: {
                 auto e = static_cast<const UnaryExpr *>(original);
@@ -311,11 +361,12 @@ private:
             case Statement::Tag::EXPR: {
                 auto s = static_cast<const ExprStmt *>(stmt);
                 auto e = _dup_expr(s->expression());
-                auto is_void_call = s->expression()->tag() == Expression::Tag::CALL &&
-                                    s->expression()->type() == nullptr;
-                // call to void function will be handled by FunctionBuilder,
-                // otherwise we need to explicitly call void_expr()
-                if (!is_void_call) { fb->_void_expr(e); }
+                // _dup_expr uses the rvalue call() overloads which only
+                // construct the expression; they never insert it into the
+                // body. We must explicitly call _void_expr() here for ALL
+                // expression statements, including void custom-callable
+                // calls. Skipping this silently drops the statement.
+                fb->_void_expr(e);
                 break;
             }
             case Statement::Tag::SWITCH: {
@@ -357,6 +408,11 @@ private:
             case Statement::Tag::COMMENT: {
                 auto s = static_cast<const CommentStmt *>(stmt);
                 fb->comment_(luisa::string{s->comment()});
+                break;
+            }
+            case Statement::Tag::SUSPEND: {
+                auto s = static_cast<const SuspendStmt *>(stmt);
+                fb->suspend_(s->token(), luisa::string{s->name()});
                 break;
             }
             case Statement::Tag::RAY_QUERY: {
@@ -420,7 +476,7 @@ private:
 
 private:
     static void _deduplicate_custom_callables_impl(
-        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> &unique,
+        FuncBuilderMap &unique,
         const FunctionBuilder *const_builder) noexcept {
         auto builder = const_cast<FunctionBuilder *>(const_builder);
         luisa::unordered_set<const FunctionBuilder *> used;
@@ -431,9 +487,8 @@ private:
                     auto call = static_cast<const CallExpr *>(expr);
                     if (call->is_custom()) {
                         auto custom = call->custom();
-                        auto [iter, is_new] = unique.try_emplace(
-                            custom.hash(), custom.shared_builder());
-                        auto f = iter->second.get();
+                        auto [iter, is_new] = unique.emplace(custom.shared_builder());
+                        auto f = iter->get();
                         used.emplace(f);
                         if (is_new) {
                             _deduplicate_custom_callables_impl(unique, f);
@@ -452,7 +507,7 @@ private:
 
 public:
     static void deduplicate_custom_callables(const FunctionBuilder *const_builder) noexcept {
-        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> unique;
+        FuncBuilderMap unique;
         _deduplicate_custom_callables_impl(unique, const_builder);
     }
 
