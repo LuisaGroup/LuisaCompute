@@ -442,7 +442,7 @@ void VkCudaInteropImpl::cuda_buffer(uint64_t vk_buffer_handle, uint64_t *cuda_pt
         CUexternalMemory external_memory{};
         LUISA_CHECK_CUDA(cuImportExternalMemory(&external_memory, &cuda_ext_memory_handle));
         *cuda_handle = reinterpret_cast<uint64_t>(external_memory);
-        // TODO: need cuda buffer here
+        // NOTE: CUDA external memory buffer mapping via cuExternalMemoryGetMappedBuffer
         CUDA_EXTERNAL_MEMORY_BUFFER_DESC bufferDesc{};
         bufferDesc.offset = 0;
         bufferDesc.size = vk_buffer->byte_size();

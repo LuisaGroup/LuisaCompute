@@ -6,7 +6,7 @@ namespace luisa::compute::xir {
 
 class Function;
 
-enum struct DerivedArgumentTag {
+enum class DerivedArgumentTag {
     VALUE,
     REFERENCE,
     RESOURCE,
@@ -29,7 +29,7 @@ public:
     [[nodiscard]] DerivedArgumentTag derived_argument_tag() const noexcept override;
 };
 
-template<typename Derived, DerivedArgumentTag tag>
+template<typename Derived, DerivedArgumentTag Tag>
 class DerivedArgument : public Argument {
 public:
     using derived_argument_type = Derived;
@@ -37,7 +37,7 @@ public:
     using Argument::Argument;
 
     [[nodiscard]] static constexpr auto
-    static_derived_argument_tag() noexcept { return tag; }
+    static_derived_argument_tag() noexcept { return Tag; }
 
     [[nodiscard]] DerivedArgumentTag
     derived_argument_tag() const noexcept final { return static_derived_argument_tag(); }

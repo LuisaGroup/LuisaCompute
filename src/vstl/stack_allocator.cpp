@@ -78,6 +78,11 @@ void StackAllocator::dispose() {
     }
     first.position = 0;
 }
+void StackAllocator::soft_clear() {
+    for (auto &buf : allocatedBuffers) {
+        buf.position = 0;
+    }
+}
 void StackAllocator::clear() {
     switch (allocatedBuffers.size()) {
         case 0: break;

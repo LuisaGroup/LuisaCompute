@@ -7,7 +7,7 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device("fallback");
 
     auto stream = device.create_stream();
-    auto buffer = device.create_buffer<uint>(1u);
+    auto buffer = device.create_buffer<uint32_t>(1u);
 
     using namespace luisa::compute;
     auto shader = device.compile<1>([&](UInt n) noexcept {

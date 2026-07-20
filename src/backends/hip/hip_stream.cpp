@@ -116,8 +116,8 @@ HIPStream::~HIPStream() noexcept {
                    _dispatch_count, _total_gpu_time_ms,
                    _total_gpu_time_ms / static_cast<double>(_dispatch_count));
     }
-    _destroy_callback_semaphore();
     _shutdown_callback_thread();
+    _destroy_callback_semaphore();
     LUISA_CHECK_HIP(hipStreamDestroy(_stream));
 }
 
@@ -200,6 +200,16 @@ void HIPStream::synchronize() noexcept {
             std::this_thread::yield();
         }
     }
+}
+
+HIPStream::LogCallback HIPStream::log_callback() const noexcept {
+    std::scoped_lock lock{_log_callback_mutex};
+    return _log_callback;
+}
+
+void HIPStream::set_log_callback(LogCallback callback) noexcept {
+    std::scoped_lock lock{_log_callback_mutex};
+    _log_callback = std::move(callback);
 }
 
 class HIPStreamCallbackSemaphoreUpdate {

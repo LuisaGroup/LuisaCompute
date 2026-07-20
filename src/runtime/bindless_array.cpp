@@ -32,7 +32,15 @@ BindlessArray::BindlessArray(BindlessArray &&rhs) noexcept
 }
 
 BindlessArray::BindlessArray(DeviceInterface *device, size_t size, BindlessSlotType type) noexcept
-    : Resource{device, Tag::BINDLESS_ARRAY, device->create_bindless_array(size, type)},
+    : Resource{device, Tag::BINDLESS_ARRAY, [&] {
+                   auto info = device->create_bindless_array(size, type);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                   if (!info.valid()) {
+                       LUISA_ERROR("Failed to create bindless array.");
+                   }
+#endif
+                   return info;
+               }()},
       _size{size} {
     switch (type) {
         case BindlessSlotType::MULTIPLE: _updates.emplace<ModSlotSet_MultiPurpose>(); break;

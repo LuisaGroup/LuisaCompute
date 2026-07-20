@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/memory.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 
@@ -29,9 +30,11 @@ class LUISA_XIR_API Function : public DerivedGlobalValue<Function, DerivedValueT
 private:
     ArgumentList _arguments;
     BasicBlockList _basic_blocks;
+    luisa::shared_ptr<uint8_t> _lifetime_token;
 
 public:
     explicit Function(Module *parent_module, const Type *type = nullptr) noexcept;
+    ~Function() noexcept override;
     [[nodiscard]] virtual DerivedFunctionTag derived_function_tag() const noexcept = 0;
 
     Argument *create_argument(const Type *type, bool by_ref) noexcept;
@@ -51,6 +54,8 @@ public:
     [[nodiscard]] auto &basic_blocks() noexcept { return _basic_blocks; }
     [[nodiscard]] auto &basic_blocks() const noexcept { return _basic_blocks; }
 
+    [[nodiscard]] luisa::weak_ptr<uint8_t> lifetime_token() const noexcept { return _lifetime_token; }
+
     [[nodiscard]] virtual FunctionDefinition *definition() noexcept { return nullptr; }
     [[nodiscard]] const FunctionDefinition *definition() const noexcept {
         return const_cast<Function *>(this)->definition();
@@ -67,14 +72,14 @@ public:
 
 using FunctionList = ManagedIntrusiveList<Function, SentinelFunction>;
 
-template<typename Derived, DerivedFunctionTag tag, typename Base = Function>
+template<typename Derived, DerivedFunctionTag Tag, typename Base = Function>
     requires std::derived_from<Base, Function>
 class DerivedFunction : public Base {
 public:
     using derived_function_type = Derived;
     using Super = DerivedFunction;
     using Base::Base;
-    [[nodiscard]] static constexpr DerivedFunctionTag static_derived_function_tag() noexcept { return tag; }
+    [[nodiscard]] static constexpr DerivedFunctionTag static_derived_function_tag() noexcept { return Tag; }
     [[nodiscard]] DerivedFunctionTag derived_function_tag() const noexcept final { return static_derived_function_tag(); }
 };
 
@@ -186,10 +191,11 @@ public:
     static constexpr auto default_block_size = luisa::make_uint3(64u, 1u, 1u);
 
 private:
-    std::array<uint, 3> _block_size;
+    std::array<uint32_t, 3> _block_size;
 
 public:
     explicit KernelFunction(Module *parent_module, luisa::uint3 block_size = default_block_size) noexcept;
+    [[nodiscard]] static bool is_valid_block_size(luisa::uint3 size) noexcept;
     void set_block_size(luisa::uint3 size) noexcept;
     [[nodiscard]] luisa::uint3 block_size() const noexcept;
 };

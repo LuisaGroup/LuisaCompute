@@ -1,5 +1,12 @@
 add_library(luisa-compute-backends INTERFACE)
 
+option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR-to-SPIRV codegen path for the Vulkan backend" ON)
+if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV AND LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+    message(FATAL_ERROR "Vulkan compute shader codegen options are mutually exclusive. "
+            "Use LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV for the default native SPIR-V path, "
+            "or LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV for the experimental LLVM SPIR-V path.")
+endif ()
+
 set(FETCHCONTENT_QUIET OFF)
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "SUPPORT_DIR;BUILTIN_DIR" "SOURCES" ${ARGN})

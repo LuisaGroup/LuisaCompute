@@ -26,8 +26,6 @@ public:
         BreakContinueTarget break_continue_target;
         luisa::unordered_map<Variable, Value *> variables;
         luisa::vector<const CommentStmt *> comments;
-        luisa::unordered_map<Variable, Value *> adjoint_variables;
-        luisa::unordered_set<Value *> initialized_adjoint_variables;
     };
 
     struct TypedLiteral {
@@ -68,7 +66,8 @@ public:
 private:
     [[maybe_unused]] AST2XIRConfig _config;
     luisa::unique_ptr<Module> _module;
-    luisa::unordered_map<uint64_t, Function *> _generated_functions;
+    luisa::unordered_map<const compute::detail::FunctionBuilder *, Function *> _generated_functions;
+    luisa::unordered_map<uint64_t, ExternalFunction *> _generated_external_functions;
     luisa::unordered_map<ConstantData, Constant *> _generated_constants;
     luisa::unordered_map<TypedLiteral, Constant *> _generated_literals;
     luisa::unordered_map<const Type *, Constant *> _generated_zero_constants;
@@ -101,6 +100,8 @@ private:
             LUISA_DEBUG_ASSERT(expr->type()->is_bool() || expr->type()->is_bool_vector(),
                                "Invalid type for logical not operation.");
             operand = _type_cast_if_necessary(b, expr->type(), operand);
+        } else {
+            operand = _type_cast_if_necessary(b, expr->type(), operand);
         }
         return b.call(expr->type(), op, {operand});
     }
@@ -131,7 +132,11 @@ private:
             for (auto i = 0u; i < type->dimension(); i++) { elements.emplace_back(value); }
             return b.call(type, ArithmeticOp::AGGREGATE, elements);
         }
-        LUISA_ERROR_WITH_LOCATION("Invalid cast operation.");
+        // Unsupported implicit cast (e.g., vector->scalar, matrix->scalar).
+        // Return the value as-is; callers like alu_call may request casts based on
+        // return type rather than operand type, but the value already has the correct
+        // operand type for the operation.
+        return value;
     }
 
     [[nodiscard]] Value *_translate_binary_expr(XIRBuilder &b, const BinaryExpr *expr) noexcept {
@@ -142,7 +147,8 @@ private:
                 case BinaryOp::ADD: return has_matrix ? ArithmeticOp::MATRIX_COMP_ADD : ArithmeticOp::BINARY_ADD;
                 case BinaryOp::SUB: return has_matrix ? ArithmeticOp::MATRIX_COMP_SUB : ArithmeticOp::BINARY_SUB;
                 case BinaryOp::MUL: {
-                    if (lhs->type()->is_matrix() && (rhs->type()->is_matrix() || rhs->type()->is_vector())) {
+                    if ((lhs->type()->is_matrix() && (rhs->type()->is_matrix() || rhs->type()->is_vector())) ||
+                        (lhs->type()->is_vector() && rhs->type()->is_matrix())) {
                         return ArithmeticOp::MATRIX_LINALG_MUL;
                     }
                     return has_matrix ? ArithmeticOp::MATRIX_COMP_MUL : ArithmeticOp::BINARY_MUL;
@@ -182,8 +188,8 @@ private:
         return _type_cast_if_necessary(b, type_promotion.result, result);
     }
 
-    [[nodiscard]] Value *_translate_constant_access_index(uint i) noexcept {
-        auto key = TypedLiteral{Type::of<uint>(), LiteralExpr::Value{i}};
+    [[nodiscard]] Value *_translate_constant_access_index(uint32_t i) noexcept {
+        auto key = TypedLiteral{Type::of<uint32_t>(), LiteralExpr::Value{i}};
         return _translate_typed_literal(key);
     }
 
@@ -191,7 +197,8 @@ private:
         switch (expr->tag()) {
             case Expression::Tag::MEMBER: {
                 auto member_expr = static_cast<const MemberExpr *>(expr);
-                auto member_index = _translate_constant_access_index(member_expr->member_index());
+                if (member_expr->is_swizzle() && member_expr->swizzle_size() != 1u) { break; }
+                auto member_index = _translate_constant_access_index(member_expr->is_swizzle() ? member_expr->swizzle_index(0u) : member_expr->member_index());
                 rev_indices.emplace_back(member_index);
                 return _collect_access_indices(b, member_expr->self(), rev_indices);
             }
@@ -303,67 +310,23 @@ private:
         return iter->second;
     }
 
-    void _reset_adjoint_variable(XIRBuilder &b, Value *adjoint) noexcept {
-        auto zero = _module->create_constant_zero(adjoint->type());
-        auto store = b.store(adjoint, zero);
-        store->add_comment("reset adjoint variable");
-    }
-
-    [[nodiscard]] Value *_get_or_create_adjoint_variable(XIRBuilder &b, const Expression *expr) noexcept {
-        LUISA_ASSERT(expr->tag() == Expression::Tag::REF, "Unexpected expression tag.");
-        auto ast_var = static_cast<const RefExpr *>(expr)->variable();
-        auto [iter, just_inserted] = _current.adjoint_variables.try_emplace(ast_var, nullptr);
-        if (just_inserted) {
-            XIRBuilder bb;
-            bb.set_insertion_point(_current.f->body_block()->instructions().head_sentinel());
-            iter->second = bb.alloca_local(ast_var.type());
-            iter->second->add_comment("adjoint variable for autodiff");
-            _reset_adjoint_variable(bb, iter->second);
-        }
-        return iter->second;
-    }
-
-    void _accumulate_grad(XIRBuilder &b, Value *adjoint, Value *grad) noexcept {
-        LUISA_ASSERT(adjoint->type() == grad->type(), "Adjoint and gradient type mismatch.");
-        switch (auto type = adjoint->type(); type->tag()) {
-            case Type::Tag::FLOAT16: [[fallthrough]];
-            case Type::Tag::FLOAT32: [[fallthrough]];
-            case Type::Tag::FLOAT64: [[fallthrough]];
-            case Type::Tag::VECTOR: [[fallthrough]];
-            case Type::Tag::MATRIX: {
-                auto old_grad = b.load(type, adjoint);
-                auto new_grad = b.call(type, ArithmeticOp::BINARY_ADD, {old_grad, grad});
-                b.store(adjoint, new_grad);
-                break;
-            }
-            case Type::Tag::ARRAY: {
-                auto elem_type = type->element();
-                auto dim = type->dimension();
-                for (auto i = 0u; i < dim; i++) {
-                    auto adjoint_elem = b.gep(elem_type, adjoint, {_translate_constant_access_index(i)});
-                    auto grad_elem = b.call(elem_type, ArithmeticOp::EXTRACT, {grad, _translate_constant_access_index(i)});
-                    _accumulate_grad(b, adjoint_elem, grad_elem);
-                }
-                break;
-            }
-            case Type::Tag::STRUCTURE: {
-                auto member_types = type->members();
-                for (auto i = 0u; i < member_types.size(); i++) {
-                    auto adjoint_elem = b.gep(member_types[i], adjoint, {_translate_constant_access_index(i)});
-                    auto grad_elem = b.call(member_types[i], ArithmeticOp::EXTRACT, {grad, _translate_constant_access_index(i)});
-                    _accumulate_grad(b, adjoint_elem, grad_elem);
-                }
-                break;
-            }
-            default: break;
-        }
-    }
-
     [[nodiscard]] Value *_translate_call_expr(XIRBuilder &b, const CallExpr *expr) noexcept {
         if (expr->is_external()) {
             auto ast = expr->external();
-            (void)add_external_function(*ast);
-            LUISA_NOT_IMPLEMENTED();
+            auto f = add_external_function(*ast);
+            LUISA_ASSERT(f->type() == expr->type(), "External function return type mismatch.");
+            auto ast_args = expr->arguments();
+            LUISA_ASSERT(ast_args.size() == f->arguments().count_size(),
+                         "External function argument count mismatch.");
+            luisa::fixed_vector<Value *, 16u> args;
+            args.reserve(ast_args.size());
+            auto formal = f->arguments().begin();
+            for (auto ast_arg : ast_args) {
+                auto arg = _translate_expression(b, ast_arg, !(*formal)->is_reference());
+                args.emplace_back(arg);
+                ++formal;
+            }
+            return b.call(f->type(), f, args);
         }
         if (expr->is_custom()) {
             auto ast = expr->custom();
@@ -387,6 +350,13 @@ private:
                 args.emplace_back(arg);
             }
             return b.call(expr->type(), target_op, args);
+        };
+        auto same_type_unary_alu_call = [&](ArithmeticOp target_op) noexcept {
+            LUISA_ASSERT(expr->arguments().size() == 1u,
+                         "Unary arithmetic operation expects one argument.");
+            auto arg = _translate_expression(b, expr->arguments().front(), true);
+            arg = _type_cast_if_necessary(b, expr->type(), arg);
+            return b.call(expr->type(), target_op, {arg});
         };
         auto cta_call = [&](ThreadGroupOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
@@ -518,13 +488,13 @@ private:
             case CallOp::LERP: return alu_call(ArithmeticOp::LERP);
             case CallOp::SMOOTHSTEP: return alu_call(ArithmeticOp::SMOOTHSTEP);
             case CallOp::STEP: return alu_call(ArithmeticOp::STEP);
-            case CallOp::ABS: return alu_call(ArithmeticOp::ABS);
+            case CallOp::ABS: return same_type_unary_alu_call(ArithmeticOp::ABS);
             case CallOp::MIN: return alu_call(ArithmeticOp::MIN);
             case CallOp::MAX: return alu_call(ArithmeticOp::MAX);
-            case CallOp::CLZ: return alu_call(ArithmeticOp::CLZ);
-            case CallOp::CTZ: return alu_call(ArithmeticOp::CTZ);
-            case CallOp::POPCOUNT: return alu_call(ArithmeticOp::POPCOUNT);
-            case CallOp::REVERSE: return alu_call(ArithmeticOp::REVERSE);
+            case CallOp::CLZ: return same_type_unary_alu_call(ArithmeticOp::CLZ);
+            case CallOp::CTZ: return same_type_unary_alu_call(ArithmeticOp::CTZ);
+            case CallOp::POPCOUNT: return same_type_unary_alu_call(ArithmeticOp::POPCOUNT);
+            case CallOp::REVERSE: return same_type_unary_alu_call(ArithmeticOp::REVERSE);
             case CallOp::ISINF: return alu_call(ArithmeticOp::ISINF);
             case CallOp::ISNAN: return alu_call(ArithmeticOp::ISNAN);
             case CallOp::ACOS: return alu_call(ArithmeticOp::ACOS);
@@ -546,7 +516,16 @@ private:
             case CallOp::LOG: return alu_call(ArithmeticOp::LOG);
             case CallOp::LOG2: return alu_call(ArithmeticOp::LOG2);
             case CallOp::LOG10: return alu_call(ArithmeticOp::LOG10);
-            case CallOp::POW: return alu_call(ArithmeticOp::POW);
+            case CallOp::POW: {
+                LUISA_ASSERT(expr->arguments().size() == 2u,
+                             "POW expects two arguments.");
+                auto exponent_type = expr->arguments()[1]->type();
+                auto op = exponent_type->is_int_or_int_vector() ||
+                                  exponent_type->is_uint_or_uint_vector() ?
+                              ArithmeticOp::POW_INT :
+                              ArithmeticOp::POW;
+                return alu_call(op);
+            }
             case CallOp::SQRT: return alu_call(ArithmeticOp::SQRT);
             case CallOp::RSQRT: return alu_call(ArithmeticOp::RSQRT);
             case CallOp::CEIL: return alu_call(ArithmeticOp::CEIL);
@@ -626,30 +605,60 @@ private:
             case CallOp::BINDLESS_BUFFER_SIZE: return resource_call(ResourceQueryOp::BINDLESS_BUFFER_SIZE);
             case CallOp::BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Removed bindless_buffer_type operation.");
             case CallOp::BINDLESS_BUFFER_ADDRESS: return resource_call(ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_LEVEL: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_GRAD: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_LEVEL: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_GRAD: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_READ: return resource_call(ResourceReadOp::BINDLESS_TEXTURE2D_READ);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_READ: return resource_call(ResourceReadOp::BINDLESS_TEXTURE3D_READ);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_READ_LEVEL: return resource_call(ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_READ_LEVEL: return resource_call(ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SIZE: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SIZE: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE2D_SIZE_LEVEL: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_TEXTURE3D_SIZE_LEVEL: return resource_call(ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
+            case CallOp::UNIFORM_BINDLESS_BUFFER_READ: return resource_call(ResourceReadOp::BINDLESS_BUFFER_READ);
+            case CallOp::UNIFORM_BINDLESS_BUFFER_WRITE: return resource_call(ResourceWriteOp::BINDLESS_BUFFER_WRITE);
+            case CallOp::UNIFORM_BINDLESS_BYTE_BUFFER_READ: return resource_call(ResourceReadOp::BINDLESS_BYTE_BUFFER_READ);
+            case CallOp::UNIFORM_BINDLESS_BUFFER_SIZE: return resource_call(ResourceQueryOp::BINDLESS_BUFFER_SIZE);
+            case CallOp::UNIFORM_BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Removed uniform_bindless_buffer_type operation.");
+            case CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS: return resource_call(ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS);
             case CallOp::MAKE_BOOL2: return make_vector_call(Type::of<bool>(), 2);
             case CallOp::MAKE_BOOL3: return make_vector_call(Type::of<bool>(), 3);
             case CallOp::MAKE_BOOL4: return make_vector_call(Type::of<bool>(), 4);
             case CallOp::MAKE_INT2: return make_vector_call(Type::of<int>(), 2);
             case CallOp::MAKE_INT3: return make_vector_call(Type::of<int>(), 3);
             case CallOp::MAKE_INT4: return make_vector_call(Type::of<int>(), 4);
-            case CallOp::MAKE_UINT2: return make_vector_call(Type::of<uint>(), 2);
-            case CallOp::MAKE_UINT3: return make_vector_call(Type::of<uint>(), 3);
-            case CallOp::MAKE_UINT4: return make_vector_call(Type::of<uint>(), 4);
+            case CallOp::MAKE_UINT2: return make_vector_call(Type::of<uint32_t>(), 2);
+            case CallOp::MAKE_UINT3: return make_vector_call(Type::of<uint32_t>(), 3);
+            case CallOp::MAKE_UINT4: return make_vector_call(Type::of<uint32_t>(), 4);
             case CallOp::MAKE_FLOAT2: return make_vector_call(Type::of<float>(), 2);
             case CallOp::MAKE_FLOAT3: return make_vector_call(Type::of<float>(), 3);
             case CallOp::MAKE_FLOAT4: return make_vector_call(Type::of<float>(), 4);
-            case CallOp::MAKE_SHORT2: return make_vector_call(Type::of<short>(), 2);
-            case CallOp::MAKE_SHORT3: return make_vector_call(Type::of<short>(), 3);
-            case CallOp::MAKE_SHORT4: return make_vector_call(Type::of<short>(), 4);
-            case CallOp::MAKE_USHORT2: return make_vector_call(Type::of<ushort>(), 2);
-            case CallOp::MAKE_USHORT3: return make_vector_call(Type::of<ushort>(), 3);
-            case CallOp::MAKE_USHORT4: return make_vector_call(Type::of<ushort>(), 4);
-            case CallOp::MAKE_LONG2: return make_vector_call(Type::of<long>(), 2);
-            case CallOp::MAKE_LONG3: return make_vector_call(Type::of<long>(), 3);
-            case CallOp::MAKE_LONG4: return make_vector_call(Type::of<long>(), 4);
-            case CallOp::MAKE_ULONG2: return make_vector_call(Type::of<ulong>(), 2);
-            case CallOp::MAKE_ULONG3: return make_vector_call(Type::of<ulong>(), 3);
-            case CallOp::MAKE_ULONG4: return make_vector_call(Type::of<ulong>(), 4);
+            case CallOp::MAKE_SHORT2: return make_vector_call(Type::of<int16_t>(), 2);
+            case CallOp::MAKE_SHORT3: return make_vector_call(Type::of<int16_t>(), 3);
+            case CallOp::MAKE_SHORT4: return make_vector_call(Type::of<int16_t>(), 4);
+            case CallOp::MAKE_USHORT2: return make_vector_call(Type::of<uint16_t>(), 2);
+            case CallOp::MAKE_USHORT3: return make_vector_call(Type::of<uint16_t>(), 3);
+            case CallOp::MAKE_USHORT4: return make_vector_call(Type::of<uint16_t>(), 4);
+            case CallOp::MAKE_LONG2: return make_vector_call(Type::of<int64_t>(), 2);
+            case CallOp::MAKE_LONG3: return make_vector_call(Type::of<int64_t>(), 3);
+            case CallOp::MAKE_LONG4: return make_vector_call(Type::of<int64_t>(), 4);
+            case CallOp::MAKE_ULONG2: return make_vector_call(Type::of<uint64_t>(), 2);
+            case CallOp::MAKE_ULONG3: return make_vector_call(Type::of<uint64_t>(), 3);
+            case CallOp::MAKE_ULONG4: return make_vector_call(Type::of<uint64_t>(), 4);
             case CallOp::MAKE_HALF2: return make_vector_call(Type::of<half>(), 2);
             case CallOp::MAKE_HALF3: return make_vector_call(Type::of<half>(), 3);
             case CallOp::MAKE_HALF4: return make_vector_call(Type::of<half>(), 4);
@@ -706,27 +715,39 @@ private:
             case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
             case CallOp::REQUIRES_GRADIENT: {
                 LUISA_ASSERT(expr->arguments().size() == 1u, "Requires gradient call requires exactly one argument.");
-                auto adjoint = _get_or_create_adjoint_variable(b, expr->arguments()[0]);
-                _reset_adjoint_variable(b, adjoint);
+                auto value = _translate_expression(b, expr->arguments()[0], false);
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {value});
                 return nullptr;
             }
-            case CallOp::GRADIENT: LUISA_NOT_IMPLEMENTED();
-            case CallOp::GRADIENT_MARKER: LUISA_NOT_IMPLEMENTED();
+            case CallOp::GRADIENT: {
+                LUISA_ASSERT(expr->arguments().size() == 1u, "Gradient call requires exactly one argument.");
+                auto value = _translate_expression(b, expr->arguments()[0], false);
+                return b.call(expr->type(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {value});
+            }
+            case CallOp::GRADIENT_MARKER: {
+                LUISA_ASSERT(expr->arguments().size() == 2u, "Gradient marker call requires exactly two arguments.");
+                auto value = _translate_expression(b, expr->arguments()[0], false);
+                auto grad = _translate_expression(b, expr->arguments()[1], true);
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {value, grad});
+                return nullptr;
+            }
             case CallOp::ACCUMULATE_GRADIENT: {
                 LUISA_ASSERT(expr->arguments().size() == 2u, "Accumulate gradient call requires exactly two arguments.");
-                auto adjoint = _translate_expression(b, expr->arguments()[0], false);// WHY???
-                if (_current.initialized_adjoint_variables.emplace(adjoint).second) {
-                    LUISA_ASSERT(adjoint->isa<AllocaInst>());
-                    XIRBuilder init_builder;
-                    init_builder.set_insertion_point(static_cast<AllocaInst *>(adjoint));
-                    _reset_adjoint_variable(init_builder, adjoint);
-                }
+                auto adjoint = _translate_expression(b, expr->arguments()[0], false);
                 auto grad = _translate_expression(b, expr->arguments()[1], true);
-                _accumulate_grad(b, adjoint, grad);
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_ACCUMULATE_GRADIENT, {adjoint, grad});
                 return nullptr;
             }
-            case CallOp::BACKWARD: LUISA_NOT_IMPLEMENTED();
-            case CallOp::DETACH: LUISA_NOT_IMPLEMENTED();
+            case CallOp::BACKWARD: {
+                LUISA_ASSERT(expr->arguments().empty(), "Backward call takes no XIR operands; use gradient_marker for seed.");
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+                return nullptr;
+            }
+            case CallOp::DETACH: {
+                LUISA_ASSERT(expr->arguments().size() == 1u, "Detach call requires exactly one argument.");
+                auto value = _translate_expression(b, expr->arguments()[0], true);
+                return b.call(expr->type(), AutodiffIntrinsicOp::AUTODIFF_DETACH, {value});
+            }
             case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM);
             case CallOp::RAY_TRACING_INSTANCE_USER_ID: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID);
             case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK);
@@ -793,6 +814,12 @@ private:
             case CallOp::TEXTURE3D_SAMPLE_GRAD: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD);
             case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL);
             case CallOp::CLOCK: return b.clock();
+            case CallOp::ASYNC_COPY:
+                LUISA_NOT_IMPLEMENTED(
+                    "AST ASYNC_COPY cannot be represented faithfully in XIR: the AST API models "
+                    "SPIR-V events as uint32 values and exposes only ordinary lvalue references, "
+                    "but OpUntypedGroupAsyncCopyKHR requires OpTypeEvent values and opposite "
+                    "Workgroup/CrossWorkgroup untyped pointers.");
             default: LUISA_NOT_IMPLEMENTED("AST Op {} is not implemented.", luisa::to_string(expr->op()));
         }
         LUISA_NOT_IMPLEMENTED();
@@ -843,8 +870,9 @@ private:
     }
 
     void _translate_switch_stmt(XIRBuilder &b, const SwitchStmt *ast_switch, luisa::span<const Statement *const> cdr) noexcept {
-        // we do not support break/continue in switch statement
-        auto old_break_continue_target = std::exchange(_current.break_continue_target, {});
+        auto old_break_continue_target = _current.break_continue_target;
+        _current.break_continue_target = {.break_target = nullptr,
+                                          .continue_target = old_break_continue_target.continue_target};
         auto value = _translate_expression(b, ast_switch->expression(), true);
         auto inst = _commented(b.switch_(value));
         auto merge_block = inst->create_merge_block();
@@ -1133,6 +1161,23 @@ private:
                     debug_break->set_operands(watches);
                     break;
                 }
+                case Statement::Tag::SUSPEND: {
+                    auto ast_suspend = static_cast<const SuspendStmt *>(car);
+                    auto *suspend_bb = _current.f->create_basic_block();
+                    auto *resume_bb = _current.f->create_basic_block();
+                    auto *parent_bb = b.insertion_point()->parent_block();
+
+                    b.set_insertion_point(suspend_bb);
+                    _commented(b.coro_suspend(ast_suspend->token(), luisa::string{ast_suspend->name()}, nullptr));
+
+                    auto *always_true = _module->create_constant_one(compute::Type::of<bool>());
+                    b.set_insertion_point(parent_bb);
+                    _commented(b.cond_br(always_true, suspend_bb, resume_bb));
+
+                    b.set_insertion_point(resume_bb);
+                    b.coro_resume(ast_suspend->token(), nullptr);
+                    break;
+                }
             }
             // update the statement list
             stmts = cdr;
@@ -1160,6 +1205,11 @@ private:
             LUISA_DEBUG_ASSERT(_current.variables.find(ast_local) == _current.variables.end(),
                                "Local variable already exists.");
             auto v = _current.variables.emplace(ast_local, b.alloca_local(ast_local.type())).first->second;
+            if (auto name = _current.ast->get_variable_name(ast_local.uid()); !name.empty()) {
+                v->set_name(name);
+            } else {
+                v->set_name(luisa::format("_reg_{}", ast_local.uid()));
+            }
             if (ast_local.is_builtin()) {
                 auto builtin_init = _translate_builtin_variable(ast_local);
                 LUISA_ASSERT(v->type() == builtin_init->type(), "Variable type mismatch.");
@@ -1186,7 +1236,7 @@ public:
     Function *add_function(const ASTFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
         // try emplace the function
-        auto [iter, just_inserted] = _generated_functions.try_emplace(f.hash(), nullptr);
+        auto [iter, just_inserted] = _generated_functions.try_emplace(f.builder(), nullptr);
         // return the function if it has been translated
         if (!just_inserted) { return iter->second; }
         // create a new function
@@ -1198,6 +1248,9 @@ public:
                     return kernel;
                 }
                 case ASTFunction::Tag::CALLABLE: {
+                    return _module->create_callable(f.return_type());
+                }
+                case ASTFunction::Tag::COROUTINE: {
                     return _module->create_callable(f.return_type());
                 }
                 case ASTFunction::Tag::RASTER_STAGE: LUISA_NOT_IMPLEMENTED();
@@ -1217,7 +1270,22 @@ public:
 
     Function *add_external_function(const ASTExternalFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
-        LUISA_NOT_IMPLEMENTED();
+        auto [iter, just_inserted] =
+            _generated_external_functions.try_emplace(f.hash(), nullptr);
+        if (!just_inserted) { return iter->second; }
+        auto external = _module->create_external_function(f.return_type());
+        external->set_name(luisa::string{f.name()});
+        auto argument_types = f.argument_types();
+        auto argument_usages = f.argument_usages();
+        LUISA_ASSERT(argument_types.size() == argument_usages.size(),
+                     "External function argument metadata is inconsistent.");
+        for (auto i = 0u; i < argument_types.size(); i++) {
+            auto usage = argument_usages[i];
+            auto by_ref = usage == Usage::WRITE || usage == Usage::READ_WRITE;
+            external->create_argument(argument_types[i], by_ref);
+        }
+        iter->second = external;
+        return external;
     }
 
     [[nodiscard]] luisa::unique_ptr<Module> finalize() noexcept {

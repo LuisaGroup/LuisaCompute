@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 class LoadInst;
 class Function;
 class Module;
@@ -19,6 +21,6 @@ struct LocalLoadEliminationInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API LocalLoadEliminationInfo local_load_elimination_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API LocalLoadEliminationInfo local_load_elimination_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API LocalLoadEliminationInfo local_load_elimination_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

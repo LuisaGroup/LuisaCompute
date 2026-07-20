@@ -22,6 +22,7 @@
 // 14.  $lambda inside $for loop
 // 15.  Mixed: Callable invoked from inside $lambda
 
+#include <cmath>
 #include <numeric>
 #include <iostream>
 #include <vector>
@@ -52,7 +53,7 @@ static void check(const char *name,
     uint mismatch_count = 0u;
     for (uint i = 0u; i < result.size(); i++) {
         float diff = std::abs(result[i] - expected[i]);
-        if (diff > 1e-4f) {
+        if (!std::isfinite(result[i]) || !std::isfinite(expected[i]) || diff > 1e-4f) {
             if (mismatch_count < 5u) {
                 LUISA_WARNING("{}: mismatch at [{}]: got {} expected {} (diff {})",
                               name, i, result[i], expected[i], diff);
@@ -296,6 +297,36 @@ int test_nested_callable(Device &device) {
                << synchronize();
         for (uint i = 0; i < N; i++) host_expected[i] = host_in[i] * 4.0f;
         check("test9_optional_emplace_in_lambda", host_out, host_expected);
+    }
+
+    // ================================================================
+    // Test 9b: luisa::optional<Var<T>> emplace in one $lambda,
+    //          deref in a SIBLING $lambda. This is the exact pattern
+    //          historically used by test_path_tracing_nested_callable
+    //          (emplace in outer lambda, deref in sibling lambda) which
+    //          rendered all-black on cuda. Expected: out[i] = in[i]*2+1
+    // ================================================================
+    {
+        Kernel1D kernel = [&](BufferVar<float> in, BufferVar<float> out) noexcept {
+            UInt idx = dispatch_id().x;
+            Float v = in.read(idx);
+            luisa::optional<Float> doubled;
+            $lambda({
+                doubled.emplace(v * 2.0f);
+            })();
+            Float result = def(0.0f);
+            $lambda({
+                result = *doubled + 1.0f;
+            })();
+            out.write(idx, result);
+        };
+        auto shader = device.compile(kernel);
+        stream << buf_in.copy_from(luisa::span{host_in})
+               << shader(buf_in, buf_out).dispatch(N)
+               << buf_out.copy_to(luisa::span{host_out})
+               << synchronize();
+        for (uint i = 0; i < N; i++) host_expected[i] = host_in[i] * 2.0f + 1.0f;
+        check("test9b_optional_sibling_lambda_deref", host_out, host_expected);
     }
 
     // ================================================================
@@ -729,14 +760,13 @@ int test_nested_callable(Device &device) {
     return 0;
 }
 
-static inline const auto reg = [] {
-    "nested_callable"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_nested_callable(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_nested_callable(device);
+}

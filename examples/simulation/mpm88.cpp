@@ -53,16 +53,17 @@ int main(int argc, char *argv[]) {
     // Initialize compute context
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--update-reference]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     bool force_offline = false;
-    bool update_reference = false;
+    std::optional<std::filesystem::path> compare_path;
     for (int i = 2; i < argc; i++) {
         if (std::string_view{argv[i]} == "--offline") {
             force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
+        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
+            compare_path = std::filesystem::path{argv[++i]};
+            force_offline = true;
             force_offline = true;
         }
     }
@@ -128,9 +129,9 @@ int main(int argc, char *argv[]) {
     }();
 
     // Helper: compute 1D grid index from 2D coordinates with clamping
-    auto index = [](UInt2 xy) noexcept {
-        auto p = clamp(xy, static_cast<uint2>(0), static_cast<uint2>(n_grid - 1));
-        return p.x + p.y * n_grid;
+    auto index = [](Int2 xy) noexcept {
+        auto p = clamp(xy, static_cast<int2>(0), static_cast<int2>(n_grid - 1));
+        return cast<uint>(p.x) + cast<uint>(p.y) * n_grid;
     };
 
     // Helper: compute outer product of two vectors (a * b^T)
@@ -143,7 +144,7 @@ int main(int argc, char *argv[]) {
 
     // Kernel: Clear grid velocities and masses
     auto clear_grid = device.compile<2>([&] {
-        UInt idx = index(dispatch_id().xy());
+        UInt idx = index(make_int2(dispatch_id().xy()));
         grid_v->write(idx * 2u, 0.f);
         grid_v->write(idx * 2u + 1u, 0.f);
         grid_m->write(idx, 0.f);
@@ -202,7 +203,7 @@ int main(int argc, char *argv[]) {
     // Kernel: Grid velocity update (explicit time integration)
     auto simulate_grid = device.compile<2>([&] {
         UInt2 coord = dispatch_id().xy();
-        UInt i = index(coord);
+        UInt i = index(make_int2(coord));
 
         // Read grid velocity and mass
         Float2 v = make_float2(grid_v->read(i * 2u), grid_v->read(i * 2u + 1u));
@@ -338,15 +339,14 @@ int main(int argc, char *argv[]) {
         luisa::vector<uint8_t> host_image(resolution * resolution * 4u);
         stream << display.copy_to(luisa::span{host_image}) << synchronize();
         stbi_write_png("test_mpm88.png", resolution, resolution, 4, host_image.data(), 0);
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution, resolution, 4,
-            "test_mpm88",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution, resolution, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     } else {
 #if ENABLE_DISPLAY
         while (!window->should_close()) {

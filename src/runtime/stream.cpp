@@ -39,7 +39,15 @@ void Stream::_synchronize() noexcept {
 }
 
 Stream::Stream(DeviceInterface *device, StreamTag stream_tag) noexcept
-    : Stream{device, stream_tag, device->create_stream(stream_tag)} {}
+    : Stream{device, stream_tag, [&] {
+                 auto info = device->create_stream(stream_tag);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                 if (!info.valid()) {
+                     LUISA_ERROR("Failed to create stream.");
+                 }
+#endif
+                 return info;
+             }()} {}
 
 Stream::Stream(DeviceInterface *device, StreamTag stream_tag, const ResourceCreationInfo &handle) noexcept
     : Resource{device, Tag::STREAM, handle},

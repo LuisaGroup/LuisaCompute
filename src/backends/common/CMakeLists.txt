@@ -225,3 +225,8 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
 endif ()
 
 add_subdirectory(hlsl)
+
+if (LUISA_COMPUTE_ENABLE_VULKAN AND
+        (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV OR LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV))
+    add_subdirectory(spirv)
+endif ()

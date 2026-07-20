@@ -1,0 +1,703 @@
+#include "ut/ut.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cerrno>
+#include <csignal>
+#include <limits>
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+#include <luisa/luisa-compute.h>
+#include <luisa/xir/builder.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
+#include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/verifier.h>
+
+using namespace luisa;
+using namespace luisa::compute;
+using namespace luisa::compute::xir;
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+namespace {
+
+struct StatementCounter final : StmtVisitor {
+    uint stores = 0u;
+    uint returns = 0u;
+    uint breaks = 0u;
+    uint continues = 0u;
+    uint ifs = 0u;
+    uint loops = 0u;
+    uint switches = 0u;
+    uint exprs = 0u;
+    uint prints = 0u;
+
+    void visit(const BreakStmt *) override { breaks++; }
+    void visit(const ContinueStmt *) override { continues++; }
+    void visit(const ReturnStmt *) override { returns++; }
+    void visit(const ScopeStmt *stmt) override {
+        for (auto s : stmt->statements()) { s->accept(*this); }
+    }
+    void visit(const IfStmt *stmt) override {
+        ifs++;
+        stmt->true_branch()->accept(*this);
+        stmt->false_branch()->accept(*this);
+    }
+    void visit(const LoopStmt *stmt) override {
+        loops++;
+        stmt->body()->accept(*this);
+    }
+    void visit(const ExprStmt *) override { exprs++; }
+    void visit(const SwitchStmt *stmt) override {
+        switches++;
+        stmt->body()->accept(*this);
+    }
+    void visit(const SwitchCaseStmt *stmt) override { stmt->body()->accept(*this); }
+    void visit(const SwitchDefaultStmt *stmt) override { stmt->body()->accept(*this); }
+    void visit(const AssignStmt *) override { stores++; }
+    void visit(const ForStmt *stmt) override { stmt->body()->accept(*this); }
+    void visit(const CommentStmt *) override {}
+    void visit(const RayQueryStmt *stmt) override {
+        stmt->on_triangle_candidate()->accept(*this);
+        stmt->on_procedural_candidate()->accept(*this);
+    }
+    void visit(const SuspendStmt *) override {}
+    void visit(const AutoDiffStmt *stmt) override { stmt->body()->accept(*this); }
+    void visit(const PrintStmt *) override { prints++; }
+    void visit(const DebugBreakStmt *) override {}
+};
+
+[[nodiscard]] auto first_definition(Module *module) noexcept {
+    for (auto *f : module->function_list()) {
+        if (f->is_definition()) { return static_cast<FunctionDefinition *>(f); }
+    }
+    return static_cast<FunctionDefinition *>(nullptr);
+}
+
+[[nodiscard]] auto first_kernel_definition(Module *module) noexcept {
+    for (auto *f : module->function_list()) {
+        if (f->derived_function_tag() == DerivedFunctionTag::KERNEL) { return static_cast<FunctionDefinition *>(f); }
+    }
+    return static_cast<FunctionDefinition *>(nullptr);
+}
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+template<typename F>
+[[nodiscard]] bool terminates_with_abort(F &&f) noexcept {
+    auto pid = fork();
+    if (pid < 0) { return false; }
+    if (pid == 0) {
+        f();
+        _exit(0);
+    }
+    auto status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) { return false; }
+    }
+    return WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
+}
+#endif
+
+}// namespace
+
+void reg_xir2ast_direct() {
+
+    "xir_to_ast_direct_memory_and_resource_kernel"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(make_uint3(64u, 1u, 1u));
+        auto *buffer = kernel->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *local = b.alloca_local(Type::of<float>());
+        auto *idx = module.create_dispatch_id();
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        auto *x = b.call(Type::of<uint>(), ArithmeticOp::EXTRACT, {idx, zero});
+        auto *read = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ, {buffer, x});
+        float two = 2.0f;
+        auto *scale = module.create_constant(Type::of<float>(), &two);
+        auto *mul = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {read, scale});
+        b.store(local, mul);
+        auto *load = b.load(Type::of<float>(), local);
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, x, load});
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto block_size = ast->block_size();
+        expect(block_size.x == 64u);
+        expect(block_size.y == 1u);
+        expect(block_size.z == 1u);
+        expect(ast->arguments().size() == 1u);
+        expect(ast->local_variables().size() == 3u);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.stores >= 1u);
+        expect(counter.exprs >= 1u);
+        expect(counter.returns == 1u);
+
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        auto text = xir_to_text_translate(roundtrip.get(), false);
+        expect(text.find("resource_write buffer_write") != string::npos);
+    };
+
+    "xir_to_ast_direct_preserves_unused_atomic"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(Type::buffer(Type::of<int>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        uint32_t index_value = 0u;
+        int increment_value = 1;
+        auto *index = module.create_constant(Type::of<uint32_t>(), &index_value);
+        auto *increment = module.create_constant(Type::of<int>(), &increment_value);
+        std::array<Value *, 1u> indices{index};
+        b.atomic_fetch_add(Type::of<int>(), buffer, luisa::span<Value *const>{indices}, increment);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        expect(ast->arguments().size() == 1u);
+        expect(ast->variable_usage(ast->arguments().front().uid()) != Usage::NONE);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.stores == 1u);
+
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+        auto atomic_count = 0u;
+        for (auto *block : roundtrip_kernel->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                atomic_count += inst->isa<AtomicInst>() && static_cast<AtomicInst *>(inst)->op() == AtomicOp::FETCH_ADD;
+            }
+        }
+        expect(atomic_count == 1u);
+    };
+
+    "xir_to_ast_direct_materializes_dynamic_values_once"_test = [] {
+        Module module;
+        auto *int_type = Type::of<int>();
+        auto *uint_type = Type::of<uint32_t>();
+        auto *ulong_type = Type::of<uint64_t>();
+        uint32_t index_value = 0u;
+        int one_value = 1;
+        uint64_t zero_ulong_value = 0u;
+        auto *index = module.create_constant(uint_type, &index_value);
+        auto *one = module.create_constant(int_type, &one_value);
+        auto *zero_ulong = module.create_constant(ulong_type, &zero_ulong_value);
+
+        auto *callee = module.create_callable(int_type);
+        auto *callee_buffer = callee->create_resource_argument(Type::buffer(int_type));
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.call(ResourceWriteOp::BUFFER_WRITE, {callee_buffer, index, one});
+        b.return_(one);
+
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(Type::buffer(int_type));
+        auto *clock_buffer = kernel->create_resource_argument(Type::buffer(ulong_type));
+        auto *body = kernel->create_body_block();
+        b.set_insertion_point(body);
+        auto *read = b.call(int_type, ResourceReadOp::BUFFER_READ, {buffer, index});
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, index, one});
+        auto *read_twice = b.call(int_type, ArithmeticOp::BINARY_ADD, {read, read});
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, index, read_twice});
+        static_cast<void>(b.call(int_type, ResourceReadOp::BUFFER_VOLATILE_READ, {buffer, index}));
+        std::array<Value *, 1u> indices{index};
+        auto *atomic = b.atomic_fetch_add(int_type, buffer, luisa::span<Value *const>{indices}, one);
+        auto *atomic_twice = b.call(int_type, ArithmeticOp::BINARY_ADD, {atomic, atomic});
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, index, atomic_twice});
+        auto *warp = b.call(int_type, ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+        auto *warp_twice = b.call(int_type, ArithmeticOp::BINARY_ADD, {warp, warp});
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, index, warp_twice});
+        static_cast<void>(b.call(int_type, ThreadGroupOp::WARP_ACTIVE_MAX, {one}));
+        auto *clock = b.clock();
+        b.call(ResourceWriteOp::BUFFER_VOLATILE_WRITE, {clock_buffer, index, zero_ulong});
+        auto *clock_twice = b.call(ulong_type, ArithmeticOp::BINARY_ADD, {clock, clock});
+        b.call(ResourceWriteOp::BUFFER_WRITE, {clock_buffer, index, clock_twice});
+        auto *call = b.call(int_type, callee, {buffer});
+        auto *call_twice = b.call(int_type, ArithmeticOp::BINARY_ADD, {call, call});
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, index, call_twice});
+        static_cast<void>(b.call(int_type, callee, {buffer}));
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+        auto buffer_read_count = 0u;
+        auto volatile_read_count = 0u;
+        auto atomic_count = 0u;
+        auto warp_sum_count = 0u;
+        auto warp_max_count = 0u;
+        auto clock_count = 0u;
+        auto call_count = 0u;
+        size_t instruction_index = 0u;
+        auto first_buffer_read_index = std::numeric_limits<size_t>::max();
+        auto first_buffer_write_index = std::numeric_limits<size_t>::max();
+        auto clock_index = std::numeric_limits<size_t>::max();
+        auto volatile_write_index = std::numeric_limits<size_t>::max();
+        for (auto *block : roundtrip_kernel->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                if (inst->isa<ResourceReadInst>()) {
+                    auto op = static_cast<ResourceReadInst *>(inst)->op();
+                    if (op == ResourceReadOp::BUFFER_READ) {
+                        buffer_read_count++;
+                        first_buffer_read_index = std::min(first_buffer_read_index, instruction_index);
+                    } else if (op == ResourceReadOp::BUFFER_VOLATILE_READ) {
+                        volatile_read_count++;
+                    }
+                } else if (inst->isa<ResourceWriteInst>()) {
+                    if (static_cast<ResourceWriteInst *>(inst)->op() == ResourceWriteOp::BUFFER_VOLATILE_WRITE) {
+                        volatile_write_index = std::min(volatile_write_index, instruction_index);
+                    }
+                    first_buffer_write_index = std::min(first_buffer_write_index, instruction_index);
+                } else if (inst->isa<AtomicInst>()) {
+                    atomic_count += static_cast<AtomicInst *>(inst)->op() == AtomicOp::FETCH_ADD;
+                } else if (inst->isa<ThreadGroupInst>()) {
+                    auto op = static_cast<ThreadGroupInst *>(inst)->op();
+                    warp_sum_count += op == ThreadGroupOp::WARP_ACTIVE_SUM;
+                    warp_max_count += op == ThreadGroupOp::WARP_ACTIVE_MAX;
+                } else if (inst->isa<ClockInst>()) {
+                    clock_count++;
+                    clock_index = std::min(clock_index, instruction_index);
+                } else if (inst->isa<CallInst>()) {
+                    call_count++;
+                }
+                instruction_index++;
+            }
+        }
+        expect(buffer_read_count == 1u);
+        expect(volatile_read_count == 1u);
+        expect(atomic_count == 1u);
+        expect(warp_sum_count == 1u);
+        expect(warp_max_count == 1u);
+        expect(clock_count == 1u);
+        expect(call_count == 2u);
+        expect(first_buffer_read_index < first_buffer_write_index);
+        expect(clock_index < volatile_write_index);
+    };
+
+    "xir_to_ast_direct_emits_void_effects_once"_test = [] {
+        Module module;
+        auto *void_callable = module.create_callable(nullptr);
+        auto *callable_body = void_callable->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callable_body);
+        b.return_void();
+
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        bool condition_value = true;
+        auto *condition = module.create_constant(Type::of<bool>(), &condition_value);
+        b.set_insertion_point(body);
+        b.assert_(condition, "assert");
+        b.assume_(condition, "assume");
+        b.synchronize_block();
+        b.call(nullptr, void_callable, {});
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+        auto assert_count = 0u;
+        auto assume_count = 0u;
+        auto sync_count = 0u;
+        auto call_count = 0u;
+        for (auto *block : roundtrip_kernel->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                assert_count += inst->isa<AssertInst>();
+                assume_count += inst->isa<AssumeInst>();
+                sync_count += inst->isa<ThreadGroupInst>() && static_cast<ThreadGroupInst *>(inst)->op() == ThreadGroupOp::SYNCHRONIZE_BLOCK;
+                call_count += inst->isa<CallInst>();
+            }
+        }
+        expect(assert_count == 1u);
+        expect(assume_count == 1u);
+        expect(sync_count == 1u);
+        expect(call_count == 1u);
+    };
+
+    "xir_to_ast_direct_continue_executes_loop_update"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *body = kernel->create_body_block();
+        auto *uint_type = Type::of<uint32_t>();
+        auto *zero = module.create_constant_zero(uint_type);
+        auto *one = module.create_constant_one(uint_type);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *counter = b.alloca_local(uint_type);
+        auto *mirror = b.alloca_local(uint_type);
+        b.store(counter, zero);
+        b.store(mirror, zero);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        b.cond_br(condition, loop_body, merge);
+        b.set_insertion_point(loop_body);
+        auto *if_inst = b.if_(condition);
+        auto *true_block = if_inst->create_true_block();
+        auto *false_block = if_inst->create_false_block();
+        b.set_insertion_point(true_block);
+        b.continue_(update);
+        b.set_insertion_point(false_block);
+        b.break_(merge);
+        b.set_insertion_point(update);
+        auto *value = b.load(uint_type, counter);
+        auto *next = b.call(uint_type, ArithmeticOp::BINARY_ADD, {value, one});
+        b.store(counter, next);
+        auto *mirror_value = b.load(uint_type, mirror);
+        auto *mirror_next = b.call(uint_type, ArithmeticOp::BINARY_ADD, {mirror_value, one});
+        b.store(mirror, mirror_next);
+        b.br(prepare);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+        auto continue_count = 0u;
+        auto updated_continue_count = 0u;
+        auto simple_loop_count = 0u;
+        for (auto *block : roundtrip_kernel->basic_blocks()) {
+            auto saw_add = false;
+            auto saw_store = false;
+            for (auto *inst : block->instructions()) {
+                simple_loop_count += inst->isa<SimpleLoopInst>();
+                saw_add |= inst->isa<ArithmeticInst>() && static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::BINARY_ADD;
+                saw_store |= inst->isa<StoreInst>();
+                if (inst->isa<ContinueInst>()) {
+                    continue_count++;
+                    auto *target = static_cast<ContinueInst *>(inst)->target_block();
+                    expect(target != nullptr);
+                    if (target == nullptr) { continue; }
+                    auto target_has_add = false;
+                    auto target_has_store = false;
+                    for (auto *target_inst : target->instructions()) {
+                        target_has_add |= target_inst->isa<ArithmeticInst>() && static_cast<ArithmeticInst *>(target_inst)->op() == ArithmeticOp::BINARY_ADD;
+                        target_has_store |= target_inst->isa<StoreInst>();
+                    }
+                    updated_continue_count += (saw_add && saw_store) || (target_has_add && target_has_store);
+                }
+            }
+        }
+        expect(simple_loop_count == 1u);
+        expect(continue_count == 1u);
+        expect(updated_continue_count == 1u);
+    };
+
+    "xir_to_ast_direct_preserves_nearest_break_continue_scopes"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *selector = kernel->create_value_argument(Type::of<int32_t>());
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        b.cond_br(condition, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *switch_inst = b.switch_(selector);
+        auto *case_block = switch_inst->create_case_block(0);
+        auto *default_block = switch_inst->create_default_block();
+        auto *switch_merge = switch_inst->create_merge_block();
+        b.set_insertion_point(case_block);
+        b.break_(switch_merge);
+        b.set_insertion_point(default_block);
+        b.continue_(update);
+        b.set_insertion_point(switch_merge);
+        b.break_(loop_merge);
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.loops == 1u);
+        expect(counter.switches == 1u);
+        expect(counter.breaks == 3u);
+        expect(counter.continues == 1u);
+
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(
+                   roundtrip.get(),
+                   {.require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+    "xir_to_ast_direct_rejects_break_without_structured_scope"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *exit = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *break_inst = b.break_(exit);
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto strict = xir_verify_module(
+            &module, {.require_canonical_break_continue_targets = true});
+        expect(!strict.succeeded());
+        auto has_expected_error = std::any_of(
+            strict.errors.cbegin(), strict.errors.cend(),
+            [&](auto &&error) noexcept {
+                return error.block == body &&
+                       error.instruction == break_inst &&
+                       error.message.find(
+                           "Break target is not the nearest enclosing structured break target.") !=
+                           luisa::string::npos;
+            });
+        expect(has_expected_error);
+        expect(terminates_with_abort([&] {
+            static_cast<void>(xir_to_ast_translate(*kernel, {}));
+        }));
+    };
+#endif
+
+    "xir_to_ast_direct_structured_if"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *idx = module.create_thread_id();
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        auto *x = b.call(Type::of<uint>(), ArithmeticOp::EXTRACT, {idx, zero});
+        auto *value = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ, {buffer, x});
+        float threshold = 0.0f;
+        auto *c = module.create_constant(Type::of<float>(), &threshold);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_GREATER, {value, c});
+        auto *if_inst = b.if_(cond);
+        auto *merge = if_inst->create_merge_block();
+        b.set_insertion_point(if_inst->create_true_block());
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, x, value});
+        b.br(merge);
+        b.set_insertion_point(if_inst->create_false_block());
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, x, c});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.ifs == 1u);
+        expect(counter.exprs == 2u);
+        expect(counter.returns == 1u);
+    };
+
+    "xir_to_ast_direct_terminal_null_merge_selections"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *selector = kernel->create_value_argument(Type::of<int>());
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *if_inst = b.if_(condition);
+        auto *true_block = if_inst->create_true_block();
+        auto *false_block = if_inst->create_false_block();
+        b.set_insertion_point(true_block);
+        b.return_void();
+        b.set_insertion_point(false_block);
+        auto *switch_inst = b.switch_(selector);
+        auto *case_block = switch_inst->create_case_block(1);
+        auto *default_block = switch_inst->create_default_block();
+        b.set_insertion_point(case_block);
+        b.return_void();
+        b.set_insertion_point(default_block);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.ifs == 1u);
+        expect(counter.switches == 1u);
+        expect(counter.returns == 3u);
+    };
+
+    "xir_to_ast_normalize_repairs_unterminated_disconnected_block"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+        static_cast<void>(kernel->create_basic_block());
+
+        xir_to_ast_normalize_module(&module);
+        for (auto *block : kernel->basic_blocks()) {
+            expect(block->is_terminated());
+        }
+        expect(xir_verify_module(
+                   &module, {.require_no_phi = true})
+                   .succeeded());
+        expect(xir_to_ast_translate(*kernel, {}) != nullptr);
+    };
+
+    "xir_to_ast_direct_cond_br_with_nested_reconvergence"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *local = b.alloca_local(Type::of<uint32_t>());
+        bool cond_value = true;
+        auto *cond = module.create_constant(Type::of<bool>(), &cond_value);
+        bool nested_cond_value = false;
+        auto *nested_cond = module.create_constant(Type::of<bool>(), &nested_cond_value);
+        uint32_t one = 1u;
+        uint32_t two = 2u;
+        uint32_t three = 3u;
+        auto *one_c = module.create_constant(Type::of<uint32_t>(), &one);
+        auto *two_c = module.create_constant(Type::of<uint32_t>(), &two);
+        auto *three_c = module.create_constant(Type::of<uint32_t>(), &three);
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *true_true_block = kernel->create_basic_block();
+        auto *true_false_block = kernel->create_basic_block();
+        auto *true_join = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        b.cond_br(cond, true_block, false_block);
+
+        b.set_insertion_point(true_block);
+        b.cond_br(nested_cond, true_true_block, true_false_block);
+        b.set_insertion_point(true_true_block);
+        b.store(local, one_c);
+        b.br(true_join);
+        b.set_insertion_point(true_false_block);
+        b.store(local, two_c);
+        b.br(true_join);
+        b.set_insertion_point(true_join);
+        b.br(merge);
+
+        b.set_insertion_point(false_block);
+        b.store(local, three_c);
+        b.br(merge);
+
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.ifs == 2u);
+        expect(counter.stores == 3u);
+        expect(counter.returns == 1u);
+    };
+}
+
+void reg_xir2ast_ast_roundtrip() {
+
+    "xir_to_ast_ast_xir_arithmetic_roundtrip"_test = [] {
+        Kernel1D kernel = [](BufferFloat buffer) {
+            auto idx = dispatch_id().x;
+            auto value = buffer->read(idx);
+            auto y = value * 2.0f + 1.0f;
+            buffer->write(idx, y);
+        };
+        auto original = ast_to_xir_translate(kernel.function()->function(), {});
+        xir_to_ast_normalize_module(original.get());
+        auto *def = first_kernel_definition(original.get());
+        expect(def != nullptr);
+        auto ast = xir_to_ast_translate(*def, {});
+        expect(ast != nullptr);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        auto text = xir_to_text_translate(rebuilt.get(), false);
+        expect(text.find("arithmetic binary_mul") != string::npos);
+        expect(text.find("resource_write buffer_write") != string::npos);
+    };
+
+    "xir_to_ast_ast_xir_control_flow_roundtrip"_test = [] {
+        Kernel1D kernel = [](BufferFloat buffer) {
+            auto idx = dispatch_id().x;
+            auto value = buffer->read(idx);
+            $if (value > 0.0f) {
+                buffer->write(idx, value);
+            }
+            $else {
+                buffer->write(idx, 0.0f);
+            };
+        };
+        auto original = ast_to_xir_translate(kernel.function()->function(), {});
+        xir_to_ast_normalize_module(original.get());
+        auto *def = first_kernel_definition(original.get());
+        auto ast = xir_to_ast_translate(*def, {});
+        expect(ast != nullptr);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        auto text = xir_to_text_translate(rebuilt.get(), false);
+        expect(text.find("if") != string::npos);
+        expect(text.find("resource_write buffer_write") != string::npos);
+    };
+
+    "xir_to_ast_preserves_bound_resource_arguments"_test = [] {
+        Kernel1D kernel = [](BufferFloat captured, BufferFloat runtime) {
+            auto idx = dispatch_id().x;
+            runtime->write(idx, captured->read(idx));
+        };
+        compute::Function function = kernel.function()->function();
+        auto binding = compute::Function::Binding{compute::Function::BufferBinding{0x1234u, 16u, 64u}};
+        auto config = XIR2ASTConfig{.bound_arguments = luisa::span{&binding, 1u}};
+        auto original = ast_to_xir_translate(function, {});
+        auto *def = first_kernel_definition(original.get());
+        auto ast = xir_to_ast_translate(*def, config);
+        expect(ast != nullptr);
+        expect(ast->bound_arguments().size() == 1u);
+        expect(ast->unbound_arguments().size() == 1u);
+        expect(luisa::holds_alternative<compute::Function::BufferBinding>(ast->bound_arguments().front()));
+    };
+}
+
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_xir2ast_direct();
+    reg_xir2ast_ast_roundtrip();
+    return 0;
+}

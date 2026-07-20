@@ -1,5 +1,6 @@
 #pragma once
 #include <luisa/vstl/config.h>
+#include <luisa/core/basic_traits.h>
 #include <cstdint>
 #include <string>
 #include <luisa/vstl/hash.h>
@@ -44,7 +45,7 @@ inline string IntegerToString(const Ty Val) noexcept {// convert Val to string
     IntegerToString<Ty>(Val, s);
     return s;
 }
-inline void _float_str_resize(size_t lastSize, string &str) noexcept {
+inline void _float_str_resize(int64_t lastSize, string &str) noexcept {
     for (int64_t i = str.size() - 1; i >= lastSize; --i) {
         if (str[i] == '.') [[unlikely]] {
             auto end = i + 2;
@@ -106,7 +107,7 @@ struct make_integer<8u, is_signed> {
 }// namespace detail
 
 template<typename T>
-using canonical_integer_t = typename detail::make_integer<sizeof(T), std::is_signed_v<T>>::type;
+using canonical_integer_t = typename detail::make_integer<sizeof(T), luisa::is_signed_v<T>>::type;
 
 template<typename T>
     requires std::is_integral_v<T>

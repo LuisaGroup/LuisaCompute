@@ -22,8 +22,13 @@
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/ModRef.h>
+#include <llvm/TargetParser/TargetParser.h>
+#include <llvm/MC/MCSubtargetInfo.h>
+
+#include <algorithm>
 
 #include <luisa/core/clock.h>
+#include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
 #include "hiprt_device_wrapper.hip"
 #include "hip_codegen_llvm_device_bitcode.h"
@@ -54,6 +59,104 @@ HIPCodegenLLVMImpl::HIPCodegenLLVMImpl(HIPCodegenLLVMConfig config) noexcept
     Clock clk;
     _initialize();
     LUISA_VERBOSE_WITH_LOCATION("HIP LLVM codegen initialized in {} ms.", clk.toc());
+}
+
+void HIPCodegenLLVMImpl::_collect_print_info(
+    const xir::Module &xir_module) noexcept {
+    _print_info.clear();
+    _print_formats.clear();
+    for (auto function : xir_module.function_list()) {
+        if (auto definition = function->definition()) {
+            definition->traverse_instructions(
+                [this](const xir::Instruction *instruction) noexcept {
+                    if (instruction->derived_instruction_tag() !=
+                        xir::DerivedInstructionTag::PRINT) {
+                        return;
+                    }
+                    auto print = static_cast<const xir::PrintInst *>(instruction);
+                    luisa::vector<const Type *> member_types;
+                    member_types.reserve(print->operand_count() + 2u);
+                    member_types.emplace_back(Type::of<uint>());
+                    member_types.emplace_back(Type::of<uint>());
+                    for (auto operand_use : print->operand_uses()) {
+                        LUISA_ASSERT(operand_use->value() != nullptr,
+                                     "Print operand is null.");
+                        member_types.emplace_back(operand_use->value()->type());
+                    }
+                    auto argument_pack_type = Type::structure(member_types);
+                    auto index = static_cast<uint32_t>(_print_formats.size());
+                    auto [_, inserted] = _print_info.emplace(
+                        print, PrintInfo{argument_pack_type, index});
+                    LUISA_ASSERT(inserted, "Duplicate XIR PrintInst encountered.");
+                    _print_formats.emplace_back(
+                        print->format(), argument_pack_type);
+                });
+        }
+    }
+    LUISA_ASSERT(_print_formats.empty() != _config.requires_printing,
+                 "HIP printing metadata mismatch: config requires_printing={}, "
+                 "but {} print format(s) were found.",
+                 _config.requires_printing, _print_formats.size());
+}
+
+void HIPCodegenLLVMImpl::_analyze_ray_tracing_usage(
+    const xir::Module &module) noexcept {
+    llvm::DenseSet<const xir::Function *> visited;
+    for (auto function : module.function_list()) {
+        // Only code reachable from kernels affects this module's kernel ABI and
+        // traversal-stack selection. Unused callables must not pessimize it.
+        if (function->isa<xir::KernelFunction>()) {
+            _analyze_ray_tracing_in_function(function, visited);
+        }
+    }
+}
+
+void HIPCodegenLLVMImpl::_analyze_ray_tracing_in_function(
+    const xir::Function *function,
+    llvm::DenseSet<const xir::Function *> &visited) noexcept {
+    if (function == nullptr || !visited.insert(function).second) { return; }
+    auto definition = function->definition();
+    if (definition == nullptr) { return; }
+    definition->traverse_instructions([&](const xir::Instruction *instruction) noexcept {
+        if (instruction->isa<xir::ResourceQueryInst>()) {
+            switch (static_cast<const xir::ResourceQueryInst *>(instruction)->op()) {
+                case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST: [[fallthrough]];
+                case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY: {
+                    _rt_analysis.uses_ray_tracing = true;
+                    _rt_analysis.uses_static_trace = true;
+                    break;
+                }
+                case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL: [[fallthrough]];
+                case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY: {
+                    _rt_analysis.uses_ray_tracing = true;
+                    _rt_analysis.uses_ray_query = true;
+                    break;
+                }
+                case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: [[fallthrough]];
+                case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR: {
+                    _rt_analysis.uses_ray_tracing = true;
+                    _rt_analysis.uses_motion_blur = true;
+                    break;
+                }
+                case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: [[fallthrough]];
+                case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: {
+                    _rt_analysis.uses_ray_tracing = true;
+                    _rt_analysis.uses_ray_query = true;
+                    _rt_analysis.uses_motion_blur = true;
+                    _rt_analysis.uses_motion_ray_query = true;
+                    break;
+                }
+                default: break;
+            }
+        }
+        for (auto operand_use : instruction->operand_uses()) {
+            if (auto operand = operand_use->value();
+                operand != nullptr && operand->isa<xir::Function>()) {
+                _analyze_ray_tracing_in_function(
+                    static_cast<const xir::Function *>(operand), visited);
+            }
+        }
+    });
 }
 
 void HIPCodegenLLVMImpl::_initialize() noexcept {
@@ -88,10 +191,38 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE: opt_level = llvm::CodeGenOptLevel::Aggressive; break;
     }
 
-    auto cpu_name = fmt::format("gfx{}", _config.amdgpu_arch);
-    auto features = _config.wave_size == 64 ? llvm::StringRef{"+wavefrontsize64"} : llvm::StringRef{};
+    LUISA_ASSERT(!_config.amdgpu_arch.empty(), "AMDGPU architecture must not be empty.");
+    auto cpu_name = llvm::StringRef{_config.amdgpu_arch};
+    auto gpu_kind = llvm::AMDGPU::parseArchAMDGCN(cpu_name);
+    LUISA_ASSERT(gpu_kind != llvm::AMDGPU::GK_NONE,
+                 "Unsupported AMDGPU architecture '{}'.", _config.amdgpu_arch);
+    auto isa = llvm::AMDGPU::getIsaVersion(cpu_name);
+    _supports_hardware_rt_stack = isa.Major >= 12u;
+    // Direct motion closest/any traversal has its own private stack. Only a
+    // motion ray query needs the generic dynamic stack and therefore prevents
+    // the module's static trace/query paths from using gfx12's hardware stack.
+    _uses_hardware_rt_stack = _supports_hardware_rt_stack &&
+                              !_rt_analysis.uses_motion_ray_query;
+    _requires_global_rt_stack = !_uses_hardware_rt_stack &&
+                                (_rt_analysis.uses_static_trace ||
+                                 _rt_analysis.uses_ray_query);
+    auto requires_hiprt = _rt_analysis.uses_ray_tracing ||
+                          _config.requires_ray_tracing ||
+                          _config.requires_ray_query ||
+                          _config.requires_motion_blur;
+    LUISA_ASSERT(!_supports_hardware_rt_stack || !requires_hiprt || _config.wave_size == 32u,
+                 "The gfx12 HIPRT hardware stack requires wave32 code generation, "
+                 "but this ray-tracing kernel requests wave{}.",
+                 _config.wave_size);
+    // The AMDGPU target's default wave size is architecture-dependent. The XIR
+    // lowering below specializes ballots, masks and shuffle trees for one exact
+    // size, so leaving wave32 implicit can silently generate wave64 code with
+    // 32-lane reduction logic on targets whose default differs.
+    auto features = _config.wave_size == 64 ?
+                        llvm::StringRef{"+wavefrontsize64"} :
+                        llvm::StringRef{"+wavefrontsize32"};
     _target_machine = target->createTargetMachine(
-        llvm::Triple{amdgpu_target_triple}, llvm::StringRef{cpu_name}, features,
+        llvm::Triple{amdgpu_target_triple}, cpu_name, features,
         options, llvm::Reloc::Static, llvm::CodeModel::Small, opt_level);
 
     _data_layout = std::make_unique<llvm::DataLayout>(_target_machine->createDataLayout());
@@ -120,7 +251,23 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
         }
     }
 
-    // provide OCLC configuration globals that OCML depends on
+    _specialize_oclc_options();
+
+    _llvm_buffer_type = _get_llvm_buffer_type();
+    _llvm_texture_type = _get_llvm_texture_type();
+    _llvm_bindless_array_type = _get_llvm_bindless_array_type();
+    _llvm_bindless_array_slot_type = _get_llvm_bindless_array_slot_type();
+    _llvm_accel_type = _get_llvm_accel_type();
+    _llvm_accel_instance_type = _get_llvm_accel_instance_type();
+    _llvm_ray_type = _get_llvm_ray_type();
+    _llvm_surface_hit_type = _get_llvm_surface_hit_type();
+    _llvm_procedural_hit_type = _get_llvm_procedural_hit_type();
+    _llvm_committed_hit_type = _get_llvm_committed_hit_type();
+    _llvm_ray_query_type = _get_llvm_ray_query_type();
+}
+
+void HIPCodegenLLVMImpl::_specialize_oclc_options() noexcept {
+    // Provide the target configuration globals required by OCML/OCKL.
     auto set_oclc_option = [&](llvm::StringRef name, llvm::Value *value) {
         if (auto gv = _llvm_module->getGlobalVariable(name)) {
             llvm::SmallVector<llvm::LoadInst *, 8> loads;
@@ -142,20 +289,209 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
     auto llvm_i32_type = llvm::Type::getInt32Ty(_llvm_context);
     set_oclc_option("__oclc_finite_only_opt", llvm::ConstantInt::get(llvm_i8_type, _config.enable_fast_math ? 1 : 0));
     set_oclc_option("__oclc_unsafe_math_opt", llvm::ConstantInt::get(llvm_i8_type, _config.enable_fast_math ? 1 : 0));
-    auto isa_version = (_config.amdgpu_arch / 100) * 1000 + (_config.amdgpu_arch % 100) * 10;
+    set_oclc_option("__oclc_ABI_version", llvm::ConstantInt::get(llvm_i32_type, 600u));
+    set_oclc_option("__oclc_wavefrontsize64", llvm::ConstantInt::get(llvm_i8_type, _config.wave_size == 64u));
+    set_oclc_option("__oclc_wavefrontsize_log2", llvm::ConstantInt::get(llvm_i32_type, _config.wave_size == 64u ? 6u : 5u));
+    auto isa = llvm::AMDGPU::getIsaVersion(llvm::StringRef{_config.amdgpu_arch});
+    auto isa_version = isa.Major * 1000u + isa.Minor * 100u + isa.Stepping;
     set_oclc_option("__oclc_ISA_version", llvm::ConstantInt::get(llvm_i32_type, isa_version));
+}
 
-    _llvm_buffer_type = _get_llvm_buffer_type();
-    _llvm_texture_type = _get_llvm_texture_type();
-    _llvm_bindless_array_type = _get_llvm_bindless_array_type();
-    _llvm_bindless_array_slot_type = _get_llvm_bindless_array_slot_type();
-    _llvm_accel_type = _get_llvm_accel_type();
-    _llvm_accel_instance_type = _get_llvm_accel_instance_type();
-    _llvm_ray_type = _get_llvm_ray_type();
-    _llvm_surface_hit_type = _get_llvm_surface_hit_type();
-    _llvm_procedural_hit_type = _get_llvm_procedural_hit_type();
-    _llvm_committed_hit_type = _get_llvm_committed_hit_type();
-    _llvm_ray_query_type = _get_llvm_ray_query_type();
+void HIPCodegenLLVMImpl::_link_native_include() noexcept {
+    if (_config.native_include.empty()) { return; }
+    auto source_name = _config.source_file.empty() ?
+                           llvm::StringRef{"hip_native_include.ll"} :
+                           llvm::StringRef{_config.source_file};
+    auto buffer = llvm::MemoryBuffer::getMemBuffer(
+        llvm::StringRef{_config.native_include.data(),
+                        _config.native_include.size()},
+        source_name, false);
+    llvm::SMDiagnostic error;
+    auto native_module = llvm::parseIR(buffer->getMemBufferRef(), error,
+                                       _llvm_context);
+    if (native_module == nullptr) {
+        std::string diagnostic;
+        llvm::raw_string_ostream stream{diagnostic};
+        error.print("LuisaCompute HIP native include", stream);
+        stream.flush();
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to parse HIP native include as LLVM IR/bitcode:\n{}",
+            diagnostic);
+    }
+    auto expected_triple = llvm::Triple{amdgpu_target_triple};
+    auto native_triple = native_module->getTargetTriple();
+    LUISA_ASSERT(native_triple.str().empty() || native_triple == expected_triple,
+                 "HIP native include targets '{}', expected '{}'.",
+                 native_triple.str(), expected_triple.str());
+    auto native_layout = native_module->getDataLayoutStr();
+    auto expected_layout = _llvm_module->getDataLayoutStr();
+    LUISA_ASSERT(native_layout.empty() || native_layout == expected_layout,
+                 "HIP native include has an incompatible LLVM data layout.");
+    native_module->setTargetTriple(expected_triple);
+    native_module->setDataLayout(*_data_layout);
+
+    // Native IR may have been produced for a different subtarget. Letting such
+    // attributes survive until optimization can silently specialize helper
+    // functions for the wrong ISA even though the module triple/layout match.
+    // Accept attributes that describe this target, then canonicalize every
+    // definition to the TargetMachine configuration used for the whole shader.
+    auto target_cpu = _target_machine->getTargetCPU();
+    auto target_features = _target_machine->getTargetFeatureString();
+    auto subtarget = _target_machine->getMCSubtargetInfo();
+    LUISA_ASSERT(subtarget != nullptr,
+                 "HIP target machine does not expose subtarget information.");
+    for (auto &function : *native_module) {
+        if (auto cpu_attr = function.getFnAttribute("target-cpu");
+            cpu_attr.isValid()) {
+            auto native_cpu = cpu_attr.getValueAsString();
+            LUISA_ASSERT(native_cpu.empty() || native_cpu == target_cpu,
+                         "HIP native function '{}' targets CPU '{}', expected '{}'.",
+                         function.getName().str(), native_cpu.str(), target_cpu.str());
+        }
+        if (auto features_attr = function.getFnAttribute("target-features");
+            features_attr.isValid()) {
+            auto native_features = features_attr.getValueAsString();
+            LUISA_ASSERT(native_features.empty() ||
+                             subtarget->checkFeatures(native_features),
+                         "HIP native function '{}' requests target features '{}' "
+                         "that are incompatible with CPU '{}' and features '{}'.",
+                         function.getName().str(), native_features.str(),
+                         target_cpu.str(), target_features.str());
+        }
+        function.removeFnAttr("target-cpu");
+        function.removeFnAttr("target-features");
+        if (!function.isDeclaration()) {
+            function.addFnAttr("target-cpu", target_cpu);
+            if (!target_features.empty()) {
+                function.addFnAttr("target-features", target_features);
+            }
+        }
+    }
+
+    static constexpr llvm::Attribute::AttrKind abi_attributes[]{
+        llvm::Attribute::InReg,
+        llvm::Attribute::SExt,
+        llvm::Attribute::ZExt,
+#if LLVM_VERSION_MAJOR >= 22
+        llvm::Attribute::NoExt,
+#endif
+        llvm::Attribute::ByRef,
+        llvm::Attribute::ByVal,
+        llvm::Attribute::ElementType,
+        llvm::Attribute::InAlloca,
+        llvm::Attribute::Preallocated,
+        llvm::Attribute::StructRet,
+        llvm::Attribute::Nest,
+        llvm::Attribute::Returned,
+        llvm::Attribute::SwiftAsync,
+        llvm::Attribute::SwiftError,
+        llvm::Attribute::SwiftSelf,
+        llvm::Attribute::Naked,
+        llvm::Attribute::NoRedZone,
+        llvm::Attribute::ReturnsTwice,
+        llvm::Attribute::StackAlignment,
+    };
+
+    for (auto &[xir_value, llvm_value] : _xir_to_llvm_global) {
+        auto external = llvm::dyn_cast<llvm::Function>(llvm_value);
+        if (external == nullptr ||
+            !xir_value->isa<xir::ExternalFunction>()) {
+            continue;
+        }
+        auto definition = native_module->getFunction(external->getName());
+        LUISA_ASSERT(definition != nullptr && !definition->isDeclaration(),
+                     "HIP native include does not define external function '{}'.",
+                     external->getName().str());
+        LUISA_ASSERT(!definition->hasLocalLinkage() &&
+                         !definition->hasAvailableExternallyLinkage(),
+                     "HIP native function '{}' must provide an externally linkable definition.",
+                     external->getName().str());
+        LUISA_ASSERT(definition->getFunctionType() ==
+                         external->getFunctionType(),
+                     "HIP native function '{}' does not match its ExternalCallable ABI.",
+                     external->getName().str());
+        LUISA_ASSERT(definition->getAddressSpace() == external->getAddressSpace(),
+                     "HIP native function '{}' has an incompatible function address space.",
+                     external->getName().str());
+        LUISA_ASSERT(definition->getCallingConv() == external->getCallingConv(),
+                     "HIP native function '{}' has an incompatible LLVM calling convention.",
+                     external->getName().str());
+        auto definition_attributes = definition->getAttributes();
+        auto external_attributes = external->getAttributes();
+        auto check_abi_attributes = [&](llvm::AttributeSet native_attributes,
+                                        llvm::AttributeSet expected_attributes,
+                                        llvm::StringRef position) noexcept {
+            for (auto kind : abi_attributes) {
+                auto native_attribute = native_attributes.getAttribute(kind);
+                auto expected_attribute = expected_attributes.getAttribute(kind);
+                LUISA_ASSERT(native_attribute == expected_attribute,
+                             "HIP native function '{}' has incompatible '{}' ABI "
+                             "attribute on {}.",
+                             external->getName().str(),
+                             llvm::Attribute::getNameFromAttrKind(kind).str(),
+                             position.str());
+            }
+        };
+        check_abi_attributes(definition_attributes.getFnAttrs(),
+                             external_attributes.getFnAttrs(), "the function");
+        check_abi_attributes(definition_attributes.getRetAttrs(),
+                             external_attributes.getRetAttrs(), "the return value");
+        auto xir_external = static_cast<const xir::ExternalFunction *>(xir_value);
+        auto xir_argument = xir_external->arguments().begin();
+        for (auto i = 0u; i < definition->arg_size(); ++i) {
+            LUISA_ASSERT(xir_argument != xir_external->arguments().end(),
+                         "HIP ExternalCallable argument count changed during ABI validation.");
+            auto argument = *xir_argument;
+            ++xir_argument;
+            auto native_attributes = definition_attributes.getParamAttrs(i);
+            if (auto alignment_attribute =
+                    native_attributes.getAttribute(llvm::Attribute::Alignment);
+                alignment_attribute.isValid()) {
+                auto native_alignment = alignment_attribute.getAlignment();
+                auto available_alignment = _get_type_alignment(argument->type());
+                LUISA_ASSERT(argument->is_reference() && native_alignment.has_value() &&
+                                 native_alignment->value() <= available_alignment,
+                             "HIP native function '{}' requires alignment {} on parameter {}, "
+                             "but its ExternalCallable argument only guarantees alignment {}.",
+                             external->getName().str(),
+                             native_alignment ? native_alignment->value() : 0u,
+                             i, available_alignment);
+            }
+            auto position = fmt::format("parameter {}", i);
+            check_abi_attributes(native_attributes,
+                                 external_attributes.getParamAttrs(i), position);
+        }
+        LUISA_ASSERT(xir_argument == xir_external->arguments().end(),
+                     "HIP ExternalCallable argument count changed during ABI validation.");
+    }
+    if (llvm::Linker::linkModules(
+            *_llvm_module, std::move(native_module),
+            llvm::Linker::Flags::LinkOnlyNeeded)) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to link HIP native include into the generated LLVM module.");
+    }
+}
+
+void HIPCodegenLLVMImpl::_link_ockl_if_needed() noexcept {
+    auto llvm_printf_begin = _llvm_module->getFunction("__ockl_printf_begin");
+    if (llvm_printf_begin == nullptr || llvm_printf_begin->use_empty() || !llvm_printf_begin->isDeclaration()) {
+        return;
+    }
+
+    llvm::StringRef bitcode{
+        reinterpret_cast<const char *>(luisa_compute_hip_ockl),
+        static_cast<size_t>(luisa_compute_hip_ockl_size)};
+    auto buffer = llvm::MemoryBuffer::getMemBuffer(bitcode, "ockl.bc", false);
+    auto module = llvm::parseBitcodeFile(*buffer, _llvm_context);
+    if (!module) {
+        LUISA_ERROR_WITH_LOCATION("Failed to parse embedded AMD OCKL bitcode.");
+    }
+    if (llvm::Linker::linkModules(
+            *_llvm_module, std::move(*module),
+            llvm::Linker::Flags::LinkOnlyNeeded)) {
+        LUISA_ERROR_WITH_LOCATION("Failed to link AMD OCKL printf support.");
+    }
+    _specialize_oclc_options();
 }
 
 void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
@@ -165,28 +501,25 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
     // Step 1: Link the per-arch RT wrapper bitcode (hiprt traversal wrappers)
     const unsigned char *wrapper_data = nullptr;
     unsigned long long wrapper_size = 0;
-    switch (_config.amdgpu_arch) {
-        case 1030:
-            wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1030;
-            wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1030_size;
-            break;
-        case 1100:
-            wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1100;
-            wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1100_size;
-            break;
-        case 1200:
-            wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1200;
-            wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1200_size;
-            break;
-        case 1201:
-            wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1201;
-            wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1201_size;
-            break;
-        default:
-            LUISA_ERROR_WITH_LOCATION("Unsupported AMDGPU arch {} for HIPRT wrapper.", _config.amdgpu_arch);
+    if (_config.amdgpu_arch == "gfx1030") {
+        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1030;
+        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1030_size;
+    } else if (_config.amdgpu_arch == "gfx1100") {
+        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1100;
+        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1100_size;
+    } else if (_config.amdgpu_arch == "gfx1200") {
+        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1200;
+        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1200_size;
+    } else if (_config.amdgpu_arch == "gfx1201") {
+        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1201;
+        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1201_size;
+    } else {
+        LUISA_ERROR_WITH_LOCATION(
+            "HIP ray tracing does not have an embedded wrapper for AMDGPU architecture '{}'.",
+            _config.amdgpu_arch);
     }
     LUISA_ASSERT(wrapper_data != nullptr && wrapper_size > 0,
-                 "HIPRT wrapper bitcode is empty for arch gfx{}.", _config.amdgpu_arch);
+                 "HIPRT wrapper bitcode is empty for architecture '{}'.", _config.amdgpu_arch);
 
     llvm::StringRef wrapper_bc{reinterpret_cast<const char *>(wrapper_data),
                                static_cast<size_t>(wrapper_size)};
@@ -214,13 +547,38 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         LUISA_ERROR_WITH_LOCATION("Failed to link kernel module with HIPRT wrapper bitcode.");
     }
 
+    // The embedded wrapper must retain support for every curve basis, but each
+    // generated kernel only needs the bases declared by its trace operations.
+    // Turning the externally mutable wrapper mask into a constant here lets the
+    // regular optimization pipeline eliminate unreachable curve branches. In
+    // particular, triangle-only static trace kernels no longer inline the full
+    // software curve intersector into both trace_closest and trace_any.
+    {
+        constexpr auto supported_curve_basis_mask = (1u << curve_basis_count) - 1u;
+        auto curve_basis_mask = _config.curve_bases.to_u64();
+        LUISA_ASSERT((curve_basis_mask & ~supported_curve_basis_mask) == 0u,
+                     "Unsupported HIP curve basis mask 0x{:x}.", curve_basis_mask);
+        if (auto *gv = _llvm_module->getGlobalVariable("luisa_hiprt_curve_basis_mask")) {
+            LUISA_ASSERT(gv->getValueType()->isIntegerTy(32),
+                         "Invalid HIPRT curve-basis mask type.");
+            gv->setInitializer(llvm::ConstantInt::get(
+                llvm::Type::getInt32Ty(_llvm_context), curve_basis_mask));
+            gv->setConstant(true);
+            gv->setExternallyInitialized(false);
+            gv->setLinkage(llvm::GlobalValue::InternalLinkage);
+        } else {
+            LUISA_ERROR_WITH_LOCATION(
+                "HIPRT wrapper is missing the curve-basis specialization mask.");
+        }
+    }
+
     // Step 2: Replace the extern __shared__ declaration of luisa_hiprt_shared_stack_cache
     // with a sized definition based on the actual kernel block size.
     {
         auto block_size = _config.block_size[0] * _config.block_size[1] * _config.block_size[2];
         LUISA_ASSERT(block_size > 0u, "Block size must be greater than zero.");
         uint32_t shared_array_size;
-        if (_config.amdgpu_arch >= 1200) {
+        if (_uses_hardware_rt_stack) {
             constexpr uint32_t hw_stack_max_entries = 8u;
             // HwBvhStack: max_entries * 32 (stride) * 2 (TLAS+BLAS regions)
             // Both flat trace and ray query use HwBvhStack on gfx12.
@@ -298,7 +656,13 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
             old_gv->eraseFromParent();
             new_gv->setName("luisa_hiprt_shared_stack_cache");
         } else {
-            LUISA_ERROR_WITH_LOCATION("Could not find luisa_hiprt_shared_stack_cache in linked module!");
+            // LinkOnlyNeeded plus global DCE removes the extern LDS symbol when
+            // every reachable traversal wrapper uses a private stack (notably
+            // direct motion closest/any tracing). That is a valid zero-LDS RT
+            // kernel, not a broken wrapper link. Dynamic and hardware stack
+            // paths retain a use and therefore still take the replacement path
+            // above.
+            LUISA_VERBOSE("HIPRT kernel uses no shared traversal stack cache.");
         }
     }
 
@@ -343,15 +707,13 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         }
     }
 
-    // Strip all TBAA metadata from the module when ray queries are in use.
-    // The HIPRT bitcode (proceed, commit_surface_hit, etc.) emits typed TBAA
-    // metadata on stores to hiprtHit fields (e.g. uv, t), while our noinline
-    // wrapper functions read those same fields through a flat pointer.  LLVM's
-    // interprocedural alias analysis uses the TBAA trees to conclude that the
-    // stores and loads access non-aliasing memory, which lets it eliminate the
-    // wrapper calls entirely.  Stripping TBAA forces the optimizer to assume
-    // all memory accesses may alias, which is correct for our use case.
-    if (_config.requires_ray_query) {
+    // Legacy HIPRT ray queries pass private storage through a generic pointer
+    // and access full hiprtHit objects through multiple typed views. Strip TBAA
+    // and widen wrapper effects there to prevent incorrect interprocedural
+    // alias conclusions. gfx12 keeps its compact state in addrspace(5) across
+    // the whole wrapper ABI, so its LuisaRayQueryStateHw TBAA is consistent and
+    // useful; retaining it lets DSE/CSE remove redundant scratch traffic.
+    if (_rt_analysis.uses_ray_query && !_uses_hardware_rt_stack) {
         uint32_t tbaa_count = 0, tbaa_struct_count = 0;
         for (auto &func : *_llvm_module) {
             for (auto &bb : func) {
@@ -378,7 +740,9 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         // Setting memory(readwrite) and removing purity-related attributes forces the
         // optimizer to assume these functions may have arbitrary side effects.
         for (auto &func : *_llvm_module) {
-            if (func.getName().starts_with("luisa_ray_query_")) {
+            auto name = func.getName();
+            if (name.starts_with("luisa_ray_query_") ||
+                name.starts_with("luisa_motion_ray_query_")) {
                 func.setMemoryEffects(llvm::MemoryEffects::unknown());
                 func.removeFnAttr(llvm::Attribute::NoSync);
                 func.removeFnAttr(llvm::Attribute::WillReturn);
@@ -401,18 +765,34 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     for (auto &&func : *_llvm_module) {
         if (!func.isDeclaration() && func.getCallingConv() != llvm::CallingConv::AMDGPU_KERNEL) {
             func.setLinkage(llvm::Function::PrivateLinkage);
-            // Ray-query wrapper functions (luisa_ray_query_*) must NOT be inlined.
-            // They access the ray-query state struct through a generic/flat pointer
-            // (addrspace 0), while the kernel holds the struct in private memory
-            // (addrspace 5).  If these functions are inlined, the InferAddressSpaces
-            // pass may lift some flat-pointer accesses back to addrspace 5 while
-            // leaving others as flat, causing LLVM's AMDGPU alias analysis to treat
-            // stores (flat) and loads (private) to the SAME address as non-aliasing.
-            // Keeping them noinline preserves the function-call barrier so the
-            // optimizer cannot see through the address-space boundary.
-            if (func.getName().starts_with("luisa_ray_query_")) {
-                func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.addFnAttr(llvm::Attribute::NoInline);
+            // Legacy mutating ray-query wrappers must remain call barriers. They
+            // write through a generic/flat pointer while the kernel owns the state
+            // in private address space, and exposing both sides to
+            // InferAddressSpaces has caused invalid non-alias conclusions. gfx12
+            // keeps the ABI in addrspace(5), so its scalar accessors and the small
+            // surface-commit helper are safe to inline. Keep initialize/proceed and
+            // the less common mutations out of line to contain register pressure.
+            auto name = func.getName();
+            auto is_ray_query_wrapper =
+                name.starts_with("luisa_ray_query_") ||
+                name.starts_with("luisa_motion_ray_query_");
+            if (is_ray_query_wrapper) {
+                auto is_inline_wrapper = _uses_hardware_rt_stack &&
+                                         (name == "luisa_ray_query_state" ||
+                                          name == "luisa_ray_query_advance" ||
+                                          name == "luisa_ray_query_commit_surface_hit" ||
+                                          name.starts_with("luisa_ray_query_is_") ||
+                                          name.starts_with("luisa_ray_query_candidate_") ||
+                                          (name.starts_with("luisa_ray_query_committed_") &&
+                                           name != "luisa_ray_query_committed_hit") ||
+                                          name.starts_with("luisa_ray_query_ray_"));
+                if (is_inline_wrapper) {
+                    func.removeFnAttr(llvm::Attribute::NoInline);
+                    func.addFnAttr(llvm::Attribute::AlwaysInline);
+                } else {
+                    func.removeFnAttr(llvm::Attribute::AlwaysInline);
+                    func.addFnAttr(llvm::Attribute::NoInline);
+                }
             } else {
                 func.addFnAttr(llvm::Attribute::AlwaysInline);
             }
@@ -522,10 +902,21 @@ luisa::string HIPCodegenLLVMImpl::_generate_code() const noexcept {
 
 luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
     Clock clk;
+    _rt_analysis = {};
+    _analyze_ray_tracing_usage(xir_module);
+    // AST-derived flags are conservative: optimization may have removed the
+    // last reachable operation, but the serialized shader metadata still uses
+    // these flags and therefore must observe the same kernel argument ABI.
+    _rt_analysis.uses_ray_tracing |=
+        _config.requires_ray_tracing || _config.requires_ray_query;
+    _rt_analysis.uses_ray_query |= _config.requires_ray_query;
+    _rt_analysis.uses_motion_blur |= _config.requires_motion_blur;
+    _rt_analysis.uses_static_trace |= _config.requires_static_trace;
+    _rt_analysis.uses_motion_ray_query |= _config.requires_motion_ray_query;
+    _rt_analysis.uses_ray_tracing |= _rt_analysis.uses_motion_blur;
     _initialize();
 
-    _rt_analysis.uses_ray_tracing = _config.requires_ray_tracing || _config.requires_ray_query;
-    _rt_analysis.uses_ray_query = _config.requires_ray_query;
+    _collect_print_info(xir_module);
 
     for (auto f : xir_module.function_list()) {
         if (auto def = f->definition()) {
@@ -533,6 +924,17 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
         }
     }
 
+    _link_native_include();
+    for (auto f : xir_module.function_list()) {
+        if (f->isa<xir::ExternalFunction>()) {
+            auto llvm_f = _get_or_declare_llvm_function(f);
+            LUISA_ASSERT(!llvm_f->isDeclaration(),
+                         "HIP external function '{}' has no definition. "
+                         "ShaderOption::native_include must contain matching LLVM IR/bitcode.",
+                         f->name().value_or("<unnamed>"));
+        }
+    }
+    _link_ockl_if_needed();
     _postprocess_rt_kernel();
 
     if (llvm::verifyModule(*_llvm_module, &llvm::errs())) {
@@ -564,7 +966,23 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
 
     auto target_cpu = _target_machine->getTargetCPU();
     auto target_features = _target_machine->getTargetFeatureString();
+    auto max_vgpr_count = std::min(_config.max_register_count, 256u);
+    auto max_vgpr_count_string = std::to_string(max_vgpr_count);
     for (auto &func : *_llvm_module) {
+        // The optimization pipeline deliberately keeps mutating ray-query
+        // wrappers out of line. In particular, the gfx12 proceed helper is a
+        // large resumable traversal state machine; letting the backend inline
+        // it after the IR optimization pipeline has finished causes severe
+        // register pressure and scratch spills. Preserve these two semantic
+        // attributes across the ABI-attribute cleanup below.
+        auto name = func.getName();
+        auto preserve_noinline =
+            (name.starts_with("luisa_ray_query_") ||
+             name.starts_with("luisa_motion_ray_query_")) &&
+            func.hasFnAttribute(llvm::Attribute::NoInline);
+        auto preserve_convergent = preserve_noinline &&
+                                   func.hasFnAttribute(llvm::Attribute::Convergent);
+
         // Collect amdgpu-no-* string attributes from kernel_main before stripping.
         // These are added by AMDGPUAttributor during optimization and are critical
         // for correct kernarg segment layout: without them, the AMDGPU backend
@@ -598,6 +1016,11 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             for (auto &[key, val] : amdgpu_codegen_attrs) {
                 func.addFnAttr(key, val);
             }
+        } else if (preserve_noinline) {
+            func.addFnAttr(llvm::Attribute::NoInline);
+            if (preserve_convergent) {
+                func.addFnAttr(llvm::Attribute::Convergent);
+            }
         }
         // Re-add target CPU and features so that downstream consumers
         // (e.g., HIPRT bitcode compiler) know the GPU architecture.
@@ -605,6 +1028,13 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             func.addFnAttr("target-cpu", target_cpu);
             if (!target_features.empty()) {
                 func.addFnAttr("target-features", target_features);
+            }
+            // ShaderOption::max_registers is a whole-shader constraint. Apply
+            // it to the complete device call graph, including linked HIPRT
+            // helpers, because an unconstrained callee determines the kernel's
+            // actual VGPR allocation just as much as kernel_main does.
+            if (max_vgpr_count != 0u) {
+                func.addFnAttr("amdgpu-num-vgpr", max_vgpr_count_string);
             }
         }
     }
@@ -620,6 +1050,16 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
 
     LUISA_INFO_WITH_LOCATION("HIP LLVM codegen completed in {} ms.", clk.toc());
     return _generate_code();
+}
+
+luisa::vector<std::pair<luisa::string, luisa::string>>
+HIPCodegenLLVMImpl::take_print_formats() && noexcept {
+    luisa::vector<std::pair<luisa::string, luisa::string>> result;
+    result.reserve(_print_formats.size());
+    for (auto &&[format, type] : _print_formats) {
+        result.emplace_back(std::move(format), type->description());
+    }
+    return result;
 }
 
 }// namespace luisa::compute::hip

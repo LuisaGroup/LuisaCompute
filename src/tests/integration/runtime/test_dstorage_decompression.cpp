@@ -1,3 +1,6 @@
+// Direct-storage decompression integration test.
+// This test covers extension discovery, GDeflate-to-image decompression, and readback.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 
@@ -11,7 +14,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/event.h>
 #include <luisa/backends/ext/dstorage_ext.hpp>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <luisa/core/clock.h>
 
 #include <filesystem>
@@ -23,15 +26,28 @@ using namespace boost::ut::literals;
 
 void test_dstorage_decompression(Device &device) {
 
-    auto argv = boost::ut::detail::cfg::largv;
-
     auto opts = luisa::test::ImageTestOptions::parse(
         boost::ut::detail::cfg::largc,
         boost::ut::detail::cfg::largv);
     auto dstorage_ext = device.extension<DStorageExt>();
+    if (dstorage_ext == nullptr) {
+        LUISA_INFO("Skipping direct-storage decompression test: backend '{}' does not provide DStorageExt.", device.backend_name());
+        return;
+    }
+    if (!opts.input_path) {
+        boost::ut::expect(false)
+            << "Direct-storage decompression requires --input <file.gdeflate>.";
+        return;
+    }
+    auto compressed_path = *opts.input_path;
+    if (!std::filesystem::is_regular_file(compressed_path)) {
+        boost::ut::expect(false) << "Missing direct-storage test input: " << compressed_path;
+        return;
+    }
 
     auto dstorage_stream = dstorage_ext->create_stream();
-    auto dstorage_file = dstorage_ext->open_file("test_dstorage_texture_compressed.gdeflate");
+    auto compressed_path_string = compressed_path.string();
+    auto dstorage_file = dstorage_ext->open_file(compressed_path_string);
     auto image = device.create_image<float>(PixelStorage::BYTE4, make_uint2(4096));
     dstorage_stream << dstorage_file.copy_to(image, DStorageCompression::GDeflate) << synchronize();
 
@@ -40,25 +56,24 @@ void test_dstorage_decompression(Device &device) {
     compute_stream << image.copy_to(luisa::span{pixels}) << synchronize();
 
     stbi_write_png("test_dstorage_decompression.png", 4096, 4096, 4, pixels.data(), 0);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
-    auto result = luisa::test::save_and_compare(
-        pixels.data(), 4096, 4096, 4,
-        "test_dstorage_decompression", opts.output_dir, ref_dir, opts.update_reference);
-    LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-    if (!result.passed) {
-        LUISA_ERROR("Reference comparison failed for test_dstorage_decompression: {}", result.message);
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), 4096, 4096, 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_dstorage_decompression]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
+        }
     }
-    expect(result.passed) << result.message;
 }
 
-static inline const auto reg = [] {
-    "test_dstorage_decompression"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_dstorage_decompression(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_dstorage_decompression(device);
+}

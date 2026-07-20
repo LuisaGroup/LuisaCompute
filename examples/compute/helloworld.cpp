@@ -4,6 +4,8 @@
 
 #include <luisa/luisa-compute.h>
 
+#include <cmath>
+
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -21,7 +23,7 @@ int main(int argc, char *argv[]) {
 
     // Create a buffer to store Test1 structure
     auto bf = device.create_buffer<Test1>(1);
-    Test1 t;
+    Test1 t{};
 
     // Compile a kernel that writes to the buffer
     auto s = device.compile<1>([&]() {
@@ -36,7 +38,16 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     stream << s().dispatch(1) << bf.copy_to(luisa::span{&t, 1}) << synchronize();
 
-
-    // Output results
-    LUISA_INFO("{}, {}", (float)t.a, (int)t.b);
+    // Output and validate the result. This keeps the example readable while
+    // making its mirrored test_helloworld target a real conformance check.
+    LUISA_INFO("{}, {}", static_cast<float>(t.a), static_cast<int>(t.b));
+    constexpr auto expected_a = 1.5f;
+    constexpr auto expected_b = 132u;
+    if (std::abs(static_cast<float>(t.a) - expected_a) > 1.0e-3f ||
+        t.b != expected_b) {
+        LUISA_WARNING("Hello-world result mismatch: expected ({}, {}), got ({}, {}).",
+                      expected_a, expected_b, static_cast<float>(t.a), t.b);
+        return 1;
+    }
+    return 0;
 }

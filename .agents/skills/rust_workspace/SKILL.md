@@ -1,168 +1,61 @@
 ---
 name: rust_workspace
-description: Rust workspace architecture, IR data structures, compiler transforms, CPU backend, FFI integration with C++, and crate dependencies in LuisaCompute
+description: Rust IR, compiler transforms, CPU backend, FFI, and crate structure.
 ---
 
 # LuisaCompute Rust Workspace
 
-## Overview
-
-The Rust workspace (`src/rust/`) implements the legacy IR, compiler optimization passes, and the CPU/Remote backends. It integrates with C++ via FFI using `cbindgen` for header generation and static libraries for linking.
-
----
+`src/rust/` — legacy IR implementation, compiler passes, CPU/Remote backends. Integrates with C++ via FFI (`cbindgen` headers + static libs).
 
 ## Workspace Structure
 
 ```
 src/rust/
-├── Cargo.toml (workspace root)
-├── luisa_compute_ir/           # Core IR data structures and transforms
-├── luisa_compute_ir_staticlib/ # Static library wrapper for C++ linking
-├── luisa_compute_ir_v2/        # IR v2 bindings
-├── luisa_compute_api_types/    # Shared C++/Rust API types
-├── luisa_compute_cpu_kernel_defs/ # CPU kernel runtime definitions
-├── luisa_compute_backend/      # Backend trait definitions
-└── luisa_compute_backend_impl/ # Backend implementations (CPU, Remote)
+├── Cargo.toml                         # workspace root
+├── luisa_compute_api_types/           # shared C++/Rust FFI types (staticlib+rlib)
+├── luisa_compute_ir/                  # core IR data structures & transforms (rlib)
+├── luisa_compute_ir_staticlib/        # static lib wrapper for C++ linking (staticlib)
+│                                     # produces library luisa_compute_ir_static
+├── luisa_compute_ir_v2/               # IR v2 C API bindings (libloading)
+├── luisa_compute_cpu_kernel_defs/     # CPU kernel runtime types
+├── luisa_compute_backend/             # Backend trait definitions
+└── luisa_compute_backend_impl/        # CPU + Remote backends (cdylib)
 ```
 
----
-
-## Crate Dependency Graph
+### Dependency Graph
 
 ```
-luisa_compute_api_types (base)
-    ↑
-    ├── luisa_compute_ir
-    │       ├── luisa_compute_ir_staticlib
-    │       ├── luisa_compute_ir_v2
-    │       └── luisa_compute_backend
-    │               └── luisa_compute_backend_impl
-    │                       └── (uses luisa_compute_cpu_kernel_defs)
-    │
-    └── luisa_compute_cpu_kernel_defs
+luisa_compute_api_types
+  ├── luisa_compute_ir
+  │     ├── luisa_compute_ir_staticlib  (lib name: luisa_compute_ir_static)
+  │     ├── luisa_compute_ir_v2
+  │     └── luisa_compute_backend
+  │           └── luisa_compute_backend_impl
+  ├── luisa_compute_backend
+  └── luisa_compute_cpu_kernel_defs
+        └── luisa_compute_backend_impl
 ```
 
----
+`luisa_compute_backend_impl` also depends directly on `luisa_compute_ir_v2` and the four crates above.
 
 ## Crate Responsibilities
 
 ### `luisa_compute_api_types`
-
-**Purpose**: Defines shared types between C++ and Rust via FFI.
-
-- **Crate Type**: `staticlib` + `rlib`
-- **Key Types**:
-  - Resource handles: `Buffer`, `Texture`, `Stream`, `Device`, `Shader`, `Accel`, `Mesh`
-  - Command types: `BufferUploadCommand`, `ShaderDispatchCommand`, `AccelBuildCommand`
-  - Pixel formats: `PixelStorage`, `PixelFormat` (28 variants including BC compression)
-  - Sampler types: `SamplerFilter`, `SamplerAddress`
-  - Ray tracing: `AccelOption`, `AccelBuildModification`, `CurveBasis`
-  - Device interface: `DeviceInterface` (vtable of function pointers)
-  - Denoiser extension types
-- **Build Script**: Uses `cbindgen` to generate `api_types.hpp` and `api_types.h` for C++
+FFI types shared between C++ and Rust. Build script uses `cbindgen` → `api_types.hpp`/`api_types.h`.
+- Resource handles: `Buffer`, `Texture`, `Stream`, `Device`, `Shader`, `Accel`, `Mesh`, `Curve`, `ProceduralPrimitive`, `BindlessArray`, `Event`, `Swapchain`, `IrModule`, `NodeRef`
+- Commands: `BufferUploadCommand`, `ShaderDispatchCommand`, `AccelBuildCommand`, `MeshBuildCommand`, `CurveBuildCommand`, `ProceduralPrimitiveBuildCommand`, `BindlessArrayUpdateCommand`, etc.
+- Pixel formats: `PixelStorage` (28 variants incl. BC compression), `PixelFormat`
+- Ray tracing: `AccelOption`, `AccelBuildModification`, `CurveBasis`
+- `DeviceInterface` / `LibInterface` (vtable of function pointers), denoiser extension types, pinned-memory extension
 
 ### `luisa_compute_ir`
+Core IR (rlib). Key deps: `half`, `serde`, `bincode`, `indexmap`, `parking_lot`, `smallvec`, `bitflags`, plus `luisa_compute_api_types`.
 
-**Purpose**: Core IR data structures and compiler transforms.
-
-- **Crate Type**: `rlib`
-- **Dependencies**: `luisa_compute_api_types`, `half`, `serde`, `bincode`, `indexmap`
-
-**Core Data Structures** (`src/ir.rs`):
-```rust
-pub enum Type {
-    Void, Primitive(Primitive), Vector(VectorType), Matrix(MatrixType),
-    Struct(StructType), Array(ArrayType), Opaque(CBoxedSlice<u8>)
-}
-
-pub struct Node {
-    pub type_: CArc<Type>,
-    pub next: NodeRef,
-    pub prev: NodeRef,
-    pub instruction: CArc<Instruction>,
-}
-
-pub enum Instruction {
-    Local { init: NodeRef },
-    Update { var: NodeRef, value: NodeRef },
-    Call(Func, CBoxedSlice<NodeRef>),
-    Phi(CBoxedSlice<PhiIncoming>),
-    If { cond: NodeRef, true_branch: Pooled<BasicBlock>, false_branch: Pooled<BasicBlock> },
-    Loop { body: Pooled<BasicBlock>, cond: NodeRef },
-    GenericLoop { prepare, cond, body, update: Pooled<BasicBlock> },
-    Switch { value: NodeRef, default: Pooled<BasicBlock>, cases: CBoxedSlice<SwitchCase> },
-    AdScope { body: Pooled<BasicBlock>, forward: bool, n_forward_grads: usize },
-    RayQuery { ray_query: NodeRef, on_triangle_hit: Pooled<BasicBlock>, on_procedural_hit: Pooled<BasicBlock> },
-    // ... 20+ more variants
-}
-
-pub enum Func {
-    // 180+ variants including arithmetic, math, memory, atomic, warp, ray tracing, AD
-}
-```
-
-**Memory Management**:
-- `CArc<T>`: C-compatible atomic reference counting
-- `CBoxedSlice<T>`: C-compatible boxed slice
-- `Pool<T>`: Chunked memory pool for nodes
-- `ModulePools`: Separate pools for nodes and basic blocks
-
-### `luisa_compute_ir_staticlib`
-
-**Purpose**: Static library wrapper for C++ linking.
-
-- **Crate Type**: `staticlib`
-- **Exports**: All `luisa_compute_ir` symbols as static library
-
-### `luisa_compute_ir_v2`
-
-**Purpose**: IR v2 dynamic loading support.
-
-- **Dependencies**: `libloading`, `luisa_compute_ir`
-
-### `luisa_compute_cpu_kernel_defs`
-
-**Purpose**: Runtime type definitions for CPU kernels.
-
-- **Key Types**:
-  - `KernelFnArgs`: Arguments passed to CPU kernel functions
-  - `BufferView`, `Texture`, `Accel`: Runtime resource wrappers
-  - `Ray`, `Hit`, `RayQuery`: Ray tracing structures
-  - `CpuCustomOp`: Custom CPU operation callback
-
-### `luisa_compute_backend`
-
-**Purpose**: Backend trait abstraction.
-
-- **Key Types**:
-  - `Backend` trait: Core interface with 20+ methods for resource management
-  - `Context`: Loads backend DLLs (`luisa-api.dll`/`libluisa-api.so`)
-  - `ProxyBackend`: Dynamic dispatch wrapper
-
-### `luisa_compute_backend_impl`
-
-**Purpose**: Concrete backend implementations.
-
-- **Crate Type**: `cdylib`
-- **Features**: `cpu`, `remote`
-
-**CPU Backend** (`cpu/`):
-- `RustBackend`: Main CPU backend using Rayon thread pool
-- `shader.rs`: JIT compilation via Clang/LLVM
-- `codegen/cpp.rs`: C++ code generation from IR
-- `accel.rs`: Embree ray tracing integration
-- `stream.rs`: Command queue management
-- `texture.rs`, `resource.rs`: Resource management
-
----
-
-## Rust IR Data Structures
-
-### Type System (`src/ir.rs`)
-
+**Data structures** (`src/ir.rs`):
 ```rust
 pub enum Type {
     Void,
+    UserData,
     Primitive(Primitive),
     Vector(VectorType),
     Matrix(MatrixType),
@@ -172,224 +65,245 @@ pub enum Type {
 }
 
 pub enum Primitive {
-    Bool,
-    Int8, Int16, Int32, Int64,
+    Bool, Int8, Int16, Int32, Int64,
     Uint8, Uint16, Uint32, Uint64,
     Float16, Float32, Float64,
 }
-```
 
-### Node Structure
-
-Intrusive doubly-linked list for cache-friendly traversal:
-```rust
 pub struct Node {
     pub type_: CArc<Type>,
     pub next: NodeRef,
     pub prev: NodeRef,
     pub instruction: CArc<Instruction>,
 }
-```
+// NodeRef is a pool-index handle: pub struct NodeRef(pub usize)
 
-### Control Flow
-
-```rust
 pub enum Instruction {
+    Buffer, Bindless, Texture2D, Texture3D, Accel, Shared, Uniform,
     Local { init: NodeRef },
+    Argument { by_value: bool },
+    UserData(CArc<UserData>),
+    Const(Const),
     Update { var: NodeRef, value: NodeRef },
     Call(Func, CBoxedSlice<NodeRef>),
     Phi(CBoxedSlice<PhiIncoming>),
-    If { cond: NodeRef, true_branch: Pooled<BasicBlock>, false_branch: Pooled<BasicBlock> },
+    Return(NodeRef),
     Loop { body: Pooled<BasicBlock>, cond: NodeRef },
     GenericLoop { prepare, cond, body, update: Pooled<BasicBlock> },
-    Switch { value: NodeRef, default: Pooled<BasicBlock>, cases: CBoxedSlice<SwitchCase> },
-    AdScope { body: Pooled<BasicBlock>, forward: bool, n_forward_grads: usize },
-    RayQuery { ray_query: NodeRef, on_triangle_hit: Pooled<BasicBlock>, on_procedural_hit: Pooled<BasicBlock> },
-    // ...
+    Break, Continue,
+    If { cond, true_branch, false_branch: Pooled<BasicBlock> },
+    Switch { value, default, cases: CBoxedSlice<SwitchCase> },
+    AdScope { body, forward, n_forward_grads },
+    RayQuery { ray_query, on_triangle_hit, on_procedural_hit },
+    Print { fmt: CBoxedSlice<u8>, args: CBoxedSlice<NodeRef> },
+    AdDetach(Pooled<BasicBlock>),
+    Comment(CBoxedSlice<u8>),
+    Invalid,
+}
+
+pub struct Module {
+    pub kind: ModuleKind,        // Block | Function | Kernel
+    pub entry: Pooled<BasicBlock>,
+    pub flags: ModuleFlags,      // REQUIRES_REV_AD_TRANSFORM, REQUIRES_FWD_AD_TRANSFORM
+    pub curve_basis_set: CurveBasisSet,
+    pub pools: CArc<ModulePools>,
 }
 ```
 
-### Function Registry (`Func` enum)
+`Func` enum: ~180 builtins — math (`Add`, `Mul`, `Sin`, `Cos`, `Exp`, `Log`, `Sqrt`), vector/matrix (`Cross`, `Dot`, `Determinant`, `Inverse`, `Transpose`), memory (`BufferRead`/`Write`, `Texture2dRead`), atomic (`AtomicExchange`, `AtomicFetchAdd`), warp (`WarpActiveSum`, `WarpPrefixSum`), ray tracing (`RayTracingTraceClosest`, `RayQueryCommitTriangle`), AD (`RequiresGradient`, `Backward`, `PropagateGrad`, `OutputGrad`), indirect dispatch, raster discard, shader execution reorder, etc.
 
-180+ built-in functions:
-- **Math**: `Add`, `Mul`, `Sin`, `Cos`, `Exp`, `Log`, `Sqrt`
-- **Vector/Matrix**: `Cross`, `Dot`, `Determinant`, `Inverse`, `Transpose`
-- **Memory**: `BufferRead`, `BufferWrite`, `Texture2dRead`
-- **Atomic**: `AtomicExchange`, `AtomicFetchAdd`, etc.
-- **Warp**: `WarpActiveSum`, `WarpPrefixSum`, etc.
-- **Ray tracing**: `RayTracingTraceClosest`, `RayQueryCommitTriangle`
-- **AD**: `RequiresGradient`, `Backward`, `PropagateGrad`
+**Memory**: `CArc<T>` (atomic refcount), `CBox<T>` / `CBoxedSlice<T>` (C-compat boxes), `Pool<T>` (chunked pool), `ModulePools` (separate pools for nodes/blocks).
 
-### C-Compatible Smart Pointers (`src/ffi.rs`)
+### `luisa_compute_ir_staticlib` / `luisa_compute_ir_v2`
+- **Staticlib**: re-exports `luisa_compute_ir` symbols so C++ can link the static library `luisa_compute_ir_static` (crate folder name ≠ lib name).
+- **IR v2**: `libloading`-based Rust wrapper around the IR v2 C API. Loaded via `lc_ir_v2_binding_table` and consumed by `luisa_compute_backend_impl` through `IrV2BindingTable`.
+
+### `luisa_compute_cpu_kernel_defs`
+Runtime types passed to CPU kernels: `KernelFnArgs`, `KernelFnArg`, `BufferView`, `Texture`, `BindlessArray`, `Accel`, `Ray`, `Hit`/`TriangleHit`/`ProceduralHit`/`CommittedHit`/`HitType`, `RayQuery`, `CpuCustomOp`, `Aabb`, `Mat4`.
+
+### `luisa_compute_backend`
+- `Backend` trait (20+ methods) implemented by concrete backends.
+- `Context` loads the C++ `luisa-api` shared library (`luisa-api.dll` / `libluisa-api.so` / `libluisa-api.dylib`) that exports `luisa_compute_lib_interface()`.
+- `ProxyBackend` dynamic-dispatches through the C `DeviceInterface` vtable.
+
+### `luisa_compute_backend_impl`
+Concrete backend cdylib. Features: `cpu` (enables `embree_sys`), `remote` (stub).
+- Exports `luisa_compute_lib_interface()` and `luisa_compute_set_ir_v2_binding(...)`.
+- **CPU** (`cpu/`): `RustBackend` with Rayon thread pool, warp size = 1.
+  - `shader.rs` — kernel compilation orchestration & cache.
+  - `codegen/cpp.rs`, `codegen/cpp_v2.rs` — IR → C++ source.
+  - `llvm.rs` — loads `libLLVM` at runtime, parses bitcode, runs `LLJIT`.
+  - `accel.rs` — Embree ray tracing.
+  - `stream.rs`, `texture.rs`, `resource.rs`.
+- **Remote**: network-distributed backend placeholder.
+
+## C-Compatible Pointers (`src/ffi.rs`)
 
 ```rust
-pub struct CArc<T> {
-    pub ptr: *mut T,
-    pub inner: *mut CArcInner,
+pub struct CArc<T> { inner: *mut CArcSharedBlock<T> }
+pub struct CArcSharedBlock<T> {
+    pub(crate) ptr: *mut T,
+    ref_count: AtomicUsize,
+    destructor: extern "C" fn(*mut CArcSharedBlock<T>),
 }
 
 pub struct CBox<T> {
-    pub ptr: *mut T,
-    pub drop: extern "C" fn(*mut T),
+    ptr: *mut T,
+    destructor: unsafe extern "C" fn(*mut T),
 }
 
 pub struct CBoxedSlice<T> {
-    pub ptr: *mut T,
-    pub len: usize,
-    pub drop: extern "C" fn(*mut T, usize),
+    ptr: *mut T,
+    len: usize,
+    destructor: Option<unsafe extern "C" fn(*mut T, usize)>,
 }
+
+pub struct CSlice<'a, T> { ptr: *const T, len: usize, phantom: PhantomData<&'a T> }
+pub struct CSliceMut<'a, T> { ptr: *mut T, len: usize, phantom: PhantomData<&'a T> }
 ```
 
----
+All are `#[repr(C)]` and designed for zero-cost crossing with C++.
 
-## Key Algorithms and Transforms
+## Transforms (`src/transform/`)
 
-### Transform Pipeline (`src/transform/mod.rs`)
+| Transform | Purpose | Pipeline name |
+|---|---|---|
+| `ssa::ToSSA` | `Local`/`Update` → SSA with `Phi` nodes | `ssa` |
+| `autodiff::Autodiff` | Reverse-mode AD | `autodiff` |
+| `fwd_autodiff::FwdAutodiff` | Forward-mode AD | *(used by `transform_auto` only)* |
+| `dce::Dce` | Dead code elimination | *(struct exists; not registered in pipeline)* |
+| `inliner::inline_callable` | Function inlining helper | *(utility, not pipeline-registered)* |
+| `canonicalize_control_flow::CanonicalizeControlFlow` | Normalize control flow | `canonicalize_control_flow` |
+| `ref2ret::Ref2Ret` | Reference returns → value returns | `ref2ret` |
+| `reg2mem::Reg2Mem` | Register → memory conversion | `reg2mem` |
 
-| Transform | Purpose |
-|-----------|---------|
-| `ssa::ToSSA` | Converts imperative Update instructions to SSA form with Phi nodes |
-| `autodiff::Autodiff` | Reverse-mode automatic differentiation |
-| `fwd_autodiff::FwdAutodiff` | Forward-mode automatic differentiation |
-| `dce::Dce` | Dead code elimination |
-| `inliner::inline_callable` | Function inlining |
-| `canonicalize_control_flow::CanonicalizeControlFlow` | Normalizes control flow |
-| `ref2ret::Ref2Ret` | Converts reference returns to value returns |
-| `reg2mem::Reg2Mem` | Register to memory conversion |
-
-### Autodiff (`src/transform/autodiff.rs`)
-
-Reverse-mode AD implementation:
-- Forward sweep: Marks nodes requiring gradients via `RequiresGradient`
-- Backward sweep: Accumulates gradients using chain rule
-
-**Supported gradient rules**:
-- Arithmetic: add, sub, mul, div, neg
-- Vector: dot, cross, length, normalize
-- Matrix: matmul, determinant, inverse, transpose
-- Math: exp, log, sin, cos, sqrt, pow, trig functions
-- Selection: min, max, select, clamp
-
-### SSA Conversion (`src/transform/ssa.rs`)
-
-- Promotes mutable `Local` variables to SSA values
-- Handles `Update` instructions by tracking current value in `stored` map
-- Inserts `Phi` nodes at merge points (if/then/else, loops)
-- Supports GEP to `ExtractElement`/`InsertElement` conversion
-
-### Dead Code Elimination (`src/transform/dce.rs`)
-
-- Uses UseDef analysis to find unreachable nodes
-- Removes pure computation nodes with no side effects
-- Preserves memory operations and control flow
-
----
-
-## CPU Backend Implementation
-
-### Architecture (`cpu/mod.rs`)
-
-- **Thread Pool**: Rayon-based parallel execution
-- **Warp Size**: 1 (scalar execution)
-- **Shader Compilation**: JIT via Clang/LLVM to shared library
-- **Code Generation**: IR → C++ → LLVM IR → Machine code
-
-### Code Generation (`cpu/codegen/cpp.rs`)
-
-- Translates IR instructions to C++
-- Handles vector types, matrices, textures, buffers
-- Generates kernel entry point with proper argument marshaling
-- Supports ray tracing via Embree
-
-### Resource Management
-
-- `BufferImpl`: Aligned host memory allocation
-- `TextureImpl`: Mipmapped image storage
-- `BindlessArrayImpl`: Array of buffer/texture descriptors
-- `AccelImpl`: Embree scene acceleration structure
-
----
-
-## Rust ↔ C++ FFI Integration
-
-### C++ Header Generation
-
-Both `luisa_compute_ir` and `luisa_compute_api_types` use `cbindgen`:
-
-**`build.rs` workflow**:
-1. Parse Rust source with `cbindgen`
-2. Generate C++ headers (`ir.hpp`, `api_types.hpp`)
-3. Generate C headers (`api_types.h`)
-4. Write to `include/luisa/rust/`
-
-### Static Library Linking
-
-- `luisa_compute_ir_staticlib` builds as `staticlib`
-- C++ links against `.a`/`.lib` file
-- Uses `#[no_mangle]` extern "C" functions for C++ callable API
-
-### Key FFI Functions
+`TransformPipeline` is created from C++ via:
 
 ```rust
-// Transform pipeline
 luisa_compute_ir_transform_pipeline_new() -> *mut TransformPipeline
 luisa_compute_ir_transform_pipeline_add_transform(pipeline, name)
 luisa_compute_ir_transform_pipeline_transform(pipeline, module) -> Module
+luisa_compute_ir_transform_pipeline_destroy(pipeline)
 luisa_compute_ir_transform_auto(module) -> Module
-
-// Library interface
-luisa_compute_lib_interface() -> LibInterface
 ```
 
-### API Types Sharing
+### Autodiff (`autodiff.rs`)
+Reverse-mode: forward sweep marks gradient-requiring nodes, backward sweep accumulates via chain rule. Supports arithmetic, vector (`dot`, `cross`, `length`, `normalize`), matrix (`matmul`, `determinant`, `inverse`, `transpose`), math (`exp`, `log`, `sin`, `cos`, `sqrt`, `pow`, trig), selection (`min`, `max`, `select`, `clamp`).
 
-- All types marked with `#[repr(C)]` for C layout compatibility
-- Handle types are `u64` wrappers (`Buffer(u64)`, `Texture(u64)`)
-- Callbacks use `extern "C" function pointers`
-- `DeviceInterface` is a vtable struct of function pointers
+### SSA (`ssa.rs`)
+Promotes `Local`→SSA values, tracks current value in `stored` map, inserts `Phi` at merge points (if/else, loops), supports `GetElementPtr` → `ExtractElement`/`InsertElement`.
 
----
+### DCE (`dce.rs`)
+UseDef analysis, removes pure nodes with no side effects, preserves memory ops and control flow.
+
+## CPU Backend
+
+- **Thread Pool**: Rayon parallel.
+- **Warp Size**: 1 (scalar).
+- **Shader Pipeline**: IR → C++ source → `clang++ -emit-llvm` → `.bc` bitcode → `libLLVM` C API (`LLJIT`) → native code.
+- **Codegen**: `cpu/codegen/cpp.rs` / `cpp_v2.rs`.
+- **Ray Tracing**: Embree integration (`accel.rs`).
+- **Resources**: `BufferImpl` (aligned host memory), `TextureImpl` (mipmapped), `BindlessArrayImpl`, `AccelImpl` (Embree scene).
+- **Swapchain**: CPU backend optionally loads a platform helper DLL (`luisa-backend-cpu.dll` / `.so`) exposing `luisa_compute_create_cpu_swapchain` etc.
+
+## FFI Integration
+
+### Header Generation
+`cbindgen` in `build.rs`:
+- `luisa_compute_ir` → `include/luisa/rust/ir.hpp`
+- `luisa_compute_api_types` → `include/luisa/rust/api_types.hpp` (C++) and `include/luisa/rust/api_types.h` (C)
+- `luisa_compute_cpu_kernel_defs` → `cpu_kernel_defs.h` (only when `LC_RS_GENERATE_BINDINGS=1`)
+
+### Key FFI Functions
+```rust
+// IR transform pipeline
+luisa_compute_ir_transform_pipeline_new() -> *mut TransformPipeline
+luisa_compute_ir_transform_pipeline_add_transform(pipeline, name)
+luisa_compute_ir_transform_pipeline_transform(pipeline, module) -> Module
+luisa_compute_ir_transform_pipeline_destroy(pipeline)
+luisa_compute_ir_transform_auto(module) -> Module
+
+// Backend loader interface
+luisa_compute_lib_interface() -> LibInterface
+luisa_compute_set_ir_v2_binding(table: *const IrV2BindingTable)
+```
+
+### Conventions
+- All FFI types are `#[repr(C)]`.
+- Handle types are newtype wrappers around `u64` (e.g., `pub struct Buffer(pub u64)`).
+- Callbacks use `extern "C" fn` pointers; `DeviceInterface`/`LibInterface` are fn-pointer vtable structs.
+- Static libs for C++ linking: `luisa_compute_api_types`, `luisa_compute_ir_static`.
+- Shared backend lib: `luisa_compute_backend_impl` (exports `luisa_compute_lib_interface`).
 
 ## CMake Integration
 
-**File**: `src/rust/CMakeLists.txt`
+**File**: `src/rust/CMakeLists.txt`.
 
-### Build Process
+Custom commands invoke `cargo build`:
+- Profile: `dev` in Debug, `release` in Release.
+- Features: controlled by CMake options `LUISA_COMPUTE_ENABLE_CPU` (`cpu`) and `LUISA_COMPUTE_ENABLE_REMOTE` (`remote`); passed as `--no-default-features --features <list>`.
+- `CARGO_TARGET_DIR` is redirected to the CMake binary dir.
 
-1. **Custom Command**: Invokes `cargo build` via CMake custom command
-2. **Profile Selection**: `dev` for Debug, `release` for Release
-3. **Feature Flags**: Passed based on CMake options (`cpu`, `remote`)
+Targets produced:
+- `luisa_compute_rust_build` — builds all Rust artifacts.
+- `luisa-compute-rust-meta` (INTERFACE) — links the static Rust libs + Windows system libs.
+- `luisa_compute_backend_impl` (INTERFACE) — links the shared Rust backend.
 
-### Rust Artifacts
+Platform handling:
+- Windows: copies `.dll`, `.lib`, `.pdb`.
+- macOS: `install_name_tool` for rpath/id.
+- Linux: `patchelf --set-rpath $ORIGIN`.
 
-- Static libraries: `luisa_compute_ir_static`, `luisa_compute_api_types`
-- Shared library: `luisa_compute_backend_impl`
-- Platform-specific naming (`.lib`/`.a`, `.dll`/`.so`/`.dylib`)
+Embree (CPU only):
+- CMake forwards `LUISA_COMPUTE_EMBREE_ZIP_PATH` or the `EMBREE_ZIP_FILE`/`EMBREE_ZIP_PATH` environment variables to the Rust build.
+- The Rust `embree_sys` build script downloads/builds Embree and copies shared libraries to the output directory.
 
-### CMake Targets
+## XMake Integration
 
-- `luisa-compute-rust-meta` (INTERFACE): Links static Rust libs, Windows system libs
-- `luisa_compute_backend_impl` (INTERFACE): Links shared Rust backend impl
+`src/rust/xmake.lua` defines target `lc-rust` with the `build_cargo` rule. It sets `LC_RS_DO_NOT_GENERATE_BINDINGS=1` before building to skip cbindgen header generation.
 
-### Platform Handling
+## Common Workflows
 
-- **macOS**: `install_name_tool` for rpath patching
-- **Linux**: `patchelf` for rpath patching
-- **Windows**: Copies `.dll`, `.lib`, and `.pdb` files
+### Running Rust checks
+```bash
+cd src/rust
 
-### Embree Integration
+# Check default workspace (no backend features)
+cargo check
 
-- Environment variable `EMBREE_ZIP_FILE` for custom Embree
-- Downloads/builds Embree via Rust build script
-- Copies embree DLLs to output directory
+# Check with CPU and remote features
+# CPU requires the Embree dependency to be available.
+cargo check -p luisa_compute_backend_impl --features cpu,remote
 
----
+# Run tests
+cargo test
+
+# Formatting & lints
+cargo fmt --check
+cargo clippy --workspace -- -D warnings
+```
+
+### Adding a transform
+1. Create `luisa_compute_ir/src/transform/my_transform.rs`.
+2. Implement the `Transform` trait (`fn transform(&self, module: ir::Module) -> ir::Module`).
+3. `pub mod my_transform;` in `luisa_compute_ir/src/transform/mod.rs`.
+4. If it should be pipeline-selectable from C++, add a match arm in `luisa_compute_ir_transform_pipeline_add_transform`.
+
+### Exposing a new FFI function
+1. Add `#[no_mangle] pub extern "C" fn luisa_compute_ir_...` in the appropriate crate (usually `luisa_compute_ir` or `luisa_compute_backend_impl`).
+2. Ensure argument/return types are `#[repr(C)]`.
+3. Rebuild; `cbindgen` will emit the declaration into `ir.hpp` / `api_types.hpp`.
+
+### Debugging cbindgen output
+- Set `LC_RS_DO_NOT_GENERATE_BINDINGS=1` to skip header generation and speed up `cargo check`.
+- Force regeneration by unsetting it and running `cargo build` for `luisa_compute_ir` or `luisa_compute_api_types`.
+- Verify output under `include/luisa/rust/`.
 
 ## Key Design Decisions
 
-1. **IR Design**: Intrusive linked list of nodes with pool allocation for cache efficiency
-2. **Type System**: Global type registry with structural equality via `context.rs`
-3. **Memory Safety**: Custom `CArc` with C-compatible destructor callbacks
-4. **Transform System**: Pipeline-based with modular passes (SSA, autodiff, DCE)
-5. **CPU Backend**: JIT compilation to native code via LLVM/Clang
-6. **C++ Interop**: Bidirectional via cbindgen (Rust→C++) and staticlib (C++→Rust)
+1. **Intrusive linked-list IR** with pool allocation for cache efficiency.
+2. **Global type registry** with structural equality (`context.rs`).
+3. **`CArc`/`CBox`/`CBoxedSlice`** custom smart pointers with C-compatible destructor callbacks.
+4. **Pipeline-based transforms**: modular passes (SSA, autodiff, DCE).
+5. **CPU JIT**: C++ source → LLVM bitcode → runtime-loaded `libLLVM` / `LLJIT`.
+6. **Bidirectional FFI**: `cbindgen` (Rust → C++) + staticlib (C++ → Rust) + cdylib backend loader.

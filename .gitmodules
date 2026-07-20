@@ -35,3 +35,12 @@
 [submodule "src/ext/HIPRT"]
 	path = src/ext/HIPRT
 	url = https://github.com/LuisaGroup/HIPRT.git
+[submodule "src/ext/glslang"]
+	path = src/ext/glslang
+	url = https://github.com/LuisaGroup/glslang
+[submodule "src/ext/SPIRV-Tools"]
+	path = src/ext/SPIRV-Tools
+	url = https://github.com/LuisaGroup/SPIRV-Tools.git
+[submodule "src/ext/spirv-headers"]
+	path = src/ext/spirv-headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers.git

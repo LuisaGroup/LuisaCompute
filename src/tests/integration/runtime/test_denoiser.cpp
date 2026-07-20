@@ -3,7 +3,7 @@
 
 #include <iostream>
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 
@@ -35,14 +35,16 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 
 void test_denoiser(Device &device) {
 
-    auto argc = boost::ut::detail::cfg::largc;
-    auto argv = boost::ut::detail::cfg::largv;
-
     log_level_verbose();
 
     auto opts = luisa::test::ImageTestOptions::parse(
         boost::ut::detail::cfg::largc,
         boost::ut::detail::cfg::largv);
+    auto denoiser_ext = device.extension<DenoiserExt>();
+    if (denoiser_ext == nullptr) {
+        LUISA_INFO("Skipping denoiser test: backend '{}' does not provide DenoiserExt.", device.backend_name());
+        return;
+    }
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -328,13 +330,16 @@ void test_denoiser(Device &device) {
     Image<float> noisy_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     Image<float> beauty_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
 
-    auto denoiser_ext = device.extension<DenoiserExt>();
     auto color_buf = device.create_buffer<float4>(resolution.x * resolution.y);
     auto albedo_buf = device.create_buffer<float4>(resolution.x * resolution.y);
     auto normal_buf = device.create_buffer<float4>(resolution.x * resolution.y);
     auto output_buf = device.create_buffer<float4>(resolution.x * resolution.y);
 
     auto denoiser = denoiser_ext->create(stream);
+    if (denoiser == nullptr) {
+        boost::ut::expect(false) << "DenoiserExt failed to create a denoiser.";
+        return;
+    }
     {
         auto input = DenoiserExt::DenoiserInput{resolution.x, resolution.y};
         input.push_noisy_image(color_buf.view(), output_buf.view(), DenoiserExt::ImageFormat::FLOAT3, DenoiserExt::ImageColorSpace::HDR);
@@ -349,7 +354,6 @@ void test_denoiser(Device &device) {
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     stream << make_sampler_shader(seed_image).dispatch(resolution);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
     if (!opts.offline) {
         Window window{"path tracing", resolution};
         auto compare_x = resolution.x / 2u;
@@ -447,27 +451,26 @@ void test_denoiser(Device &device) {
         stream << hdr2ldr_shader(resolution.x, beauty_image, beauty_image, offline_image, false, false).dispatch(resolution)
                << offline_image.copy_to(luisa::span{host_image})
                << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(host_image.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_denoiser", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_denoiser: {}", result.message);
-            return;
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_denoiser]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+                boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+                return;
+            }
         }
         return;
     }
 }
 
-static inline const auto reg = [] {
-    "test_denoiser"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_denoiser(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_denoiser(device);
+}
