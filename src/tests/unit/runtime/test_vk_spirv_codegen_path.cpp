@@ -3622,6 +3622,112 @@ OpName %8 "Fma"
         expect_vector_equal(result[0], source[0]);
     };
 
+    "vk_user_compute_texture_queries_reads_and_samples_preserve_mips"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_texture_mip_queries"};
+        ScopedSourceDump source_dump;
+
+        constexpr auto base_size = make_uint2(4u);
+        constexpr auto mip_levels = 3u;
+        constexpr auto selected_level = 2u;
+        constexpr auto base_pixel = float4{0.125f, 0.25f, 0.5f, 1.0f};
+        constexpr auto middle_pixel = float4{0.75f, 0.5f, 0.25f, 1.0f};
+        constexpr auto final_pixel = float4{0.875f, 0.625f, 0.375f, 1.0f};
+        auto dc = luisa::test::create_device(argc, argv);
+        auto texture = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, base_size, mip_levels);
+        auto heap = dc.device.create_bindless_array(1u);
+        auto controls = dc.device.create_buffer<uint32_t>(2u);
+        auto sizes = dc.device.create_buffer<uint2>(3u);
+        auto pixels = dc.device.create_buffer<float4>(3u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](ImageFloat direct_view,
+                             BindlessVar bindless,
+                             BufferUInt control,
+                             BufferUInt2 size_output,
+                             BufferFloat4 pixel_output) noexcept {
+            auto slot = control.read(0u);
+            auto level = control.read(1u);
+            auto sampled = bindless.tex2d(slot);
+            size_output.write(0u, direct_view.size());
+            size_output.write(1u, sampled.size());
+            size_output.write(2u, sampled.size(level));
+            pixel_output.write(
+                0u, sampled.read(make_uint2(0u), level));
+            pixel_output.write(
+                1u, sampled.sample(make_float2(0.375f, 0.625f)));
+            pixel_output.write(
+                2u, sampled.sample(
+                        make_float2(0.375f, 0.625f),
+                        cast<float>(level)));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<float4, 16u> mip0;
+        std::array<float4, 4u> mip1;
+        constexpr std::array mip2{final_pixel};
+        mip0.fill(base_pixel);
+        mip1.fill(middle_pixel);
+        constexpr std::array<uint32_t, 2u> control_source{
+            0u, selected_level};
+        std::array<uint2, 3u> size_result{};
+        std::array<float4, 3u> pixel_result{};
+        stream << texture.view(0u).copy_from(luisa::span{mip0})
+               << texture.view(1u).copy_from(luisa::span{mip1})
+               << texture.view(2u).copy_from(luisa::span{mip2})
+               << controls.copy_from(luisa::span{control_source})
+               << heap.emplace_on_update(
+                          0u, texture, Sampler::point_edge())
+                      .update()
+               << shader(texture.view(1u), heap, controls,
+                         sizes, pixels)
+                      .dispatch(1u)
+               << sizes.copy_to(luisa::span{size_result})
+               << pixels.copy_to(luisa::span{pixel_result})
+               << synchronize();
+
+        constexpr std::array expected_sizes{
+            make_uint2(2u), base_size, make_uint2(1u)};
+        for (auto i = 0u; i < size_result.size(); ++i) {
+            expect(size_result[i].x == expected_sizes[i].x &&
+                   size_result[i].y == expected_sizes[i].y)
+                << luisa::format(
+                       "texture size query {} mismatch: expected {}x{}, got {}x{}",
+                       i, expected_sizes[i].x, expected_sizes[i].y,
+                       size_result[i].x, size_result[i].y);
+        }
+        expect_vector_equal(pixel_result[0], final_pixel);
+        expect_vector_equal(pixel_result[1], base_pixel);
+        expect_vector_equal(pixel_result[2], final_pixel);
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "texture mip regression should emit exactly one native SPIR-V dump";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            auto size_query_count =
+                count_spirv_opcode(disassembly, "ImageQuerySize") +
+                count_spirv_opcode(disassembly, "ImageQuerySizeLod");
+            expect(size_query_count == 3u)
+                << "each direct/bindless size query must remain an image query at SPIR-V opt0";
+            expect(count_spirv_opcode(disassembly, "ImageFetch") == 1u)
+                << "the explicit-level bindless read must lower to OpImageFetch";
+            expect(count_spirv_opcode(
+                       disassembly, "ImageSampleExplicitLod") == 2u)
+                << "compute sampling must use explicit LOD operands, including the plain sample form";
+            expect(count_spirv_opcode(
+                       disassembly, "ImageSampleImplicitLod") == 0u)
+                << "compute shaders must not depend on implicit derivatives";
+        }
+    };
+
     "vk_custom_bindless_buffer_write_has_matching_native_barrier"_test = [&] {
         auto dc = create_native_command_device(argc, argv);
         auto target = dc.device.create_buffer<uint32_t>(4u);

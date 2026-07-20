@@ -94,6 +94,7 @@ private:
         VkPipelineStageFlagBits2 stage,
         VkAccessFlagBits2 access,
         VkImageLayout layout,
+        detail::TextureLayoutContract layout_contract,
         BindlessStateOperation operation);
     void _record(
         ResourceView const &res,
@@ -108,6 +109,7 @@ private:
         VkPipelineStageFlagBits2 texture_stage,
         VkAccessFlagBits2 texture_access,
         VkImageLayout texture_layout,
+        detail::TextureLayoutContract layout_contract,
         BindlessStateOperation operation);
     void _apply_bindless_state(
         BindlessArray const *bdls_arr,

@@ -476,10 +476,11 @@ void ResourceBarrier::_apply_state(
     VkPipelineStageFlagBits2 stage,
     VkAccessFlagBits2 access,
     VkImageLayout layout,
+    detail::TextureLayoutContract layout_contract,
     BindlessStateOperation operation) {
     switch (operation) {
         case BindlessStateOperation::RECORD:
-            record(view, stage, access, layout);
+            _record(view, stage, access, layout, layout_contract);
             break;
         case BindlessStateOperation::SET_BEFORE:
             set_res(view, stage, access, layout);
@@ -497,6 +498,7 @@ void ResourceBarrier::_process_bindless_members(
     VkPipelineStageFlagBits2 texture_stage,
     VkAccessFlagBits2 texture_access,
     VkImageLayout texture_layout,
+    detail::TextureLayoutContract layout_contract,
     BindlessStateOperation operation) {
     LUISA_ASSERT(bdls_arr != nullptr,
                  "Vulkan bindless barrier traversal received a null array.");
@@ -516,7 +518,7 @@ void ResourceBarrier::_process_bindless_members(
             _apply_state(
                 BufferView(buffer, 0u, buffer->byte_size()),
                 buffer_stage, buffer_access,
-                VK_IMAGE_LAYOUT_UNDEFINED, operation);
+                VK_IMAGE_LAYOUT_UNDEFINED, layout_contract, operation);
         } else if (res->tag() == Resource::Tag::kTexture) {
             LUISA_ASSERT(
                 texture_layout != VK_IMAGE_LAYOUT_UNDEFINED,
@@ -527,7 +529,7 @@ void ResourceBarrier::_process_bindless_members(
                 _apply_state(
                     TexView(tex, level),
                     texture_stage, texture_access, texture_layout,
-                    operation);
+                    layout_contract, operation);
             }
         }
     });
@@ -544,12 +546,14 @@ void ResourceBarrier::_apply_bindless_state(
     auto &indices = bdls_arr->indices_buffer();
     _apply_state(
         BufferView(&indices, 0u, indices.byte_size()),
-        stage, access, VK_IMAGE_LAYOUT_UNDEFINED, operation);
+        stage, access, VK_IMAGE_LAYOUT_UNDEFINED,
+        detail::TextureLayoutContract::EXPLICIT_NATIVE, operation);
     _process_bindless_members(
         bdls_arr,
         stage, access,
         stage, access,
         texture_layout,
+        detail::TextureLayoutContract::EXPLICIT_NATIVE,
         operation);
 }
 
@@ -567,6 +571,11 @@ void ResourceBarrier::process_bindless(
         detail::kBarrierSyncMap[luisa::to_underlying(texture_dst_usage)],
         detail::kBarrierAccessMap[luisa::to_underlying(texture_dst_usage)],
         VK_IMAGE_LAYOUT_GENERAL,
+        // The bindless descriptor fixes the image layout to GENERAL, but this
+        // remains backend-owned shader usage. Let it conservatively promote
+        // an overlapping direct sampled descriptor to GENERAL instead of
+        // treating the overlap as two conflicting native command contracts.
+        detail::TextureLayoutContract::GENERIC_USAGE,
         BindlessStateOperation::RECORD);
 }
 
@@ -583,6 +592,7 @@ void ResourceBarrier::process_bindless(
         dst_stage, dst_access,
         dst_stage, dst_access,
         texture_layout,
+        detail::TextureLayoutContract::EXPLICIT_NATIVE,
         BindlessStateOperation::RECORD);
 }
 
