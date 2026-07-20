@@ -4180,6 +4180,103 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    "vk_user_compute_matrix_operation_shapes_are_exact"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_matrix_shapes"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto matrices = dc.device.create_buffer<float2x2>(2u);
+        auto vectors = dc.device.create_buffer<float2>(2u);
+        auto matrix_output = dc.device.create_buffer<float4>(3u);
+        auto vector_output = dc.device.create_buffer<float2>(2u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferFloat2x2 matrix_input,
+                             BufferFloat2 vector_input,
+                             BufferFloat4 matrix_out,
+                             BufferFloat2 vector_out) noexcept {
+            auto a = matrix_input.read(0u);
+            auto b = matrix_input.read(1u);
+            auto v = vector_input.read(0u);
+            auto w = vector_input.read(1u);
+            auto matrix_product = a * b;
+            auto vector_outer_product = def<float2x2>(
+                luisa::compute::detail::FunctionBuilder::current()->call(
+                    Type::of<float2x2>(), CallOp::OUTER_PRODUCT,
+                    {v.expression(), w.expression()}));
+            auto scaled_matrix = a * 2.0f;
+            auto vector_matrix_product = def<float2>(
+                luisa::compute::detail::FunctionBuilder::current()->binary(
+                    Type::of<float2>(), BinaryOp::MUL,
+                    v.expression(), a.expression()));
+            matrix_out.write(
+                0u, make_float4(matrix_product[0u].x,
+                                matrix_product[0u].y,
+                                matrix_product[1u].x,
+                                matrix_product[1u].y));
+            matrix_out.write(
+                1u, make_float4(vector_outer_product[0u].x,
+                                vector_outer_product[0u].y,
+                                vector_outer_product[1u].x,
+                                vector_outer_product[1u].y));
+            matrix_out.write(
+                2u, make_float4(scaled_matrix[0u].x,
+                                scaled_matrix[0u].y,
+                                scaled_matrix[1u].x,
+                                scaled_matrix[1u].y));
+            vector_out.write(0u, a * v);
+            vector_out.write(1u, vector_matrix_product);
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array matrix_source{
+            make_float2x2(1.0f, 2.0f, 3.0f, 4.0f),
+            make_float2x2(5.0f, 6.0f, 7.0f, 8.0f)};
+        constexpr std::array vector_source{
+            float2{2.0f, -1.0f}, float2{-3.0f, 5.0f}};
+        std::array<float4, 3u> matrix_result{};
+        std::array<float2, 2u> vector_result{};
+        stream << matrices.copy_from(luisa::span{matrix_source})
+               << vectors.copy_from(luisa::span{vector_source})
+               << shader(matrices, vectors, matrix_output, vector_output)
+                      .dispatch(1u)
+               << matrix_output.copy_to(luisa::span{matrix_result})
+               << vector_output.copy_to(luisa::span{vector_result})
+               << synchronize();
+
+        expect_vector_equal(
+            matrix_result[0], float4{23.0f, 34.0f, 31.0f, 46.0f});
+        expect_vector_equal(
+            matrix_result[1], float4{-6.0f, 3.0f, 10.0f, -5.0f});
+        expect_vector_equal(
+            matrix_result[2], float4{2.0f, 4.0f, 6.0f, 8.0f});
+        expect_vector_equal(vector_result[0], float2{-1.0f, 0.0f});
+        expect_vector_equal(vector_result[1], float2{0.0f, 2.0f});
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "matrix-shape regression should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "MatrixTimesMatrix") == 1u);
+            expect(count_spirv_opcode(
+                       disassembly, "MatrixTimesVector") == 1u);
+            expect(count_spirv_opcode(
+                       disassembly, "VectorTimesMatrix") == 1u);
+            expect(count_spirv_opcode(
+                       disassembly, "OuterProduct") == 1u);
+            expect(count_spirv_opcode(
+                       disassembly, "MatrixTimesScalar") == 1u);
+        }
+    };
+
     "vk_user_compute_non_fast_math_does_not_contract_mul_add"_test = [&] {
         ScopedEnvironmentVariable enable_xir_optimization{
             "LUISA_XIR_DISABLE_OPTIMIZATION", nullptr};
