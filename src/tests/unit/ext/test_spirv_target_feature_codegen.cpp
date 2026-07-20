@@ -1119,6 +1119,9 @@ int main(int argc, char *argv[]) {
                 SamplerSelectorSource::CONSTANT, 2u));
         expect(eq(non_anisotropic.required_features, 0u));
         expect(contains(non_anisotropic.text, "OpSampledImage"));
+        expect(contains(non_anisotropic.text,
+                        "OpImageSampleExplicitLod"));
+        expect(contains(non_anisotropic.text, "Lod"));
 
         auto anisotropic = compile_spirv_fixture(
             make_direct_sampler_kernel(
@@ -1169,6 +1172,40 @@ int main(int argc, char *argv[]) {
         expect(eq(nonuniform_facts.unexpected_upper_clamp_count, 0u));
         expect_bounded_configured_sampler_path(
             nonuniform_facts, 1u, true);
+    };
+
+    "spirv_gradient_sampling_emits_min_lod_operand_and_feature"_test = [] {
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        Kernel1D<void(Image<float>, Buffer<float4>)> kernel = [](
+                                                                  ImageFloat image,
+                                                                  BufferFloat4 output) noexcept {
+            auto builder =
+                luisa::compute::detail::FunctionBuilder::current();
+            auto literal = [&](auto value) noexcept {
+                return builder->literal(
+                    Type::of<decltype(value)>(), value);
+            };
+            auto sample = builder->call(
+                Type::of<float4>(),
+                CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL,
+                {image.expression(), literal(make_float2(0.5f)),
+                 literal(make_float2(0.25f, 0.0f)),
+                 literal(make_float2(0.0f, 0.25f)),
+                 literal(1.0f), literal(0u), literal(0u)});
+            output.write(0u, def<float4>(sample));
+        };
+        constexpr auto enabled =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                lc::spirv::target_feature::shader_resource_min_lod);
+        auto compiled = compile_spirv_fixture(kernel, enabled);
+        expect(eq(compiled.required_features,
+                  lc::spirv::target_feature::shader_resource_min_lod));
+        expect(contains(compiled.text, "OpCapability MinLod"));
+        expect(contains(compiled.text, "OpImageSampleExplicitLod"));
+        expect(contains(compiled.text, "Grad|MinLod"));
     };
 
     "spirv_dynamic_uint32_sampler_selectors_are_bounded_before_heap_access"_test = [] {
