@@ -67,61 +67,61 @@ cudaError_t DeviceScan::InclusiveSum(void* d_temp_storage, size_t& temp_storage_
 
 cudaError_t DeviceScan::ExclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::ExclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::ExclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::ExclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::ExclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const float*  d_values_in, float*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::ExclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const double*  d_values_in, double*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::ExclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::InclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::InclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::InclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::InclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::InclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const float*  d_values_in, float*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 
 cudaError_t DeviceScan::InclusiveSumByKey(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, const double*  d_values_in, double*  d_values_out, int  num_items, cudaStream_t stream)
 {
-    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, ::cub::Equality{}, stream);
+    return ::cub::DeviceScan::InclusiveSumByKey(d_temp_storage, temp_storage_bytes, d_keys_in, d_values_in, d_values_out, num_items, cub_compat::EqualityOp{}, stream);
 }
 }

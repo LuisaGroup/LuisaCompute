@@ -123,6 +123,7 @@ private:
     bool _requires_atomic_float{false};
     bool _requires_printing{false};
     bool _use_cooperative_operations{false};
+    uint32_t _next_coro_suspend_token{1u};
     // Codegen Comment
     mutable luisa::string _name;
     mutable luisa::vector<luisa::string> _variables_names;
@@ -130,6 +131,7 @@ private:
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
+    [[nodiscard]] uint32_t _next_suspend_token() noexcept;
     [[nodiscard]] const Expression *_internalize(const Expression *expr) noexcept;
     void _append(const Statement *statement) noexcept;
 
@@ -214,6 +216,12 @@ public:
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     /// Return a span of argument bindings.
     [[nodiscard]] auto bound_arguments() const noexcept { return luisa::span{_bound_arguments}; }
+    /// Return whether an argument is an internalized capture of an outer
+    /// expression.  This is needed by AST transforms that reconstruct custom
+    /// callable calls without passing capture slots twice.
+    [[nodiscard]] bool has_internalizer_argument(Variable argument) const noexcept {
+        return _internalizer_arguments.contains(argument);
+    }
     /// Return a span of unbound arguments.
     [[nodiscard]] auto unbound_arguments() const noexcept { return luisa::span{_arguments}.subspan(_bound_arguments.size()); }
     /// Return a span of custom callables.
@@ -277,6 +285,12 @@ public:
         return _define(Function::Tag::RASTER_STAGE, std::forward<Def>(def));
     }
 
+    /// Define a coroutine function with given definition
+    template<typename Def>
+    static auto define_coroutine(Def &&def) {
+        return _define(Function::Tag::COROUTINE, std::forward<Def>(def));
+    }
+
     // config
     /// Set block size
     void set_block_size(uint3 size) noexcept;
@@ -293,6 +307,10 @@ public:
     [[nodiscard]] const RefExpr *block_id() noexcept;
     /// Return dispatch id (equal to block_id * block_size + thread_id).
     [[nodiscard]] const RefExpr *dispatch_id() noexcept;
+    /// Return coroutine id (equal to dispatch_id).
+    [[nodiscard]] const RefExpr *coro_id() noexcept { return dispatch_id(); }
+    /// Return coroutine token.
+    [[nodiscard]] const RefExpr *coro_token() noexcept;
     /// Return dispatch size (the exact value; not rounded up to block_size).
     [[nodiscard]] const RefExpr *dispatch_size() noexcept;
     /// Return kernel id (for indirect kernels only).
@@ -401,6 +419,14 @@ public:
     void continue_() noexcept;
     /// Add return statement
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
+    /// Add suspend statement (no token, no name)
+    void suspend_() noexcept;
+    /// Add suspend statement with token
+    void suspend_(uint32_t token) noexcept;
+    /// Add suspend statement with name
+    void suspend_(luisa::string name) noexcept;
+    /// Add suspend statement with token and name
+    void suspend_(uint32_t token, luisa::string name) noexcept;
     /// Add comment statement
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement

@@ -311,7 +311,7 @@ private:
 
     // PHI nodes, defined in cuda_codegen_llvm_impl_phi.cpp
     [[nodiscard]] llvm::PHINode *_translate_phi_inst(IB &b, FunctionContext &func_ctx, const xir::PhiInst *inst) noexcept;
-    void _finalize_pending_phi_nodes(const FunctionContext &func_ctx) noexcept;
+    void _finalize_pending_phi_nodes(const FunctionContext &func_ctx, const luisa::unordered_set<const xir::BasicBlock *> &translated_blocks) noexcept;
 
     // variable instructions: alloca, load, store, gep, defined in cuda_codegen_llvm_impl_var.cpp
     [[nodiscard]] llvm::Value *_translate_alloca_inst(IB &b, FunctionContext &func_ctx, const xir::AllocaInst *inst) noexcept;

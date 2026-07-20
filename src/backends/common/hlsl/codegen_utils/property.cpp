@@ -148,8 +148,9 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
                     }
                 };
                 if (auto t = v->GetType(); t->is_structure() || t->is_array()) {
-                    finalResult << luisa::format("void _accum_grad_{:016X}(inout {} x_grad, {} dx){{\n",
-                                                 t->hash(), v->GetStructName(), v->GetStructName());
+                    auto vk_ref = opt->isSpirv ? "[[vk::ext_reference]] "sv : ""sv;
+                    finalResult << luisa::format("void _accum_grad_{:016X}({}inout {} x_grad, {} dx){{\n",
+                                                 t->hash(), vk_ref, v->GetStructName(), v->GetStructName());
                     if (t->is_structure()) {
                         for (auto i = 0u; i < t->members().size(); i++) {
                             if (auto m = t->members()[i]; detail::can_accum_grad(m)) {

@@ -1,15 +1,16 @@
-// Test for constant buffer handling in compute kernels.
-// This test verifies the creation and usage of constant buffers containing
-// struct data, demonstrating how to pass read-only data to GPU kernels.
+// Test for constant arrays in compute kernels.
+// This test verifies dynamically indexed constant struct values with an
+// independent, exact host oracle.
 
 #include "ut/ut.hpp"
 #include "test_device.h"
+
+#include <luisa/core/logging.h>
+#include <luisa/runtime/buffer.h>
 #include <luisa/runtime/context.h>
-#include <luisa/runtime/stream.h>
-#include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
+#include <luisa/runtime/stream.h>
 #include <luisa/dsl/syntax.h>
-#include <stb/stb_image_write.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -19,66 +20,66 @@ using namespace boost::ut::literals;
 // Test struct for constant buffer data
 struct Foo {
     luisa::uint a;// Index field
-    float b;      // Offset field for color
+    float b;      // Constant payload
     float c;
     float d;
 };
 LUISA_STRUCT(Foo, a, b, c, d) {};
 
-void test_constant(Device &device) {
-    // Create a buffer for testing (not used in this test but demonstrates setup)
-    auto buffer = device.create_buffer<uint>(1024);
-    Stream stream = device.create_stream();
+[[nodiscard]] int test_constant(Device &device) {
+    constexpr auto element_count = 37u;
+    auto output = device.create_buffer<Foo>(element_count);
+    auto stream = device.create_stream();
 
-    // Set up image for kernel output
-    constexpr uint2 resolution = make_uint2(1024, 1024);
-    Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};
-    luisa::vector<std::byte> host_image(image.view().size_bytes());
-
-    // Define kernel that uses constant buffer data
-    Kernel2D kernel = [&]() {
-        // Initialize constant data array with 4 Foo structs
+    Kernel1D kernel = [](BufferVar<Foo> result) noexcept {
         Foo foo_data[4]{
             {1, 2.0f, 3.0f, 4.0f},
             {5, 6.0f, 7.0f, 8.0f},
             {9, 10.0f, 11.0f, 12.0f},
             {13, 14.0f, 15.0f, 16.0f}};
-        // Create constant buffer from the data
         Constant<Foo> foo(foo_data, 4);
-
-        // Get dispatch coordinates
-        Var coord = dispatch_id().xy();
-        Var size = dispatch_size().xy();
-
-        // Index into constant buffer based on x coordinate
-        Var<uint> i = coord.x % 4u;
-
-        // Generate UV coordinates and apply color offset from constant buffer
-        Var uv = (make_float2(coord) + 0.5f) / make_float2(size) + foo.read(i).b;
-
-        // Write result to image
-        image->write(coord, make_float4(uv, 0.5f, 1.0f));
+        auto index = (dispatch_x() * 3u + 1u) % 4u;
+        result.write(dispatch_x(), foo.read(index));
     };
 
-    // Compile and execute kernel
     auto shader = device.compile(kernel);
-    stream << shader().dispatch(resolution)
-           << image.copy_to(luisa::span{host_image})
+    luisa::vector<Foo> host_output(element_count);
+    stream << shader(output).dispatch(element_count)
+           << output.copy_to(luisa::span{host_output})
            << synchronize();
-    expect(true) << "constant buffer kernel executed";
 
-    // Save result to PNG file
-    stbi_write_png("test_helloworld.png", resolution.x, resolution.y, 4, host_image.data(), 0);
+    constexpr Foo expected[4]{
+        {1, 2.0f, 3.0f, 4.0f},
+        {5, 6.0f, 7.0f, 8.0f},
+        {9, 10.0f, 11.0f, 12.0f},
+        {13, 14.0f, 15.0f, 16.0f}};
+    auto all_correct = true;
+    for (auto i = 0u; i < element_count; ++i) {
+        auto expected_value = expected[(i * 3u + 1u) % 4u];
+        auto value = host_output[i];
+        if (value.a != expected_value.a ||
+            value.b != expected_value.b ||
+            value.c != expected_value.c ||
+            value.d != expected_value.d) {
+            LUISA_WARNING(
+                "Constant mismatch at {}: got ({}, {}, {}, {}), expected ({}, {}, {}, {}).",
+                i, value.a, value.b, value.c, value.d,
+                expected_value.a, expected_value.b, expected_value.c, expected_value.d);
+            all_correct = false;
+            break;
+        }
+    }
+    expect(all_correct) << "dynamically indexed constant structs must exactly match the host values";
+    return all_correct ? 0 : 1;
 }
 
-static inline const auto reg = [] {
-    "dsl_constant"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        test_constant(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    return test_constant(device);
+}

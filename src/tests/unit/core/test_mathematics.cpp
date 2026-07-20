@@ -1,8 +1,3 @@
-/**
- * @file tests/for_agent/mathematics.cpp
- * @brief Test cases for luisa/core/mathematics.h
- */
-
 #include <luisa/core/mathematics.h>
 #include <luisa/core/logging.h>
 #include "ut/ut.hpp"
@@ -752,5 +747,7 @@ static auto test_mathematics_registration = [] {
     };
     return 0;
 }();
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+}

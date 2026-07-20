@@ -2,7 +2,7 @@
 #include "test_device.h"
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <iostream>
 
 using namespace luisa;
@@ -26,12 +26,11 @@ struct MyHit {
 
 LUISA_STRUCT(MyHit, hit_type, triangle_bary, sphere_normal) {};
 
-void test_procedural_callable(Device &device) {
+void test_procedural_callable(Device &device, int argc, char *argv[]) {
     constexpr uint32_t width = 1280;
     constexpr uint32_t height = 720;
     auto opts = luisa::test::ImageTestOptions::parse(
-        boost::ut::detail::cfg::largc,
-        boost::ut::detail::cfg::largv);
+        argc, const_cast<const char *const *>(argv));
     Stream stream = device.create_stream();
     auto device_image1 = device.create_image<float>(PixelStorage::FLOAT4, width, height);
 
@@ -182,26 +181,24 @@ void test_procedural_callable(Device &device) {
            << ldr_image.copy_to(luisa::span{pixels})
            << synchronize();
     stbi_write_png("test_procedural_callable.png", width, height, 4, pixels.data(), 0);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
-    auto result = luisa::test::save_and_compare(
-        reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
-        "test_procedural_callable", opts.output_dir, ref_dir, opts.update_reference);
-    LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-    if (!result.passed) {
-        LUISA_ERROR("Reference comparison failed for test_procedural_callable: {}", result.message);
-        boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-        return;
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_procedural_callable]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
+        }
     }
 }
 
-static inline const auto reg = [] {
-    "test_procedural_callable"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_procedural_callable(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_procedural_callable(device, argc, argv);
+}

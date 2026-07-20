@@ -278,7 +278,7 @@ private:
         constexpr std::array<size_t, count> sizes{sizeof(M)...};
         constexpr std::array<size_t, count> alignments{alignof(M)...};
         constexpr std::array<size_t, count> offsets{os...};
-        auto current_offset = 0u;
+        auto current_offset = size_t{0u};
         for (auto i = 0u; i < count; i++) {
             auto offset = offsets[i];
             auto size = sizes[i];

@@ -4,12 +4,18 @@
 
 #pragma once
 
+#include <mutex>
+
 #include <hip/hip_runtime.h>
 #include <hiprt/hiprt.h>
+#include <luisa/core/stl/string.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 
 namespace luisa::compute::hip {
+
+class HIPPinnedMemoryExt;
+class HIPMotionMeshBuiltin;
 
 class HIPDevice final : public luisa::compute::DeviceInterface {
 
@@ -17,20 +23,33 @@ private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io{nullptr};
     const BinaryIO *_io{nullptr};
     int _device_id;
-    int _gcn_arch{};
-    hiprtContext _hiprt_context{nullptr};
-    hiprtGlobalStackBuffer _hiprt_global_stack_buffer{};
+    hipDevice_t _hip_device{};
+    hipCtx_t _hip_context{nullptr};
+    luisa::string _amdgpu_arch;
+    mutable std::mutex _hiprt_mutex;
+    mutable hiprtContext _hiprt_context{nullptr};
+    mutable hiprtGlobalStackBuffer _hiprt_global_stack_buffer{};
+    mutable bool _hiprt_global_stack_buffer_initialized{false};
+    std::mutex _extension_mutex;
+    luisa::unique_ptr<HIPPinnedMemoryExt> _pinned_memory_ext{nullptr};
+    mutable std::mutex _motion_mesh_builtin_mutex;
+    mutable luisa::unique_ptr<HIPMotionMeshBuiltin> _motion_mesh_builtin{nullptr};
 
     template<typename F>
     decltype(auto) with_device(F &&f) const noexcept;
+    [[nodiscard]] hiprtContext _ensure_hiprt_context_locked() const noexcept;
 
 public:
     HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept;
     ~HIPDevice() noexcept override;
     [[nodiscard]] auto device_id() const noexcept { return _device_id; }
-    [[nodiscard]] auto gcn_arch() const noexcept { return _gcn_arch; }
-    [[nodiscard]] auto hiprt_context() const noexcept { return _hiprt_context; }
-    [[nodiscard]] auto hiprt_global_stack_buffer() const noexcept { return _hiprt_global_stack_buffer; }
+    [[nodiscard]] auto amdgpu_arch() const noexcept { return luisa::string_view{_amdgpu_arch}; }
+    [[nodiscard]] auto uses_hardware_rt_stack() const noexcept {
+        return _amdgpu_arch == "gfx1200" || _amdgpu_arch == "gfx1201";
+    }
+    [[nodiscard]] hiprtContext hiprt_context() const noexcept;
+    [[nodiscard]] hiprtGlobalStackBuffer hiprt_global_stack_buffer() const noexcept;
+    [[nodiscard]] HIPMotionMeshBuiltin &motion_mesh_builtin() const noexcept;
     [[nodiscard]] hipUUID_t device_uuid() const noexcept;
     [[nodiscard]] hipUUID_t device_uuid_for_vulkan() const noexcept;
     [[nodiscard]] void *native_handle() const noexcept override;

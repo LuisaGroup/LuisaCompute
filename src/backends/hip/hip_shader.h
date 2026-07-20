@@ -16,10 +16,12 @@ class ShaderDispatchCommand;
 namespace luisa::compute::hip {
 
 class HIPCommandEncoder;
+class HIPShaderPrinter;
 
 class HIPShader {
 
 private:
+    luisa::unique_ptr<HIPShaderPrinter> _printer;
     luisa::vector<Usage> _argument_usages;
     luisa::string _name;
     mutable spin_mutex _name_mutex;
@@ -29,13 +31,15 @@ private:
                          ShaderDispatchCommand *command) const noexcept = 0;
 
 public:
-    explicit HIPShader(luisa::vector<Usage> arg_usages) noexcept;
+    HIPShader(luisa::unique_ptr<HIPShaderPrinter> printer,
+              luisa::vector<Usage> arg_usages) noexcept;
     virtual ~HIPShader() noexcept;
     HIPShader(HIPShader &&) noexcept = delete;
     HIPShader(const HIPShader &) noexcept = delete;
     HIPShader &operator=(HIPShader &&) noexcept = delete;
     HIPShader &operator=(const HIPShader &) noexcept = delete;
     [[nodiscard]] Usage argument_usage(size_t i) const noexcept;
+    [[nodiscard]] auto printer() const noexcept { return _printer.get(); }
     [[nodiscard]] virtual void *handle() const noexcept = 0;
     void launch(HIPCommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;

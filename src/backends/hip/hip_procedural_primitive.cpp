@@ -2,6 +2,8 @@
 // Created by mike on 4/8/26.
 //
 
+#include <limits>
+
 #include "hip_check.h"
 #include "hip_buffer.h"
 #include "hip_command_encoder.h"
@@ -12,40 +14,57 @@
 namespace luisa::compute::hip {
 
 HIPProceduralPrimitive::HIPProceduralPrimitive(hiprtContext ctx, const AccelOption &option) noexcept
-    : _option{option}, _hiprt_ctx{ctx} {}
+    : _option{option}, _hiprt_ctx{ctx} {
+    LUISA_ASSERT(!_option.motion.is_enabled(),
+                 "HIP procedural primitives do not yet support motion keyframes.");
+}
 
 HIPProceduralPrimitive::~HIPProceduralPrimitive() noexcept {
     if (_geometry) {
-        hiprtDestroyGeometry(_hiprt_ctx, _geometry);
+        // Geometry builds and traces are asynchronous, while HIPRT destruction
+        // has no stream on which to order the deallocation.
+        LUISA_CHECK_HIP(hipDeviceSynchronize());
+        LUISA_CHECK_HIPRT(hiprtDestroyGeometry(_hiprt_ctx, _geometry));
     }
 }
 
 void HIPProceduralPrimitive::build(HIPCommandEncoder &encoder, ProceduralPrimitiveBuildCommand *command) noexcept {
 
     auto aabb_buffer = reinterpret_cast<const HIPBuffer *>(command->aabb_buffer());
-    LUISA_ASSERT(command->aabb_buffer_offset() + command->aabb_buffer_size() <= aabb_buffer->size_bytes(),
+    auto aabb_offset = command->aabb_buffer_offset();
+    auto aabb_size = command->aabb_buffer_size();
+    LUISA_ASSERT(aabb_offset <= aabb_buffer->size_bytes() &&
+                     aabb_size <= aabb_buffer->size_bytes() - aabb_offset,
                  "AABB buffer offset + size exceeds buffer size {}.", aabb_buffer->size_bytes());
+    LUISA_ASSERT(aabb_size % sizeof(AABB) == 0u,
+                 "HIP procedural primitive buffer size {} is not divisible by {}.",
+                 aabb_size, sizeof(AABB));
+    auto aabb_count = aabb_size / sizeof(AABB);
+    LUISA_ASSERT(aabb_count > 0u &&
+                     aabb_count <= std::numeric_limits<uint32_t>::max(),
+                 "HIP procedural primitives require a nonzero 32-bit AABB count.");
 
     std::scoped_lock lock{_mutex};
 
-    auto new_aabb_buffer = static_cast<std::byte *>(aabb_buffer->handle()) + command->aabb_buffer_offset();
-    auto new_aabb_buffer_size = command->aabb_buffer_size();
+    auto new_aabb_buffer = static_cast<std::byte *>(aabb_buffer->handle()) + aabb_offset;
 
     auto requires_build =
         _geometry == nullptr ||
         !_option.allow_update ||
         command->request() == AccelBuildRequest::FORCE_BUILD ||
         reinterpret_cast<hipDeviceptr_t>(new_aabb_buffer) != _aabb_buffer ||
-        new_aabb_buffer_size != _aabb_buffer_size;
+        aabb_size != _aabb_buffer_size;
+    auto old_aabb_count = _aabb_buffer_size / sizeof(AABB);
+    auto recreate_geometry =
+        _geometry == nullptr || aabb_count != old_aabb_count ||
+        (_option.allow_compaction && requires_build);
 
     _aabb_buffer = reinterpret_cast<hipDeviceptr_t>(new_aabb_buffer);
-    _aabb_buffer_size = new_aabb_buffer_size;
-
-    auto aabb_count = static_cast<uint32_t>(_aabb_buffer_size / sizeof(AABB));
+    _aabb_buffer_size = aabb_size;
 
     hiprtAABBListPrimitive aabb_prim{};
     aabb_prim.aabbs = reinterpret_cast<hiprtDevicePtr>(_aabb_buffer);
-    aabb_prim.aabbCount = aabb_count;
+    aabb_prim.aabbCount = static_cast<uint32_t>(aabb_count);
     aabb_prim.aabbStride = sizeof(AABB);
 
     hiprtGeometryBuildInput build_input{};
@@ -53,16 +72,20 @@ void HIPProceduralPrimitive::build(HIPCommandEncoder &encoder, ProceduralPrimiti
     build_input.primitive.aabbList = aabb_prim;
 
     hiprtBuildOptions build_options{};
-    build_options.buildFlags = hiprtBuildFlagBitPreferHighQualityBuild;
+    build_options.buildFlags = make_hiprt_build_flags(_option);
 
     auto hip_stream = encoder.stream()->handle();
 
     if (requires_build) {
-        if (_geometry) {
-            hiprtDestroyGeometry(_hiprt_ctx, _geometry);
-            _geometry = nullptr;
+        if (recreate_geometry) {
+            if (_geometry) {
+                LUISA_CHECK_HIP(hipStreamSynchronize(hip_stream));
+                LUISA_CHECK_HIPRT(hiprtDestroyGeometry(_hiprt_ctx, _geometry));
+                _geometry = nullptr;
+            }
+            LUISA_CHECK_HIPRT(hiprtCreateGeometry(_hiprt_ctx, build_input,
+                                                  build_options, _geometry));
         }
-        LUISA_CHECK_HIPRT(hiprtCreateGeometry(_hiprt_ctx, build_input, build_options, _geometry));
 
         size_t temp_size = 0;
         LUISA_CHECK_HIPRT(hiprtGetGeometryBuildTemporaryBufferSize(_hiprt_ctx, build_input, build_options, temp_size));
@@ -78,6 +101,10 @@ void HIPProceduralPrimitive::build(HIPCommandEncoder &encoder, ProceduralPrimiti
 
         if (temp_buffer) {
             LUISA_CHECK_HIP(hipFreeAsync(reinterpret_cast<void *>(temp_buffer), hip_stream));
+        }
+        if (_option.allow_compaction) {
+            LUISA_CHECK_HIPRT(hiprtCompactGeometry(
+                _hiprt_ctx, hip_stream, _geometry, _geometry));
         }
     } else {
         LUISA_CHECK_HIPRT(hiprtBuildGeometry(_hiprt_ctx, hiprtBuildOperationUpdate,

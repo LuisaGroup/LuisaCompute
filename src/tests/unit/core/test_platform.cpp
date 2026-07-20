@@ -13,19 +13,30 @@ using namespace boost::ut::literals;
 
 // ---- current_executable_path ----
 
-static inline const auto reg_exe_path = [] {
+// ---- env_separator ----
+
+// ---- dynamic_module_name ----
+
+// ---- aligned_alloc / aligned_free ----
+
+// ---- pagesize ----
+
+// ---- cpu_name ----
+
+// ---- backtrace ----
+
+void reg_exe_path() {
+
     "current_executable_path"_test = [] {
         auto path = luisa::current_executable_path();
         expect(!path.empty()) << "executable path should not be empty";
         // path should contain the test executable name
         LUISA_INFO("Executable path: {}", path);
     };
-    return 0;
-}();
+}
 
-// ---- env_separator ----
+void reg_env_separator() {
 
-static inline const auto reg_env_separator = [] {
     "env_separator"_test = [] {
         char sep = luisa::env_separator();
 #ifdef _WIN32
@@ -34,12 +45,10 @@ static inline const auto reg_env_separator = [] {
         expect(sep == ':') << "env separator on POSIX should be ':'";
 #endif
     };
-    return 0;
-}();
+}
 
-// ---- dynamic_module_name ----
+void reg_dynamic_module_name() {
 
-static inline const auto reg_dynamic_module_name = [] {
     "dynamic_module_name_composition"_test = [] {
         auto name = luisa::dynamic_module_name("test_module");
         expect(!name.empty()) << "dynamic_module_name should return non-empty string";
@@ -54,12 +63,10 @@ static inline const auto reg_dynamic_module_name = [] {
             << "Linux: expected 'libtest_module.so' but got '" << name.c_str() << "'";
 #endif
     };
-    return 0;
-}();
+}
 
-// ---- aligned_alloc / aligned_free ----
+void reg_aligned_alloc_basic() {
 
-static inline const auto reg_aligned_alloc_basic = [] {
     "aligned_alloc_basic"_test = [] {
         void *p = luisa::aligned_alloc(16u, 128u);
         expect(static_cast<bool>(p != nullptr)) << "aligned_alloc should return non-null";
@@ -74,10 +81,10 @@ static inline const auto reg_aligned_alloc_basic = [] {
 
         luisa::aligned_free(p);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_aligned_alloc_various_alignments = [] {
+void reg_aligned_alloc_various_alignments() {
+
     "aligned_alloc_various_alignments"_test = [] {
         for (size_t align : {8u, 16u, 32u, 64u, 128u, 256u}) {
             void *p = luisa::aligned_alloc(align, 256u);
@@ -88,21 +95,19 @@ static inline const auto reg_aligned_alloc_various_alignments = [] {
             luisa::aligned_free(p);
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_aligned_free_null = [] {
+void reg_aligned_free_null() {
+
     "aligned_free_null"_test = [] {
         // Freeing null should be safe
         luisa::aligned_free(nullptr);
         expect(true);
     };
-    return 0;
-}();
+}
 
-// ---- pagesize ----
+void reg_pagesize() {
 
-static inline const auto reg_pagesize = [] {
     "pagesize"_test = [] {
         auto ps = luisa::pagesize();
         expect(ps > 0u) << "pagesize must be positive";
@@ -112,23 +117,19 @@ static inline const auto reg_pagesize = [] {
         expect(ps >= 4096u) << "pagesize should be at least 4096";
         LUISA_INFO("Page size: {} bytes", ps);
     };
-    return 0;
-}();
+}
 
-// ---- cpu_name ----
+void reg_cpu_name() {
 
-static inline const auto reg_cpu_name = [] {
     "cpu_name"_test = [] {
         auto name = luisa::cpu_name();
         expect(!name.empty()) << "cpu_name should not be empty";
         LUISA_INFO("CPU name: {}", name);
     };
-    return 0;
-}();
+}
 
-// ---- backtrace ----
+void reg_backtrace() {
 
-static inline const auto reg_backtrace = [] {
     "backtrace"_test = [] {
         auto trace = luisa::backtrace();
         // Should have at least one frame (this function)
@@ -138,7 +139,19 @@ static inline const auto reg_backtrace = [] {
             expect(item.address != 0u);
         }
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_exe_path();
+    reg_env_separator();
+    reg_dynamic_module_name();
+    reg_aligned_alloc_basic();
+    reg_aligned_alloc_various_alignments();
+    reg_aligned_free_null();
+    reg_pagesize();
+    reg_cpu_name();
+    reg_backtrace();
+    return 0;
+}

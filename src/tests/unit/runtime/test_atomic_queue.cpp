@@ -12,8 +12,9 @@
 
 #include "ut/ut.hpp"
 #include "test_device.h"
-#include <random>
-#include <iostream>
+#include <algorithm>
+#include <array>
+#include <numeric>
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
@@ -22,15 +23,6 @@ using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
-
-// Placeholder class for queue counter (not fully implemented)
-class AtomicQueueCounter {
-
-private:
-    Buffer<uint> _buffer;
-
-public:
-};
 
 // Thread-safe atomic queue using GPU atomics
 template<typename T>
@@ -89,108 +81,96 @@ public:
     void reset(CommandList &list) noexcept {
         list << _reset().dispatch(1u);
     }
+
+    [[nodiscard]] auto &storage() noexcept { return _buffer; }
+    [[nodiscard]] auto &counter() noexcept { return _counter; }
 };
 
 void test_atomic_queue(Device &device) {
 
-    log_level_verbose();
-
-    // Queue capacity: 16 million elements
-    static constexpr auto queue_size = 16_M;
-    AtomicQueue<float> q1{device, queue_size};
-    AtomicQueue<float> q2{device, queue_size};
-
-    // Linear Congruential Generator for random numbers
-    Callable lcg = [](UInt &state) noexcept {
-        constexpr uint lcg_a = 1664525u;
-        constexpr uint lcg_c = 1013904223u;
-        state = lcg_a * state + lcg_c;
-        return cast<float>(state & 0x00ffffffu) *
-               (1.0f / static_cast<float>(0x01000000u));
-    };
+    // Several blocks are enough to exercise both the shared and global atomic
+    // allocation paths without turning a correctness test into a multi-hour
+    // benchmark or flooding a backend's command queue.
+    static constexpr auto queue_size = 4096u;
+    AtomicQueue<uint> q1{device, queue_size};
+    AtomicQueue<uint> q2{device, queue_size};
 
     // Test 1: Push to single queue
-    auto test_single = device.compile<1>([&](BufferUInt seed_buffer) noexcept {
+    auto test_single = device.compile<1>([&]() noexcept {
         auto x = dispatch_x();
-        auto seed = seed_buffer.read(x);
-        auto r = lcg(seed);
-        seed_buffer.write(x, seed);
-        q1.push(r);
+        q1.push(x);
     });
 
     // Test 2: Push to two queues (duplicates data)
-    auto test_double = device.compile<1>([&](BufferUInt seed_buffer) noexcept {
+    auto test_double = device.compile<1>([&]() noexcept {
         auto x = dispatch_x();
-        auto seed = seed_buffer.read(x);
-        auto r = lcg(seed);
-        seed_buffer.write(x, seed);
-        q1.push(r);
-        q2.push(r);
+        q1.push(x);
+        q2.push(x);
     });
 
     // Test 3: Conditional push based on random value
     // Distributes items between two queues
-    auto test_select = device.compile<1>([&](BufferUInt seed_buffer) noexcept {
+    auto test_select = device.compile<1>([&]() noexcept {
         auto x = dispatch_x();
-        auto seed = seed_buffer.read(x);
-        auto r = lcg(seed);
-        seed_buffer.write(x, seed);
-        auto pred = r < .5f;
-        q1.push_if(pred, r);
-        q2.push_if(!pred, r);
+        auto pred = (x & 1u) == 0u;
+        q1.push_if(pred, x);
+        q2.push_if(!pred, x);
     });
 
     auto stream = device.create_stream();
-    auto sampler_state_buffer = device.create_buffer<uint>(queue_size);
+    luisa::vector<uint> values_1(queue_size);
+    luisa::vector<uint> values_2(queue_size);
+    std::array<uint, 1u> count_1{};
+    std::array<uint, 1u> count_2{};
 
-    // Initialize random seeds
-    luisa::vector<uint> sampler_seeds(queue_size);
-    std::generate(sampler_seeds.begin(), sampler_seeds.end(),
-                  std::mt19937{std::random_device{}()});
-
-    // Benchmark helper
-    auto do_test = [&](auto &&shader, auto name_in, auto iterations) noexcept {
-        auto name = luisa::string_view{name_in};
-
-        shader.set_name(name);
-        stream << sampler_state_buffer.copy_from(luisa::span{sampler_seeds})
-               << synchronize();
-
-        Clock clk;
-        for (auto i = 0u; i < iterations; i++) {
-            CommandList list;
-            list.reserve(3u, 0u);
-            q1.reset(list);
-            q2.reset(list);
-            list << shader(sampler_state_buffer).dispatch(queue_size);
-            stream << list.commit();
-        }
-        stream << synchronize();
-        expect(true) << "atomic queue completed";
-        if (!name.empty()) {
-            LUISA_INFO("{}: {} ms", name, clk.toc());
-        }
+    auto verify_values = [](luisa::span<const uint> values, uint count,
+                            luisa::vector<uint> expected, luisa::string_view label) noexcept {
+        auto count_valid = count == expected.size() && count <= values.size();
+        expect(count_valid) << luisa::format("{} count: expected {}, got {}", label, expected.size(), count);
+        if (!count_valid) { return; }
+        luisa::vector<uint> actual{values.begin(), values.begin() + count};
+        std::sort(actual.begin(), actual.end());
+        std::sort(expected.begin(), expected.end());
+        expect(actual == expected) << luisa::format("{} contents", label);
     };
 
-    // Warm up runs
-    do_test(test_single, "", 64u);
-    do_test(test_double, "", 64u);
-    do_test(test_select, "", 64u);
+    auto run_case = [&](auto &&shader, luisa::vector<uint> expected_1,
+                        luisa::vector<uint> expected_2, luisa::string_view name) noexcept {
+        CommandList list;
+        q1.reset(list);
+        q2.reset(list);
+        list << shader().dispatch(queue_size);
+        stream << list.commit()
+               << q1.counter().copy_to(luisa::span{count_1})
+               << q2.counter().copy_to(luisa::span{count_2})
+               << q1.storage().copy_to(luisa::span{values_1})
+               << q2.storage().copy_to(luisa::span{values_2})
+               << synchronize();
+        verify_values(values_1, count_1[0], std::move(expected_1), luisa::format("{} queue 1", name));
+        verify_values(values_2, count_2[0], std::move(expected_2), luisa::format("{} queue 2", name));
+    };
 
-    // Benchmark runs
-    do_test(test_single, "single", 1024u);
-    do_test(test_double, "double", 1024u);
-    do_test(test_select, "select", 1024u);
+    luisa::vector<uint> all(queue_size);
+    std::iota(all.begin(), all.end(), 0u);
+    luisa::vector<uint> even;
+    luisa::vector<uint> odd;
+    even.reserve(queue_size / 2u);
+    odd.reserve(queue_size / 2u);
+    for (auto i = 0u; i < queue_size; i++) {
+        (i % 2u == 0u ? even : odd).emplace_back(i);
+    }
+    run_case(test_single, all, {}, "single");
+    run_case(test_double, all, all, "double");
+    run_case(test_select, even, odd, "partition");
 }
 
-static inline const auto reg = [] {
-    "atomic_queue"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_atomic_queue(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_atomic_queue(device);
+}

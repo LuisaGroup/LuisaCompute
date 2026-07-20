@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/ast/type_registry.h>
@@ -36,7 +37,15 @@ private:
 public:
     IndirectDispatchBuffer(DeviceInterface *device, size_t capacity) noexcept
         : IndirectDispatchBuffer{device, capacity,
-                                 device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity, nullptr)} {
+                                 [&] {
+                                     auto info = device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity, nullptr);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                                     if (!info.valid()) {
+                                         LUISA_ERROR("Failed to create indirect dispatch buffer.");
+                                     }
+#endif
+                                     return info;
+                                 }()} {
     }
     IndirectDispatchBuffer() noexcept = default;
     ~IndirectDispatchBuffer() noexcept override;

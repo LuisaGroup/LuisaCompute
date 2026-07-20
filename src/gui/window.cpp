@@ -38,10 +38,14 @@ struct WindowImpl : public Window::IWindowImpl {
 
         static std::once_flag once_flag;
         std::call_once(once_flag, [] { glfwInit(); });
+        glfwDefaultWindowHints();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, resizable);
         if (window_transparent) {
             glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
+            if (!full_screen) {
+                glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+            }
         }
         window = glfwCreateWindow(size.x, size.y, name, full_screen ? glfwGetPrimaryMonitor() : nullptr, nullptr);
 #if defined(LUISA_PLATFORM_WINDOWS)

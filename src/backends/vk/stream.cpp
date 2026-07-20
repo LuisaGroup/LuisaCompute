@@ -385,8 +385,23 @@ auto Visitor<Pack>::create(uint64 size) -> Pack * {
 }
 template<typename T>
 void BufferAllocator<T>::clear() {
-    large_buffers.clear();
-    alloc.dispose();
+    // Soft clear: reset positions without freeing buffers
+    // to keep staging buffers warm across dispatches.
+    // Cap total warm capacity to 4MB to avoid unbounded growth.
+    static constexpr size_t kMaxWarmCapacity = 4ull * 1024ull * 1024ull;
+    size_t total_size = 0;
+    for (auto &buf : alloc.allocated_buffer()) {
+        total_size += buf.fullSize;
+    }
+    if (total_size <= kMaxWarmCapacity) {
+        alloc.soft_clear();
+    } else {
+        alloc.dispose();
+    }
+    // Keep large_buffers for reuse, but limit count.
+    if (large_buffers.size() > 8) {
+        large_buffers.clear();
+    }
 }
 template<typename T>
 BufferAllocator<T>::BufferAllocator(size_t init_capacity)
@@ -428,13 +443,15 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     upload_alloc.visitor.device = &device;
     readback_alloc.visitor.device = &device;
     {
-        VkDescriptorPoolSize pool_sizes[3];
+        VkDescriptorPoolSize pool_sizes[4];
         pool_sizes[0].descriptorCount = 65536;
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         pool_sizes[1].descriptorCount = 65536;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         pool_sizes[2].descriptorCount = 65536;
         pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        pool_sizes[3].descriptorCount = 65536;
+        pool_sizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
         VkDescriptorPoolCreateInfo createInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .flags = 0,
@@ -568,6 +585,11 @@ Stream::~Stream() {
     }
 }
 
+void Stream::remove_resource_state(Resource const *resource) noexcept {
+    std::lock_guard lck{_dispatch_mtx};
+    _resource_barrier.remove_resource(resource);
+}
+
 void Stream::present(
     Texture const *tex,
     uint mip,
@@ -635,15 +657,37 @@ void Stream::present(
         }
 
         {
+            auto producer_wait_value = _evt.last_fence();
+            auto producer_semaphore = _evt.semaphore();
+            luisa::fixed_vector<VkSemaphore, 2> wait_semaphores;
+            luisa::fixed_vector<VkPipelineStageFlags, 2> wait_stages_all;
+            luisa::fixed_vector<uint64_t, 2> wait_values;
+            for (size_t i = 0; i < present_cmd.submit_wait_semaphores.size(); ++i) {
+                wait_semaphores.emplace_back(present_cmd.submit_wait_semaphores[i]);
+                wait_stages_all.emplace_back(present_cmd.wait_stages[i]);
+                wait_values.emplace_back(0u);
+            }
+            if (producer_wait_value > 0u && producer_semaphore != VK_NULL_HANDLE) {
+                wait_semaphores.emplace_back(producer_semaphore);
+                wait_stages_all.emplace_back(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+                wait_values.emplace_back(producer_wait_value);
+            }
+            VkTimelineSemaphoreSubmitInfo timeline_info{};
+            timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+            timeline_info.waitSemaphoreValueCount = static_cast<uint32_t>(wait_values.size());
+            timeline_info.pWaitSemaphoreValues = wait_values.data();
+            timeline_info.signalSemaphoreValueCount = static_cast<uint32_t>(present_cmd.signal_semaphores.size());
+            static const uint64_t zero_signal_values[1] = {0u};
+            timeline_info.pSignalSemaphoreValues = zero_signal_values;
             VkSubmitInfo submit_info{};
             submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submit_info.waitSemaphoreCount = present_cmd.submit_wait_semaphores.size();
-            submit_info.pWaitSemaphores = present_cmd.submit_wait_semaphores.data();
-            submit_info.pWaitDstStageMask = present_cmd.wait_stages.data();
+            submit_info.pNext = &timeline_info;
+            submit_info.waitSemaphoreCount = static_cast<uint32_t>(wait_semaphores.size());
+            submit_info.pWaitSemaphores = wait_semaphores.data();
+            submit_info.pWaitDstStageMask = wait_stages_all.data();
             submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
             submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
             auto _cmdbuffer = cmdbuffer.cmdbuffer();
-            // Check for external command buffer execution
             if (device()->config_ext() && device()->config_ext()->execute_command_buffer(_cmdbuffer)) {
                 submit_info.commandBufferCount = 0;
                 submit_info.pCommandBuffers = nullptr;
@@ -1126,7 +1170,7 @@ void CommandBuffer::end() {
 }
 CommandBuffer::CommandBuffer(CommandBuffer &&rhs) noexcept
     : Resource(std::move(rhs)),
-      _stream(rhs._stream),            // NOLINT(bugprone-use-after-move)
+      _stream(rhs._stream),          // NOLINT(bugprone-use-after-move)
       _cmdbuffer(rhs._cmdbuffer),    // NOLINT(bugprone-use-after-move)
       _state(std::move(rhs._state)) {// NOLINT(bugprone-use-after-move)
     rhs._cmdbuffer = nullptr;
@@ -1162,6 +1206,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         }
         for (auto &i : c->arguments()) {
             add_size(*c, i);
+        }
+        if (shader->validation_count() > 0) {
+            uniform_buffer_size += shader->validation_count() * sizeof(uint);
         }
     };
     for (auto &&command : cmds) {
@@ -1392,7 +1439,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 resource_barrier->record(get_resource_view(i.resource), i.stage, i.access, i.texture_layout);
                             }
                         } break;
-                        //TODO: other commands
+                        // NOTE: unimplemented command type — extend as new CustomCommandUUID
+                        // values are added.
                         default: {
                             LUISA_ERROR("Command type not supported.");
                         } break;
@@ -1416,12 +1464,12 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     device()->logic_device(),
                     &alloc_info,
                     &visitor.desc_set));
-            if (offset_ptr->second > 0) {
+            if (offset_ptr->second > 0 || shader->validation_count() > 0) {
                 auto arg_buffer_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
                 *arg_buffer_info = VkDescriptorBufferInfo{
                     arg_buffer.buffer->vk_buffer(),
                     arg_buffer.offset + offset_ptr->first,
-                    offset_ptr->second};
+                    offset_ptr->second + shader->validation_count() * sizeof(uint)};
                 write_desc_sets->emplace_back(VkWriteDescriptorSet{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
@@ -1435,6 +1483,24 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     nullptr});
             }
             offset_ptr++;
+            if (shader->has_constant_ubo()) {
+                auto ubo_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                *ubo_info = VkDescriptorBufferInfo{
+                    shader->constant_ubo()->vk_buffer(),
+                    0,
+                    VK_WHOLE_SIZE};
+                write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    visitor.desc_set,
+                    desc_index++,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    nullptr,
+                    ubo_info,
+                    nullptr});
+            }
             visitor.desc_index = desc_index;
             visitor.img_views = &_state->img_views;
             visitor.arg = shader->saved_arguments().data();
@@ -1474,6 +1540,55 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 nullptr);
         };
         // Execute
+        struct BufferPair {
+            VkBuffer src;
+            VkBuffer dst;
+            [[nodiscard]] bool operator==(BufferPair const &rhs) const noexcept {
+                return src == rhs.src && dst == rhs.dst;
+            }
+            [[nodiscard]] uint64_t hash() const noexcept {
+                return luisa::hash_combine({luisa::hash_value(src), luisa::hash_value(dst)});
+            }
+        };
+        struct PendingCopy {
+            vstd::unordered_map<BufferPair, vstd::vector<VkBufferCopy2>> copies;
+        };
+        PendingCopy pending_upload;
+        PendingCopy pending_download;
+        auto flush_pending_upload = [&]() {
+            for (auto &[buffer_pair, regions] : pending_upload.copies) {
+                if (regions.empty()) continue;
+                VkCopyBufferInfo2 copy_info2{
+                    VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                    nullptr,
+                    buffer_pair.src,
+                    buffer_pair.dst,
+                    static_cast<uint32_t>(regions.size()),
+                    regions.data()};
+                vkCmdCopyBuffer2(_cmdbuffer, &copy_info2);
+            }
+            pending_upload.copies.clear();
+        };
+        auto flush_pending_download = [&]() {
+            for (auto &[buffer_pair, regions] : pending_download.copies) {
+                if (regions.empty()) continue;
+                VkCopyBufferInfo2 copy_info2{
+                    VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                    nullptr,
+                    buffer_pair.src,
+                    buffer_pair.dst,
+                    static_cast<uint32_t>(regions.size()),
+                    regions.data()};
+                vkCmdCopyBuffer2(_cmdbuffer, &copy_info2);
+            }
+            pending_download.copies.clear();
+        };
+        auto flush_all_pending = [&]() {
+            flush_pending_upload();
+            flush_pending_download();
+        };
+
+        // Post process: actual start record command to commandbuffer
         for (auto i = lst; i != nullptr; i = i->p_next) {
             auto cmd = i->cmd;
             switch (cmd->tag()) {
@@ -1481,22 +1596,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     auto c = static_cast<BufferUploadCommand const *>(cmd);
                     auto chunk = _state->upload_alloc.allocate(c->size(), 16);
                     static_cast<UploadBuffer const *>(chunk.buffer)->copy_from(c->data(), chunk.offset, c->size());
-                    VkBufferCopy2 buffer_copy{
-                        VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-                        nullptr,
-                        chunk.offset,
-                        c->offset(),
-                        c->size()};
-                    VkCopyBufferInfo2 copy_info2{
-                        VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
-                        nullptr,
-                        chunk.buffer->vk_buffer(),
-                        reinterpret_cast<Buffer const *>(c->handle())->vk_buffer(),
-                        1,
-                        &buffer_copy};
-                    vkCmdCopyBuffer2(
-                        _cmdbuffer,
-                        &copy_info2);
+                    VkBuffer src = chunk.buffer->vk_buffer();
+                    VkBuffer dst = reinterpret_cast<Buffer const *>(c->handle())->vk_buffer();
+                    auto &regions = pending_upload.copies[BufferPair{src, dst}];
+                    regions.push_back({VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                                       nullptr,
+                                       chunk.offset,
+                                       c->offset(),
+                                       c->size()});
                 } break;
                 case Command::Tag::EBufferDownloadCommand: {
                     auto c = static_cast<BufferDownloadCommand const *>(cmd);
@@ -1504,24 +1611,17 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     _state->callbacks.emplace_back([chunk, data = c->data(), size = c->size()]() {
                         static_cast<ReadbackBuffer const *>(chunk.buffer)->copy_to(data, chunk.offset, size);
                     });
-                    VkBufferCopy2 buffer_copy{
-                        VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-                        nullptr,
-                        c->offset(),
-                        chunk.offset,
-                        c->size()};
-                    VkCopyBufferInfo2 copy_info2{
-                        VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
-                        nullptr,
-                        reinterpret_cast<Buffer const *>(c->handle())->vk_buffer(),
-                        chunk.buffer->vk_buffer(),
-                        1,
-                        &buffer_copy};
-                    vkCmdCopyBuffer2(
-                        _cmdbuffer,
-                        &copy_info2);
+                    VkBuffer src = reinterpret_cast<Buffer const *>(c->handle())->vk_buffer();
+                    VkBuffer dst = chunk.buffer->vk_buffer();
+                    auto &regions = pending_download.copies[BufferPair{src, dst}];
+                    regions.push_back({VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                                       nullptr,
+                                       c->offset(),
+                                       chunk.offset,
+                                       c->size()});
                 } break;
                 case Command::Tag::EBufferCopyCommand: {
+                    flush_all_pending();
                     auto c = static_cast<BufferCopyCommand const *>(cmd);
                     VkBufferCopy2 buffer_copy{
                         VK_STRUCTURE_TYPE_BUFFER_COPY_2,
@@ -1541,6 +1641,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         &copy_info2);
                 } break;
                 case Command::Tag::EBufferToTextureCopyCommand: {
+                    flush_all_pending();
                     auto c = static_cast<BufferToTextureCopyCommand const *>(cmd);
                     auto tex = reinterpret_cast<Texture const *>(c->texture());
                     int3 tex_offset = make_int3(c->texture_offset());
@@ -1566,8 +1667,13 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     vkCmdCopyBufferToImage2(_cmdbuffer, &copy_info);
                 } break;
                 case Command::Tag::EShaderDispatchCommand: {
+                    flush_all_pending();
                     auto c = static_cast<ShaderDispatchCommand const *>(cmd);
                     auto shader = reinterpret_cast<Shader *>(c->handle());
+                    // Keep the shader's pipeline alive until this command buffer completes.
+                    if (auto *ref = shader->pipeline_ref()) {
+                        _state->dispose_after_flush(PipelineRefHolder{ref});
+                    }
                     bool is_rt_shader = (shader->shader_tag() == Shader::ShaderTag::kRayTracingShader);
                     BindPropVisitor visitor{};
                     set_dispatch_args(visitor, c, shader);
@@ -1660,8 +1766,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     }
                     auto bind_point = is_rt_shader ? VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR : VK_PIPELINE_BIND_POINT_COMPUTE;
                     auto push_stage = is_rt_shader ?
-                        static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_RAYGEN_BIT_KHR) :
-                        static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_COMPUTE_BIT);
+                                          static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_RAYGEN_BIT_KHR) :
+                                          static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_COMPUTE_BIT);
                     // Get pipeline and block_size from the correct shader type
                     VkPipeline vk_pipeline;
                     uint3 blk;
@@ -1696,9 +1802,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             if (is_rt_shader) {
                                 auto rt = static_cast<RayTracingShader const *>(shader);
                                 vkCmdTraceRaysKHR(_cmdbuffer,
-                                    &rt->raygen_region(), &rt->miss_region(),
-                                    &rt->hit_region(), &rt->callable_region(),
-                                    disp_size.x, disp_size.y, disp_size.z);
+                                                  &rt->raygen_region(), &rt->miss_region(),
+                                                  &rt->hit_region(), &rt->callable_region(),
+                                                  disp_size.x, disp_size.y, disp_size.z);
                             } else {
                                 vkCmdDispatch(_cmdbuffer, calc(disp_size.x, blk.x), calc(disp_size.y, blk.y), calc(disp_size.z, blk.z));
                             }
@@ -1716,9 +1822,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         if (is_rt_shader) {
                             auto rt = static_cast<RayTracingShader const *>(shader);
                             vkCmdTraceRaysKHR(_cmdbuffer,
-                                &rt->raygen_region(), &rt->miss_region(),
-                                &rt->hit_region(), &rt->callable_region(),
-                                disp_size.x, disp_size.y, disp_size.z);
+                                              &rt->raygen_region(), &rt->miss_region(),
+                                              &rt->hit_region(), &rt->callable_region(),
+                                              disp_size.x, disp_size.y, disp_size.z);
                         } else {
                             vkCmdDispatch(_cmdbuffer, calc(disp_size.x, blk.x), calc(disp_size.y, blk.y), calc(disp_size.z, blk.z));
                         }
@@ -1801,6 +1907,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     }
                 } break;
                 case Command::Tag::ETextureUploadCommand: {
+                    flush_all_pending();
                     auto c = static_cast<TextureUploadCommand const *>(cmd);
                     auto pixel_size = pixel_storage_size(c->storage(), c->size());
                     auto buffer = _state->upload_alloc.allocate(pixel_size, 16);
@@ -1829,13 +1936,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     vkCmdCopyBufferToImage2(_cmdbuffer, &copy_info);
                 } break;
                 case Command::Tag::ETextureDownloadCommand: {
+                    flush_all_pending();
                     auto c = static_cast<TextureDownloadCommand const *>(cmd);
                     auto pixel_size = pixel_storage_size(c->storage(), c->size());
                     auto buffer = _state->readback_alloc.allocate(pixel_size, 16);
                     _state->callbacks.emplace_back([buffer = buffer.buffer,
-                                                     offset = buffer.offset,
-                                                     pixel_size,
-                                                     data = c->data()]() {
+                                                    offset = buffer.offset,
+                                                    pixel_size,
+                                                    data = c->data()]() {
                         static_cast<ReadbackBuffer const *>(buffer)->copy_to(data, offset, pixel_size);
                     });
                     auto tex = reinterpret_cast<Texture const *>(c->handle());
@@ -1863,6 +1971,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         &info);
                 } break;
                 case Command::Tag::ETextureCopyCommand: {
+                    flush_all_pending();
                     auto c = static_cast<TextureCopyCommand const *>(cmd);
                     auto src_tex = reinterpret_cast<Texture const *>(c->src_handle());
                     int3 src_tex_offset = make_int3(c->src_offset());
@@ -1891,6 +2000,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         &info);
                 } break;
                 case Command::Tag::ETextureToBufferCopyCommand: {
+                    flush_all_pending();
                     auto c = static_cast<TextureToBufferCopyCommand const *>(cmd);
                     auto tex = reinterpret_cast<Texture const *>(c->texture());
                     int3 tex_offset = make_int3(c->texture_offset());
@@ -1917,6 +2027,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         &info);
                 } break;
                 case Command::Tag::EAccelBuildCommand: {
+                    flush_all_pending();
                     auto c = static_cast<AccelBuildCommand const *>(cmd);
                     reinterpret_cast<Tlas *>(c->handle())->build(*this, c->instance_count());
                     // resource_barrier->record(
@@ -1961,20 +2072,24 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     // });
                 } break;
                 case Command::Tag::EMeshBuildCommand: {
+                    flush_all_pending();
                     auto c = static_cast<MeshBuildCommand const *>(cmd);
                     reinterpret_cast<Blas *>(c->handle())->build(*this, c);
                 } break;
                 case Command::Tag::ECurveBuildCommand: {
                 } break;
                 case Command::Tag::EMotionInstanceBuildCommand: {
+                    flush_all_pending();
                     // Motion instance build (execute): no GPU work needed,
                     // keyframes were already stored in preprocess pass
                 } break;
                 case Command::Tag::EProceduralPrimitiveBuildCommand: {
+                    flush_all_pending();
                     auto c = static_cast<ProceduralPrimitiveBuildCommand const *>(cmd);
                     reinterpret_cast<Blas *>(c->handle())->build(*this, c);
                 } break;
                 case Command::Tag::EBindlessArrayUpdateCommand: {
+                    flush_all_pending();
                     auto c = static_cast<BindlessArrayUpdateCommand const *>(cmd);
                     auto bdls = reinterpret_cast<BindlessArray *>(c->handle());
                     c->visit_modifications([&](auto &&t) {
@@ -2015,9 +2130,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     // });
                 } break;
                 case Command::Tag::ECustomCommand: {
+                    flush_all_pending();
                     auto c = static_cast<CustomCommand const *>(cmd);
                     switch (c->custom_cmd_uuid()) {
-                        // TODO
                         case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH): {
                             auto cmd = static_cast<ClearDepthCommand const *>(c);
                             auto tex = reinterpret_cast<Texture *>(cmd->handle());
@@ -2111,7 +2226,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 resolution = tex->size().xy();
                                 VkClearValue clear_value;
                                 std::memset(&clear_value, 0, sizeof(VkClearValue));
-                                clear_value.depthStencil.depth = 0.f;// TODO: may set depth_buffer default value
+                                clear_value.depthStencil.depth = 0.f;
                             }
 
                             VkFramebufferCreateInfo framebuffer_create_info{
@@ -2229,7 +2344,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 _cmdbuffer,
                                 _state->desc_pool);
                         } break;
-                        //TODO: other commands
+                        // NOTE: unimplemented command type — extend as new CustomCommandUUID
+                        // values are added.
                         default: {
                             LUISA_ERROR("Command type not supported.");
                         } break;
@@ -2238,6 +2354,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 default: break;
             }
         }
+        flush_all_pending();
     }
     if (uniform_buffer_size > 0) {
         static_cast<UploadBuffer const *>(arg_buffer.buffer)->copy_from(uniform_data->data(), arg_buffer.offset, uniform_data->size());

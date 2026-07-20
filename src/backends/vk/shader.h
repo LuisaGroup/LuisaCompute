@@ -1,4 +1,5 @@
 #pragma once
+#include "pipeline_ref.h"
 #include "resource.h"
 #include <volk.h>
 #include "../common/hlsl/shader_property.h"
@@ -38,13 +39,17 @@ protected:
     vstd::vector<Argument> _captured;
     vstd::vector<SavedArgument> _saved_arguments;
     vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> _printers;
+    luisa::unique_ptr<class UploadBuffer> _constant_ubo;
     ShaderTag _shader_tag;
+    bool _has_constant_ubo{false};
     bool _use_tex2d_bindless;
     bool _use_tex3d_bindless;
     bool _use_buffer_bindless;
+    uint _validation_count{0};
 public:
     auto pipeline_layout() const { return _pipeline_layout; }
     auto shader_tag() const { return _shader_tag; }
+    virtual PipelineRef *pipeline_ref() const noexcept { return nullptr; }
     virtual bool serialize_pso(vstd::vector<std::byte> &result) const { return false; }
     auto binds() const { return vstd::span<const hlsl::Property>{_binds}; }
     auto captured() const { return vstd::span<const Argument>{_captured}; }
@@ -53,6 +58,9 @@ public:
     bool use_tex2d_bindless() const { return _use_tex2d_bindless; }
     bool use_tex3d_bindless() const { return _use_tex3d_bindless; }
     bool use_buffer_bindless() const { return _use_buffer_bindless; }
+    uint validation_count() const { return _validation_count; }
+    bool has_constant_ubo() const { return _has_constant_ubo; }
+    UploadBuffer const *constant_ubo() const { return _constant_ubo.get(); }
     auto printers() const { return luisa::span{_printers}; }
     Shader(
         Device *device,
@@ -63,7 +71,9 @@ public:
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
-        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers);
+        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
+        luisa::span<const std::byte> constant_ubo_data = {},
+        uint validation_count = 0);
     virtual ~Shader();
     vstd::span<VkDescriptorSet> allocate_desc_set(VkDescriptorPool pool, vstd::vector<VkDescriptorSet> &descs) const;
     void update_desc_set(

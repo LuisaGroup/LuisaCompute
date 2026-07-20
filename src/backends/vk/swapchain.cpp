@@ -162,6 +162,11 @@ void _create_surface(
         create_info_wl.display = display_handle ? reinterpret_cast<wl_display *>(display_handle) : wl_display_connect(nullptr);
         create_info_wl.surface = reinterpret_cast<wl_surface *>(window_handle);
         auto vkCreateWaylandSurfaceKHR = (PFN_vkCreateWaylandSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR");
+        if (!vkCreateWaylandSurfaceKHR) {
+            LUISA_WARNING_WITH_LOCATION("vkCreateWaylandSurfaceKHR not available, falling back to Xlib surface.");
+            create_surface_xlib();
+            return;
+        }
         VK_CHECK_RESULT(vkCreateWaylandSurfaceKHR(instance, &create_info_wl, Device::alloc_callbacks(), &surface));
     } else {// X uses 32-bit IDs
         create_surface_xlib();

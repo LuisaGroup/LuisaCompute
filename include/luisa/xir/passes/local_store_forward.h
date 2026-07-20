@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 class Value;
 class LoadInst;
 class StoreInst;
@@ -23,6 +25,6 @@ struct LocalStoreForwardInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API LocalStoreForwardInfo local_store_forward_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API LocalStoreForwardInfo local_store_forward_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API LocalStoreForwardInfo local_store_forward_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

@@ -13,7 +13,7 @@
 
 #include "ut/ut.hpp"
 #include "test_device.h"
-#include "../../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 #include <luisa/luisa-compute.h>
@@ -72,7 +72,7 @@ void test_motion_blur_mesh_4(Device &device) {
     //   index 2: bottom-left  (-0.87, -0.87)  — Scale
     //   index 3: bottom-right (+0.87, -0.87)  — Shear
     static constexpr float qx[4] = {-0.87f, 0.87f, -0.87f, 0.87f};
-    static constexpr float qy[4] = { 0.87f, 0.87f, -0.87f, -0.87f};
+    static constexpr float qy[4] = {0.87f, 0.87f, -0.87f, -0.87f};
 
     // Helper: identity SRT at a given quadrant center
     auto make_identity_srt = [](float tx, float ty) {
@@ -121,9 +121,13 @@ void test_motion_blur_mesh_4(Device &device) {
     auto mi2 = device.create_motion_instance(mesh, make_motion_option());
     {
         MotionInstanceTransformSRT k0 = make_identity_srt(qx[2], qy[2]);
-        k0.scale[0] = 1.0f; k0.scale[1] = 1.0f; k0.scale[2] = 1.0f;
+        k0.scale[0] = 1.0f;
+        k0.scale[1] = 1.0f;
+        k0.scale[2] = 1.0f;
         MotionInstanceTransformSRT k1 = make_identity_srt(qx[2], qy[2]);
-        k1.scale[0] = 1.8f; k1.scale[1] = 1.8f; k1.scale[2] = 1.8f;
+        k1.scale[0] = 1.8f;
+        k1.scale[1] = 1.8f;
+        k1.scale[2] = 1.8f;
         luisa::vector<MotionInstanceTransformSRT> kfs{k0, k1};
         mi2.set_keyframes(kfs);
     }
@@ -213,10 +217,10 @@ void test_motion_blur_mesh_4(Device &device) {
         $if (hit->is_triangle()) {
             // Per-instance color: red, green, blue, yellow
             auto inst = accel.instance_user_id(hit.inst);
-            auto c0 = make_float3(1.0f, 0.2f, 0.2f);  // red   — rotation
-            auto c1 = make_float3(0.2f, 1.0f, 0.2f);  // green — translation
-            auto c2 = make_float3(0.2f, 0.4f, 1.0f);  // blue  — scale
-            auto c3 = make_float3(1.0f, 0.9f, 0.2f);  // yellow — shear
+            auto c0 = make_float3(1.0f, 0.2f, 0.2f);// red   — rotation
+            auto c1 = make_float3(0.2f, 1.0f, 0.2f);// green — translation
+            auto c2 = make_float3(0.2f, 0.4f, 1.0f);// blue  — scale
+            auto c3 = make_float3(1.0f, 0.9f, 0.2f);// yellow — shear
             // Modulate by barycentric coordinates for depth
             auto bary_brightness = 0.5f + 0.5f * (hit.bary.x + hit.bary.y);
             $if (inst == 0u) { color = c0 * bary_brightness; };
@@ -225,9 +229,15 @@ void test_motion_blur_mesh_4(Device &device) {
             $if (inst == 3u) { color = c3 * bary_brightness; };
         };
         // Progressive accumulation
-        auto old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        auto t = 1.0f / (cast<Float>(frame_index) + 1.0f);
-        image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
+        UInt pixel_index = coord.y * dispatch_size_x() + coord.x;
+        $if (frame_index == 0u) {
+            image.write(pixel_index, make_float4(color, 1.0f));
+        }
+        $else {
+            auto old = image.read(pixel_index).xyz();
+            auto t = 1.0f / (cast<Float>(frame_index) + 1.0f);
+            image.write(pixel_index, make_float4(lerp(old, color, t), 1.0f));
+        };
     };
 
     // HDR to LDR conversion
@@ -271,17 +281,36 @@ void test_motion_blur_mesh_4(Device &device) {
            << synchronize();
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_motion_blur_mesh_4.png", width, height, 4, pixels.data(), 0);
+    auto output_directory = std::filesystem::path{opts.output_dir};
+    std::error_code output_error;
+    std::filesystem::create_directories(output_directory, output_error);
+    boost::ut::expect(!output_error)
+        << luisa::format("Failed to create output directory '{}': {}",
+                         output_directory.string(), output_error.message());
+    auto output_path = output_directory / "test_motion_blur_mesh_4.png";
+    auto saved = !output_error &&
+                 stbi_write_png(output_path.string().c_str(), width, height, 4,
+                                pixels.data(), static_cast<int>(width * 4u)) != 0;
+    boost::ut::expect(saved)
+        << luisa::format("Failed to save output image '{}'.", output_path.string());
+    if (!saved) { return; }
+    LUISA_INFO("Saved output to {}", output_path.string());
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_motion_blur_mesh_4]: {} ({})",
+                   result.passed ? "PASSED" : "FAILED", result.message);
+        boost::ut::expect(result.passed) << result.message;
+    }
 }
 
-static inline const auto reg = [] {
-    "test_motion_blur_mesh_4"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_motion_blur_mesh_4(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_motion_blur_mesh_4(device);
+}

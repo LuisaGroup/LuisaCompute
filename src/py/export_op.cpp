@@ -136,6 +136,7 @@ void export_op(py::module &m) {
         .value("BYTE_BUFFER_READ", CallOp::BYTE_BUFFER_READ)
         .value("BYTE_BUFFER_VOLATILE_WRITE", CallOp::BYTE_BUFFER_VOLATILE_WRITE)
         .value("BYTE_BUFFER_WRITE", CallOp::BYTE_BUFFER_WRITE)
+        .value("ASYNC_COPY", CallOp::ASYNC_COPY)/// [(uint scope, ref dst, ref src, uint elem_bytes, uint num, uint stride, uint event) -> uint]
         .value("TEXTURE_READ", CallOp::TEXTURE_READ)  /// [(texture, coord) -> value]
         .value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)/// [(texture, coord, value) -> void]
         .value("TEXTURE_SIZE", CallOp::TEXTURE_SIZE)

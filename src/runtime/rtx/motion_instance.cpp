@@ -3,10 +3,11 @@
 //
 
 #include <luisa/core/logging.h>
+#include <luisa/runtime/rtx/motion_instance.h>
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/curve.h>
 #include <luisa/runtime/rtx/procedural_primitive.h>
-#include <luisa/runtime/rtx/motion_instance.h>
+#include <luisa/runtime/stream.h>
 
 namespace luisa::compute {
 
@@ -22,29 +23,49 @@ MotionInstance Device::create_motion_instance(const ProceduralPrimitive &primiti
     return _create<MotionInstance>(primitive, option);
 }
 
+ResourceCreationInfo MotionInstance::_create_resource(
+    DeviceInterface *device,
+    const Resource &resource,
+    const AccelMotionOption &option) noexcept {
+    LUISA_ASSERT(resource,
+                 "Cannot create a motion instance from an invalid resource.");
+    LUISA_ASSERT(resource.tag() == Tag::MESH ||
+                     resource.tag() == Tag::CURVE ||
+                     resource.tag() == Tag::PROCEDURAL_PRIMITIVE,
+                 "Invalid resource type for motion instance.");
+    LUISA_ASSERT(resource.device() == device,
+                 "Motion instance and child resource must belong to the same device.");
+    LUISA_ASSERT(option.keyframe_count >= 2u,
+                 "At least two keyframes are required for a motion instance (got {}).",
+                 option.keyframe_count);
+    switch (option.mode) {
+        case AccelMotionMode::MATRIX:
+        case AccelMotionMode::SRT: break;
+        default: LUISA_ERROR_WITH_LOCATION("Invalid motion instance transform mode.");
+    }
+    auto info = device->create_motion_instance(option);
+#ifdef LUISA_ENABLE_SAFE_MODE
+    if (!info.valid()) {
+        LUISA_ERROR("Failed to create motion instance.");
+    }
+#endif
+    return info;
+}
+
 MotionInstance::MotionInstance(DeviceInterface *device,
                                const Resource &resource,
                                const AccelMotionOption &option) noexcept
-    : Resource{device, Tag::MOTION_INSTANCE, device->create_motion_instance(option)},
+    : Resource{device, Tag::MOTION_INSTANCE,
+               _create_resource(device, resource, option)},
       _child_handle{resource.handle()},
       _mode{option.mode} {
-    LUISA_ASSERT(resource &&
-                     (resource.tag() == Tag::MESH ||
-                      resource.tag() == Tag::CURVE ||
-                      resource.tag() == Tag::PROCEDURAL_PRIMITIVE),
-                 "Invalid resource type for motion instance.");
     switch (_mode) {
-        case AccelOption::MotionMode::MATRIX: {
-            LUISA_ASSERT(option.keyframe_count >= 2u,
-                         "At least two keyframes are required for matrix motion (got {}).",
-                         option.keyframe_count);
+        case AccelMotionMode::MATRIX: {
             MotionInstanceTransform identity{luisa::make_float4x4(1.f)};
             _transform_keyframes.resize(option.keyframe_count, identity);
+            break;
         }
-        case AccelOption::MotionMode::SRT: {
-            LUISA_ASSERT(option.keyframe_count >= 2u,
-                         "At least two keyframes are required for SRT motion (got {}).",
-                         option.keyframe_count);
+        case AccelMotionMode::SRT: {
             MotionInstanceTransform identity{MotionInstanceTransformSRT{}};
             _transform_keyframes.resize(option.keyframe_count, identity);
             break;
@@ -67,62 +88,77 @@ MotionInstance::MotionInstance(DeviceInterface *device,
                                const AccelMotionOption &option) noexcept
     : MotionInstance{device, static_cast<const Resource &>(primitive), option} {}
 
+MotionInstance::~MotionInstance() noexcept {
+    if (*this) { device()->destroy_motion_instance(handle()); }
+}
+
 void MotionInstance::set_keyframe(size_t index, const MotionInstanceTransform &transform) noexcept {
+    _check_is_valid();
     LUISA_ASSERT(index < _transform_keyframes.size(),
                  "Keyframe index out of range.");
     _transform_keyframes[index] = transform;
 }
 
 void MotionInstance::set_keyframe(size_t index, const MotionInstanceTransformMatrix &transform) noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::MATRIX,
                  "Invalid motion mode for matrix transform.");
     set_keyframe(index, MotionInstanceTransform{transform});
 }
 
 void MotionInstance::set_keyframe(size_t index, const MotionInstanceTransformSRT &transform) noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::SRT,
                  "Invalid motion mode for SRT transform.");
     set_keyframe(index, MotionInstanceTransform{transform});
 }
 
 void MotionInstance::set_keyframes(luisa::span<const MotionInstanceTransform> transforms) noexcept {
+    _check_is_valid();
     LUISA_ASSERT(transforms.size() == _transform_keyframes.size(), "Keyframe count mismatch.");
     std::memmove(_transform_keyframes.data(), transforms.data(), transforms.size_bytes());
 }
 
 void MotionInstance::set_keyframes(luisa::span<const MotionInstanceTransformMatrix> transforms) noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::MATRIX, "Invalid motion mode for matrix transform.");
     set_keyframes(luisa::span{reinterpret_cast<const MotionInstanceTransform *>(transforms.data()), transforms.size()});
 }
 
 void MotionInstance::set_keyframes(luisa::span<const MotionInstanceTransformSRT> transforms) noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::SRT, "Invalid motion mode for SRT transform.");
     set_keyframes(luisa::span{reinterpret_cast<const MotionInstanceTransform *>(transforms.data()), transforms.size()});
 }
 
 const MotionInstanceTransform &MotionInstance::keyframe(size_t index) const noexcept {
+    _check_is_valid();
     LUISA_ASSERT(index < _transform_keyframes.size(),
                  "Keyframe index out of range.");
     return _transform_keyframes[index];
 }
 
 const MotionInstanceTransformMatrix &MotionInstance::keyframe_matrix(size_t index) const noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::MATRIX,
                  "Invalid motion mode for matrix transform.");
     return keyframe(index).as_matrix();
 }
 
 const MotionInstanceTransformSRT &MotionInstance::keyframe_srt(size_t index) const noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::SRT,
                  "Invalid motion mode for SRT transform.");
     return keyframe(index).as_srt();
 }
 
 luisa::span<const MotionInstanceTransform> MotionInstance::keyframes() const noexcept {
+    _check_is_valid();
     return _transform_keyframes;
 }
 
 luisa::span<const MotionInstanceTransformMatrix> MotionInstance::keyframes_matrix() const noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::MATRIX,
                  "Invalid motion mode for matrix transform.");
     return luisa::span{reinterpret_cast<const MotionInstanceTransformMatrix *>(
@@ -131,6 +167,7 @@ luisa::span<const MotionInstanceTransformMatrix> MotionInstance::keyframes_matri
 }
 
 luisa::span<const MotionInstanceTransformSRT> MotionInstance::keyframes_srt() const noexcept {
+    _check_is_valid();
     LUISA_ASSERT(_mode == AccelOption::MotionMode::SRT,
                  "Invalid motion mode for SRT transform.");
     return luisa::span{reinterpret_cast<const MotionInstanceTransformSRT *>(
@@ -139,6 +176,7 @@ luisa::span<const MotionInstanceTransformSRT> MotionInstance::keyframes_srt() co
 }
 
 luisa::unique_ptr<Command> MotionInstance::build() noexcept {
+    _check_is_valid();
     return luisa::make_unique<MotionInstanceBuildCommand>(
         handle(), _child_handle, _transform_keyframes /* note this needs to be copied */);
 }

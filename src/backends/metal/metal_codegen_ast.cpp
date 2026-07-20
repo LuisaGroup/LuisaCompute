@@ -1531,6 +1531,9 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _scratch << "/* ray query end */\n";
 }
 
+void MetalCodegenAST::visit(const SuspendStmt *) noexcept {
+}
+
 void MetalCodegenAST::visit(const AutoDiffStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "/* autodiff begin */\n";

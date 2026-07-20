@@ -1,0 +1,836 @@
+// Test for coroutine CFG distillation and malformed-graph rejection.
+
+#include "ut/ut.hpp"
+#include <luisa/ast/type_registry.h>
+#include <luisa/xir/basic_block.h>
+#include <luisa/xir/builder.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
+
+using namespace luisa;
+using namespace luisa::compute;
+using namespace luisa::compute::xir;
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+namespace {
+
+[[nodiscard]] KernelFunction *make_kernel_with_body(Module &m, BasicBlock *&body_out) noexcept {
+    auto *k = m.create_kernel();
+    body_out = k->create_body_block();
+    return k;
+}
+
+}// namespace
+
+void reg_coro_cfg_distill() {
+
+    "no_suspend_single_scope"_test = [] {
+        // given: a function with no coroutine instructions
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: 1 scope, no suspend info, not terminal
+        expect(result.scopes.size() == 1u);
+        expect(result.scopes[0].blocks.size() == 1u);
+        expect(result.scopes[0].blocks[0] == body);
+        expect(!result.scopes[0].suspend_token.has_value());
+        expect(!result.scopes[0].suspend_name.has_value());
+        expect(!result.scopes[0].is_terminal);
+        expect(result.edges.size() == 1u);
+        expect(result.edges[0].empty());
+    };
+
+    "single_suspend_two_scopes"_test = [] {
+        // given: CFG with one suspend point
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(42u, "checkpoint", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(42u, nullptr);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: 2 scopes, scope 0 has suspend, scope 1 is continuation
+        expect(result.scopes.size() == 2u);
+
+        // scope 0
+        expect(result.scopes[0].scope_id == 0);
+        expect(result.scopes[0].blocks.size() >= 1u);// body is in scope 0
+        expect(result.scopes[0].suspend_token.has_value());
+        expect(*result.scopes[0].suspend_token == 42u);
+        expect(result.scopes[0].suspend_name.has_value());
+        expect(*result.scopes[0].suspend_name == "checkpoint");
+        expect(!result.scopes[0].is_terminal);
+
+        // scope 1
+        expect(result.scopes[1].scope_id == 1);
+        expect(!result.scopes[1].suspend_token.has_value());
+        expect(!result.scopes[1].is_terminal);
+
+        // edges
+        expect(result.edges.size() == 2u);
+    };
+
+    "three_suspends_four_scopes"_test = [] {
+        // given: CFG with three suspend points (linear chain)
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        // suspend 1
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, s1, r1);
+
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "s1", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+
+        // suspend 2
+        auto *s2 = k->create_basic_block();
+        auto *r2 = k->create_basic_block();
+        b.cond_br(cond, s2, r2);
+
+        b.set_insertion_point(s2);
+        b.coro_suspend(2u, "s2", nullptr);
+
+        b.set_insertion_point(r2);
+        b.coro_resume(2u, nullptr);
+
+        // suspend 3
+        auto *s3 = k->create_basic_block();
+        auto *r3 = k->create_basic_block();
+        b.cond_br(cond, s3, r3);
+
+        b.set_insertion_point(s3);
+        b.coro_suspend(3u, "s3", nullptr);
+
+        b.set_insertion_point(r3);
+        b.coro_resume(3u, nullptr);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: 4 scopes
+        expect(result.scopes.size() == 4u);
+
+        // verify suspend tokens
+        expect(result.scopes[0].suspend_token.has_value());
+        expect(*result.scopes[0].suspend_token == 1u);
+        expect(result.scopes[1].suspend_token.has_value());
+        expect(*result.scopes[1].suspend_token == 2u);
+        expect(result.scopes[2].suspend_token.has_value());
+        expect(*result.scopes[2].suspend_token == 3u);
+        expect(!result.scopes[3].suspend_token.has_value());
+
+        // verify no scope is terminal except possibly the last
+        expect(!result.scopes[0].is_terminal);
+        expect(!result.scopes[1].is_terminal);
+        expect(!result.scopes[2].is_terminal);
+        expect(!result.scopes[3].is_terminal);
+
+        // verify scope block counts
+        for (size_t i = 0; i < 4u; ++i) {
+            expect(result.scopes[i].blocks.size() >= 1u);
+        }
+
+        // edges
+        expect(result.edges.size() == 4u);
+    };
+
+    "suspend_token_values_match"_test = [] {
+        // given: two suspend points with distinct tokens and names
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, s1, r1);
+
+        b.set_insertion_point(s1);
+        b.coro_suspend(100u, "alpha", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(100u, nullptr);
+
+        auto *s2 = k->create_basic_block();
+        auto *r2 = k->create_basic_block();
+        b.cond_br(cond, s2, r2);
+
+        b.set_insertion_point(s2);
+        b.coro_suspend(200u, "beta", nullptr);
+
+        b.set_insertion_point(r2);
+        b.coro_resume(200u, nullptr);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: token values match the suspend instructions
+        expect(result.scopes.size() == 3u);
+
+        expect(result.scopes[0].suspend_token.has_value());
+        expect(*result.scopes[0].suspend_token == 100u);
+        expect(result.scopes[0].suspend_name.has_value());
+        expect(*result.scopes[0].suspend_name == "alpha");
+
+        expect(result.scopes[1].suspend_token.has_value());
+        expect(*result.scopes[1].suspend_token == 200u);
+        expect(result.scopes[1].suspend_name.has_value());
+        expect(*result.scopes[1].suspend_name == "beta");
+
+        expect(!result.scopes[2].suspend_token.has_value());
+    };
+
+    "terminal_scope"_test = [] {
+        // given: a coroutine that ends with CoroTerminateInst
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, s1, r1);
+
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "middle", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+
+        auto *term_bb = k->create_basic_block();
+        b.br(term_bb);
+
+        b.set_insertion_point(term_bb);
+        b.coro_terminate();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: last scope is terminal
+        expect(result.scopes.size() >= 1u);
+        auto &last = result.scopes.back();
+        expect(last.is_terminal);
+    };
+
+    "scope_contains_suspend_block"_test = [] {
+        // given: a single-suspend CFG — verify the suspend block is in the first scope
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(7u, "test", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(7u, nullptr);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: suspend block is in scope 0, resume block is in scope 1
+        expect(result.scopes.size() == 2u);
+
+        bool suspend_found = false;
+        for (auto *bb : result.scopes[0].blocks) {
+            if (bb == suspend_bb) { suspend_found = true; }
+        }
+        expect(suspend_found);
+
+        bool resume_found = false;
+        for (auto *bb : result.scopes[1].blocks) {
+            if (bb == resume_bb) { resume_found = true; }
+        }
+        expect(resume_found);
+    };
+
+    "module_pass_iterates_all_functions"_test = [] {
+        // given: module with a kernel and a callable (neither with coroutine instructions)
+        Module m;
+        {
+            auto *k = m.create_kernel();
+            auto *body = k->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            b.return_void();
+        }
+        {
+            auto *c = m.create_callable(nullptr);
+            auto *body = c->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            b.return_void();
+        }
+
+        // when
+        auto count = coro_cfg_distill_pass_run_on_module(&m);
+
+        // then: processes both definition functions
+        expect(count == 2u);
+    };
+
+    // ── edge case: adjacent suspends ───────────────────────────────────
+    "adjacent_suspends"_test = [] {
+        // given: two suspends with minimal code between them (resume
+        // of first immediately branches to second suspend)
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, s1, r1);
+
+        b.set_insertion_point(s1);
+        b.coro_suspend(10u, "first", nullptr);
+
+        // scope 1: resume, then immediately branch to next suspend
+        b.set_insertion_point(r1);
+        b.coro_resume(10u, nullptr);
+
+        auto *s2 = k->create_basic_block();
+        auto *r2 = k->create_basic_block();
+        b.cond_br(cond, s2, r2);
+
+        b.set_insertion_point(s2);
+        b.coro_suspend(20u, "second", nullptr);
+
+        b.set_insertion_point(r2);
+        b.coro_resume(20u, nullptr);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: 3 scopes (body→s1 | r1→s2 | r2)
+        expect(result.scopes.size() == 3u);
+
+        expect(result.scopes[0].suspend_token.has_value());
+        expect(*result.scopes[0].suspend_token == 10u);
+        expect(result.scopes[0].suspend_name.has_value());
+        expect(*result.scopes[0].suspend_name == "first");
+
+        expect(result.scopes[1].suspend_token.has_value());
+        expect(*result.scopes[1].suspend_token == 20u);
+        expect(result.scopes[1].suspend_name.has_value());
+        expect(*result.scopes[1].suspend_name == "second");
+
+        expect(!result.scopes[2].suspend_token.has_value());
+
+        // no scope marked terminal
+        expect(!result.scopes[0].is_terminal);
+        expect(!result.scopes[1].is_terminal);
+        expect(!result.scopes[2].is_terminal);
+
+        // r1 and s2 should coexist in scope 1 (adjacent)
+        bool r1_in_scope1 = false;
+        bool s2_in_scope1 = false;
+        for (auto *bb : result.scopes[1].blocks) {
+            if (bb == r1) { r1_in_scope1 = true; }
+            if (bb == s2) { s2_in_scope1 = true; }
+        }
+        expect(r1_in_scope1);
+        expect(s2_in_scope1);
+
+        expect(result.edges.size() == 3u);
+    };
+
+    // ── edge case: suspend inside a conditional branch ────────────────
+    "suspend_in_conditional"_test = [] {
+        // given: an if/else where only one branch contains a suspend;
+        // the other branch skips it entirely and merges afterward
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *always_true = m.create_constant_one(Type::of<bool>());
+
+        auto *branch_a = k->create_basic_block();
+        auto *branch_b = k->create_basic_block();
+        auto *merge = k->create_basic_block();
+
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(always_true, branch_a, branch_b);
+
+        // branch A: contains a suspend
+        b.set_insertion_point(branch_a);
+        b.cond_br(always_true, s1, r1);
+
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "in_branch", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+        b.br(merge);
+
+        // branch B: no suspend, goes straight to merge
+        b.set_insertion_point(branch_b);
+        b.br(merge);
+
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: at least 2 scopes, exactly one scope has a suspend
+        expect(result.scopes.size() >= 2u);
+
+        size_t suspend_scopes = 0u;
+        for (auto &scope : result.scopes) {
+            if (scope.suspend_token.has_value()) { suspend_scopes++; }
+        }
+        expect(suspend_scopes == 1u);
+
+        // suspend block must live in the scope that owns the suspend
+        bool s1_in_suspend_scope = false;
+        for (auto &scope : result.scopes) {
+            if (scope.suspend_token.has_value()) {
+                for (auto *bb : scope.blocks) {
+                    if (bb == s1) { s1_in_suspend_scope = true; }
+                }
+            }
+        }
+        expect(s1_in_suspend_scope);
+
+        // merge block must appear in at least one scope
+        bool merge_found = false;
+        for (auto &scope : result.scopes) {
+            for (auto *bb : scope.blocks) {
+                if (bb == merge) { merge_found = true; }
+            }
+        }
+        expect(merge_found);
+    };
+
+    // ── edge case: suspend inside a loop ──────────────────────────────
+    "suspend_in_loop"_test = [] {
+        // given: a loop whose body contains a suspend point;
+        // the back-edge goes through the resume block back to the header
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *always_true = m.create_constant_one(Type::of<bool>());
+        auto *loop_cond = m.create_constant_one(Type::of<bool>());
+
+        auto *loop_hdr = k->create_basic_block();
+        auto *loop_body = k->create_basic_block();
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+        auto *exit = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.br(loop_hdr);
+
+        b.set_insertion_point(loop_hdr);
+        b.cond_br(loop_cond, loop_body, exit);
+
+        b.set_insertion_point(loop_body);
+        b.cond_br(always_true, s1, r1);
+
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "in_loop", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+        b.br(loop_hdr);// back-edge through resume
+
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: at least 2 scopes, suspend is found, no crash on cycle
+        expect(result.scopes.size() >= 2u);
+
+        bool suspend_found = false;
+        for (auto &scope : result.scopes) {
+            if (scope.suspend_token.has_value() &&
+                *scope.suspend_token == 1u) {
+                suspend_found = true;
+            }
+        }
+        expect(suspend_found);
+
+        // edges array matches scope count
+        expect(result.edges.size() == result.scopes.size());
+
+        // all blocks from the kernel appear in at least one scope
+        size_t total_blocks = 0u;
+        for (auto &scope : result.scopes) {
+            total_blocks += scope.blocks.size();
+        }
+        expect(total_blocks >= 6u);// body, loop_hdr, loop_body, s1, r1, exit
+    };
+
+    "for_if_suspend_liveness"_test = [] {
+        // given: for (...) { if (...) { suspend } } with a local updated
+        // before the suspend and used after resume
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *loop_cond = m.create_constant_one(Type::of<bool>());
+        auto *if_cond = m.create_constant_one(Type::of<bool>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+
+        auto *loop_hdr = k->create_basic_block();
+        auto *loop_body = k->create_basic_block();
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+        auto *after_if = k->create_basic_block();
+        auto *exit = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("state");
+        b.store(state, zero);
+        b.br(loop_hdr);
+
+        b.set_insertion_point(loop_hdr);
+        b.cond_br(loop_cond, loop_body, exit);
+
+        b.set_insertion_point(loop_body);
+        auto *old_state = b.load(Type::of<int>(), state);
+        auto *new_state = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {old_state, one});
+        b.store(state, new_state);
+        b.cond_br(if_cond, suspend_bb, after_if);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "in_for_if", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.br(after_if);
+
+        b.set_insertion_point(after_if);
+        auto *reloaded_state = b.load(Type::of<int>(), state);
+        auto *next_state = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {reloaded_state, one});
+        b.store(state, next_state);
+        b.br(loop_hdr);
+
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: the updated local is stored on suspend edges into the
+        // continuation scope, including the loop-carried self edge
+        expect(result.scopes.size() == 2u);
+        auto has_state_store = [](const CoroCfgDistillResult::Edge &edge) noexcept {
+            for (auto &name : edge.store_variables) {
+                if (name == "state") { return true; }
+            }
+            return false;
+        };
+        bool entry_edge_ok = false;
+        bool loop_edge_ok = false;
+        for (auto &edge : result.transition_edges) {
+            if (edge.token != 1u) { continue; }
+            if (edge.from_scope == 0u && edge.to_scope == 1u) {
+                entry_edge_ok = has_state_store(edge);
+            }
+            if (edge.from_scope == 1u && edge.to_scope == 1u) {
+                loop_edge_ok = has_state_store(edge);
+            }
+        }
+        expect(entry_edge_ok);
+        expect(loop_edge_ok);
+    };
+
+    "per_edge_store_excludes_post_suspend_touches"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto two_value = 2;
+        auto *two = m.create_constant(Type::of<int>(), &two_value);
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("state");
+        auto *late = b.alloca_local(Type::of<int>());
+        late->set_name("late");
+        b.store(state, one);
+        b.store(late, zero);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "s", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.store(late, two);
+        auto *a = b.load(Type::of<int>(), state);
+        auto *c = b.load(Type::of<int>(), late);
+        auto *sum = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {a, c});
+        b.return_(sum);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        const CoroCfgDistillResult::Edge *suspend_edge = nullptr;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.token == 1u) {
+                suspend_edge = &edge;
+                break;
+            }
+        }
+        expect(suspend_edge != nullptr);
+        bool stores_state = false;
+        bool stores_late = false;
+        if (suspend_edge != nullptr) {
+            for (auto &name : suspend_edge->store_variables) {
+                if (name == "state") { stores_state = true; }
+                if (name == "late") { stores_late = true; }
+            }
+        }
+        expect(stores_state);
+        expect(!stores_late);
+    };
+
+    "cross_scope_branch_has_transition_store"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *one = m.create_constant_one(Type::of<int>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+        auto *skip_bb = k->create_basic_block();
+        auto *merge_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("state");
+        b.store(state, one);
+        b.cond_br(cond, suspend_bb, skip_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "s", nullptr);
+
+        b.set_insertion_point(skip_bb);
+        b.br(resume_bb);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.br(merge_bb);
+
+        b.set_insertion_point(merge_bb);
+        auto *loaded = b.load(Type::of<int>(), state);
+        b.return_(loaded);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        bool found_branch_edge = false;
+        bool branch_stores_state = false;
+        bool found_suspend_edge = false;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend) {
+                found_suspend_edge = true;
+            } else if (edge.from_scope == 0u && edge.to_scope == 1u && edge.exit_block == skip_bb) {
+                found_branch_edge = true;
+                for (auto &name : edge.store_variables) {
+                    if (name == "state") { branch_stores_state = true; }
+                }
+            }
+        }
+        expect(found_suspend_edge);
+        expect(found_branch_edge);
+        expect(branch_stores_state);
+    };
+
+    "frame_values_sorted_by_alignment_and_size"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *one_i = m.create_constant_one(Type::of<int>());
+        auto *one_f = m.create_constant_one(Type::of<float>());
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *float3_ty = Type::of<float3>();
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *small = b.alloca_local(Type::of<int>());
+        small->set_name("small");
+        auto *medium = b.alloca_local(Type::of<float>());
+        medium->set_name("medium");
+        auto *large = b.alloca_local(float3_ty);
+        large->set_name("large");
+        b.store(small, one_i);
+        b.store(medium, one_f);
+        auto *large_value = b.call(float3_ty, ArithmeticOp::AGGREGATE, {one_f, one_f, one_f});
+        b.store(large, large_value);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "s", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        auto *loaded_small = b.load(Type::of<int>(), small);
+        auto *loaded_medium = b.load(Type::of<float>(), medium);
+        auto *loaded_large = b.load(float3_ty, large);
+        auto *loaded_large_x = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {loaded_large, m.create_constant_zero(Type::of<uint32_t>())});
+        auto *medium_i = b.static_cast_(Type::of<int>(), loaded_medium);
+        auto *large_i = b.static_cast_(Type::of<int>(), loaded_large_x);
+        auto *sum0 = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {loaded_small, medium_i});
+        auto *sum1 = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {sum0, large_i});
+        b.return_(sum1);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        expect(result.frame_values.size() == 3u);
+        expect(result.frame_values[0u].name == "large");
+        expect(result.frame_values[0u].type == float3_ty);
+        expect(result.frame_values[1u].type->alignment() >= result.frame_values[2u].type->alignment());
+    };
+
+    "partial_aggregate_store_preserves_live_in_frame_value"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *pair_type = Type::structure({Type::of<float>(), Type::of<float>()});
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(pair_type);
+        state->set_name("state");
+        b.store(state, m.create_constant_zero(pair_type));
+        b.coro_suspend(1u, "first", nullptr);
+
+        auto *resume_first = k->create_basic_block();
+        b.set_insertion_point(resume_first);
+        b.coro_resume(1u, nullptr);
+        uint32_t first_index = 0u;
+        auto *first = m.create_constant(Type::of<uint32_t>(), &first_index);
+        auto *first_ptr = b.gep(Type::of<float>(), state, {first});
+        b.store(first_ptr, m.create_constant_one(Type::of<float>()));
+        b.coro_suspend(2u, "second", nullptr);
+
+        auto *resume_second = k->create_basic_block();
+        b.set_insertion_point(resume_second);
+        b.coro_resume(2u, nullptr);
+        uint32_t second_index = 1u;
+        auto *second = m.create_constant(Type::of<uint32_t>(), &second_index);
+        auto *second_ptr = b.gep(Type::of<float>(), state, {second});
+        auto *value = b.load(Type::of<float>(), second_ptr);
+        b.return_(value);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        expect(result.scopes.size() == 3u);
+        expect(result.scopes[1u].live_in_values.size() == 1u);
+        expect(result.scopes[1u].live_in_values[0u] == state);
+        bool stored_on_second_suspend = false;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.from_scope == 1u && edge.to_scope == 2u) {
+                for (auto *stored : edge.store_values) {
+                    if (stored == state) { stored_on_second_suspend = true; }
+                }
+            }
+        }
+        expect(stored_on_second_suspend);
+    };
+
+    "duplicate_alloca_names_get_distinct_frame_field_names"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *lhs = b.alloca_local(Type::of<float>());
+        auto *rhs = b.alloca_local(Type::of<float>());
+        lhs->set_name("duplicate");
+        rhs->set_name("duplicate");
+        b.store(lhs, m.create_constant_one(Type::of<float>()));
+        b.store(rhs, m.create_constant_one(Type::of<float>()));
+        b.coro_suspend(1u, "checkpoint", nullptr);
+
+        auto *resume = k->create_basic_block();
+        b.set_insertion_point(resume);
+        b.coro_resume(1u, nullptr);
+        auto *lhs_value = b.load(Type::of<float>(), lhs);
+        auto *rhs_value = b.load(Type::of<float>(), rhs);
+        b.return_(b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {lhs_value, rhs_value}));
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_values[0u].name != result.frame_values[1u].name);
+    };
+}
+
+int main(int argc, char *argv[]) {
+    (void)argc;
+    (void)argv;
+    reg_coro_cfg_distill();
+    return 0;
+}

@@ -17,7 +17,7 @@ struct compare {
             else if (luisa::to_underlying(a) < luisa::to_underlying(b))
                 return -1;
             return 1;
-        } else if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T>) {
+        } else if constexpr (luisa::is_arithmetic_v<T> || std::is_pointer_v<T>) {
             return static_cast<int32_t>((a > b) - (a < b));
         } else {
             static_assert(sizeof(T) == sizeof(V), "Same size!");

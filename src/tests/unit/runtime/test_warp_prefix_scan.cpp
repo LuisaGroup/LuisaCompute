@@ -15,6 +15,7 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
+#include <cmath>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -22,38 +23,47 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 void test_warp_prefix_scan(Device &device) {
-
     auto stream = device.create_stream();
 
-    // Simple kernel demonstrating warp prefix sum
-    // Only even threads participate in the scan
-    auto shader = device.compile<1>([]() noexcept {
+    auto warp_size = device.compute_warp_size();
+    constexpr auto warp_count = 4u;
+    auto element_count = warp_size * warp_count;
+    luisa::vector<float> output(element_count, -1.0f);
+    auto output_buffer = device.create_buffer<float>(element_count);
+
+    // Only even lanes participate. warp_prefix_sum is exclusive, so an active
+    // lane 2 * n must observe n preceding active values of 0.5.
+    Kernel1D kernel = [warp_size](BufferFloat output) noexcept {
+        set_block_size(warp_size * 2u, 1u, 1u);
+        set_warp_size(warp_size);
+        auto index = dispatch_x();
         // Only threads with even indices execute the scan
         $if (thread_x() % 2u == 0u) {
-            // Compute prefix sum of 0.5 for all participating threads
-            // If warp size is 32 and all threads are even:
-            //   Thread 0: 0.5
-            //   Thread 2: 1.0
-            //   Thread 4: 1.5
-            //   ...
-            auto result = warp_prefix_sum(make_half4(.5_h));
-            device_log("{} -> {}", dispatch_x(), result);
+            output.write(index, warp_prefix_sum(0.5f));
         };
-    });
+    };
+    auto shader = device.compile(kernel);
 
-    // Execute with 1024 threads
-    stream << shader().dispatch(1024u) << synchronize();
-    expect(true) << "warp prefix scan completed";
+    stream << output_buffer.copy_from(luisa::span{output})
+           << shader(output_buffer).dispatch(element_count)
+           << output_buffer.copy_to(luisa::span{output})
+           << synchronize();
+
+    for (auto index = 0u; index < element_count; index++) {
+        auto lane = index % warp_size;
+        auto expected = lane % 2u == 0u ? static_cast<float>(lane / 2u) * 0.5f : -1.0f;
+        expect(std::abs(output[index] - expected) < 1e-6f)
+            << "warp prefix scan mismatch at index " << index;
+    }
 }
 
-static inline const auto reg = [] {
-    "warp_prefix_scan"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_warp_prefix_scan(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_warp_prefix_scan(device);
+}

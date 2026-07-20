@@ -2458,32 +2458,6 @@ public:
     static HALF_CONSTEXPR half_float::half denorm_min() HALF_NOTHROW { return half_float::half(half_float::detail::binary, 0x0001); }
 };
 
-#if HALF_ENABLE_CPP11_TYPE_TRAITS
-#ifdef _MSVC_STL_VERSION
-// FIXME: MSVC STL uses `bool_constant<is_foo_v<T>>` to define `is_foo<T>`.
-// Well done, MSVC.
-template<>
-inline constexpr auto is_floating_point_v<half_float::half> = true;
-template<>
-inline constexpr auto is_arithmetic_v<half_float::half> = true;
-template<>
-inline constexpr auto is_signed_v<half_float::half> = true;
-#endif
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Winvalid-specialization"
-#endif
-template<>
-struct is_floating_point<half_float::half> : std::true_type {};
-template<>
-struct is_arithmetic<half_float::half> : std::true_type {};
-template<>
-struct is_signed<half_float::half> : std::true_type {};
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-#endif
-
 }// namespace std
 
 namespace half_float {

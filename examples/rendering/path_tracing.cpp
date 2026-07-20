@@ -54,19 +54,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // Parse optional --spp and --offline flags
-    uint user_spp = 0u;
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
-            user_spp = static_cast<uint>(std::atoi(argv[++i]));
-        }
-    }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
 
     Device device = context.create_device(argv[1]);
 
@@ -98,7 +86,7 @@ int main(int argc, char *argv[]) {
 
     // Create bindless array for accessing triangle data in shaders
     BindlessArray heap = device.create_bindless_array(65535);
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
 
@@ -233,8 +221,8 @@ int main(int argc, char *argv[]) {
 
     // Adjust samples per dispatch based on backend capabilities
     auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
-    bool infinite_render = user_spp == 0u && !force_offline;
-    uint total_spp = infinite_render ? 0u : (user_spp == 0u ? 1024u : user_spp);
+    bool infinite_render = opts.spp == 0u && !opts.offline;
+    uint total_spp = infinite_render ? 0u : (opts.spp == 0u ? 1024u : opts.spp);
 
     // Main path tracing kernel
     // Implements unidirectional path tracing with NEE and MIS
@@ -363,7 +351,7 @@ int main(int argc, char *argv[]) {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
         Float3 ldr = linear_to_srgb(clamp(hdr.xyz() / hdr.w * scale, 0.f, 1.f));
-        ldr_image.write(coord, make_float4(ldr, 0.2f));
+        ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
     // Compile shaders
@@ -388,7 +376,7 @@ int main(int argc, char *argv[]) {
     // Setup window and swapchain conditionally
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution, false);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -403,7 +391,7 @@ int main(int argc, char *argv[]) {
     }
 
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
@@ -415,7 +403,7 @@ int main(int argc, char *argv[]) {
                       .dispatch(resolution)
                << accumulate_shader(accum_image, framebuffer)
                       .dispatch(resolution);
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
                    << swap_chain->present(ldr_image);
             if (window->should_close()) { break; }
@@ -431,16 +419,15 @@ int main(int argc, char *argv[]) {
            << synchronize();
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution.x, resolution.y, 4,
-            "test_path_tracing",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+    if (opts.offline) {
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }
