@@ -323,7 +323,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 auto blob = adapter_id_stream->read(~0ull);
                 same_adaptor = blob.size() == sizeof(vstd::MD5) && std::memcmp(blob.data(), &adapter_id, sizeof(vstd::MD5)) == 0;
             }
-            adapter_id_stream.reset();
             if (!same_adaptor) {
                 LUISA_INFO("Adapter mismatch, shader cache cleared.");
                 file_io->clear_shader_cache();
