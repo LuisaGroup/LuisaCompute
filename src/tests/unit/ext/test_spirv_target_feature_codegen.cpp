@@ -903,6 +903,57 @@ int main(int argc, char *argv[]) {
                          "OpCapability StorageBuffer16BitAccess"));
     };
 
+    "spirv_copysign_reports_lowering_integer_features_exactly"_test = [] {
+        constexpr auto half_features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                lc::spirv::target_feature::storage_buffer_16bit_access |
+                lc::spirv::target_feature::shader_float16 |
+                lc::spirv::target_feature::shader_int16);
+        Kernel1D half_copysign = [](BufferHalf magnitude,
+                                    BufferHalf sign,
+                                    BufferHalf output) noexcept {
+            output.write(0u, copysign(
+                                 magnitude.read(0u), sign.read(0u)));
+        };
+        auto half_spirv = compile_spirv_fixture(
+            half_copysign, half_features);
+        constexpr auto expected_half_features =
+            lc::spirv::target_feature::storage_buffer_16bit_access |
+            lc::spirv::target_feature::shader_float16 |
+            lc::spirv::target_feature::shader_int16;
+        expect(eq(half_spirv.required_features,
+                  expected_half_features));
+        expect(contains(half_spirv.text,
+                        "OpCapability StorageBuffer16BitAccess"));
+        expect(contains(half_spirv.text, "OpCapability Float16"));
+        expect(contains(half_spirv.text, "OpCapability Int16"));
+        expect(contains(half_spirv.text, "OpBitwiseAnd"));
+        expect(contains(half_spirv.text, "OpBitwiseOr"));
+
+        constexpr auto double_features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                lc::spirv::target_feature::shader_float64 |
+                lc::spirv::target_feature::shader_int64);
+        Kernel1D double_copysign = [](
+                                        BufferVar<double> magnitude,
+                                        BufferVar<double> sign,
+                                        BufferVar<double> output) noexcept {
+            output.write(0u, copysign(
+                                 magnitude.read(0u), sign.read(0u)));
+        };
+        auto double_spirv = compile_spirv_fixture(
+            double_copysign, double_features);
+        constexpr auto expected_double_features =
+            lc::spirv::target_feature::shader_float64 |
+            lc::spirv::target_feature::shader_int64;
+        expect(eq(double_spirv.required_features,
+                  expected_double_features));
+        expect(contains(double_spirv.text, "OpCapability Float64"));
+        expect(contains(double_spirv.text, "OpCapability Int64"));
+        expect(contains(double_spirv.text, "OpBitwiseAnd"));
+        expect(contains(double_spirv.text, "OpBitwiseOr"));
+    };
+
     "spirv_target_features_subgroup_arithmetic_is_exact"_test = [] {
         Kernel1D kernel = [](BufferUInt output) noexcept {
             output.write(0u, warp_active_sum(dispatch_id().x));
