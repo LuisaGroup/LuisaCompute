@@ -508,7 +508,7 @@ public:
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        for (auto token_begin = size_t{0u}; token_begin < line.size();) {
+        auto next_token = [&line](size_t &token_begin) noexcept {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
                 token_begin++;
@@ -518,12 +518,32 @@ public:
                    line[token_end] != ' ' && line[token_end] != '\t') {
                 token_end++;
             }
-            if (is_spirv_opcode_token(
-                    line.substr(token_begin, token_end - token_begin), opcode)) {
-                count++;
-                break;
-            }
+            auto token = line.substr(token_begin, token_end - token_begin);
             token_begin = token_end;
+            return token;
+        };
+        auto token_begin = size_t{0u};
+        auto instruction_opcode = next_token(token_begin);
+        if (instruction_opcode.ends_with(':')) {
+            // glslang's readable dump uses either "result-id: Opcode ..."
+            // for type declarations or "result-id: result-type Opcode ..."
+            // for ordinary value-producing instructions.
+            instruction_opcode = next_token(token_begin);
+            if (!is_spirv_opcode_token(instruction_opcode, opcode)) {
+                instruction_opcode = next_token(token_begin);
+            }
+        } else {
+            auto saved_token_begin = token_begin;
+            auto second_token = next_token(token_begin);
+            if (second_token == "=") {
+                // spirv-dis uses "%result-id = OpOpcode ...".
+                instruction_opcode = next_token(token_begin);
+            } else {
+                token_begin = saved_token_begin;
+            }
+        }
+        if (is_spirv_opcode_token(instruction_opcode, opcode)) {
+            count++;
         }
         line_begin = line_end + (line_end < disassembly.size() ? 1u : 0u);
     }
@@ -1830,6 +1850,14 @@ int main(int argc, char *argv[]) {
         expect(is_spirv_opcode_token("Phi", "Phi"));
         expect(is_spirv_opcode_token("OpPhi", "Phi"));
         expect(!is_spirv_opcode_token("XpPhi", "Phi"));
+        constexpr auto disassembly = R"(
+OpCapability GroupNonUniformShuffle
+%1 = OpGroupNonUniformShuffle %uint %scope %value %lane
+2(result): 3(type) GroupNonUniformShuffle 4 5 6
+)";
+        expect(count_spirv_opcode(
+                   disassembly, "GroupNonUniformShuffle") == 2u)
+            << "capability operands must not be counted as instruction opcodes";
     };
 
     auto executable_path = std::filesystem::absolute(argv[0]).string();
@@ -5067,6 +5095,98 @@ int main(int argc, char *argv[]) {
             auto disassembly = read_text_file(dumps.front());
             expect(count_spirv_opcode(disassembly, "FunctionCall") == 1u)
                 << "the aggregate ABI must be exercised by a real OpFunctionCall";
+        }
+    };
+
+    "vk_user_compute_subgroup_vector_and_matrix_shapes_are_exact"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_subgroup_composite_shapes"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto warp_size = device.compute_warp_size();
+        expect(warp_size > 0u);
+        if (warp_size == 0u) { return; }
+
+        auto stream = device.create_stream();
+        auto arithmetic_output = device.create_buffer<uint4>(warp_size);
+        auto equality_output = device.create_buffer<uint2>(warp_size);
+        auto matrix_output = device.create_buffer<float4>(warp_size);
+        Kernel1D kernel = [=](BufferUInt4 arithmetic_out,
+                              BufferUInt2 equality_out,
+                              BufferFloat4 matrix_out) noexcept {
+            set_block_size(warp_size, 1u, 1u);
+            set_warp_size(warp_size);
+            auto lane = warp_lane_id();
+            auto lane_value = lane + 1u;
+            auto vector_value = make_uint2(lane_value, lane_value * 3u);
+            auto sum = warp_active_sum(vector_value);
+            auto prefix = warp_prefix_sum(vector_value);
+            arithmetic_out.write(
+                lane, make_uint4(sum.x, sum.y, prefix.x, prefix.y));
+
+            auto all_equal = warp_active_all_equal(make_uint2(17u, lane));
+            equality_out.write(
+                lane, select(make_uint2(0u), make_uint2(1u), all_equal));
+
+            auto lane_float = cast<float>(lane);
+            auto matrix = make_float2x2(
+                make_float2(lane_float + 1.0f, lane_float + 2.0f),
+                make_float2(lane_float + 3.0f, lane_float + 4.0f));
+            auto first_matrix = warp_read_lane(matrix, 0u);
+            matrix_out.write(
+                lane, make_float4(
+                          first_matrix[0u].x, first_matrix[0u].y,
+                          first_matrix[1u].x, first_matrix[1u].y));
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        luisa::vector<uint4> arithmetic_result(warp_size);
+        luisa::vector<uint2> equality_result(warp_size);
+        luisa::vector<float4> matrix_result(warp_size);
+        stream << shader(arithmetic_output, equality_output, matrix_output)
+                      .dispatch(warp_size)
+               << arithmetic_output.copy_to(luisa::span{arithmetic_result})
+               << equality_output.copy_to(luisa::span{equality_result})
+               << matrix_output.copy_to(luisa::span{matrix_result})
+               << synchronize();
+
+        auto sum = warp_size * (warp_size + 1u) / 2u;
+        for (auto lane = 0u; lane < warp_size; ++lane) {
+            auto prefix = lane * (lane + 1u) / 2u;
+            expect_vector_equal(
+                arithmetic_result[lane],
+                uint4{sum, sum * 3u, prefix, prefix * 3u});
+            expect_vector_equal(
+                equality_result[lane],
+                uint2{1u, warp_size == 1u ? 1u : 0u});
+            expect_vector_equal(
+                matrix_result[lane], float4{1.0f, 2.0f, 3.0f, 4.0f});
+        }
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the subgroup composite fixture should emit one SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "GroupNonUniformIAdd") == 2u)
+                << "vector reduce and prefix sum should each stay one subgroup op";
+            expect(count_spirv_opcode(
+                       disassembly, "GroupNonUniformAllEqual") == 2u)
+                << "vector all-equal must scalarize to two subgroup votes";
+            expect(count_spirv_opcode(
+                       disassembly, "GroupNonUniformShuffle") == 4u)
+                << "a 2x2 matrix shuffle must scalarize to four subgroup shuffles";
         }
     };
 
