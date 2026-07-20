@@ -2149,6 +2149,38 @@ spv::Id SpirvCodegenEntry::_load_texture(spv::Id tex_var) noexcept {
     return _builder.createLoad(tex_var, spv::NoPrecision);
 }
 
+void SpirvCodegenEntry::_emit_ray_query_traversal_to_completion(
+    spv::Id ray_query) noexcept {
+    // OpRayQueryProceedKHR returns false only after traversal completes. A
+    // committed intersection observed while it still returns true is merely
+    // the closest hit recorded so far, not necessarily the final closest hit.
+    // Direct surface tracing forces triangles opaque and skips AABBs, so no
+    // candidate-side action is required; repeatedly proceeding is sufficient.
+    auto *header = _create_physical_block();
+    auto *body = _create_physical_block();
+    auto *continue_block = _create_physical_block();
+    auto *merge = _create_physical_block();
+    _builder.createBranch(false, header);
+
+    _set_current_tail(header);
+    _builder.createLoopMerge(
+        merge, continue_block,
+        spv::LoopControlMask::MaskNone, {});
+    _builder.createBranch(false, body);
+
+    _set_current_tail(body);
+    auto incomplete = _builder.createOp(
+        spv::Op::OpRayQueryProceedKHR,
+        _builder.makeBoolType(),
+        std::vector<spv::Id>{ray_query});
+    _builder.createConditionalBranch(
+        incomplete, continue_block, merge);
+
+    _set_current_tail(continue_block);
+    _builder.createBranch(false, header);
+    _set_current_tail(merge);
+}
+
 void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept {
     auto type = _convert_type(inst->type(), Usage::READ);
     spv::Id id = spv::NoResult;
@@ -2639,7 +2671,16 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
                                           any_hit_flags));
             _builder.createNoResultOp(spv::Op::OpRayQueryInitializeKHR, std::vector<spv::Id>{
                                                                             rq_var, accel, ray_flags, mask, ray_origin, ray_t_min, ray_dir, ray_t_max});
-            _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), std::vector<spv::Id>{rq_var});
+            if (is_closest) {
+                _emit_ray_query_traversal_to_completion(rq_var);
+            } else {
+                // TerminateOnFirstHitKHR makes one proceed sufficient for the
+                // direct any-hit query.
+                _builder.createOp(
+                    spv::Op::OpRayQueryProceedKHR,
+                    _builder.makeBoolType(),
+                    std::vector<spv::Id>{rq_var});
+            }
             auto committed_intersection = _builder.makeIntConstant(1);
             auto committed_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
                                                     std::vector<spv::IdImmediate>{

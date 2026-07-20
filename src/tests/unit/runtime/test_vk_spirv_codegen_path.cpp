@@ -4959,18 +4959,26 @@ int main(int argc, char *argv[]) {
 
         constexpr std::string_view dump_name =
             "spv_code_vk_direct_surface_trace.spvasm";
+        // Store the farther primitive first so the fixture contains more than
+        // one valid candidate and verifies the final closest committed hit,
+        // rather than merely accepting the first hit recorded by traversal.
         const std::array vertices{
             float3{-0.5f, -0.5f, 0.0f},
             float3{0.5f, -0.5f, 0.0f},
-            float3{0.0f, 0.5f, 0.0f}};
-        const std::array triangles{Triangle{0u, 1u, 2u}};
+            float3{0.0f, 0.5f, 0.0f},
+            float3{-0.5f, -0.5f, 0.5f},
+            float3{0.5f, -0.5f, 0.5f},
+            float3{0.0f, 0.5f, 0.5f}};
+        const std::array triangles{
+            Triangle{0u, 1u, 2u},
+            Triangle{3u, 4u, 5u}};
         auto vertex_buffer = device.create_buffer<float3>(vertices.size());
         auto triangle_buffer =
             device.create_buffer<Triangle>(triangles.size());
         auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
         auto accel = device.create_accel();
         accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, true);
-        auto output = device.create_buffer<uint32_t>(4u);
+        auto output = device.create_buffer<uint32_t>(6u);
 
         Kernel1D kernel = [](AccelVar accel_var,
                              BufferUInt result) noexcept {
@@ -4981,8 +4989,9 @@ int main(int argc, char *argv[]) {
                 make_float3(0.0f, 0.0f, -1.0f));
             auto closest = accel_var.intersect(ray, {});
             auto any = accel_var.intersect_any(ray, {});
-            result.write(lane * 2u, closest->inst);
-            result.write(lane * 2u + 1u, ite(any, 1u, 0u));
+            result.write(lane * 3u, closest->inst);
+            result.write(lane * 3u + 1u, closest->prim);
+            result.write(lane * 3u + 2u, ite(any, 1u, 0u));
         };
         auto shader = device.compile(
             kernel,
@@ -5000,7 +5009,7 @@ int main(int argc, char *argv[]) {
                 << "SkipAABBsKHR requires RayTraversalPrimitiveCullingKHR";
         }
 
-        std::array<uint32_t, 4u> result{};
+        std::array<uint32_t, 6u> result{};
         stream << vertex_buffer.copy_from(luisa::span{vertices})
                << triangle_buffer.copy_from(luisa::span{triangles})
                << mesh.build()
@@ -5008,11 +5017,14 @@ int main(int argc, char *argv[]) {
                << shader(accel, output).dispatch(2u)
                << output.copy_to(luisa::span{result})
                << synchronize();
-        const std::array expected{
-            0u, 1u,
-            std::numeric_limits<uint32_t>::max(), 0u};
-        expect(result == expected)
-            << "direct closest/any surface tracing must distinguish hit and miss";
+        expect(result[0] == 0u &&
+               result[1] == 1u &&
+               result[2] == 1u &&
+               result[3] == std::numeric_limits<uint32_t>::max() &&
+               result[5] == 0u)
+            << "direct closest/any surface tracing must select the nearest "
+               "candidate and distinguish hit from miss; primitive index is "
+               "intentionally unchecked for a miss";
     };
 
     "vk_user_compute_ray_instance_metadata_queries"_test = [&] {

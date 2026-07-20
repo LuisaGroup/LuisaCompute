@@ -29,6 +29,8 @@ namespace {
 
 struct RayQuerySpirvFacts {
     size_t primitive_culling_capability_count{0u};
+    size_t proceed_count{0u};
+    size_t loop_merge_count{0u};
     std::vector<uint32_t> initialize_flags;
 };
 
@@ -55,6 +57,10 @@ struct RayQuerySpirvFacts {
                 static_cast<uint32_t>(
                     spv::Capability::RayTraversalPrimitiveCullingKHR)) {
             facts.primitive_culling_capability_count++;
+        } else if (opcode == spv::Op::OpRayQueryProceedKHR) {
+            facts.proceed_count++;
+        } else if (opcode == spv::Op::OpLoopMerge) {
+            facts.loop_merge_count++;
         } else if (opcode == spv::Op::OpConstant && word_count == 4u) {
             constants.emplace_back(Constant{
                 .id = words[offset + 2u],
@@ -127,6 +133,11 @@ int main(int argc, char *argv[]) {
             static_cast<uint32_t>(any_flags)};
         expect(facts.initialize_flags == expected)
             << "direct closest/any tracing must preserve the surface-only ray flags";
+        expect(facts.proceed_count == 2u)
+            << "direct closest and any tracing each require one static proceed instruction";
+        expect(facts.loop_merge_count == 1u)
+            << "direct closest tracing must loop until ray-query traversal completes, "
+               "while terminate-on-first-hit any tracing remains single-step";
     };
 
     "spirv_generic_ray_query_omits_primitive_culling"_test = [] {

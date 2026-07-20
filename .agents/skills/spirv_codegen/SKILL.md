@@ -353,6 +353,20 @@ accel. The all-ones sentinel means an older/non-native artifact whose role is
 unspecified; native serialization and dispatch must never infer optional accel
 descriptors greedily from neighboring properties.
 
+### Ray-query traversal
+
+`OpRayQueryProceedKHR` advances traversal; a true result means traversal is
+still incomplete. Direct closest-hit tracing must therefore emit a structured
+loop that calls `OpRayQueryProceedKHR` until it returns false before reading
+committed intersection fields. `ForceOpaqueKHR` removes candidate-intersection
+handling, but it does not make one call sufficient. Direct any-hit tracing uses
+`TerminateOnFirstHitKHR`, so its single proceed call remains intentional.
+
+Keep both sides covered: a structural SPIR-V test should distinguish the
+closest-hit loop from the any-hit single call, and a Vulkan runtime test should
+place a farther primitive before an overlapping nearer primitive so a
+premature committed read cannot accidentally pass.
+
 Persisted shaders include section sizes and hashes for properties, saved
 arguments, SPIR-V, printers, and constant data. `require_recompile` must parse
 and validate the complete artifact; a matching prefix is not sufficient.

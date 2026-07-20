@@ -282,6 +282,8 @@ private:
         spv::Id ptr, spv::Id val, spv::Id float_type, xir::AtomicOp op,
         spv::Id scope, spv::Id load_semantics,
         spv::Id equal_semantics, spv::Id unequal_semantics) noexcept;
+    void _emit_ray_query_traversal_to_completion(
+        spv::Id ray_query) noexcept;
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
     void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
     void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
