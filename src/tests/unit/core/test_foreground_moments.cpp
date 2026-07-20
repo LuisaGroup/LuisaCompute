@@ -118,6 +118,14 @@ constexpr ref::ForegroundMomentThresholds distribution_thresholds{
     .min_density_cosine_similarity = 0.99,
 };
 
+constexpr ref::ForegroundMomentThresholds mpm88_distribution_thresholds{
+    .max_relative_count_error = 0.05,
+    .max_centroid_distance = 0.025,
+    .max_relative_covariance_error = 0.10,
+    .max_density_total_variation = 0.10,
+    .min_density_cosine_similarity = 0.98,
+};
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -173,6 +181,25 @@ int main(int argc, char *argv[]) {
                distribution_thresholds.max_density_total_variation);
         expect(result.density_cosine_similarity <
                distribution_thresholds.min_density_cosine_similarity);
+    };
+
+    "mpm88_density_limits_reject_redistributed_mass"_test = [] {
+        auto reference = make_cross_topology();
+        auto scrambled = make_diagonal_topology();
+        auto result = ref::compare_foreground_moments(
+            scrambled.data(), reference.data(), width, height, channels,
+            background, mpm88_distribution_thresholds);
+        expect(!result.passed)
+            << "MPM88 scheduling tolerance must not accept a different coarse topology";
+        expect(result.relative_count_error == 0.0);
+        expect(result.centroid_distance < 1e-12);
+        expect(result.relative_covariance_error <
+               mpm88_distribution_thresholds.max_relative_covariance_error);
+        expect(static_cast<bool>(
+            result.density_total_variation >
+                mpm88_distribution_thresholds.max_density_total_variation ||
+            result.density_cosine_similarity <
+                mpm88_distribution_thresholds.min_density_cosine_similarity));
     };
 
     "foreground_moments_reject_count_regression"_test = [] {
