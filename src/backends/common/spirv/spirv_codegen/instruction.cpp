@@ -13,6 +13,32 @@
 
 namespace lc::spirv {
 
+namespace {
+
+[[nodiscard]] bool is_single_use_fast_math_fma_multiply(
+    const xir::ArithmeticInst *inst) noexcept {
+    if (inst == nullptr ||
+        inst->op() != xir::ArithmeticOp::BINARY_MUL ||
+        inst->type() == nullptr ||
+        !inst->type()->is_float_or_float_vector()) {
+        return false;
+    }
+    const xir::Use *only_use = nullptr;
+    for (auto *use : inst->use_list()) {
+        if (only_use != nullptr) { return false; }
+        only_use = use;
+    }
+    if (only_use == nullptr || only_use->user() == nullptr ||
+        !only_use->user()->isa<xir::ArithmeticInst>()) {
+        return false;
+    }
+    auto *user = static_cast<const xir::ArithmeticInst *>(
+        only_use->user());
+    return user->op() == xir::ArithmeticOp::BINARY_ADD;
+}
+
+}// namespace
+
 std::vector<spv::Id>
 SpirvCodegenEntry::_emit_aggregate_access_indices(
     const SpirvAggregateIndexPlan &plan) noexcept {
@@ -199,10 +225,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     auto mul_t = mul_inst->type();
                     auto mul_elem = mul_t->is_vector() || mul_t->is_matrix() ? mul_t->element() : mul_t;
                     if (!mul_elem->is_float()) return false;
-                    // Emit mul first to ensure its operands are available, then
-                    // use them to form the FMA. The dead OpFMul will be cleaned
-                    // up by the SPIR-V optimizer's DCE pass.
-                    auto mul_val = _emit_value(mul_op);
+                    // The multiply's operands dominate this add. A single-use
+                    // multiply is deliberately deferred by _emit_instruction;
+                    // multi-use multiplies remain materialized for their other
+                    // consumers while this add still receives an FMA.
                     auto a = _emit_value(mul_inst->operand(0));
                     auto b = _emit_value(mul_inst->operand(1));
                     auto c = _emit_value(add_op);
@@ -4431,9 +4457,16 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             set_result(id);
             break;
         }
-        case xir::DerivedInstructionTag::ARITHMETIC:
-            _emit_arithmetic_inst(static_cast<const xir::ArithmeticInst *>(inst));
+        case xir::DerivedInstructionTag::ARITHMETIC: {
+            auto *arithmetic =
+                static_cast<const xir::ArithmeticInst *>(inst);
+            if (_enable_fast_math &&
+                is_single_use_fast_math_fma_multiply(arithmetic)) {
+                break;
+            }
+            _emit_arithmetic_inst(arithmetic);
             break;
+        }
         case xir::DerivedInstructionTag::CALL: {
             auto call = static_cast<const xir::CallInst *>(inst);
             auto callee = static_cast<const xir::Function *>(call->callee());

@@ -550,6 +550,50 @@ public:
     return count;
 }
 
+[[nodiscard]] size_t count_spirv_extended_instruction(
+    std::string_view disassembly,
+    std::string_view instruction) noexcept {
+    auto count = size_t{0u};
+    for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
+        auto line_end = disassembly.find('\n', line_begin);
+        if (line_end == std::string_view::npos) {
+            line_end = disassembly.size();
+        }
+        auto line = disassembly.substr(line_begin, line_end - line_begin);
+        if (count_spirv_opcode(line, "ExtInst") == 1u) {
+            for (auto token_begin = size_t{0u}; token_begin < line.size();) {
+                while (token_begin < line.size() &&
+                       (line[token_begin] == ' ' || line[token_begin] == '\t')) {
+                    token_begin++;
+                }
+                auto token_end = token_begin;
+                while (token_end < line.size() &&
+                       line[token_end] != ' ' && line[token_end] != '\t') {
+                    token_end++;
+                }
+                auto token = line.substr(token_begin, token_end - token_begin);
+                auto parenthesized = token.size() == instruction.size() + 2u &&
+                                     token.front() == '(' && token.back() == ')' &&
+                                     token.substr(1u, instruction.size()) == instruction;
+                if (token == instruction || parenthesized) {
+                    count++;
+                    break;
+                }
+                auto open = token.find('(');
+                if (open != std::string_view::npos && token.ends_with(")") &&
+                    token.substr(open + 1u,
+                                 token.size() - open - 2u) == instruction) {
+                    count++;
+                    break;
+                }
+                token_begin = token_end;
+            }
+        }
+        line_begin = line_end + (line_end < disassembly.size());
+    }
+    return count;
+}
+
 [[nodiscard]] bool spirv_opcode_has_operand(
     std::string_view disassembly, std::string_view opcode,
     std::string_view operand) noexcept {
@@ -1858,6 +1902,15 @@ OpCapability GroupNonUniformShuffle
         expect(count_spirv_opcode(
                    disassembly, "GroupNonUniformShuffle") == 2u)
             << "capability operands must not be counted as instruction opcodes";
+        constexpr auto extended_disassembly = R"(
+%1 = OpExtInstImport "GLSL.std.450"
+%2 = OpExtInst %float %1 Fma %a %b %c
+3: 4(float) ExtInst 1(GLSL.std.450) 50(Fma) 5 6 7
+OpName %8 "Fma"
+)";
+        expect(count_spirv_extended_instruction(
+                   extended_disassembly, "Fma") == 2u)
+            << "extended instructions must be counted only on OpExtInst lines";
     };
 
     auto executable_path = std::filesystem::absolute(argv[0]).string();
@@ -4365,10 +4418,74 @@ OpCapability GroupNonUniformShuffle
                 << "non-fast-math multiplication must remain one OpFMul";
             expect(count_spirv_opcode(disassembly, "FAdd") == 1u)
                 << "non-fast-math addition must remain one OpFAdd";
-            expect(count_spirv_opcode(disassembly, "Fma") == 0u)
+            expect(count_spirv_extended_instruction(disassembly, "Fma") == 0u)
                 << "non-fast-math SPIR-V must not contain a fused Fma instruction";
             expect(count_substring(disassembly, "NoContraction") == 2u)
                 << "both OpFMul and OpFAdd results must carry NoContraction";
+        }
+    };
+
+    "vk_user_compute_fast_math_fuses_single_use_mul_add_exactly"_test = [&] {
+        ScopedEnvironmentVariable enable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", nullptr};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_fast_math_fma"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto lhs = dc.device.create_buffer<float>(1u);
+        auto rhs = dc.device.create_buffer<float>(1u);
+        auto addend = dc.device.create_buffer<float>(1u);
+        auto output = dc.device.create_buffer<uint32_t>(1u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferFloat a,
+                             BufferFloat b,
+                             BufferFloat c,
+                             BufferUInt out) noexcept {
+            auto product = a.read(0u) * b.read(0u);
+            out.write(0u, as<uint>(product + c.read(0u)));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = true});
+
+        constexpr auto multiplicand_bits = 0x3f800001u;
+        constexpr auto addend_bits = 0xbf800002u;
+        std::array multiplicand{std::bit_cast<float>(multiplicand_bits)};
+        std::array addend_value{std::bit_cast<float>(addend_bits)};
+        uint32_t result = 0xffffffffu;
+        stream << lhs.copy_from(luisa::span{multiplicand})
+               << rhs.copy_from(luisa::span{multiplicand})
+               << addend.copy_from(luisa::span{addend_value})
+               << shader(lhs, rhs, addend, output).dispatch(1u)
+               << output.copy_to(luisa::span{&result, 1u})
+               << synchronize();
+        auto expected = std::bit_cast<uint32_t>(std::fma(
+            multiplicand[0], multiplicand[0], addend_value[0]));
+        expect(result == expected)
+            << luisa::format(
+                   "fast-math FMA result mismatch: expected bits 0x{:08x}, got 0x{:08x}",
+                   expected, result);
+        expect(result != 0u)
+            << "the fused fixture must distinguish FMA from separate multiply/add";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "fast-math FMA regression should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_extended_instruction(disassembly, "Fma") == 1u)
+                << "single-use fast-math multiply/add must emit one fused Fma";
+            expect(count_spirv_opcode(disassembly, "FMul") == 0u)
+                << "single-use fused multiply must not leave a dead OpFMul";
+            expect(count_spirv_opcode(disassembly, "FAdd") == 0u)
+                << "single-use fused add must not leave a separate OpFAdd";
+            expect(count_substring(disassembly, "NoContraction") == 0u)
+                << "fast-math FMA must not carry NoContraction";
         }
     };
 
