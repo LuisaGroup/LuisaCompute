@@ -292,6 +292,15 @@ size are exact multiples of its logical element stride. Preserve the resulting
 to one byte needlessly expands ordinary aligned stores into masked atomic-CAS
 loops. Raw byte-buffer operations have no such proof and remain alignment one.
 
+XIR atomics specify atomicity but expose no memory-order operand. Emit SPIR-V
+atomics with `Relaxed` memory semantics while retaining the pointer-derived
+Device or Workgroup scope. This matches CUDA/HIP `Monotonic` and fallback
+`__ATOMIC_RELAXED`; block synchronization and runtime resource barriers own
+visibility ordering. Do not attach `AcquireRelease` or broad memory-class bits
+to every RMW: that silently strengthens the cross-backend contract and can
+serialize unrelated atomics. Compare-exchange success and failure semantics,
+including software float CAS loops, are both relaxed.
+
 Large array constants may use the portable constant UBO planner. Only layouts
 with an exact host-to-std140 serializer are eligible. Planning is checked for
 alignment, multiplication, cumulative range, and the portable 16 KiB limit.

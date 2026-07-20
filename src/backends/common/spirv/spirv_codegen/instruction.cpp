@@ -1786,21 +1786,16 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
     auto atomic_scope = pointer_storage == spv::StorageClass::Workgroup ?
                             spv::Scope::Workgroup :
                             spv::Scope::Device;
-    auto atomic_memory = pointer_storage == spv::StorageClass::Workgroup ?
-                             spv::MemorySemanticsMask::WorkgroupMemory :
-                             spv::MemorySemanticsAllMemory;
-    auto atomic_semantics = pointer_storage == spv::StorageClass::Workgroup ?
-                                (spv::MemorySemanticsMask::WorkgroupMemory |
-                                 spv::MemorySemanticsMask::AcquireRelease) :
-                                (spv::MemorySemanticsAllMemory |
-                                 spv::MemorySemanticsMask::AcquireRelease);
-    auto atomic_failure_semantics = atomic_memory | spv::MemorySemanticsMask::Acquire;
     auto scope = _builder.makeUintConstant(static_cast<uint32_t>(atomic_scope));
-    auto semantics = _builder.makeUintConstant(static_cast<uint32_t>(atomic_semantics));
-    auto semantics_equal = semantics;
-    auto semantics_unequal = _builder.makeUintConstant(static_cast<uint32_t>(atomic_failure_semantics));
-    auto semantics_relaxed = _builder.makeUintConstant(
+    // XIR atomic instructions guarantee atomicity but expose no memory-order
+    // operand. Match the CUDA/HIP Monotonic and fallback Relaxed contract;
+    // block synchronization and resource barriers own visibility ordering.
+    // Adding AcquireRelease and broad memory-class bits here would silently
+    // strengthen every RMW and can serialize otherwise independent atomics.
+    auto semantics = _builder.makeUintConstant(
         static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
+    auto semantics_equal = semantics;
+    auto semantics_unequal = semantics;
 
     spv::Id id = spv::NoResult;
     auto values = inst->value_uses();
@@ -1910,8 +1905,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                              "selected a word CAS loop for typed storage.");
                 id = _emit_float_atomic_cas_loop(
                     ptr, _emit_value(values[0]->value()), type, inst->op(),
-                    scope, semantics_relaxed,
-                    semantics_relaxed, semantics_relaxed);
+                    scope, semantics, semantics, semantics);
                 break;
             }
             case SpirvFloatAtomicImplementation::NATIVE_EXCHANGE:

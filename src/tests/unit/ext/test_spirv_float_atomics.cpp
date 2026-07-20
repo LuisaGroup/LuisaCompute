@@ -268,6 +268,68 @@ template<typename Kernel>
     return count;
 }
 
+struct AtomicMemorySemanticsFacts {
+    size_t operand_count{0u};
+    bool all_relaxed{true};
+};
+
+[[nodiscard]] AtomicMemorySemanticsFacts inspect_atomic_memory_semantics(
+    const std::vector<uint32_t> &words) noexcept {
+    std::unordered_map<uint32_t, uint32_t> scalar_constants;
+    std::vector<uint32_t> semantics_ids;
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            break;
+        }
+        auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        if (opcode == spv::Op::OpConstant && word_count == 4u) {
+            scalar_constants.emplace(words[offset + 2u],
+                                     words[offset + 3u]);
+        }
+        auto append_semantics = [&](size_t word_offset) noexcept {
+            if (word_offset < word_count) {
+                semantics_ids.emplace_back(words[offset + word_offset]);
+            }
+        };
+        switch (opcode) {
+            case spv::Op::OpAtomicLoad:
+            case spv::Op::OpAtomicExchange:
+            case spv::Op::OpAtomicIAdd:
+            case spv::Op::OpAtomicISub:
+            case spv::Op::OpAtomicSMin:
+            case spv::Op::OpAtomicUMin:
+            case spv::Op::OpAtomicSMax:
+            case spv::Op::OpAtomicUMax:
+            case spv::Op::OpAtomicAnd:
+            case spv::Op::OpAtomicOr:
+            case spv::Op::OpAtomicXor:
+            case spv::Op::OpAtomicFAddEXT:
+            case spv::Op::OpAtomicFMinEXT:
+            case spv::Op::OpAtomicFMaxEXT:
+                append_semantics(5u);
+                break;
+            case spv::Op::OpAtomicCompareExchange:
+                append_semantics(5u);
+                append_semantics(6u);
+                break;
+            default: break;
+        }
+        offset += word_count;
+    }
+    AtomicMemorySemanticsFacts facts{
+        .operand_count = semantics_ids.size()};
+    for (auto id : semantics_ids) {
+        auto iter = scalar_constants.find(id);
+        if (iter == scalar_constants.end() ||
+            iter->second != static_cast<uint32_t>(
+                                spv::MemorySemanticsMask::MaskNone)) {
+            facts.all_relaxed = false;
+        }
+    }
+    return facts;
+}
+
 struct FloatCasLoopStructure {
     size_t phi_compare_exchange_count{0u};
     size_t verified_single_load_phi_loop_count{0u};
@@ -516,6 +578,10 @@ int main(int argc, char *argv[]) {
         expect(!contains(compiled.text, "SPV_EXT_shader_atomic_float_add"));
         expect(eq(compiled.required_features, 0u))
             << "integer-word float atomic fallback must not consume a native float-atomic feature";
+        auto memory = inspect_atomic_memory_semantics(compiled.words);
+        expect(memory.operand_count > 0u);
+        expect(memory.all_relaxed)
+            << "software float atomics must use the XIR relaxed memory contract";
     };
 
     "spirv_float_atomic_native_buffer_add_requires_feature"_test = [] {
@@ -538,6 +604,10 @@ int main(int argc, char *argv[]) {
         expect(facts.native_fetch_sub_uses_fnegated_source)
             << "native fetch-sub must feed OpAtomicFAddEXT from OpFNegate of "
                "the exact 1.25f source constant";
+        auto memory = inspect_atomic_memory_semantics(compiled.words);
+        expect(eq(memory.operand_count, 1u));
+        expect(memory.all_relaxed)
+            << "native float atomics must not silently strengthen XIR memory ordering";
     };
 
     "spirv_preferred_word_cas_is_single_load_phi_loop"_test = [] {
@@ -685,6 +755,12 @@ int main(int argc, char *argv[]) {
             shared.required_features,
             lc::spirv::target_feature::shader_int64 |
                 lc::spirv::target_feature::shader_shared_int64_atomics));
+        auto buffer_memory = inspect_atomic_memory_semantics(buffer.words);
+        auto shared_memory = inspect_atomic_memory_semantics(shared.words);
+        expect(eq(buffer_memory.operand_count, 1u));
+        expect(eq(shared_memory.operand_count, 1u));
+        expect(buffer_memory.all_relaxed && shared_memory.all_relaxed)
+            << "buffer and shared integer atomics must match the relaxed XIR contract";
     };
 
     "spirv_nested_aggregate_int64_atomics_use_typed_signed_pointers"_test = [] {
