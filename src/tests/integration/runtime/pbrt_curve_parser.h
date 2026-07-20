@@ -1,9 +1,10 @@
 #pragma once
 
-#include <charconv>
+#include <cerrno>
 #include <cctype>
 #include <cstdint>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <istream>
@@ -141,11 +142,10 @@ private:
             _fail("Expected floating-point value");
             return std::nullopt;
         }
-        auto value = 0.0f;
-        auto begin = token.data();
-        auto end = begin + token.size();
-        auto [parsed_end, error] = std::from_chars(begin, end, value, std::chars_format::general);
-        if (error != std::errc{} || parsed_end != end || !std::isfinite(value)) {
+        errno = 0;
+        char *parsed_end = nullptr;
+        auto value = std::strtof(token.c_str(), &parsed_end);
+        if (errno == ERANGE || parsed_end != token.data() + token.size() || !std::isfinite(value)) {
             _fail("Invalid floating-point value");
             return std::nullopt;
         }
