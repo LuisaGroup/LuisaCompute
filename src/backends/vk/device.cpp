@@ -1,5 +1,6 @@
 #include "device.h"
 #include "device_feature_plan.h"
+#include "float_atomic_policy.h"
 #include "sampler_anisotropy.h"
 #include "user_compute_codegen_route.h"
 #include <luisa/ast/op.h>
@@ -2549,8 +2550,9 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
     });
 }
 
-[[nodiscard]] static vstd::MD5 compute_shader_cache_md5(Function kernel, const ShaderOption &option,
-                                                        lc::spirv::SpirvTargetFeatures target_features) noexcept {
+[[nodiscard]] static vstd::MD5 compute_shader_cache_md5(
+    Function kernel, const ShaderOption &option,
+    lc::spirv::SpirvTargetFeatures target_features) noexcept {
     using namespace std::string_view_literals;
     auto option_flags =
         (static_cast<uint64_t>(option.enable_fast_math) << 0u) |
@@ -2558,7 +2560,7 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
         (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v10"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v11"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),
@@ -2570,6 +2572,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
         luisa::hash_value(option.native_include),
         option.native_include.size(),
         target_features.enabled_mask(),
+        static_cast<uint64_t>(
+            target_features.buffer_float32_atomic_rmw_policy),
         xir_spirv_environment_hash(),
         static_cast<uint64_t>(kernel.allowed_warp_size().value_or(0u)),
     };
@@ -2797,6 +2801,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     auto target_features =
         lc::spirv::SpirvTargetFeatures::from_enabled_mask(
             enabled_spirv_features);
+    auto float_atomic_policy = detail::plan_vulkan_float_atomic_codegen(
+        _vk_device->properties.vendorID);
+    if (float_atomic_policy
+            .native_xir_spirv_prefers_software_buffer_float32_rmw) {
+        target_features.buffer_float32_atomic_rmw_policy =
+            lc::spirv::SpirvBufferFloat32AtomicRmwPolicy::PREFER_WORD_CAS;
+    }
     LUISA_ASSERT(target_features.enabled_mask() == enabled_spirv_features,
                  "Vulkan SPIR-V target-feature mask did not round-trip.");
     vstd::optional<lc::spirv::SpirvResult> spv_result;

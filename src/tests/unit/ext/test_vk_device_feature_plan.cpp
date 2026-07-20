@@ -3,6 +3,7 @@
 #include "ut/ut.hpp"
 
 #include "device_feature_plan.h"
+#include "float_atomic_policy.h"
 #include "descriptor_interface_plan.h"
 #include "command_buffer_ownership.h"
 #include "sampler_anisotropy.h"
@@ -130,6 +131,23 @@ int main(int argc, char *argv[]) {
             expect(combined.contains(expected_reason));
         }
         expect(eq(combined.hlsl_fallback_reasons, 0x7fu));
+    };
+
+    "vk_float_atomic_codegen_policy_is_vendor_specific"_test = [] {
+        using namespace lc::vk::detail;
+        constexpr auto amd = plan_vulkan_float_atomic_codegen(
+            amd_pci_vendor_id);
+        constexpr auto nvidia = plan_vulkan_float_atomic_codegen(0x10deu);
+        constexpr auto intel = plan_vulkan_float_atomic_codegen(0x8086u);
+        static_assert(
+            amd.native_xir_spirv_prefers_software_buffer_float32_rmw);
+        static_assert(
+            !nvidia.native_xir_spirv_prefers_software_buffer_float32_rmw);
+        static_assert(
+            !intel.native_xir_spirv_prefers_software_buffer_float32_rmw);
+        static_assert(amd.cache_key() != nvidia.cache_key());
+        expect(amd.native_xir_spirv_prefers_software_buffer_float32_rmw);
+        expect(!nvidia.native_xir_spirv_prefers_software_buffer_float32_rmw);
     };
 
     "vk_loader_identity_is_pinned_independently_of_module_ownership"_test = [] {

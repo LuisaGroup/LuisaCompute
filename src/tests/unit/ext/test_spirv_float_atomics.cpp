@@ -253,6 +253,85 @@ template<typename Kernel>
     return text.find(needle) != std::string_view::npos;
 }
 
+[[nodiscard]] size_t count_opcode(
+    const std::vector<uint32_t> &words, spv::Op expected) noexcept {
+    auto count = size_t{0u};
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            break;
+        }
+        auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        if (opcode == expected) { ++count; }
+        offset += word_count;
+    }
+    return count;
+}
+
+struct FloatCasLoopStructure {
+    size_t phi_compare_exchange_count{0u};
+    size_t verified_single_load_phi_loop_count{0u};
+};
+
+[[nodiscard]] FloatCasLoopStructure inspect_float_cas_loop_structure(
+    const std::vector<uint32_t> &words) noexcept {
+    struct Definition {
+        spv::Op opcode;
+        uint32_t block;
+        size_t offset;
+        size_t word_count;
+    };
+    std::unordered_map<uint32_t, Definition> definitions;
+    auto current_block = uint32_t{0u};
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            break;
+        }
+        auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        if (opcode == spv::Op::OpLabel && word_count >= 2u) {
+            current_block = words[offset + 1u];
+        } else if ((opcode == spv::Op::OpAtomicLoad ||
+                    opcode == spv::Op::OpAtomicCompareExchange ||
+                    opcode == spv::Op::OpPhi) &&
+                   word_count >= 3u) {
+            definitions.emplace(
+                words[offset + 2u],
+                Definition{opcode, current_block, offset, word_count});
+        }
+        offset += word_count;
+    }
+
+    FloatCasLoopStructure result;
+    for (auto &&[id, definition] : definitions) {
+        if (definition.opcode != spv::Op::OpAtomicCompareExchange ||
+            definition.word_count < 9u) {
+            continue;
+        }
+        auto comparator = words[definition.offset + 8u];
+        auto phi_iter = definitions.find(comparator);
+        if (phi_iter == definitions.end() ||
+            phi_iter->second.opcode != spv::Op::OpPhi ||
+            phi_iter->second.word_count != 7u) {
+            continue;
+        }
+        ++result.phi_compare_exchange_count;
+        auto &phi = phi_iter->second;
+        auto first_value = words[phi.offset + 3u];
+        auto first_predecessor = words[phi.offset + 4u];
+        auto second_value = words[phi.offset + 5u];
+        auto load_iter = definitions.find(first_value);
+        if (load_iter == definitions.end() ||
+            load_iter->second.opcode != spv::Op::OpAtomicLoad ||
+            load_iter->second.block != first_predecessor ||
+            second_value != id) {
+            continue;
+        }
+        ++result.verified_single_load_phi_loop_count;
+    }
+    return result;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -334,6 +413,30 @@ int main(int argc, char *argv[]) {
                    SpirvFloatAtomicStorage::BUFFER, native_buffer) ==
                SpirvFloatAtomicImplementation::WORD_COMPARE_EXCHANGE)
             << "SPIR-V float compare-exchange must stay integer word-backed";
+
+        constexpr SpirvTargetFeatures preferred_word_cas{
+            .shader_buffer_float32_atomics = true,
+            .shader_buffer_float32_atomic_add = true,
+            .shader_buffer_float32_atomic_min_max = true,
+            .buffer_float32_atomic_rmw_policy =
+                lc::spirv::SpirvBufferFloat32AtomicRmwPolicy::
+                    PREFER_WORD_CAS};
+        expect(plan_spirv_float_atomic(
+                   xir::AtomicOp::FETCH_ADD, 32u,
+                   SpirvFloatAtomicStorage::BUFFER,
+                   preferred_word_cas) ==
+               SpirvFloatAtomicImplementation::WORD_CAS);
+        expect(plan_spirv_float_atomic(
+                   xir::AtomicOp::FETCH_MIN, 32u,
+                   SpirvFloatAtomicStorage::BUFFER,
+                   preferred_word_cas) ==
+               SpirvFloatAtomicImplementation::WORD_CAS);
+        expect(plan_spirv_float_atomic(
+                   xir::AtomicOp::FETCH_ADD, 32u,
+                   SpirvFloatAtomicStorage::SHARED,
+                   preferred_word_cas) ==
+               SpirvFloatAtomicImplementation::UNSUPPORTED_FEATURE)
+            << "the buffer policy must not alter shared-memory lowering";
 
         constexpr SpirvTargetFeatures shared_add_only{
             .shader_shared_float32_atomic_add = true};
@@ -427,6 +530,30 @@ int main(int argc, char *argv[]) {
         expect(facts.native_fetch_sub_uses_fnegated_source)
             << "native fetch-sub must feed OpAtomicFAddEXT from OpFNegate of "
                "the exact 1.25f source constant";
+    };
+
+    "spirv_preferred_word_cas_is_single_load_phi_loop"_test = [] {
+        Kernel1D kernel = [](BufferFloat values,
+                             BufferFloat old_values) noexcept {
+            old_values.write(
+                0u, values.atomic(0u).fetch_add(1.25f));
+        };
+        auto compiled = compile_spirv_fixture(
+            kernel,
+            {.shader_buffer_float32_atomic_add = true,
+             .buffer_float32_atomic_rmw_policy =
+                 lc::spirv::SpirvBufferFloat32AtomicRmwPolicy::
+                     PREFER_WORD_CAS});
+        auto structure = inspect_float_cas_loop_structure(compiled.words);
+        expect(structure.phi_compare_exchange_count > 0u);
+        expect(eq(structure.verified_single_load_phi_loop_count,
+                  structure.phi_compare_exchange_count))
+            << "every software float add must load in its preheader and carry "
+               "failed compare-exchange values through the loop Phi";
+        expect(eq(count_opcode(
+                      compiled.words, spv::Op::OpAtomicFAddEXT),
+                  0u));
+        expect(eq(compiled.required_features, 0u));
     };
 
     "spirv_float_atomic_compare_exchange_forces_word_abi"_test = [] {

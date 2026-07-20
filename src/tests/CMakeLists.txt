@@ -116,7 +116,9 @@ luisa_compute_add_test(test_pixel_storage unit/core/test_pixel_storage.cpp LABEL
 if (TARGET luisa-compute-hlsl-codegen)
     luisa_compute_add_test(test_hlsl_validation_codegen unit/ext/test_hlsl_validation_codegen.cpp LABELS "unit;unit_ext;hlsl")
     target_include_directories(test_hlsl_validation_codegen PRIVATE ../backends/common/hlsl)
-    target_link_libraries(test_hlsl_validation_codegen PRIVATE luisa-compute-hlsl-codegen)
+    target_link_libraries(test_hlsl_validation_codegen PRIVATE
+            luisa-compute-hlsl-codegen
+            SPIRV-Tools-opt)
 endif ()
 if (TARGET luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_constant_ubo_layout unit/ext/test_spirv_constant_ubo_layout.cpp LABELS "unit;unit_ext;spirv")

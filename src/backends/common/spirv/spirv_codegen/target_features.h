@@ -11,7 +11,7 @@ namespace lc::spirv {
 // This is a code-generation preference, not a Vulkan feature bit. Keep the
 // physical/logical-device feature snapshot truthful and let the Vulkan
 // backend select this policy independently from extension enablement.
-enum class SpirvBufferFloat32AtomicAddPolicy : uint8_t {
+enum class SpirvBufferFloat32AtomicRmwPolicy : uint8_t {
     NATIVE_IF_SUPPORTED,
     PREFER_WORD_CAS,
 };
@@ -59,8 +59,8 @@ struct SpirvTargetFeatures {
     bool descriptor_binding_sampled_image_update_after_bind{false};
     bool descriptor_binding_storage_buffer_update_after_bind{false};
     bool storage_buffer_array_dynamic_indexing{false};
-    SpirvBufferFloat32AtomicAddPolicy buffer_float32_atomic_add_policy{
-        SpirvBufferFloat32AtomicAddPolicy::NATIVE_IF_SUPPORTED};
+    SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
+        SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
 
     [[nodiscard]] constexpr SpirvTargetFeatureMask enabled_mask() const noexcept {
         SpirvTargetFeatureMask mask{};
@@ -240,15 +240,18 @@ enum class SpirvFloatAtomicImplementation : uint8_t {
                 return SpirvFloatAtomicImplementation::WORD_COMPARE_EXCHANGE;
             case xir::AtomicOp::FETCH_ADD:
             case xir::AtomicOp::FETCH_SUB:
-                return features.buffer_float32_atomic_add_policy ==
-                               SpirvBufferFloat32AtomicAddPolicy::
+                return features.buffer_float32_atomic_rmw_policy ==
+                               SpirvBufferFloat32AtomicRmwPolicy::
                                    NATIVE_IF_SUPPORTED &&
                            features.shader_buffer_float32_atomic_add ?
                            SpirvFloatAtomicImplementation::NATIVE_ADD :
                            SpirvFloatAtomicImplementation::WORD_CAS;
             case xir::AtomicOp::FETCH_MIN:
             case xir::AtomicOp::FETCH_MAX:
-                return features.shader_buffer_float32_atomic_min_max ?
+                return features.buffer_float32_atomic_rmw_policy ==
+                               SpirvBufferFloat32AtomicRmwPolicy::
+                                   NATIVE_IF_SUPPORTED &&
+                           features.shader_buffer_float32_atomic_min_max ?
                            SpirvFloatAtomicImplementation::NATIVE_MIN_MAX :
                            SpirvFloatAtomicImplementation::WORD_CAS;
             default:
@@ -286,8 +289,8 @@ plan_spirv_float_atomic_capability_driven(
     luisa::compute::xir::AtomicOp op, uint32_t bit_width,
     SpirvFloatAtomicStorage storage,
     SpirvTargetFeatures features) noexcept {
-    features.buffer_float32_atomic_add_policy =
-        SpirvBufferFloat32AtomicAddPolicy::NATIVE_IF_SUPPORTED;
+    features.buffer_float32_atomic_rmw_policy =
+        SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED;
     return plan_spirv_float_atomic(
         op, bit_width, storage, features);
 }

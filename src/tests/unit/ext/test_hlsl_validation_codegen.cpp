@@ -6,8 +6,14 @@
 #include <luisa/dsl/sugar.h>
 
 #include "hlsl_codegen.h"
+#include "atomic_codegen_policy.h"
+#include "shader_compiler.h"
 
+#include <filesystem>
 #include <string_view>
+
+#include <spirv-tools/libspirv.hpp>
+#include <spirv/unified1/spirv.hpp>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -114,6 +120,61 @@ namespace {
     return codegen.properties.size();
 }
 
+struct DxcSpirvAtomicFacts {
+    bool compiled{false};
+    bool validated{false};
+    size_t compare_exchange_count{0u};
+    size_t float_add_count{0u};
+    size_t integer_add_count{0u};
+    vstd::string error;
+};
+
+[[nodiscard]] DxcSpirvAtomicFacts compile_and_inspect_dxc_spirv(
+    luisa::string_view source,
+    const std::filesystem::path &runtime_directory) {
+    DxcSpirvAtomicFacts facts;
+    lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+    auto compiled = compiler.compile_compute(
+        source, true, 65u, true, true, false);
+    compiled.multi_visit(
+        [&](const lc::hlsl::ComUniquePtr<IDxcBlob> &blob) {
+            facts.compiled = true;
+            auto byte_size = blob->GetBufferSize();
+            if (byte_size % sizeof(uint32_t) != 0u) {
+                facts.error = "DXC returned a non-word-aligned SPIR-V blob";
+                return;
+            }
+            auto *words = static_cast<const uint32_t *>(
+                blob->GetBufferPointer());
+            auto word_count = byte_size / sizeof(uint32_t);
+            spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+            facts.validated = tools.Validate(words, word_count);
+            for (auto offset = size_t{5u}; offset < word_count;) {
+                auto instruction_word_count =
+                    static_cast<size_t>(words[offset] >> 16u);
+                if (instruction_word_count == 0u ||
+                    instruction_word_count > word_count - offset) {
+                    facts.error = "DXC returned malformed SPIR-V";
+                    break;
+                }
+                auto opcode = static_cast<spv::Op>(
+                    words[offset] & 0xffffu);
+                if (opcode == spv::Op::OpAtomicCompareExchange) {
+                    ++facts.compare_exchange_count;
+                } else if (opcode == spv::Op::OpAtomicFAddEXT) {
+                    ++facts.float_add_count;
+                } else if (opcode == spv::Op::OpAtomicIAdd) {
+                    ++facts.integer_add_count;
+                }
+                offset += instruction_word_count;
+            }
+        },
+        [&](const vstd::string &error) {
+            facts.error = error;
+        });
+    return facts;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -128,6 +189,65 @@ int main(int argc, char *argv[]) {
         expect(!result.use_8bit);
         expect(eq(result.validation_count, 0u));
         expect(eq(result.immutableHeaderSize, 0u));
+    };
+
+    "hlsl_float_atomic_codegen_respects_spirv_boundary"_test = [argv] {
+        constexpr CallOp float_ops[]{
+            CallOp::ATOMIC_EXCHANGE,
+            CallOp::ATOMIC_COMPARE_EXCHANGE,
+            CallOp::ATOMIC_FETCH_ADD,
+            CallOp::ATOMIC_FETCH_SUB,
+            CallOp::ATOMIC_FETCH_MIN,
+            CallOp::ATOMIC_FETCH_MAX,
+        };
+        for (auto op : float_ops) {
+            expect(
+                lc::hlsl::plan_hlsl_atomic_lowering(op, true, true) ==
+                lc::hlsl::HlslAtomicLowering::UNSUPPORTED);
+        }
+        expect(
+            lc::hlsl::plan_hlsl_atomic_lowering(
+                CallOp::ATOMIC_FETCH_ADD, false, true) ==
+            lc::hlsl::HlslAtomicLowering::NATIVE);
+
+        Kernel1D buffer_kernel = [](BufferFloat values,
+                                    BufferFloat old_values) noexcept {
+            old_values.write(
+                0u, values.atomic(0u).fetch_add(1.0f));
+        };
+        auto function = buffer_kernel.function()->function();
+        auto dx_software = lc::hlsl::CodegenUtility{}.Codegen(
+            function, {}, 0u, false, false, false);
+        auto software_program = dx_software.result.view();
+        expect(contains(
+            software_program,
+            "InterlockedCompareExchangeFloatBitwise("));
+        expect(contains(
+            software_program,
+            "if(asuint(old)==asuint(r))return old;"))
+            << "CAS success must compare the exact float bit patterns";
+        expect(contains(software_program, "old=r;"))
+            << "CAS failure must reuse the returned bits instead of reloading";
+        expect(!contains(software_program, "InterlockedAdd("));
+
+        Kernel1D integer_kernel = [](BufferUInt values,
+                                     BufferUInt old_values) noexcept {
+            old_values.write(
+                0u, values.atomic(0u).fetch_add(1u));
+        };
+        auto integer_spirv = lc::hlsl::CodegenUtility{}.Codegen(
+            integer_kernel.function()->function(), {}, 0u,
+            true, false, false);
+        auto integer_program = integer_spirv.result.view();
+        expect(contains(integer_program, "InterlockedAdd("));
+        auto dxc = compile_and_inspect_dxc_spirv(
+            integer_program,
+            std::filesystem::path{argv[0]}.parent_path());
+        expect(dxc.compiled) << dxc.error;
+        expect(dxc.validated) << dxc.error;
+        expect(dxc.integer_add_count > 0u);
+        expect(eq(dxc.float_add_count, 0u));
+        expect(eq(dxc.compare_exchange_count, 0u));
     };
 
     "hlsl_debug_validation_is_forwarded_through_callables"_test = [] {

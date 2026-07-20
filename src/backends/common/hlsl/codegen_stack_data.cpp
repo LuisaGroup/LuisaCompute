@@ -1,4 +1,5 @@
 #include "codegen_stack_data.h"
+#include "atomic_codegen_policy.h"
 #include <luisa/runtime/rtx/ray.h>
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/ast/type_registry.h>
@@ -170,22 +171,24 @@ static vstd::string_view _atomic_compare_exchange_float =
 static vstd::string_view _atomic_add =
     R"(# r;InterlockedAdd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_add_float =
-    R"(while(true){
-# old=$;
+    R"(# old=$;
+while(true){
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,old+@,r);
-if(old==r)return old;
+if(asuint(old)==asuint(r))return old;
+old=r;
 })"sv;
 static vstd::string_view _atomic_sub =
     R"(# r;
 InterlockedAdd($,-@,r);
 return r;)"sv;
 static vstd::string_view _atomic_sub_float =
-    R"(while(true){
-# old=$;
+    R"(# old=$;
+while(true){
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,old-@,r);
-if(old==r)return old;
+if(asuint(old)==asuint(r))return old;
+old=r;
 })"sv;
 static vstd::string_view _atomic_and =
     R"(# r;InterlockedAnd($,@,r);return r;)"sv;
@@ -196,22 +199,24 @@ static vstd::string_view _atomic_xor =
 static vstd::string_view _atomic_min =
     R"(# r;InterlockedMin($,@,r);return r;)"sv;
 static vstd::string_view _atomic_min_float =
-    R"(while(true){
-# old=$;
+    R"(# old=$;
+while(true){
 if(old<=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
-if(r==old) return old;
+if(asuint(r)==asuint(old)) return old;
+old=r;
 })"sv;
 static vstd::string_view _atomic_max =
     R"(# r;InterlockedMax($,@,r);return r;)"sv;
 static vstd::string_view _atomic_max_float =
-    R"(while(true){
-# old=$;
+    R"(# old=$;
+while(true){
 if(old>=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
-if(r==old) return old;
+if(asuint(r)==asuint(old)) return old;
+old=r;
 })"sv;
 AccessChain const &CodegenStackData::GetAtomicFunc(
     Function func,
@@ -228,20 +233,33 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
         .access_place = '$',
         .args_place = '@',
         .temp_type_place = '#'};
+    // The bundled DXC cannot lower float atomics to SPIR-V: its float CAS
+    // intrinsic is unimplemented and it does not expose atomic-float SPIR-V
+    // extensions. Fail closed; native XIR-to-SPIR-V owns Vulkan float atomics.
+    auto lowering = plan_hlsl_atomic_lowering(
+        op, retType->is_float32(), isSpirv);
+    if (lowering == HlslAtomicLowering::UNSUPPORTED) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Float atomics are unavailable in the HLSL-to-SPIR-V fallback "
+            "because the bundled DXC cannot lower them. Use native "
+            "XIR-to-SPIR-V codegen for this kernel.");
+    }
+    auto use_software_float_rmw =
+        lowering == HlslAtomicLowering::FLOAT_CAS_LOOP;
     switch (op) {
         case CallOp::ATOMIC_EXCHANGE:
             tmp.body = _atomic_exchange;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            tmp.body = (retType->is_float32()) ? _atomic_compare_exchange_float : _atomic_compare_exchange;
+            tmp.body = lowering == HlslAtomicLowering::FLOAT_COMPARE_EXCHANGE ?
+                           _atomic_compare_exchange_float :
+                           _atomic_compare_exchange;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
-            // SPIR-V: native InterlockedAdd supports float directly
-            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_add_float : _atomic_add;
+            tmp.body = use_software_float_rmw ? _atomic_add_float : _atomic_add;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            // SPIR-V: native InterlockedAdd with negation supports float directly
-            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_sub_float : _atomic_sub;
+            tmp.body = use_software_float_rmw ? _atomic_sub_float : _atomic_sub;
             break;
         case CallOp::ATOMIC_FETCH_AND:
             tmp.body = _atomic_and;
@@ -253,12 +271,10 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = _atomic_xor;
             break;
         case CallOp::ATOMIC_FETCH_MIN:
-            // SPIR-V: native InterlockedMin supports float directly
-            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_min_float : _atomic_min;
+            tmp.body = use_software_float_rmw ? _atomic_min_float : _atomic_min;
             break;
         case CallOp::ATOMIC_FETCH_MAX:
-            // SPIR-V: native InterlockedMax supports float directly
-            tmp.body = (retType->is_float32() && !isSpirv) ? _atomic_max_float : _atomic_max;
+            tmp.body = use_software_float_rmw ? _atomic_max_float : _atomic_max;
             break;
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid atomic operator.");
