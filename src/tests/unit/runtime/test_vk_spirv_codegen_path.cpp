@@ -4874,6 +4874,88 @@ OpName %8 "Fma"
             uint_result[0], uint4{0xffffffffu, 0u, 1u, 0x80000000u});
     };
 
+    "vk_user_compute_width_preserving_bitcasts_are_exact"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_width_preserving_bitcasts"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input = dc.device.create_buffer<uint4>(1u);
+        auto float_output = dc.device.create_buffer<float4>(1u);
+        auto wide_output = dc.device.create_buffer<ulong2>(1u);
+        auto scalar_output = dc.device.create_buffer<luisa::ulong>(1u);
+        auto pair_output = dc.device.create_buffer<uint2>(1u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferUInt4 in,
+                             BufferFloat4 float_out,
+                             BufferULong2 wide_out,
+                             BufferULong scalar_out,
+                             BufferUInt2 pair_out) noexcept {
+            auto words = in.read(0u);
+            float_out.write(0u, words.bitcast<float4>());
+            wide_out.write(0u, words.bitcast<ulong2>());
+            auto scalar = words.xy().bitcast<luisa::ulong>();
+            scalar_out.write(0u, scalar);
+            pair_out.write(0u, scalar.bitcast<uint2>());
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr uint4 source{
+            0x7fc01234u, 0x80000000u,
+            0x7f800000u, 0x01234567u};
+        constexpr std::array source_data{source};
+        std::array<float4, 1u> float_result{};
+        std::array<ulong2, 1u> wide_result{};
+        std::array<luisa::ulong, 1u> scalar_result{};
+        std::array<uint2, 1u> pair_result{};
+        stream << input.copy_from(luisa::span{source_data})
+               << shader(input, float_output, wide_output,
+                         scalar_output, pair_output)
+                      .dispatch(1u)
+               << float_output.copy_to(luisa::span{float_result})
+               << wide_output.copy_to(luisa::span{wide_result})
+               << scalar_output.copy_to(luisa::span{scalar_result})
+               << pair_output.copy_to(luisa::span{pair_result})
+               << synchronize();
+
+        for (auto i = 0u; i < 4u; i++) {
+            expect(std::bit_cast<uint32_t>(float_result[0][i]) == source[i])
+                << "float bitcast changed lane " << i;
+        }
+        constexpr auto low =
+            luisa::ulong{source.x} |
+            (luisa::ulong{source.y} << 32u);
+        constexpr auto high =
+            luisa::ulong{source.z} |
+            (luisa::ulong{source.w} << 32u);
+        expect(wide_result[0].x == low && wide_result[0].y == high)
+            << "uint4-to-ulong2 bitcast changed SPIR-V component packing";
+        expect(scalar_result[0] == low)
+            << "uint2-to-ulong bitcast changed SPIR-V component packing";
+        expect(pair_result[0].x == source.x &&
+               pair_result[0].y == source.y)
+            << "ulong-to-uint2 bitcast did not invert the packed scalar";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "bitcast regression should emit exactly one native SPIR-V dump";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            // Mandatory XIR scalarization expands the component-wise
+            // uint4-to-float4 cast into four scalar casts. The three
+            // scalar/vector shape-changing casts remain single instructions.
+            expect(count_spirv_opcode(disassembly, "Bitcast") == 7u)
+                << "SPIR-V opt0 must preserve the four scalarized lane casts "
+                   "and three width-preserving shape casts";
+        }
+    };
+
     "vk_user_compute_vector_rounds_half_away_from_zero"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;
