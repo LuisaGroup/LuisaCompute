@@ -509,5 +509,96 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    "spirv_xir_float8_conversions_validate"_test = [] {
+        const auto *e4m3_type = Type::from("float8e4m3");
+        const auto *e5m2_type = Type::from("float8e5m2");
+        expect(e4m3_type != nullptr);
+        expect(e5m2_type != nullptr);
+        if (e4m3_type == nullptr || e5m2_type == nullptr) { return; }
+
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+
+        auto keep_conversion = [&](const Type *source_type,
+                                   const void *source_data,
+                                   const Type *target_type) noexcept {
+            auto *source = module.create_constant(
+                source_type, source_data);
+            auto *converted = builder.static_cast_(
+                target_type, source);
+            auto *slot = builder.alloca_local(target_type);
+            builder.store(slot, converted);
+        };
+        constexpr uint8_t e4m3_one_bits = 0x38u;
+        constexpr uint8_t e5m2_one_bits = 0x3cu;
+        constexpr float source_float = 1.25f;
+        keep_conversion(e4m3_type, &e4m3_one_bits,
+                        Type::of<float>());
+        keep_conversion(e5m2_type, &e5m2_one_bits,
+                        Type::of<float>());
+        keep_conversion(Type::of<float>(), &source_float,
+                        e4m3_type);
+        keep_conversion(Type::of<float>(), &source_float,
+                        e5m2_type);
+        builder.return_void();
+
+        Kernel1D ast_kernel = []() noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        constexpr auto required_features =
+            lc::spirv::target_feature::shader_float8;
+        constexpr auto target_features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                required_features);
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto compiled =
+            lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+                ast_kernel.function()->function(), &module,
+                ShaderOption{.enable_cache = false,
+                             .enable_fast_math = false},
+                target_features);
+
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        std::string diagnostics;
+        tools.SetMessageConsumer(
+            [&diagnostics](spv_message_level_t, const char *,
+                           const spv_position_t &,
+                           const char *message) {
+                if (!diagnostics.empty()) { diagnostics.push_back('\n'); }
+                diagnostics.append(message);
+            });
+        expect(tools.Validate(compiled.spv_bin.data(),
+                              compiled.spv_bin.size()))
+            << "exact-XIR FP8 conversion module failed Vulkan 1.2 "
+               "validation: "
+            << diagnostics;
+        expect(eq(compiled.required_target_features,
+                  required_features))
+            << "FP8 conversions must report shaderFloat8 and no unrelated "
+               "target feature";
+
+        size_t conversion_count = 0u;
+        for (auto offset = 5u; offset < compiled.spv_bin.size();) {
+            auto word_count = compiled.spv_bin[offset] >> 16u;
+            auto opcode = static_cast<spv::Op>(
+                compiled.spv_bin[offset] & 0xffffu);
+            if (word_count == 0u ||
+                offset + word_count > compiled.spv_bin.size()) {
+                break;
+            }
+            conversion_count += opcode == spv::Op::OpFConvert;
+            offset += word_count;
+        }
+        expect(eq(conversion_count, size_t{4u}))
+            << "both directions for both FP8 encodings must lower through "
+               "OpFConvert";
+    };
+
     return 0;
 }
