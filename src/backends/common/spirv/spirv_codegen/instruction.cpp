@@ -4782,6 +4782,16 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             // SPV_KHR_expect_assume support from the Vulkan device.
             break;
         case xir::DerivedInstructionTag::ASSERT:
+            if (!_enable_debug_info) {
+                // Match the release-mode contract of the CUDA, HIP, Metal,
+                // and HLSL codegens: device assertions are disabled when
+                // debug information is not requested.
+                break;
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "SPIR-V codegen received a debug assertion after dialect "
+                "validation; native Vulkan has no device-side assertion "
+                "reporting contract.");
         case xir::DerivedInstructionTag::DEBUG_BREAK:
         case xir::DerivedInstructionTag::OUTLINE:
         case xir::DerivedInstructionTag::RASTER_DISCARD:

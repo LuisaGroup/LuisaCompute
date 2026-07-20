@@ -147,6 +147,7 @@ private:
     bool _use_buffer_bindless{false};
     bool _use_buffer_bindless_metadata{false};
     bool _enable_fast_math{false};
+    bool _enable_debug_info{false};
     SpirvTargetFeatures _target_features{};
     SpirvRuntimeTargetPlan _runtime_target_plan{};
     bool _runtime_target_plan_installed{false};

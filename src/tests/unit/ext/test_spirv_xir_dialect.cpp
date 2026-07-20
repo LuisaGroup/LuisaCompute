@@ -1644,6 +1644,29 @@ int main(int argc, char *argv[]) {
         expect(validation.succeeded());
     };
 
+    "spirv_xir_assert_is_only_accepted_when_release_assertions_are_disabled"_test = [] {
+        Module module;
+        auto kernel = module.create_kernel();
+        auto condition = kernel->create_value_argument(Type::of<bool>());
+        auto body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto assertion = builder.assert_(condition, "value is in range");
+        builder.return_void();
+
+        auto debug_validation =
+            lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+        expect_only_diagnostic_at(
+            debug_validation, kernel, body, assertion,
+            "device-side failure-reporting contract");
+
+        auto release_validation =
+            lc::spirv::validate_spirv_xir_codegen_dialect(
+                &module,
+                {.release_assertions_are_no_op = true});
+        expect(release_validation.succeeded());
+    };
+
     "spirv_xir_indirect_dispatch_requires_the_specialized_kernel_argument"_test = [] {
         Module module;
         auto kernel = module.create_kernel();

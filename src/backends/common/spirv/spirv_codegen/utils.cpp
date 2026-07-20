@@ -694,7 +694,9 @@ void run_pipeline(xir::Module *module, const xir::PassPipeline &pipeline,
     // without changing the validation or emission boundary.
     dump_xir_stage(xir_module.get(), kernel.hash(), "norm");
     auto dialect = lc::spirv::validate_spirv_xir_codegen_dialect(
-        xir_module.get());
+        xir_module.get(),
+        {.release_assertions_are_no_op =
+             !option.enable_debug_info});
     if (!dialect.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid XIR at SPIR-V codegen handoff: {} "

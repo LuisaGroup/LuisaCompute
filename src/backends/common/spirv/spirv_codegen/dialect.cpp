@@ -238,6 +238,7 @@ template<typename Enum>
 
 class DialectValidator {
 private:
+    SpirvXIRDialectValidationOptions _options;
     SpirvXIRDialectValidationResult _result;
     luisa::unordered_map<
         const xir::BasicBlock *,
@@ -1373,7 +1374,12 @@ private:
                 "Native XIR-to-SPIR-V rejected reg2mem spill metadata "
                 "attached to a non-alloca instruction.");
         }
-        if (!_require_supported(function, block, inst, "instruction kind",
+        auto release_assertion_no_op =
+            inst->derived_instruction_tag() ==
+                xir::DerivedInstructionTag::ASSERT &&
+            _options.release_assertions_are_no_op;
+        if (!release_assertion_no_op &&
+            !_require_supported(function, block, inst, "instruction kind",
                                 inst->derived_instruction_tag())) {
             return;
         }
@@ -1626,6 +1632,10 @@ private:
     }
 
 public:
+    explicit DialectValidator(
+        SpirvXIRDialectValidationOptions options) noexcept
+        : _options{options} {}
+
     [[nodiscard]] SpirvXIRDialectValidationResult validate(
         const xir::Module *module) noexcept {
         if (module == nullptr) {
@@ -2539,8 +2549,10 @@ spirv_xir_dialect_support(xir::DerivedInstructionTag tag) noexcept {
 #endif
 
 SpirvXIRDialectValidationResult
-validate_spirv_xir_codegen_dialect(const xir::Module *module) noexcept {
-    return DialectValidator{}.validate(module);
+validate_spirv_xir_codegen_dialect(
+    const xir::Module *module,
+    SpirvXIRDialectValidationOptions options) noexcept {
+    return DialectValidator{options}.validate(module);
 }
 
 }// namespace lc::spirv

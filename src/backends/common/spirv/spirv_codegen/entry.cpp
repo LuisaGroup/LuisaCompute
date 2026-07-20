@@ -276,7 +276,10 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             "Invalid AST/XIR kernel ABI at direct SPIR-V codegen handoff: {}.",
             kernel_abi.diagnostic);
     }
-    auto dialect = validate_spirv_xir_codegen_dialect(xir_module);
+    auto dialect = validate_spirv_xir_codegen_dialect(
+        xir_module,
+        {.release_assertions_are_no_op =
+             !opt.enable_debug_info});
     if (!dialect.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid XIR at direct SPIR-V codegen handoff: {} "
@@ -287,6 +290,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     StringScratch scratch;
     SpirvCodegenEntry codegen{scratch, true};
     codegen._enable_fast_math = opt.enable_fast_math;
+    codegen._enable_debug_info = opt.enable_debug_info;
     codegen._target_features = target_features;
     auto analysis = codegen._analyze_module_usage(xir_module);
     auto atomic_buffers = plan_spirv_atomic_buffers(

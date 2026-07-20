@@ -80,6 +80,14 @@ struct SpirvXIRDialectValidationResult {
     }
 };
 
+struct SpirvXIRDialectValidationOptions {
+    // Device assertions are disabled in release shaders across the existing
+    // GPU codegens. This option makes that lowering policy explicit at the
+    // native SPIR-V validation boundary; debug assertions remain unsupported
+    // until Vulkan has a real failure-reporting contract.
+    bool release_assertions_are_no_op{false};
+};
+
 enum class SpirvXIRKernelABIStatus : uint8_t {
     SUCCESS,
     NULL_MODULE,
@@ -119,6 +127,8 @@ validate_spirv_xir_kernel_abi(
 // unit-test oracles; the production handoff turns the first one into an
 // explicit shader-compilation error.
 [[nodiscard]] SpirvXIRDialectValidationResult
-validate_spirv_xir_codegen_dialect(const xir::Module *module) noexcept;
+validate_spirv_xir_codegen_dialect(
+    const xir::Module *module,
+    SpirvXIRDialectValidationOptions options = {}) noexcept;
 
 }// namespace lc::spirv

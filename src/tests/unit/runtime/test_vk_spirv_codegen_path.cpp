@@ -5117,6 +5117,65 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_release_device_assert_is_explicitly_disabled"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_release_assert"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        constexpr std::array source{5u, 17u, 101u, 509u};
+        auto input = dc.device.create_buffer<uint32_t>(source.size());
+        auto output = dc.device.create_buffer<uint32_t>(source.size());
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferUInt in, BufferUInt out) noexcept {
+            auto i = dispatch_x();
+            auto value = in.read(i);
+            device_assert(value < 1024u, "value must be in range");
+            out.write(i, value * 5u + 3u);
+        };
+        auto normalized_xir_path = std::filesystem::path{luisa::format(
+            "kernel.{:016x}.norm.xir",
+            kernel.function()->function().hash())};
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false,
+                                 .enable_debug_info = false});
+
+        std::array<uint32_t, source.size()> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(source.size())
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        for (auto i = 0u; i < source.size(); ++i) {
+            expect(result[i] == source[i] * 5u + 3u)
+                << "disabling a satisfied release assertion changed result "
+                << i;
+        }
+
+        expect(std::filesystem::exists(normalized_xir_path))
+            << "release-assert regression must retain the normalized XIR handoff";
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "release-assert regression should emit one native SPIR-V module";
+        if (std::filesystem::exists(normalized_xir_path) &&
+            dumps.size() == 1u) {
+            auto normalized_xir = read_text_file(normalized_xir_path);
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_substring(normalized_xir, "assert ") == 1u)
+                << "the disabled XIR optimizer must preserve the assertion "
+                   "through the option-aware codegen handoff";
+            expect(disassembly.find("DebugPrintf") == std::string::npos)
+                << "release assertion lowering must not claim a debug-reporting "
+                   "side effect that it cannot provide";
+        }
+    };
+
     "vk_user_compute_kernel_id_matches_multi_dispatch_push_constant"_test = [&] {
         ScopedEnvironmentVariable disable_xir_optimization{
             "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
