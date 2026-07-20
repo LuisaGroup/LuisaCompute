@@ -29,6 +29,7 @@ AST -> LLVM -> SPIR-V implementation in `spirv_llvm/`.
 | `call_graph_validation.h/.cpp` | Kernel-reachable, callee-before-caller function graph |
 | `control_flow_plan.h/.cpp` | Immutable logical-to-physical structured-CFG plan |
 | `instruction_layout.h/.cpp` | SPIR-V instruction word-count limits, including `OpSwitch` and `OpPhi` |
+| `buffer_layout.h/.cpp` | Vulkan typed-SSBO layout compatibility and word-storage fallback planning |
 | `aggregate_index.h/.cpp` | Typed GEP/extract/insert index planning and struct-index canonicalization |
 | `optimizer.h/.cpp` | SPIRV-Tools validation and optimization presets |
 | `target_feature_mask.h` | Persisted required-feature bit contract |
@@ -272,10 +273,24 @@ offsets, strides, descriptor sets, and bindings. For `makeArrayType`, a small
 nonzero third argument may mark the type explicitly laid out, followed by the
 real unsigned `ArrayStride` decoration.
 
-Logical bool has no StorageBuffer representation. Bool-containing non-atomic
-buffers use the uint32 word ABI. Atomic analysis selects one representation per
-`Buffer<T>` before type conversion; conflicting typed/word requirements are a
-handoff error.
+Logical bool has no StorageBuffer representation. A second mismatch comes from
+64-bit three- and four-component vectors: Vulkan gives them 32-byte standard
+storage alignment, while Luisa host vector alignment is capped at 16 bytes.
+`plan_spirv_typed_buffer_layout` recursively checks matrix/array strides,
+structure member offsets, structure stride, and the outer runtime-array stride.
+Any incompatible non-atomic `Buffer<T>` uses the byte-exact uint32 word ABI.
+Atomic analysis consumes the same layout decision and selects one
+representation per `Buffer<T>` before type conversion; a 64-bit integer atomic
+that requires typed storage conflicts with a layout that requires word storage
+and must fail at the handoff. Never enable scalar-block layout implicitly: the
+runtime does not request that Vulkan feature as part of this ABI.
+
+Direct-buffer `StorageBufferMetadata` carries a runtime descriptor bias, but
+the Vulkan argument preprocessor proves that a typed buffer view's offset and
+size are exact multiples of its logical element stride. Preserve the resulting
+`gcd(element_size, 4)` alignment in word-storage reads and writes. Dropping it
+to one byte needlessly expands ordinary aligned stores into masked atomic-CAS
+loops. Raw byte-buffer operations have no such proof and remain alignment one.
 
 Large array constants may use the portable constant UBO planner. Only layouts
 with an exact host-to-std140 serializer are eligible. Planning is checked for
@@ -546,6 +561,7 @@ Important targets under `src/tests/unit/ext/`:
 - `test_spirv_pointer_legalization`
 - `test_spirv_control_flow_plan`
 - `test_spirv_instruction_layout`
+- `test_spirv_buffer_layout`
 - `test_spirv_aggregate_indices`
 - `test_spirv_target_feature_codegen`
 - `test_spirv_runtime_target_plan`

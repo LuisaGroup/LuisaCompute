@@ -310,6 +310,7 @@ enum class SpirvAtomicBufferStoragePlan : uint8_t {
 
 struct SpirvAtomicBufferStorageRequirements {
     bool contains_bool{false};
+    bool requires_word_storage_layout{false};
     bool has_float32_word_fallback{false};
     bool prefers_float32_word_fallback{false};
     bool has_int64_atomic{false};
@@ -319,6 +320,7 @@ struct SpirvAtomicBufferStorageRequirements {
 plan_spirv_atomic_buffer_storage(
     SpirvAtomicBufferStorageRequirements requirements) noexcept {
     auto requires_word = requirements.contains_bool ||
+                         requirements.requires_word_storage_layout ||
                          requirements.has_float32_word_fallback;
     auto requires_typed = requirements.has_int64_atomic;
     if (requires_word && requires_typed) {

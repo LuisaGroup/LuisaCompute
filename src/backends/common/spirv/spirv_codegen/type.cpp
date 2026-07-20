@@ -1,4 +1,5 @@
 #include "entry.h"
+#include "buffer_layout.h"
 #include <luisa/core/logging.h>
 
 namespace lc::spirv {
@@ -55,9 +56,11 @@ bool SpirvCodegenEntry::_buffer_uses_word_storage(const Type *type) noexcept {
                      "Conflicting SPIR-V atomic-buffer storage plan escaped analysis.");
         return iter->second == SpirvAtomicBufferStoragePlan::WORD;
     }
-    // Logical bool has no StorageBuffer representation. Non-atomic buffers
-    // containing bool therefore retain the uint32 word ABI as well.
-    return spirv_type_contains_bool(elem_type);
+    // Logical bool has no StorageBuffer representation. Some valid Luisa host
+    // aggregates also cannot be expressed with Vulkan's standard typed-SSBO
+    // alignment (notably a 64-bit vec3/vec4 placed at a 16-byte host offset).
+    // Both cases retain the byte-exact uint32 word ABI.
+    return !spirv_typed_buffer_layout_compatible(elem_type);
 }
 
 spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept {

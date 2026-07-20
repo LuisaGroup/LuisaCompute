@@ -912,7 +912,7 @@ void SpirvCodegenEntry::generate_binding(
                 _builder.addDecoration(var, spv::Decoration::Aliased);
                 // Only add Coherent when necessary:
                 // - buffer is used with atomics, or
-                // - element type contains bool (word-level storage causes false sharing).
+                // - element type uses word storage (sub-word updates can cause false sharing).
                 // Coherent forces GPU to bypass caches; for disjoint writes this is pure overhead.
                 if (!writable && elem_type != nullptr &&
                     !may_alias_writable_user_resource) {
@@ -922,13 +922,8 @@ void SpirvCodegenEntry::generate_binding(
                 }
                 if (writable && elem_type != nullptr) {
                     bool needs_coherent = _needs_atomic_buffer_types.contains(elem_type);
-                    if (!needs_coherent) {
-                        if (auto elem = elem_type->element();
-                            elem != nullptr &&
-                            spirv_type_contains_bool(elem)) {
-                            needs_coherent = true;
-                        }
-                    }
+                    needs_coherent |=
+                        _buffer_uses_word_storage(elem_type);
                     if (needs_coherent) {
                         _builder.addDecoration(var, spv::Decoration::Coherent);
                     }

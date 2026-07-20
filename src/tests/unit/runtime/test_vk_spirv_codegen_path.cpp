@@ -26,6 +26,7 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
@@ -81,6 +82,15 @@ struct NestedConstantRecord {
 };
 LUISA_STRUCT(NestedConstantRecord, leaves, order, scale) {};
 static_assert(sizeof(NestedConstantRecord) == 40u);
+
+struct WideVectorStorageRecord {
+    float4 prefix;
+    double4 payload;
+    uint32_t suffix;
+};
+LUISA_STRUCT(WideVectorStorageRecord, prefix, payload, suffix) {};
+static_assert(offsetof(WideVectorStorageRecord, payload) == 16u);
+static_assert(sizeof(WideVectorStorageRecord) == 64u);
 
 namespace {
 
@@ -2906,6 +2916,89 @@ int main(int argc, char *argv[]) {
                            element, component);
             }
             expect(result[element].payload == expected[element].payload);
+        }
+    };
+
+    "vk_user_compute_word_backed_wide_vector_layout_round_trip"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_wide_vector_storage_layout"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input =
+            dc.device.create_buffer<WideVectorStorageRecord>(3u);
+        auto output =
+            dc.device.create_buffer<WideVectorStorageRecord>(3u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](
+                              BufferVar<WideVectorStorageRecord> in,
+                              BufferVar<WideVectorStorageRecord> out) noexcept {
+            auto i = dispatch_x();
+            auto source = in.read(i);
+            Var<WideVectorStorageRecord> result{source};
+            result.prefix = source.prefix + make_float4(
+                                                cast<float>(i), 1.0f,
+                                                2.0f, 3.0f);
+            result.suffix = source.suffix ^ (0x10203040u + i);
+            out.write(2u - i, result);
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            WideVectorStorageRecord{
+                {1.0f, 2.0f, 3.0f, 4.0f},
+                {10.0, 20.0, 30.0, 40.0}, 0x11223344u},
+            WideVectorStorageRecord{
+                {-1.0f, -2.0f, -3.0f, -4.0f},
+                {-10.0, -20.0, -30.0, -40.0}, 0x55667788u},
+            WideVectorStorageRecord{
+                {0.25f, 0.5f, 0.75f, 1.0f},
+                {0.125, 0.25, 0.5, 1.0}, 0xaabbccddu}};
+        auto expected = source;
+        for (auto i = 0u; i < source.size(); ++i) {
+            auto value = source[i];
+            value.prefix += float4{
+                static_cast<float>(i), 1.0f, 2.0f, 3.0f};
+            value.suffix ^= 0x10203040u + i;
+            expected[2u - i] = value;
+        }
+
+        std::array<WideVectorStorageRecord, 3u> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(3u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+
+        for (auto element = 0u; element < result.size(); ++element) {
+            for (auto component = 0u; component < 4u; ++component) {
+                expect(result[element].prefix[component] ==
+                       expected[element].prefix[component]);
+                expect(result[element].payload[component] ==
+                       expected[element].payload[component]);
+            }
+            expect(result[element].suffix == expected[element].suffix);
+        }
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "wide-vector layout fallback should emit one native SPIR-V dump";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(spirv_opcode_has_adjacent_operands(
+                disassembly, "Decorate", "ArrayStride", "4"))
+                << "the incompatible host aggregate must use uint32 word storage";
+            expect(!spirv_opcode_has_adjacent_operands(
+                disassembly, "Decorate", "ArrayStride", "64"))
+                << "the incompatible host aggregate must not be emitted as a typed runtime array";
+            expect(count_spirv_opcode(
+                       disassembly, "AtomicCompareExchange") == 0u)
+                << "proven-aligned non-atomic word stores must not expand into masked CAS loops";
         }
     };
 

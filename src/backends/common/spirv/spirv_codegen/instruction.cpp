@@ -3158,9 +3158,12 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
     }
     if (_direct_buffer_metadata_indices.contains(buffer)) {
         byte_offset = _add_direct_buffer_bias(buffer, byte_offset);
-        // Descriptor-relative bias is a runtime value. Conservatively allow a
-        // cross-word access; the host proves the padded descriptor tail.
-        byte_alignment = 1u;
+        // The Vulkan argument preprocessor validates direct typed-buffer
+        // offsets and sizes as exact multiples of the logical element stride.
+        // The runtime bias is therefore at least as aligned as the element
+        // access planned above. Byte-buffer accesses start with alignment one
+        // and remain conservative. The host separately proves the padded
+        // descriptor tail needed by a genuinely cross-word access.
     }
     return _emit_buffer_read_impl(buffer, byte_offset, read_type, byte_alignment, memory_access);
 }
@@ -3456,7 +3459,9 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
     }
     if (_direct_buffer_metadata_indices.contains(buffer)) {
         byte_offset = _add_direct_buffer_bias(buffer, byte_offset);
-        byte_alignment = 1u;
+        // Direct typed-buffer metadata preserves the logical element-stride
+        // alignment proved by storage_buffer_descriptor_range(). Byte-buffer
+        // writes retain their initial alignment-one contract.
     }
     _emit_buffer_write_impl(buffer, byte_offset, value, value_type, byte_alignment, memory_access);
 }

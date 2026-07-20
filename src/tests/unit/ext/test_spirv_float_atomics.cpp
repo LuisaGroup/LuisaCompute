@@ -482,6 +482,9 @@ int main(int argc, char *argv[]) {
                    {.contains_bool = true}) ==
                SpirvAtomicBufferStoragePlan::WORD);
         expect(plan_spirv_atomic_buffer_storage(
+                   {.requires_word_storage_layout = true}) ==
+               SpirvAtomicBufferStoragePlan::WORD);
+        expect(plan_spirv_atomic_buffer_storage(
                    {.has_int64_atomic = true}) ==
                SpirvAtomicBufferStoragePlan::TYPED);
         expect(plan_spirv_atomic_buffer_storage(
@@ -494,6 +497,11 @@ int main(int argc, char *argv[]) {
                     .has_int64_atomic = true}) ==
                SpirvAtomicBufferStoragePlan::CONFLICT)
             << "float fallback word storage cannot provide a typed int64 pointer";
+        expect(plan_spirv_atomic_buffer_storage(
+                   {.requires_word_storage_layout = true,
+                    .has_int64_atomic = true}) ==
+               SpirvAtomicBufferStoragePlan::CONFLICT)
+            << "an incompatible aggregate layout cannot provide a typed int64 pointer";
     };
 
     "spirv_float_atomic_buffer_fallback_has_no_float_capability"_test = [] {
