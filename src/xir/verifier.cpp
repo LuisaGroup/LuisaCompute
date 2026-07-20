@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <type_traits>
 
-#include <luisa/ast/type.h>
+#include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/argument.h>
