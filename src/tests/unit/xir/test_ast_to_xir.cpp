@@ -6,6 +6,7 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/xir/verifier.h>
+#include <yyjson.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -197,10 +198,13 @@ int main() {
 
     // Convert XIR to JSON for inspection
     auto json = xir::xir_to_json_translate(module.get());
-    auto json_valid = !json.empty() &&
-                      json.find("\"ok\": true") != luisa::string::npos &&
-                      json.find("\"function_count\": 0") == luisa::string::npos &&
-                      json.find("\"text\":") != luisa::string::npos;
+    auto *json_doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
+    auto *json_root = json_doc == nullptr ? nullptr : yyjson_doc_get_root(json_doc);
+    auto json_valid = yyjson_is_obj(json_root) &&
+                      yyjson_get_bool(yyjson_obj_get(json_root, "ok")) &&
+                      yyjson_get_uint(yyjson_obj_get(json_root, "function_count")) >= 1u &&
+                      yyjson_is_str(yyjson_obj_get(json_root, "text"));
+    if (json_doc != nullptr) { yyjson_doc_free(json_doc); }
     if (!json_valid) {
         LUISA_WARNING("XIR JSON translation produced an invalid module snapshot.");
         return 1;
