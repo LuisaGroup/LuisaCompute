@@ -610,7 +610,8 @@ int main(int argc, char *argv[]) {
         }
         expect(eq(layout.buffer_metadata_count, 1u));
         expect(eq(layout.buffer_metadata_offset, 16u));
-        expect(eq(layout.final_size, 32u));
+        expect(eq(layout.final_size,
+                  16u + sizeof(lc::StorageBufferMetadata)));
     };
 
     "spirv_kernel_argument_layout_without_buffers_only_word_aligns"_test = [] {

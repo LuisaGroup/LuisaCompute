@@ -24,7 +24,7 @@ namespace lc::vk::detail {
 // raw struct: padding is deliberately excluded by appending every semantic
 // field to a canonical little-endian byte sequence.
 inline constexpr uint32_t kShaderSerVersion = 10u;
-inline constexpr uint32_t kXIRPipelineVersion = 3u;
+inline constexpr uint32_t kXIRPipelineVersion = 4u;
 
 struct ShaderSerHeader {
     uint64_t header_ver;

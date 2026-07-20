@@ -2311,9 +2311,7 @@ spirv_xir_dialect_support(xir::ResourceQueryOp op) noexcept {
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY: return supported();
         case xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS:
         case xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS:
-            return unsupported(
-                "physical-storage-buffer device addresses are not emitted by "
-                "the native Vulkan SPIR-V path");
+            return supported();
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX:
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT:
             return unsupported(

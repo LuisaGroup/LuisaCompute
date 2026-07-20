@@ -156,6 +156,30 @@ analyze_spirv_function_argument_usage(
         slot = true;
         return true;
     };
+    auto require_buffer_device_address = [&](
+                                             const xir::Function *function,
+                                             const xir::Value *value) noexcept {
+        if (function == nullptr || value == nullptr ||
+            !value->isa<xir::Argument>()) {
+            return false;
+        }
+        auto *argument = static_cast<const xir::Argument *>(value);
+        if (argument->parent_function() != function ||
+            argument->type() == nullptr ||
+            (!argument->type()->is_buffer() &&
+             !argument->type()->is_bindless_array())) {
+            return false;
+        }
+        auto fit = indices.find(function);
+        if (fit == indices.end()) { return false; }
+        auto ait = fit->second.find(argument);
+        if (ait == fit->second.end()) { return false; }
+        auto &slot = analysis.at(function)[ait->second]
+                         .requires_buffer_device_address;
+        if (slot) { return false; }
+        slot = true;
+        return true;
+    };
     auto traverse_definition = [](
                                    const xir::FunctionDefinition *definition,
                                    auto &&visit) noexcept {
@@ -197,6 +221,15 @@ analyze_spirv_function_argument_usage(
                                     .buffer_metadata) {
                                 static_cast<void>(
                                     require_bindless_buffer_metadata(
+                                        function,
+                                        instruction->operand(0u)));
+                            }
+                            if (query->op() ==
+                                    xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS ||
+                                query->op() ==
+                                    xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS) {
+                                static_cast<void>(
+                                    require_buffer_device_address(
                                         function,
                                         instruction->operand(0u)));
                             }
@@ -299,6 +332,10 @@ analyze_spirv_function_argument_usage(
                             changed |= require_bindless_buffer_metadata(
                                 function, actual);
                         }
+                        if (incoming.requires_buffer_device_address) {
+                            changed |= require_buffer_device_address(
+                                function, actual);
+                        }
                     }
                 });
         }
@@ -373,6 +410,24 @@ bool spirv_function_argument_requires_bindless_buffer_metadata(
             return index < fit->second.size() &&
                    fit->second[index]
                        .requires_bindless_buffer_metadata;
+        }
+        index++;
+    }
+    return false;
+}
+
+bool spirv_function_argument_requires_buffer_device_address(
+    const SpirvFunctionArgumentAnalysisMap &analysis,
+    const xir::Function *function,
+    const xir::Argument *argument) noexcept {
+    auto fit = analysis.find(function);
+    if (fit == analysis.end()) { return false; }
+    auto index = size_t{0u};
+    for (auto *candidate : function->arguments()) {
+        if (candidate == argument) {
+            return index < fit->second.size() &&
+                   fit->second[index]
+                       .requires_buffer_device_address;
         }
         index++;
     }

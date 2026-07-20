@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
         expect_complete_matrix(
             luisa::compute::xir::CastOp::BITWISE_CAST, 0u);
         expect_complete_matrix(
-            ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR, 8u);
+            ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR, 6u);
         expect_complete_matrix(ResourceReadOp::DEVICE_ADDRESS_READ, 1u);
         expect_complete_matrix(
             ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, 3u);
@@ -1569,11 +1569,6 @@ int main(int argc, char *argv[]) {
 
     "spirv_xir_dialect_rejections_name_the_missing_semantics"_test = [] {
         for (auto op : std::array{
-                 ResourceQueryOp::BUFFER_DEVICE_ADDRESS,
-                 ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS}) {
-            expect_unsupported(op, "physical-storage-buffer");
-        }
-        for (auto op : std::array{
                  ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX,
                  ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT}) {
             expect_unsupported(op, "motion-key");
@@ -1713,7 +1708,7 @@ int main(int argc, char *argv[]) {
                               "ordinary buffers"));
     };
 
-    "spirv_xir_device_address_is_rejected_before_emission"_test = [] {
+    "spirv_xir_device_address_queries_are_supported_without_pointer_dereference"_test = [] {
         Module module;
         auto kernel = module.create_kernel();
         auto buffer = kernel->create_resource_argument(
@@ -1731,10 +1726,16 @@ int main(int argc, char *argv[]) {
             "the device-address fixture must be valid generic XIR");
         auto validation =
             lc::spirv::validate_spirv_xir_codegen_dialect(&module);
-        expect_only_diagnostic_at(
-            validation, kernel, body, device_address,
-            "buffer_device_address");
-        expect(has_diagnostic(validation, "physical-storage-buffer"));
+        expect(validation.succeeded());
+        expect(device_address != nullptr);
+        for (auto op : std::array{
+                 ResourceQueryOp::BUFFER_DEVICE_ADDRESS,
+                 ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS}) {
+            auto support = lc::spirv::spirv_xir_dialect_support(op);
+            expect(support.accepted());
+            expect(support.support ==
+                   lc::spirv::SpirvXIRDialectSupport::SUPPORTED);
+        }
     };
 
     "spirv_xir_unknown_opcode_is_rejected_without_stringifying_it"_test = [] {

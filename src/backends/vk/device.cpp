@@ -2457,6 +2457,12 @@ luisa::string Device::query(luisa::string_view property) noexcept {
     if (property == "shader_device_clock") {
         return _shader_device_clock_enabled ? "true" : "false";
     }
+    if (property == "buffer_device_address") {
+        return device_address_enabled ? "true" : "false";
+    }
+    if (property == "shader_int64") {
+        return _numeric_features.shader_int64 ? "true" : "false";
+    }
     return DeviceInterface::query(property);
 }
 
@@ -2571,6 +2577,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::storage_buffer_array_dynamic_indexing);
     enable(owned_logical_device && _shader_device_clock_enabled,
            target_feature::shader_device_clock);
+    enable(owned_logical_device && device_address_enabled,
+           target_feature::buffer_device_address);
     return mask;
 }
 
@@ -2598,7 +2606,7 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
         (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v11"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v12"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),

@@ -532,10 +532,26 @@ vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(
                     "0x{:08x}.",
                     index, roles);
                 saved.set_native_accel_roles(roles);
+            } else if (argument.first.type()->is_buffer()) {
+                LUISA_ASSERT(
+                    (roles &
+                     ~spirv::kernel_argument_role::buffer_known_mask) == 0u,
+                    "Vulkan native buffer argument {} has unknown role bits "
+                    "0x{:08x}.",
+                    index, roles);
+                saved.set_native_buffer_roles(roles);
+            } else if (argument.first.type()->is_bindless_array()) {
+                LUISA_ASSERT(
+                    (roles &
+                     ~spirv::kernel_argument_role::bindless_known_mask) == 0u,
+                    "Vulkan native bindless argument {} has unknown role bits "
+                    "0x{:08x}.",
+                    index, roles);
+                saved.set_native_bindless_roles(roles);
             } else {
                 LUISA_ASSERT(
                     roles == spirv::kernel_argument_role::none,
-                    "Vulkan native non-accel argument {} has accel role bits "
+                    "Vulkan native non-resource argument {} has role bits "
                     "0x{:08x}.",
                     index, roles);
             }

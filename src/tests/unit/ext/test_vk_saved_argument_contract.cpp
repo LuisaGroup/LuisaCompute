@@ -116,4 +116,35 @@ int main(int argc, char *argv[]) {
         expect(plan_saved_argument_contract(argument, 0u).status ==
                SavedArgumentContractStatus::INVALID_RESOURCE_ROLES);
     };
+
+    "vk_saved_argument_contract_preserves_device_address_roles"_test = [] {
+        using namespace lc::vk;
+        using luisa::compute::Type;
+        std::array arguments{
+            saved(Type::Tag::BUFFER, 4u, 0u),
+            saved(Type::Tag::BINDLESS_ARRAY)};
+        arguments[0].set_native_buffer_roles(
+            SavedArgument::native_buffer_device_address);
+        arguments[1].set_native_bindless_roles(
+            SavedArgument::native_buffer_device_address);
+
+        expect(arguments[0].has_buffer_metadata());
+        expect(eq(arguments[0].buffer_metadata_index(), 0u));
+        expect(arguments[0].native_buffer_uses_device_address());
+        arguments[0].set_native_buffer_roles(
+            lc::spirv::kernel_argument_role::none);
+        expect(arguments[0].has_buffer_metadata());
+        expect(eq(arguments[0].buffer_metadata_index(), 0u));
+        expect(!arguments[0].native_buffer_uses_device_address());
+        arguments[0].set_native_buffer_roles(
+            SavedArgument::native_buffer_device_address);
+        expect(arguments[1].has_explicit_native_bindless_roles());
+        expect(arguments[1].native_bindless_uses_device_address());
+        expect(static_cast<bool>(
+            plan_saved_argument_contract(arguments, 0u)));
+
+        arguments[1].set_native_bindless_roles(1u << 31u);
+        expect(plan_saved_argument_contract(arguments, 0u).status ==
+               SavedArgumentContractStatus::INVALID_RESOURCE_ROLES);
+    };
 }

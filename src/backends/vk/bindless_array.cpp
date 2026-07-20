@@ -167,7 +167,8 @@ Device::HeapAlloc &get_alloc(Device &device, BindlessSlotType type) {
                  modified.offset_bytes + logical_size,
                  buffer->byte_size());
     return storage_buffer_descriptor_range(
-        buffer, modified.offset_bytes, logical_size);
+        buffer, modified.offset_bytes, logical_size, 0u,
+        buffer->device_address_capable());
 }
 
 template<typename Modification>
@@ -457,6 +458,26 @@ bool BindlessArray::contains_buffer_alias(
     }
     return false;
 }
+
+bool BindlessArray::encoded_buffers_support_device_address() const noexcept {
+    std::lock_guard lock{mtx};
+    auto supported = true;
+    traverse_encoded_resources([&](uint64_t handle) noexcept {
+        auto *resource = reinterpret_cast<const Resource *>(handle);
+        LUISA_ASSERT(
+            resource != nullptr &&
+                (resource->tag() == Resource::Tag::kBuffer ||
+                 resource->tag() == Resource::Tag::kTexture),
+            "Vulkan bindless device-address validation encountered an "
+            "invalid encoded resource.");
+        if (resource->tag() == Resource::Tag::kBuffer) {
+            supported &= static_cast<const Buffer *>(resource)
+                             ->device_address_capable();
+        }
+    });
+    return supported;
+}
+
 void BindlessArray::bind(luisa::span<BindlessArrayUpdateCommand::Modification const> mods) {
     auto binded_ptr = _typed_binded.try_get<vstd::vector<std::pair<BindlessStruct, MapIndices>>>();
     LUISA_DEBUG_ASSERT(binded_ptr);

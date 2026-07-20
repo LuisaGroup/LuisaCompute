@@ -60,6 +60,7 @@ struct SpirvTargetFeatures {
     bool descriptor_binding_storage_buffer_update_after_bind{false};
     bool storage_buffer_array_dynamic_indexing{false};
     bool shader_device_clock{false};
+    bool buffer_device_address{false};
     SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
         SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
 
@@ -132,6 +133,8 @@ struct SpirvTargetFeatures {
         enable(storage_buffer_array_dynamic_indexing,
                target_feature::storage_buffer_array_dynamic_indexing);
         enable(shader_device_clock, target_feature::shader_device_clock);
+        enable(buffer_device_address,
+               target_feature::buffer_device_address);
         return mask;
     }
 
@@ -204,7 +207,9 @@ struct SpirvTargetFeatures {
             .storage_buffer_array_dynamic_indexing =
                 has(target_feature::storage_buffer_array_dynamic_indexing),
             .shader_device_clock =
-                has(target_feature::shader_device_clock)};
+                has(target_feature::shader_device_clock),
+            .buffer_device_address =
+                has(target_feature::buffer_device_address)};
     }
 };
 

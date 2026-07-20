@@ -15,6 +15,7 @@ SpirvBindlessResourceUsage spirv_bindless_resource_usage(
     switch (op) {
         case xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE:
         case xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS:
             return {.buffer_metadata = true};
         case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE:
         case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:

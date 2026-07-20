@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../storage_buffer_metadata.h"
+
 #include <luisa/core/binary_io.h>
 #include <luisa/ast/function.h>
 #include <luisa/vstl/common.h>
@@ -294,9 +296,11 @@ private:
     void _emit_buffer_write_impl(spv::Id buffer, spv::Id byte_offset, spv::Id value, const Type *elem_type, size_t byte_alignment, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
     void _emit_buffer_write_word_masked(spv::Id buffer, spv::Id word_index, spv::Id value, spv::Id mask) noexcept;
     [[nodiscard]] spv::Id _load_direct_buffer_metadata(
-        spv::Id buffer, bool load_size, spv::Id target_type) noexcept;
+        spv::Id buffer, StorageBufferMetadataField field,
+        spv::Id target_type) noexcept;
     [[nodiscard]] spv::Id _load_bindless_buffer_metadata(
-        spv::Id bindless_array, spv::Id slot_index, bool load_size,
+        spv::Id bindless_array, spv::Id slot_index,
+        StorageBufferMetadataField field,
         spv::Id target_type) noexcept;
     [[nodiscard]] spv::Id _add_direct_buffer_bias(
         spv::Id buffer, spv::Id byte_offset) noexcept;

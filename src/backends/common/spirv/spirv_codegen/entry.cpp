@@ -237,20 +237,27 @@ SpirvCodegenEntry::_collect_kernel_argument_roles(
     for (auto i = 0u; i < ast_arguments.size(); ++i) {
         auto ast_argument = ast_arguments[i];
         auto *xir_argument = xir_arguments[i];
-        if (!ast_argument.type()->is_accel()) { continue; }
-        LUISA_ASSERT(
-            xir_argument->type() != nullptr &&
-                xir_argument->type()->is_accel(),
-            "SPIR-V native accel role at argument {} has no matching XIR "
-            "accel argument.",
-            i);
-        if (spirv_function_argument_requires_accel_traversal_descriptor(
-                _function_argument_usage, xir_kernel, xir_argument)) {
-            roles[i] |= kernel_argument_role::accel_traversal;
-        }
-        if (spirv_function_argument_requires_accel_instance_buffer(
-                _function_argument_usage, xir_kernel, xir_argument)) {
-            roles[i] |= kernel_argument_role::accel_instance;
+        if (ast_argument.type()->is_accel()) {
+            LUISA_ASSERT(
+                xir_argument->type() != nullptr &&
+                    xir_argument->type()->is_accel(),
+                "SPIR-V native accel role at argument {} has no matching "
+                "XIR accel argument.",
+                i);
+            if (spirv_function_argument_requires_accel_traversal_descriptor(
+                    _function_argument_usage, xir_kernel, xir_argument)) {
+                roles[i] |= kernel_argument_role::accel_traversal;
+            }
+            if (spirv_function_argument_requires_accel_instance_buffer(
+                    _function_argument_usage, xir_kernel, xir_argument)) {
+                roles[i] |= kernel_argument_role::accel_instance;
+            }
+        } else if (ast_argument.type()->is_buffer() ||
+                   ast_argument.type()->is_bindless_array()) {
+            if (spirv_function_argument_requires_buffer_device_address(
+                    _function_argument_usage, xir_kernel, xir_argument)) {
+                roles[i] |= kernel_argument_role::buffer_device_address;
+            }
         }
     }
     return roles;

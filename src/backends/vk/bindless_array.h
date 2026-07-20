@@ -112,6 +112,10 @@ public:
     }
     [[nodiscard]] bool contains_buffer_alias(
         const Buffer *source) const noexcept;
+    // Checks the exact descriptor snapshot visible to the next encoded
+    // dispatch. External buffer imports are rejected because their creation
+    // flags are not attested by the current native-resource API.
+    [[nodiscard]] bool encoded_buffers_support_device_address() const noexcept;
     void bind(luisa::span<BindlessArrayUpdateCommand::Modification const> mods);
     void bind(vstd::span<const BindlessArrayUpdateCommand::BufferModification> mods);
     void bind(vstd::span<const BindlessArrayUpdateCommand::Texture2DModification> mods);

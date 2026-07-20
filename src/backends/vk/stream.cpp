@@ -687,7 +687,8 @@ struct ResourceBarrierVisitor {
                          argument.buffer_metadata_index());
             (*buffer_metadata)[argument.buffer_metadata_index()] =
                 storage_buffer_descriptor_range(
-                    res, bf.offset, bf.size, argument.struct_size)
+                    res, bf.offset, bf.size, argument.struct_size,
+                    argument.native_buffer_uses_device_address())
                     .metadata;
         }
         if (validation_values != nullptr) {
@@ -754,6 +755,15 @@ struct ResourceBarrierVisitor {
         LUISA_ASSERT(bf.handle != 0u,
                      "Vulkan dispatch contains a null bindless-array handle.");
         auto bdls = reinterpret_cast<BindlessArray *>(bf.handle);
+        if (codegen_dialect ==
+                detail::ShaderCodegenDialect::XIR_SPIRV &&
+            argument.native_bindless_uses_device_address()) {
+            LUISA_ASSERT(
+                bdls->encoded_buffers_support_device_address(),
+                "Native Vulkan bindless buffer device-address queries "
+                "require every buffer in the encoded descriptor snapshot "
+                "to carry an address-capable creation attestation.");
+        }
         auto &buffer = bdls->indices_buffer();
         barrier->record(
             BufferView(&buffer, 0, buffer.byte_size()),

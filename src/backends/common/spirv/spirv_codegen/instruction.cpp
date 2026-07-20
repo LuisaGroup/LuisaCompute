@@ -1796,7 +1796,8 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                                         _builder.makeUintType(64) :
                                         _builder.makeUintType(32);
                 auto bias = _load_direct_buffer_metadata(
-                    base, false, address_type);
+                    base, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
+                    address_type);
                 auto stride = base_xir_type->element()->size();
                 auto stride_id = _builder.getScalarTypeWidth(address_type) == 64u ?
                                      _builder.makeUint64Constant(stride) :
@@ -2391,7 +2392,8 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto buffer = _emit_value(inst->operand(0));
             if (_direct_buffer_metadata_indices.contains(buffer)) {
                 auto bytes = _load_direct_buffer_metadata(
-                    buffer, true, type);
+                    buffer, StorageBufferMetadataField::LOGICAL_SIZE_BYTES,
+                    type);
                 auto element_type = inst->operand(0)->type()->element();
                 LUISA_ASSERT(element_type != nullptr && element_type->size() != 0u,
                              "SPIR-V direct buffer size query requires a sized element type.");
@@ -2427,7 +2429,9 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
         case xir::ResourceQueryOp::BYTE_BUFFER_SIZE: {
             auto buffer = _emit_value(inst->operand(0));
             if (_direct_buffer_metadata_indices.contains(buffer)) {
-                id = _load_direct_buffer_metadata(buffer, true, type);
+                id = _load_direct_buffer_metadata(
+                    buffer, StorageBufferMetadataField::LOGICAL_SIZE_BYTES,
+                    type);
                 break;
             }
             auto len = _builder.createArrayLength(buffer, 0u, 32u);
@@ -2445,12 +2449,41 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto bindless_array = _emit_value(inst->operand(0));
             auto slot_index = _emit_value(inst->operand(1));
             id = _load_bindless_buffer_metadata(
-                bindless_array, slot_index, true, type);
+                bindless_array, slot_index,
+                StorageBufferMetadataField::LOGICAL_SIZE_BYTES, type);
             if (inst->op() == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE) {
                 auto stride = _ensure_type(_emit_value(inst->operand(2)), type);
                 id = _builder.createBinOp(
                     spv::Op::OpUDiv, type, id, stride);
             }
+            break;
+        }
+        case xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS: {
+            LUISA_ASSERT(
+                _runtime_target_plan_installed &&
+                    _runtime_target_plan.uses_buffer_device_address,
+                "SPIR-V buffer device-address query escaped runtime target preflight.");
+            _require_target_feature(
+                target_feature::buffer_device_address,
+                _target_features.buffer_device_address);
+            auto buffer = _emit_value(inst->operand(0));
+            id = _load_direct_buffer_metadata(
+                buffer, StorageBufferMetadataField::DEVICE_ADDRESS, type);
+            break;
+        }
+        case xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS: {
+            LUISA_ASSERT(
+                _runtime_target_plan_installed &&
+                    _runtime_target_plan.uses_buffer_device_address,
+                "SPIR-V bindless buffer device-address query escaped runtime target preflight.");
+            _require_target_feature(
+                target_feature::buffer_device_address,
+                _target_features.buffer_device_address);
+            auto bindless_array = _emit_value(inst->operand(0));
+            auto slot_index = _emit_value(inst->operand(1));
+            id = _load_bindless_buffer_metadata(
+                bindless_array, slot_index,
+                StorageBufferMetadataField::DEVICE_ADDRESS, type);
             break;
         }
         case xir::ResourceQueryOp::TEXTURE2D_SIZE:
@@ -2828,7 +2861,8 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
 }
 
 spv::Id SpirvCodegenEntry::_load_direct_buffer_metadata(
-    spv::Id buffer, bool load_size, spv::Id target_type) noexcept {
+    spv::Id buffer, StorageBufferMetadataField field,
+    spv::Id target_type) noexcept {
     auto metadata = _direct_buffer_metadata_indices.find(buffer);
     LUISA_ASSERT(metadata != _direct_buffer_metadata_indices.end(),
                  "SPIR-V direct buffer {} has no view metadata.", buffer);
@@ -2844,7 +2878,8 @@ spv::Id SpirvCodegenEntry::_load_direct_buffer_metadata(
         sizeof(StorageBufferMetadata) / sizeof(uint32_t);
     auto word = _buffer_metadata_offset / sizeof(uint32_t) +
                 static_cast<size_t>(metadata->second) * words_per_record +
-                (load_size ? 2u : 0u);
+                storage_buffer_metadata_field_offset(field) /
+                    sizeof(uint32_t);
     LUISA_ASSERT(word <= std::numeric_limits<uint32_t>::max() - 1u,
                  "SPIR-V direct buffer metadata word offset {} exceeds uint32.", word);
     auto load_word = [&](size_t index) noexcept {
@@ -2866,7 +2901,8 @@ spv::Id SpirvCodegenEntry::_load_direct_buffer_metadata(
 }
 
 spv::Id SpirvCodegenEntry::_load_bindless_buffer_metadata(
-    spv::Id bindless_array, spv::Id slot_index, bool load_size,
+    spv::Id bindless_array, spv::Id slot_index,
+    StorageBufferMetadataField field,
     spv::Id target_type) noexcept {
     auto metadata = _bindless_buffer_metadata_ids.find(bindless_array);
     LUISA_ASSERT(metadata != _bindless_buffer_metadata_ids.end(),
@@ -2882,11 +2918,15 @@ spv::Id SpirvCodegenEntry::_load_bindless_buffer_metadata(
     slot_index = _ensure_type(slot_index, uint_type);
     auto word = _builder.createBinOp(
         spv::Op::OpIMul, uint_type, slot_index,
-        _builder.makeUintConstant(4u));
-    if (load_size) {
+        _builder.makeUintConstant(static_cast<uint32_t>(
+            sizeof(StorageBufferMetadata) / sizeof(uint32_t))));
+    auto field_word = storage_buffer_metadata_field_offset(field) /
+                      sizeof(uint32_t);
+    if (field_word != 0u) {
         word = _builder.createBinOp(
             spv::Op::OpIAdd, uint_type, word,
-            _builder.makeUintConstant(2u));
+            _builder.makeUintConstant(
+                static_cast<uint32_t>(field_word)));
     }
     auto load_word = [&](spv::Id index) noexcept {
         auto ptr = _create_access_chain(
@@ -2919,7 +2959,9 @@ spv::Id SpirvCodegenEntry::_add_direct_buffer_bias(
                             _builder.makeUintType(64) :
                             _builder.makeUintType(32);
     byte_offset = _ensure_type(byte_offset, address_type);
-    auto bias = _load_direct_buffer_metadata(buffer, false, address_type);
+    auto bias = _load_direct_buffer_metadata(
+        buffer, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
+        address_type);
     return _builder.createBinOp(
         spv::Op::OpIAdd, address_type, byte_offset, bias);
 }
@@ -2936,7 +2978,8 @@ spv::Id SpirvCodegenEntry::_add_bindless_buffer_bias(
                             _builder.makeUintType(32);
     byte_offset = _ensure_type(byte_offset, address_type);
     auto bias = _load_bindless_buffer_metadata(
-        bindless_array, slot_index, false, address_type);
+        bindless_array, slot_index,
+        StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES, address_type);
     return _builder.createBinOp(
         spv::Op::OpIAdd, address_type, byte_offset, bias);
 }
@@ -3143,7 +3186,8 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
                                     _builder.makeUintType(64) :
                                     _builder.makeUintType(32);
             auto bias = _load_direct_buffer_metadata(
-                buffer, false, address_type);
+                buffer, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
+                address_type);
             auto element_bias = _builder.createBinOp(
                 spv::Op::OpUDiv, address_type, bias,
                 _builder.getScalarTypeWidth(address_type) == 64u ?
@@ -3442,7 +3486,8 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
                                     _builder.makeUintType(64) :
                                     _builder.makeUintType(32);
             auto bias = _load_direct_buffer_metadata(
-                buffer, false, address_type);
+                buffer, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
+                address_type);
             auto element_bias = _builder.createBinOp(
                 spv::Op::OpUDiv, address_type, bias,
                 _builder.getScalarTypeWidth(address_type) == 64u ?

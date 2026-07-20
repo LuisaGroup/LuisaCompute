@@ -20,6 +20,10 @@ using namespace luisa::compute;
 // buffers carry their nonzero logical element stride.
 struct SavedArgument {
     static constexpr uint invalid_buffer_metadata_index = ~0u;
+    static constexpr uint buffer_metadata_index_mask = 0x7fffffffu;
+    static constexpr uint native_buffer_device_address =
+        spirv::kernel_argument_role::buffer_device_address;
+    static constexpr uint native_buffer_role_flag = 0x80000000u;
     static constexpr uint unspecified_native_resource_roles = ~0u;
     static constexpr uint native_accel_role_traversal =
         spirv::kernel_argument_role::accel_traversal;
@@ -27,15 +31,17 @@ struct SavedArgument {
         spirv::kernel_argument_role::accel_instance;
     static constexpr uint native_accel_role_known_mask =
         spirv::kernel_argument_role::accel_known_mask;
+    static constexpr uint native_bindless_role_known_mask =
+        spirv::kernel_argument_role::bindless_known_mask;
     Type::Tag tag{};
     Usage var_usage{};
     uint struct_size{};
     // The argument tag is the discriminator for this stable 32-bit ABI word:
-    // BUFFER stores its dense metadata index; native ACCEL stores the exact
-    // descriptor-role bitmask above. All other arguments and legacy accel
-    // artifacts keep the all-ones unspecified sentinel. Keep one canonical
-    // scalar instead of a union so hashing/serialization never reads an
-    // inactive member.
+    // BUFFER stores its dense metadata index plus the native role flag;
+    // native ACCEL and BINDLESS_ARRAY arguments store their exact role masks.
+    // All other arguments and legacy resource artifacts keep the all-ones
+    // unspecified sentinel. Keep one canonical scalar instead of a union so
+    // hashing/serialization never reads an inactive member.
     uint resource_aux{invalid_buffer_metadata_index};
     SavedArgument() = default;
     SavedArgument(Function kernel, Variable const &var)
@@ -48,15 +54,40 @@ struct SavedArgument {
     }
     explicit SavedArgument(Type const *type);
     void set_buffer_metadata_index(uint index) noexcept {
-        resource_aux = index;
+        if (index == invalid_buffer_metadata_index) {
+            resource_aux = invalid_buffer_metadata_index;
+        } else {
+            auto role = resource_aux == invalid_buffer_metadata_index ?
+                            0u :
+                            resource_aux & native_buffer_role_flag;
+            resource_aux = role | index;
+        }
     }
     [[nodiscard]] uint buffer_metadata_index() const noexcept {
-        return resource_aux;
+        return resource_aux & buffer_metadata_index_mask;
+    }
+    void set_native_buffer_roles(uint roles) noexcept {
+        if (resource_aux == invalid_buffer_metadata_index) { return; }
+        resource_aux =
+            (resource_aux & buffer_metadata_index_mask) |
+            ((roles & native_buffer_device_address) != 0u ?
+                 native_buffer_role_flag :
+                 0u);
+    }
+    [[nodiscard]] bool native_buffer_uses_device_address() const noexcept {
+        return tag == Type::Tag::BUFFER && has_buffer_metadata() &&
+               (resource_aux & native_buffer_role_flag) != 0u;
     }
     void set_native_accel_roles(uint roles) noexcept {
         resource_aux = roles;
     }
     [[nodiscard]] uint native_accel_roles() const noexcept {
+        return resource_aux;
+    }
+    void set_native_bindless_roles(uint roles) noexcept {
+        resource_aux = roles;
+    }
+    [[nodiscard]] uint native_bindless_roles() const noexcept {
         return resource_aux;
     }
     [[nodiscard]] bool has_buffer_metadata() const noexcept {
@@ -67,6 +98,14 @@ struct SavedArgument {
         return tag == Type::Tag::ACCEL &&
                resource_aux !=
                    unspecified_native_resource_roles;
+    }
+    [[nodiscard]] bool has_explicit_native_bindless_roles() const noexcept {
+        return tag == Type::Tag::BINDLESS_ARRAY &&
+               resource_aux != unspecified_native_resource_roles;
+    }
+    [[nodiscard]] bool native_bindless_uses_device_address() const noexcept {
+        return has_explicit_native_bindless_roles() &&
+               (resource_aux & native_buffer_device_address) != 0u;
     }
     [[nodiscard]] bool native_accel_uses_traversal() const noexcept {
         return has_explicit_native_accel_roles() &&
@@ -159,6 +198,14 @@ struct SavedArgumentContract {
             if (argument.has_explicit_native_accel_roles() &&
                 (argument.native_accel_roles() &
                  ~SavedArgument::native_accel_role_known_mask) != 0u) {
+                contract.status =
+                    SavedArgumentContractStatus::INVALID_RESOURCE_ROLES;
+                return contract;
+            }
+        } else if (argument.tag == Type::Tag::BINDLESS_ARRAY) {
+            if (argument.has_explicit_native_bindless_roles() &&
+                (argument.native_bindless_roles() &
+                 ~SavedArgument::native_bindless_role_known_mask) != 0u) {
                 contract.status =
                     SavedArgumentContractStatus::INVALID_RESOURCE_ROLES;
                 return contract;

@@ -5304,6 +5304,96 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_buffer_device_address_uses_exact_view_metadata"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_buffer_device_address"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        if (dc.device.query("buffer_device_address") != "true" ||
+            dc.device.query("shader_int64") != "true") {
+            expect(true)
+                << "Vulkan device does not expose bufferDeviceAddress with "
+                   "shaderInt64; "
+                   "runtime coverage is skipped while structural validation "
+                   "remains active";
+            return;
+        }
+        constexpr auto element_count = 16u;
+        constexpr auto view_offset = 5u;
+        constexpr auto view_count = 7u;
+        auto values = dc.device.create_buffer<uint32_t>(element_count);
+        auto output = dc.device.create_buffer<uint64_t>(3u);
+        auto heap = dc.device.create_bindless_array(1u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferUInt whole,
+                             BufferUInt view,
+                             BindlessVar bindless,
+                             BufferVar<uint64_t> out) noexcept {
+            out.write(0u, whole.device_address());
+            out.write(1u, view.device_address());
+            out.write(
+                2u,
+                bindless.buffer<uint32_t>(0u).device_address());
+        };
+        auto normalized_xir_path = std::filesystem::path{luisa::format(
+            "kernel.{:016x}.norm.xir",
+            kernel.function()->function().hash())};
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        heap.emplace_on_update(
+            0u, values.view(view_offset, view_count));
+        std::array<uint64_t, 3u> result{};
+        stream << heap.update()
+               << shader(values,
+                         values.view(view_offset, view_count),
+                         heap, output)
+                      .dispatch(1u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+
+        expect(result[0] != 0u)
+            << "an address-capable Vulkan buffer returned the reserved null address";
+        expect(result[1] - result[0] ==
+               static_cast<uint64_t>(
+                   view_offset * sizeof(uint32_t)))
+            << "direct buffer-view address did not include its logical byte offset";
+        expect(result[2] == result[1])
+            << "bindless and direct metadata disagreed on the same buffer view address";
+
+        expect(std::filesystem::exists(normalized_xir_path))
+            << "device-address regression must retain the normalized XIR handoff";
+        if (std::filesystem::exists(normalized_xir_path)) {
+            auto normalized_xir = read_text_file(normalized_xir_path);
+            expect(normalized_xir.find("buffer_device_address") !=
+                   std::string::npos)
+                << "the opt-disabled handoff lost direct buffer-address queries";
+            expect(normalized_xir.find("bindless_buffer_device_address") !=
+                   std::string::npos)
+                << "the opt-disabled handoff lost the bindless buffer-address query";
+        }
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "device-address regression should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(disassembly.find("Capability PhysicalStorageBufferAddresses") ==
+                   std::string::npos)
+                << "returning an opaque address must not claim physical-pointer dereference";
+            expect(disassembly.find("MemoryModel PhysicalStorageBuffer64") ==
+                   std::string::npos)
+                << "metadata-only address queries must retain Vulkan's logical addressing model";
+        }
+    };
+
     "vk_user_compute_nested_if_loop_exit_preserves_outer_merge"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;

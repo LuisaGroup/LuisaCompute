@@ -124,7 +124,8 @@ int main(int argc, char *argv[]) {
         };
         constexpr std::array buffer_queries{
             ResourceQueryOp::BINDLESS_BUFFER_SIZE,
-            ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE};
+            ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE,
+            ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS};
         constexpr std::array texture_2d_queries{
             ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE,
             ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL,
@@ -267,6 +268,60 @@ int main(int argc, char *argv[]) {
         expect(metadata != nullptr &&
                metadata->space_index == 0u &&
                metadata->register_index == 2u);
+
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        expect(tools.Validate(
+            result.spv_bin.data(), result.spv_bin.size()));
+    };
+
+    "spirv_bindless_device_address_uses_metadata_without_buffer_heap"_test = [] {
+        Kernel1D ast_kernel = [](BindlessVar) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+
+        Module module;
+        auto *xir_kernel = module.create_kernel();
+        xir_kernel->set_block_size(ast_function.block_size());
+        auto *bindless = xir_kernel->create_resource_argument(
+            Type::from("bindless_array"));
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(xir_kernel->create_body_block());
+        static_cast<void>(builder.call(
+            Type::of<uint64_t>(),
+            ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS,
+            {bindless, zero}));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        constexpr auto required =
+            lc::spirv::target_feature::buffer_device_address |
+            lc::spirv::target_feature::shader_int64;
+        auto result = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_function, &module,
+            ShaderOption{.enable_cache = false},
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(required));
+
+        expect(!result.useBufferBindless)
+            << "address metadata does not require the unbounded buffer heap";
+        expect(eq(result.required_target_features, required));
+        constexpr auto unbounded =
+            std::numeric_limits<uint32_t>::max();
+        auto properties = luisa::span{
+            result.properties.data(), result.properties.size()};
+        expect(eq(count_properties(
+                      properties,
+                      lc::spirv::ShaderVariableType::SRVBufferHeap,
+                      unbounded),
+                  0u));
+        expect(eq(count_properties(
+                      properties,
+                      lc::spirv::ShaderVariableType::SPIRVBindlessBufferMetadata,
+                      1u),
+                  1u));
 
         spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
         expect(tools.Validate(

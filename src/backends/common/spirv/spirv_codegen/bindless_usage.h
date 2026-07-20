@@ -5,8 +5,9 @@
 namespace lc::spirv {
 
 struct SpirvBindlessResourceUsage {
-    // Buffer size queries consume only the per-array local metadata buffer.
-    // Actual reads/writes additionally consume the global unbounded heap.
+    // Buffer size/address queries consume only the per-array local metadata
+    // buffer. Actual reads/writes additionally consume the global unbounded
+    // heap.
     bool buffer_heap{false};
     bool buffer_metadata{false};
     bool texture_2d{false};

@@ -382,6 +382,17 @@ public:
             {_array, _index, stride.expression()}));
     }
 
+    /// Device address of the first byte in the bound logical buffer view.
+    [[nodiscard]] auto device_address() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint64_t>(f->call(
+            Type::of<uint64_t>(),
+            _is_uniform ?
+                CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                CallOp::BINDLESS_BUFFER_ADDRESS,
+            {_array, _index}));
+    }
+
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
@@ -422,6 +433,17 @@ public:
                      CallOp::UNIFORM_BINDLESS_BUFFER_SIZE :
                      CallOp::BINDLESS_BUFFER_SIZE),
             {_array, _index, byte_stride.expression()}));
+    }
+
+    /// Device address of the first byte in the bound logical byte-buffer view.
+    [[nodiscard]] auto device_address() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint64_t>(f->call(
+            Type::of<uint64_t>(),
+            _is_uniform ?
+                CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                CallOp::BINDLESS_BUFFER_ADDRESS,
+            {_array, _index}));
     }
 
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>

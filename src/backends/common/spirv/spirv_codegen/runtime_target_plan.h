@@ -24,6 +24,7 @@ struct SpirvRuntimeTargetPlan {
     bool uses_semantic_ray_query{false};
     bool uses_subgroup_extended_types{false};
     bool uses_shader_device_clock{false};
+    bool uses_buffer_device_address{false};
     SpirvTargetFeatureMask required_features{};
 };
 

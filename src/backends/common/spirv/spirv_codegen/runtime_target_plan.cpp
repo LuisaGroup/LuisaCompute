@@ -65,6 +65,8 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
     const xir::Instruction *subgroup_instruction = nullptr;
     const xir::Function *clock_function = nullptr;
     const xir::Instruction *clock_instruction = nullptr;
+    const xir::Function *device_address_function = nullptr;
+    const xir::Instruction *device_address_instruction = nullptr;
     for (auto *function : functions) {
         if (function == nullptr || !function->is_definition()) { continue; }
         traverse_spirv_codegen_structural_instructions(
@@ -111,6 +113,18 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
                     clock_function = function;
                     clock_instruction = instruction;
                 }
+                if (!result.plan.uses_buffer_device_address &&
+                    instruction->isa<xir::ResourceQueryInst>()) {
+                    auto op = static_cast<const xir::ResourceQueryInst *>(
+                                  instruction)
+                                  ->op();
+                    if (op == xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS ||
+                        op == xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS) {
+                        result.plan.uses_buffer_device_address = true;
+                        device_address_function = function;
+                        device_address_instruction = instruction;
+                    }
+                }
             });
     }
 
@@ -143,6 +157,11 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
         result.plan.required_features |=
             target_feature::shader_device_clock;
     }
+    if (result.plan.uses_buffer_device_address) {
+        result.plan.required_features |=
+            target_feature::buffer_device_address |
+            target_feature::shader_int64;
+    }
 
     result.missing_features =
         result.plan.required_features & ~features.enabled_mask();
@@ -153,15 +172,21 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
             feature.bit == target_feature::subgroup_extended_types;
         auto shader_clock =
             feature.bit == target_feature::shader_device_clock;
+        auto device_address =
+            feature.bit == target_feature::buffer_device_address ||
+            (feature.bit == target_feature::shader_int64 &&
+             result.plan.uses_buffer_device_address);
         result.diagnostics.emplace_back(
             SpirvRuntimeTargetDiagnostic{
                 .function = semantic_ray      ? ray_function :
                             subgroup_extended ? subgroup_function :
                             shader_clock      ? clock_function :
+                            device_address    ? device_address_function :
                                                 nullptr,
                 .instruction = semantic_ray      ? ray_instruction :
                                subgroup_extended ? subgroup_instruction :
                                shader_clock      ? clock_instruction :
+                               device_address    ? device_address_instruction :
                                                    nullptr,
                 .feature = feature.bit,
                 .message = luisa::format(

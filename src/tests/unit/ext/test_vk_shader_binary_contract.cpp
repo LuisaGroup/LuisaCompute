@@ -460,7 +460,7 @@ int main(int argc, char *argv[]) {
         auto header = make_compute_semantic_header();
         expect(valid_shader_semantic_header(header));
         expect(header.semantic_header_md5.to_string(false) ==
-               "34d6c1a52d050414ee5345e034e05dc6"sv)
+               "3fbd5542f264277e7e8267ca3df494fa"sv)
             << "the compute semantic header must retain its canonical "
                "little-endian field order";
         expect(eq(shader_semantic_header_byte_size, 200u));
@@ -512,7 +512,7 @@ int main(int argc, char *argv[]) {
         auto header = make_raster_semantic_header();
         expect(valid_raster_semantic_header(header));
         expect(header.semantic_header_md5.to_string(false) ==
-               "ae46099ea69866e7a1ffe2b41818302e"sv)
+               "c8de5e3ce0d230f117d768ae487cd6da"sv)
             << "the raster semantic header must retain its canonical "
                "little-endian field order";
         expect(eq(raster_semantic_header_byte_size, 184u));

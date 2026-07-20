@@ -198,4 +198,38 @@ int main(int argc, char *argv[]) {
         expect(eq(supported.plan.required_features,
                   lc::spirv::target_feature::shader_device_clock));
     };
+
+    "spirv_runtime_plan_preflights_buffer_device_address"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *address = builder.call(
+            Type::of<uint64_t>(),
+            ResourceQueryOp::BUFFER_DEVICE_ADDRESS, {buffer});
+        builder.return_void();
+
+        constexpr auto required =
+            lc::spirv::target_feature::buffer_device_address |
+            lc::spirv::target_feature::shader_int64;
+        auto missing = plan_one(kernel, {});
+        expect(!missing.succeeded());
+        expect(missing.plan.uses_buffer_device_address);
+        expect(eq(missing.plan.required_features, required));
+        expect(eq(missing.missing_features, required));
+        expect(eq(missing.diagnostics.size(), 2u));
+        for (auto &&diagnostic : missing.diagnostics) {
+            expect(diagnostic.function == kernel);
+            expect(diagnostic.instruction == address);
+        }
+
+        auto supported = plan_one(
+            kernel, {},
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(required));
+        expect(supported.succeeded());
+        expect(supported.plan.uses_buffer_device_address);
+        expect(eq(supported.plan.required_features, required));
+    };
 }

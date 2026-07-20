@@ -14,21 +14,27 @@ void vma_defragment(Device *device);
 class Buffer : public Resource {
     size_t _byte_size;
     size_t _addressable_byte_size;
+    bool _device_address_capable;
 
 public:
     Buffer(Device *device, size_t byte_size,
-           size_t addressable_byte_size = 0u)
+           size_t addressable_byte_size = 0u,
+           bool device_address_capable = false)
         : Resource{device},
           _byte_size{byte_size},
           _addressable_byte_size{addressable_byte_size == 0u ?
                                      byte_size :
-                                     addressable_byte_size} {}
+                                     addressable_byte_size},
+          _device_address_capable{device_address_capable} {}
     Buffer(Buffer &&) = default;
     // `byte_size` is the API-visible logical size. `addressable_byte_size`
     // is the physical range that may legally appear in a Vulkan descriptor.
     // They differ for owned buffers with a padded final storage word.
     auto byte_size() const { return _byte_size; }
     auto addressable_byte_size() const { return _addressable_byte_size; }
+    [[nodiscard]] bool device_address_capable() const noexcept {
+        return _device_address_capable;
+    }
     virtual ~Buffer() = default;
     virtual VkBuffer vk_buffer() const = 0;
     Tag tag() const override { return Tag::kBuffer; }
@@ -63,7 +69,8 @@ struct StorageBufferDescriptorRange {
 // made of whole elements. Pass zero for byte-addressed/word-backed views.
 [[nodiscard]] StorageBufferDescriptorRange storage_buffer_descriptor_range(
     const Buffer *buffer, size_t view_offset, size_t view_size,
-    size_t logical_element_stride = 0u);
+    size_t logical_element_stride = 0u,
+    bool include_device_address = false);
 
 class ExternalBuffer : public Buffer {
     VkBuffer _buffer{};

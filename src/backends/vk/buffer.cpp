@@ -22,7 +22,7 @@ namespace {
 
 StorageBufferDescriptorRange storage_buffer_descriptor_range(
     const Buffer *buffer, size_t view_offset, size_t view_size,
-    size_t logical_element_stride) {
+    size_t logical_element_stride, bool include_device_address) {
     LUISA_ASSERT(buffer != nullptr, "Vulkan buffer argument is null.");
     LUISA_ASSERT(view_size > 0u,
                  "Vulkan does not permit an empty storage-buffer descriptor.");
@@ -95,12 +95,30 @@ StorageBufferDescriptorRange storage_buffer_descriptor_range(
                  descriptor_range,
                  buffer->device()->properties().limits.maxStorageBufferRange,
                  descriptor_offset, view_offset, logical_end);
+    auto device_address = uint64_t{};
+    if (include_device_address) {
+        LUISA_ASSERT(
+            buffer->device_address_capable(),
+            "Vulkan buffer device-address query requires a backend-owned "
+            "buffer created with VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; "
+            "external buffer imports do not currently carry that attestation.");
+        auto base_address = buffer->get_device_address();
+        LUISA_ASSERT(
+            base_address != 0u &&
+                view_offset <=
+                    std::numeric_limits<uint64_t>::max() - base_address,
+            "Vulkan returned an invalid device address {} for buffer view "
+            "offset {}.",
+            base_address, view_offset);
+        device_address = base_address + view_offset;
+    }
     return StorageBufferDescriptorRange{
         descriptor_offset,
         descriptor_range,
         StorageBufferMetadata{
             descriptor_bias,
-            static_cast<uint64_t>(view_size)}};
+            static_cast<uint64_t>(view_size),
+            device_address}};
 }
 
 void vma_defragment(Device *device) {
@@ -251,7 +269,8 @@ DefaultBuffer::DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory 
 }
 
 DefaultBuffer::DefaultBuffer(Device *device, size_t size_bytes, bool used_as_accel, VkBufferUsageFlagBits extra_bit)
-    : Buffer{device, size_bytes, word_addressable_size(size_bytes)} {
+    : Buffer{device, size_bytes, word_addressable_size(size_bytes),
+             device->enable_device_address()} {
     auto res = device->allocator()
                    .allocate_buffer(
                        addressable_byte_size(),
@@ -283,6 +302,10 @@ DefaultBuffer::~DefaultBuffer() {
     }
 }
 uint64_t Buffer::get_device_address() const {
+    LUISA_ASSERT(
+        device_address_capable(),
+        "Vulkan device address was requested for a buffer whose creation "
+        "contract does not include shader device addresses.");
     VkBufferDeviceAddressInfoKHR buffer_device_address_info{};
     buffer_device_address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     buffer_device_address_info.buffer = vk_buffer();
@@ -299,7 +322,8 @@ DefaultBuffer::DefaultBuffer(DefaultBuffer &&rhs) noexcept
     rhs._buffer = nullptr;
 }
 SparseBuffer::SparseBuffer(Device *device, size_t size_bytes, bool used_as_accel, VkBufferUsageFlagBits extra_bit)
-    : Buffer(device, size_bytes, word_addressable_size(size_bytes)) {
+    : Buffer(device, size_bytes, word_addressable_size(size_bytes),
+             device->enable_device_address()) {
     auto enabled = device->enabled_features();
     auto sparse_features = detail::validate_sparse_buffer_features({.sparse_binding = enabled.sparseBinding == VK_TRUE,
                                                                     .sparse_residency_buffer =
