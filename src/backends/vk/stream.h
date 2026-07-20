@@ -14,6 +14,7 @@
 #include "../common/command_reorder_visitor.h"
 #include "shader.h"
 #include "resource_barrier.h"
+#include "command_buffer_ownership.h"
 
 namespace lc::vk {
 class Event;
@@ -91,6 +92,8 @@ class CommandBuffer : public Resource {
     Stream &_stream;
     VkCommandBuffer _cmdbuffer;
     vstd::unique_ptr<CommandBufferState> _state;
+    detail::CommandBufferOwnership _ownership{
+        detail::CommandBufferOwnership::BACKEND};
 
 public:
     luisa::function<void(luisa::string_view)> *logger{};
@@ -108,17 +111,29 @@ public:
     CommandBuffer(CommandBuffer &&) noexcept;
     ~CommandBuffer();
     [[nodiscard]] auto cmdbuffer() const { return _cmdbuffer; }
-    void reset();
+    [[nodiscard]] bool retire_and_recycle();
     void begin();
     void end();
     auto states() const { return _state.get(); }
     void execute(vstd::span<const luisa::unique_ptr<Command>> cmds);
 };
 struct ReorderFuncTable {
-    bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept;
+    [[nodiscard]] uint64_t canonical_buffer_handle(
+        uint64_t handle) const noexcept;
+    [[nodiscard]] uint64_t canonical_texture_handle(
+        uint64_t handle) const noexcept;
+    void traverse_bindless_resources(
+        uint64_t bindless_handle,
+        ReorderBindlessResourceVisitor visitor) const noexcept;
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {
         auto cs = reinterpret_cast<Shader *>(shader_handle);
-        return cs->saved_arguments()[argument_index].var_usage;
+        auto arguments = cs->saved_arguments();
+        LUISA_ASSERT(
+            argument_index < arguments.size(),
+            "Vulkan command reordering requested shader argument {} from "
+            "a saved table containing only {} entries.",
+            argument_index, arguments.size());
+        return arguments[argument_index].var_usage;
     }
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept;
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::BufferModification> modifications) const noexcept;
@@ -128,8 +143,10 @@ struct ReorderFuncTable {
         auto cs = reinterpret_cast<Shader *>(handle);
         return cs->captured();
     }
-    void lock_bindless(uint64_t bindless_handle) const noexcept;
-    void unlock_bindless(uint64_t bindless_handle) const noexcept;
+    luisa::span<const Argument> raster_shader_bindings(uint64_t handle) const noexcept {
+        auto shader = reinterpret_cast<Shader *>(handle);
+        return shader->captured();
+    }
 };
 
 class Stream : public Resource {
@@ -191,6 +208,8 @@ public:
     void signal(Event *event, uint64_t value);
     void wait(Event *event, uint64_t value);
 private:
+    [[nodiscard]] bool _execute_external_command_buffer(
+        VkCommandBuffer command_buffer) noexcept;
     std::thread _thd;
 };
 

@@ -868,10 +868,17 @@ struct TransformAdScope {
         changed_count++;
     }
 
+    // `merge` tracks the current structured subregion. `region_merge` remains
+    // fixed so a raw early-exit branch cannot escape the autodiff scope while
+    // the fixed-point loop scan descends through nested control flow.
     void collect_first_level_loops(BasicBlock *block, BasicBlock *merge,
+                                   BasicBlock *region_merge,
                                    luisa::unordered_set<BasicBlock *> &visited,
                                    luisa::vector<LoopInst *> &loops) noexcept {
-        if (block == nullptr || block == merge || !visited.emplace(block).second) { return; }
+        if (block == nullptr || block == merge || block == region_merge ||
+            !visited.emplace(block).second) {
+            return;
+        }
         auto term = block->terminator();
         if (term == nullptr) { return; }
         if (auto loop = term->isa<LoopInst>() ? static_cast<LoopInst *>(term) : nullptr) {
@@ -884,27 +891,33 @@ struct TransformAdScope {
             // Match collect_forward: a null local merge means both arms are
             // bounded by the enclosing structured region.
             auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
-            collect_first_level_loops(if_inst->true_block(), branch_merge, visited, loops);
-            collect_first_level_loops(if_inst->false_block(), branch_merge, visited, loops);
+            collect_first_level_loops(if_inst->true_block(), branch_merge,
+                                      region_merge, visited, loops);
+            collect_first_level_loops(if_inst->false_block(), branch_merge,
+                                      region_merge, visited, loops);
             if (structured_merge != nullptr) {
-                collect_first_level_loops(structured_merge, merge, visited, loops);
+                collect_first_level_loops(structured_merge, merge,
+                                          region_merge, visited, loops);
             }
             return;
         }
         if (auto switch_inst = term->isa<SwitchInst>() ? static_cast<SwitchInst *>(term) : nullptr) {
             auto *structured_merge = switch_inst->merge_block();
             auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
-            collect_first_level_loops(switch_inst->default_block(), branch_merge, visited, loops);
+            collect_first_level_loops(switch_inst->default_block(), branch_merge,
+                                      region_merge, visited, loops);
             for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                collect_first_level_loops(switch_inst->case_block(i), branch_merge, visited, loops);
+                collect_first_level_loops(switch_inst->case_block(i), branch_merge,
+                                          region_merge, visited, loops);
             }
             if (structured_merge != nullptr) {
-                collect_first_level_loops(structured_merge, merge, visited, loops);
+                collect_first_level_loops(structured_merge, merge,
+                                          region_merge, visited, loops);
             }
             return;
         }
         block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
-            collect_first_level_loops(succ, merge, visited, loops);
+            collect_first_level_loops(succ, merge, region_merge, visited, loops);
         });
     }
 
@@ -912,7 +925,7 @@ struct TransformAdScope {
         for (;;) {
             luisa::vector<LoopInst *> loops;
             luisa::unordered_set<BasicBlock *> visited;
-            collect_first_level_loops(entry, merge, visited, loops);
+            collect_first_level_loops(entry, merge, merge, visited, loops);
             if (loops.empty()) { break; }
             for (auto loop : loops) {
                 auto trip = analyze_simple_counted_loop(loop);
@@ -929,10 +942,20 @@ struct TransformAdScope {
         if (!unrolled_early_exit_loop) { return; }
         [[maybe_unused]] auto lower_switch_info = lower_switch_pass_run_on_function(function);
         [[maybe_unused]] auto destructure_info = destructure_cfg_pass_run_on_function(function);
+        // Generic CFG cleanup belongs to the raw/destructured interval. Once
+        // structure is rebuilt, Loop.prepare branches carry structural roles
+        // that generic DCE must not reinterpret.
         [[maybe_unused]] auto simplify_info = simplify_cfg_pass_run_on_function(function);
-        [[maybe_unused]] auto reg2mem_pre_info = reg2mem_pass_run_on_function(function);
-        [[maybe_unused]] auto restructure_info = restructure_cfg_pass_run_on_function(function);
         [[maybe_unused]] auto dce_info = dce_pass_run_on_function(function);
+        [[maybe_unused]] auto reg2mem_pre_info = reg2mem_pass_run_on_function(function);
+        auto restructure_info = restructure_cfg_pass_run_on_function(function);
+        LUISA_ASSERT(
+            restructure_info.succeeded(),
+            "Autodiff CFG normalization failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+            restructure_info.irreducible_region_count,
+            restructure_info.unstructured_branch_count,
+            restructure_info.invalid_construct_count,
+            restructure_info.iteration_limit_count);
         [[maybe_unused]] auto reg2mem_post_info = reg2mem_pass_run_on_function(function);
         changed_count++;
         unrolled_early_exit_loop = false;
@@ -1301,7 +1324,7 @@ struct TransformAdScope {
             return collect_forward(structured_merge, merge, visited, emit_instructions);
         }
         if (auto loop_inst = block->terminator(); loop_inst != nullptr &&
-                                                (loop_inst->isa<LoopInst>() || loop_inst->isa<SimpleLoopInst>())) {
+                                                  (loop_inst->isa<LoopInst>() || loop_inst->isa<SimpleLoopInst>())) {
             reject_loop_autodiff();
         }
         if (block->terminator() != nullptr) {
@@ -2068,6 +2091,11 @@ struct TransformAdScope {
             b.set_insertion_point(parent);
             b.br(entry);
         }
+        // Dominance-based primal snapshot repair can only see the generated
+        // backward blocks after both physical CFG edges above are installed.
+        auto repair_info =
+            reg2mem_pass_repair_cross_block_rvalue_uses_on_function(function);
+        changed_count += repair_info.lowered_cross_block_value_count;
         return changed_count + 1u;
     }
 };

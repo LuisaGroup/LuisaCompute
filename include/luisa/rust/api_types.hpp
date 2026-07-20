@@ -434,6 +434,7 @@ struct BindlessArrayUpdateBuffer {
     BindlessArrayUpdateOperation op;
     Buffer handle;
     size_t offset;
+    size_t size;
 };
 
 struct BindlessArrayUpdateTexture {

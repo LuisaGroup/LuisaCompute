@@ -5,6 +5,7 @@
 #include "ut/ut.hpp"
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/autodiff.h>
@@ -1752,7 +1753,7 @@ void reg_dce() {
         expect(second.removed_block_count == 0u);
     };
 
-    "dce_exec_reachability_preserves_structured_cfg"_test = [] {
+    "dce_exec_reachability_retains_structural_shell_blocks"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -1807,6 +1808,11 @@ void reg_dce() {
         expect(result_loop->body_block() == loop_body);
         expect(result_loop->update_block() == update);
         expect(result_loop->merge_block() == loop_merge);
+        // Generic DCE intentionally folds the constant-true prepare into the
+        // canonical unconditional form. It also clears the inactive merge
+        // payload below, which is why the SPIR-V post-restructure boundary uses
+        // targeted inactive-role cleanup instead of generic DCE.
+        expect(prepare->terminator()->isa<BranchInst>());
         expect(loop_merge->parent_function() == k);
         expect(loop_merge->terminator()->isa<UnreachableInst>());
     };
@@ -1911,7 +1917,7 @@ void reg_dce() {
         expect(merge->terminator()->isa<UnreachableInst>());
     };
 
-    "dce_does_not_truncate_int64_switch_condition"_test = [] {
+    "dce_evaluates_int64_switch_condition_without_truncation"_test = [] {
         Module m;
         auto *k = m.create_kernel();
         auto *entry = k->create_body_block();
@@ -1930,14 +1936,14 @@ void reg_dce() {
         b.set_insertion_point(merge);
         b.return_void();
         auto info = dce_pass_run_on_function(k);
-        expect(info.removed_block_count == 0u);
+        expect(info.removed_inst_count > 0u);
         expect(entry->terminator() == switch_inst);
         expect(switch_inst->value() == selector);
         expect(switch_inst->value()->type() == Type::of<int64_t>());
         expect(static_cast<Constant *>(switch_inst->value())->as<int64_t>() == selector_value);
         expect(switch_inst->case_block(0u) == case_block);
         expect(switch_inst->default_block() == default_block);
-        expect(case_block->terminator()->isa<BranchInst>());
+        expect(case_block->terminator()->isa<UnreachableInst>());
         expect(default_block->terminator()->isa<BranchInst>());
     };
 
@@ -1963,14 +1969,21 @@ void reg_dce() {
 
         (void)dce_pass_run_on_function(k);
         expect(loop->prepare_block() == prepare);
-        expect(prepare->terminator()->isa<BranchInst>());
-        expect(static_cast<BranchInst *>(prepare->terminator())->target_block() == merge);
+        expect(prepare->terminator()->isa<ConditionalBranchInst>());
+        if (prepare->terminator()->isa<ConditionalBranchInst>()) {
+            auto *branch = static_cast<ConditionalBranchInst *>(prepare->terminator());
+            expect(branch->condition()->isa<Constant>());
+            expect(!static_cast<Constant *>(branch->condition())->as<bool>());
+            expect(branch->true_block() == loop_body);
+            expect(branch->false_block() == merge);
+        }
         expect(loop->body_block() == loop_body);
         expect(loop_body->terminator()->isa<UnreachableInst>());
         expect(loop->update_block() == update);
         expect(update->terminator()->isa<UnreachableInst>());
         expect(loop->merge_block() == merge);
-        expect(count_reachable_blocks(k) == 3u);
+        expect(count_reachable_blocks(k) == 4u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "dce_preserves_unreachable_if_merge_shell"_test = [] {
@@ -3482,6 +3495,10 @@ void reg_reg2mem() {
         b.return_(final_add);
         auto info = reg2mem_pass_run_on_function(k);
         expect(info.lowered_phi_count == 1u);
+        auto audit = audit_reg2mem_spills_on_function(k);
+        expect(audit.remaining_phi_spill_count == 1u);
+        expect(audit.remaining_cross_block_spill_count == 0u);
+        expect(!audit.succeeded());
         expect(phi_locked->use_list().empty());
         expect(count_reachable_insts(k, DerivedInstructionTag::PHI) == 0u);
         expect(count_reachable_insts(k, DerivedInstructionTag::ALLOCA) == 1u);
@@ -3489,6 +3506,142 @@ void reg_reg2mem() {
         expect(count_reachable_insts(k, DerivedInstructionTag::LOAD) == 1u);
         expect(final_add->operand(0)->isa<LoadInst>());
         expect(final_add->operand(1) == one);
+        for (auto instruction : body->instructions()) {
+            if (instruction->isa<AllocaInst>()) {
+                auto spill = instruction->find_metadata<Reg2MemSpillMD>();
+                expect(spill != nullptr);
+                if (spill != nullptr) {
+                    expect(spill->kind() == Reg2MemSpillKind::PHI);
+                }
+            }
+        }
+    };
+
+    "reg2mem_marks_cross_block_repair_spill"_test = [] {
+        Module m;
+        auto *k = m.create_callable(Type::of<int>());
+        auto *body = k->create_body_block();
+        auto *true_block = k->create_basic_block();
+        auto *false_block = k->create_basic_block();
+        auto *merge = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(m.create_undefined(Type::of<bool>()), true_block, false_block);
+        auto *one = m.create_constant_one(Type::of<int>());
+        b.set_insertion_point(true_block);
+        auto *value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD,
+                             {one, one});
+        b.br(merge);
+        b.set_insertion_point(false_block);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_(value);
+
+        auto info = reg2mem_pass_run_on_function(k);
+        expect(info.lowered_cross_block_value_count == 1u);
+        auto audit = audit_reg2mem_spills_on_function(k);
+        expect(audit.remaining_phi_spill_count == 0u);
+        expect(audit.remaining_cross_block_spill_count == 1u);
+        expect(!audit.succeeded());
+        auto mem2reg = mem2reg_pass_run_on_function(k);
+        expect(mem2reg.promoted_alloca_count == 1u);
+        expect(audit_reg2mem_spills_on_function(k).succeeded());
+        expect(count_reachable_insts(k, DerivedInstructionTag::PHI) == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "reg2mem_cross_block_rvalue_repair_preserves_phi_edge_uses"_test = [] {
+        Module m;
+        auto *k = m.create_callable(Type::of<int>());
+        auto *body = k->create_body_block();
+        auto *true_block = k->create_basic_block();
+        auto *false_block = k->create_basic_block();
+        auto *merge = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(m.create_undefined(Type::of<bool>()), true_block, false_block);
+        auto *one = m.create_constant_one(Type::of<int>());
+        b.set_insertion_point(true_block);
+        auto *true_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD,
+                                  {one, one});
+        b.br(merge);
+        b.set_insertion_point(false_block);
+        auto *false_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_SUB,
+                                   {one, one});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        auto *phi = b.phi(Type::of<int>(),
+                          {{true_value, true_block},
+                           {false_value, false_block}});
+        b.return_(phi);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info =
+            reg2mem_pass_repair_cross_block_rvalue_uses_on_function(k);
+        expect(info.lowered_phi_count == 0u);
+        expect(info.lowered_cross_block_value_count == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::PHI) == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::ALLOCA) == 0u);
+        expect(audit_reg2mem_spills_on_function(k).succeeded());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "reg2mem_audit_checks_all_owned_blocks_and_accepts_user_allocas"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *orphan = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.alloca_local(Type::of<int>());
+        b.return_void();
+        b.set_insertion_point(orphan);
+        auto *spill = b.alloca_local(Type::of<float>());
+        spill->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::CROSS_BLOCK);
+        b.unreachable_();
+
+        auto audit = audit_reg2mem_spills_on_function(k);
+        expect(audit.remaining_phi_spill_count == 0u);
+        expect(audit.remaining_cross_block_spill_count == 1u);
+        expect(audit.remaining_spill_count() == 1u);
+        expect(!audit.succeeded());
+    };
+
+    "reg2mem_audit_rejects_marker_on_invalid_owner"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *argument = k->create_value_argument(Type::of<int>());
+        auto *constant = m.create_constant_one(Type::of<int>());
+        auto *undefined = m.create_undefined(Type::of<float>());
+        auto *special_register = m.create_thread_id();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *return_inst = b.return_void();
+        static_cast<void>(m.create_metadata<Reg2MemSpillMD>());
+        static_cast<void>(constant->create_metadata<Reg2MemSpillMD>());
+        static_cast<void>(undefined->create_metadata<Reg2MemSpillMD>());
+        static_cast<void>(special_register->create_metadata<Reg2MemSpillMD>());
+        static_cast<void>(k->create_metadata<Reg2MemSpillMD>());
+        static_cast<void>(argument->create_metadata<Reg2MemSpillMD>());
+        static_cast<void>(body->create_metadata<Reg2MemSpillMD>());
+        return_inst->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::PHI);
+
+        auto function_audit = audit_reg2mem_spills_on_function(k);
+        expect(function_audit.remaining_phi_spill_count == 0u);
+        expect(function_audit.remaining_cross_block_spill_count == 0u);
+        expect(function_audit.remaining_invalid_spill_count == 4u);
+        expect(function_audit.remaining_spill_count() == 4u);
+        expect(!function_audit.succeeded());
+
+        auto module_audit = audit_reg2mem_spills_on_module(&m);
+        expect(module_audit.remaining_phi_spill_count == 0u);
+        expect(module_audit.remaining_cross_block_spill_count == 0u);
+        expect(module_audit.remaining_invalid_spill_count == 8u);
+        expect(module_audit.remaining_spill_count() == 8u);
+        expect(!module_audit.succeeded());
     };
 
     "reg2mem_no_phi_no_change"_test = [] {
@@ -3515,6 +3668,8 @@ void reg_sroa() {
         b.set_insertion_point(body);
         auto struct_ty = Type::of<float2>();
         auto *alloca = b.alloca_local(struct_ty);
+        alloca->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::CROSS_BLOCK);
         float data[2] = {1.0f, 2.0f};
         auto *init = m.create_constant(struct_ty, data);
         b.store(alloca, init);
@@ -3524,6 +3679,9 @@ void reg_sroa() {
         expect(info.decomposed_alloca_count == 1u);
         expect(info.inserted_alloca_count == 2u);
         expect(count_reachable_insts(k, DerivedInstructionTag::ALLOCA) == 2u);
+        auto audit = audit_reg2mem_spills_on_function(k);
+        expect(audit.remaining_phi_spill_count == 0u);
+        expect(audit.remaining_cross_block_spill_count == 2u);
         auto *ret = static_cast<ReturnInst *>(body->terminator());
         expect(ret->return_value() != ld);
         expect(ret->return_value()->type() == struct_ty);
@@ -3584,6 +3742,48 @@ void reg_sroa() {
         expect(new_gep->base()->isa<AllocaInst>());
         expect(new_gep->index_count() == 1u);
         expect(new_gep->index(0) == inner_index);
+    };
+
+    "sroa_constant_top_level_indices_accept_all_integer_widths"_test = [] {
+        auto run = [](const Type *index_type, const void *index_data) noexcept {
+            Module m;
+            auto *k = m.create_callable(Type::of<float>());
+            auto *body = k->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *array_type = Type::array(Type::of<float>(), 2u);
+            auto *alloca = b.alloca_local(array_type);
+            auto *index = m.create_constant(index_type, index_data);
+            auto *gep = b.gep(Type::of<float>(), alloca, {index});
+            auto *load = b.load(Type::of<float>(), gep);
+            auto *ret = b.return_(load);
+            expect(xir_verify_module(&m).succeeded());
+
+            auto info = sroa_pass_run_on_function(k);
+            expect(info.decomposed_alloca_count == 1u);
+            expect(info.inserted_alloca_count == 2u);
+            expect(count_reachable_insts(k, DerivedInstructionTag::ALLOCA) == 2u);
+            expect(ret->return_value() == load);
+            expect(load->variable()->isa<AllocaInst>());
+            expect(load->variable() != alloca);
+            expect(xir_verify_module(&m).succeeded());
+        };
+        int8_t i8 = 1;
+        uint8_t u8 = 1u;
+        int16_t i16 = 1;
+        uint16_t u16 = 1u;
+        int32_t i32 = 1;
+        uint32_t u32 = 1u;
+        int64_t i64 = 1;
+        uint64_t u64 = 1u;
+        run(Type::of<int8_t>(), &i8);
+        run(Type::of<uint8_t>(), &u8);
+        run(Type::of<int16_t>(), &i16);
+        run(Type::of<uint16_t>(), &u16);
+        run(Type::of<int32_t>(), &i32);
+        run(Type::of<uint32_t>(), &u32);
+        run(Type::of<int64_t>(), &i64);
+        run(Type::of<uint64_t>(), &u64);
     };
 }
 
@@ -3770,6 +3970,184 @@ void reg_inline() {
         auto info = inline_pass_run_on_module(&m);
         expect(info.inlined_call_count == 0u);
     };
+
+    "inline_selected_call_site_legalizes_derived_lvalue"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(Type::of<int>());
+        auto *ref = callee->create_reference_argument(Type::of<int>());
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.store(ref, m.create_constant_one(Type::of<int>()));
+        b.return_(b.load(Type::of<int>(), ref));
+
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        b.set_insertion_point(caller_body);
+        auto *array_type = Type::array(Type::of<int>(), 2u);
+        auto *local = b.alloca_local(array_type);
+        auto *element = b.gep(Type::of<int>(), local,
+                              {m.create_constant_zero(Type::of<uint>())});
+        auto *call = b.call(Type::of<int>(), callee, {element});
+        auto call_lock = call->lock();
+        b.store(element, call);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        std::array<CallInst *, 1u> selected{call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == 1u);
+        expect(info.removed_callable_count == 1u);
+        expect(call_lock->use_list().empty());
+        expect(count_reachable_insts(caller, DerivedInstructionTag::CALL) ==
+               0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_selected_empty_set_preserves_call"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(Type::of<int>());
+        auto *ref = callee->create_reference_argument(Type::of<int>());
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.return_(b.load(Type::of<int>(), ref));
+
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        b.set_insertion_point(caller_body);
+        auto *local = b.alloca_local(Type::of<int>());
+        auto *call = b.call(Type::of<int>(), callee, {local});
+        b.store(local, call);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span<CallInst *const>{});
+        expect(info.inlined_call_count == 0u);
+        expect(call->is_linked());
+        expect(count_reachable_insts(caller, DerivedInstructionTag::CALL) ==
+               1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_selected_call_site_specializes_storage_buffer"_test = [] {
+        Module m;
+        auto *buffer_type = Type::buffer(Type::of<uint>());
+        auto *callee = m.create_callable(Type::of<void>());
+        auto *callee_buffer = callee->create_resource_argument(buffer_type);
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        auto *index = m.create_constant_zero(Type::of<uint>());
+        auto *read = b.call(
+            Type::of<uint>(), ResourceReadOp::BUFFER_READ,
+            {callee_buffer, index});
+        b.call(ResourceWriteOp::BUFFER_WRITE,
+               {callee_buffer, index, read});
+        b.return_void();
+
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *buffer = caller->create_resource_argument(buffer_type);
+        b.set_insertion_point(caller_body);
+        auto *call = b.call(nullptr, callee, {buffer});
+        auto call_lock = call->lock();
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        std::array<CallInst *, 1u> selected{call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == 1u);
+        expect(info.removed_callable_count == 1u);
+        expect(call_lock->use_list().empty());
+        expect(count_reachable_insts(caller, DerivedInstructionTag::CALL) ==
+               0u);
+        auto specialized_read_count = size_t{0u};
+        auto specialized_write_count = size_t{0u};
+        ResourceReadInst *specialized_read = nullptr;
+        ResourceWriteInst *specialized_write = nullptr;
+        caller->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ResourceReadInst>()) {
+                auto *resource_read = static_cast<ResourceReadInst *>(inst);
+                if (resource_read->op() == ResourceReadOp::BUFFER_READ) {
+                    specialized_read = resource_read;
+                    specialized_read_count++;
+                    expect(resource_read->operand(0u) == buffer)
+                        << "inlined buffer read must use the caller resource";
+                }
+            } else if (inst->isa<ResourceWriteInst>()) {
+                auto *resource_write = static_cast<ResourceWriteInst *>(inst);
+                if (resource_write->op() == ResourceWriteOp::BUFFER_WRITE) {
+                    specialized_write = resource_write;
+                    specialized_write_count++;
+                    expect(resource_write->operand(0u) == buffer)
+                        << "inlined buffer write must use the caller resource";
+                }
+            }
+        });
+        expect(specialized_read_count == 1u);
+        expect(specialized_write_count == 1u);
+        auto preserved_read_to_write = false;
+        if (specialized_read != nullptr) {
+            if (specialized_write != nullptr) {
+                preserved_read_to_write =
+                    specialized_write->operand(2u) == specialized_read;
+            }
+        }
+        expect(preserved_read_to_write)
+            << "specialization must preserve the read-to-write data flow";
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_selected_call_sites_preflight_is_atomic"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *simple = m.create_callable(Type::of<void>());
+        auto *simple_body = simple->create_body_block();
+        b.set_insertion_point(simple_body);
+        b.return_void();
+
+        auto *structured = m.create_callable(Type::of<void>());
+        auto *condition =
+            structured->create_value_argument(Type::of<bool>());
+        auto *structured_body = structured->create_body_block();
+        b.set_insertion_point(structured_body);
+        auto *if_inst = b.if_(condition);
+        auto *true_block = if_inst->create_true_block();
+        auto *false_block = if_inst->create_false_block();
+        auto *merge_block = if_inst->create_merge_block();
+        b.set_insertion_point(true_block);
+        b.br(merge_block);
+        b.set_insertion_point(false_block);
+        b.br(merge_block);
+        b.set_insertion_point(merge_block);
+        b.return_void();
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        b.set_insertion_point(kernel_body);
+        auto *simple_call = b.call(nullptr, simple, {});
+        auto *structured_call =
+            b.call(nullptr, structured, {kernel_condition});
+        b.return_void();
+
+        std::array<CallInst *, 2u> selected{
+            simple_call, structured_call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(eq(info.inlined_call_count, 0u));
+        expect(eq(info.skipped_structured_call_count, 1u));
+        expect(simple_call->is_linked())
+            << "a later preflight failure must preserve earlier selected calls";
+        expect(structured_call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
 }
 
 // ---- unused_callable_removal ----
@@ -3954,6 +4332,56 @@ void reg_mem2reg() {
         b.return_void();
         auto info = mem2reg_pass_run_on_function(k);
         expect(info.promoted_alloca_count == 0u);
+    };
+
+    "mem2reg_round_trips_reg2mem_loop_phi_aggregates"_test = [] {
+        auto *struct_type = Type::from("struct<16,uint,float>");
+        expect(struct_type != nullptr);
+        if (struct_type == nullptr) { return; }
+        for (auto *type : std::array<const Type *, 2u>{
+                 Type::of<float2>(), struct_type}) {
+            Module m;
+            auto *f = m.create_callable(type);
+            auto *initial = f->create_value_argument(type);
+            auto *next = f->create_value_argument(type);
+            auto *iterate = f->create_value_argument(Type::of<bool>());
+            auto *entry = f->create_body_block();
+            auto *header = f->create_basic_block();
+            auto *latch = f->create_basic_block();
+            auto *exit = f->create_basic_block();
+            XIRBuilder b;
+            b.set_insertion_point(entry);
+            b.br(header);
+            b.set_insertion_point(header);
+            auto *phi = b.phi(type, {{initial, entry}, {next, latch}});
+            b.cond_br(iterate, latch, exit);
+            b.set_insertion_point(latch);
+            b.br(header);
+            b.set_insertion_point(exit);
+            b.return_(phi);
+            expect(xir_verify_module(&m).succeeded());
+
+            auto reg2mem = reg2mem_pass_run_on_function(f);
+            expect(reg2mem.lowered_phi_count == 1u);
+            auto spilled = audit_reg2mem_spills_on_function(f);
+            expect(spilled.remaining_phi_spill_count == 1u);
+            expect(spilled.remaining_cross_block_spill_count == 0u);
+            expect(count_reachable_insts(f, DerivedInstructionTag::PHI) == 0u);
+            expect(count_reachable_insts(f, DerivedInstructionTag::ALLOCA) == 1u);
+            expect(count_reachable_insts(f, DerivedInstructionTag::STORE) == 3u)
+                << "reg2mem must materialize undef, entry, and latch definitions";
+
+            auto mem2reg = mem2reg_pass_run_on_function(f);
+            expect(mem2reg.promoted_alloca_count == 1u);
+            auto recovered = audit_reg2mem_spills_on_function(f);
+            expect(recovered.succeeded());
+            expect(count_reachable_insts(f, DerivedInstructionTag::PHI) == 1u);
+            expect(count_reachable_insts(f, DerivedInstructionTag::ALLOCA) == 0u);
+            expect(count_reachable_insts(f, DerivedInstructionTag::STORE) == 0u);
+            expect(count_reachable_insts(f, DerivedInstructionTag::LOAD) == 0u);
+            expect(xir_verify_module(&m).succeeded())
+                << "reg2mem/mem2reg must preserve valid aggregate SSA";
+        }
     };
 
     "mem2reg_retains_alloca_with_unreachable_load_store_users"_test = [] {
@@ -4943,6 +5371,34 @@ void reg_autodiff() {
         expect(backward_switch_load != nullptr && switch_snapshot_store != nullptr &&
                backward_switch_load->variable() == switch_snapshot_store->variable());
         expect(backward_switch_load != nullptr && backward_switch_load->variable() != tag);
+        size_t cross_block_spill_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (!inst->isa<AllocaInst>()) { return; }
+            auto *spill = inst->find_metadata<Reg2MemSpillMD>();
+            if (spill == nullptr ||
+                spill->kind() != Reg2MemSpillKind::CROSS_BLOCK) {
+                return;
+            }
+            cross_block_spill_count++;
+            auto has_store = false;
+            auto has_load = false;
+            for (auto &&use : inst->use_list()) {
+                if (auto *user = use->user(); user != nullptr) {
+                    has_store |= user->isa<StoreInst>();
+                    has_load |= user->isa<LoadInst>();
+                }
+            }
+            expect(has_store);
+            expect(has_load);
+        });
+        expect(cross_block_spill_count > 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::PHI) == 0u);
+        auto spill_audit = audit_reg2mem_spills_on_function(k);
+        expect(spill_audit.remaining_phi_spill_count == 0u);
+        expect(spill_audit.remaining_cross_block_spill_count ==
+               cross_block_spill_count);
+        expect(spill_audit.remaining_invalid_spill_count == 0u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "autodiff_preserves_native_switch_in_backward"_test = [] {
@@ -5900,6 +6356,123 @@ void reg_autodiff() {
         expect(count_reachable_insts(k, DerivedInstructionTag::CONTINUE) == 0u);
     };
 
+    "autodiff_early_exit_normalization_preserves_false_loop_prepare"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *scope_merge = scope->create_merge_block();
+        auto *scope_entry = scope->create_entry_block();
+        b.set_insertion_point(scope_entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+        int32_t trip_count = 3;
+        auto *trip_count_value = m.create_constant(Type::of<int>(), &trip_count);
+        b.store(y, x);
+        b.store(i, zero);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {iv, trip_count_value});
+        b.cond_br(condition, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *value = b.load(Type::of<float>(), y);
+        auto *next_value = b.call(Type::of<float>(), ArithmeticOp::SIN, {value});
+        b.store(y, next_value);
+        auto *break_iv = b.load(Type::of<int>(), i);
+        auto *break_condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+            {break_iv, one});
+        auto *break_if = b.if_(break_condition);
+        auto *break_block = break_if->create_true_block();
+        auto *continue_block = break_if->create_false_block();
+        auto *break_merge = break_if->create_merge_block();
+        b.set_insertion_point(break_block);
+        b.break_(loop_merge);
+        b.set_insertion_point(continue_block);
+        b.br(break_merge);
+        b.set_insertion_point(break_merge);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *update_iv = b.load(Type::of<int>(), i);
+        auto *next_iv = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {update_iv, one});
+        b.store(i, next_iv);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER,
+               {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(scope_merge);
+
+        b.set_insertion_point(scope_merge);
+        auto *false_loop = b.loop();
+        auto *false_prepare = false_loop->create_prepare_block();
+        auto *false_body = false_loop->create_body_block();
+        auto *false_update = false_loop->create_update_block();
+        auto *false_merge = false_loop->create_merge_block();
+        auto *false_value = m.create_constant_zero(Type::of<bool>());
+        b.set_insertion_point(false_prepare);
+        auto *false_phi = b.phi(Type::of<bool>());
+        false_phi->add_incoming(false_value, scope_merge);
+        false_phi->add_incoming(false_phi, false_update);
+        b.cond_br(false_phi, false_body, false_merge);
+        b.set_insertion_point(false_body);
+        static_cast<void>(b.call(
+            Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT, {false_value}));
+        b.br(false_update);
+        b.set_insertion_point(false_update);
+        b.br(false_prepare);
+        b.set_insertion_point(false_merge);
+        b.return_void();
+
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+
+        LoopInst *remaining_loop = nullptr;
+        size_t remaining_loop_count = 0u;
+        for (auto *block : k->basic_blocks()) {
+            if (block->is_terminated() && block->terminator()->isa<LoopInst>()) {
+                remaining_loop = static_cast<LoopInst *>(block->terminator());
+                remaining_loop_count++;
+            }
+        }
+        expect(remaining_loop_count == 1u);
+        if (remaining_loop != nullptr) {
+            auto *remaining_prepare = remaining_loop->prepare_block();
+            expect(remaining_prepare != nullptr);
+            if (remaining_prepare != nullptr) {
+                expect(remaining_prepare->terminator()->isa<ConditionalBranchInst>());
+                if (remaining_prepare->terminator()->isa<ConditionalBranchInst>()) {
+                    auto *branch = static_cast<ConditionalBranchInst *>(remaining_prepare->terminator());
+                    expect(branch->condition()->isa<Constant>());
+                    if (branch->condition()->isa<Constant>()) {
+                        expect(!static_cast<Constant *>(branch->condition())->as<bool>());
+                    }
+                    expect(branch->true_block() == remaining_loop->body_block());
+                    expect(branch->false_block() == remaining_loop->merge_block());
+                }
+            }
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "autodiff_unrolls_fixed_trip_loop_with_switch_early_exit_cfg"_test = [] {
         Module m;
         BasicBlock *body;
@@ -5978,6 +6551,7 @@ void reg_autodiff() {
         expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
         expect(count_reachable_insts(k, DerivedInstructionTag::BREAK) == 0u);
         expect(count_reachable_insts(k, DerivedInstructionTag::CONTINUE) == 0u);
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 

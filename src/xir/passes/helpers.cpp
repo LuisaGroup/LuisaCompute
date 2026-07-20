@@ -3,6 +3,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 
 #include <atomic>
 
@@ -230,6 +231,7 @@ void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
         // create alloca at the beginning of the function
         b.set_insertion_point(f->definition()->body_block()->instructions().head_sentinel());
         auto phi_alloca = b.alloca_local(phi->type());
+        static_cast<void>(phi_alloca->create_metadata<Reg2MemSpillMD>());
         phi_alloca->add_comment("alloca to lower phi node");
         static std::atomic_uint64_t phi_counter{0u};
         auto phi_id = phi_counter.fetch_add(1u, std::memory_order_relaxed) + 1u;

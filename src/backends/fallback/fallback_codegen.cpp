@@ -3004,7 +3004,8 @@ private:
                 auto llvm_inst = b.CreateSwitch(llvm_condition, llvm_default_block, switch_inst->case_count());
                 for (auto i = 0u; i < switch_inst->case_count(); i++) {
                     auto case_value = switch_inst->case_value(i);
-                    auto llvm_case_value = b.getInt32(case_value);
+                    auto llvm_case_value = b.getIntN(
+                        llvm_condition->getType()->getIntegerBitWidth(), case_value);
                     auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
                     llvm_inst->addCase(llvm_case_value, llvm_case_block);
                 }

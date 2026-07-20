@@ -545,6 +545,32 @@ static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
+
+/// Returns whether the operation uses the descriptor layout of a typed
+/// bindless resource array. The typed-uniform and typed-nonuniform resource
+/// operations deliberately form one contiguous block in CallOp.
+[[nodiscard]] constexpr auto is_typed_bindless_resource_call(CallOp op) noexcept {
+    auto value = luisa::to_underlying(op);
+    return value >= luisa::to_underlying(
+                        CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+           value <= luisa::to_underlying(
+                        CallOp::TYPED_BINDLESS_BUFFER_ADDRESS);
+}
+
+/// Returns whether the operation carries the caller's block-uniform bindless
+/// index promise. Native compiler dialects must preserve this promise rather
+/// than rediscovering (or silently discarding) it.
+[[nodiscard]] constexpr auto is_uniform_bindless_resource_call(CallOp op) noexcept {
+    auto value = luisa::to_underlying(op);
+    return (value >= luisa::to_underlying(
+                         CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+            value <= luisa::to_underlying(
+                         CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS)) ||
+           (value >= luisa::to_underlying(
+                         CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+            value <= luisa::to_underlying(
+                         CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS));
+}
 class Expression;
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept;
 
@@ -636,6 +662,18 @@ public:
                test(CallOp::ACCUMULATE_GRADIENT) ||
                test(CallOp::BACKWARD) ||
                test(CallOp::DETACH);
+    }
+    [[nodiscard]] auto uses_typed_bindless_resources() const noexcept {
+        for (auto op : *this) {
+            if (is_typed_bindless_resource_call(op)) { return true; }
+        }
+        return false;
+    }
+    [[nodiscard]] auto uses_uniform_bindless_resources() const noexcept {
+        for (auto op : *this) {
+            if (is_uniform_bindless_resource_call(op)) { return true; }
+        }
+        return false;
     }
     [[nodiscard]] auto uses_cooperative() const noexcept {
         return test(CallOp::COOPERATIVE_MUL_ADD) ||

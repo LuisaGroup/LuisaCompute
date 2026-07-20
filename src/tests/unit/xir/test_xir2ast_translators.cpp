@@ -186,6 +186,92 @@ void reg_xir2ast_direct() {
         expect(atomic_count == 1u);
     };
 
+    "xir_to_ast_preserves_bindless_byte_size_units"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *bindless =
+            kernel->create_resource_argument(Type::of<BindlessArray>());
+        auto *output = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint64_t>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        uint32_t slot_value = 7u;
+        uint32_t output_index_value = 0u;
+        auto *slot = module.create_constant(
+            Type::of<uint32_t>(), &slot_value);
+        auto *output_index = module.create_constant(
+            Type::of<uint32_t>(), &output_index_value);
+        auto *size = b.call(
+            Type::of<uint64_t>(),
+            ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE,
+            {bindless, slot});
+        b.call(ResourceWriteOp::BUFFER_WRITE,
+               {output, output_index, size});
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+
+        auto size_query_count = 0u;
+        for (auto *block : roundtrip_kernel->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                if (!inst->isa<ResourceQueryInst>()) { continue; }
+                auto *query = static_cast<ResourceQueryInst *>(inst);
+                if (query->op() != ResourceQueryOp::BINDLESS_BUFFER_SIZE) {
+                    continue;
+                }
+                size_query_count++;
+                expect(query->operand_count() == 3u);
+                if (query->operand_count() == 3u) {
+                    auto *stride = query->operand(2u);
+                    expect(stride->isa<xir::Constant>());
+                    if (stride->isa<xir::Constant>()) {
+                        auto *constant =
+                            static_cast<xir::Constant *>(stride);
+                        expect(constant->type()->is_uint32());
+                        expect(constant->as<uint32_t>() == 1u)
+                            << "bindless byte size must round-trip with a one-byte stride";
+                    }
+                }
+            }
+        }
+        expect(size_query_count == 1u);
+    };
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+    "xir_to_ast_rejects_unrepresentable_bindless_byte_write"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *bindless =
+            kernel->create_resource_argument(Type::of<BindlessArray>());
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        uint32_t slot_value = 2u;
+        uint64_t byte_offset_value = 3u;
+        uint32_t payload_value = 0x12345678u;
+        auto *slot = module.create_constant(
+            Type::of<uint32_t>(), &slot_value);
+        auto *byte_offset = module.create_constant(
+            Type::of<uint64_t>(), &byte_offset_value);
+        auto *payload = module.create_constant(
+            Type::of<uint32_t>(), &payload_value);
+        b.call(ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE,
+               {bindless, slot, byte_offset, payload});
+        b.return_void();
+
+        expect(terminates_with_abort([&] {
+            static_cast<void>(xir_to_ast_translate(*kernel, {}));
+        })) << "XIR-to-AST must reject byte-addressed bindless writes "
+               "instead of reinterpreting byte offsets as element indices";
+    };
+#endif
+
     "xir_to_ast_direct_materializes_dynamic_values_once"_test = [] {
         Module module;
         auto *int_type = Type::of<int>();
@@ -461,6 +547,48 @@ void reg_xir2ast_direct() {
                    roundtrip.get(),
                    {.require_canonical_break_continue_targets = true})
                    .succeeded());
+    };
+
+    "xir_to_ast_roundtrip_preserves_u64_switch_case_bits"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *selector = kernel->create_value_argument(Type::of<uint64_t>());
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *switch_inst = builder.switch_(selector);
+        constexpr auto low_word_ones = uint64_t{0x00000000ffffffffull};
+        constexpr auto all_ones = uint64_t{0xffffffffffffffffull};
+        auto *low_word_block = switch_inst->create_case_block(low_word_ones);
+        auto *all_ones_block = switch_inst->create_case_block(all_ones);
+        auto *default_block = switch_inst->create_default_block();
+        auto *merge_block = switch_inst->create_merge_block();
+        for (auto *block : {low_word_block, all_ones_block, default_block}) {
+            builder.set_insertion_point(block);
+            builder.br(merge_block);
+        }
+        builder.set_insertion_point(merge_block);
+        builder.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        if (ast == nullptr) { return; }
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        auto *definition = first_kernel_definition(roundtrip.get());
+        expect(definition != nullptr);
+        if (definition == nullptr) { return; }
+        auto found = false;
+        definition->traverse_instructions([&](Instruction *instruction) noexcept {
+            if (!instruction->isa<SwitchInst>()) { return; }
+            auto *value = static_cast<SwitchInst *>(instruction);
+            expect(value->value()->type() == Type::of<uint64_t>());
+            expect(value->case_count() == 2u);
+            expect(value->case_value(0u) == low_word_ones);
+            expect(value->case_value(1u) == all_ones);
+            found = true;
+        });
+        expect(found);
     };
 
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)

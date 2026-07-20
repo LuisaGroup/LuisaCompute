@@ -73,7 +73,15 @@ template<typename T>
         return false;
     }
     for (size_t i = 0u; i < expected.size(); i++) {
-        if (!(expected[i] == actual[i])) {
+        auto equal = expected[i] == actual[i];
+        auto matches = [&]() noexcept {
+            if constexpr (std::is_same_v<decltype(equal), bool>) {
+                return equal;
+            } else {
+                return all(equal);
+            }
+        }();
+        if (!matches) {
             if (mismatch_count == 0u) { first_mismatch = i; }
             mismatch_count++;
         }
@@ -149,6 +157,43 @@ void expect_group(const CopyStats &stats, luisa::string_view label) noexcept {
                          label, stats.failed_cases, stats.cases, stats.bytes);
 }
 
+void test_cross_resource_mip_copies(Device &device, CopyStats &stats) noexcept {
+    // The selected levels deliberately have equal extents while their level
+    // numbers differ. This covers buffer -> image, image mip 1 -> image mip 3,
+    // and image -> buffer without allowing a backend to accidentally reuse the
+    // source level when resolving the destination layout.
+    constexpr auto copy_size = make_uint2(32u, 16u);
+    constexpr auto pixel_count =
+        static_cast<size_t>(copy_size.x) * copy_size.y;
+    luisa::vector<float4> source_data(pixel_count);
+    luisa::vector<float4> actual(pixel_count);
+    for (auto i = size_t{0u}; i < pixel_count; i++) {
+        source_data[i] = make_float4(
+            static_cast<float>(i),
+            static_cast<float>(i * 3u + 1u),
+            -static_cast<float>(i * 5u + 2u),
+            static_cast<float>((i * 7u) & 255u));
+    }
+
+    auto upload = device.create_buffer<float4>(pixel_count);
+    auto readback = device.create_buffer<float4>(pixel_count);
+    auto source = device.create_image<float>(
+        PixelStorage::FLOAT4, make_uint2(64u, 32u), 2u);
+    auto destination = device.create_image<float>(
+        PixelStorage::FLOAT4, make_uint2(256u, 128u), 4u);
+    auto stream = device.create_stream();
+    stream << upload.copy_from(luisa::span{source_data})
+           << source.view(1u).copy_from(upload)
+           << destination.view(3u).copy_from(source.view(1u))
+           << destination.view(3u).copy_to(readback)
+           << readback.copy_to(luisa::span{actual})
+           << synchronize();
+
+    auto passed = verify_exact<float4>(
+        source_data, actual, "cross-resource mip copies");
+    stats.record(pixel_count * sizeof(float4), passed);
+}
+
 void test_copy(Device &device) {
     // Includes a single element, odd/non-power-of-two counts, and boundaries
     // just beyond 256 and 4096 elements. The final case is large enough to
@@ -222,6 +267,10 @@ void test_copy(Device &device) {
         test_texture<float>(device, storage, compressed_size, rng, compressed_stats);
     }
     expect_group(compressed_stats, "block-compressed 2D image copies");
+
+    CopyStats cross_resource_stats;
+    test_cross_resource_mip_copies(device, cross_resource_stats);
+    expect_group(cross_resource_stats, "cross-resource mip copies");
 }
 
 }// namespace

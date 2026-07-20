@@ -7,7 +7,50 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <luisa/core/logging.h>
 
+#include "../../common/bindless_update_contract.h"
+
 namespace lc::dx {
+
+namespace {
+
+template<typename T, typename F>
+void validate_bindless_modifications(
+    vstd::span<const T> modifications,
+    size_t slot_count, F &&operations) {
+    for (auto &&modification : modifications) {
+        LUISA_ASSERT(
+            lc::bindless_update_detail::slot_in_bounds(
+                modification.slot, slot_count),
+            "DX bindless update slot {} is outside [0, {}).",
+            modification.slot, slot_count);
+        operations(modification, [](auto operation) {
+            LUISA_ASSERT(
+                lc::bindless_update_detail::valid_operation(operation),
+                "DX bindless update contains an invalid operation value {}.",
+                static_cast<uint32_t>(operation));
+        });
+    }
+}
+
+[[nodiscard]] BufferView bindless_buffer_view(
+    const BindlessArrayUpdateCommand::ModifiedBuffer &modified) {
+    auto buffer = reinterpret_cast<Buffer *>(modified.handle);
+    LUISA_ASSERT(modified.offset_bytes <= buffer->GetByteSize(),
+                 "Bindless buffer offset {} exceeds buffer size {}.",
+                 modified.offset_bytes, buffer->GetByteSize());
+    auto remaining_size = buffer->GetByteSize() - modified.offset_bytes;
+    auto size = modified.size_bytes ==
+                        BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size ?
+                    remaining_size :
+                    modified.size_bytes;
+    LUISA_ASSERT(size > 0u && size <= remaining_size,
+                 "Bindless buffer view [{}, {}) exceeds buffer size {}.",
+                 modified.offset_bytes, modified.offset_bytes + size,
+                 buffer->GetByteSize());
+    return BufferView{buffer, modified.offset_bytes, size};
+}
+
+}// namespace
 
 BindlessArray::BindlessArray(
     Device *device, uint arraySize,
@@ -96,14 +139,19 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::BufferModi
     auto bind_ptr = typed_binded.try_get<vstd::vector<MapIndex>>();
     LUISA_DEBUG_ASSERT(bind_ptr && _buffer_node);
     auto &binded = *bind_ptr;
+    validate_bindless_modifications(
+        mods, binded.size(), [](auto &&mod, auto &&validate) {
+            validate(mod.buffer.op);
+        });
     std::lock_guard lck{mtx};
     if (mods.empty()) return;
     for (auto &&mod : mods) {
+        using Ope = BindlessArrayUpdateCommand::Operation;
+        if (mod.buffer.op == Ope::NONE) { continue; }
         auto &indices = binded[mod.slot];
         Deref(indices);
-        using Ope = BindlessArrayUpdateCommand::Modification::Operation;
         if (mod.buffer.op == Ope::EMPLACE) {
-            BufferView v{reinterpret_cast<Buffer *>(mod.buffer.handle), mod.buffer.offset_bytes};
+            auto v = bindless_buffer_view(mod.buffer);
             auto newIdx = device->global_heap->GetSubAllocOffset(_buffer_node) + mod.slot;
             auto desc = v.buffer->GetColorSrvDesc(
                 v.offset,
@@ -122,35 +170,74 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::BufferModi
     }
 }
 
-void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Texture2DModification> mods) {
+template<typename T>
+void BindlessArray::_BindTexture(vstd::span<const T> mods) {
+    static_assert(
+        std::is_same_v<T, BindlessArrayUpdateCommand::Texture2DModification> ||
+        std::is_same_v<T, BindlessArrayUpdateCommand::Texture3DModification>);
     auto bind_ptr = typed_binded.try_get<vstd::vector<MapIndex>>();
     LUISA_DEBUG_ASSERT(bind_ptr && _buffer_node);
     auto &binded = *bind_ptr;
+    validate_bindless_modifications(
+        mods, binded.size(), [](auto &&mod, auto &&validate) {
+            if constexpr (std::is_same_v<
+                              T,
+                              BindlessArrayUpdateCommand::Texture2DModification>) {
+                validate(mod.tex2d.op);
+            } else {
+                validate(mod.tex3d.op);
+            }
+        });
     std::lock_guard lck{mtx};
     if (mods.empty()) return;
-    auto EmplaceTex = [&](uint texIdx, MapIndex &indices, uint64_t handle, TextureBase const *tex, Sampler const &samp) {
-        device->global_heap->CreateSRV(
-            tex->GetResource(),
-            tex->GetColorSrvDesc(),
-            texIdx);
-        indices = AddIndex(handle);
-    };
     using Ope = BindlessArrayUpdateCommand::Modification::Operation;
     for (auto &&mod : mods) {
-        [[maybe_unused]] auto vv = mod.slot;
+        auto &texture = [&]() -> const BindlessArrayUpdateCommand::ModifiedTexture & {
+            if constexpr (std::is_same_v<
+                              T,
+                              BindlessArrayUpdateCommand::Texture2DModification>) {
+                return mod.tex2d;
+            } else {
+                return mod.tex3d;
+            }
+        }();
+        if (texture.op == Ope::NONE) { continue; }
         auto &indices = binded[mod.slot];
-        auto newIdx = device->global_heap->GetSubAllocOffset(_buffer_node) + mod.slot;
         Deref(indices);
-        if (mod.tex2d.op == Ope::EMPLACE) {
-            EmplaceTex(newIdx, indices, mod.tex2d.handle, reinterpret_cast<TextureBase *>(mod.tex2d.handle), mod.tex2d.sampler);
+        if (texture.op == Ope::EMPLACE) {
+            auto newIdx =
+                device->global_heap->GetSubAllocOffset(_buffer_node) +
+                mod.slot;
+            auto tex = reinterpret_cast<TextureBase const *>(texture.handle);
+            device->global_heap->CreateSRV(
+                tex->GetResource(),
+                tex->GetColorSrvDesc(),
+                newIdx);
+            indices = AddIndex(texture.handle);
         }
     }
+}
+
+void BindlessArray::Bind(
+    vstd::span<const BindlessArrayUpdateCommand::Texture2DModification> mods) {
+    _BindTexture(mods);
+}
+
+void BindlessArray::Bind(
+    vstd::span<const BindlessArrayUpdateCommand::Texture3DModification> mods) {
+    _BindTexture(mods);
 }
 
 void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modification> mods) {
     auto binded_ptr = typed_binded.try_get<vstd::vector<std::pair<BindlessStruct, MapIndicies>>>();
     LUISA_DEBUG_ASSERT(binded_ptr);
     auto &binded = *binded_ptr;
+    validate_bindless_modifications(
+        mods, binded.size(), [](auto &&mod, auto &&validate) {
+            validate(mod.buffer.op);
+            validate(mod.tex2d.op);
+            validate(mod.tex3d.op);
+        });
     std::lock_guard lck{mtx};
     if (mods.empty()) return;
     auto EmplaceTex = [&]<bool isTex2D>(BindlessStruct &bindGrp, MapIndicies &indices, uint64_t handle, TextureBase const *tex, Sampler const &samp) {
@@ -182,7 +269,7 @@ void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modificati
                 break;
             case Ope::EMPLACE: {
                 TryReturnIndex(indices.buffer, bindGrp.buffer);
-                BufferView v{reinterpret_cast<Buffer *>(mod.buffer.handle), mod.buffer.offset_bytes};
+                auto v = bindless_buffer_view(mod.buffer);
                 auto newIdx = device->global_heap->AllocateIndex();
                 auto desc = v.buffer->GetColorSrvDesc(
                     v.offset,
@@ -311,6 +398,12 @@ void BindlessArray::UpdateStates(
     EnhancedBarrierTracker &tracker,
     vstd::span<const BindlessArrayUpdateCommand::Texture2DModification> mods) const {
     _UpdateStates<BindlessArrayUpdateCommand::Texture2DModification>(builder, tracker, mods);
+}
+void BindlessArray::UpdateStates(
+    CommandBufferBuilder &builder,
+    EnhancedBarrierTracker &tracker,
+    vstd::span<const BindlessArrayUpdateCommand::Texture3DModification> mods) const {
+    _UpdateStates<BindlessArrayUpdateCommand::Texture3DModification>(builder, tracker, mods);
 }
 void BindlessArray::UpdateStates(
     CommandBufferBuilder &builder,

@@ -12,9 +12,13 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-spirv)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE LUISA_XIR_TO_SPIRV)
     endif ()
-    # NEW: AST LLVM → SPIR-V codegen path
+    # AST LLVM → SPIR-V codegen path
     if (LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
-        target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-spirv-llvm)
+        # The backend still uses the native SPIR-V support library for its
+        # disassembler/validation utilities in the LLVM configuration.
+        target_link_libraries(luisa-compute-backend-vk PRIVATE
+                luisa-compute-spirv
+                luisa-compute-spirv-llvm)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE LUISA_AST_LLVM_TO_SPIRV)
     endif ()
     if (APPLE)

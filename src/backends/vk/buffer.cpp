@@ -3,62 +3,160 @@
 #include "default_buffer.h"
 #include "sparse_buffer.h"
 #include "device.h"
+#include "device_feature_plan.h"
 #include "log.h"
+#include <bit>
+#include <limits>
+#include <numeric>
 namespace lc::vk {
+namespace {
+
+[[nodiscard]] size_t word_addressable_size(size_t logical_size) noexcept {
+    LUISA_ASSERT(logical_size <= std::numeric_limits<size_t>::max() - 3u,
+                 "Vulkan buffer size {} cannot be rounded to a storage word.",
+                 logical_size);
+    return (logical_size + 3u) & ~size_t{3u};
+}
+
+}// namespace
+
+StorageBufferDescriptorRange storage_buffer_descriptor_range(
+    const Buffer *buffer, size_t view_offset, size_t view_size,
+    size_t logical_element_stride) {
+    LUISA_ASSERT(buffer != nullptr, "Vulkan buffer argument is null.");
+    LUISA_ASSERT(view_size > 0u,
+                 "Vulkan does not permit an empty storage-buffer descriptor.");
+    LUISA_ASSERT(view_offset <= buffer->byte_size() &&
+                     view_size <= buffer->byte_size() - view_offset,
+                 "Vulkan buffer view [{}, {}) exceeds the logical buffer size {}.",
+                 view_offset, view_offset + view_size, buffer->byte_size());
+
+    const auto descriptor_alignment = std::max<VkDeviceSize>(
+        1u, buffer->device()->properties().limits.minStorageBufferOffsetAlignment);
+    LUISA_ASSERT(std::has_single_bit(static_cast<uint64_t>(descriptor_alignment)),
+                 "Vulkan minStorageBufferOffsetAlignment {} is not a power of two.",
+                 descriptor_alignment);
+    if (logical_element_stride != 0u) {
+        LUISA_ASSERT(view_offset % logical_element_stride == 0u &&
+                         view_size % logical_element_stride == 0u,
+                     "Typed Vulkan buffer view [{}, {}) is not a multiple of "
+                     "its {}-byte element stride.",
+                     view_offset, view_offset + view_size,
+                     logical_element_stride);
+    }
+
+    // Every SPIR-V byte-addressed binding is physically a uint32 array. Typed
+    // bindings instead require descriptor-relative indices to remain exact
+    // multiples of the logical element stride.
+    const auto storage_element_alignment = static_cast<VkDeviceSize>(
+        logical_element_stride == 0u ? sizeof(uint32_t) :
+                                       logical_element_stride);
+    const auto alignment_factor =
+        descriptor_alignment /
+        std::gcd(descriptor_alignment, storage_element_alignment);
+    LUISA_ASSERT(storage_element_alignment <=
+                     std::numeric_limits<VkDeviceSize>::max() /
+                         alignment_factor,
+                 "Vulkan buffer descriptor base alignment overflows for {} and {}.",
+                 descriptor_alignment, storage_element_alignment);
+    const auto descriptor_base_alignment =
+        alignment_factor * storage_element_alignment;
+    const auto descriptor_offset =
+        static_cast<VkDeviceSize>(view_offset) /
+        descriptor_base_alignment * descriptor_base_alignment;
+
+    LUISA_ASSERT(view_offset <=
+                     std::numeric_limits<VkDeviceSize>::max() - view_size,
+                 "Vulkan buffer view end overflows for offset {} and size {}.",
+                 view_offset, view_size);
+    const auto logical_end =
+        static_cast<VkDeviceSize>(view_offset) + view_size;
+    LUISA_ASSERT(logical_end <= std::numeric_limits<VkDeviceSize>::max() - 3u,
+                 "Vulkan buffer view end {} cannot be rounded to a storage word.",
+                 logical_end);
+    const auto addressable_end = (logical_end + 3u) & ~VkDeviceSize{3u};
+    LUISA_ASSERT(addressable_end <= buffer->addressable_byte_size(),
+                 "Vulkan XIR/SPIR-V word-backed access needs bytes through {}, "
+                 "but this buffer proves only {} addressable bytes. External "
+                 "buffers with a partial final word must provide physical padding.",
+                 addressable_end, buffer->addressable_byte_size());
+
+    const auto descriptor_range = addressable_end - descriptor_offset;
+    const auto descriptor_bias =
+        static_cast<uint64_t>(view_offset - descriptor_offset);
+    LUISA_ASSERT(descriptor_bias <= std::numeric_limits<uint32_t>::max(),
+                 "Vulkan descriptor-relative buffer bias {} exceeds the "
+                 "32-bit address range guaranteed by maxStorageBufferRange.",
+                 descriptor_bias);
+    LUISA_ASSERT(descriptor_range <=
+                     buffer->device()->properties().limits.maxStorageBufferRange,
+                 "Vulkan storage-buffer descriptor range {} exceeds the device "
+                 "limit {} (aligned base {}, logical view [{}, {})).",
+                 descriptor_range,
+                 buffer->device()->properties().limits.maxStorageBufferRange,
+                 descriptor_offset, view_offset, logical_end);
+    return StorageBufferDescriptorRange{
+        descriptor_offset,
+        descriptor_range,
+        StorageBufferMetadata{
+            descriptor_bias,
+            static_cast<uint64_t>(view_size)}};
+}
+
 void vma_defragment(Device *device) {
     if (!device) return;
-    
+
     VmaDefragmentationInfo defrag_info = {};
     defrag_info.flags = VMA_DEFRAGMENTATION_FLAG_ALGORITHM_FAST_BIT;
-    defrag_info.pool = VK_NULL_HANDLE;  // Defragment all default pools
-    
+    defrag_info.pool = VK_NULL_HANDLE;// Defragment all default pools
+
     VmaDefragmentationContext defrag_ctx;
     VkResult result = vmaBeginDefragmentation(
         device->allocator().allocator(),
         &defrag_info,
         &defrag_ctx);
-    
+
     if (result != VK_SUCCESS) {
         return;
     }
-    
+
     // Perform defragmentation passes
-    [&]{
+    [&] {
         VmaDefragmentationPassMoveInfo pass_info = {};
         result = vmaBeginDefragmentationPass(
             device->allocator().allocator(),
             defrag_ctx,
             &pass_info);
-        
+
         if (result == VK_SUCCESS) {
             // No more moves needed
             return;
         }
-        
+
         if (result != VK_INCOMPLETE) {
             // Error occurred
             return;
         }
-        
+
         // Mark all moves as IGNORE since we don't have access to buffer/image handles
         // to recreate them at the new locations. This will still allow VMA to free
         // empty memory blocks.
         for (uint32_t i = 0; i < pass_info.moveCount; ++i) {
             pass_info.pMoves[i].operation = VMA_DEFRAGMENTATION_MOVE_OPERATION_IGNORE;
         }
-        
+
         result = vmaEndDefragmentationPass(
             device->allocator().allocator(),
             defrag_ctx,
             &pass_info);
     }();
-    
+
     VmaDefragmentationStats stats = {};
     vmaEndDefragmentation(
         device->allocator().allocator(),
         defrag_ctx,
         &stats);
-    
+
     // Log compaction results
     if (stats.bytesMoved > 0 || stats.bytesFreed > 0) {
         LUISA_INFO("VMA memory compacted: {} bytes moved, {} bytes freed, {} allocations moved, {} blocks freed",
@@ -153,10 +251,10 @@ DefaultBuffer::DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory 
 }
 
 DefaultBuffer::DefaultBuffer(Device *device, size_t size_bytes, bool used_as_accel, VkBufferUsageFlagBits extra_bit)
-    : Buffer{device, size_bytes} {
+    : Buffer{device, size_bytes, word_addressable_size(size_bytes)} {
     auto res = device->allocator()
                    .allocate_buffer(
-                       size_bytes,
+                       addressable_byte_size(),
                        static_cast<VkBufferUsageFlagBits>(
                            extra_bit |
                            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -201,11 +299,20 @@ DefaultBuffer::DefaultBuffer(DefaultBuffer &&rhs) noexcept
     rhs._buffer = nullptr;
 }
 SparseBuffer::SparseBuffer(Device *device, size_t size_bytes, bool used_as_accel, VkBufferUsageFlagBits extra_bit)
-    : Buffer(device, size_bytes) {
+    : Buffer(device, size_bytes, word_addressable_size(size_bytes)) {
+    auto enabled = device->enabled_features();
+    auto sparse_features = detail::validate_sparse_buffer_features({.sparse_binding = enabled.sparseBinding == VK_TRUE,
+                                                                    .sparse_residency_buffer =
+                                                                        enabled.sparseResidencyBuffer == VK_TRUE});
+    LUISA_ASSERT(
+        static_cast<bool>(sparse_features),
+        "Vulkan sparse-buffer creation is unavailable: {}.",
+        detail::sparse_residency_feature_status_name(
+            sparse_features.status));
     VkBufferCreateInfo create_info{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .flags = VK_BUFFER_CREATE_SPARSE_BINDING_BIT | VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT,
-        .size = size_bytes,
+        .size = addressable_byte_size(),
         .usage = static_cast<VkBufferUsageFlags>(
             extra_bit |
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -217,15 +324,34 @@ SparseBuffer::SparseBuffer(Device *device, size_t size_bytes, bool used_as_accel
             ((device->enable_raytracing() && used_as_accel) ? (VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR) :
                                                               0)),
         .queueFamilyIndexCount = 0};
+    device->allocator().apply_queue_sharing(create_info);
     VK_CHECK_RESULT(vkCreateBuffer(
-        device->logic_device(),
-        &create_info,
-        Device::alloc_callbacks(),
-        &_buffer));
+        device->logic_device(), &create_info,
+        Device::alloc_callbacks(), &_buffer));
+    vkGetBufferMemoryRequirements(
+        device->logic_device(), _buffer, &_memory_requirements);
+    LUISA_ASSERT(
+        _memory_requirements.alignment != 0u,
+        "Vulkan reported zero sparse-buffer alignment.");
+    // Sparse bindings address [0, VkMemoryRequirements::size), whose size and
+    // every bind are aligned to VkMemoryRequirements::alignment. Keep the
+    // VkBuffer's API-visible size unchanged; the queried requirements already
+    // include any virtual-address padding needed by the final sparse block.
+    LUISA_ASSERT(
+        _memory_requirements.size != 0u &&
+            _memory_requirements.size %
+                    _memory_requirements.alignment ==
+                0u,
+        "Vulkan reported invalid sparse-buffer requirements: size {}, "
+        "alignment {}.",
+        _memory_requirements.size, _memory_requirements.alignment);
+    _sparse_binding_size = _memory_requirements.size;
 }
 SparseBuffer::SparseBuffer(SparseBuffer &&rhs) noexcept
     : Buffer(std::move(rhs)),
-      _buffer(rhs._buffer) {
+      _buffer(rhs._buffer),
+      _memory_requirements(rhs._memory_requirements),
+      _sparse_binding_size(rhs._sparse_binding_size) {
     rhs._buffer = nullptr;
 }
 SparseBuffer::~SparseBuffer() {

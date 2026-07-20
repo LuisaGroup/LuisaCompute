@@ -37,7 +37,7 @@ end)
 if has_config('lc_vk_backend_use_xir_spirv') then
     add_defines('LUISA_XIR_TO_SPIRV')
 end
--- NEW: AST LLVM → SPIR-V codegen path
+-- AST LLVM → SPIR-V codegen path
 if has_config('lc_vk_backend_use_ast_llvm_spirv') then
     add_deps('lc-spirv-llvm')
     add_defines('LUISA_AST_LLVM_TO_SPIRV')

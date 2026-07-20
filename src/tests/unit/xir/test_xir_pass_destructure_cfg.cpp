@@ -248,6 +248,11 @@ void reg_destructure_cfg() {
         expect(disp->is_terminated());
         expect(disp->terminator()->isa<UnreachableInst>());
         auto *lowered_loop = static_cast<LoopInst *>(body->terminator());
+        auto *prepare_term = lowered_loop->prepare_block()->terminator();
+        expect(prepare_term->isa<ConditionalBranchInst>());
+        auto *prepare_branch = static_cast<ConditionalBranchInst *>(prepare_term);
+        expect(prepare_branch->true_block() == lowered_loop->body_block());
+        expect(prepare_branch->false_block() == lowered_loop->merge_block());
         expect(exit_phi->incoming_count() == 1u);
         expect(exit_phi->incoming(0u).block == lowered_loop->prepare_block());
         auto info = destructure_cfg_pass_run_on_function(k);

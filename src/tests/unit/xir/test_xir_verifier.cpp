@@ -5,6 +5,8 @@
 
 #include "ut/ut.hpp"
 
+#include <limits>
+
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
@@ -781,6 +783,58 @@ void reg_xir_verifier() {
         }
     };
 
+    "xir_verifier_accepts_integer_64_bit_atomics"_test = [] {
+        for (auto type : {Type::of<luisa::slong>(),
+                          Type::of<luisa::ulong>()}) {
+            Module module;
+            auto *index = module.create_constant_zero(Type::of<uint>());
+            auto *value = module.create_constant_one(type);
+            auto *callable = module.create_callable(nullptr);
+            auto *buffer = callable->create_resource_argument(
+                Type::buffer(type));
+            auto *body = callable->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *shared = builder.alloca_shared(Type::array(type, 1u));
+            std::array<Value *, 1u> indices{index};
+            builder.atomic_fetch_add(
+                type, buffer, luisa::span<Value *const>{indices}, value);
+            builder.atomic_fetch_add(
+                type, shared, luisa::span<Value *const>{indices}, value);
+            builder.return_void();
+
+            expect(xir_verify_module(&module).succeeded())
+                << "signed and unsigned 64-bit atomics must be valid XIR for both buffer and shared storage";
+        }
+    };
+
+    "xir_verifier_rejects_unsupported_atomic_scalar_types"_test = [] {
+        for (auto type : {
+                 Type::of<int8_t>(), Type::of<uint8_t>(),
+                 Type::of<int16_t>(), Type::of<uint16_t>(),
+                 Type::of<double>()}) {
+            Module module;
+            auto *index = module.create_constant_zero(Type::of<uint>());
+            auto *value = module.create_constant_one(type);
+            auto *callable = module.create_callable(nullptr);
+            auto *buffer = callable->create_resource_argument(
+                Type::buffer(type));
+            auto *body = callable->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            std::array<Value *, 1u> indices{index};
+            auto *atomic = builder.atomic_fetch_add(
+                type, buffer, luisa::span<Value *const>{indices}, value);
+            builder.return_void();
+
+            auto result = xir_verify_module(&module);
+            expect(!result.succeeded());
+            expect(has_verification_error(
+                result, body, atomic,
+                "Instruction operands or result type are invalid."));
+        }
+    };
+
     "xir_verifier_rejects_invalid_resource_atomic_and_thread_group_semantics"_test = [] {
         Module module;
         auto int_type = Type::of<int32_t>();
@@ -1143,7 +1197,7 @@ void reg_xir_verifier() {
                 "Switch value or default block is invalid."));
             expect(has_verification_error(
                 result, body, switch_inst,
-                "Switch case block or value is invalid."));
+                "Switch case block is invalid."));
         }
     };
 
@@ -1366,6 +1420,65 @@ void reg_xir_verifier() {
             auto result = xir_verify_module(&module);
             expect(result.succeeded());
         }
+    };
+
+    "xir_verifier_rejects_switch_case_aliases_after_width_normalization"_test = [] {
+        auto verify_alias = [](const Type *selector_type,
+                               SwitchInst::case_value_type lhs,
+                               SwitchInst::case_value_type rhs) noexcept {
+            Module module;
+            auto *callable = module.create_callable(nullptr);
+            auto *selector = callable->create_value_argument(selector_type);
+            auto *body = callable->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *switch_inst = builder.switch_(selector);
+            auto *lhs_block = switch_inst->create_case_block(lhs);
+            auto *rhs_block = switch_inst->create_case_block(rhs);
+            auto *default_block = switch_inst->create_default_block();
+            auto *merge_block = switch_inst->create_merge_block();
+            for (auto *block : {lhs_block, rhs_block, default_block}) {
+                builder.set_insertion_point(block);
+                builder.br(merge_block);
+            }
+            builder.set_insertion_point(merge_block);
+            builder.return_void();
+            auto result = xir_verify_module(&module);
+            expect(!result.succeeded());
+            expect(has_verification_error(
+                result, body, switch_inst,
+                "Switch case values alias after selector-width normalization."));
+        };
+        verify_alias(Type::of<int8_t>(),
+                     std::numeric_limits<uint64_t>::max(), uint64_t{0xffu});
+        verify_alias(Type::of<uint8_t>(), uint64_t{0x1ffu}, uint64_t{0xffu});
+    };
+
+    "xir_verifier_rejects_noncanonical_switch_case_width"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *wide_selector = callable->create_value_argument(Type::of<uint64_t>());
+        auto *narrow_selector = callable->create_value_argument(Type::of<uint8_t>());
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *switch_inst = builder.switch_(wide_selector);
+        auto *case_block = switch_inst->create_case_block(0x1ffu);
+        auto *default_block = switch_inst->create_default_block();
+        auto *merge_block = switch_inst->create_merge_block();
+        switch_inst->set_operand(
+            SwitchInst::operand_index_value, narrow_selector);
+        builder.set_insertion_point(case_block);
+        builder.br(merge_block);
+        builder.set_insertion_point(default_block);
+        builder.br(merge_block);
+        builder.set_insertion_point(merge_block);
+        builder.return_void();
+        auto result = xir_verify_module(&module);
+        expect(!result.succeeded());
+        expect(has_verification_error(
+            result, body, switch_inst,
+            "Switch case value is outside the selector bit width."));
     };
 
     "xir_verifier_rejects_invalid_switch_selectors"_test = [] {

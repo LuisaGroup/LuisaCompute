@@ -23,14 +23,14 @@ struct CodegenResult {
     vstd::StringBuilder result;
     Properties properties;
     vstd::vector<std::pair<vstd::string, luisa::compute::Type const *>> printers;
-    bool useTex2DBindless;
-    bool useTex3DBindless;
-    bool useBufferBindless;
-    bool use_8bit;
-    uint32_t validation_count;// resource size count when debug mode enabled
-    uint64 immutableHeaderSize = 0;
+    bool useTex2DBindless{false};
+    bool useTex3DBindless{false};
+    bool useBufferBindless{false};
+    bool use_8bit{false};
+    uint32_t validation_count{0u}; // resource size count when debug mode enabled
+    uint64 immutableHeaderSize{0u};
     vstd::MD5 typeMD5;
-    CodegenResult() {}
+    CodegenResult() = default;
     CodegenResult(
         vstd::StringBuilder &&result,
         vstd::vector<std::pair<vstd::string, Type const *>> &&printers,

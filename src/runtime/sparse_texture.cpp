@@ -3,39 +3,58 @@
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/core/logging.h>
 
+#include "sparse_texture_tile_plan.h"
+
 namespace luisa::compute {
 
 namespace detail {
 
-LUISA_RUNTIME_API void check_sparse_tex2d_map(uint2 size, uint2 tile_size, uint2 start_tile, uint2 tile_count) {
-    auto end = start_tile + tile_count;
-    auto total_tile = size / tile_size;
+LUISA_RUNTIME_API SparseTextureTileRegion check_sparse_texture_tile_region(
+    uint32_t dimension,
+    uint3 size,
+    uint3 tile_size,
+    uint32_t mip_levels,
+    uint32_t mip_level,
+    uint3 start_tile,
+    uint3 tile_count) noexcept {
+    auto plan = plan_sparse_texture_tile_region({.dimension = dimension,
+                                                 .base_extent = size,
+                                                 .tile_size = tile_size,
+                                                 .mip_levels = mip_levels,
+                                                 .mip_level = mip_level,
+                                                 .start_tile = start_tile,
+                                                 .tile_count = tile_count});
     LUISA_ASSERT(
-        !(any((end) > total_tile)),
-        "Map Tile [({}, {}), ({}, {})] out of tile range({}, {})", start_tile.x, start_tile.y, end.x, end.y, total_tile.x, total_tile.y);
-    LUISA_ASSERT(!(any(tile_count == uint2(0))), "Tile count can not be zero.");
+        static_cast<bool>(plan),
+        "Invalid sparse texture tile region at mip {}: start ({}, {}, {}), "
+        "count ({}, {}, {}), mip extent ({}, {}, {}), tile grid ({}, {}, {}): {}.",
+        mip_level,
+        start_tile.x, start_tile.y, start_tile.z,
+        tile_count.x, tile_count.y, tile_count.z,
+        plan.mip_extent.x, plan.mip_extent.y, plan.mip_extent.z,
+        plan.tile_grid.x, plan.tile_grid.y, plan.tile_grid.z,
+        sparse_texture_tile_region_status_name(plan.status));
+    return {
+        .offset = plan.texel_offset,
+        .extent = plan.texel_extent};
 }
 
-LUISA_RUNTIME_API void check_sparse_tex2d_unmap(uint2 size, uint2 tile_size, uint2 start_tile) {
-    auto total_tile = size / tile_size;
+LUISA_RUNTIME_API void check_sparse_texture_copy_buffer_size(
+    PixelStorage storage,
+    uint3 extent,
+    size_t buffer_size) noexcept {
+    auto required_size = checked_pixel_storage_size(storage, extent);
     LUISA_ASSERT(
-        !(any(start_tile >= total_tile)),
-        "Map Tile ({}, {}) out of tile range({}, {})", start_tile.x, start_tile.y, total_tile.x, total_tile.y);
-}
-
-LUISA_RUNTIME_API void check_sparse_tex3d_map(uint3 size, uint3 tile_size, uint3 start_tile, uint3 tile_count) {
-    auto end = start_tile + tile_count;
-    auto total_tile = size / tile_size;
+        static_cast<bool>(required_size),
+        "Sparse texture copy size overflow for extent ({}, {}, {}) "
+        "and pixel storage {}.",
+        extent.x, extent.y, extent.z,
+        luisa::to_underlying(storage));
     LUISA_ASSERT(
-        !(any((end) > total_tile)),
-        "Map Tile [({}, {}, {}), ({}, {}, {})] out of tile range({}, {}, {})", start_tile.x, start_tile.y, start_tile.z, end.x, end.y, end.z,
-        total_tile.x, total_tile.y, total_tile.z);
-    LUISA_ASSERT(!any(tile_count == uint3(0)), "Tile count can not be zero.");
-}
-
-LUISA_RUNTIME_API void check_sparse_tex3d_unmap(uint3 size, uint3 tile_size, uint3 start_tile) {
-    auto total_tile = size / tile_size;
-    LUISA_ASSERT(!any(start_tile >= total_tile), "Map Tile ({}, {}, {}) out of tile range({}, {}, {})", start_tile.x, start_tile.y, start_tile.z, total_tile.x, total_tile.y, total_tile.z);
+        buffer_size >= required_size.size,
+        "Sparse texture copy requires {} bytes but the buffer view "
+        "only contains {} bytes.",
+        required_size.size, buffer_size);
 }
 
 }// namespace detail

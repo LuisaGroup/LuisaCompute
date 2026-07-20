@@ -269,12 +269,6 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
         std::sort(instructions.begin(), instructions.end(), [&](Instruction *lhs, Instruction *rhs) noexcept {
             return inst_indices.at(lhs) < inst_indices.at(rhs);
         });
-        // For aggregate allocas, stores may write to different fields/elements
-        // (e.g., after transpose_gep_pass converts GEP stores to insert-based stores).
-        // Removing earlier stores or forwarding their values is unsafe because
-        // later stores only overwrite part of the aggregate.
-        auto alloca_type = inst->type();
-        bool is_aggregate = !alloca_type->is_scalar();
         // eliminate redundant loads and overwritten stores
         auto last_store = static_cast<StoreInst *>(nullptr);
         auto last_value = static_cast<Value *>(nullptr);
@@ -289,20 +283,17 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
                     break;
                 }
                 case DerivedInstructionTag::STORE: {
-                    if (!is_aggregate) {
-                        // we have overwritten the last store so remove it if any
-                        if (last_store != nullptr) {
-                            remove_store(last_store, ctx, info);
-                        }
-                        // record the value from this store for forwarding to subsequent loads
-                        last_value = static_cast<StoreInst *>(store_or_load)->value();
-                        LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
-                    } else {
-                        // For aggregates, a store writes to only part of the alloca,
-                        // so we cannot forward store values to loads. But we must
-                        // invalidate any cached load value since the alloca changed.
-                        last_value = nullptr;
+                    // A direct StoreInst to this alloca always replaces the whole
+                    // object, independently of whether its value is scalar or an
+                    // aggregate. Partial field/element stores use a GEP pointer and
+                    // make the alloca non-promotable unless transpose_gep first turns
+                    // them into an explicit load/insert/full-store sequence. In both
+                    // cases, forwarding the direct store value is exact.
+                    if (last_store != nullptr) {
+                        remove_store(last_store, ctx, info);
                     }
+                    last_value = static_cast<StoreInst *>(store_or_load)->value();
+                    LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
                     // record this store
                     last_store = static_cast<StoreInst *>(store_or_load);
                     break;
@@ -393,11 +384,9 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                                     .reachable_blocks = reachable_blocks};
             PhiInsertionAndRenaming insertion{.ctx = ctx};
             for (auto inst : promotable) {
-                // Skip allocas with multiple direct stores in the same block.
-                // For non-scalar allocas (e.g., aggregates), simplify_single_block_store_load
-                // does not collapse stores, so multiple stores per block can remain after
-                // transpose_gep converts GEP stores to insert-based stores. The classic
-                // mem2reg algorithm assumes at most one store per block.
+                // The local simplifier above must leave at most one direct store
+                // per block. Keep this defensive boundary check: the SSA rewrite's
+                // per-block definition map cannot represent more than one.
                 luisa::unordered_map<BasicBlock *, uint32_t> block_store_count;
                 bool has_multiple_stores = false;
                 for (auto &&use : inst->use_list()) {

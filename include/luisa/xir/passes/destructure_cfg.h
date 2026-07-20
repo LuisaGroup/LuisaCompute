@@ -29,5 +29,6 @@ struct DestructureCFGInfo {
 // SwitchInst is intentionally left for lower_switch_pass followed by this pass.
 [[nodiscard]] LUISA_XIR_API DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noexcept;
 [[nodiscard]] LUISA_XIR_API DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
+[[nodiscard]] LUISA_XIR_API DestructureCFGInfo destructure_cfg_pass_preflight_function(Function *function) noexcept;
 
 }// namespace luisa::compute::xir

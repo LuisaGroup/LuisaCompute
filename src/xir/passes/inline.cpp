@@ -78,6 +78,23 @@ public:
     return count == 1u && def->body_block() != nullptr;
 }
 
+[[nodiscard]] static bool can_inline_single_block(
+    FunctionDefinition *def) noexcept {
+    if (!has_single_block(def)) { return false; }
+    auto *block = def->body_block();
+    if (!block->is_terminated() ||
+        !block->terminator()->isa<ReturnInst>()) {
+        return false;
+    }
+    for (auto *inst : block->instructions()) {
+        if ((inst->is_terminator() && !inst->isa<ReturnInst>()) ||
+            inst->isa<PhiInst>()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] static bool contains_inline_barrier(FunctionDefinition *def,
                                                   bool allow_autodiff_scope) noexcept {
     if (!allow_autodiff_scope) { return contains_structured_control_flow(def); }
@@ -155,20 +172,11 @@ public:
                                                    Function *callee) noexcept {
     auto *callee_def = callee->definition();
     auto *caller = call->parent_function();
-    if (callee_def == nullptr || caller == nullptr || !has_single_block(callee_def)) {
+    if (callee_def == nullptr || caller == nullptr ||
+        !can_inline_single_block(callee_def)) {
         return false;
     }
     auto *block = callee_def->body_block();
-    if (!block->is_terminated() || !block->terminator()->isa<ReturnInst>()) {
-        return false;
-    }
-    // Validate the shape before mutating the caller. A direct inline can be
-    // inserted safely even when the caller is structured because it neither
-    // splits a block nor introduces a BranchInst.
-    for (auto *inst : block->instructions()) {
-        if (inst->is_terminator() && !inst->isa<ReturnInst>()) { return false; }
-        if (inst->isa<PhiInst>()) { return false; }
-    }
     XIRBuilder builder;
     builder.set_insertion_point(call);
     InlineValueResolver resolver{caller};
@@ -396,9 +404,6 @@ public:
     if (contains_inline_barrier(caller_def, options.allow_autodiff_scope_in_caller) ||
         contains_structured_control_flow(callee_def)) {
         ++info.skipped_structured_call_count;
-        LUISA_WARNING_WITH_LOCATION(
-            "Inline skipped a multi-block call involving structured CFG; "
-            "IR was left unchanged.");
         return false;
     }
     return inline_multi_block_call(call, callee);
@@ -568,6 +573,114 @@ InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, 
         report->set("skipped_recursive_callable", info.skipped_recursive_callable_count);
         report->set("skipped_structured_call", info.skipped_structured_call_count);
         report->set("rejected_malformed_call", info.rejected_malformed_call_count);
+    }
+    return info;
+}
+
+InlineInfo inline_call_sites_pass_run_on_module(
+    Module *module, luisa::span<CallInst *const> call_sites,
+    InlineOptions options, PassReport *report) noexcept {
+    InlineInfo info;
+    if (module == nullptr || call_sites.empty()) { return info; }
+    luisa::unordered_set<CallInst *> reported_malformed_calls;
+    luisa::vector<Function *> all_callables;
+    for (auto *function : module->function_list()) {
+        if (function->derived_function_tag() ==
+            DerivedFunctionTag::CALLABLE) {
+            all_callables.emplace_back(function);
+        }
+    }
+    auto recursive = detail::find_recursive_callables(all_callables);
+    luisa::unordered_set<Function *> reported_recursive;
+    luisa::unordered_set<CallInst *> seen_calls;
+    luisa::vector<std::pair<CallInst *, Function *>> plan;
+    plan.reserve(call_sites.size());
+    for (auto *call : call_sites) {
+        if (call == nullptr) {
+            ++info.rejected_malformed_call_count;
+            continue;
+        }
+        if (!seen_calls.emplace(call).second) { continue; }
+        auto *callee = call->callee();
+        auto *caller = call->parent_function();
+        auto malformed = callee == nullptr || caller == nullptr ||
+                         caller->parent_module() != module ||
+                         callee->parent_module() != module ||
+                         callee->derived_function_tag() !=
+                             DerivedFunctionTag::CALLABLE ||
+                         callee->definition() == nullptr ||
+                         !detail::validate_call_shape(call, callee);
+        if (!malformed && detail::has_single_block(callee->definition()) &&
+            !detail::can_inline_single_block(callee->definition())) {
+            malformed = true;
+        }
+        if (malformed) {
+            ++info.rejected_malformed_call_count;
+            continue;
+        }
+        if (recursive.contains(callee)) {
+            if (reported_recursive.emplace(callee).second) {
+                ++info.skipped_recursive_callable_count;
+            }
+            continue;
+        }
+        auto *callee_def = callee->definition();
+        auto *caller_def = caller->definition();
+        if (!detail::has_single_block(callee_def) &&
+            (detail::contains_inline_barrier(
+                 caller_def, options.allow_autodiff_scope_in_caller) ||
+             contains_structured_control_flow(callee_def))) {
+            ++info.skipped_structured_call_count;
+            continue;
+        }
+        plan.emplace_back(call, callee);
+    }
+    if (info.rejected_malformed_call_count != 0u ||
+        info.skipped_recursive_callable_count != 0u ||
+        info.skipped_structured_call_count != 0u ||
+        plan.size() != seen_calls.size()) {
+        if (report != nullptr) {
+            report->set("inlined_call", info.inlined_call_count);
+            report->set("removed_callable", info.removed_callable_count);
+            report->set("skipped_recursive_callable",
+                        info.skipped_recursive_callable_count);
+            report->set("skipped_structured_call",
+                        info.skipped_structured_call_count);
+            report->set("rejected_malformed_call",
+                        info.rejected_malformed_call_count);
+        }
+        return info;
+    }
+    for (auto &&[call, callee] : plan) {
+        if (!detail::inline_call(call, callee, info, options,
+                                 &reported_malformed_calls)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Inline call-site plan changed after successful preflight.");
+        }
+        ++info.inlined_call_count;
+    }
+    luisa::unordered_set<Function *> planned_callees;
+    for (auto &&[_, callee] : plan) { planned_callees.emplace(callee); }
+    luisa::vector<Function *> unused_callables;
+    for (auto *function : module->function_list()) {
+        if (planned_callees.contains(function) &&
+            function->use_list().empty()) {
+            unused_callables.emplace_back(function);
+        }
+    }
+    for (auto *callee : unused_callables) {
+        callee->remove_self();
+        ++info.removed_callable_count;
+    }
+    if (report != nullptr) {
+        report->set("inlined_call", info.inlined_call_count);
+        report->set("removed_callable", info.removed_callable_count);
+        report->set("skipped_recursive_callable",
+                    info.skipped_recursive_callable_count);
+        report->set("skipped_structured_call",
+                    info.skipped_structured_call_count);
+        report->set("rejected_malformed_call",
+                    info.rejected_malformed_call_count);
     }
     return info;
 }

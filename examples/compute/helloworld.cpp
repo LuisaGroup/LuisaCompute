@@ -17,8 +17,14 @@ struct Test1 {
 LUISA_STRUCT(Test1, a, b) {};
 
 int main(int argc, char *argv[]) {
+    auto executable = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : "";
+    if (argc <= 1 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
+        LUISA_INFO("Usage: {} <backend>.", executable);
+        return 1;
+    }
+
     // Create context and device
-    Context ctx(argv[0]);
+    Context ctx(executable);
     Device device = ctx.create_device(argv[1]);
 
     // Create a buffer to store Test1 structure

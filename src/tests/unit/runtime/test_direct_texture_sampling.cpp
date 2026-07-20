@@ -6,7 +6,8 @@
 // AST -> XIR -> backend path is tested without depending on clangcxx.
 // It checks surface reads, view-relative sizes, spatial/address filtering,
 // explicit fractional LOD, gradient LOD, minimum-LOD clamping, and a bound
-// nonzero base mip against an independent CPU oracle.
+// nonzero base mip against an independent CPU oracle. It also forces one
+// texture argument through sampled-image and storage-image paths in one kernel.
 
 #include "ut/ut.hpp"
 #include "test_device.h"
@@ -398,6 +399,49 @@ void test_direct_texture_sampling(Device &device) {
                 base_level, "lane-divergent mip/sampler selection");
         }
     }
+
+    // A read/write texture needs two descriptor roles: sampling is illegal on
+    // a storage image, while image writes are illegal on a sampled image. The
+    // two views deliberately overlap and therefore use GENERAL layout. The
+    // following result buffer makes a one-vs-two descriptor count error
+    // observable instead of merely relying on validation diagnostics.
+    constexpr auto read_write_base_level = 1u;
+    constexpr auto read_write_uv = make_float2(1.5f / 4.0f, 2.5f / 4.0f);
+    constexpr auto write_delta = make_float4(0.125f, 0.25f, 0.5f, 0.0f);
+    auto read_write_output = device.create_buffer<float4>(1u);
+    Kernel1D read_write_kernel = [&](ImageFloat image,
+                                     BufferFloat4 result) noexcept {
+        auto &builder =
+            *luisa::compute::detail::FunctionBuilder::current();
+        auto literal = [&](auto value) noexcept {
+            return builder.literal(Type::of<decltype(value)>(), value);
+        };
+        auto sampled_expression = builder.call(
+            Type::of<float4>(), CallOp::TEXTURE2D_SAMPLE_LEVEL,
+            {image.expression(), literal(read_write_uv), literal(0.0f),
+             literal(static_cast<uint32_t>(Sampler::Filter::POINT)),
+             literal(static_cast<uint32_t>(Sampler::Address::EDGE))});
+        auto sampled = def<float4>(sampled_expression);
+        result.write(0u, sampled);
+        image.write(make_uint2(0u), sampled + write_delta);
+    };
+    auto read_write_shader = device.compile(read_write_kernel);
+    std::array<float4, 1u> sampled_result{};
+    auto written_level = make_level_pixels(read_write_base_level);
+    stream << read_write_shader(
+                  texture.view(read_write_base_level), read_write_output)
+                  .dispatch(1u)
+           << read_write_output.copy_to(luisa::span{sampled_result})
+           << texture.view(read_write_base_level)
+                  .copy_to(luisa::span{written_level})
+           << synchronize();
+    auto expected_sample = texel(read_write_base_level, 1u, 2u);
+    expect_close(sampled_result[0], expected_sample,
+                 read_write_base_level,
+                 "combined sampled/storage texture read");
+    expect_close(written_level[0], expected_sample + write_delta,
+                 read_write_base_level,
+                 "combined sampled/storage texture write");
 }
 
 int main(int argc, char *argv[]) {

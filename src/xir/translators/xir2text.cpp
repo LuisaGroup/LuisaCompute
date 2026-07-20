@@ -1,5 +1,6 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/string_scratch.h>
 #include <luisa/ast/type.h>
@@ -39,6 +40,7 @@
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/curve_basis.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/translators/xir2text.h>
 
@@ -320,7 +322,31 @@ private:
     void _emit_switch_inst(const SwitchInst *inst, int indent) noexcept {
         _main << "switch " << _value_ident(inst->value()) << ", ";
         for (auto i = 0u; i < inst->case_count(); i++) {
-            _main << "case " << inst->case_value(i) << " ";
+            auto value = inst->case_value(i);
+            _main << "case ";
+            switch (inst->value()->type()->tag()) {
+                case Type::Tag::INT8:
+                    _main << luisa::format(
+                        "{}", static_cast<int64_t>(luisa::bit_cast<int8_t>(
+                                  static_cast<uint8_t>(value))));
+                    break;
+                case Type::Tag::INT16:
+                    _main << luisa::format(
+                        "{}", static_cast<int64_t>(luisa::bit_cast<int16_t>(
+                                  static_cast<uint16_t>(value))));
+                    break;
+                case Type::Tag::INT32:
+                    _main << luisa::format(
+                        "{}", static_cast<int64_t>(luisa::bit_cast<int32_t>(
+                                  static_cast<uint32_t>(value))));
+                    break;
+                case Type::Tag::INT64:
+                    _main << luisa::format(
+                        "{}", luisa::bit_cast<int64_t>(value));
+                    break;
+                default: _main << value; break;
+            }
+            _main << " ";
             _flat_blocks ? _emit_basic_block_ref(inst->case_block(i)) : _emit_basic_block(inst->case_block(i), indent);
             _main << ", ";
         }
@@ -907,7 +933,13 @@ private:
                 case DerivedMetadataTag::CURVE_BASIS:
                     _emit_curve_basis_metadata(s, static_cast<const CurveBasisMD *>(item));
                     break;
-                default: LUISA_NOT_IMPLEMENTED();
+                case DerivedMetadataTag::SIGNATURE_CONSTRAINT:
+                    s << "signature_constraint";
+                    break;
+                case DerivedMetadataTag::REG2MEM_SPILL:
+                    s << "reg2mem_spill = "
+                      << to_string(static_cast<const Reg2MemSpillMD *>(item)->kind());
+                    break;
             }
             s << ", ";
         }

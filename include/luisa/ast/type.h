@@ -437,7 +437,7 @@ public:
     ///   MATRIX := matrix\<VEC_MAT_DIM\> | matrix\<VEC_MAT_DIM\> | matrix\<VEC_MAT_DIM\> \n
     ///   VEC_MAT_DIM := 2 | 3 | 4 \n
     ///   STRUCT := struct\<STRUCT_ALIGNMENT,DATA+\> \n
-    ///   STRUCT_ALIGNMENT := 4 | 8 | 16 \n
+    ///   STRUCT_ALIGNMENT := 1 | 4 | 8 | 16 \n
     ///   RESOURCE := BUFFER | TEXTURE | BINDLESS_ARRAY | ACCEL \n
     ///   BUFFER := buffer\<DATA | CUSTOM\> \n
     ///   TEXTURE := texture\<TEXTURE_DIM,TEXTURE_ELEM\> \n

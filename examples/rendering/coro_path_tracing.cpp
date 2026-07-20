@@ -71,9 +71,11 @@ int main(int argc, char *argv[]) {
     }
 
     std::string_view backend_name{argv[1]};
-    Device device = context.create_device(backend_name);
-
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
     auto scheduler_kind = luisa::example::parse_coro_scheduler_arg(argc, argv);
     auto resolution_size = 1024u;
     auto sample_dispatch = LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT != 0;
@@ -82,19 +84,27 @@ int main(int argc, char *argv[]) {
         std::string_view arg{argv[i]};
         if (arg == "--resolution") {
             if (i + 1 >= argc || argv[i + 1] == nullptr) {
-                LUISA_ERROR("Missing value for --resolution.");
+                LUISA_WARNING("Invalid command line: Missing value for --resolution.");
+                return 1;
             }
-            auto value = static_cast<uint>(std::atoi(argv[++i]));
-            if (value == 0u) {
-                LUISA_ERROR("--resolution must be greater than zero.");
+            std::string_view value{argv[++i]};
+            auto parsed_value = luisa::ref::parse_uint32_option_value(value);
+            if (!parsed_value) {
+                LUISA_WARNING("Invalid command line: Invalid unsigned integer for --resolution: '{}'.", value);
+                return 1;
             }
-            resolution_size = value;
+            if (*parsed_value == 0u) {
+                LUISA_WARNING("Invalid command line: --resolution must be greater than zero.");
+                return 1;
+            }
+            resolution_size = *parsed_value;
         } else if (arg == "--sample-dispatch") {
             sample_dispatch = true;
         } else if (arg == "--batch-dispatch") {
             sample_dispatch = false;
         }
     }
+    Device device = context.create_device(backend_name);
     if (sample_dispatch && opts.compare_path) {
         LUISA_WARNING("--compare requires race-free per-pixel accumulation; forcing --batch-dispatch.");
         sample_dispatch = false;

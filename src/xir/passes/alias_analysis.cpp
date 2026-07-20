@@ -17,18 +17,11 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static luisa::optional<int64_t> try_get_constant_int_value(Value *v) noexcept {
-    if (v->isa<Constant>()) {
-        auto c = static_cast<Constant *>(v);
-        auto type = c->type();
-        auto size = type->size();
-        if (size == 4) {
-            return static_cast<int64_t>(*static_cast<const int32_t *>(c->data()));
-        } else if (size == 8) {
-            return *static_cast<const int64_t *>(c->data());
-        }
-    }
-    return luisa::nullopt;
+static luisa::optional<uint64_t> try_get_constant_int_value(Value *v) noexcept {
+    uint64_t result = 0u;
+    return try_decode_constant_nonnegative_integer(v, result) ?
+               luisa::optional<uint64_t>{result} :
+               luisa::nullopt;
 }
 
 static AllocaInst *get_base_alloca(Instruction *inst) noexcept {

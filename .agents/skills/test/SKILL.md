@@ -78,9 +78,9 @@ luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver
 
 **Do NOT mirror**: GUI toolkit demos (`swapchain*`, `imgui`, `mnist`, Qt, wxWidgets, `win_hdr`) and extension/interop demos. Correctness can't be auto-checked for interactive windows.
 
-**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*` (including `example_path_tracing_ir` when Rust IR is enabled, and `example_path_tracing_xir2ast` when XIR is enabled), `example_sdf_renderer[_ir]` (IR variant gated by Rust), `example_sdf_renderer_xir2ast` (gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_multi_head_attention`.
+**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*` (including `example_path_tracing_ir` when Rust IR is enabled, and `example_path_tracing_xir2ast` when XIR is enabled), `example_sdf_renderer[_ir]` (IR variant gated by Rust), `example_sdf_renderer_xir2ast` (gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_multi_head_attention`.
 
-`example_procedural` and all GUI toolkit demos (`imgui`, `swapchain*`, `win_hdr`, Qt, wxWidgets), extension/interop demos, and `example_bindless_mip` are **not** mirrored because they are interactive or lack deterministic offline validation.
+GUI toolkit demos (`imgui`, `swapchain*`, `win_hdr`, Qt, wxWidgets), extension/interop demos, and `example_bindless_mip` are **not** mirrored because they are interactive or lack deterministic offline validation.
 
 ## C++ Test Templates & Style
 
@@ -437,11 +437,26 @@ For floats: `expect(std::abs(a - b) < eps)` or use the helpers in `common/test_d
 
 ## Running
 
+Before running any test binary or `ctest`, complete a full build of the selected build tree:
+
+```bash
+cmake --build <build-dir> --parallel
+```
+
+A target-only build is useful for compilation diagnostics but does not satisfy this gate. If source changes after the full build starts, repeat the full build before resuming tests.
+
 CMake build:
 ```bash
-cmake --build cmake-build-debug --target test_dsl_mathematic
+cmake --build cmake-build-debug --parallel
 ./cmake-build-debug/bin/test_dsl_mathematic dx
 ctest --test-dir cmake-build-debug -L unit_core    # run CTest-registered unit tests
+```
+
+The Vulkan native-route guard is device-dependent and therefore runs manually in both Vulkan configurations after their respective full builds:
+
+```bash
+LUISA_VULKAN_VALIDATION=1 build-cmake-ninja-xir-llvm/bin/test_vk_native_route_guard vk
+LUISA_VULKAN_VALIDATION=1 build-cmake-ninja-vk-llvm-gfx1201/bin/test_vk_native_route_guard vk
 ```
 
 xmake build:
@@ -470,8 +485,23 @@ CLI: pass the backend first, then offline/comparison flags: `<test_binary> <back
 
 For mirrored rendering examples that accept `--spp`, offline reference validation must use at least `--spp 1024` unless a test-specific instruction says otherwise. The expected command shape is:
 ```bash
+LUISA_VULKAN_VALIDATION=1 \
+LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1 \
+LUISA_DUMP_SOURCE=1 \
 cmake-build-release/bin/test_path_tracing vk --offline --spp 1024 --compare docs/gallery/test_path_tracing.png
 ```
+When the result is intended to validate Vulkan's native XIR -> SPIR-V path,
+always enable this guard. It rejects a user shader that would otherwise route
+through the compatibility HLSL compiler, rejects non-native Vulkan builds, and
+constrains strict AOT loads to XIR-produced SPIR-V while still allowing
+Vulkan's internal HLSL-generated builtins. `LUISA_DUMP_SOURCE=1` additionally
+forces fresh JIT codegen; pair both with Vulkan validation for runtime coverage.
+Do not apply the strict guard blindly to a mixed-route executable. In
+`test_vk_spirv_codegen_path`, 61 cases are strict-native while the typed
+`BUFFER_ONLY` case and two native-HLSL interoperability cases deliberately use
+the compatibility route. Cover all 64 once under validation, and cover the 61
+native cases separately under the strict guard; never hide a fallback by
+locally clearing the environment inside a nominally strict test.
 Lower default offline sample counts may produce PSNR failures from sampling noise rather than code regressions. Do not report an offline rendering test as passing image validation unless the log contains `Reference comparison: PASSED` and exit code `0`.
 
 For path-tracing gallery validation, run the mirrored executable with its matching reference, for example:

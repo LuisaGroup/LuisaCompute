@@ -78,40 +78,16 @@ namespace detail {
 }
 
 [[nodiscard]] static luisa::optional<size_t> decode_constant_index(const Value *value) noexcept {
-    if (value == nullptr || !value->isa<Constant>()) { return luisa::nullopt; }
-    auto constant = static_cast<const Constant *>(value);
-    if (constant->type() == nullptr) { return luisa::nullopt; }
-    auto decode_unsigned = [](uint64_t index) noexcept -> luisa::optional<size_t> {
-        if constexpr (sizeof(size_t) < sizeof(uint64_t)) {
-            if (index > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-                return luisa::nullopt;
-            }
-        }
-        return static_cast<size_t>(index);
-    };
-    switch (constant->type()->tag()) {
-        case Type::Tag::INT8: {
-            auto index = constant->as<int8_t>();
-            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
-        }
-        case Type::Tag::UINT8: return decode_unsigned(constant->as<uint8_t>());
-        case Type::Tag::INT16: {
-            auto index = constant->as<int16_t>();
-            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
-        }
-        case Type::Tag::UINT16: return decode_unsigned(constant->as<uint16_t>());
-        case Type::Tag::INT32: {
-            auto index = constant->as<int32_t>();
-            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
-        }
-        case Type::Tag::UINT32: return decode_unsigned(constant->as<uint32_t>());
-        case Type::Tag::INT64: {
-            auto index = constant->as<int64_t>();
-            return index < 0 ? luisa::nullopt : decode_unsigned(static_cast<uint64_t>(index));
-        }
-        case Type::Tag::UINT64: return decode_unsigned(constant->as<uint64_t>());
-        default: return luisa::nullopt;
+    uint64_t index = 0u;
+    if (!try_decode_constant_nonnegative_integer(value, index)) {
+        return luisa::nullopt;
     }
+    if constexpr (sizeof(size_t) < sizeof(uint64_t)) {
+        if (index > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+            return luisa::nullopt;
+        }
+    }
+    return static_cast<size_t>(index);
 }
 
 [[nodiscard]] static bool indices_equal(Value *a, Value *b) noexcept {

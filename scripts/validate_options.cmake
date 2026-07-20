@@ -1,3 +1,15 @@
+# Record the project's CRT selection before any dependency package can
+# overwrite it in this top-level directory. LLVM consumers use this snapshot
+# for ABI checks instead of trusting whatever value a prior LLVMConfig.cmake
+# invocation happened to leave behind.
+set(LUISA_COMPUTE_PROJECT_MSVC_RUNTIME_LIBRARY_WAS_DEFINED FALSE)
+unset(LUISA_COMPUTE_PROJECT_MSVC_RUNTIME_LIBRARY)
+if (DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+    set(LUISA_COMPUTE_PROJECT_MSVC_RUNTIME_LIBRARY_WAS_DEFINED TRUE)
+    set(LUISA_COMPUTE_PROJECT_MSVC_RUNTIME_LIBRARY
+            "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+endif ()
+
 if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
 endif ()
@@ -113,6 +125,15 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_FALLBACK)
     find_package(LLVM CONFIG)
+    # LLVMConfig.cmake exports the CRT used to build LLVM. Retain its package
+    # variables and imported targets, but never let that setting become the
+    # project's target default.
+    if (LUISA_COMPUTE_PROJECT_MSVC_RUNTIME_LIBRARY_WAS_DEFINED)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY
+                "${LUISA_COMPUTE_PROJECT_MSVC_RUNTIME_LIBRARY}")
+    else ()
+        unset(CMAKE_MSVC_RUNTIME_LIBRARY)
+    endif ()
     find_package(embree CONFIG)
     if (NOT LLVM_FOUND AND WIN32)
         include(${CMAKE_CURRENT_SOURCE_DIR}/scripts/download_and_patch_llvm.cmake)

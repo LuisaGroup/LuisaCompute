@@ -450,6 +450,27 @@ bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
     return changed;
 }
 
+[[nodiscard]] bool terminator_targets(Instruction *term, BasicBlock *target) noexcept {
+    if (term == nullptr || target == nullptr) { return false; }
+    switch (term->derived_instruction_tag()) {
+        case DerivedInstructionTag::BRANCH:
+            return static_cast<BranchInst *>(term)->target_block() == target;
+        case DerivedInstructionTag::CONDITIONAL_BRANCH: {
+            auto *branch = static_cast<ConditionalBranchInst *>(term);
+            return branch->true_block() == target || branch->false_block() == target;
+        }
+        case DerivedInstructionTag::SWITCH: {
+            auto *sw = static_cast<SwitchInst *>(term);
+            if (sw->default_block() == target || sw->merge_block() == target) { return true; }
+            for (size_t i = 0u; i < sw->case_count(); i++) {
+                if (sw->case_block(i) == target) { return true; }
+            }
+            return false;
+        }
+        default: return false;
+    }
+}
+
 [[nodiscard]] bool retarget_loop_exit_to(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
     if (term == nullptr) { return false; }
     switch (term->derived_instruction_tag()) {
@@ -768,8 +789,8 @@ enum struct LoopBoundaryTargetKind {
     return kind;
 }
 
-[[nodiscard]] bool normalize_loop_boundary_conditional_branches(FunctionDefinition *def,
-                                                                bool mixed_only) noexcept {
+[[nodiscard]] bool normalize_one_loop_boundary_conditional_branch(FunctionDefinition *def,
+                                                                  bool mixed_only) noexcept {
     struct LoopSite {
         BasicBlock *entry{nullptr};
         BasicBlock *body{nullptr};
@@ -904,6 +925,17 @@ enum struct LoopBoundaryTargetKind {
     if_inst->set_false_target(false_block);
     if_inst->set_merge_block(selection_merge);
     return true;
+}
+
+[[nodiscard]] bool normalize_loop_boundary_conditional_branches(FunctionDefinition *def,
+                                                                bool mixed_only) noexcept {
+    auto modified = false;
+    // Each successful rewrite replaces one raw conditional branch with an IfInst,
+    // so this phase has a finite, monotonic worklist and needs no site-count cap.
+    while (normalize_one_loop_boundary_conditional_branch(def, mixed_only)) {
+        modified = true;
+    }
+    return modified;
 }
 
 [[nodiscard]] bool normalize_structured_loop_continues(FunctionDefinition *def) noexcept {
@@ -1237,6 +1269,17 @@ struct SelectionExitEdge {
     BasicBlock *dst;
 };
 
+enum class SelectionExitRewriteStatus : uint8_t {
+    UNCHANGED,
+    MODIFIED,
+    REPEATED_SITE,
+};
+
+struct SelectionExitRewriteResult {
+    SelectionExitRewriteStatus status{SelectionExitRewriteStatus::UNCHANGED};
+    Instruction *site{nullptr};
+};
+
 void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
                              BasicBlock *src,
                              BasicBlock *dst) noexcept {
@@ -1246,14 +1289,16 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
     edges.emplace_back(SelectionExitEdge{src, dst});
 }
 
-[[nodiscard]] bool canonicalize_selection_exits(FunctionDefinition *def,
-                                                BasicBlock *header,
-                                                Instruction *term,
-                                                BasicBlock *merge,
-                                                const DomTree &dom) noexcept {
-    if (header == nullptr || term == nullptr || merge == nullptr) { return false; }
+[[nodiscard]] SelectionExitRewriteResult canonicalize_selection_exits(
+    FunctionDefinition *def,
+    BasicBlock *header,
+    Instruction *term,
+    BasicBlock *merge,
+    const DomTree &dom,
+    luisa::unordered_set<Instruction *> &rewritten_sites) noexcept {
+    if (header == nullptr || term == nullptr || merge == nullptr) { return {}; }
     auto entries = selection_entries(term);
-    if (entries.empty()) { return false; }
+    if (entries.empty()) { return {}; }
     auto loop_exits = collect_enclosing_loop_exits(def, header, dom);
 
     luisa::vector<SelectionExitEdge> invalid_exits;
@@ -1300,7 +1345,7 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
             });
         }
     }
-    if (invalid_exits.empty()) { return false; }
+    if (invalid_exits.empty()) { return {}; }
 
     luisa::vector<SelectionExitEdge> reroute_edges;
     reroute_edges.reserve(invalid_exits.size() + merge_exits.size());
@@ -1329,13 +1374,23 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
         normalized_edges.emplace_back(RerouteEdge{edge.src, edge.dst, target});
         (void)add_target(target);
     }
-    if (term->isa<IfInst>() && targets.size() > 1u) { return false; }
+    if (term->isa<IfInst>() && targets.size() > 1u) { return {}; }
+    for (auto edge : normalized_edges) {
+        if (edge.src == nullptr || !edge.src->is_terminated() ||
+            !terminator_targets(edge.src->terminator(), edge.dst)) {
+            return {};
+        }
+    }
+    if (!rewritten_sites.emplace(term).second) {
+        return {SelectionExitRewriteStatus::REPEATED_SITE, term};
+    }
 
     auto *new_merge = def->create_basic_block();
     XIRBuilder b;
+    auto retargeted_any = false;
     if (targets.size() == 1u) {
         for (auto edge : normalized_edges) {
-            (void)retarget_terminator(edge.src->terminator(), edge.dst, new_merge);
+            retargeted_any |= retarget_terminator(edge.src->terminator(), edge.dst, new_merge);
             fix_degenerate_terminator(edge.src);
         }
         b.set_insertion_point(new_merge);
@@ -1351,6 +1406,7 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
                 stub->remove_self();
                 continue;
             }
+            retargeted_any = true;
             fix_degenerate_terminator(edge.src);
             auto id = target_ids[edge.target];
             auto *id_const = mod->create_constant(Type::of<uint32_t>(), &id);
@@ -1375,15 +1431,21 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
         }
     }
 
+    LUISA_ASSERT(retargeted_any,
+                 "Selection-exit canonicalization planned a rewrite without a retargetable edge.");
+
     if (term->isa<IfInst>()) {
         static_cast<IfInst *>(term)->set_merge_block(new_merge);
     } else if (term->isa<SwitchInst>()) {
         static_cast<SwitchInst *>(term)->set_merge_block(new_merge);
     }
-    return true;
+    return {SelectionExitRewriteStatus::MODIFIED, term};
 }
 
-[[nodiscard]] bool canonicalize_selection_exits(FunctionDefinition *def, const DomTree &dom) noexcept {
+[[nodiscard]] SelectionExitRewriteResult canonicalize_one_selection_exit(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    luisa::unordered_set<Instruction *> &rewritten_sites) noexcept {
     struct Site {
         BasicBlock *header;
         Instruction *term;
@@ -1403,11 +1465,33 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
         return lhs.depth > rhs.depth;
     });
     for (auto site : sites) {
-        if (canonicalize_selection_exits(def, site.header, site.term, site.merge, dom)) {
-            return true;
+        auto result = canonicalize_selection_exits(
+            def, site.header, site.term, site.merge, dom, rewritten_sites);
+        if (result.status != SelectionExitRewriteStatus::UNCHANGED) {
+            return result;
         }
     }
-    return false;
+    return {};
+}
+
+[[nodiscard]] bool drain_selection_exits(FunctionDefinition *def,
+                                         DomTree &dom,
+                                         PostDomInfo &pdom,
+                                         RestructureCFGInfo &info) noexcept {
+    luisa::unordered_set<Instruction *> rewritten_sites;
+    auto modified = false;
+    for (;;) {
+        auto result = canonicalize_one_selection_exit(def, dom, rewritten_sites);
+        if (result.status == SelectionExitRewriteStatus::UNCHANGED) { break; }
+        if (result.status == SelectionExitRewriteStatus::REPEATED_SITE) {
+            ++info.iteration_limit_count;
+            break;
+        }
+        modified = true;
+        dom = compute_dom_tree(def);
+        pdom = compute_post_dom(def);
+    }
+    return modified;
 }
 
 // Forward declaration.
@@ -2441,18 +2525,19 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 [[nodiscard]] bool enforce_construct_entries(FunctionDefinition *def,
                                              BasicBlock *header_bb,
                                              BasicBlock *merge_bb,
-                                             RestructureCFGInfo &info) noexcept {
+                                             RestructureCFGInfo &info,
+                                             luisa::unordered_set<Instruction *> &rewritten_sites) noexcept {
     ScopedTimer _timer_enforce_entries("enforce_construct_entries");
     luisa::vector<BasicBlock *> entries;
     collect_construct_entries(header_bb, entries);
     if (entries.size() <= 1u) { return false; }
     bool changed_any = false;
+    bool site_claimed = false;
+    auto *site = header_bb->terminator();
     // Iterate entries in their natural order; per Oracle's design, if the sibling-entry
     // graph is acyclic, fixing earlier entries does not create new bad edges into them.
-    // We bound the inner loop to defend against malformed CFGs.
     for (auto *E : entries) {
-        constexpr size_t budget = 64u;
-        size_t iteration = 0u;
+        luisa::unordered_set<BasicBlock *> rewritten_predecessors;
         // Defer dom-tree computation until we know there are offenders.
         // Recompute only after a successful clone invalidates the old tree.
         DomTree dom;
@@ -2465,9 +2550,15 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                 }
             });
             if (offenders.empty()) { break; }
-            if (iteration++ == budget) {
+            if (!site_claimed && rewritten_sites.contains(site)) {
                 ++info.iteration_limit_count;
-                break;
+                return changed_any;
+            }
+            for (auto *predecessor : offenders) {
+                if (rewritten_predecessors.contains(predecessor)) {
+                    ++info.iteration_limit_count;
+                    return changed_any;
+                }
             }
             if (!dom_valid) {
                 dom = compute_dom_tree(def);
@@ -2479,9 +2570,14 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                                   luisa::span<BasicBlock *const>{entries},
                                                   merge_bb, dom)) {
                     local_change = true;
+                    rewritten_predecessors.emplace(P);
                 }
             }
             if (!local_change) { break; }
+            if (!site_claimed) {
+                rewritten_sites.emplace(site);
+                site_claimed = true;
+            }
             changed_any = true;
             // The CFG was modified; the dom tree is now stale.
             dom_valid = false;
@@ -2495,11 +2591,9 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 void enforce_unique_construct_entries(FunctionDefinition *def,
                                       RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_enforce_unique("enforce_unique_construct_entries");
-    constexpr size_t budget = 64u;
-    size_t iteration = 0u;
-    bool changed = false;
-    while (iteration++ < budget) {
-        changed = false;
+    luisa::unordered_set<Instruction *> rewritten_sites;
+    for (;;) {
+        auto changed = false;
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> construct_sites;// header_bb, merge_bb
         def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
             if (!bb->is_terminated()) { return; }
@@ -2520,7 +2614,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         });
         for (auto &[hbb, mbb] : construct_sites) {
             auto limits_before = info.iteration_limit_count;
-            if (enforce_construct_entries(def, hbb, mbb, info)) {
+            if (enforce_construct_entries(def, hbb, mbb, info, rewritten_sites)) {
                 changed = true;
                 break;// restart outer loop: BB list and dominance changed
             }
@@ -2531,7 +2625,6 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         }
         if (!changed) { break; }
     }
-    if (changed) { ++info.iteration_limit_count; }
 }
 
 // Ensure each case target of a SwitchInst is unique.
@@ -2572,7 +2665,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 // try_restructure_if_batch (e.g., when both arms eventually return). Uses the
 // nearest common post-dominator of all successors as the merge block.
 // Ported from LLVM SPIRVStructurizer::addHeaderToRemainingDivergentDAG.
-[[nodiscard]] static bool add_header_to_remaining_divergent(
+[[nodiscard]] static bool add_header_to_one_remaining_divergent(
     FunctionDefinition *def,
     DomTree &dom,
     PostDomInfo &pdom,
@@ -2744,6 +2837,20 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     return true;
 }
 
+[[nodiscard]] static bool add_headers_to_remaining_divergent(
+    FunctionDefinition *def,
+    DomTree &dom,
+    PostDomInfo &pdom,
+    RestructureCFGInfo &info) noexcept {
+    auto modified = false;
+    // Like loop-boundary normalization, every successful rewrite consumes one
+    // raw ConditionalBranchInst and cannot rediscover the same site.
+    while (add_header_to_one_remaining_divergent(def, dom, pdom, info)) {
+        modified = true;
+    }
+    return modified;
+}
+
 // Ensure each structured construct's exit edges respect SPIR-V hierarchy:
 // an exit from construct C must go through C's immediate parent's merge block.
 // Fix up exit edges of structured constructs using convergence region analysis.
@@ -2756,8 +2863,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     ScopedTimer _timer_fixup_exits("fixup_construct_exits");
 
     bool modified = false;
-    constexpr size_t budget = 64u;
-    bool last_modified = false;
+    luisa::unordered_set<Instruction *> rewritten_sites;
 
     // Helper: check if a construct needs merge-equality fixup.
     auto needs_fixup = [](const ConvergenceRegion *cr, const ConvergenceRegion *parent) -> bool {
@@ -2774,7 +2880,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         return false;
     };
 
-    for (size_t iteration = 0u; iteration < budget; ++iteration) {
+    for (;;) {
         // Compute fresh analysis before each fixup pass (LLVM's S.invalidate()).
         auto cri = compute_convergence_regions(def, dom);
         if (cri.top_level == nullptr || cri.top_level->children.empty()) { break; }
@@ -2782,6 +2888,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         // Walk post-order to find the first construct needing fixup.
         // Break after one fixup to recompute from scratch.
         bool local_mod = false;
+        Instruction *repeated_site = nullptr;
         luisa::function<bool(ConvergenceRegion *, ConvergenceRegion *)> try_fixup;
         try_fixup = [&](ConvergenceRegion *cr, ConvergenceRegion *parent) -> bool {
             for (auto &child : cr->children) {
@@ -2808,6 +2915,11 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             }
             if (exits.empty()) { return false; }
             if (!needs_fixup(cr, parent)) { return false; }
+            auto *site = cr->entry->terminator();
+            if (rewritten_sites.contains(site)) {
+                repeated_site = site;
+                return true;
+            }
 
             luisa::unordered_set<BasicBlock *> et_set;
             luisa::vector<BasicBlock *> et;
@@ -2876,8 +2988,9 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                 return false;
             }
             local_mod = true;
+            rewritten_sites.emplace(site);
 
-            auto *ht = cr->entry->terminator();
+            auto *ht = site;
             if (auto *cm2 = ht->control_flow_merge(); cm2 != nullptr) {
                 if (cm2->merge_block() == cr->convergence_merge) { cm2->set_merge_block(new_exit); }
             }
@@ -2888,14 +3001,16 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         for (auto &child : cri.top_level->children) {
             if (try_fixup(child.get(), cri.top_level.get())) { break; }
         }
-        last_modified = local_mod;
+        if (repeated_site != nullptr) {
+            ++info.iteration_limit_count;
+            break;
+        }
         if (!local_mod) { break; }
         modified = true;
         // Invalidate and recompute after CFG modification (LLVM's S.invalidate()).
         dom = compute_dom_tree(def);
         pdom = compute_post_dom(def);
     }
-    if (last_modified) { ++info.iteration_limit_count; }
     return modified;
 }
 
@@ -3112,16 +3227,16 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     enforce_unique_construct_entries(def, info);
     (void)split_switch_cases(def);
 
-    // Post-restructure fixed-point: passes may create new structured
-    // constructs that need further normalization. Recompute dom/pdom
-    // after each pass modifies the CFG.
-    constexpr size_t post_budget = 64u;
+    // Post-restructure fixed-point: each phase drains its independent
+    // candidates before returning. This budget therefore guards only cycles
+    // caused by interactions between phases, not the number of legal sites.
+    constexpr size_t post_round_budget = 64u;
     bool post_last_modified = false;
     {
         ScopedTimer _timer_post("post_restructure_fixed_point");
         auto dom = compute_dom_tree(def);
         auto pdom = compute_post_dom(def);
-        for (size_t iteration = 0u; iteration < post_budget; ++iteration) {
+        for (size_t iteration = 0u; iteration < post_round_budget; ++iteration) {
             ScopedTimer _timer_post_iter("post_restructure_iteration");
             bool local = false;
             if (try_restructure_loop(def, dom, pdom, info)) {
@@ -3136,19 +3251,22 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                 post_last_modified = true;
                 continue;
             }
-            if (add_header_to_remaining_divergent(def, dom, pdom, info)) {
+            if (add_headers_to_remaining_divergent(def, dom, pdom, info)) {
                 local = true;
-                // dom/pdom already recomputed internally by add_header_to_remaining_divergent.
+                // dom/pdom are recomputed after every rewrite in the drained phase.
             }
             if (proxy_switch_targets_to_structural_boundaries(def)) {
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
-            if (canonicalize_selection_exits(def, dom)) {
+            auto limits_before_selection_exits = info.iteration_limit_count;
+            if (drain_selection_exits(def, dom, pdom, info)) {
                 local = true;
-                dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+            }
+            if (info.iteration_limit_count != limits_before_selection_exits) {
+                post_last_modified = false;
+                break;
             }
             if (canonicalize_loop_boundary_selection_merges(def)) {
                 local = true;

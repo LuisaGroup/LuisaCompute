@@ -44,17 +44,19 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend> [<image>] [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    std::optional<std::filesystem::path> compare_path;
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
     const char *input_image = nullptr;
     for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
-            compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
-            force_offline = true;
-        } else {
+        auto argument = std::string_view{argv[i]};
+        if (argument == "--compare" || argument == "-c") {
+            i++;
+        } else if (argument != "--offline") {
             input_image = argv[i];
         }
     }

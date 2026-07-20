@@ -1,7 +1,10 @@
 #include <luisa/core/logging.h>
+#include <luisa/ast/type.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
+
+#include <cstring>
 
 namespace luisa::compute::xir {
 
@@ -21,12 +24,20 @@ ExternalFunction *Module::create_external_function(const Type *ret_type) noexcep
 }
 
 Constant *Module::_get_or_create_constant(const Constant &temp) noexcept {
-    auto [iter, success] = _hash_to_constant.try_emplace(temp.hash(), nullptr);
-    if (success) {
-        auto pooled_const = luisa::make_managed<Constant>(this, temp.type(), temp.data(), temp.hash());
-        iter->second = _constant_list.push_back(std::move(pooled_const));
+    auto iter = _hash_to_constants.try_emplace(temp.hash()).first;
+    for (auto *constant : iter->second) {
+        if (constant->type() == temp.type() &&
+            std::memcmp(constant->data(), temp.data(),
+                        temp.type()->size()) == 0) {
+            return constant;
+        }
     }
-    return iter->second;
+    auto pooled = luisa::make_managed<Constant>(
+        this, temp.type(), temp.data(), temp.hash());
+    auto *constant = static_cast<Constant *>(
+        _constant_list.push_back(std::move(pooled)));
+    iter->second.emplace_back(constant);
+    return constant;
 }
 
 Module::Module() noexcept

@@ -44,17 +44,13 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(argv[1]);
     LUISA_INFO("Black Hole Renderer - Interstellar Style");
 
-    // Parse --offline flag
-    bool force_offline = false;
-    std::optional<std::filesystem::path> compare_path;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
-            compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
 
     if (!force_offline) {
         LUISA_INFO("Controls: Left drag = Orbit, Right drag = Roll, Scroll/+/- = Zoom, ESC = Quit");

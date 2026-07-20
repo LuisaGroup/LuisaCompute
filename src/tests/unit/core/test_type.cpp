@@ -12,6 +12,14 @@
 #include <variant>
 #include <atomic>
 #include <iostream>
+#include <limits>
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+#include <cerrno>
+#include <csignal>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include <luisa/luisa-compute.h>
 #include "ut/ut.hpp"
@@ -54,6 +62,27 @@ using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+namespace {
+
+template<typename F>
+[[nodiscard]] bool terminates_with_abort(F &&f) noexcept {
+    auto pid = fork();
+    if (pid < 0) { return false; }
+    if (pid == 0) {
+        f();
+        _exit(0);
+    }
+    auto status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) { return false; }
+    }
+    return WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
+}
+
+}// namespace
+#endif
 
 // Test struct with 16-byte alignment for layout testing
 struct alignas(16) AA {
@@ -298,6 +327,64 @@ static auto test_type_registration = [] {
     };
     return 0;
 }();
+
+static auto test_type_numeric_boundaries_registration = [] {
+    "type_dimensions_are_not_narrowed_before_validation"_test = [] {
+        auto wide = Type::from("array<ubyte,65536>");
+        expect(eq(wide->dimension(), 65536u));
+        expect(eq(wide->size(), size_t{65536u}));
+
+        auto max_dimension = std::numeric_limits<uint>::max();
+        auto max_array = Type::from(luisa::format("array<ubyte,{}>", max_dimension));
+        expect(eq(max_array->dimension(), max_dimension));
+        expect(eq(max_array->size(), static_cast<size_t>(max_dimension)));
+
+        auto byte_buffer = Type::buffer(nullptr);
+        expect(byte_buffer->is_buffer());
+        expect(byte_buffer->element() == nullptr);
+        expect(eq(byte_buffer->description(), luisa::string_view{"buffer<void>"}));
+    };
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+    "type_parser_rejects_narrowing_and_layout_overflow_with_diagnostics"_test = [] {
+        constexpr std::array invalid_descriptions{
+            "vector<float,65538>",
+            "matrix<65538>",
+            "texture<65538,float>",
+            "coopvec_ref<4,65536>",
+            "struct<0,uint>",
+            "struct<65536,uint>",
+            "array<void,1>",
+            "vector<void,2>",
+            "struct<4,void>",
+            "buffer<accel>",
+            "buffer<coopvec<float,4>>",
+            "array<array<ubyte,4294967295>,2>",
+            "struct<4,array<ubyte,4294967294>>"};
+        for (auto description : invalid_descriptions) {
+            expect(terminates_with_abort([description] {
+                static_cast<void>(Type::from(description));
+            })) << description;
+        }
+
+        if constexpr (std::numeric_limits<size_t>::max() >
+                      std::numeric_limits<uint>::max()) {
+            constexpr auto too_large =
+                static_cast<size_t>(std::numeric_limits<uint>::max()) + 1u;
+            auto array_description = luisa::format("array<ubyte,{}>", too_large);
+            auto coopvec_description = luisa::format("coopvec_ref<{},0>", too_large);
+            auto coopmat_description = luisa::format("coopmat_ref<{},1,0>", too_large);
+            for (auto description : {array_description, coopvec_description, coopmat_description}) {
+                expect(terminates_with_abort([description] {
+                    static_cast<void>(Type::from(description));
+                })) << description;
+            }
+        }
+    };
+#endif
+    return 0;
+}();
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 

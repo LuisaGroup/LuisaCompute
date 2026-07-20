@@ -22,6 +22,7 @@
 #endif
 #include <stb/stb_image_write.h>
 #include "common/reference_compare.h"
+#include "common/path_tracing_sample_plan.h"
 #include <luisa/gui/window.h>
 #include "cornell_box.h"
 
@@ -72,6 +73,10 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
     Device device = context.create_device(argv[1]);
 
     // load the Cornell Box scene
@@ -203,9 +208,9 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_block_size(16u, 16u, 1u);
         auto &&heap_ref = heap;
         auto &&vertex_buffer_ref = vertex_buffer;
@@ -213,11 +218,11 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
         auto state = seed_image.read(coord).x;
-        auto rx = lcg(state);
-        auto ry = lcg(state);
-        auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         auto radiance = def(make_float3(0.0f));
-        $for (i, spp_per_dispatch) {
+        $for (i, dispatch_spp) {
+            auto rx = lcg(state);
+            auto ry = lcg(state);
+            auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
             auto ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             auto beta = def(make_float3(1.0f));
             auto pdf_bsdf = def(0.0f);
@@ -296,17 +301,17 @@ int main(int argc, char *argv[]) {
                 beta *= 1.0f / q;
             };
         };
-        radiance /= static_cast<float>(spp_per_dispatch);
+        radiance /= dispatch_spp.cast<float>();
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), dispatch_spp.cast<float>()));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         auto p = dispatch_id().xy();
         auto accum = accum_image.read(p);
-        auto curr = curr_image.read(p).xyz();
-        accum_image.write(p, accum + make_float4(curr, 1.f));
+        auto curr = curr_image.read(p);
+        accum_image.write(p, accum + make_float4(curr.xyz() * curr.w, curr.w));
     };
 
     auto aces_tonemapping = [](Float3 x) noexcept {
@@ -339,12 +344,12 @@ int main(int argc, char *argv[]) {
 #if LUISA_RENDERING_USE_XIR_TO_AST
     auto raytracing_ast = build_xir_to_ast_kernel(raytracing_kernel.function()->function());
     auto make_sampler_ast = build_xir_to_ast_kernel(make_sampler_kernel.function()->function());
-    auto raytracing_shader = device.compile(Kernel<2, Image<float>, Image<uint>, Accel, uint2>{raytracing_ast});
+    auto raytracing_shader = device.compile(Kernel<2, Image<float>, Image<uint>, Accel, uint2, uint>{raytracing_ast});
     auto make_sampler_shader = device.compile(Kernel<2, Image<uint>>{make_sampler_ast});
 #else
     auto raytracing_ir = AST2IR::build_kernel(raytracing_kernel.function()->function());
     auto make_sampler_ir = AST2IR::build_kernel(make_sampler_kernel.function()->function());
-    auto raytracing_shader = device.compile<2, Image<float>, Image<uint>, Accel, uint2>(raytracing_ir->get());
+    auto raytracing_shader = device.compile<2, Image<float>, Image<uint>, Accel, uint2, uint>(raytracing_ir->get());
     auto make_sampler_shader = device.compile<2, Image<uint>>(make_sampler_ir->get());
 #endif
 
@@ -376,13 +381,18 @@ int main(int argc, char *argv[]) {
         (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     auto last_time = 0.0;
-    auto frame_count = 0u;
+    uint64_t frame_count = 0u;
     Clock clock;
     bool infinite_render = !opts.offline;
-    uint total_spp = opts.offline ? (opts.spp == 0u ? 1024u : opts.spp) : 0u;
+    auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
+        .total_spp = opts.offline ? (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp) : 0u,
+        .max_spp_per_dispatch = max_spp_per_dispatch,
+        .infinite = infinite_render,
+    };
 
-    while (infinite_render || frame_count < total_spp) {
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
+    while (sample_plan.has_next(frame_count)) {
+        auto dispatch_spp = sample_plan.next_dispatch_spp(frame_count);
+        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution, dispatch_spp)
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
@@ -397,7 +407,7 @@ int main(int argc, char *argv[]) {
         }
         auto dt = clock.toc() - last_time;
         last_time = clock.toc();
-        frame_count += spp_per_dispatch;
+        frame_count += dispatch_spp;
         LUISA_INFO("time: {} ms", dt);
     }
     stream << hdr2ldr_shader(accum_image, ldr_image, 2.0f).dispatch(resolution)

@@ -13,8 +13,32 @@ SwitchInst::SwitchInst(BasicBlock *parent_block, Value *value) noexcept : Super{
     set_operands(operands);
 }
 
+SwitchInst::case_value_type SwitchInst::canonicalize_case_value(
+    const Type *selector_type, case_value_type value) noexcept {
+    if (selector_type == nullptr) { return value; }
+    uint32_t bit_width = 0u;
+    switch (selector_type->tag()) {
+        case Type::Tag::BOOL: bit_width = 1u; break;
+        case Type::Tag::INT8:
+        case Type::Tag::UINT8: bit_width = 8u; break;
+        case Type::Tag::INT16:
+        case Type::Tag::UINT16: bit_width = 16u; break;
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32: bit_width = 32u; break;
+        case Type::Tag::INT64:
+        case Type::Tag::UINT64: bit_width = 64u; break;
+        default: return value;
+    }
+    if (bit_width == 64u) { return value; }
+    return value & ((case_value_type{1u} << bit_width) - 1u);
+}
+
 void SwitchInst::set_value(Value *value) noexcept {
     set_operand(operand_index_value, value);
+    auto selector_type = value == nullptr ? nullptr : value->type();
+    for (auto &case_value : _case_values) {
+        case_value = canonicalize_case_value(selector_type, case_value);
+    }
 }
 
 void SwitchInst::set_default_block(BasicBlock *block) noexcept {
@@ -53,7 +77,8 @@ size_t SwitchInst::case_count() const noexcept {
 
 void SwitchInst::set_case_value(size_t index, case_value_type value) noexcept {
     LUISA_DEBUG_ASSERT(index < case_count(), "Switch case index out of range.");
-    _case_values[index] = value;
+    _case_values[index] = canonicalize_case_value(
+        this->value() == nullptr ? nullptr : this->value()->type(), value);
 }
 
 void SwitchInst::set_case_block(size_t index, BasicBlock *block) noexcept {
@@ -61,13 +86,17 @@ void SwitchInst::set_case_block(size_t index, BasicBlock *block) noexcept {
 }
 
 void SwitchInst::add_case(case_value_type value, BasicBlock *block) noexcept {
-    _case_values.emplace_back(value);
+    _case_values.emplace_back(canonicalize_case_value(
+        this->value() == nullptr ? nullptr : this->value()->type(), value));
     add_operand(block);
 }
 
 void SwitchInst::insert_case(size_t index, case_value_type value, BasicBlock *block) noexcept {
     LUISA_DEBUG_ASSERT(index <= case_count(), "Switch case index out of range.");
-    _case_values.insert(_case_values.cbegin() + index, value);
+    _case_values.insert(
+        _case_values.cbegin() + index,
+        canonicalize_case_value(
+            this->value() == nullptr ? nullptr : this->value()->type(), value));
     insert_operand(operand_index_case_block_offset + index, block);
 }
 

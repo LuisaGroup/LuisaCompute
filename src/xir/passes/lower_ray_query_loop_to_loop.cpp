@@ -132,7 +132,7 @@ struct RetargetableHandlerRegion {
 // Lowers RayQueryLoopInst into a LoopInst with structured candidate dispatch.
 //
 // Output structure (LoopInst with prepare/body/update/merge):
-//   prepare: proceed(rq); cond_br(is_terminated, merge, body)
+//   prepare: proceed(rq); cond_br(is_active, body, merge)
 //   body:    IfInst(is_triangle, on_surface_block, else_block, candidate_continue)
 //              else_block: IfInst(is_procedural, on_procedural_block, skip, candidate_continue)
 //                skip: br(candidate_continue)
@@ -230,7 +230,8 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     b.set_insertion_point(prepare_block);
     b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED, {query_object});
     auto is_terminated = b.call(bool_type, RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, {query_object});
-    b.cond_br(is_terminated, merge_block, body_block);
+    auto is_active = b.call(bool_type, ArithmeticOp::UNARY_BIT_NOT, {is_terminated});
+    b.cond_br(is_active, body_block, merge_block);
     replace_phi_predecessor(merge_block, dispatch_block, prepare_block);
 
     b.set_insertion_point(update_block);

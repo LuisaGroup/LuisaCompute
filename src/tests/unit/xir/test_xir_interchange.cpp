@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
+#include <utility>
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/format.h>
@@ -16,6 +18,7 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/name.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_switch.h>
@@ -271,6 +274,18 @@ void reg_malformed_bitcode() {
         trailing.emplace_back(std::byte{0u});
         auto trailing_result = xir_from_bitcode(trailing);
         expect(!trailing_result.succeeded());
+
+        const std::array invalid_spill_kind_payload{
+            std::byte{0x00}, std::byte{0x01},
+            std::byte{0x05}, std::byte{0x02}};
+        auto invalid_spill_kind = xir_from_bitcode(
+            make_test_bitcode(invalid_spill_kind_payload));
+        expect(!invalid_spill_kind.succeeded());
+        expect(!invalid_spill_kind.diagnostics.empty());
+        if (!invalid_spill_kind.diagnostics.empty()) {
+            expect(invalid_spill_kind.diagnostics.front().message ==
+                   "Unknown XIR binary reg2mem-spill metadata kind.");
+        }
     };
 }
 
@@ -665,6 +680,64 @@ instruction 6 3 return "void" -1 1 -1 0
             expect(canonical.succeeded());
             expect(canonical.text.find("atomic \"int\" exchange") != luisa::string::npos);
         }
+
+        // Atomic address paths use the same integer-index contract as GEP and
+        // aggregate extract/insert. A 64-bit buffer index is therefore valid
+        // and must survive interchange round-tripping.
+        constexpr auto wide_buffer_index = R"(
+xir.text 1 module { globals 0 functions 1
+function 0 callable "void" 0 0 0 {
+arguments 3 argument 1 resource "buffer<int>" argument 2 value "ulong" argument 3 value "int"
+blocks 1 block 4 body 4 instructions 2
+instruction 5 4 atomic "int" fetch_add 3 1 2 3 0
+instruction 6 4 return "void" -1 1 -1 0
+} })";
+        auto decoded_wide = xir_from_interchange_text(wide_buffer_index);
+        expect(decoded_wide.succeeded());
+        if (decoded_wide.succeeded()) {
+            auto canonical = xir_to_interchange_text(decoded_wide.module.get());
+            expect(canonical.succeeded());
+            expect(xir_from_interchange_text(canonical.text).succeeded());
+        }
+    };
+
+    "xir_interchange_integer_64_bit_atomics_round_trip"_test = [] {
+        Module module;
+        for (auto type : {Type::of<luisa::slong>(),
+                          Type::of<luisa::ulong>()}) {
+            auto *index = module.create_constant_zero(Type::of<uint>());
+            auto *value = module.create_constant_one(type);
+            auto *callable = module.create_callable(nullptr);
+            auto *buffer = callable->create_resource_argument(
+                Type::buffer(type));
+            auto *body = callable->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *shared = builder.alloca_shared(Type::array(type, 1u));
+            std::array<Value *, 1u> indices{index};
+            builder.atomic_fetch_add(
+                type, buffer, luisa::span<Value *const>{indices}, value);
+            builder.atomic_fetch_add(
+                type, shared, luisa::span<Value *const>{indices}, value);
+            builder.return_void();
+        }
+
+        expect(xir_verify_module(&module).succeeded());
+        auto text = xir_to_interchange_text(&module);
+        expect(text.succeeded());
+        if (text.succeeded()) {
+            expect(text.text.find("atomic \"long\" fetch_add") !=
+                   luisa::string::npos);
+            expect(text.text.find("atomic \"ulong\" fetch_add") !=
+                   luisa::string::npos);
+            expect(xir_from_interchange_text(text.text).succeeded());
+        }
+
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        if (bitcode.succeeded()) {
+            expect(xir_from_bitcode(bitcode.bitcode).succeeded());
+        }
     };
 
     "xir_interchange_atomic_invalid_address_paths_rejected"_test = [] {
@@ -681,10 +754,10 @@ instruction 6 3 return "void" -1 1 -1 0
             R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 3 argument 2 resource "buffer<struct<4,int,uint>>" argument 3 value "uint" argument 4 value "uint" blocks 1 block 5 body 5 instructions 2 instruction 6 5 atomic "uint" fetch_add 4 2 3 0 4 0 instruction 7 5 return "void" -1 1 -1 0 } })",
             // Local allocas are not shared-memory atomic roots.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 2 argument 1 value "uint" argument 2 value "int" blocks 1 block 3 body 3 instructions 3 instruction 4 3 alloca "array<int,4>" local 0 0 instruction 5 3 atomic "int" exchange 3 4 1 2 0 instruction 6 3 return "void" -1 1 -1 0 } })",
-            // Portable interchange atomics are exactly i32/u32/f32.
-            R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<long>" argument 2 value "uint" argument 3 value "long" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "long" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
-            // Atomic indices are exactly i32/u32.
-            R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<int>" argument 2 value "ulong" argument 3 value "int" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "int" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
+            // XIR atomics do not admit 8-bit, 16-bit, or float64 leaves.
+            R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<byte>" argument 2 value "uint" argument 3 value "byte" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "byte" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
+            R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<short>" argument 2 value "uint" argument 3 value "short" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "short" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
+            R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<double>" argument 2 value "uint" argument 3 value "double" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "double" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
             // Bitwise atomics cannot target floating-point leaves.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<float>" argument 2 value "uint" argument 3 value "float" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "float" fetch_and 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })"};
         for (auto text : malformed) {
@@ -1305,7 +1378,8 @@ void reg_instruction_type_validation() {
             XIRBuilder builder;
             builder.set_insertion_point(body);
             auto switch_inst = builder.switch_(selector);
-            auto case_block = switch_inst->create_case_block(-1);
+            auto case_block = switch_inst->create_case_block(
+                std::numeric_limits<uint64_t>::max());
             auto default_block = switch_inst->create_default_block();
             auto merge_block = switch_inst->create_merge_block();
             builder.set_insertion_point(case_block);
@@ -1337,6 +1411,133 @@ void reg_instruction_type_validation() {
             if (!bitcode.succeeded()) { continue; }
             auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
             expect(decoded_bitcode.succeeded());
+        }
+    };
+
+    "xir_interchange_zero_sized_data_types_round_trip"_test = [] {
+        std::array<const Type *, 0u> no_members{};
+        for (auto *type : {
+                 Type::array(Type::of<uint32_t>(), 0u),
+                 Type::structure(4u, luisa::span{no_members})}) {
+            Module module;
+            auto *constant = module.create_constant_zero(type);
+            auto *callable = module.create_callable(type);
+            auto *body = callable->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            builder.return_(constant);
+            expect(xir_verify_module(&module).succeeded());
+
+            auto verify = [type](const XIRInterchangeParseResult &decoded) noexcept {
+                expect(decoded.succeeded());
+                if (!decoded.succeeded()) { return; }
+                auto found_constant = false;
+                for (auto *value : decoded.module->constant_list()) {
+                    if (value->type() == type) {
+                        expect(eq(value->type()->size(), size_t{0u}));
+                        found_constant = true;
+                    }
+                }
+                expect(found_constant);
+                expect(xir_verify_module(decoded.module.get()).succeeded());
+            };
+
+            auto text = xir_to_interchange_text(&module);
+            expect(text.succeeded());
+            if (text.succeeded()) {
+                verify(xir_from_interchange_text(text.text));
+            }
+            auto bitcode = xir_to_bitcode(&module);
+            expect(bitcode.succeeded());
+            if (bitcode.succeeded()) {
+                verify(xir_from_bitcode(bitcode.bitcode));
+            }
+        }
+    };
+
+    "xir_interchange_rejects_noncanonical_narrow_switch_cases"_test = [] {
+        constexpr std::array malformed_cases{
+            std::pair{"ubyte", "511"},
+            std::pair{"ubyte", "-1"},
+            std::pair{"byte", "-129"},
+            std::pair{"byte", "255"},
+            std::pair{"bool", "2"}};
+        constexpr luisa::string_view expected_diagnostic =
+            "XIR switch case value is outside the selector type range.";
+        for (auto [selector_type, case_value] : malformed_cases) {
+            auto text = luisa::format(
+                R"(xir.text 1 module {{ globals 0 functions 1 function 0 callable "void" 0 0 0 {{ arguments 1 argument 1 value "{}" blocks 4 block 2 block 3 block 4 block 5 body 2 instructions 4 instruction 6 2 switch "void" -1 3 1 3 4 2 5 {} instruction 7 3 branch "void" -1 1 5 0 instruction 8 4 branch "void" -1 1 5 0 instruction 9 5 return "void" -1 1 -1 0 }} }})",
+                selector_type, case_value);
+            expect_interchange_rejected_with_diagnostic(text, expected_diagnostic);
+
+            auto payload = luisa::span{
+                reinterpret_cast<const std::byte *>(text.data()), text.size()};
+            auto decoded_bitcode = xir_from_bitcode(make_test_bitcode(payload, 1u));
+            expect(!decoded_bitcode.succeeded());
+            expect(decoded_bitcode.module == nullptr);
+            auto found = std::any_of(
+                decoded_bitcode.diagnostics.begin(), decoded_bitcode.diagnostics.end(),
+                [&](auto &&diagnostic) noexcept {
+                    return diagnostic.message == expected_diagnostic;
+                });
+            expect(found);
+        }
+    };
+
+    "xir_interchange_preserves_distinct_u64_switch_case_bits"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *selector = callable->create_value_argument(Type::of<uint64_t>());
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *switch_inst = builder.switch_(selector);
+        constexpr auto low_word_ones = uint64_t{0x00000000ffffffffull};
+        constexpr auto all_ones = uint64_t{0xffffffffffffffffull};
+        auto *low_word_block = switch_inst->create_case_block(low_word_ones);
+        auto *all_ones_block = switch_inst->create_case_block(all_ones);
+        auto *default_block = switch_inst->create_default_block();
+        auto *merge_block = switch_inst->create_merge_block();
+        for (auto *block : {low_word_block, all_ones_block, default_block}) {
+            builder.set_insertion_point(block);
+            builder.br(merge_block);
+        }
+        builder.set_insertion_point(merge_block);
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+
+        auto verify = [&](Module *decoded) noexcept {
+            auto found = false;
+            for (auto *function : decoded->function_list()) {
+                for (auto *block : function->basic_blocks()) {
+                    for (auto *instruction : block->instructions()) {
+                        if (!instruction->isa<SwitchInst>()) { continue; }
+                        auto *value = static_cast<const SwitchInst *>(instruction);
+                        expect(value->value()->type() == Type::of<uint64_t>());
+                        expect(value->case_count() == 2u);
+                        expect(value->case_value(0u) == low_word_ones);
+                        expect(value->case_value(1u) == all_ones);
+                        found = true;
+                    }
+                }
+            }
+            expect(found);
+        };
+
+        auto text = xir_to_interchange_text(&module);
+        expect(text.succeeded());
+        if (text.succeeded()) {
+            auto decoded = xir_from_interchange_text(text.text);
+            expect(decoded.succeeded());
+            if (decoded.succeeded()) { verify(decoded.module.get()); }
+        }
+
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        if (bitcode.succeeded()) {
+            auto decoded = xir_from_bitcode(bitcode.bitcode);
+            expect(decoded.succeeded());
+            if (decoded.succeeded()) { verify(decoded.module.get()); }
         }
     };
 
@@ -1771,6 +1972,68 @@ void reg_metadata_round_trip() {
         expect(bitcode_text.text == encoded.text);
     };
 
+    "xir_interchange_reg2mem_spill_metadata_round_trip"_test = [] {
+        Module module;
+        auto callable = module.create_callable(nullptr);
+        auto body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto phi_spill = builder.alloca_local(Type::of<int32_t>());
+        phi_spill->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::PHI);
+        auto cross_block_spill = builder.alloca_local(Type::of<float>());
+        cross_block_spill->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::CROSS_BLOCK);
+        builder.return_void();
+
+        auto expect_spills = [](const Module *decoded) noexcept {
+            luisa::vector<Reg2MemSpillKind> kinds;
+            auto function = decoded->function_list().front();
+            for (auto block : function->basic_blocks()) {
+                for (auto instruction : block->instructions()) {
+                    if (auto metadata =
+                            instruction->find_metadata<Reg2MemSpillMD>()) {
+                        kinds.emplace_back(metadata->kind());
+                    }
+                }
+            }
+            expect(kinds.size() == 2u);
+            if (kinds.size() == 2u) {
+                expect(kinds[0] == Reg2MemSpillKind::PHI);
+                expect(kinds[1] == Reg2MemSpillKind::CROSS_BLOCK);
+            }
+        };
+
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("md reg2mem_spill phi") !=
+               luisa::string::npos);
+        expect(encoded.text.find("md reg2mem_spill cross_block") !=
+               luisa::string::npos);
+
+        auto decoded_text = xir_from_interchange_text(encoded.text);
+        expect(decoded_text.succeeded());
+        if (!decoded_text.succeeded()) { return; }
+        expect_spills(decoded_text.module.get());
+        auto canonical_text =
+            xir_to_interchange_text(decoded_text.module.get());
+        expect(canonical_text.succeeded());
+        expect(canonical_text.text == encoded.text);
+
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        if (!bitcode.succeeded()) { return; }
+        auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
+        expect(decoded_bitcode.succeeded());
+        if (!decoded_bitcode.succeeded()) { return; }
+        expect_spills(decoded_bitcode.module.get());
+        auto bitcode_text =
+            xir_to_interchange_text(decoded_bitcode.module.get());
+        expect(bitcode_text.succeeded());
+        expect(bitcode_text.text == encoded.text);
+    };
+
     "xir_interchange_malformed_metadata_rejected"_test = [] {
         auto unknown_bits = xir_from_interchange_text(R"(
 xir.text 1 module {
@@ -1795,6 +2058,14 @@ globals 0 functions 0
 })");
         expect(!unknown_tag.succeeded());
         expect(!unknown_tag.diagnostics.empty());
+
+        auto unknown_spill_kind = xir_from_interchange_text(R"(
+xir.text 1 module {
+metadata 1 md reg2mem_spill mystery
+globals 0 functions 0
+})");
+        expect(!unknown_spill_kind.succeeded());
+        expect(!unknown_spill_kind.diagnostics.empty());
     };
 }
 

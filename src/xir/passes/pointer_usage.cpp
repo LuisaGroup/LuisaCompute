@@ -229,34 +229,12 @@ struct PointerUsageAnalysis::Impl {
         result.valid = true;
         if (!value->isa<Constant>()) { return result; }
         result.constant = true;
-        auto *constant = static_cast<Constant *>(value);
-        auto *type = constant->type();
-        if (type->is_int8()) {
-            auto v = constant->as<int8_t>();
-            if (v < 0) { result.valid = false; }
-            result.value = static_cast<size_t>(v);
-        } else if (type->is_uint8()) {
-            result.value = constant->as<uint8_t>();
-        } else if (type->is_int16()) {
-            auto v = constant->as<int16_t>();
-            if (v < 0) { result.valid = false; }
-            result.value = static_cast<size_t>(v);
-        } else if (type->is_uint16()) {
-            result.value = constant->as<uint16_t>();
-        } else if (type->is_int32()) {
-            auto v = constant->as<int32_t>();
-            if (v < 0) { result.valid = false; }
-            result.value = static_cast<size_t>(v);
-        } else if (type->is_uint32()) {
-            result.value = constant->as<uint32_t>();
-        } else if (type->is_int64()) {
-            auto v = constant->as<int64_t>();
-            if (v < 0) { result.valid = false; }
-            result.value = static_cast<size_t>(v);
-        } else if (type->is_uint64()) {
-            auto v = constant->as<uint64_t>();
-            if (v > static_cast<uint64_t>(SIZE_MAX)) { result.valid = false; }
-            result.value = static_cast<size_t>(v);
+        uint64_t decoded = 0u;
+        if (!try_decode_constant_nonnegative_integer(value, decoded) ||
+            decoded > static_cast<uint64_t>(SIZE_MAX)) {
+            result.valid = false;
+        } else {
+            result.value = static_cast<size_t>(decoded);
         }
         return result;
     }

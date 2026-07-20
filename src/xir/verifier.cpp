@@ -41,46 +41,6 @@ namespace detail {
 
 using BlockSet = luisa::unordered_set<const BasicBlock *>;
 
-[[nodiscard]] bool constant_nonnegative_integer(
-    const Value *value, uint64_t &result) noexcept {
-    if (value == nullptr || !value->isa<Constant>() || value->type() == nullptr ||
-        (!value->type()->is_int() && !value->type()->is_uint())) {
-        return false;
-    }
-    auto constant = static_cast<const Constant *>(value);
-    switch (value->type()->tag()) {
-        case Type::Tag::INT8: {
-            auto v = constant->as<int8_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint8_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT8: result = constant->as<uint8_t>(); return true;
-        case Type::Tag::INT16: {
-            auto v = constant->as<int16_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint16_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT16: result = constant->as<uint16_t>(); return true;
-        case Type::Tag::INT32: {
-            auto v = constant->as<int32_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint32_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT32: result = constant->as<uint32_t>(); return true;
-        case Type::Tag::INT64: {
-            auto v = constant->as<int64_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint64_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT64: result = constant->as<uint64_t>(); return true;
-        default: return false;
-    }
-}
-
 [[nodiscard]] bool typed_value_operand_valid(const Value *value) noexcept {
     return value != nullptr && value->type() != nullptr &&
            !value->isa<BasicBlock>() && !value->isa<Function>() &&
@@ -149,7 +109,7 @@ template<typename IndexAt>
             case Type::Tag::VECTOR: {
                 uint64_t constant_index = 0u;
                 if (index->template isa<Constant>() &&
-                    (!constant_nonnegative_integer(index, constant_index) ||
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
                      constant_index >= current->dimension())) {
                     return nullptr;
                 }
@@ -159,7 +119,7 @@ template<typename IndexAt>
             case Type::Tag::MATRIX: {
                 uint64_t constant_index = 0u;
                 if (index->template isa<Constant>() &&
-                    (!constant_nonnegative_integer(index, constant_index) ||
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
                      constant_index >= current->dimension())) {
                     return nullptr;
                 }
@@ -168,7 +128,7 @@ template<typename IndexAt>
             }
             case Type::Tag::STRUCTURE: {
                 uint64_t member_index = 0u;
-                if (!constant_nonnegative_integer(index, member_index) ||
+                if (!try_decode_constant_nonnegative_integer(index, member_index) ||
                     member_index >= current->members().size()) {
                     return nullptr;
                 }
@@ -935,7 +895,7 @@ template<typename OperandSpan>
                 }
                 uint64_t constant_index = 0u;
                 if (index->template isa<Constant>() &&
-                    (!constant_nonnegative_integer(index, constant_index) ||
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
                      constant_index >= operands[0]->type()->dimension())) {
                     return false;
                 }
@@ -1222,8 +1182,8 @@ public:
         luisa::vector<BreakContinueScope> break_continue_scopes;
         if (_options.require_canonical_break_continue_targets) {
             for (auto *block : blocks) {
+                if (!block->is_terminated()) { continue; }
                 auto *terminator = block->terminator();
-                if (terminator == nullptr) { continue; }
                 if (terminator->isa<LoopInst>()) {
                     auto *loop = static_cast<const LoopInst *>(terminator);
                     break_continue_scopes.emplace_back(BreakContinueScope{
@@ -1385,12 +1345,12 @@ public:
                         operand_count > SwitchInst::operand_index_default_block ?
                             switch_inst->operand(SwitchInst::operand_index_default_block) :
                             nullptr;
+                    auto *selector_type = selector == nullptr ? nullptr : selector->type();
                     if (selector == nullptr || !is_owned_block(default_block) ||
                         operand_count != expected_operand_count) {
                         _error(function, block, instruction,
                                "Switch value or default block is invalid.");
-                    } else if (auto *selector_type = selector->type();
-                               !data_operand_valid(selector) || selector_type == nullptr ||
+                    } else if (!data_operand_valid(selector) || selector_type == nullptr ||
                                !selector_type->is_scalar() ||
                                (!selector_type->is_bool() &&
                                 !scalar_or_vector_integer(selector_type))) {
@@ -1403,10 +1363,20 @@ public:
                         auto *case_block = operand_index < operand_count ?
                                                switch_inst->operand(operand_index) :
                                                nullptr;
-                        if (!is_owned_block(case_block) ||
-                            !case_values.emplace(switch_inst->case_value(i)).second) {
+                        if (!is_owned_block(case_block)) {
                             _error(function, block, instruction,
-                                   "Switch case block or value is invalid.");
+                                   "Switch case block is invalid.");
+                        }
+                        auto case_value = switch_inst->case_value(i);
+                        auto canonical_value = SwitchInst::canonicalize_case_value(
+                            selector_type, case_value);
+                        if (case_value != canonical_value) {
+                            _error(function, block, instruction,
+                                   "Switch case value is outside the selector bit width.");
+                        }
+                        if (!case_values.emplace(canonical_value).second) {
+                            _error(function, block, instruction,
+                                   "Switch case values alias after selector-width normalization.");
                         }
                     }
                 }

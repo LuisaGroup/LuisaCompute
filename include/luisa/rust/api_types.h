@@ -393,6 +393,7 @@ typedef struct LCBindlessArrayUpdateBuffer {
     enum LCBindlessArrayUpdateOperation op;
     struct LCBuffer handle;
     size_t offset;
+    size_t size;
 } LCBindlessArrayUpdateBuffer;
 
 typedef struct LCBindlessArrayUpdateTexture {

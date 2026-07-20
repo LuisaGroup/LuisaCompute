@@ -5,7 +5,8 @@ description: XMake build configuration, options, commands, and patterns for Luis
 
 # XMake Build System
 
-Primary build system. Requires XMake 3.0.6+. Optional: CUDA Toolkit, Vulkan SDK, LLVM 20, Rust.
+Requires XMake 3.0.6+. Optional: CUDA Toolkit, Vulkan SDK, an LLVM build with
+the native `SPIRV` target, and Rust.
 
 ## Quick Start
 
@@ -57,7 +58,7 @@ xmake project -k compile_commands --lsp=clangd .vscode
 | `lc_rtti` | false | RTTI |
 | `lc_safe_mode` | false | Runtime safe mode |
 | `lc_enable_xir` | false | XIR support |
-| `lc_vk_backend_use_xir_spirv` | true | Vulkan SPIR-V via XIR |
+| `lc_vk_backend_use_xir_spirv` | false | Vulkan SPIR-V via native XIR codegen; requires `lc_enable_xir=true` |
 | `lc_vk_backend_use_ast_llvm_spirv` | false | Vulkan SPIR-V via AST→LLVM (disables XIR SPIR-V) |
 | `lc_dx_cuda_interop` | false | DX-CUDA interop |
 | `lc_vk_cuda_interop` | false | VK-CUDA interop |
@@ -164,7 +165,15 @@ Available backends: `dx`, `vk`, `cuda`, `metal`.
 - `lc_dx_backend` is silently disabled on non-Windows platforms
 - `lc_metal_backend` is silently disabled on non-macOS platforms
 - `lc_cuda_backend` is silently disabled outside Windows/Linux
-- Vulkan compute shader codegen options are mutually exclusive: keep `lc_vk_backend_use_xir_spirv=true` for the default native SPIR-V path, or set it to `false` before enabling `lc_vk_backend_use_ast_llvm_spirv=true`.
+- Vulkan compute shader codegen options are mutually exclusive. Enable
+  `lc_enable_xir=true` and `lc_vk_backend_use_xir_spirv=true` for the native
+  path. The AST→LLVM path requires `lc_llvm_path` to name an install/build
+  prefix (or `llvm-config`) whose exact target list contains `SPIRV`; keep the
+  native option false when selecting it. Validation forces XIR on and
+  normalizes the native option off after rejecting an explicitly conflicting
+  top-level selection.
+- The SPIR-V libraries and their tests are created only when the Vulkan
+  backend and one of those codegen options are enabled.
 
 ### Minimal Target Skeleton
 ```lua

@@ -124,6 +124,10 @@ int main(int argc, char *argv[]) {
     }
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
 
     Device device = context.create_device(argv[1]);
 

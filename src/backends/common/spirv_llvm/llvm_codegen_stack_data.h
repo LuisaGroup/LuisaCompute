@@ -90,10 +90,6 @@ struct LLVMCodegenStackData : public vstd::IOperatorNewBase {
     // --- Printer tracking ---
     vstd::vector<std::pair<vstd::string, Type const *>> printers;
 
-    // --- Constant UBO tracking ---
-    luisa::vector<std::byte> constant_ubo_data;
-    bool has_constant_ubo{false};
-
     LLVMCodegenStackData();
     ~LLVMCodegenStackData();
 

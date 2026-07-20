@@ -46,6 +46,10 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
 #if !ENABLE_DISPLAY
     if (!opts.offline) {
         LUISA_ERROR("GUI support is disabled. Use --offline.");

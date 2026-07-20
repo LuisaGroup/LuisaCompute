@@ -145,6 +145,21 @@ Image<float> img2 = device.create_image<float>(swapchain.backend_storage(), size
 Volume<float> vol = device.create_volume<float>(PixelStorage::FLOAT4, w, h, d);
 ```
 
+### Sparse Images and Volumes
+
+Sparse image/volume mip counts follow the same convention as regular textures:
+zero requests the full chain and larger requests are clamped to the logical
+maximum. Tile map and unmap regions are validated against the selected mip's
+ceil-divided tile grid, not the base extent or a floor-divided grid. Counts
+must be nonzero and range arithmetic must not wrap. Sparse copy regions use
+the same validation, convert tiles to texel offsets, and clip the final partial
+tile to the selected mip extent; buffer-backed copies must provide enough
+bytes for that clipped texel region.
+
+Sparse buffers use the same nonzero-count and checked-range rules over a
+ceil-divided byte tile grid. Every sparse map operation requires a valid heap
+created by the same `DeviceInterface` as the sparse resource.
+
 ### Image in Kernels
 ```cpp
 Kernel2D k = [&](ImageFloat img) {

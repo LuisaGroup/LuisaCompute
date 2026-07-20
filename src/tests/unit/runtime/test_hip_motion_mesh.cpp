@@ -737,12 +737,13 @@ run_expected_failure_subprocess(const char *executable,
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc > 2 && argv[2] != nullptr) {
+    if (argc > 2 && argv != nullptr && argv[2] != nullptr) {
         auto mode = luisa::string_view{argv[2]};
         if (mode == invalid_non_finite_mode ||
             mode == invalid_triangle_index_mode) {
             auto dc = luisa::test::create_device_from_ut(argc, argv);
-            if (!dc || dc->device.backend_name() != "hip") { return 2; }
+            if (!dc) { return 2; }
+            if (dc->device.backend_name() != "hip") { return 2; }
             auto input = mode == invalid_non_finite_mode ?
                              InvalidMotionMeshInput::UNREFERENCED_NON_FINITE_VERTEX :
                              InvalidMotionMeshInput::INVALID_TRIANGLE_INDEX;
@@ -755,8 +756,10 @@ int main(int argc, char *argv[]) {
 #if LUISA_TEST_HIP_MOTION_MESH_HAS_EXPECTED_FAILURE_SUBPROCESS
     ExpectedFailureSubprocessResult non_finite_failure{};
     ExpectedFailureSubprocessResult invalid_index_failure{};
-    auto requested_hip = argc > 1 && argv[1] != nullptr &&
-                         luisa::string_view{argv[1]} == "hip";
+    auto requested_hip = false;
+    if (argc > 1 && argv != nullptr && argv[1] != nullptr) {
+        requested_hip = luisa::string_view{argv[1]}.compare("hip") == 0;
+    }
     if (requested_hip) {
         non_finite_failure = run_expected_failure_subprocess(
             argv[0], argv[1], invalid_non_finite_mode);

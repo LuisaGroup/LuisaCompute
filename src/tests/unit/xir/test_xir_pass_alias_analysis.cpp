@@ -63,6 +63,26 @@ int main() {
         expect(alias_analysis_query(load0, load1) == AliasResult::NoAlias);
     };
 
+    "alias_direct_sibling_geps_decode_mixed_integer_widths"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *body = k->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *base = b.alloca_local(Type::array(Type::of<float>(), 2u));
+        int8_t zero_value = 0;
+        uint64_t one_value = 1u;
+        auto *zero = m.create_constant(Type::of<int8_t>(), &zero_value);
+        auto *one = m.create_constant(Type::of<uint64_t>(), &one_value);
+        auto *element0 = b.gep(Type::of<float>(), base, {zero});
+        auto *element1 = b.gep(Type::of<float>(), base, {one});
+        auto *load0 = b.load(Type::of<float>(), element0);
+        auto *load1 = b.load(Type::of<float>(), element1);
+        b.return_void();
+
+        expect(alias_analysis_query(load0, load1) == AliasResult::NoAlias);
+    };
+
     "alias_same_local_pointer_is_must_alias"_test = [] {
         Module m;
         auto *k = m.create_kernel();

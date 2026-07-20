@@ -133,6 +133,7 @@ RayTracingShader::RayTracingShader(
     sbt_buffer_ci.usage = VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
                           VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    device->allocator().apply_queue_sharing(sbt_buffer_ci);
     VmaAllocationCreateInfo sbt_alloc_ci{};
     sbt_alloc_ci.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
     sbt_alloc_ci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;

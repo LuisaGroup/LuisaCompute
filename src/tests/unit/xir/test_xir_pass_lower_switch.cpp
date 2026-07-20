@@ -1,6 +1,7 @@
 // Test for lowering structured switch instructions to conditional CFG form.
 
 #include "ut/ut.hpp"
+#include <luisa/core/stl/memory.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -253,8 +254,15 @@ void reg_lower_switch() {
             expect(case_const->as<T>() == expected);
         };
 
-        check.template operator()<int64_t>(-123456789, int64_t{-123456789});
-        check.template operator()<uint64_t>(-1, std::numeric_limits<uint64_t>::max());
+        check.template operator()<int8_t>(uint64_t{0xffu}, int8_t{-1});
+        check.template operator()<uint8_t>(uint64_t{0xffu}, uint8_t{0xffu});
+        check.template operator()<int64_t>(
+            luisa::bit_cast<uint64_t>(int64_t{-123456789}), int64_t{-123456789});
+        check.template operator()<uint64_t>(
+            uint64_t{0x00000000ffffffffull}, uint64_t{0x00000000ffffffffull});
+        check.template operator()<uint64_t>(
+            std::numeric_limits<uint64_t>::max(),
+            std::numeric_limits<uint64_t>::max());
     };
 
     "lower_switch_preserves_null_merge_marker"_test = [] {

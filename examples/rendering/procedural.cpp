@@ -38,6 +38,10 @@ int main(int argc, char *argv[]) {
     }
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
     auto spp = opts.spp == 0u ? 1024u : opts.spp;
 
     Context context{argv[0]};
@@ -52,11 +56,13 @@ int main(int argc, char *argv[]) {
     luisa::vector<AABB> aabbs{sphere_count};
     uint state = 0u;
     for (auto &aabb : aabbs) {
-        auto center = make_float3(
-                          lcg(state) * 2.0f - 1.0f,
-                          lcg(state) * 2.0f - 1.0f,
-                          lcg(state) * 2.0f - 1.0f) *
-                      10.0f;
+        // Function-argument evaluation order is unspecified. Sequence the
+        // stateful draws explicitly so the scene is identical across host
+        // compilers (notably Apple Clang and GCC).
+        auto x = lcg(state) * 2.0f - 1.0f;
+        auto y = lcg(state) * 2.0f - 1.0f;
+        auto z = lcg(state) * 2.0f - 1.0f;
+        auto center = make_float3(x, y, z) * 10.0f;
         auto aabb_max = center + sphere_radius + 1e-3f;
         auto aabb_min = center - sphere_radius - 1e-3f;
         aabb.packed_max = {aabb_max.x, aabb_max.y, aabb_max.z};

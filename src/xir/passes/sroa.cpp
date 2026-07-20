@@ -5,6 +5,7 @@
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/constant.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
@@ -50,6 +51,10 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
         return false;
     }
 
+    luisa::vector<const Type *> elem_types;
+    collect_elem_types(type, elem_types, options.decompose_vectors, options.decompose_matrices);
+    if (elem_types.size() <= 1u) { return false; }
+
     luisa::vector<const Instruction *> work_list;
     luisa::unordered_set<const Instruction *> visited;
     for (auto &&use : alloca->use_list()) {
@@ -67,10 +72,14 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
             // Only the first index of a GEP directly rooted at the alloca
             // chooses which replacement alloca to use. It must be constant.
             // Indices below that level may remain dynamic in the rebuilt GEP.
-            if (gep->base() == alloca &&
-                (gep->index_uses().empty() ||
-                 !gep->index_uses().front()->value()->isa<Constant>())) {
-                return false;
+            if (gep->base() == alloca) {
+                uint64_t element_index = 0u;
+                if (gep->index_uses().empty() ||
+                    !try_decode_constant_nonnegative_integer(
+                        gep->index_uses().front()->value(), element_index) ||
+                    element_index >= elem_types.size()) {
+                    return false;
+                }
             }
             for (auto &&gep_use : u->use_list()) {
                 if (auto gep_user = gep_use->user();
@@ -94,16 +103,20 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
 
     if (elem_types.size() <= 1) return;
 
-    // Create scalar allocas
+    // Create one replacement alloca for each top-level element.
     builder.set_insertion_point(alloca);
-    luisa::vector<AllocaInst *> scalar_allocas;
+    luisa::vector<AllocaInst *> element_allocas;
     auto original_name = alloca->name();
+    auto spill_metadata = alloca->find_metadata<Reg2MemSpillMD>();
     for (auto et : elem_types) {
         auto sa = builder.alloca_local(et);
         if (original_name.has_value()) {
-            sa->set_name(luisa::format("{}_{}", original_name.value(), scalar_allocas.size()));
+            sa->set_name(luisa::format("{}_{}", original_name.value(), element_allocas.size()));
         }
-        scalar_allocas.push_back(sa);
+        if (spill_metadata != nullptr) {
+            sa->metadata_list().push_front(spill_metadata->clone());
+        }
+        element_allocas.push_back(sa);
         info.inserted_alloca_count++;
     }
 
@@ -118,11 +131,12 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
     for (auto gep : geps) {
         LUISA_ASSERT(!gep->index_uses().empty(), "SROA: GEP has no indices.");
         auto first_idx_val = gep->index_uses()[0]->value();
-        if (!first_idx_val->isa<Constant>()) continue;
-        uint32_t elem_idx = static_cast<const Constant *>(first_idx_val)->as<uint32_t>();
-        LUISA_ASSERT(elem_idx < scalar_allocas.size(), "SROA: GEP index out of bounds.");
+        uint64_t elem_idx = 0u;
+        LUISA_ASSERT(try_decode_constant_nonnegative_integer(first_idx_val, elem_idx),
+                     "SROA: expected a nonnegative constant integer GEP index.");
+        LUISA_ASSERT(elem_idx < element_allocas.size(), "SROA: GEP index out of bounds.");
 
-        auto target_alloca = scalar_allocas[elem_idx];
+        auto target_alloca = element_allocas[elem_idx];
 
         if (gep->index_count() > 1) {
             builder.set_insertion_point(gep);
@@ -153,7 +167,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
             auto load = static_cast<LoadInst *>(user);
             builder.set_insertion_point(load);
             luisa::vector<Value *> elem_values;
-            for (auto sa : scalar_allocas) {
+            for (auto sa : element_allocas) {
                 elem_values.push_back(builder.load(sa->type(), sa));
             }
             auto replacement = builder.call(type, ArithmeticOp::AGGREGATE, elem_values);
@@ -167,7 +181,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                 auto idx_val = static_cast<uint32_t>(i);
                 auto idx_const = alloca->parent_module()->create_constant(Type::of<uint32_t>(), &idx_val);
                 auto extract = builder.call(elem_types[i], ArithmeticOp::EXTRACT, {val, idx_const});
-                builder.store(scalar_allocas[i], extract);
+                builder.store(element_allocas[i], extract);
             }
             store->remove_self();
         }

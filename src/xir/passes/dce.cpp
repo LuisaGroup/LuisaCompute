@@ -1,5 +1,7 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
@@ -161,15 +163,14 @@ void remove_phi_incomings_from_blocks(FunctionDefinition *definition,
     auto static_cond = static_cast<Constant *>(cond);
     switch (auto t = static_cond->type(); t->tag()) {
         case Type::Tag::BOOL: return static_cond->as<bool>();
-        case Type::Tag::INT8: return static_cond->as<int8_t>();
+        case Type::Tag::INT8: return luisa::bit_cast<uint8_t>(static_cond->as<int8_t>());
         case Type::Tag::UINT8: return static_cond->as<uint8_t>();
-        case Type::Tag::INT16: return static_cond->as<int16_t>();
+        case Type::Tag::INT16: return luisa::bit_cast<uint16_t>(static_cond->as<int16_t>());
         case Type::Tag::UINT16: return static_cond->as<uint16_t>();
-        case Type::Tag::INT32: return static_cond->as<int32_t>();
-        case Type::Tag::UINT32: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint32_t>());
-        case Type::Tag::INT64:
-        case Type::Tag::UINT64:
-            return luisa::nullopt;
+        case Type::Tag::INT32: return luisa::bit_cast<uint32_t>(static_cond->as<int32_t>());
+        case Type::Tag::UINT32: return static_cond->as<uint32_t>();
+        case Type::Tag::INT64: return luisa::bit_cast<uint64_t>(static_cond->as<int64_t>());
+        case Type::Tag::UINT64: return static_cond->as<uint64_t>();
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Invalid switch condition type.");
@@ -177,15 +178,33 @@ void remove_phi_incomings_from_blocks(FunctionDefinition *definition,
 
 void canonicalize_static_unstructured_branches_in_function(
     FunctionDefinition *definition, DCEInfo &info) noexcept {
-    // If/Switch/Loop terminators define lexical scopes for source codegen and must
-    // stay structured. Only a genuinely unstructured conditional branch can be
-    // replaced with an unconditional branch here.
+    // If/Switch/Loop terminators define lexical scopes for source codegen.
+    // A constant-true canonical Loop.prepare may become Branch(body), but a
+    // constant-false prepare must retain ConditionalBranch(body, merge):
+    // Branch(merge) is not a valid structured-loop prepare form.
+    luisa::unordered_map<BasicBlock *, LoopInst *> loop_prepares;
+    for (auto block : definition->basic_blocks()) {
+        if (block->is_terminated() && block->terminator()->isa<LoopInst>()) {
+            auto loop = static_cast<LoopInst *>(block->terminator());
+            if (loop->prepare_block() != nullptr) {
+                loop_prepares.emplace(loop->prepare_block(), loop);
+            }
+        }
+    }
     luisa::vector<std::pair<ConditionalBranchInst *, BasicBlock *>> replacements;
     for (auto block : definition->basic_blocks()) {
         if (!block->is_terminated()) { continue; }
         if (auto terminator = block->terminator(); terminator->isa<ConditionalBranchInst>()) {
             auto cond_br = static_cast<ConditionalBranchInst *>(terminator);
             if (auto static_cond = try_evaluate_static_branch_condition(cond_br->condition())) {
+                if (!*static_cond) {
+                    auto iter = loop_prepares.find(block);
+                    if (iter != loop_prepares.end() &&
+                        cond_br->true_block() == iter->second->body_block() &&
+                        cond_br->false_block() == iter->second->merge_block()) {
+                        continue;
+                    }
+                }
                 if (auto taken = *static_cond ? cond_br->true_block() : cond_br->false_block()) {
                     replacements.emplace_back(cond_br, taken);
                 }

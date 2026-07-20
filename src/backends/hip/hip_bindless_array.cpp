@@ -136,7 +136,15 @@ void HIPBindlessArray::update(HIPCommandEncoder &encoder,
                          "Offset {} exceeds buffer size {}.",
                          buf.offset_bytes, buffer->size_bytes());
             auto address = reinterpret_cast<uint64_t>(buffer->handle()) + buf.offset_bytes;
-            auto size = buffer->size_bytes() - buf.offset_bytes;
+            auto remaining_size = buffer->size_bytes() - buf.offset_bytes;
+            auto size = buf.size_bytes ==
+                                BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size ?
+                            remaining_size :
+                            buf.size_bytes;
+            LUISA_ASSERT(size > 0u && size <= remaining_size,
+                         "Bindless buffer view [{}, {}) exceeds buffer size {}.",
+                         buf.offset_bytes, buf.offset_bytes + size,
+                         buffer->size_bytes());
             _host_slots[slot].buffer = address;
             _host_slots[slot].size = size;
             dirty_slots.emplace_back(slot);

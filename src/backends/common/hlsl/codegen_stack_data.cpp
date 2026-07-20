@@ -21,6 +21,7 @@ CodegenStackData::CodegenStackData()
 void CodegenStackData::Clear() {
     tempSwitchExpr = nullptr;
     arguments.clear();
+    validate_index_map.clear();
     scopeCount = -1;
     tempSwitchCounter = 0;
     structTypes.clear();

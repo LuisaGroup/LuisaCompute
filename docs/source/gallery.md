@@ -1,13 +1,13 @@
 # Gallery
 
 This gallery showcases output images from LuisaCompute examples and integration tests.
-Reference images are stored in `docs/gallery/` and are automatically generated
-by running examples and tests with the `--offline` flag.
+Checked-in reference images are stored in `docs/gallery/`. Offline rendering does
+not create or select a reference automatically; pass the reference explicitly.
 
-To regenerate reference images:
+To render offline and compare against a checked-in reference:
 
 ```bash
-./bin/<example_or_test> <backend> --update-reference
+<build-dir>/bin/<example_or_test> <backend> --offline --compare docs/gallery/<reference>.png
 ```
 
 ---
@@ -96,7 +96,7 @@ Spectral path tracing with wavelength-dependent rendering.
 
 Path tracing compiled through the IR pipeline.
 
-```{image} ../gallery/test_path_tracing_ir.png
+```{image} ../gallery/test_path_tracing.png
 :alt: Path Tracing IR
 :width: 512px
 ```
@@ -129,7 +129,7 @@ Signed distance field renderer with ray marching.
 
 SDF renderer compiled through the IR pipeline.
 
-```{image} ../gallery/sdf_renderer_ir.png
+```{image} ../gallery/sdf_renderer.png
 :alt: SDF Renderer IR
 :width: 512px
 ```
@@ -162,7 +162,7 @@ Interstellar-style black hole with gravitational lensing and accretion disk.
 
 Classic ShaderToy-style procedural rendering.
 
-```{image} ../gallery/test_shadertoy.png
+```{image} ../gallery/test_shader_toy.png
 :alt: ShaderToy
 :width: 512px
 ```
@@ -173,7 +173,7 @@ Classic ShaderToy-style procedural rendering.
 
 SpaceX-inspired ShaderToy effect.
 
-```{image} ../gallery/test_shadertoy_spacex.png
+```{image} ../gallery/test_shader_toy_spacex.png
 :alt: ShaderToy SpaceX
 :width: 512px
 ```
@@ -243,7 +243,7 @@ Physics-based fire particle system.
 
 Gravitational N-body particle simulation.
 
-```{image} ../gallery/test_nbody.png
+```{image} ../gallery/test_nbody_simulation.png
 :alt: N-Body Simulation
 :width: 512px
 ```
@@ -285,25 +285,21 @@ Basic RTX intersection test with triangle meshes.
 
 ### Indirect RTX
 
-Indirect dispatch ray tracing test.
-
-```{image} ../gallery/test_indirect_rtx.png
-:alt: Indirect RTX Test
-:width: 512px
-```
+Indirect dispatch ray tracing test. No checked-in reference image is currently
+available for this test.
 
 **Source:** `src/tests/integration/runtime/test_indirect_rtx.cpp`
 
-### Procedural (Test)
+### Procedural Callable
 
-Procedural rendering integration test.
+Procedural callable rendering integration test.
 
-```{image} ../gallery/test_procedural.png
-:alt: Procedural Test
+```{image} ../gallery/test_procedural_callable.png
+:alt: Procedural Callable Test
 :width: 512px
 ```
 
-**Source:** `src/tests/integration/runtime/test_procedural.cpp`
+**Source:** `src/tests/integration/runtime/test_procedural_callable.cpp`
 
 ### Native Code Include
 
@@ -318,12 +314,8 @@ External native shader code inclusion test.
 
 ### Motion Blur
 
-Motion blur rendering with mesh and curve keyframes.
-
-```{image} ../gallery/test_motion_blur.png
-:alt: Motion Blur Test
-:width: 512px
-```
+Motion blur rendering with mesh and curve keyframes. No checked-in reference
+image is currently available for this test.
 
 **Source:** `src/tests/integration/runtime/test_motion_blur.cpp`
 

@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/ast/external_function.h>
 #include <luisa/ast/statement.h>
@@ -333,12 +334,21 @@ private:
             auto f = add_function(ast);
             LUISA_ASSERT(f->type() == expr->type(), "Function return type mismatch.");
             auto ast_args = expr->arguments();
+            LUISA_ASSERT(ast_args.size() == f->arguments().count_size(),
+                         "Custom function argument count mismatch.");
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
-            for (auto i = 0u; i < ast_args.size(); i++) {
-                auto by_ref = ast.arguments()[i].is_reference();
-                auto arg = _translate_expression(b, ast_args[i], !by_ref);
+            auto formal = f->arguments().begin();
+            for (auto ast_arg : ast_args) {
+                // Opaque/custom AST arguments may use a resource-shaped AST
+                // variable (for example IndirectDispatchBuffer) while XIR
+                // deliberately represents them as reference arguments. The
+                // XIR callee ABI is therefore the authoritative load/lvalue
+                // boundary, just as it is for external calls above.
+                auto arg = _translate_expression(
+                    b, ast_arg, !(*formal)->is_reference());
                 args.emplace_back(arg);
+                ++formal;
             }
             return b.call(f->type(), f, args);
         }
@@ -775,8 +785,19 @@ private:
             case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: return rq_call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL);
             case CallOp::RAY_QUERY_TERMINATE: return rq_call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE);
             case CallOp::RAY_QUERY_PROCEED: {
-                b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED, {});
-                return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED);
+                LUISA_ASSERT(expr->arguments().size() == 1u,
+                             "Ray-query proceed requires exactly one query object.");
+                // Both operations describe one state transition on the same
+                // opaque query object. Do not route the write through an empty
+                // operand list: that creates malformed XIR and loses the state
+                // identity before backend legalization can reason about it.
+                auto query = _translate_expression(
+                    b, expr->arguments().front(), false);
+                b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+                       {query});
+                return b.call(expr->type(),
+                              RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+                              {query});
             }
             case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE);
             case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE);
@@ -894,7 +915,15 @@ private:
                     auto case_value = luisa::visit(
                         []<typename T>(T x) noexcept -> SwitchInst::case_value_type {
                             if constexpr (std::is_integral_v<T>) {
-                                return static_cast<SwitchInst::case_value_type>(x);
+                                if constexpr (std::is_same_v<T, bool>) {
+                                    return static_cast<SwitchInst::case_value_type>(x);
+                                } else if constexpr (std::is_signed_v<T>) {
+                                    using U = std::make_unsigned_t<T>;
+                                    return static_cast<SwitchInst::case_value_type>(
+                                        luisa::bit_cast<U>(x));
+                                } else {
+                                    return static_cast<SwitchInst::case_value_type>(x);
+                                }
                             } else {
                                 LUISA_ERROR_WITH_LOCATION("Unexpected literal integer in switch case.");
                             }

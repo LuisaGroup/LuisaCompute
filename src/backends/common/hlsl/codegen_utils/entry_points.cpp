@@ -98,6 +98,9 @@ namespace detail {
 size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg) {
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
     if (is_spirv) {
+        // Vulkan versions typed bindless descriptors per slot. DXIL keeps its
+        // established contiguous base+slot ABI.
+        builder << "#define LUISA_SPIRV_TYPED_BINDLESS_INDIRECT 1\n";
         builder << CodegenUtility::ReadInternalHLSLFile("spv_alias");
     }
     if (is_spirv && ops.test(CallOp::ASYNC_COPY)) {
@@ -161,7 +164,11 @@ uint __builtin_spirv_group_async_copy(
         ops.test(CallOp::BINDLESS_COOPERATIVE_MUL_ADD) ||
         ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) ||
         ops.test(CallOp::BINDLESS_COOPERATIVE_MUL) ||
-        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL)) {
+        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) ||
+        ops.test(CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+        ops.test(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE) ||
+        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE)) {
         useBindless = true;
     }
     if (useBindless) {

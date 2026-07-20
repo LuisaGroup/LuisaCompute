@@ -9,6 +9,7 @@
 #include <stb/stb_image_write.h>
 
 #include "common/reference_compare.h"
+#include "common/path_tracing_sample_plan.h"
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
@@ -53,6 +54,10 @@ int main(int argc, char *argv[]) {
     }
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
     // The filtered HIPRT traversal has a large resumable state machine. On
     // gfx12, constraining it to 176 VGPRs improves this example's steady trace
     // time without changing the rendered result. Keep other backends uncapped
@@ -212,20 +217,24 @@ int main(int argc, char *argv[]) {
         return valid;
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
     bool infinite_render = !opts.offline && opts.spp == 0u;
-    uint total_spp = opts.offline ? (opts.spp == 0u ? 1024u : opts.spp) : opts.spp;
+    auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
+        .total_spp = opts.offline ? (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp) : opts.spp,
+        .max_spp_per_dispatch = max_spp_per_dispatch,
+        .infinite = infinite_render,
+    };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_block_size(16u, 16u, 1u);
         UInt2 coord = dispatch_id().xy();
         Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
-        Float rx = lcg(state);
-        Float ry = lcg(state);
-        Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
-        $for (i, spp_per_dispatch) {
+        $for (i, dispatch_spp) {
+            Float rx = lcg(state);
+            Float ry = lcg(state);
+            Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             Float3 beta = def(make_float3(1.0f));
             Float pdf_bsdf = def(0.0f);
@@ -321,17 +330,17 @@ int main(int argc, char *argv[]) {
                 beta *= 1.0f / q;
             };
         };
-        radiance /= static_cast<float>(spp_per_dispatch);
+        radiance /= dispatch_spp.cast<float>();
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), dispatch_spp.cast<float>()));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         UInt2 p = dispatch_id().xy();
         Float4 accum = accum_image.read(p);
-        Float3 curr = curr_image.read(p).xyz();
-        accum_image.write(p, accum + make_float4(curr, 1.f));
+        Float4 curr = curr_image.read(p);
+        accum_image.write(p, accum + make_float4(curr.xyz() * curr.w, curr.w));
     };
 
     Callable aces_tonemapping = [](Float3 x) noexcept {
@@ -392,18 +401,19 @@ int main(int argc, char *argv[]) {
         (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
-    uint frame_count = 0u;
+    uint64_t frame_count = 0u;
     Clock clock;
 
     // Keep offline/reference runs reproducible while preserving fresh animation
     // sequences for the interactive example.
     std::mt19937 rand{opts.offline ? 42u : std::random_device{}()};
     std::normal_distribution<float> dist{0.f, 1.f};
-    while (infinite_render || frame_count < total_spp) {
+    while (sample_plan.has_next(frame_count)) {
+        auto dispatch_spp = sample_plan.next_dispatch_spp(frame_count);
         float4x4 t = translation(make_float3(0.f, dist(rand) * .03f + .1f, 0.f));
         accel.set_transform_on_update(tall_inst, t);
         cmd_list << accel.build(AccelBuildRequest::PREFER_UPDATE)
-                 << raytracing_shader(framebuffer, seed_image, accel, resolution)
+                 << raytracing_shader(framebuffer, seed_image, accel, resolution, dispatch_spp)
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
@@ -418,7 +428,7 @@ int main(int argc, char *argv[]) {
         }
         double dt = clock.toc() - last_time;
         last_time = clock.toc();
-        frame_count += spp_per_dispatch;
+        frame_count += dispatch_spp;
         LUISA_INFO("time: {} ms", dt);
     }
     stream << hdr2ldr_shader(accum_image, ldr_image, 1.0f, false).dispatch(resolution)

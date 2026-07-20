@@ -14,11 +14,28 @@ void UniformityAnalysis::clear() noexcept {
 }
 
 void UniformityAnalysis::analyze(const Function *function) noexcept {
+    luisa::vector<const BasicBlock *> blocks;
+    if (function != nullptr) {
+        if (auto *definition = function->definition()) {
+            if (definition->body_block() != nullptr) {
+                definition->traverse_basic_blocks(
+                    [&](const BasicBlock *block) noexcept {
+                        blocks.emplace_back(block);
+                    });
+            }
+        }
+    }
+    analyze(function, luisa::span<const BasicBlock *const>{
+                          blocks.data(), blocks.size()});
+}
+
+void UniformityAnalysis::analyze(
+    const Function *function,
+    luisa::span<const BasicBlock *const> blocks) noexcept {
     clear();
     _function = function;
     if (function == nullptr) { return; }
-    auto def = function->definition();
-    if (def == nullptr) { return; }
+    if (function->definition() == nullptr) { return; }
 
     bool is_kernel = function->isa<KernelFunction>();
     for (auto a : function->arguments()) {
@@ -27,29 +44,39 @@ void UniformityAnalysis::analyze(const Function *function) noexcept {
 
     for (;;) {
         bool changed = false;
-        def->traverse_instructions([&](const Instruction *inst) noexcept {
-            if (auto it = _uniform.find(inst); it != _uniform.end() && it->second) { return; }
-            bool can_be_uniform = false;
-            switch (inst->derived_instruction_tag()) {
-                case DerivedInstructionTag::CAST:
-                case DerivedInstructionTag::ARITHMETIC:
-                case DerivedInstructionTag::GEP: {
-                    can_be_uniform = true;
-                    for (size_t i = 0, n = inst->operand_count(); i < n; ++i) {
-                        if (!is_uniform(inst->operand(i))) {
-                            can_be_uniform = false;
+        for (auto *block : blocks) {
+            if (block == nullptr || block->parent_function() != function) {
+                continue;
+            }
+            block->traverse_instructions(
+                [&](const Instruction *inst) noexcept {
+                    if (auto it = _uniform.find(inst);
+                        it != _uniform.end() && it->second) {
+                        return;
+                    }
+                    bool can_be_uniform = false;
+                    switch (inst->derived_instruction_tag()) {
+                        case DerivedInstructionTag::CAST:
+                        case DerivedInstructionTag::ARITHMETIC:
+                        case DerivedInstructionTag::GEP: {
+                            can_be_uniform = true;
+                            for (size_t i = 0, n = inst->operand_count();
+                                 i < n; ++i) {
+                                if (!is_uniform(inst->operand(i))) {
+                                    can_be_uniform = false;
+                                    break;
+                                }
+                            }
                             break;
                         }
+                        default: break;
                     }
-                    break;
-                }
-                default: break;
-            }
-            if (can_be_uniform) {
-                _uniform[inst] = true;
-                changed = true;
-            }
-        });
+                    if (can_be_uniform) {
+                        _uniform[inst] = true;
+                        changed = true;
+                    }
+                });
+        }
         if (!changed) { break; }
     }
 }

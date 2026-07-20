@@ -2,6 +2,7 @@
 // This test covers:
 // - active reductions over physical lanes {0, 1, 6}
 // - exclusive prefix sum/product over the same irregular mask
+// - component-wise vector all-equal voting
 // - 16-bit three-component and matrix lane shuffles
 
 #include "ut/ut.hpp"
@@ -22,7 +23,7 @@ namespace {
 
 constexpr auto sparse_lane_count = 3u;
 constexpr std::array sparse_lanes{0u, 1u, 6u};
-constexpr auto collective_field_count = 9u;
+constexpr auto collective_field_count = 12u;
 
 void test_sparse_collectives(Device &device) {
     auto warp_size = device.compute_warp_size();
@@ -52,6 +53,11 @@ void test_sparse_collectives(Device &device) {
             output.write(base + 6u, warp_active_bit_xor(value));
             output.write(base + 7u, warp_prefix_sum(value));
             output.write(base + 8u, warp_prefix_product(value));
+            auto all_equal = warp_active_all_equal(
+                make_uint3(42u, lane & 1u, 7u));
+            output.write(base + 9u, ite(all_equal.x, 1u, 0u));
+            output.write(base + 10u, ite(all_equal.y, 1u, 0u));
+            output.write(base + 11u, ite(all_equal.z, 1u, 0u));
         };
     };
     auto shader = device.compile(kernel);
@@ -75,6 +81,9 @@ void test_sparse_collectives(Device &device) {
         expect(output[base + 6u] == 4u) << "sparse warp bit-xor mismatch at lane " << lane;
         expect(output[base + 7u] == expected_prefix_sum[i]) << "sparse warp prefix-sum mismatch at lane " << lane;
         expect(output[base + 8u] == expected_prefix_product[i]) << "sparse warp prefix-product mismatch at lane " << lane;
+        expect(output[base + 9u] == 1u) << "sparse warp all-equal x mismatch at lane " << lane;
+        expect(output[base + 10u] == 0u) << "sparse warp all-equal y mismatch at lane " << lane;
+        expect(output[base + 11u] == 1u) << "sparse warp all-equal z mismatch at lane " << lane;
     }
     for (auto lane = 0u; lane < warp_size; lane++) {
         if (lane == sparse_lanes[0] || lane == sparse_lanes[1] || lane == sparse_lanes[2]) { continue; }

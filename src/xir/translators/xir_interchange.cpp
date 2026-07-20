@@ -5,15 +5,18 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 
 #include <luisa/ast/type.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/name.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
@@ -58,11 +61,16 @@ constexpr size_t max_string_payload_size = 1u * 1024u * 1024u;
         case Type::Tag::VECTOR:
         case Type::Tag::ARRAY: {
             size_t element_size = 0u;
-            if (!canonical_constant_size(type->element(), element_size, depth + 1u) ||
-                element_size > max_payload_size / type->dimension()) {
+            if (!canonical_constant_size(
+                    type->element(), element_size, depth + 1u)) {
                 return false;
             }
-            size = element_size * type->dimension();
+            auto dimension = static_cast<size_t>(type->dimension());
+            if (dimension != 0u &&
+                element_size > max_payload_size / dimension) {
+                return false;
+            }
+            size = element_size * dimension;
             return true;
         }
         case Type::Tag::MATRIX: {
@@ -236,7 +244,10 @@ void append_scalar_little_endian(
 [[nodiscard]] bool decode_canonical_constant_impl(
     const Type *type, luisa::span<const std::byte> bytes, size_t &offset,
     std::byte *data, size_t depth) noexcept {
-    if (type == nullptr || data == nullptr || depth > 64u) { return false; }
+    if (type == nullptr ||
+        (data == nullptr && type->size() != 0u) || depth > 64u) {
+        return false;
+    }
     if (type->is_scalar()) {
         return read_scalar_little_endian(bytes, offset, data, type->size(), type->is_bool());
     }
@@ -774,8 +785,9 @@ private:
             auto element = _type(depth + 1u);
             if (!element || element.kind != Kind::DATA || element.type == nullptr ||
                 element.type->is_cooperative_vector() || !_punctuation(',') ||
-                !_number(dimension) || dimension == 0u || !_punctuation('>') ||
-                element.type->size() > max_payload_size / dimension) {
+                !_number(dimension) || !_punctuation('>') ||
+                (dimension != 0u &&
+                 element.type->size() > max_payload_size / dimension)) {
                 return {};
             }
             return {Type::array(element.type, dimension), Kind::DATA};
@@ -818,23 +830,26 @@ private:
             size_t alignment = 0u;
             if (!_punctuation('<') || !_number(alignment) ||
                 (alignment != 1u && alignment != 4u && alignment != 8u && alignment != 16u) ||
-                !_punctuation(',')) {
+                (_offset >= _text.size() ||
+                 (_text[_offset] != ',' && _text[_offset] != '>'))) {
                 return {};
             }
             luisa::vector<const Type *> members;
-            auto member = _type(depth + 1u);
-            if (!member || member.kind != Kind::DATA || member.type == nullptr ||
-                member.type->is_cooperative_vector() || member.type->alignment() > alignment) {
-                return {};
-            }
-            members.emplace_back(member.type);
-            while (_punctuation(',')) {
-                member = _type(depth + 1u);
+            if (_punctuation(',')) {
+                auto member = _type(depth + 1u);
                 if (!member || member.kind != Kind::DATA || member.type == nullptr ||
                     member.type->is_cooperative_vector() || member.type->alignment() > alignment) {
                     return {};
                 }
                 members.emplace_back(member.type);
+                while (_punctuation(',')) {
+                    member = _type(depth + 1u);
+                    if (!member || member.kind != Kind::DATA || member.type == nullptr ||
+                        member.type->is_cooperative_vector() || member.type->alignment() > alignment) {
+                        return {};
+                    }
+                    members.emplace_back(member.type);
+                }
             }
             if (!_punctuation('>')) { return {}; }
             return {Type::structure(alignment, members), Kind::DATA};
@@ -888,6 +903,63 @@ public:
 
 [[nodiscard]] bool round_trippable_type(const Type *type) noexcept {
     return type == nullptr || parse_type(type->description()) == type;
+}
+
+[[nodiscard]] int64_t encode_switch_case_value(
+    const Type *selector_type, SwitchInst::case_value_type value) noexcept {
+    switch (selector_type->tag()) {
+        case Type::Tag::INT8:
+            return luisa::bit_cast<int8_t>(static_cast<uint8_t>(value));
+        case Type::Tag::INT16:
+            return luisa::bit_cast<int16_t>(static_cast<uint16_t>(value));
+        case Type::Tag::INT32:
+            return luisa::bit_cast<int32_t>(static_cast<uint32_t>(value));
+        case Type::Tag::INT64:
+        case Type::Tag::UINT64: return luisa::bit_cast<int64_t>(value);
+        default: return static_cast<int64_t>(value);
+    }
+}
+
+[[nodiscard]] luisa::optional<SwitchInst::case_value_type>
+decode_switch_case_value(const Type *selector_type, int64_t value) noexcept {
+    if (selector_type == nullptr) { return luisa::nullopt; }
+    auto signed_value = [&]<typename T>() noexcept
+        -> luisa::optional<SwitchInst::case_value_type> {
+        static_assert(std::is_signed_v<T>);
+        if (value < static_cast<int64_t>(std::numeric_limits<T>::min()) ||
+            value > static_cast<int64_t>(std::numeric_limits<T>::max())) {
+            return luisa::nullopt;
+        }
+        using U = std::make_unsigned_t<T>;
+        return static_cast<SwitchInst::case_value_type>(
+            luisa::bit_cast<U>(static_cast<T>(value)));
+    };
+    auto unsigned_value = [&]<typename T>() noexcept
+        -> luisa::optional<SwitchInst::case_value_type> {
+        static_assert(std::is_unsigned_v<T>);
+        if (value < 0 ||
+            static_cast<uint64_t>(value) >
+                static_cast<uint64_t>(std::numeric_limits<T>::max())) {
+            return luisa::nullopt;
+        }
+        return static_cast<SwitchInst::case_value_type>(value);
+    };
+    switch (selector_type->tag()) {
+        case Type::Tag::BOOL:
+            return value == 0 || value == 1 ?
+                       luisa::optional<SwitchInst::case_value_type>{
+                           static_cast<SwitchInst::case_value_type>(value)} :
+                       luisa::nullopt;
+        case Type::Tag::INT8: return signed_value.template operator()<int8_t>();
+        case Type::Tag::UINT8: return unsigned_value.template operator()<uint8_t>();
+        case Type::Tag::INT16: return signed_value.template operator()<int16_t>();
+        case Type::Tag::UINT16: return unsigned_value.template operator()<uint16_t>();
+        case Type::Tag::INT32: return signed_value.template operator()<int32_t>();
+        case Type::Tag::UINT32: return unsigned_value.template operator()<uint32_t>();
+        case Type::Tag::INT64:
+        case Type::Tag::UINT64: return luisa::bit_cast<uint64_t>(value);
+        default: return luisa::nullopt;
+    }
 }
 
 [[nodiscard]] luisa::optional<luisa::string_view>
@@ -1381,10 +1453,37 @@ struct MetadataRecord {
                        LOCATION,
                        COMMENT,
                        CURVE_BASIS,
-                       SIGNATURE_CONSTRAINT } kind;
+                       SIGNATURE_CONSTRAINT,
+                       REG2MEM_SPILL } kind;
     luisa::string text;
     int64_t number{0};
 };
+
+constexpr uint64_t reg2mem_spill_phi_wire_kind = 0u;
+constexpr uint64_t reg2mem_spill_cross_block_wire_kind = 1u;
+
+[[nodiscard]] constexpr luisa::optional<uint64_t>
+encode_reg2mem_spill_wire_kind(Reg2MemSpillKind kind) noexcept {
+    switch (kind) {
+        case Reg2MemSpillKind::PHI:
+            return reg2mem_spill_phi_wire_kind;
+        case Reg2MemSpillKind::CROSS_BLOCK:
+            return reg2mem_spill_cross_block_wire_kind;
+    }
+    return luisa::nullopt;
+}
+
+[[nodiscard]] constexpr luisa::optional<Reg2MemSpillKind>
+decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
+    switch (kind) {
+        case reg2mem_spill_phi_wire_kind:
+            return Reg2MemSpillKind::PHI;
+        case reg2mem_spill_cross_block_wire_kind:
+            return Reg2MemSpillKind::CROSS_BLOCK;
+        default:
+            return luisa::nullopt;
+    }
+}
 
 [[nodiscard]] bool valid_metadata_name(luisa::string_view name) noexcept {
     if (name.empty()) { return true; }
@@ -1435,6 +1534,17 @@ struct MetadataRecord {
             record.number = static_cast<int64_t>(mask);
         } else if (kind == "signature_constraint") {
             record.kind = MetadataRecord::Kind::SIGNATURE_CONSTRAINT;
+        } else if (kind == "reg2mem_spill") {
+            record.kind = MetadataRecord::Kind::REG2MEM_SPILL;
+            luisa::string spill_kind;
+            if (!parser.word(spill_kind)) { return false; }
+            if (spill_kind == "phi") {
+                record.number = static_cast<int64_t>(Reg2MemSpillKind::PHI);
+            } else if (spill_kind == "cross_block") {
+                record.number = static_cast<int64_t>(Reg2MemSpillKind::CROSS_BLOCK);
+            } else {
+                return parser.fail("Unknown XIR reg2mem-spill metadata kind.");
+            }
         } else {
             return parser.fail("Unknown XIR metadata kind.");
         }
@@ -1463,6 +1573,10 @@ void apply_metadata_records(
                 break;
             case MetadataRecord::Kind::SIGNATURE_CONSTRAINT:
                 metadata = luisa::make_managed<SignatureConstraintMD>();
+                break;
+            case MetadataRecord::Kind::REG2MEM_SPILL:
+                metadata = luisa::make_managed<Reg2MemSpillMD>(
+                    static_cast<Reg2MemSpillKind>(iter->number));
                 break;
         }
         owner.metadata_list().push_front(std::move(metadata));
@@ -1514,6 +1628,22 @@ void apply_metadata_records(
             case DerivedMetadataTag::SIGNATURE_CONSTRAINT:
                 text.append("signature_constraint");
                 break;
+            case DerivedMetadataTag::REG2MEM_SPILL: {
+                auto kind = static_cast<const Reg2MemSpillMD *>(metadata)->kind();
+                text.append("reg2mem_spill ");
+                switch (kind) {
+                    case Reg2MemSpillKind::PHI:
+                        text.append("phi");
+                        break;
+                    case Reg2MemSpillKind::CROSS_BLOCK:
+                        text.append("cross_block");
+                        break;
+                    default:
+                        error = "XIR reg2mem-spill metadata has an unknown kind.";
+                        return false;
+                }
+                break;
+            }
             default:
                 error = "XIR contains an unknown metadata kind.";
                 return false;
@@ -1654,6 +1784,7 @@ binary_instruction_tag(uint64_t id) noexcept {
                     break;
                 case MetadataRecord::Kind::CURVE_BASIS:
                 case MetadataRecord::Kind::SIGNATURE_CONSTRAINT:
+                case MetadataRecord::Kind::REG2MEM_SPILL:
                     break;
             }
         }
@@ -1779,6 +1910,16 @@ public:
                     break;
                 case MetadataRecord::Kind::SIGNATURE_CONSTRAINT:
                     integer(4u);
+                    break;
+                case MetadataRecord::Kind::REG2MEM_SPILL:
+                    integer(5u);
+                    if (auto kind = encode_reg2mem_spill_wire_kind(
+                            static_cast<Reg2MemSpillKind>(record.number))) {
+                        integer(*kind);
+                    } else {
+                        _error = "XIR binary reg2mem-spill metadata has an unknown kind.";
+                        return false;
+                    }
                     break;
             }
         }
@@ -2011,6 +2152,18 @@ public:
                 case 4u:
                     record.kind = MetadataRecord::Kind::SIGNATURE_CONSTRAINT;
                     break;
+                case 5u: {
+                    uint64_t spill_kind = 0u;
+                    if (!integer(spill_kind)) { return false; }
+                    auto kind = decode_reg2mem_spill_wire_kind(spill_kind);
+                    if (!kind) {
+                        return _reader.fail(
+                            "Unknown XIR binary reg2mem-spill metadata kind.");
+                    }
+                    record.kind = MetadataRecord::Kind::REG2MEM_SPILL;
+                    record.number = static_cast<int64_t>(*kind);
+                    break;
+                }
                 default: return _reader.fail("Unknown XIR binary metadata kind.");
             }
             records.emplace_back(std::move(record));
@@ -2655,6 +2808,16 @@ public:
     return type != nullptr && (type->is_int32() || type->is_uint32());
 }
 
+[[nodiscard]] bool atomic_value_type(const Type *type) noexcept {
+    // This is the scalar atomic surface exposed by the AST/DSL and represented
+    // by XIR. Backend-specific feature checks (for example Vulkan's separate
+    // buffer/shared Int64Atomics features) belong at the codegen boundary.
+    return type != nullptr &&
+           (type->is_int32() || type->is_uint32() ||
+            type->is_int64() || type->is_uint64() ||
+            type->is_float32());
+}
+
 [[nodiscard]] bool typed_value_operand_valid(const Value *value) noexcept {
     return value != nullptr && value->type() != nullptr &&
            !value->isa<BasicBlock>() && !value->isa<Function>() &&
@@ -2667,46 +2830,6 @@ public:
 
 [[nodiscard]] bool data_operand_valid(const Value *value) noexcept {
     return rvalue_operand_valid(value) && !value->type()->is_custom();
-}
-
-[[nodiscard]] bool constant_nonnegative_integer(
-    const Value *value, uint64_t &result) noexcept {
-    if (value == nullptr || !value->isa<Constant>() ||
-        !integer_scalar_type(value->type())) {
-        return false;
-    }
-    auto constant = static_cast<const Constant *>(value);
-    switch (value->type()->tag()) {
-        case Type::Tag::INT8: {
-            auto v = constant->as<int8_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint8_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT8: result = constant->as<uint8_t>(); return true;
-        case Type::Tag::INT16: {
-            auto v = constant->as<int16_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint16_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT16: result = constant->as<uint16_t>(); return true;
-        case Type::Tag::INT32: {
-            auto v = constant->as<int32_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint32_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT32: result = constant->as<uint32_t>(); return true;
-        case Type::Tag::INT64: {
-            auto v = constant->as<int64_t>();
-            if (v < 0) { return false; }
-            result = static_cast<uint64_t>(v);
-            return true;
-        }
-        case Type::Tag::UINT64: result = constant->as<uint64_t>(); return true;
-        default: return false;
-    }
 }
 
 template<typename IndexSpan>
@@ -2723,7 +2846,7 @@ template<typename IndexSpan>
             case Type::Tag::VECTOR: {
                 uint64_t constant_index = 0u;
                 if (index->template isa<Constant>() &&
-                    (!constant_nonnegative_integer(index, constant_index) ||
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
                      constant_index >= current->dimension())) {
                     return nullptr;
                 }
@@ -2733,7 +2856,7 @@ template<typename IndexSpan>
             case Type::Tag::MATRIX: {
                 uint64_t constant_index = 0u;
                 if (index->template isa<Constant>() &&
-                    (!constant_nonnegative_integer(index, constant_index) ||
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
                      constant_index >= current->dimension())) {
                     return nullptr;
                 }
@@ -2742,7 +2865,7 @@ template<typename IndexSpan>
             }
             case Type::Tag::STRUCTURE: {
                 uint64_t member_index = 0u;
-                if (!constant_nonnegative_integer(index, member_index) ||
+                if (!try_decode_constant_nonnegative_integer(index, member_index) ||
                     member_index >= current->members().size()) {
                     return nullptr;
                 }
@@ -3049,7 +3172,7 @@ template<typename OperandSpan>
                 if (!integer_scalar_type(index->type())) { return false; }
                 uint64_t constant_index = 0u;
                 if (index->template isa<Constant>() &&
-                    (!constant_nonnegative_integer(index, constant_index) ||
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
                      constant_index >= operands[0]->type()->dimension())) {
                     return false;
                 }
@@ -3150,31 +3273,42 @@ template<typename OperandSpan>
         return nullptr;
     }
     for (auto index : indices) {
-        if (!data_operand_valid(index) || !index32_type(index->type()) ||
+        if (!data_operand_valid(index) ||
+            !integer_scalar_type(index->type()) ||
             current == nullptr) {
             return nullptr;
         }
         switch (current->tag()) {
             case Type::Tag::BUFFER:
-            case Type::Tag::ARRAY:
-            case Type::Tag::VECTOR:
                 current = current->element();
                 break;
-            case Type::Tag::MATRIX:
+            case Type::Tag::ARRAY:
+            case Type::Tag::VECTOR: {
+                uint64_t constant_index = 0u;
+                if (index->template isa<Constant>() &&
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
+                     constant_index >= current->dimension())) {
+                    return nullptr;
+                }
+                current = current->element();
+                break;
+            }
+            case Type::Tag::MATRIX: {
+                uint64_t constant_index = 0u;
+                if (index->template isa<Constant>() &&
+                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
+                     constant_index >= current->dimension())) {
+                    return nullptr;
+                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
+            }
             case Type::Tag::STRUCTURE: {
-                if (!index->template isa<Constant>()) { return nullptr; }
-                auto constant = static_cast<const Constant *>(index);
                 uint64_t member_index = 0u;
-                if (index->type()->is_int32()) {
-                    auto value = constant->as<int32_t>();
-                    if (value < 0) { return nullptr; }
-                    member_index = static_cast<uint32_t>(value);
-                } else {
-                    member_index = constant->as<uint32_t>();
+                if (!try_decode_constant_nonnegative_integer(index, member_index) ||
+                    member_index >= current->members().size()) {
+                    return nullptr;
                 }
-                if (member_index >= current->members().size()) { return nullptr; }
                 current = current->members()[member_index];
                 break;
             }
@@ -3263,6 +3397,7 @@ template<typename OperandSpan>
         case ResourceQueryOp::BYTE_BUFFER_SIZE: return type->is_uint32() || type->is_uint64();
         case ResourceQueryOp::BINDLESS_BUFFER_SIZE:
         case ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE:
+            return type->is_uint32() || type->is_uint64();
         case ResourceQueryOp::BUFFER_DEVICE_ADDRESS:
         case ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS: return type->is_uint64();
         case ResourceQueryOp::TEXTURE2D_SIZE:
@@ -3695,10 +3830,7 @@ template<typename OperandSpan>
             auto value_count = atomic_op_value_count(atomic);
             auto index_count = operands.size() - 1u - value_count;
             auto base = operands[0];
-            if (type == nullptr ||
-                !(type->is_int32() || type->is_uint32() || type->is_float32())) {
-                return false;
-            }
+            if (!atomic_value_type(type)) { return false; }
             auto indices = operands.subspan(1u, index_count);
             if (atomic_addressed_type(base, indices) != type) { return false; }
             for (auto i = operands.size() - value_count; i < operands.size(); i++) {
@@ -4155,7 +4287,10 @@ template<typename OperandSpan>
                     fail("XIR constant contains invalid canonical data.");
                     return result;
                 }
-                value = module->create_constant(type, native.data());
+                value = native.empty() ?
+                            static_cast<Value *>(module->create_constant_zero(type)) :
+                            static_cast<Value *>(module->create_constant(
+                                type, native.data()));
             }
         }
         if (!register_value(global.id, value)) { return result; }
@@ -4361,13 +4496,14 @@ template<typename OperandSpan>
                     }
                     switch_inst->set_merge_block(merge);
                     for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                        auto case_value = instruction_record.auxiliary[i + 1u];
-                        if (case_value < std::numeric_limits<SwitchInst::case_value_type>::min() ||
-                            case_value > std::numeric_limits<SwitchInst::case_value_type>::max()) {
-                            fail("XIR switch case value is out of range.");
+                        auto case_value = decode_switch_case_value(
+                            switch_inst->value()->type(),
+                            instruction_record.auxiliary[i + 1u]);
+                        if (!case_value) {
+                            fail("XIR switch case value is outside the selector type range.");
                             return result;
                         }
-                        switch_inst->set_case_value(i, static_cast<SwitchInst::case_value_type>(case_value));
+                        switch_inst->set_case_value(i, *case_value);
                     }
                     break;
                 }
@@ -4686,7 +4822,10 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         auxiliary.emplace_back(merge == nullptr ?
                                                    -1ll :
                                                    static_cast<int64_t>(*id(merge)));
-                        for (auto case_value : switch_inst->case_values()) { auxiliary.emplace_back(case_value); }
+                        for (auto case_value : switch_inst->case_values()) {
+                            auxiliary.emplace_back(encode_switch_case_value(
+                                switch_inst->value()->type(), case_value));
+                        }
                         break;
                     }
                     case DerivedInstructionTag::LOOP: {

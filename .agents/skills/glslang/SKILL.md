@@ -375,6 +375,22 @@ glslang::OutputSpvBin(spirv, "out.spv");
 glslang::OutputSpvHex(spirv, "out.h", "g_spv");
 ```
 
+`OpSwitch` case literals are sized by the selector's `OpTypeInt`, not by the
+generated operand-table class alone. A selector up to 32 bits uses one literal
+word; a 64-bit selector uses two low-word-first literal words followed by one
+target label ID. Disassemblers and binary walkers must resolve the selector
+type and consume `ceil(bit_width / 32)` words per case before reading the label.
+Never infer case boundaries by alternating one literal word and one ID.
+
+Treat disassembly input as untrusted. Validate each instruction-local word
+count before reading operands: reject zero, undersized, or module-truncated
+instructions. When resolving an `OpSwitch` selector, also validate the mapped
+defining instruction bounds and result ID; accept `OpTypeInt` only with its
+exact four-word layout and a width of 8, 16, 32, or 64. Validate a directly
+visited `OpTypeInt` before reading its width operand. The disassembler's fatal
+path exits the process, so malformed-input regressions must run it in a child
+process and assert the deterministic nonzero exit.
+
 ## IR Classes (`spvIR.h`)
 
 ```cpp

@@ -1535,11 +1535,11 @@ void test_structured_break_continue(Device &device) {
 
         UInt multi_phi = idx;
         $for (n, 0u, 20u) {
-            $if (n == 3u) {
+            $if (((idx & 1u) == 0u) & (n == 3u)) {
                 multi_phi = 100u;
                 $break;
             };
-            $if (n == 7u) {
+            $if (((idx & 1u) != 0u) & (n == 7u)) {
                 multi_phi = 200u;
                 $break;
             };
@@ -1571,15 +1571,18 @@ void test_structured_break_continue(Device &device) {
         out.write(idx, acc + multi_phi + wsum + redundant);
     };
 
-    auto shader = device.compile(k);
+    auto shader = device.compile(
+        k, ShaderOption{.enable_cache = false});
     luisa::vector<uint> host(64);
     stream << shader(out).dispatch(64)
            << out.copy_to(luisa::span{host})
            << synchronize();
 
     LUISA_INFO("Structured break/continue corner: host[0]={}", host[0]);
-    for (auto v : host) {
-        expect(v > 0u) << "all outputs should be positive";
+    for (auto i = 0u; i < host.size(); i++) {
+        auto expected = (i & 1u) == 0u ? 149u : 249u;
+        expect(host[i] == expected)
+            << "structured break/continue result mismatch at idx " << i;
     }
 }
 

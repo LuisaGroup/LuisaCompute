@@ -45,6 +45,9 @@ void CallExpr::_mark() const noexcept {
             case CallOp::BUFFER_VOLATILE_WRITE:
             case CallOp::BUFFER_WRITE:
             case CallOp::BINDLESS_BUFFER_WRITE:
+            case CallOp::UNIFORM_BINDLESS_BUFFER_WRITE:
+            case CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_WRITE:
+            case CallOp::TYPED_BINDLESS_BUFFER_WRITE:
             case CallOp::BYTE_BUFFER_VOLATILE_WRITE:
             case CallOp::BYTE_BUFFER_WRITE:
             case CallOp::TEXTURE_WRITE:
@@ -74,6 +77,8 @@ void CallExpr::_mark() const noexcept {
             case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
             case CallOp::COOPERATIVE_VECTOR_ACCUMULATE:
             case CallOp::COOPERATIVE_VECTOR_STORE:
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
             case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
                 _arguments[0]->mark(Usage::WRITE);
                 for (size_t i = 1; i < _arguments.size(); i++) {

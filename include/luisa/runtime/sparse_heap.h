@@ -1,7 +1,14 @@
 #pragma once
+
 #include <luisa/runtime/rhi/resource.h>
 
 namespace luisa::compute {
+
+namespace detail {
+LUISA_RUNTIME_API void check_sparse_heap_provenance(
+    const Resource &resource,
+    const Resource &heap) noexcept;
+}// namespace detail
 
 class LUISA_RUNTIME_API SparseBufferHeap : public Resource {
 

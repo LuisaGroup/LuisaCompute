@@ -55,4 +55,9 @@ public:
 
 using ConstantList = ManagedIntrusiveList<Constant, SentinelConstant>;
 
+// Decodes a scalar integer constant without reinterpreting its storage. Returns
+// false for non-constants, non-integer types, and negative signed values.
+[[nodiscard]] LUISA_XIR_API bool try_decode_constant_nonnegative_integer(
+    const Value *value, uint64_t &result) noexcept;
+
 }// namespace luisa::compute::xir

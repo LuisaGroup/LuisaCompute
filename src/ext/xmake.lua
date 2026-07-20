@@ -5,7 +5,9 @@ includes("volk", "stb")
 lc_eastl_enable_custom_malloc = has_config("lc_enable_custom_malloc")
 lc_eastl_enable_mimalloc = has_config("lc_enable_mimalloc")
 includes("EASTL")
-local need_spv = has_config('lc_vk_backend_use_xir_spirv') or has_config('lc_vk_backend_use_ast_llvm_spirv')
+local need_spv = has_config("lc_vk_backend") and
+                 (has_config("lc_vk_backend_use_xir_spirv") or
+                  has_config("lc_vk_backend_use_ast_llvm_spirv"))
 if need_spv then
     includes("glslang")
 end
@@ -51,4 +53,3 @@ if need_spv then
 end
 
 table.remove(_config_rules, rename_rule_idx)
-

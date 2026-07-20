@@ -51,7 +51,8 @@ public:
 };
 
 template<typename T>
-    requires std::same_as<T, int> || std::same_as<T, uint>
+    requires std::same_as<T, int> || std::same_as<T, uint> ||
+             std::same_as<T, slong> || std::same_as<T, ulong>
 class AtomicRef<T> : private AtomicRefBase {
 
 public:
@@ -274,4 +275,3 @@ public:
 #undef LUISA_ATOMIC_REF_COMMON
 
 }// namespace luisa::compute::detail
-

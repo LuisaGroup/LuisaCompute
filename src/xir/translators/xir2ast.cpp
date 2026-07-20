@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/ast/op.h>
@@ -259,7 +260,10 @@ namespace detail {
         case ResourceWriteOp::TEXTURE2D_WRITE: [[fallthrough]];
         case ResourceWriteOp::TEXTURE3D_WRITE: return CallOp::TEXTURE_WRITE;
         case ResourceWriteOp::BINDLESS_BUFFER_WRITE: return CallOp::BINDLESS_BUFFER_WRITE;
-        case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE: return CallOp::BINDLESS_BUFFER_WRITE;
+        case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR bindless byte-buffer writes cannot be represented in AST: "
+                "the AST has no byte-addressed bindless write operation.");
         case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: return CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM;
         case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK: return CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY;
         case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY: return CallOp::RAY_TRACING_SET_INSTANCE_OPACITY;
@@ -466,20 +470,10 @@ private:
     }
 
     [[nodiscard]] uint64_t _constant_uint(const Value *v) noexcept {
-        LUISA_ASSERT(v->isa<Constant>(), "Expected constant integer index.");
-        auto c = static_cast<const Constant *>(v);
-        switch (c->type()->tag()) {
-            case Type::Tag::INT8: return static_cast<uint64_t>(c->as<byte>());
-            case Type::Tag::UINT8: return static_cast<uint64_t>(c->as<ubyte>());
-            case Type::Tag::INT16: return static_cast<uint64_t>(c->as<int16_t>());
-            case Type::Tag::UINT16: return static_cast<uint64_t>(c->as<uint16_t>());
-            case Type::Tag::INT32: return static_cast<uint64_t>(c->as<int>());
-            case Type::Tag::UINT32: return static_cast<uint64_t>(c->as<uint32_t>());
-            case Type::Tag::INT64: return static_cast<uint64_t>(c->as<slong>());
-            case Type::Tag::UINT64: return static_cast<uint64_t>(c->as<uint64_t>());
-            default: break;
-        }
-        LUISA_ERROR_WITH_LOCATION("Expected integer constant, got {}.", c->type()->description());
+        uint64_t result = 0u;
+        LUISA_ASSERT(try_decode_constant_nonnegative_integer(v, result),
+                     "Expected a nonnegative integer constant index.");
+        return result;
     }
 
     [[nodiscard]] const Expression *_arithmetic(const ArithmeticInst *inst) noexcept {
@@ -624,7 +618,9 @@ private:
                     for (auto i = 0u; i < call->argument_count(); i++) { args.emplace_back(_expr(call->argument(i))); }
                     return _materialize(call->type(), _current_builder()->call(call->type(), callee_builder->function(), args));
                 }
-                case DerivedInstructionTag::RESOURCE_QUERY: return _current_builder()->call(inst->type(), detail::xir2ast_resource_query_op(static_cast<const ResourceQueryInst *>(inst)->op()), _operands(inst));
+                case DerivedInstructionTag::RESOURCE_QUERY:
+                    return _resource_query(
+                        static_cast<const ResourceQueryInst *>(inst));
                 case DerivedInstructionTag::RESOURCE_READ: return _materialize(inst->type(), _current_builder()->call(inst->type(), detail::xir2ast_resource_read_op(static_cast<const ResourceReadInst *>(inst)->op()), _operands(inst)));
                 case DerivedInstructionTag::ATOMIC: return _materialize(inst->type(), _atomic(static_cast<const AtomicInst *>(inst)));
                 case DerivedInstructionTag::THREAD_GROUP: {
@@ -654,6 +650,20 @@ private:
         auto tmp = _current_builder()->local(type);
         _current_builder()->assign(tmp, expr);
         return tmp;
+    }
+
+    [[nodiscard]] const Expression *_resource_query(
+        const ResourceQueryInst *inst) noexcept {
+        auto args = _operands(inst);
+        if (inst->op() == ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE) {
+            // AST represents byte-buffer size with the element-size query and
+            // an explicit one-byte stride. Preserve the XIR byte unit instead
+            // of silently emitting a malformed two-argument AST call.
+            args.emplace_back(
+                _current_builder()->literal(Type::of<uint32_t>(), 1u));
+        }
+        return _current_builder()->call(
+            inst->type(), detail::xir2ast_resource_query_op(inst->op()), args);
     }
 
     template<typename F>
@@ -1025,7 +1035,45 @@ private:
                     auto ast_switch = _current_builder()->switch_(_expr(sw->value()));
                     _current_builder()->with(ast_switch->body(), [&] {
                         for (auto i = 0u; i < sw->case_count(); i++) {
-                            auto case_expr = _current_builder()->literal(Type::of<int>(), sw->case_value(i));
+                            auto selector_type = sw->value()->type();
+                            auto case_value = sw->case_value(i);
+                            auto case_expr = [&]() noexcept -> const LiteralExpr * {
+                                switch (selector_type->tag()) {
+                                    case Type::Tag::BOOL:
+                                        return _current_builder()->literal(
+                                            selector_type, static_cast<bool>(case_value));
+                                    case Type::Tag::INT8:
+                                        return _current_builder()->literal(
+                                            selector_type, luisa::bit_cast<int8_t>(
+                                                               static_cast<uint8_t>(case_value)));
+                                    case Type::Tag::UINT8:
+                                        return _current_builder()->literal(
+                                            selector_type, static_cast<uint8_t>(case_value));
+                                    case Type::Tag::INT16:
+                                        return _current_builder()->literal(
+                                            selector_type, luisa::bit_cast<int16_t>(
+                                                               static_cast<uint16_t>(case_value)));
+                                    case Type::Tag::UINT16:
+                                        return _current_builder()->literal(
+                                            selector_type, static_cast<uint16_t>(case_value));
+                                    case Type::Tag::INT32:
+                                        return _current_builder()->literal(
+                                            selector_type, luisa::bit_cast<int32_t>(
+                                                               static_cast<uint32_t>(case_value)));
+                                    case Type::Tag::UINT32:
+                                        return _current_builder()->literal(
+                                            selector_type, static_cast<uint32_t>(case_value));
+                                    case Type::Tag::INT64:
+                                        return _current_builder()->literal(
+                                            selector_type, luisa::bit_cast<int64_t>(case_value));
+                                    case Type::Tag::UINT64:
+                                        return _current_builder()->literal(selector_type, case_value);
+                                    default:
+                                        LUISA_ERROR_WITH_LOCATION(
+                                            "Invalid XIR switch selector type {}.",
+                                            selector_type->description());
+                                }
+                            }();
                             auto ast_case = _current_builder()->case_(case_expr);
                             _current_builder()->with(ast_case->body(), [&] {
                                 _with_value_map_checkpoint([&] { _emit_block(sw->case_block(i), sw->merge_block()); });

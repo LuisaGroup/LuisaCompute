@@ -366,6 +366,22 @@ public:
              detail::extract_expression(std::forward<V>(value))});
     }
 
+    /// Number of logical T elements in the bound buffer view.
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto stride = def(static_cast<uint>(sizeof(T)));
+        return def<uint>(f->call(
+            Type::of<uint>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::TYPED_BINDLESS_BUFFER_SIZE) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::BINDLESS_BUFFER_SIZE),
+            {_array, _index, stride.expression()}));
+    }
+
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
@@ -390,6 +406,22 @@ public:
             f->call(
                 Type::of<T>(), _is_typed ? (_is_uniform ? CallOp::TYPED_UNIFORM_BINDLESS_BYTE_BUFFER_READ : CallOp::TYPED_BINDLESS_BYTE_BUFFER_READ) : (_is_uniform ? CallOp::UNIFORM_BINDLESS_BYTE_BUFFER_READ : CallOp::BINDLESS_BYTE_BUFFER_READ),
                 {_array, _index, detail::extract_expression(std::forward<I>(offset))}));
+    }
+
+    /// Exact logical byte size of the bound buffer view.
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto byte_stride = def(1u);
+        return def<uint>(f->call(
+            Type::of<uint>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::TYPED_BINDLESS_BUFFER_SIZE) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::BINDLESS_BUFFER_SIZE),
+            {_array, _index, byte_stride.expression()}));
     }
 
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>

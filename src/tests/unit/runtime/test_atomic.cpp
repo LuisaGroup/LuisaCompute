@@ -19,6 +19,7 @@
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -39,7 +40,7 @@ void test_raw_buffer_atomic_matrix(Device &device) {
 
     constexpr size_t uint_value_count = 10u;
     constexpr size_t int_value_count = 2u;
-    constexpr size_t float_value_count = 2u;
+    constexpr size_t float_value_count = 7u;
 
     std::array<uint32_t, uint_value_count> uint_values{
         0x10203040u,
@@ -53,7 +54,8 @@ void test_raw_buffer_atomic_matrix(Device &device) {
         0xfffffff0u,
         17u};
     std::array<int32_t, int_value_count> int_values{7, -4};
-    std::array<float, float_value_count> float_values{8.5f, -3.5f};
+    std::array<float, float_value_count> float_values{
+        8.5f, -3.5f, 7.0f, 1.5f, 5.5f, 8.5f, -3.5f};
 
     auto uint_buffer = device.create_buffer<uint32_t>(uint_value_count);
     auto int_buffer = device.create_buffer<int32_t>(int_value_count);
@@ -82,8 +84,15 @@ void test_raw_buffer_atomic_matrix(Device &device) {
         int_old_buffer.write(0u, int_buffer.atomic(0u).fetch_min(-4));
         int_old_buffer.write(1u, int_buffer.atomic(1u).fetch_max(7));
 
-        float_old_buffer.write(0u, float_buffer.atomic(0u).fetch_min(-2.25f));
-        float_old_buffer.write(1u, float_buffer.atomic(1u).fetch_max(6.75f));
+        float_old_buffer.write(0u, float_buffer.atomic(0u).exchange(-1.25f));
+        float_old_buffer.write(
+            1u, float_buffer.atomic(1u).compare_exchange(-3.5f, 4.25f));
+        float_old_buffer.write(
+            2u, float_buffer.atomic(2u).compare_exchange(8.0f, 9.0f));
+        float_old_buffer.write(3u, float_buffer.atomic(3u).fetch_add(2.25f));
+        float_old_buffer.write(4u, float_buffer.atomic(4u).fetch_sub(1.25f));
+        float_old_buffer.write(5u, float_buffer.atomic(5u).fetch_min(-2.25f));
+        float_old_buffer.write(6u, float_buffer.atomic(6u).fetch_max(6.75f));
     };
     auto atomic_matrix_shader = device.compile(atomic_matrix_kernel);
 
@@ -130,8 +139,10 @@ void test_raw_buffer_atomic_matrix(Device &device) {
         17u};
     constexpr std::array<int32_t, int_value_count> expected_int_values{-4, 7};
     constexpr std::array<int32_t, int_value_count> expected_int_old_values{7, -4};
-    constexpr std::array<float, float_value_count> expected_float_values{-2.25f, 6.75f};
-    constexpr std::array<float, float_value_count> expected_float_old_values{8.5f, -3.5f};
+    constexpr std::array<float, float_value_count> expected_float_values{
+        -1.25f, 4.25f, 7.0f, 3.75f, 4.25f, -2.25f, 6.75f};
+    constexpr std::array<float, float_value_count> expected_float_old_values{
+        8.5f, -3.5f, 7.0f, 1.5f, 5.5f, 8.5f, -3.5f};
 
     for (size_t i = 0u; i < uint_value_count; ++i) {
         expect(uint_old_values[i] == expected_uint_old_values[i])
@@ -146,9 +157,10 @@ void test_raw_buffer_atomic_matrix(Device &device) {
             << "Unexpected signed atomic final value at operation " << i;
     }
     for (size_t i = 0u; i < float_value_count; ++i) {
-        expect(float_old_values[i] == expected_float_old_values[i])
+        expect(std::abs(float_old_values[i] -
+                        expected_float_old_values[i]) < 1e-6f)
             << "Unexpected float atomic old value at operation " << i;
-        expect(float_values[i] == expected_float_values[i])
+        expect(std::abs(float_values[i] - expected_float_values[i]) < 1e-6f)
             << "Unexpected float atomic final value at operation " << i;
     }
 }

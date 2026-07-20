@@ -40,36 +40,16 @@ using namespace luisa::compute;
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 int main(int argc, char *argv[]) {
 
-    // Parse optional --spp and --offline flags
-    uint user_spp = 0u;
-    bool force_offline = false;
-    std::optional<std::filesystem::path> compare_path;
-    std::optional<std::filesystem::path> out_ref_path;
-    bool out_ref_write = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
-            compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
-            user_spp = static_cast<uint>(std::atoi(argv[++i]));
-        } else if (std::string_view{argv[i]} == "--out_ref" && i + 1 < argc) {
-            std::string_view mode{argv[++i]};
-            if (mode == "write" && i + 1 < argc) {
-                out_ref_path = std::filesystem::path{argv[++i]};
-                out_ref_write = true;
-                force_offline = true;
-            } else if (mode == "read" && i + 1 < argc) {
-                out_ref_path = std::filesystem::path{argv[++i]};
-                out_ref_write = false;
-                force_offline = true;
-            } else {
-                LUISA_ERROR("--out_ref requires 'write <path>' or 'read <path>'.");
-                return 1;
-            }
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto user_spp = opts.spp;
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
+    auto out_ref_path = opts.out_ref_path;
+    auto out_ref_write = opts.out_ref_write;
 
     static constexpr int max_ray_depth = 6;
     static constexpr float eps = 1e-4f;

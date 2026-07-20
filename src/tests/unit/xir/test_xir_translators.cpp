@@ -9,6 +9,8 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/translators/xir2json.h>
@@ -189,6 +191,29 @@ void reg_xir2text() {
         auto text = xir_to_flat_text_translate(module.get(), true);
         expect(!text.empty());
         expect(text.find("define {") != luisa::string::npos);
+    };
+
+    "xir_to_text_emits_all_marker_metadata"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        static_cast<void>(kernel->create_metadata<SignatureConstraintMD>());
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *spill = builder.alloca_local(Type::of<uint32_t>());
+        spill->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::CROSS_BLOCK);
+        builder.return_void();
+
+        auto text = xir_to_text_translate(&module, true);
+        expect(text.find("signature_constraint") != luisa::string::npos);
+        expect(text.find("reg2mem_spill = cross_block") !=
+               luisa::string::npos);
+        auto flat_text = xir_to_flat_text_translate(&module, true);
+        expect(flat_text.find("signature_constraint") !=
+               luisa::string::npos);
+        expect(flat_text.find("reg2mem_spill = cross_block") !=
+               luisa::string::npos);
     };
 }
 

@@ -4,6 +4,7 @@
 // - exact per-instance mask queries
 // - host-side mask updates followed by a TLAS update
 // - device-side transform/mask mutations followed by TLAS update and rebuild
+// - one accel argument used for tracing, metadata reads, and instance writes
 // - opaque callback suppression and host/device opacity mutations
 
 #include "ut/ut.hpp"
@@ -178,6 +179,22 @@ void test_accel_device_mutation(Device &device) {
         accel.set_instance_transform(0u, transform);
         accel.set_instance_visibility(0u, visibility_mask);
     };
+    Kernel1D trace_and_mutate = [](AccelVar accel,
+                                   BufferUInt4 result) noexcept {
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f));
+        auto hit = accel.intersect(ray, {});
+        auto user_id = accel.instance_user_id(0u);
+        accel.set_instance_visibility(0u, 0x4u);
+        result.write(0u, make_uint4(
+                             hit->inst, hit->prim,
+                             cast<uint>(!hit->miss()), user_id));
+    };
+    Kernel1D query_visibility = [](AccelVar accel,
+                                   BufferUInt4 result) noexcept {
+        result.write(
+            0u, make_uint4(accel.instance_visibility_mask(0u), 0u, 0u, 0u));
+    };
     Kernel1D trace = [](BufferFloat3 origins, BufferUInt masks,
                         BufferUInt4 results, BufferUInt2 observed,
                         AccelVar accel) noexcept {
@@ -205,11 +222,35 @@ void test_accel_device_mutation(Device &device) {
     };
 
     auto mutate_shader = device.compile(mutate);
+    auto trace_and_mutate_shader = device.compile(trace_and_mutate);
+    auto query_visibility_shader = device.compile(query_visibility);
     auto trace_shader = device.compile(trace);
     auto origins = device.create_buffer<float3>(3u);
     auto masks = device.create_buffer<uint>(3u);
     auto results = device.create_buffer<uint4>(3u);
     auto observed = device.create_buffer<uint2>(1u);
+
+    // This is deliberately one kernel: the accel argument must bind both its
+    // acceleration-structure descriptor and its writable instance buffer. The
+    // following result buffer also catches descriptor-count drift at the
+    // logical-resource boundary.
+    std::array<uint4, 1u> combined_result{};
+    auto combined_result_buffer = device.create_buffer<uint4>(1u);
+    stream << trace_and_mutate_shader(accel, combined_result_buffer).dispatch(1u)
+           << combined_result_buffer.copy_to(luisa::span{combined_result})
+           << synchronize();
+    expect(static_cast<bool>(all(
+        combined_result[0] == make_uint4(0u, 0u, 1u, 0u))))
+        << luisa::format(
+               "combined accel read/write result mismatch: got {}",
+               combined_result[0]);
+    stream << query_visibility_shader(accel, combined_result_buffer).dispatch(1u)
+           << combined_result_buffer.copy_to(luisa::span{combined_result})
+           << synchronize();
+    expect(combined_result[0].x == 0x4u)
+        << luisa::format(
+               "combined accel mutation was not visible to a following dispatch: got {}",
+               combined_result[0].x);
 
     auto run = [&](const std::array<float3, 3u> &host_origins,
                    const std::array<uint, 3u> &host_masks,

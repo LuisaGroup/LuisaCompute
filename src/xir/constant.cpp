@@ -143,6 +143,45 @@ static void xir_constant_fill_one(const Type *t, void *data) noexcept {
 
 }// namespace detail
 
+bool try_decode_constant_nonnegative_integer(
+    const Value *value, uint64_t &result) noexcept {
+    if (value == nullptr || !value->isa<Constant>() || value->type() == nullptr) {
+        return false;
+    }
+    auto constant = static_cast<const Constant *>(value);
+    switch (value->type()->tag()) {
+        case Type::Tag::INT8: {
+            auto index = constant->as<int8_t>();
+            if (index < 0) { return false; }
+            result = static_cast<uint8_t>(index);
+            return true;
+        }
+        case Type::Tag::UINT8: result = constant->as<uint8_t>(); return true;
+        case Type::Tag::INT16: {
+            auto index = constant->as<int16_t>();
+            if (index < 0) { return false; }
+            result = static_cast<uint16_t>(index);
+            return true;
+        }
+        case Type::Tag::UINT16: result = constant->as<uint16_t>(); return true;
+        case Type::Tag::INT32: {
+            auto index = constant->as<int32_t>();
+            if (index < 0) { return false; }
+            result = static_cast<uint32_t>(index);
+            return true;
+        }
+        case Type::Tag::UINT32: result = constant->as<uint32_t>(); return true;
+        case Type::Tag::INT64: {
+            auto index = constant->as<int64_t>();
+            if (index < 0) { return false; }
+            result = static_cast<uint64_t>(index);
+            return true;
+        }
+        case Type::Tag::UINT64: result = constant->as<uint64_t>(); return true;
+        default: return false;
+    }
+}
+
 void *Constant::_data() noexcept {
     return _is_small() ? _small : _large;
 }

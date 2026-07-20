@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
 #include <algorithm>
 #include <luisa/xir/basic_block.h>
@@ -24,7 +25,7 @@ namespace {
             return module->create_constant(type, &v);
         }
         case Type::Tag::INT8: {
-            auto v = static_cast<int8_t>(value);
+            auto v = luisa::bit_cast<int8_t>(static_cast<uint8_t>(value));
             return module->create_constant(type, &v);
         }
         case Type::Tag::UINT8: {
@@ -32,7 +33,7 @@ namespace {
             return module->create_constant(type, &v);
         }
         case Type::Tag::INT16: {
-            auto v = static_cast<int16_t>(value);
+            auto v = luisa::bit_cast<int16_t>(static_cast<uint16_t>(value));
             return module->create_constant(type, &v);
         }
         case Type::Tag::UINT16: {
@@ -40,7 +41,7 @@ namespace {
             return module->create_constant(type, &v);
         }
         case Type::Tag::INT32: {
-            auto v = static_cast<int32_t>(value);
+            auto v = luisa::bit_cast<int32_t>(static_cast<uint32_t>(value));
             return module->create_constant(type, &v);
         }
         case Type::Tag::UINT32: {
@@ -48,7 +49,7 @@ namespace {
             return module->create_constant(type, &v);
         }
         case Type::Tag::INT64: {
-            auto v = static_cast<int64_t>(value);
+            auto v = luisa::bit_cast<int64_t>(value);
             return module->create_constant(type, &v);
         }
         case Type::Tag::UINT64: {
@@ -116,12 +117,27 @@ namespace {
     return count;
 }
 
+struct LowerSwitchPreflight {
+    luisa::vector<SwitchInst *> switches;
+    size_t rejected_switch_count{0u};
+};
+
+[[nodiscard]] LowerSwitchPreflight preflight_lower_switch(
+    FunctionDefinition *def) noexcept {
+    LowerSwitchPreflight preflight;
+    if (def == nullptr) { return preflight; }
+    preflight.switches = collect_switches(def);
+    preflight.rejected_switch_count =
+        count_rejected_switches(def, preflight.switches);
+    return preflight;
+}
+
 [[nodiscard]] LowerSwitchInfo lower_switch_on_definition(FunctionDefinition *def) noexcept {
     LowerSwitchInfo info{};
     if (def == nullptr) { return info; }
 
-    auto switches = collect_switches(def);
-    info.rejected_switch_count = count_rejected_switches(def, switches);
+    auto preflight = preflight_lower_switch(def);
+    info.rejected_switch_count = preflight.rejected_switch_count;
     if (info.rejected_switch_count != 0u) {
         LUISA_WARNING_WITH_LOCATION(
             "lower_switch: refusing to erase {} structured zero-case merge frame(s); "
@@ -130,7 +146,7 @@ namespace {
         return info;
     }
 
-    for (auto *sw : switches) {
+    for (auto *sw : preflight.switches) {
         auto *parent_bb = sw->parent_block();
         if (parent_bb == nullptr) { continue; }
 
@@ -240,16 +256,25 @@ LowerSwitchInfo lower_switch_pass_run_on_function(Function *function) noexcept {
     return lower_switch_on_definition(def);
 }
 
+LowerSwitchInfo lower_switch_pass_preflight_function(Function *function) noexcept {
+    LowerSwitchInfo info;
+    if (function == nullptr) { return info; }
+    auto *def = function->definition();
+    if (def == nullptr) { return info; }
+    info.rejected_switch_count =
+        preflight_lower_switch(def).rejected_switch_count;
+    return info;
+}
+
 LowerSwitchInfo lower_switch_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LowerSwitchInfo total{};
     if (module == nullptr) { return total; }
     // Keep the module entry point atomic as well: do not lower an earlier
     // function before discovering an unsupported structured switch later.
     for (auto *f : module->function_list()) {
-        if (auto *def = f->definition()) {
-            auto switches = collect_switches(def);
-            total.rejected_switch_count += count_rejected_switches(def, switches);
-        }
+        total.rejected_switch_count +=
+            lower_switch_pass_preflight_function(f)
+                .rejected_switch_count;
     }
     if (total.rejected_switch_count != 0u) {
         LUISA_WARNING_WITH_LOCATION(

@@ -29,6 +29,10 @@ using namespace luisa::compute::coro;
 int main(int argc, char *argv[]) {
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
     auto scheduler_kind = luisa::example::parse_coro_scheduler_arg(argc, argv);
 
     static constexpr int max_ray_depth = 6;

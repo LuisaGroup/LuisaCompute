@@ -71,12 +71,19 @@ namespace {
             return;
         }
         auto *prepare_term = prepare->terminator();
+        if (prepare_term->isa<BranchInst>()) {
+            auto *branch = static_cast<BranchInst *>(prepare_term);
+            n += branch->target_block() != loop->body_block();
+            return;
+        }
         if (!prepare_term->isa<ConditionalBranchInst>()) {
             ++n;
             return;
         }
         auto *cond_br = static_cast<ConditionalBranchInst *>(prepare_term);
-        if (cond_br->true_block() != loop->body_block() ||
+        if (cond_br->condition() == nullptr ||
+            cond_br->condition()->type() != Type::of<bool>() ||
+            cond_br->true_block() != loop->body_block() ||
             cond_br->false_block() != loop->merge_block()) {
             ++n;
         }
@@ -759,6 +766,8 @@ void reg_restructure_cfg() {
         auto *k = make_kernel_with_body(m, body);
         auto *def = k->definition();
         auto *cond = k->create_value_argument(Type::of<bool>());
+        auto *buffer = k->create_resource_argument(
+            Type::buffer(Type::of<int>()));
         auto *header = def->create_basic_block();
         auto *loop_body = def->create_basic_block();
         auto *then_block = def->create_basic_block();
@@ -773,6 +782,7 @@ void reg_restructure_cfg() {
         auto *outer_latch = def->create_basic_block();
         auto *exit = def->create_basic_block();
         auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *index = m.create_constant_zero(Type::of<uint>());
         int one_v = 1;
         auto *one = m.create_constant(Type::of<int>(), &one_v);
         int two_v = 2;
@@ -787,9 +797,13 @@ void reg_restructure_cfg() {
         b.cond_br(cond, then_block, else_block);
         b.set_insertion_point(then_block);
         auto *then_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {zero, one});
+        b.call(ResourceWriteOp::BUFFER_WRITE,
+               {buffer, index, then_value});
         b.br(diamond_merge);
         b.set_insertion_point(else_block);
         auto *else_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {zero, two});
+        b.call(ResourceWriteOp::BUFFER_WRITE,
+               {buffer, index, else_value});
         b.br(diamond_merge);
         b.set_insertion_point(diamond_merge);
         auto *phi = b.phi(Type::of<int>());
@@ -816,6 +830,9 @@ void reg_restructure_cfg() {
 
         expect(count_phi(def) == 1u);
         run_spirv_normalize_before_restructure(&m);
+        auto lowered_spills = audit_reg2mem_spills_on_module(&m);
+        expect(lowered_spills.remaining_phi_spill_count == 1u);
+        expect(lowered_spills.remaining_cross_block_spill_count == 0u);
         expect_no_structured_cfg(def);
         expect(count_phi(def) == 0u);
         auto info = restructure_cfg_pass_run_on_function(k);
@@ -825,6 +842,17 @@ void reg_restructure_cfg() {
                2u);
         expect(count_non_canonical_loop_prepare(def) == 0u);
         expect(count_non_canonical_loop_update(def) == 0u);
+        auto restructured_spills = audit_reg2mem_spills_on_module(&m);
+        expect(restructured_spills.remaining_phi_spill_count == 1u);
+        expect(restructured_spills.remaining_cross_block_spill_count == 0u);
+        auto mem2reg = mem2reg_pass_run_on_module(&m);
+        expect(mem2reg.promoted_alloca_count > 0u);
+        auto recovered_spills = audit_reg2mem_spills_on_module(&m);
+        expect(recovered_spills.succeeded());
+        expect(count_phi(def) > 0u);
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
     };
 
     "restructure_full_pipeline_ast_kernel_nested_loop_break"_test = [] {
@@ -1026,6 +1054,75 @@ void reg_restructure_cfg() {
         expect(static_cast<BranchInst *>(inner->merge_block()->terminator())->target_block() == outer->merge_block());
         expect(static_cast<BranchInst *>(outer_else->terminator())->target_block() == outer->merge_block());
         expect(branch_chain_reaches(outer->merge_block(), ret));
+    };
+
+    "restructure_drains_more_than_64_independent_selection_exits"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *condition = k->create_value_argument(Type::of<bool>());
+        auto *ret = def->create_basic_block();
+        struct Site {
+            IfInst *selection;
+            BasicBlock *exit_arm;
+            BasicBlock *original_merge;
+        };
+        luisa::vector<Site> sites;
+        sites.reserve(65u);
+        XIRBuilder b;
+        auto *cursor = body;
+        for (size_t i = 0u; i < 65u; i++) {
+            b.set_insertion_point(cursor);
+            auto *selection = b.if_(condition);
+            auto *next = selection->create_true_block();
+            auto *exit_arm = selection->create_false_block();
+            auto *original_merge = selection->create_merge_block();
+            b.set_insertion_point(exit_arm);
+            b.br(ret);
+            b.set_insertion_point(original_merge);
+            b.unreachable_();
+            sites.emplace_back(Site{selection, exit_arm, original_merge});
+            cursor = next;
+        }
+        b.set_insertion_point(cursor);
+        b.br(ret);
+        b.set_insertion_point(ret);
+        b.return_void();
+
+        auto first = restructure_cfg_pass_run_on_function(k);
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.unstructured_branch_count == 0u);
+        luisa::vector<BasicBlock *> rewritten_merges;
+        rewritten_merges.reserve(sites.size());
+        for (auto site : sites) {
+            auto *merge = site.selection->merge_block();
+            rewritten_merges.emplace_back(merge);
+            expect(merge != site.original_merge);
+            expect(site.exit_arm->terminator()->isa<BranchInst>());
+            if (site.exit_arm->terminator()->isa<BranchInst>()) {
+                expect(static_cast<BranchInst *>(site.exit_arm->terminator())->target_block() == merge);
+            }
+            expect(branch_chain_reaches(merge, ret));
+        }
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto count_blocks = [&]() noexcept {
+            size_t count = 0u;
+            for ([[maybe_unused]] auto *block : def->basic_blocks()) { count++; }
+            return count;
+        };
+        auto block_count = count_blocks();
+        auto second = restructure_cfg_pass_run_on_function(k);
+        expect(second.succeeded());
+        expect(second.iteration_limit_count == 0u);
+        expect(count_blocks() == block_count);
+        for (size_t i = 0u; i < sites.size(); i++) {
+            expect(sites[i].selection->merge_block() == rewritten_merges[i]);
+        }
     };
 
     "restructure_structurizes_raw_branch_inside_structured_if"_test = [] {
