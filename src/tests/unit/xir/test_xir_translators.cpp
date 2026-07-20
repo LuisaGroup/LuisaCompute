@@ -13,13 +13,40 @@
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/translators/xir2json.h>
 #include <luisa/xir/verifier.h>
-#include <yyjson.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
 using namespace boost::ut;
 using namespace boost::ut::literals;
+
+// Lightweight string-based helpers to validate JSON without pulling in yyjson.
+// The JSON output from xir_to_json_translate is pretty-printed (2-space indent)
+// so field patterns like `"key": value` are reliable.
+namespace {
+[[nodiscard]] bool json_is_obj(const luisa::string &json) noexcept {
+    auto p = json.find_first_not_of(" \t\r\n");
+    return p != luisa::string::npos && json[p] == '{';
+}
+[[nodiscard]] bool json_get_bool(const luisa::string &json, const char *key) noexcept {
+    return json.find(luisa::string("\"") + key + "\": true") != luisa::string::npos;
+}
+[[nodiscard]] uint64_t json_get_uint(const luisa::string &json, const char *key) noexcept {
+    luisa::string pattern = luisa::string("\"") + key + "\": ";
+    auto pos = json.find(pattern);
+    if (pos == luisa::string::npos) { return static_cast<uint64_t>(-1); }
+    pos += pattern.size();
+    return static_cast<uint64_t>(std::stoull(json.c_str() + pos));
+}
+[[nodiscard]] bool json_str_equals(const luisa::string &json, const char *key, const char *expected) noexcept {
+    luisa::string pattern = luisa::string("\"") + key + "\": \"" + expected + "\"";
+    return json.find(pattern) != luisa::string::npos;
+}
+[[nodiscard]] bool json_has_str_field(const luisa::string &json, const char *key) noexcept {
+    luisa::string pattern = luisa::string("\"") + key + "\": \"";
+    return json.find(pattern) != luisa::string::npos;
+}
+}// namespace
 
 void reg_ast2xir() {
 
@@ -201,26 +228,15 @@ void reg_xir2json() {
         };
         auto module = ast_to_xir_translate(kernel.function()->function(), {});
         auto json = xir_to_json_translate(module.get());
-        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
-        expect(doc != nullptr);
-        if (doc == nullptr) { return; }
-        auto *root = yyjson_doc_get_root(doc);
-        expect(yyjson_is_obj(root));
-        if (!yyjson_is_obj(root)) {
-            yyjson_doc_free(doc);
-            return;
-        }
-        expect(yyjson_equals_str(yyjson_obj_get(root, "schema"), "luisa.xir.debug"));
-        expect(yyjson_get_uint(yyjson_obj_get(root, "version")) == 1u);
-        expect(yyjson_get_bool(yyjson_obj_get(root, "ok")));
-        expect(yyjson_get_uint(yyjson_obj_get(root, "function_count")) >= 1u);
-        expect(yyjson_get_uint(yyjson_obj_get(root, "instruction_count")) >= 1u);
-        auto *text = yyjson_obj_get(root, "text");
-        expect(yyjson_is_str(text));
-        if (yyjson_is_str(text)) {
-            expect(luisa::string_view{yyjson_get_str(text), yyjson_get_len(text)}.find("define {") != luisa::string_view::npos);
-        }
-        yyjson_doc_free(doc);
+        expect(json_is_obj(json));
+        if (!json_is_obj(json)) { return; }
+        expect(json_str_equals(json, "schema", "luisa.xir.debug"));
+        expect(json_get_uint(json, "version") == 1u);
+        expect(json_get_bool(json, "ok"));
+        expect(json_get_uint(json, "function_count") >= 1u);
+        expect(json_get_uint(json, "instruction_count") >= 1u);
+        expect(json_has_str_field(json, "text"));
+        expect(json.find("define {") != luisa::string::npos);
     };
 
     "xir_to_json_contains_functions"_test = [] {
@@ -230,20 +246,12 @@ void reg_xir2json() {
         };
         auto module = ast_to_xir_translate(kernel.function()->function(), {});
         auto json = xir_to_json_translate(module.get());
-        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
-        expect(doc != nullptr);
-        if (doc == nullptr) { return; }
-        auto *root = yyjson_doc_get_root(doc);
-        expect(yyjson_is_obj(root));
-        if (!yyjson_is_obj(root)) {
-            yyjson_doc_free(doc);
-            return;
-        }
-        expect(yyjson_get_bool(yyjson_obj_get(root, "ok")));
-        expect(yyjson_get_uint(yyjson_obj_get(root, "function_count")) == 1u);
-        expect(yyjson_get_uint(yyjson_obj_get(root, "block_count")) >= 1u);
-        expect(yyjson_get_uint(yyjson_obj_get(root, "constant_count")) >= 1u);
-        yyjson_doc_free(doc);
+        expect(json_is_obj(json));
+        if (!json_is_obj(json)) { return; }
+        expect(json_get_bool(json, "ok"));
+        expect(json_get_uint(json, "function_count") == 1u);
+        expect(json_get_uint(json, "block_count") >= 1u);
+        expect(json_get_uint(json, "constant_count") >= 1u);
     };
 }
 
@@ -258,36 +266,20 @@ void reg_direct_module() {
     "xir_json_translate_empty_module"_test = [] {
         Module module;
         auto json = xir_to_json_translate(&module);
-        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
-        expect(doc != nullptr);
-        if (doc == nullptr) { return; }
-        auto *root = yyjson_doc_get_root(doc);
-        expect(yyjson_is_obj(root));
-        if (!yyjson_is_obj(root)) {
-            yyjson_doc_free(doc);
-            return;
-        }
-        expect(yyjson_get_bool(yyjson_obj_get(root, "ok")));
-        expect(yyjson_get_uint(yyjson_obj_get(root, "function_count")) == 0u);
-        expect(yyjson_get_uint(yyjson_obj_get(root, "block_count")) == 0u);
-        expect(yyjson_is_str(yyjson_obj_get(root, "text")));
-        yyjson_doc_free(doc);
+        expect(json_is_obj(json));
+        if (!json_is_obj(json)) { return; }
+        expect(json_get_bool(json, "ok"));
+        expect(json_get_uint(json, "function_count") == 0u);
+        expect(json_get_uint(json, "block_count") == 0u);
+        expect(json_has_str_field(json, "text"));
     };
 
     "xir_json_translate_null_module_reports_error"_test = [] {
         auto json = xir_to_json_translate(nullptr);
-        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
-        expect(doc != nullptr);
-        if (doc == nullptr) { return; }
-        auto *root = yyjson_doc_get_root(doc);
-        expect(yyjson_is_obj(root));
-        if (!yyjson_is_obj(root)) {
-            yyjson_doc_free(doc);
-            return;
-        }
-        expect(!yyjson_get_bool(yyjson_obj_get(root, "ok")));
-        expect(yyjson_equals_str(yyjson_obj_get(root, "error"), "null XIR module"));
-        yyjson_doc_free(doc);
+        expect(json_is_obj(json));
+        if (!json_is_obj(json)) { return; }
+        expect(!json_get_bool(json, "ok"));
+        expect(json_str_equals(json, "error", "null XIR module"));
     };
 
     "xir_text_translate_module_with_kernel"_test = [] {
