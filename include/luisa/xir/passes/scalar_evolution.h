@@ -92,6 +92,10 @@ struct SCEVInfo {
     }
 };
 
+[[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_function(FunctionDefinition *def) noexcept;
+[[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
+[[nodiscard]] LUISA_XIR_API const SCEV *scev_get_for_value(Instruction *inst) noexcept;
+
 class LUISA_XIR_API SCEVAnalysis {
 private:
     struct Impl;
@@ -114,10 +118,6 @@ public:
     [[nodiscard]] FunctionDefinition *function() const noexcept;
     [[nodiscard]] bool is_current() const noexcept;
 };
-
-[[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_function(FunctionDefinition *def) noexcept;
-[[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
-[[nodiscard]] LUISA_XIR_API const SCEV *scev_get_for_value(Instruction *inst) noexcept;
 
 namespace detail {
 LUISA_XIR_API void scev_register_function(Function *function) noexcept;
