@@ -216,6 +216,12 @@ public:
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     /// Return a span of argument bindings.
     [[nodiscard]] auto bound_arguments() const noexcept { return luisa::span{_bound_arguments}; }
+    /// Return whether an argument is an internalized capture of an outer
+    /// expression.  This is needed by AST transforms that reconstruct custom
+    /// callable calls without passing capture slots twice.
+    [[nodiscard]] bool has_internalizer_argument(Variable argument) const noexcept {
+        return _internalizer_arguments.contains(argument);
+    }
     /// Return a span of unbound arguments.
     [[nodiscard]] auto unbound_arguments() const noexcept { return luisa::span{_arguments}.subspan(_bound_arguments.size()); }
     /// Return a span of custom callables.
