@@ -97,8 +97,8 @@ private:
     struct Impl;
     luisa::unique_ptr<Impl> _impl;
     [[nodiscard]] const SCEV *_get_unchecked(Instruction *inst) const noexcept;
-    friend SCEVInfo scev_pass_run_on_function(FunctionDefinition *def) noexcept;
-    friend const SCEV *scev_get_for_value(Instruction *inst) noexcept;
+    friend LUISA_XIR_API SCEVInfo scev_pass_run_on_function(FunctionDefinition *def) noexcept;
+    friend LUISA_XIR_API const SCEV *scev_get_for_value(Instruction *inst) noexcept;
 
 public:
     SCEVAnalysis() noexcept;
