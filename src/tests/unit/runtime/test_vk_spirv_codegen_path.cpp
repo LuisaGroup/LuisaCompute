@@ -5121,6 +5121,73 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_device_clock_uses_enabled_khr_feature"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_device_clock"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        if (dc.device.query("shader_device_clock") != "true") {
+            expect(true)
+                << "Vulkan device does not expose shaderDeviceClock; runtime "
+                   "coverage is skipped while structural validation remains active";
+            return;
+        }
+        constexpr auto invocation_count = 4u;
+        auto begin_output =
+            dc.device.create_buffer<luisa::ulong>(invocation_count);
+        auto end_output =
+            dc.device.create_buffer<luisa::ulong>(invocation_count);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferULong begin_out,
+                             BufferULong end_out) noexcept {
+            auto i = dispatch_x();
+            auto begin = device_clock();
+            begin_out.write(i, begin);
+            auto end = device_clock();
+            end_out.write(i, end);
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<luisa::ulong, invocation_count> begin_result{};
+        std::array<luisa::ulong, invocation_count> end_result{};
+        stream << shader(begin_output, end_output)
+                      .dispatch(invocation_count)
+               << begin_output.copy_to(luisa::span{begin_result})
+               << end_output.copy_to(luisa::span{end_result})
+               << synchronize();
+        for (auto i = 0u; i < invocation_count; ++i) {
+            expect(end_result[i] >= begin_result[i])
+                << "device-scope shader clock regressed within invocation "
+                << i;
+        }
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "device-clock regression should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(disassembly, "ReadClockKHR") == 2u)
+                << "the two source clock reads must remain distinct at opt0";
+            expect(count_substring(
+                       disassembly,
+                       "SPV_KHR_shader_clock") == 1u)
+                << "device clock must declare SPV_KHR_shader_clock exactly once";
+            expect(count_substring(
+                       disassembly,
+                       "Capability ShaderClockKHR") == 1u)
+                << "device clock must declare ShaderClockKHR exactly once";
+        }
+    };
+
     "vk_user_compute_nested_if_loop_exit_preserves_outer_merge"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;

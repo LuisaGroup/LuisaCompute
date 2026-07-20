@@ -128,7 +128,8 @@ constexpr auto capability_owned_target_features =
     target_feature::storage_buffer_16bit_access |
     target_feature::uniform_storage_buffer_16bit_access |
     target_feature::storage_buffer_array_non_uniform_indexing |
-    target_feature::storage_buffer_array_dynamic_indexing;
+    target_feature::storage_buffer_array_dynamic_indexing |
+    target_feature::shader_device_clock;
 
 [[nodiscard]] constexpr SpirvTargetFeatureMask
 target_feature_from_capability(spv::Capability capability) noexcept {
@@ -185,6 +186,8 @@ target_feature_from_capability(spv::Capability capability) noexcept {
             return target_feature::storage_buffer_array_non_uniform_indexing;
         case spv::Capability::StorageBufferArrayDynamicIndexing:
             return target_feature::storage_buffer_array_dynamic_indexing;
+        case spv::Capability::ShaderClockKHR:
+            return target_feature::shader_device_clock;
         default: return 0u;
     }
 }

@@ -63,6 +63,8 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
     const xir::Instruction *ray_instruction = nullptr;
     const xir::Function *subgroup_function = nullptr;
     const xir::Instruction *subgroup_instruction = nullptr;
+    const xir::Function *clock_function = nullptr;
+    const xir::Instruction *clock_instruction = nullptr;
     for (auto *function : functions) {
         if (function == nullptr || !function->is_definition()) { continue; }
         traverse_spirv_codegen_structural_instructions(
@@ -102,6 +104,13 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
                         subgroup_instruction = instruction;
                     }
                 }
+                if (!result.plan.uses_shader_device_clock &&
+                    instruction->derived_instruction_tag() ==
+                        xir::DerivedInstructionTag::CLOCK) {
+                    result.plan.uses_shader_device_clock = true;
+                    clock_function = function;
+                    clock_instruction = instruction;
+                }
             });
     }
 
@@ -130,6 +139,10 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
         result.plan.required_features |=
             target_feature::subgroup_extended_types;
     }
+    if (result.plan.uses_shader_device_clock) {
+        result.plan.required_features |=
+            target_feature::shader_device_clock;
+    }
 
     result.missing_features =
         result.plan.required_features & ~features.enabled_mask();
@@ -138,13 +151,17 @@ SpirvRuntimeTargetPlanResult plan_spirv_runtime_target_contract(
         auto semantic_ray = feature.bit == target_feature::ray_query;
         auto subgroup_extended =
             feature.bit == target_feature::subgroup_extended_types;
+        auto shader_clock =
+            feature.bit == target_feature::shader_device_clock;
         result.diagnostics.emplace_back(
             SpirvRuntimeTargetDiagnostic{
                 .function = semantic_ray      ? ray_function :
                             subgroup_extended ? subgroup_function :
+                            shader_clock      ? clock_function :
                                                 nullptr,
                 .instruction = semantic_ray      ? ray_instruction :
                                subgroup_extended ? subgroup_instruction :
+                               shader_clock      ? clock_instruction :
                                                    nullptr,
                 .feature = feature.bit,
                 .message = luisa::format(

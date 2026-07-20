@@ -167,4 +167,35 @@ int main(int argc, char *argv[]) {
         expect(eq(supported.plan.required_features,
                   lc::spirv::target_feature::subgroup_extended_types));
     };
+
+    "spirv_runtime_plan_preflights_device_clock"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *clock = builder.clock();
+        builder.return_void();
+
+        auto missing = plan_one(kernel, {});
+        expect(!missing.succeeded());
+        expect(missing.plan.uses_shader_device_clock);
+        expect(eq(missing.plan.required_features,
+                  lc::spirv::target_feature::shader_device_clock));
+        expect(eq(missing.missing_features,
+                  lc::spirv::target_feature::shader_device_clock));
+        expect(eq(missing.diagnostics.size(), 1u));
+        if (!missing.diagnostics.empty()) {
+            expect(missing.diagnostics.front().function == kernel);
+            expect(missing.diagnostics.front().instruction == clock);
+        }
+
+        auto supported = plan_one(
+            kernel, {},
+            lc::spirv::SpirvTargetFeatures{
+                .shader_device_clock = true});
+        expect(supported.succeeded());
+        expect(supported.plan.uses_shader_device_clock);
+        expect(eq(supported.plan.required_features,
+                  lc::spirv::target_feature::shader_device_clock));
+    };
 }

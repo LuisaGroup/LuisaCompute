@@ -23,6 +23,7 @@ struct SpirvRuntimeTargetPlan {
     SpirvBindlessResourceUsage bindless_resources;
     bool uses_semantic_ray_query{false};
     bool uses_subgroup_extended_types{false};
+    bool uses_shader_device_clock{false};
     SpirvTargetFeatureMask required_features{};
 };
 

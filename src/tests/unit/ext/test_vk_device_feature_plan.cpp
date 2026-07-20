@@ -964,7 +964,7 @@ int main(int argc, char *argv[]) {
     "vk_custom_device_feature_chain_allows_unowned_structures"_test = [] {
         using namespace lc::vk::detail;
         VkBaseInStructure tail{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT,
             .pNext = nullptr};
         VkBaseInStructure head{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
@@ -982,6 +982,7 @@ int main(int argc, char *argv[]) {
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
         };
         for (auto type : colliding_types) {
             VkBaseInStructure collision{
@@ -1009,7 +1010,7 @@ int main(int argc, char *argv[]) {
         };
         for (auto type : colliding_types) {
             VkBaseInStructure allowed{
-                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT,
                 .pNext = nullptr};
             VkBaseInStructure collision{
                 .sType = type,
@@ -1027,7 +1028,7 @@ int main(int argc, char *argv[]) {
     "vk_custom_device_feature_chain_rejects_cycles"_test = [] {
         using namespace lc::vk::detail;
         VkBaseInStructure first{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT,
             .pNext = nullptr};
         VkBaseInStructure second{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
@@ -1041,13 +1042,13 @@ int main(int argc, char *argv[]) {
     "vk_custom_device_feature_chain_rejects_non_head_duplicates"_test = [] {
         using namespace lc::vk::detail;
         VkBaseInStructure duplicate{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT,
             .pNext = nullptr};
         VkBaseInStructure middle{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
             .pNext = &duplicate};
         VkBaseInStructure head{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT,
             .pNext = &middle};
         auto result = validate_device_feature_settings_chain(&head);
         expect(!result);

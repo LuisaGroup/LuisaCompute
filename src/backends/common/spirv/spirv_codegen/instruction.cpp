@@ -4761,7 +4761,20 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             LUISA_ERROR_WITH_LOCATION(
                 "SPIR-V codegen received PRINT after dialect validation; "
                 "silently dropping its side effect is forbidden.");
-        case xir::DerivedInstructionTag::CLOCK:
+        case xir::DerivedInstructionTag::CLOCK: {
+            _require_target_feature(
+                target_feature::shader_device_clock,
+                _target_features.shader_device_clock);
+            _builder.addExtension(spv::E_SPV_KHR_shader_clock);
+            _builder.addCapability(spv::Capability::ShaderClockKHR);
+            auto scope = _builder.makeUintConstant(
+                static_cast<uint32_t>(spv::Scope::Device));
+            set_result(_builder.createOp(
+                spv::Op::OpReadClockKHR,
+                _convert_type(inst->type(), Usage::READ),
+                std::vector<spv::Id>{scope}));
+            break;
+        }
         case xir::DerivedInstructionTag::ASSERT:
         case xir::DerivedInstructionTag::ASSUME:
         case xir::DerivedInstructionTag::DEBUG_BREAK:

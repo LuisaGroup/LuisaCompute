@@ -2509,10 +2509,7 @@ spirv_xir_dialect_support(xir::DerivedInstructionTag tag) noexcept {
             return unsupported(
                 "printing is not implemented and dropping its side effect is "
                 "forbidden");
-        case xir::DerivedInstructionTag::CLOCK:
-            return unsupported(
-                "the native path does not emit a shader-clock instruction or "
-                "declare its required extension");
+        case xir::DerivedInstructionTag::CLOCK: return supported();
         case xir::DerivedInstructionTag::DEBUG_BREAK:
             return unsupported(
                 "the native path has no debug-break instruction contract");

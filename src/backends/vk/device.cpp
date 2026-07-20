@@ -1001,6 +1001,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     bool enable_shared_float32_atomic_min_max = false;
     bool enable_subgroup_size_control = false;
     bool enable_subgroup_extended_types = false;
+    bool enable_shader_device_clock = false;
     {
         VkPhysicalDeviceVulkan12Features vk12_atomic_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -1059,6 +1060,21 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         if (supported_float8.shaderFloat8 == VK_TRUE) {
             enable_device_extension(VK_EXT_SHADER_FLOAT8_EXTENSION_NAME);
             enable_float8 = true;
+        }
+    }
+    if (supported_ext.find(VK_KHR_SHADER_CLOCK_EXTENSION_NAME) !=
+        supported_ext.end()) {
+        VkPhysicalDeviceShaderClockFeaturesKHR supported_shader_clock{
+            .sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_shader_clock};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (supported_shader_clock.shaderDeviceClock == VK_TRUE) {
+            enable_device_extension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
+            enable_shader_device_clock = true;
         }
     }
     {
@@ -1536,6 +1552,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         subgroup_size_control_enabled = false;
         _subgroup_size_control_properties = {};
         enable_subgroup_extended_types = false;
+        enable_shader_device_clock = false;
         enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
         cooperative_vector_enabled = false;
         cooperative_vector_fp32_enabled = false;
@@ -1723,6 +1740,16 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (enable_float8) {
         feature_next = &float8_features;
     }
+    VkPhysicalDeviceShaderClockFeaturesKHR shader_clock_features{
+        .sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+        .pNext = feature_next,
+        .shaderSubgroupClock = VK_FALSE,
+        .shaderDeviceClock =
+            enable_shader_device_clock ? VK_TRUE : VK_FALSE};
+    if (enable_shader_device_clock) {
+        feature_next = &shader_clock_features;
+    }
     VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
         .pNext = feature_next,
@@ -1851,6 +1878,8 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     // this backend itself requested while creating the device.
     subgroup_extended_types_enabled =
         external_device == VK_NULL_HANDLE && enable_subgroup_extended_types;
+    _shader_device_clock_enabled =
+        external_device == VK_NULL_HANDLE && enable_shader_device_clock;
     if (external_device == VK_NULL_HANDLE) {
         _numeric_features = {
             .shader_float8 = enable_float8,
@@ -2424,6 +2453,13 @@ bool Device::print_code() {
     return luisa::compute::backend_print_code_enabled();
 }
 
+luisa::string Device::query(luisa::string_view property) noexcept {
+    if (property == "shader_device_clock") {
+        return _shader_device_clock_enabled ? "true" : "false";
+    }
+    return DeviceInterface::query(property);
+}
+
 uint64_t Device::enabled_spirv_artifact_features() const noexcept {
     using namespace lc::spirv;
     SpirvTargetFeatureMask mask{};
@@ -2533,6 +2569,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
                _vk_device->enabled_features
                        .shaderStorageBufferArrayDynamicIndexing == VK_TRUE,
            target_feature::storage_buffer_array_dynamic_indexing);
+    enable(owned_logical_device && _shader_device_clock_enabled,
+           target_feature::shader_device_clock);
     return mask;
 }
 

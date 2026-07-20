@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
         expect_complete_matrix(
             RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED, 0u);
         expect_complete_matrix(DerivedSpecialRegisterTag::DISPATCH_SIZE, 2u);
-        expect_complete_matrix(DerivedInstructionTag::OUTLINE, 15u);
+        expect_complete_matrix(DerivedInstructionTag::OUTLINE, 14u);
     };
 
     "spirv_xir_kernel_abi_requires_exact_ast_xir_pairing"_test = [] {

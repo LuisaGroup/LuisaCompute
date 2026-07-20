@@ -53,8 +53,9 @@ inline constexpr SpirvTargetFeatureMask storage_buffer_array_non_uniform_indexin
 inline constexpr SpirvTargetFeatureMask descriptor_binding_sampled_image_update_after_bind = 0x0000000800000000ull;
 inline constexpr SpirvTargetFeatureMask descriptor_binding_storage_buffer_update_after_bind = 0x0000001000000000ull;
 inline constexpr SpirvTargetFeatureMask storage_buffer_array_dynamic_indexing = 0x0000002000000000ull;
+inline constexpr SpirvTargetFeatureMask shader_device_clock = 0x0000004000000000ull;
 
-inline constexpr SpirvTargetFeatureMask known_mask = 0x0000003fffffffffull;
+inline constexpr SpirvTargetFeatureMask known_mask = 0x0000007fffffffffull;
 
 }// namespace target_feature
 
@@ -101,7 +102,8 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::storage_buffer_array_non_uniform_indexing, "shaderStorageBufferArrayNonUniformIndexing"},
     SpirvTargetFeatureDescription{target_feature::descriptor_binding_sampled_image_update_after_bind, "descriptorBindingSampledImageUpdateAfterBind"},
     SpirvTargetFeatureDescription{target_feature::descriptor_binding_storage_buffer_update_after_bind, "descriptorBindingStorageBufferUpdateAfterBind"},
-    SpirvTargetFeatureDescription{target_feature::storage_buffer_array_dynamic_indexing, "shaderStorageBufferArrayDynamicIndexing"}};
+    SpirvTargetFeatureDescription{target_feature::storage_buffer_array_dynamic_indexing, "shaderStorageBufferArrayDynamicIndexing"},
+    SpirvTargetFeatureDescription{target_feature::shader_device_clock, "shaderDeviceClock"}};
 
 [[nodiscard]] constexpr std::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

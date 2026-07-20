@@ -766,6 +766,22 @@ int main(int argc, char *argv[]) {
         expect(!contains(compiled.text, "OpCapability RayQueryKHR"));
     };
 
+    "spirv_target_features_device_clock_is_exact"_test = [] {
+        Kernel1D kernel = [](BufferULong output) noexcept {
+            output.write(0u, device_clock());
+        };
+        auto compiled = compile_spirv_fixture(kernel);
+        constexpr auto expected =
+            lc::spirv::target_feature::shader_device_clock |
+            lc::spirv::target_feature::shader_int64;
+        expect(eq(compiled.required_features, expected));
+        expect(contains(compiled.text,
+                        "OpExtension \"SPV_KHR_shader_clock\""));
+        expect(contains(compiled.text,
+                        "OpCapability ShaderClockKHR"));
+        expect(contains(compiled.text, "OpReadClockKHR"));
+    };
+
     "spirv_float_classification_uses_core_boolean_instructions"_test = [] {
         Kernel1D kernel = [](BufferUInt output, Float value) noexcept {
             output.write(0u, ite(luisa::compute::isnan(value), 1u, 0u));

@@ -144,6 +144,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         bool shader_buffer_int64_atomics{false};
         bool shader_shared_int64_atomics{false};
     } _int64_atomic_features;
+    bool _shader_device_clock_enabled{false};
     void _init_device(VkPhysicalDevice external_physical_device, VkDevice external_device, uint32_t selected_device);
     [[nodiscard]] luisa::shared_ptr<NativeImageState>
     acquire_native_image_state(
@@ -251,6 +252,8 @@ public:
     [[nodiscard]] float max_sampler_anisotropy() const noexcept {
         return _max_sampler_anisotropy;
     }
+    [[nodiscard]] luisa::string query(
+        luisa::string_view property) noexcept override;
     static hlsl::ShaderCompiler *compiler();
     static VkAllocationCallbacks *alloc_callbacks();
     [[nodiscard]] VkInstance instance() const noexcept;
