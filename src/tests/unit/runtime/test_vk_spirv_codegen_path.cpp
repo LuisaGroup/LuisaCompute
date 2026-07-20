@@ -92,6 +92,14 @@ LUISA_STRUCT(WideVectorStorageRecord, prefix, payload, suffix) {};
 static_assert(offsetof(WideVectorStorageRecord, payload) == 16u);
 static_assert(sizeof(WideVectorStorageRecord) == 64u);
 
+struct SpirvCallableAggregate {
+    float2 pair;
+    uint32_t tag;
+    float weight;
+};
+LUISA_STRUCT(SpirvCallableAggregate, pair, tag, weight) {};
+static_assert(sizeof(SpirvCallableAggregate) == 16u);
+
 namespace {
 
 void set_environment_variable(const char *name, const char *value) noexcept {
@@ -4999,6 +5007,67 @@ int main(int argc, char *argv[]) {
                << synchronize();
         expect_vector_equal(original_result[0], float4{1.0f, 2.0f, 3.0f, 4.0f});
         expect_vector_equal(inserted_result[0], float4{1.0f, 2.0f, 99.0f, 4.0f});
+    };
+
+    "vk_user_compute_callable_aggregate_value_abi_is_exact"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_callable_aggregate_abi"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+        auto input = device.create_buffer<float4>(1u);
+        auto output = device.create_buffer<float4>(1u);
+
+        Callable transform = [](Var<SpirvCallableAggregate> value) noexcept {
+            Var<SpirvCallableAggregate> result;
+            result.pair = make_float2(
+                value.pair.y + value.weight,
+                value.pair.x - value.weight);
+            result.tag = value.tag * 3u + 1u;
+            result.weight = value.pair.x * 2.0f + value.pair.y;
+            return result;
+        };
+        Kernel1D kernel = [&](BufferFloat4 source,
+                              BufferFloat4 destination) noexcept {
+            auto packed = source.read(0u);
+            Var<SpirvCallableAggregate> value;
+            value.pair = packed.xy();
+            value.tag = cast<uint32_t>(packed.z);
+            value.weight = packed.w;
+            auto result = transform(value);
+            destination.write(
+                0u, make_float4(
+                        result.pair.x, result.pair.y,
+                        cast<float>(result.tag), result.weight));
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{float4{2.0f, 5.0f, 7.0f, 3.0f}};
+        std::array<float4, 1u> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(1u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        expect_vector_equal(result[0], float4{8.0f, -1.0f, 22.0f, 9.0f});
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the aggregate callable fixture should emit one SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(disassembly, "FunctionCall") == 1u)
+                << "the aggregate ABI must be exercised by a real OpFunctionCall";
+        }
     };
 
     "vk_user_compute_float_edge_semantics_and_scalar_broadcasts"_test = [&] {
