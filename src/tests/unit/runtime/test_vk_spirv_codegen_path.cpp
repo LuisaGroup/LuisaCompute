@@ -3752,7 +3752,7 @@ OpName %8 "Fma"
         auto heap = dc.device.create_bindless_array(1u);
         auto controls = dc.device.create_buffer<uint32_t>(2u);
         auto sizes = dc.device.create_buffer<uint3>(3u);
-        auto voxels = dc.device.create_buffer<float4>(4u);
+        auto voxels = dc.device.create_buffer<float4>(6u);
         auto stream = dc.device.create_stream();
 
         Kernel1D kernel = [](VolumeFloat direct_view,
@@ -3777,6 +3777,18 @@ OpName %8 "Fma"
                         cast<float>(level)));
             voxel_output.write(
                 3u, direct_view.read(make_uint3(0u)));
+            auto mip_one_ddx = make_float3(0.5f, 0.0f, 0.0f);
+            auto mip_one_ddy = make_float3(0.0f, 0.5f, 0.0f);
+            voxel_output.write(
+                4u, sampled.sample(
+                        make_float3(0.375f, 0.625f, 0.375f),
+                        mip_one_ddx, mip_one_ddy));
+            auto base_ddx = make_float3(0.25f, 0.0f, 0.0f);
+            auto base_ddy = make_float3(0.0f, 0.25f, 0.0f);
+            voxel_output.write(
+                5u, sampled.sample(
+                        make_float3(0.375f, 0.625f, 0.375f),
+                        base_ddx, base_ddy, 2.0f));
         };
         auto shader = dc.device.compile(
             kernel, ShaderOption{.enable_cache = false,
@@ -3790,13 +3802,13 @@ OpName %8 "Fma"
         constexpr std::array<uint32_t, 2u> control_source{
             0u, selected_level};
         std::array<uint3, 3u> size_result{};
-        std::array<float4, 4u> voxel_result{};
+        std::array<float4, 6u> voxel_result{};
         stream << volume.view(0u).copy_from(luisa::span{mip0})
                << volume.view(1u).copy_from(luisa::span{mip1})
                << volume.view(2u).copy_from(luisa::span{mip2})
                << controls.copy_from(luisa::span{control_source})
                << heap.emplace_on_update(
-                          0u, volume, Sampler::point_edge())
+                          0u, volume, Sampler::linear_linear_edge())
                       .update()
                << shader(volume.view(1u), heap, controls,
                          sizes, voxels)
@@ -3821,6 +3833,8 @@ OpName %8 "Fma"
         expect_vector_equal(voxel_result[1], base_voxel);
         expect_vector_equal(voxel_result[2], final_voxel);
         expect_vector_equal(voxel_result[3], middle_voxel);
+        expect_vector_equal(voxel_result[4], middle_voxel);
+        expect_vector_equal(voxel_result[5], final_voxel);
 
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
@@ -3837,12 +3851,18 @@ OpName %8 "Fma"
                 << "direct-view and explicit-level bindless volume reads "
                    "must lower to OpImageFetch";
             expect(count_spirv_opcode(
-                       disassembly, "ImageSampleExplicitLod") == 2u)
+                       disassembly, "ImageSampleExplicitLod") == 4u)
                 << "compute volume sampling must use explicit LOD operands, "
                    "including the plain sample form";
             expect(count_spirv_opcode(
                        disassembly, "ImageSampleImplicitLod") == 0u)
                 << "compute shaders must not derive implicit volume LOD";
+            expect(count_substring(disassembly, " Grad ") == 2u)
+                << "both volume gradient samples must carry the Grad image "
+                   "operand exactly once";
+            expect(count_substring(disassembly, " Grad MinLod ") == 1u)
+                << "minimum-LOD volume gradient sampling must carry combined "
+                   "Grad and MinLod image operands exactly once";
         }
     };
 
