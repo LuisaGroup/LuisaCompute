@@ -624,6 +624,19 @@ private:
                                                 element->description()));
             }
         }
+        if (inst->op() == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE &&
+            inst->operand_count() >= 3u) {
+            uint64_t stride = 0u;
+            if (xir::try_decode_constant_nonnegative_integer(
+                    inst->operand(2), stride) &&
+                stride == 0u) {
+                _error(
+                    function, block, inst,
+                    "Native XIR-to-SPIR-V bindless_buffer_size requires a "
+                    "nonzero element stride; a zero stride would make its "
+                    "byte-size division undefined.");
+            }
+        }
         auto sample_info =
             spirv_texture_sample_op_info(inst->op());
         if (sample_info.valid && sample_info.direct &&

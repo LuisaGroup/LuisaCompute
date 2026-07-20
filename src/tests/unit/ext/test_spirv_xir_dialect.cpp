@@ -2263,4 +2263,30 @@ int main(int argc, char *argv[]) {
         expect(has_diagnostic(validation, "buffer<struct<4>>"));
         expect(has_diagnostic(validation, "cannot represent"));
     };
+
+    "spirv_xir_bindless_buffer_size_rejects_constant_zero_stride"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *bindless = kernel->create_resource_argument(
+            Type::from("bindless_array"));
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *size = builder.call(
+            Type::of<uint32_t>(),
+            ResourceQueryOp::BINDLESS_BUFFER_SIZE,
+            {bindless, zero, zero});
+        builder.return_void();
+
+        expect_generic_xir_valid(
+            module,
+            "a zero bindless element stride is valid generic XIR and must be rejected by the native SPIR-V dialect");
+        auto validation =
+            lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+        expect_only_diagnostic_at(
+            validation, kernel, body, size,
+            "nonzero element stride");
+        expect(has_diagnostic(validation, "division undefined"));
+    };
 }
