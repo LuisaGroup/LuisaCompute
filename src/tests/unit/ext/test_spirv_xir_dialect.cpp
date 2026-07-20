@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
         expect_complete_matrix(
             RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED, 0u);
         expect_complete_matrix(DerivedSpecialRegisterTag::DISPATCH_SIZE, 2u);
-        expect_complete_matrix(DerivedInstructionTag::OUTLINE, 14u);
+        expect_complete_matrix(DerivedInstructionTag::OUTLINE, 13u, 1u);
     };
 
     "spirv_xir_kernel_abi_requires_exact_ast_xir_pairing"_test = [] {
@@ -1616,6 +1616,28 @@ int main(int argc, char *argv[]) {
         XIRBuilder builder;
         builder.set_insertion_point(body);
         builder.shader_execution_reorder();
+        builder.return_void();
+        auto validation =
+            lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+        expect(validation.succeeded());
+    };
+
+    "spirv_xir_assume_is_an_explicit_semantic_no_op"_test = [] {
+        auto info = lc::spirv::spirv_xir_dialect_support(
+            DerivedInstructionTag::ASSUME);
+        expect(info.support ==
+               lc::spirv::SpirvXIRDialectSupport::SEMANTIC_NO_OP);
+        expect(info.accepted());
+        expect(info.reason.find("optimization-only") !=
+               luisa::string_view::npos);
+
+        Module module;
+        auto kernel = module.create_kernel();
+        auto condition = kernel->create_value_argument(Type::of<bool>());
+        auto body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.assume_(condition, "value is in range");
         builder.return_void();
         auto validation =
             lc::spirv::validate_spirv_xir_codegen_dialect(&module);

@@ -4775,8 +4775,13 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 std::vector<spv::Id>{scope}));
             break;
         }
-        case xir::DerivedInstructionTag::ASSERT:
         case xir::DerivedInstructionTag::ASSUME:
+            // XIR assumptions are optimization-only hints. A false condition
+            // already gives the shader undefined behavior, so emitting no
+            // instruction preserves every defined result without requiring
+            // SPV_KHR_expect_assume support from the Vulkan device.
+            break;
+        case xir::DerivedInstructionTag::ASSERT:
         case xir::DerivedInstructionTag::DEBUG_BREAK:
         case xir::DerivedInstructionTag::OUTLINE:
         case xir::DerivedInstructionTag::RASTER_DISCARD:

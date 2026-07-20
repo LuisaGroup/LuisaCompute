@@ -5060,6 +5060,63 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_assume_is_an_explicit_semantic_no_op"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_assume_no_op"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        constexpr std::array source{3u, 11u, 97u, 251u};
+        auto input = dc.device.create_buffer<uint32_t>(source.size());
+        auto output = dc.device.create_buffer<uint32_t>(source.size());
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferUInt in, BufferUInt out) noexcept {
+            auto i = dispatch_x();
+            auto value = in.read(i);
+            assume(value < 1024u);
+            out.write(i, value * 3u + 1u);
+        };
+        auto normalized_xir_path = std::filesystem::path{luisa::format(
+            "kernel.{:016x}.norm.xir",
+            kernel.function()->function().hash())};
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint32_t, source.size()> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(source.size())
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        for (auto i = 0u; i < source.size(); ++i) {
+            expect(result[i] == source[i] * 3u + 1u)
+                << "ignoring a satisfied assumption changed result " << i;
+        }
+
+        expect(std::filesystem::exists(normalized_xir_path))
+            << "assumption regression must retain the normalized XIR handoff";
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "assumption regression should emit one native SPIR-V module";
+        if (std::filesystem::exists(normalized_xir_path) &&
+            dumps.size() == 1u) {
+            auto normalized_xir = read_text_file(normalized_xir_path);
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_substring(normalized_xir, "assume ") == 1u)
+                << "the disabled XIR optimizer must preserve the assumption "
+                   "through the native codegen handoff";
+            expect(disassembly.find("AssumeTrueKHR") == std::string::npos)
+                << "semantic no-op lowering must not add an unsupported "
+                   "SPV_KHR_expect_assume dependency";
+        }
+    };
+
     "vk_user_compute_kernel_id_matches_multi_dispatch_push_constant"_test = [&] {
         ScopedEnvironmentVariable disable_xir_optimization{
             "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};

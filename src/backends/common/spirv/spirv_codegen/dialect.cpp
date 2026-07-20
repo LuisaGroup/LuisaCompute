@@ -2514,10 +2514,14 @@ spirv_xir_dialect_support(xir::DerivedInstructionTag tag) noexcept {
             return unsupported(
                 "the native path has no debug-break instruction contract");
         case xir::DerivedInstructionTag::ASSERT:
-        case xir::DerivedInstructionTag::ASSUME:
             return unsupported(
-                "assertion and assumption intrinsics require legalization before "
-                "native SPIR-V codegen");
+                "assertion intrinsics require a device-side failure-reporting "
+                "contract before native SPIR-V codegen");
+        case xir::DerivedInstructionTag::ASSUME:
+            return semantic_no_op(
+                "assumptions are optimization-only hints whose false condition "
+                "already has undefined behavior, so ignoring them preserves all "
+                "defined shader results");
         case xir::DerivedInstructionTag::OUTLINE:
             return unsupported(
                 "outline regions must be lowered before the native codegen "
