@@ -135,12 +135,12 @@ void test_transient_resource(Device &device) {
                            .dispatch(buffer.size())
                     // Copy before buffer2's first use, so buffer and buffer2
                     // retain non-overlapping lifetimes and may alias.
-                    << buffer_readback.copy_from(buffer.view())
+                    << buffer_readback.view().copy_from(buffer)
                     << write_buffer(buffer1, static_cast<uint>(buffer1.size()),
                                     buffer2, static_cast<uint>(buffer2.size()))
                            .dispatch(buffer2.size())
-                    << buffer1_readback.copy_from(buffer1.view())
-                    << buffer2_readback.copy_from(buffer2.view());
+                    << buffer1_readback.view().copy_from(buffer1)
+                    << buffer2_readback.view().copy_from(buffer2);
             }
         }
         luisa::vector<std::byte> pixels(dst_tex.view().size_bytes());
