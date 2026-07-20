@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
@@ -1057,10 +1056,29 @@ parse_instruction_name(luisa::string_view name) noexcept {
 
 [[nodiscard]] luisa::optional<int64_t>
 parse_integer_token(luisa::string_view token) noexcept {
-    int64_t value = 0;
-    auto [end, error] = std::from_chars(token.data(), token.data() + token.size(), value);
-    if (error != std::errc{} || end != token.data() + token.size()) { return luisa::nullopt; }
-    return value;
+    if (token.empty()) { return luisa::nullopt; }
+    auto negative = token.front() == '-';
+    auto offset = negative ? 1u : 0u;
+    if (offset == token.size()) { return luisa::nullopt; }
+    constexpr auto positive_limit =
+        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+    constexpr auto negative_limit = positive_limit + 1u;
+    auto limit = negative ? negative_limit : positive_limit;
+    uint64_t magnitude = 0u;
+    for (auto i = offset; i < token.size(); ++i) {
+        auto c = token[i];
+        if (c < '0' || c > '9') { return luisa::nullopt; }
+        auto digit = static_cast<uint64_t>(c - '0');
+        if (magnitude > (limit - digit) / 10u) {
+            return luisa::nullopt;
+        }
+        magnitude = magnitude * 10u + digit;
+    }
+    if (!negative) { return static_cast<int64_t>(magnitude); }
+    if (magnitude == negative_limit) {
+        return std::numeric_limits<int64_t>::min();
+    }
+    return -static_cast<int64_t>(magnitude);
 }
 
 template<typename Op>

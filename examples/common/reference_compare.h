@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -27,11 +26,14 @@ static constexpr double MAX_CONTRAST_RATIO = 4.0;
     std::string_view value) noexcept {
     if (value.empty()) { return std::nullopt; }
     uint32_t parsed_value = 0u;
-    auto *begin = value.data();
-    auto *end = begin + value.size();
-    auto result = std::from_chars(begin, end, parsed_value, 10);
-    if (result.ec != std::errc{} || result.ptr != end) {
-        return std::nullopt;
+    for (auto c : value) {
+        if (c < '0' || c > '9') { return std::nullopt; }
+        auto digit = static_cast<uint32_t>(c - '0');
+        if (parsed_value >
+            (std::numeric_limits<uint32_t>::max() - digit) / 10u) {
+            return std::nullopt;
+        }
+        parsed_value = parsed_value * 10u + digit;
     }
     return parsed_value;
 }

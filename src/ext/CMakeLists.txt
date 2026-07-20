@@ -191,8 +191,11 @@ if (LUISA_COMPUTE_USE_SYSTEM_YYJSON)
 else ()
     add_library(luisa-compute-ext-yyjson-interface INTERFACE)
     target_include_directories(luisa-compute-ext-yyjson-interface INTERFACE
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/yyjson/src>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/yyjson/src>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_compile_definitions(luisa-compute-ext-yyjson-interface INTERFACE YYJSON_IMPORTS=1)
+    luisa_compute_install_extension(luisa-compute-ext-yyjson-interface
+            HEADER_FILES yyjson/src/yyjson.h)
     add_library(luisa-compute-ext-yyjson OBJECT yyjson/src/yyjson.c yyjson/src/yyjson.h)
     target_link_libraries(luisa-compute-ext-yyjson PUBLIC luisa-compute-ext-yyjson-interface)
     target_compile_definitions(luisa-compute-ext-yyjson PRIVATE YYJSON_EXPORTS=1)

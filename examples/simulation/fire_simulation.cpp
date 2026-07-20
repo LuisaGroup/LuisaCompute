@@ -197,7 +197,7 @@ int main(int argc, char *argv[]) {
     // Initialize particles
     std::mt19937 rng{force_offline ? 42u : std::random_device{}()};
     luisa::vector<FireParticle> host_particles(n_particles);
-    auto next_unit_float = [&rng] noexcept {
+    auto next_unit_float = [&rng]() noexcept {
         return static_cast<float>(rng()) / static_cast<float>(UINT32_MAX);
     };
 
