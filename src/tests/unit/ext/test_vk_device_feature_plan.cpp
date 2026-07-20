@@ -133,6 +133,30 @@ int main(int argc, char *argv[]) {
         expect(eq(combined.hlsl_fallback_reasons, 0x7fu));
     };
 
+    "vk_bindless_address_representation_stays_on_native_route"_test = [] {
+        using namespace lc::vk::detail;
+        using luisa::compute::CallOp;
+        using luisa::compute::CallOpSet;
+
+        CallOpSet address_queries;
+        for (auto op : std::array{
+                 CallOp::BINDLESS_BUFFER_ADDRESS,
+                 CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS,
+                 CallOp::TYPED_BINDLESS_BUFFER_ADDRESS,
+                 CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS}) {
+            expect(native_xir_spirv_bindless_address_query(op));
+            address_queries.mark(op);
+        }
+        expect(!requires_typed_bindless_hlsl_fallback(address_queries));
+        expect(!requires_uniform_bindless_hlsl_fallback(address_queries));
+
+        address_queries.mark(CallOp::TYPED_BINDLESS_BUFFER_READ);
+        expect(requires_typed_bindless_hlsl_fallback(address_queries));
+        expect(!requires_uniform_bindless_hlsl_fallback(address_queries));
+        address_queries.mark(CallOp::UNIFORM_BINDLESS_BUFFER_READ);
+        expect(requires_uniform_bindless_hlsl_fallback(address_queries));
+    };
+
     "vk_float_atomic_codegen_policy_is_vendor_specific"_test = [] {
         using namespace lc::vk::detail;
         constexpr auto amd = plan_vulkan_float_atomic_codegen(

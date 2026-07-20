@@ -387,9 +387,13 @@ public:
         auto f = detail::FunctionBuilder::current();
         return def<uint64_t>(f->call(
             Type::of<uint64_t>(),
-            _is_uniform ?
-                CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
-                CallOp::BINDLESS_BUFFER_ADDRESS,
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::TYPED_BINDLESS_BUFFER_ADDRESS) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::BINDLESS_BUFFER_ADDRESS),
             {_array, _index}));
     }
 
@@ -440,9 +444,13 @@ public:
         auto f = detail::FunctionBuilder::current();
         return def<uint64_t>(f->call(
             Type::of<uint64_t>(),
-            _is_uniform ?
-                CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
-                CallOp::BINDLESS_BUFFER_ADDRESS,
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::TYPED_BINDLESS_BUFFER_ADDRESS) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::BINDLESS_BUFFER_ADDRESS),
             {_array, _index}));
     }
 

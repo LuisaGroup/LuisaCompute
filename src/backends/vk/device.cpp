@@ -2793,9 +2793,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         .cooperative_operations = kernel.use_cooperative_operations(),
         .async_copy = builtin_calls.test(CallOp::ASYNC_COPY),
         .typed_bindless_resources =
-            builtin_calls.uses_typed_bindless_resources(),
+            detail::requires_typed_bindless_hlsl_fallback(builtin_calls),
         .uniform_bindless_resources =
-            builtin_calls.uses_uniform_bindless_resources(),
+            detail::requires_uniform_bindless_hlsl_fallback(builtin_calls),
         .motion_blur = requires_motion_blur};
     auto codegen_route =
         detail::plan_user_compute_codegen_route(codegen_requirements);

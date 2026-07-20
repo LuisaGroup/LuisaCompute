@@ -5329,7 +5329,7 @@ OpName %8 "Fma"
         constexpr auto view_offset = 5u;
         constexpr auto view_count = 7u;
         auto values = dc.device.create_buffer<uint32_t>(element_count);
-        auto output = dc.device.create_buffer<uint64_t>(3u);
+        auto output = dc.device.create_buffer<uint64_t>(5u);
         auto heap = dc.device.create_bindless_array(1u);
         auto stream = dc.device.create_stream();
         Kernel1D kernel = [](BufferUInt whole,
@@ -5341,6 +5341,12 @@ OpName %8 "Fma"
             out.write(
                 2u,
                 bindless.buffer<uint32_t>(0u).device_address());
+            out.write(
+                3u,
+                bindless.buffer<uint32_t>(0u, true).device_address());
+            out.write(
+                4u,
+                bindless.byte_buffer(0u, true, true).device_address());
         };
         auto normalized_xir_path = std::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
@@ -5351,7 +5357,7 @@ OpName %8 "Fma"
 
         heap.emplace_on_update(
             0u, values.view(view_offset, view_count));
-        std::array<uint64_t, 3u> result{};
+        std::array<uint64_t, 5u> result{};
         stream << heap.update()
                << shader(values,
                          values.view(view_offset, view_count),
@@ -5368,6 +5374,10 @@ OpName %8 "Fma"
             << "direct buffer-view address did not include its logical byte offset";
         expect(result[2] == result[1])
             << "bindless and direct metadata disagreed on the same buffer view address";
+        expect(result[3] == result[1])
+            << "typed bindless metadata disagreed on the same buffer view address";
+        expect(result[4] == result[1])
+            << "typed uniform byte-buffer metadata disagreed on the same buffer view address";
 
         expect(std::filesystem::exists(normalized_xir_path))
             << "device-address regression must retain the normalized XIR handoff";

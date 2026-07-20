@@ -645,6 +645,9 @@ private:
             case CallOp::UNIFORM_BINDLESS_BUFFER_SIZE: return resource_call(ResourceQueryOp::BINDLESS_BUFFER_SIZE);
             case CallOp::UNIFORM_BINDLESS_BUFFER_TYPE: LUISA_ERROR_WITH_LOCATION("Removed uniform_bindless_buffer_type operation.");
             case CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS: return resource_call(ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS);
+            case CallOp::TYPED_BINDLESS_BUFFER_ADDRESS:
+            case CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS:
+                return resource_call(ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS);
             case CallOp::MAKE_BOOL2: return make_vector_call(Type::of<bool>(), 2);
             case CallOp::MAKE_BOOL3: return make_vector_call(Type::of<bool>(), 3);
             case CallOp::MAKE_BOOL4: return make_vector_call(Type::of<bool>(), 4);
