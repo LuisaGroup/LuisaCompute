@@ -1,3 +1,5 @@
+// Validates non-uniform bindless buffer slot selection and reads.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 
@@ -38,6 +40,8 @@ void test_bindless(Device &device) {
     stream << heap.update() << synchronize();
     stream << buffer0.copy_from(luisa::span{&v0, 1}) << buffer1.copy_from(luisa::span{&v1, 1}) << shader().dispatch(2) << out_buffer.copy_to(luisa::span{result, 2}) << synchronize();
     LUISA_INFO("Value: {}, {}", result[0], result[1]);
+    expect(result[0] == v0) << "bindless slot 5 read mismatch";
+    expect(result[1] == v1) << "bindless slot 6 read mismatch";
 }
 
 int main(int argc, char *argv[]) {
@@ -45,7 +49,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_bindless(device);
 }

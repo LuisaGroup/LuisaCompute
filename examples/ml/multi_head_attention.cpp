@@ -847,11 +847,12 @@ int main(int argc, char *argv[]) {
         };
 
         // -- Shared-memory-optimized MHA kernel (broadcast K/V via shared memory) --
-        // Eliminates 256x redundant global loads of K[j,:] and V[j,:] per j:
-        // Only head_dim=64 threads load from global; all 256 threads read from shared.
+        // A single 32-thread wave consumes each shared K/V tile. Keeping the
+        // consumer cohort within one wave avoids cross-wave progress skew while
+        // still amortizing each global K/V load over 32 query rows.
         Kernel1D mha_online_attention_kernel = [&](BufferFloat Q, BufferFloat K,
                                                     BufferFloat V, BufferFloat O) noexcept {
-            set_block_size(256u, 1u, 1u);
+            set_block_size(32u, 1u, 1u);
             set_name("mha_online_attention");
 
             auto qkv_idx = [&](auto b_, auto h_, auto i_, auto d_) {
@@ -877,9 +878,8 @@ int main(int argc, char *argv[]) {
             };
 
             $for (j, seq_len) {
-                // Thread 0 loads K[j,:] and V[j,:] into shared memory.
-                // All 256 threads then read from shared, eliminating 255x
-                // redundant global-memory reads of the same data.
+                // Thread 0 loads K[j,:] and V[j,:] into shared memory, then all
+                // 32 query threads consume the tile.
                 Var kj_base = head_base + j * head_dim;
                 $if (thread_x() == 0u) {
                     $for (d, head_dim) {
@@ -913,6 +913,9 @@ int main(int argc, char *argv[]) {
                 };
 
                 m = m_new;
+                // All threads must finish consuming this K/V tile before
+                // thread 0 is allowed to overwrite shared memory for j + 1.
+                sync_block();
             };
 
             $for (d, head_dim) {
@@ -1252,9 +1255,16 @@ int main(int argc, char *argv[]) {
     }
 
     // -- Verification ------------------------------------------------------
+    constexpr float tolerance = 1e-4f;
     float max_diff = 0.0f;
     uint max_idx = 0u;
+    bool all_finite = true;
     for (uint i = 0u; i < qkv_size; ++i) {
+        if (!std::isfinite(O_gpu[i]) || !std::isfinite(O_cpu[i])) {
+            all_finite = false;
+            max_idx = i;
+            break;
+        }
         float diff = std::abs(O_gpu[i] - O_cpu[i]);
         if (diff > max_diff) {
             max_diff = diff;
@@ -1262,18 +1272,22 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    constexpr float tolerance = 1e-4f;
-    bool passed = max_diff <= tolerance;
+    bool passed = all_finite && max_diff <= tolerance;
 
     LUISA_INFO("Verification: {}", passed ? "PASSED" : "FAILED");
-    LUISA_INFO("  Max error: {} at index {} (GPU={}, CPU={})",
-               max_diff, max_idx, O_gpu[max_idx], O_cpu[max_idx]);
+    if (all_finite) {
+        LUISA_INFO("  Max absolute error: {} at index {} (GPU={}, CPU={})",
+                   max_diff, max_idx, O_gpu[max_idx], O_cpu[max_idx]);
+    } else {
+        LUISA_INFO("  Non-finite output at index {} (GPU={}, CPU={})",
+                   max_idx, O_gpu[max_idx], O_cpu[max_idx]);
+    }
 
     if (!passed) {
         uint printed = 0u;
         for (uint i = 0u; i < qkv_size && printed < 5u; ++i) {
             float diff = std::abs(O_gpu[i] - O_cpu[i]);
-            if (diff > tolerance) {
+            if (!std::isfinite(O_gpu[i]) || !std::isfinite(O_cpu[i]) || diff > tolerance) {
                 LUISA_INFO("  Mismatch[{}]: GPU={}, CPU={}, diff={}", i, O_gpu[i], O_cpu[i], diff);
                 ++printed;
             }

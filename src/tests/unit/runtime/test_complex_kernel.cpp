@@ -1,3 +1,5 @@
+// Test for complex runtime kernels and XIR pass corner cases across enabled backends.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 // Tests for matrix multiply and XIR pass corner cases.
@@ -34,7 +36,10 @@
 #include <luisa/core/clock.h>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/common.h>
+#include <array>
+#include <cmath>
 #include <fstream>
+#include <limits>
 #ifdef LUISA_ENABLE_XIR
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
 #endif
@@ -163,8 +168,8 @@ static uint2 get_proper_dispatch_size(uint group_size) {
 // Linear Congruential Generator (LCG) for random number generation
 // Uses the GL parameters: a = 1664525, c = 1013904223
 template<typename T>
-Kernel1D<void(Buffer<T>, uint, uint)> lcg_kernel() {
-    return [](BufferVar<T> b, UInt seed, UInt buffer_size) {
+Kernel1D<void(Buffer<T>, uint, uint, float, float)> lcg_kernel() {
+    return [](BufferVar<T> b, UInt seed, UInt buffer_size, Float scale, Float bias) {
         set_block_size(1024);
 
         // Tiny Encryption Algorithm (TEA) for seed mixing
@@ -188,7 +193,8 @@ Kernel1D<void(Buffer<T>, uint, uint)> lcg_kernel() {
         };
 
         // Generate random value for each buffer element
-        b.write(dispatch_id().x, Var<T>(lcg(get_seed(make_uint2(seed, dispatch_id().x % buffer_size)))));
+        auto value = lcg(get_seed(make_uint2(seed, dispatch_id().x % buffer_size)));
+        b.write(dispatch_id().x, Var<T>(value * scale + bias));
     };
 }
 
@@ -283,11 +289,10 @@ Kernel2D<void(Buffer<float>, Buffer<uint>, uint)> sum_kernel() {
         Shared<float> shared_arr(256);
         auto id = dispatch_id().xy();
         auto thd_id = thread_id().x;
-        auto count = Float(min(dispatch_size().x - (id.x - thd_id), 256u));
 
         // Load data into shared memory
         $if (id.x < buffer_size) {
-            shared_arr[thd_id] = buffer.read(id.x * dispatch_size().y + id.y) / count;
+            shared_arr[thd_id] = buffer.read(id.x * dispatch_size().y + id.y) / cast<float>(buffer_size);
         }
         $else {
             shared_arr[thd_id] = 0;
@@ -334,13 +339,13 @@ Kernel2D<void(Buffer<float>, Buffer<float>, Buffer<float>, Buffer<float>, Buffer
 
         // Update weights and compute backpropagated error
         for (auto i : dynamic_range(to_node_size)) {
-            auto weight_idx = weight_size * id.x + j + i * to_node_size;
+            auto weight_idx = weight_size * id.x + j + i * weight_width;
             auto err = to_layer_err.read(i + to_node_size * id.x);
             auto weight_value = layer_weight.read(weight_idx);
-            auto delta = layer_weight_delta.read(weight_idx);
+            auto previous_delta = layer_weight_delta.read(weight_idx);
 
             // Compute gradient: delta = learning_rate * error * activation_derivative
-            delta = rate * err;
+            auto delta = rate * err;
             $if (j < from_node_size) {
                 delta *= layer.read(j + from_node_size * id.x);
                 // Accumulate weighted error for backpropagation
@@ -348,7 +353,7 @@ Kernel2D<void(Buffer<float>, Buffer<float>, Buffer<float>, Buffer<float>, Buffer
             };
 
             // Apply momentum: delta = momentum * prev_delta + new_delta
-            delta += mobp * delta;
+            delta += mobp * previous_delta;
             weight_value += delta;
 
             layer_weight_delta.write(weight_idx, delta);
@@ -378,15 +383,15 @@ Kernel2D<void(Buffer<float>, Buffer<float>, Buffer<float>, Buffer<float>, float,
 
         // Update weights only (no error backpropagation)
         for (auto i : dynamic_range(to_node_size)) {
-            auto weight_idx = weight_size * id.x + j + i * to_node_size;
+            auto weight_idx = weight_size * id.x + j + i * weight_width;
             auto err = to_layer_err.read(i + to_node_size * id.x);
             auto weight_value = layer_weight.read(weight_idx);
-            auto delta = layer_weight_delta.read(weight_idx);
-            delta = rate * err;
+            auto previous_delta = layer_weight_delta.read(weight_idx);
+            auto delta = rate * err;
             $if (j < from_node_size) {
                 delta *= layer.read(j + from_node_size * id.x);
             };
-            delta += mobp * delta;
+            delta += mobp * previous_delta;
             weight_value += delta;
 
             layer_weight_delta.write(weight_idx, delta);
@@ -522,7 +527,7 @@ void test_loop_carried_local_vector(Device &device) {
     Kernel1D k = [](ByteBufferVar buf, BufferUInt cond, BufferFloat out) noexcept {
         set_block_size(32);
         auto idx = dispatch_id().x;
-        // $if (idx != 0u) { $return(); };
+        $if (idx != 0u) { $return(); };
 
         auto elem_size = 4u;
         Local<float> local_out{4u};  // float4
@@ -563,7 +568,11 @@ void test_loop_carried_local_vector(Device &device) {
            << out_buf.copy_to(luisa::span{host})
            << synchronize();
 
-    LUISA_INFO("Loop-carried local vector test completed (if it reaches here, no crash).");
+    constexpr float expected[4] = {1.0f, 3.0f, 5.0f, 7.0f};
+    for (auto i = 0u; i < 4u; i++) {
+        expect(std::abs(host[i] - expected[i]) < 1e-4f)
+            << "loop-carried local vector mismatch at index " << i;
+    }
 }
 
 // Pattern 7: Reproducer for Compress-like vectorized ByteBuffer read bug.
@@ -793,6 +802,7 @@ void test_control_flow_corners(Device &device) {
 
     Kernel1D k = [](BufferVar<float> buf, BufferVar<float> result) noexcept {
         set_block_size(64);
+        Shared<float> group_values{64u};
         auto idx = dispatch_id().x;
         Float val = 0.0f;
 
@@ -850,13 +860,16 @@ void test_control_flow_corners(Device &device) {
             };
         };
 
-        buf.write(idx, val + acc + diamond + sw_val + counter + nested);
+        auto output_value = val + acc + diamond + sw_val + counter + nested;
+        buf.write(idx, output_value);
+        group_values[idx] = output_value;
+        sync_block();
 
         // Early return style: only thread 0 does final reduction
         $if (idx == 0) {
             Float total = 0.0f;
             $for (k, 64) {
-                total += buf.read(k);
+                total += group_values[k];
             };
             result.write(0, total);
         };
@@ -871,9 +884,17 @@ void test_control_flow_corners(Device &device) {
            << synchronize();
 
     LUISA_INFO("Control-flow corner result: {:f}", host_result[0]);
-    expect(host_result[0] > 0.0f) << "control flow corner sum should be positive";
-    // Quick sanity: first element must be > 0
-    expect(host[0] > 0.0f) << "first element should be positive";
+    for (auto i = 0u; i < host.size(); ++i) {
+        auto value = 1.0f + static_cast<float>(i / 16u);
+        auto accumulated = value * (value <= 2.0f ? 10.0f : value == 3.0f ? 7.0f : 6.0f);
+        auto switch_value = std::array{1.0f, 2.0f, 4.0f, 8.0f}[i % 4u];
+        auto expected = value + accumulated + value + switch_value +
+                        static_cast<float>(i % 8u + 1u) + 7.0f;
+        expect(std::abs(host[i] - expected) < 1e-4f)
+            << "control-flow corner mismatch at index " << i;
+    }
+    expect(std::abs(host_result[0] - 2496.0f) < 1e-4f)
+        << "control-flow corner reduction mismatch";
 }
 
 // ---------------------------------------------------------------------------
@@ -1249,14 +1270,18 @@ void test_matrix_multiply(Device &device) {
 
     // Helper to fill buffer with random values
     uint seed = 0;
-    auto make_lcg = [&](auto &&buffer) {
-        return lcg_shader(buffer, seed++, buffer.size() / batch_size).dispatch(buffer.size());
+    auto make_lcg = [&](auto &&buffer, float scale = 1.0f, float bias = 0.0f) {
+        return lcg_shader(buffer, seed++, buffer.size() / batch_size, scale, bias).dispatch(buffer.size());
     };
 
     // Create weight buffers with bias terms
-    auto input_to_hidden_weight = device.create_buffer<float>((input_buffer.size() / batch_size + 1) * hidden_buffer.size() * batch_size);
+    auto input_to_hidden_weight = device.create_buffer<float>(
+        (input_buffer.size() / batch_size + 1) *
+        (hidden_buffer.size() / batch_size) * batch_size);
     auto input_to_hidden_weight_delta = device.create_buffer<float>(input_to_hidden_weight.size());
-    auto hidden_to_out_weight = device.create_buffer<float>((hidden_buffer.size() / batch_size + 1) * out_buffer.size() * batch_size);
+    auto hidden_to_out_weight = device.create_buffer<float>(
+        (hidden_buffer.size() / batch_size + 1) *
+        (out_buffer.size() / batch_size) * batch_size);
     auto hidden_to_out_weight_delta = device.create_buffer<float>(hidden_to_out_weight.size());
 
     // Create GEMM kernels for forward pass
@@ -1284,7 +1309,8 @@ void test_matrix_multiply(Device &device) {
     // Initialize network
     stream << make_zero(input_buffer) << make_zero(hidden_buffer) << make_zero(out_buffer)
            << make_zero(hidden_error) << make_zero(out_error)
-           << make_lcg(input_to_hidden_weight) << make_lcg(hidden_to_out_weight)
+           << make_lcg(input_to_hidden_weight, 2.0f, -1.0f)
+           << make_lcg(hidden_to_out_weight, 2.0f, -1.0f)
            << make_zero(input_to_hidden_weight_delta) << make_zero(hidden_to_out_weight_delta) << synchronize();
 
     // Training loop: train network to learn identity function
@@ -1308,10 +1334,12 @@ void test_matrix_multiply(Device &device) {
     auto final_out_buffer = device.create_buffer<float>(out_buffer.size() / batch_size);
     auto final_input_to_hidden_weight = device.create_buffer<float>(input_to_hidden_weight.size() / batch_size);
     auto final_hidden_to_out_weight = device.create_buffer<float>(hidden_to_out_weight.size() / batch_size);
-    float out_val;
-    float hidden_weight;
+    float out_val = std::numeric_limits<float>::quiet_NaN();
+    float hidden_weight = std::numeric_limits<float>::quiet_NaN();
 
     stream
+        << make_zero(final_input_to_hidden_weight)
+        << make_zero(final_hidden_to_out_weight)
         // Average weights across batch dimension
         << sum_shader(
                input_to_hidden_weight,
@@ -1325,14 +1353,17 @@ void test_matrix_multiply(Device &device) {
                .dispatch((batch_size + sum_shader.block_size().x - 1) & (~(sum_shader.block_size().x - 1)), final_hidden_to_out_weight.size())
         << final_input_buffer.copy_from(luisa::span{&input_val, 1})
         // Final forward pass with averaged weights
+        << input_hidden_shader(final_input_buffer, final_input_to_hidden_weight, final_hidden_buffer).dispatch(make_uint3(1u, input_hidden_kernel.dispatch_size.yz()))
         << hidden_output_shader(final_hidden_buffer, final_hidden_to_out_weight, final_out_buffer).dispatch(make_uint3(1u, hidden_output_kernel.dispatch_size.yz()))
         << final_out_buffer.copy_to(luisa::span{&out_val, 1})
-        << final_input_to_hidden_weight.view(1, 1).copy_to(luisa::span{&hidden_weight, 1}) << [hidden_weight]() {
+        << final_input_to_hidden_weight.view(1, 1).copy_to(luisa::span{&hidden_weight, 1}) << [&hidden_weight]() {
                LUISA_INFO("Final weight {}", hidden_weight);
            }
         << synchronize();
-    expect(true) << "matrix multiply completed";
-    LUISA_INFO("{}", out_val);
+    expect(std::isfinite(out_val));
+    expect(out_val >= 0.0f && out_val <= 1.0f);
+    expect(std::abs(out_val - input_val) < 0.05f)
+        << "trained identity output mismatch: got " << out_val;
 }
 
 // ---------------------------------------------------------------------------
@@ -1588,12 +1619,11 @@ void test_structured_early_return(Device &device) {
 void test_structured_ray_query_loop(Device &device) {
     if (device.backend_name() == "cpu") {
         LUISA_INFO("Skipping ray-query loop test on CPU backend.");
-        expect(true) << "ray-query loop test skipped on CPU";
         return;
     }
 
     auto stream = device.create_stream();
-    auto out = device.create_buffer<uint>(4);
+    auto out = device.create_buffer<uint>(12);
 
     luisa::vector<float3> vertices{
         make_float3(-1.0f, -1.0f, 0.0f),
@@ -1605,7 +1635,8 @@ void test_structured_ray_query_loop(Device &device) {
     auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     auto accel = device.create_accel();
-    accel.emplace_back(mesh);
+    // Surface-candidate callbacks are only invoked for non-opaque geometry.
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
 
     stream << vertex_buffer.copy_from(luisa::span{vertices})
            << triangle_buffer.copy_from(luisa::span{triangles})
@@ -1619,41 +1650,34 @@ void test_structured_ray_query_loop(Device &device) {
         auto ray = make_ray(
             make_float3(0.1f * idx.cast<float>(), 0.0f, 1.0f),
             make_float3(0.0f, 0.0f, -1.0f));
+        auto direct_hit = accel->intersect(ray, {});
         UInt hit_count = 0u;
-        accel->traverse(ray, {})
-            .on_surface_candidate([&](SurfaceCandidate &c) noexcept {
-                c.commit();
-                hit_count += 1u;
-            })
-            .on_procedural_candidate([&](ProceduralCandidate &c) noexcept {
-            })
-            .trace();
-        out.write(idx, hit_count);
+        auto hit = accel->traverse(ray, {})
+                       .on_surface_candidate([&](SurfaceCandidate &c) noexcept {
+                           c.commit();
+                           hit_count += 1u;
+                       })
+                       .on_procedural_candidate([&](ProceduralCandidate &) noexcept {})
+                       .trace();
+        out.write(idx * 3u, direct_hit->inst);
+        out.write(idx * 3u + 1u, hit->hit_type);
+        out.write(idx * 3u + 2u, hit_count);
     };
 
     auto shader = device.compile(k);
-    luisa::vector<uint> host(4);
+    luisa::vector<uint> host(12);
     stream << shader(out).dispatch(4)
            << out.copy_to(luisa::span{host})
            << synchronize();
 
-    LUISA_INFO("Structured ray-query loop corner: hits={} {} {} {}", host[0], host[1], host[2], host[3]);
-    bool any_hit = false;
-    for (auto v : host) {
-        if (v > 0u) {
-            any_hit = true;
-            break;
-        }
-    }
-    if (!any_hit) {
-        LUISA_WARNING("Ray-query loop test: no hits detected; RT may be unavailable on this setup");
-        for (auto v : host) {
-            expect(v <= 1u) << "hit count should be at most one";
-        }
-    } else {
-        for (auto v : host) {
-            expect(v == 1u) << "each ray should hit the single triangle exactly once";
-        }
+    for (auto i = 0u; i < 4u; ++i) {
+        LUISA_INFO("Structured ray-query loop corner [{}]: direct_inst={}, committed_type={}, callbacks={}",
+                   i, host[i * 3u], host[i * 3u + 1u], host[i * 3u + 2u]);
+        expect(host[i * 3u] == 0u) << "direct trace should hit instance zero";
+        expect(host[i * 3u + 1u] == static_cast<uint>(HitType::Surface))
+            << "ray query should commit a surface hit";
+        expect(host[i * 3u + 2u] == 1u)
+            << "non-opaque triangle should invoke the surface callback exactly once";
     }
 }
 
@@ -2577,9 +2601,8 @@ void test_analysis_dom_postdom_uniformity(Device &device) {
 
 void test_analysis_alias_pointer(Device &device) {
     auto stream = device.create_stream();
-    auto base = device.create_buffer<float>(64);
-    auto view_a = base.view();
-    auto view_b = base.view();
+    auto base_a = device.create_buffer<float>(64);
+    auto base_b = device.create_buffer<float>(64);
     auto out = device.create_buffer<float>(64);
 
     Kernel1D k = [](BufferVar<float> a, BufferVar<float> b, BufferVar<float> out) noexcept {
@@ -2621,15 +2644,33 @@ void test_analysis_alias_pointer(Device &device) {
     };
 
     auto shader = device.compile(k);
-    luisa::vector<float> host_out(64);
-    stream << shader(view_a, view_b, out).dispatch(64)
-           << out.copy_to(luisa::span{host_out})
+    luisa::vector<float> host_b(64);
+    for (auto i = 0u; i < host_b.size(); ++i) {
+        host_b[i] = static_cast<float>(i) * 3.0f + 0.5f;
+    }
+    luisa::vector<float> host_distinct(64);
+    luisa::vector<float> host_aliased(64);
+    stream << base_b.copy_from(luisa::span{host_b})
+           << shader(base_a, base_b, out).dispatch(64)
+           << out.copy_to(luisa::span{host_distinct})
+           << shader(base_a, base_a, out).dispatch(64)
+           << out.copy_to(luisa::span{host_aliased})
            << synchronize();
 
-    LUISA_INFO("Analysis alias/pointer: out[0]={:f}, out[1]={:f}", host_out[0], host_out[1]);
+    LUISA_INFO("Analysis alias/pointer: distinct[0]={:f}, distinct[1]={:f}, aliased[0]={:f}, aliased[1]={:f}",
+               host_distinct[0], host_distinct[1], host_aliased[0], host_aliased[1]);
 
-    expect(std::abs(host_out[0] - 20.0f) < 1e-4f) << "alias/pointer mismatch at idx 0";
-    expect(std::abs(host_out[1] - 49.0f) < 1e-4f) << "alias/pointer mismatch at idx 1";
+    for (auto i = 0u; i < host_distinct.size(); ++i) {
+        auto struct_sum = i % 2u == 0u ? 15.0f : 33.0f;
+        auto array_sum = i % 2u == 0u ? 3.0f : 12.0f;
+        auto written = static_cast<float>(i) + 1.0f;
+        auto distinct_expected = struct_sum + array_sum + written + host_b[i];
+        auto aliased_expected = struct_sum + array_sum + written * 2.0f;
+        expect(std::abs(host_distinct[i] - distinct_expected) < 1e-4f)
+            << "distinct-buffer pointer mismatch at idx " << i;
+        expect(std::abs(host_aliased[i] - aliased_expected) < 1e-4f)
+            << "aliased-buffer pointer mismatch at idx " << i;
+    }
 }
 
 void test_analysis_call_graph(Device &device) {
@@ -2792,6 +2833,32 @@ void test_cleanup_outline(Device &device) {
     }
 }
 
+void test_scalar_bool_casts(Device &device) {
+    auto stream = device.create_stream();
+    auto input = device.create_buffer<float>(4u);
+    auto output = device.create_buffer<uint32_t>(4u);
+    Kernel1D kernel = [](BufferFloat in, BufferUInt out) noexcept {
+        auto i = dispatch_x();
+        out.write(i, cast<uint32_t>(cast<bool>(in.read(i))));
+    };
+    ShaderOption option{.enable_fast_math = false};
+    auto shader = device.compile(kernel, option);
+    std::array source{
+        std::numeric_limits<float>::quiet_NaN(),
+        0.0f,
+        -0.0f,
+        -2.0f};
+    std::array<uint32_t, 4u> result{};
+    stream << input.copy_from(luisa::span{source})
+           << shader(input, output).dispatch(4u)
+           << output.copy_to(luisa::span{result})
+           << synchronize();
+    expect(result[0] == 1u);
+    expect(result[1] == 0u);
+    expect(result[2] == 0u);
+    expect(result[3] == 1u);
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -2840,5 +2907,6 @@ int main(int argc, char *argv[]) {
     test_cleanup_dce(device);
     test_cleanup_fix_self_referential(device);
     test_cleanup_outline(device);
+    test_scalar_bool_casts(device);
     test_matrix_multiply(device);
 }

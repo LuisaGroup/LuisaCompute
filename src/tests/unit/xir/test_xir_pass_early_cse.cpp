@@ -4,6 +4,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/passes/early_cse.h>
@@ -78,6 +79,21 @@ void reg_early_cse() {
         b.return_void();
         auto info = early_cse_pass_run_on_function(k);
         expect(info.eliminated_inst_count == 0u);
+    };
+
+    "cse_does_not_merge_coro_resume_side_effects"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *resume0 = b.coro_resume(7u, nullptr);
+        auto *resume1 = b.coro_resume(7u, nullptr);
+        b.return_void();
+        auto info = early_cse_pass_run_on_function(k);
+        expect(info.eliminated_inst_count == 0u);
+        expect(resume0->is_linked());
+        expect(resume1->is_linked());
     };
 }
 

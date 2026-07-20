@@ -21,6 +21,7 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 
+#include <cmath>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
@@ -137,7 +138,7 @@ void test_polymorphic_dispatch(Device &device) {
     bool dispatch_correct = true;
     for (uint i = 0u; i < N; i++) {
         float expected = static_cast<float>((i % 3u) + 1u);// 1, 2, 3
-        if (std::abs(host_out[i] - expected) > 1e-5f) {
+        if (!std::isfinite(host_out[i]) || std::abs(host_out[i] - expected) > 1e-5f) {
             dispatch_correct = false;
             break;
         }
@@ -179,7 +180,7 @@ void test_polymorphic_dispatch_range(Device &device) {
     bool range_correct = true;
     for (uint i = 0u; i < N; i++) {
         float expected = (i % 2u == 0u) ? 2.0f : 3.0f;
-        if (std::abs(host_out[i] - expected) > 1e-5f) {
+        if (!std::isfinite(host_out[i]) || std::abs(host_out[i] - expected) > 1e-5f) {
             range_correct = false;
             break;
         }
@@ -223,7 +224,7 @@ void test_polymorphic_dispatch_group(Device &device) {
     bool group_correct = true;
     for (uint i = 0u; i < N; i++) {
         float expected = (i % 2u == 0u) ? 1.0f : 3.0f;
-        if (std::abs(host_out[i] - expected) > 1e-5f) {
+        if (!std::isfinite(host_out[i]) || std::abs(host_out[i] - expected) > 1e-5f) {
             group_correct = false;
             break;
         }
@@ -260,7 +261,7 @@ void test_polymorphic_single_impl(Device &device) {
 
     bool single_correct = true;
     for (uint i = 0u; i < N; i++) {
-        if (std::abs(host_out[i] - 1.0f) > 1e-5f) {
+        if (!std::isfinite(host_out[i]) || std::abs(host_out[i] - 1.0f) > 1e-5f) {
             single_correct = false;
             break;
         }
@@ -307,7 +308,7 @@ void test_polymorphic_with_default(Device &device) {
         } else {
             expected = -99.0f;
         }
-        if (std::abs(host_out[i] - expected) > 1e-5f) {
+        if (!std::isfinite(host_out[i]) || std::abs(host_out[i] - expected) > 1e-5f) {
             default_correct = false;
             break;
         }

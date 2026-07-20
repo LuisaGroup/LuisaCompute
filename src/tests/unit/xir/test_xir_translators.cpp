@@ -1,24 +1,25 @@
+// Test for AST-to-XIR and XIR debug translators.
+// This test covers:
+// - AST translation identity, callable, control-flow, and staged APIs
+// - structured text and flat-text snapshots
+// - parseable JSON schema, counts, payload, and null-module diagnostics
+
 #include "ut/ut.hpp"
 #include <luisa/luisa-compute.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/translators/xir2json.h>
+#include <luisa/xir/verifier.h>
+#include <yyjson.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
 using namespace boost::ut;
 using namespace boost::ut::literals;
-
-// ---- AST to XIR translation ----
-
-// ---- XIR to text translation ----
-
-// ---- XIR to JSON translation ----
-
-// ---- Direct XIR module to text/json ----
 
 void reg_ast2xir() {
 
@@ -100,6 +101,58 @@ void reg_ast2xir() {
         }
         expect(callable_count == 2u) << "AST2XIR must key generated functions by builder identity, not only Function::hash()";
     };
+
+    "xir_ast_to_xir_normalizes_promoted_unary_operands"_test = [] {
+        Kernel1D kernel = [](BufferVar<uint8_t> input,
+                             BufferVar<int8_t> signed_input,
+                             BufferUInt output) {
+            auto index = dispatch_id().x;
+            auto value = input.read(index);
+            auto base = index * 5u;
+            output.write(base, clz(value));
+            output.write(base + 1u, ctz(value));
+            output.write(base + 2u, popcount(value));
+            output.write(base + 3u, reverse(value));
+            output.write(base + 4u, cast<uint32_t>(abs(signed_input.read(index))));
+        };
+        auto module = ast_to_xir_translate(kernel.function()->function(), {});
+        expect(module != nullptr);
+        auto bit_count = 0u;
+        auto abs_count = 0u;
+        for (auto *function : module->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions([&](Instruction *instruction) noexcept {
+                    if (!instruction->isa<ArithmeticInst>()) { return; }
+                    auto *arithmetic = static_cast<ArithmeticInst *>(instruction);
+                    switch (arithmetic->op()) {
+                        case ArithmeticOp::CLZ:
+                        case ArithmeticOp::CTZ:
+                        case ArithmeticOp::POPCOUNT:
+                        case ArithmeticOp::REVERSE:
+                            bit_count++;
+                            expect(arithmetic->type() == Type::of<uint32_t>());
+                            expect(arithmetic->operand_count() == 1u);
+                            if (arithmetic->operand_count() == 1u) {
+                                expect(arithmetic->operand(0u)->type() == Type::of<uint32_t>());
+                            }
+                            break;
+                        case ArithmeticOp::ABS:
+                            abs_count++;
+                            expect(arithmetic->type() == Type::of<int32_t>());
+                            expect(arithmetic->operand_count() == 1u);
+                            if (arithmetic->operand_count() == 1u) {
+                                expect(arithmetic->operand(0u)->type() == Type::of<int32_t>());
+                            }
+                            break;
+                        default: break;
+                    }
+                });
+            }
+        }
+        expect(bit_count == 4u);
+        expect(abs_count == 1u);
+        expect(xir_verify_module(module.get()).succeeded());
+    };
 }
 
 void reg_xir2text() {
@@ -148,7 +201,26 @@ void reg_xir2json() {
         };
         auto module = ast_to_xir_translate(kernel.function()->function(), {});
         auto json = xir_to_json_translate(module.get());
-        expect(!json.empty()) << "JSON output should not be empty";
+        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
+        expect(doc != nullptr);
+        if (doc == nullptr) { return; }
+        auto *root = yyjson_doc_get_root(doc);
+        expect(yyjson_is_obj(root));
+        if (!yyjson_is_obj(root)) {
+            yyjson_doc_free(doc);
+            return;
+        }
+        expect(yyjson_equals_str(yyjson_obj_get(root, "schema"), "luisa.xir.debug"));
+        expect(yyjson_get_uint(yyjson_obj_get(root, "version")) == 1u);
+        expect(yyjson_get_bool(yyjson_obj_get(root, "ok")));
+        expect(yyjson_get_uint(yyjson_obj_get(root, "function_count")) >= 1u);
+        expect(yyjson_get_uint(yyjson_obj_get(root, "instruction_count")) >= 1u);
+        auto *text = yyjson_obj_get(root, "text");
+        expect(yyjson_is_str(text));
+        if (yyjson_is_str(text)) {
+            expect(luisa::string_view{yyjson_get_str(text), yyjson_get_len(text)}.find("define {") != luisa::string_view::npos);
+        }
+        yyjson_doc_free(doc);
     };
 
     "xir_to_json_contains_functions"_test = [] {
@@ -158,7 +230,20 @@ void reg_xir2json() {
         };
         auto module = ast_to_xir_translate(kernel.function()->function(), {});
         auto json = xir_to_json_translate(module.get());
-        expect(!json.empty());
+        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
+        expect(doc != nullptr);
+        if (doc == nullptr) { return; }
+        auto *root = yyjson_doc_get_root(doc);
+        expect(yyjson_is_obj(root));
+        if (!yyjson_is_obj(root)) {
+            yyjson_doc_free(doc);
+            return;
+        }
+        expect(yyjson_get_bool(yyjson_obj_get(root, "ok")));
+        expect(yyjson_get_uint(yyjson_obj_get(root, "function_count")) == 1u);
+        expect(yyjson_get_uint(yyjson_obj_get(root, "block_count")) >= 1u);
+        expect(yyjson_get_uint(yyjson_obj_get(root, "constant_count")) >= 1u);
+        yyjson_doc_free(doc);
     };
 }
 
@@ -173,7 +258,36 @@ void reg_direct_module() {
     "xir_json_translate_empty_module"_test = [] {
         Module module;
         auto json = xir_to_json_translate(&module);
-        expect(!json.empty()) << "even empty module should produce some JSON output";
+        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
+        expect(doc != nullptr);
+        if (doc == nullptr) { return; }
+        auto *root = yyjson_doc_get_root(doc);
+        expect(yyjson_is_obj(root));
+        if (!yyjson_is_obj(root)) {
+            yyjson_doc_free(doc);
+            return;
+        }
+        expect(yyjson_get_bool(yyjson_obj_get(root, "ok")));
+        expect(yyjson_get_uint(yyjson_obj_get(root, "function_count")) == 0u);
+        expect(yyjson_get_uint(yyjson_obj_get(root, "block_count")) == 0u);
+        expect(yyjson_is_str(yyjson_obj_get(root, "text")));
+        yyjson_doc_free(doc);
+    };
+
+    "xir_json_translate_null_module_reports_error"_test = [] {
+        auto json = xir_to_json_translate(nullptr);
+        auto *doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
+        expect(doc != nullptr);
+        if (doc == nullptr) { return; }
+        auto *root = yyjson_doc_get_root(doc);
+        expect(yyjson_is_obj(root));
+        if (!yyjson_is_obj(root)) {
+            yyjson_doc_free(doc);
+            return;
+        }
+        expect(!yyjson_get_bool(yyjson_obj_get(root, "ok")));
+        expect(yyjson_equals_str(yyjson_obj_get(root, "error"), "null XIR module"));
+        yyjson_doc_free(doc);
     };
 
     "xir_text_translate_module_with_kernel"_test = [] {

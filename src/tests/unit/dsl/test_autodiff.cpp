@@ -13,6 +13,7 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 
+#include <cmath>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
@@ -70,7 +71,8 @@ void test_autodiff_basic(Device &device) {
     bool correct = true;
     for (uint i = 0u; i < N; i++) {
         // df/dx = y, df/dy = x
-        if (std::abs(hdx[i] - hy[i]) > 1e-4f ||
+        if (!std::isfinite(hdx[i]) || !std::isfinite(hdy[i]) ||
+            std::abs(hdx[i] - hy[i]) > 1e-4f ||
             std::abs(hdy[i] - hx[i]) > 1e-4f) {
             correct = false;
             break;
@@ -114,7 +116,7 @@ void test_autodiff_trig(Device &device) {
     bool correct = true;
     for (uint i = 0u; i < N; i++) {
         float expected = std::cos(hx[i]);
-        if (std::abs(hdx[i] - expected) > 1e-3f) {
+        if (!std::isfinite(hdx[i]) || std::abs(hdx[i] - expected) > 1e-3f) {
             correct = false;
             break;
         }
@@ -157,7 +159,7 @@ void test_autodiff_custom_grad(Device &device) {
     bool correct = true;
     for (uint i = 0u; i < N; i++) {
         float expected = 4.0f * hx[i];// 2 * x * custom_grad(2.0)
-        if (std::abs(hdx[i] - expected) > 1e-3f) {
+        if (!std::isfinite(hdx[i]) || std::abs(hdx[i] - expected) > 1e-3f) {
             correct = false;
             break;
         }
@@ -200,7 +202,7 @@ void test_autodiff_chain_rule(Device &device) {
     bool correct = true;
     for (uint i = 0u; i < N; i++) {
         float expected = 2.0f * hx[i] * std::cos(hx[i] * hx[i]);
-        if (std::abs(hdx[i] - expected) > 1e-2f) {
+        if (!std::isfinite(hdx[i]) || std::abs(hdx[i] - expected) > 1e-2f) {
             correct = false;
             break;
         }
@@ -251,7 +253,8 @@ void test_autodiff_addition(Device &device) {
 
     bool correct = true;
     for (uint i = 0u; i < N; i++) {
-        if (std::abs(hdx[i] - 1.0f) > 1e-5f ||
+        if (!std::isfinite(hdx[i]) || !std::isfinite(hdy[i]) ||
+            std::abs(hdx[i] - 1.0f) > 1e-5f ||
             std::abs(hdy[i] - 1.0f) > 1e-5f) {
             correct = false;
             break;
@@ -300,7 +303,7 @@ void test_autodiff_with_callable(Device &device) {
     bool correct = true;
     for (uint i = 0u; i < N; i++) {
         float expected = 3.0f * hx[i] * hx[i];
-        if (std::abs(hdx[i] - expected) > 1e-2f) {
+        if (!std::isfinite(hdx[i]) || std::abs(hdx[i] - expected) > 1e-2f) {
             correct = false;
             break;
         }

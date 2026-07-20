@@ -138,6 +138,44 @@ void reg_sccp() {
         expect(info.removed_branch_count == 1u);
         expect(ret->return_value() == c1);
     };
+
+    "sccp_pow_int_decodes_signed_narrow_exponent"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float base_value = 2.0f;
+        int8_t exponent_value = -1;
+        auto *base = m.create_constant(Type::of<float>(), &base_value);
+        auto *exponent = m.create_constant(Type::of<int8_t>(), &exponent_value);
+        auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::POW_INT, {base, exponent}));
+
+        auto info = sccp_pass_run_on_function(f);
+
+        expect(info.folded_inst_count == 1u);
+        expect(ret->return_value()->isa<Constant>());
+        expect(static_cast<Constant *>(ret->return_value())->as<float>() == 0.5f);
+    };
+
+    "sccp_pow_int_decodes_unsigned_64_bit_exponent"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float base_value = -1.0f;
+        uint64_t exponent_value = uint64_t{1} << 32u;
+        auto *base = m.create_constant(Type::of<float>(), &base_value);
+        auto *exponent = m.create_constant(Type::of<uint64_t>(), &exponent_value);
+        auto *ret = b.return_(b.call(Type::of<float>(), ArithmeticOp::POW_INT, {base, exponent}));
+
+        auto info = sccp_pass_run_on_function(f);
+
+        expect(info.folded_inst_count == 1u);
+        expect(ret->return_value()->isa<Constant>());
+        expect(static_cast<Constant *>(ret->return_value())->as<float>() == 1.0f);
+    };
 }
 
 int main(int argc, char *argv[]) {

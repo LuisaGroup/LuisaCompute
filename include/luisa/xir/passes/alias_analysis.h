@@ -19,7 +19,9 @@ struct AliasAnalysisInfo {
     size_t queried_count{0u};
 };
 
-// Run analysis (pre-computes base alloca for all LOCAL instructions)
+// The query is deliberately stateless so operand rewrites cannot leave stale
+// cached alias facts. These entry points are retained for pipeline/report API
+// compatibility.
 [[nodiscard]] LUISA_XIR_API AliasAnalysisInfo alias_analysis_pass_run_on_function(FunctionDefinition *def) noexcept;
 [[nodiscard]] LUISA_XIR_API AliasAnalysisInfo alias_analysis_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 

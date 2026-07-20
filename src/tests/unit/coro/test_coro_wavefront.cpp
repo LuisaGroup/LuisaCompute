@@ -1,3 +1,7 @@
+// Test for wavefront coroutine scheduling.
+// This test covers bounded frame pools, AoS/SoA storage, compaction,
+// token and hint sorting, and oversubscribed dispatches.
+
 #include "ut/ut.hpp"
 #include "coro_test_utils.h"
 
@@ -49,13 +53,15 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         expect(coro.subroutine_count() >= 2u);
         expect(coro.graph().node_count() >= 2u);
 
-        WavefrontCoroScheduler<> scheduler{device, coro};
+        WavefrontCoroScheduler<> scheduler{
+            device, coro, WavefrontCoroSchedulerConfig{.thread_count = N}};
         LUISA_INFO("Wavefront scheduler created, dispatching {} instances", N);
 
         scheduler().dispatch(N)(stream);
         stream << synchronize();
         LUISA_INFO("Dispatch complete");
-        expect(scheduler.config().thread_count >= N);
+        expect(scheduler.config().thread_count == N)
+            << "the smoke test should use a bounded frame pool";
     };
 
     "wavefront_1suspend_with_buffer"_test = [options] {
@@ -77,7 +83,8 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro};
+        WavefrontCoroScheduler<Buffer<uint>> scheduler{
+            device, coro, WavefrontCoroSchedulerConfig{.thread_count = N}};
         LUISA_INFO("Wavefront scheduler created, dispatching {} instances", N);
 
         scheduler(output).dispatch(N)(stream);
@@ -94,6 +101,8 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             }
         }
         expect(ok) << "all wavefront coroutine instances should write expected values";
+        expect(scheduler.config().thread_count == N)
+            << "the buffer test should use a bounded frame pool";
     };
 
     "wavefront_3suspend_smoke"_test = [options] {
@@ -113,13 +122,15 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        WavefrontCoroScheduler<int> scheduler{device, coro};
+        WavefrontCoroScheduler<int> scheduler{
+            device, coro, WavefrontCoroSchedulerConfig{.thread_count = N}};
         LUISA_INFO("Wavefront scheduler created, dispatching {} instances", N);
 
         scheduler(42).dispatch(N)(stream);
         stream << synchronize();
         LUISA_INFO("Dispatch complete");
-        expect(scheduler.config().thread_count >= N);
+        expect(scheduler.config().thread_count == N)
+            << "the multi-suspend smoke test should use a bounded frame pool";
     };
 
     "wavefront_fixed_capacity_pool_runs_oversubscribed_dispatch"_test = [options] {

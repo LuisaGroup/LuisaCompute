@@ -158,21 +158,21 @@ void remove_phi_incomings_from_blocks(FunctionDefinition *definition,
 [[nodiscard]] static luisa::optional<SwitchInst::case_value_type> try_evaluate_static_switch_condition(Value *cond) noexcept {
     LUISA_DEBUG_ASSERT(cond != nullptr, "Switch condition must not be null.");
     if (!cond->isa<Constant>()) { return luisa::nullopt; }
-    return [static_cond = static_cast<Constant *>(cond)]() noexcept -> SwitchInst::case_value_type {
-        switch (auto t = static_cond->type(); t->tag()) {
-            case Type::Tag::BOOL: return static_cond->as<bool>();
-            case Type::Tag::INT8: return static_cond->as<int8_t>();
-            case Type::Tag::UINT8: return static_cond->as<uint8_t>();
-            case Type::Tag::INT16: return static_cond->as<int16_t>();
-            case Type::Tag::UINT16: return static_cond->as<uint16_t>();
-            case Type::Tag::INT32: return static_cond->as<int32_t>();
-            case Type::Tag::UINT32: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint32_t>());
-            case Type::Tag::INT64: return static_cast<SwitchInst::case_value_type>(static_cond->as<int64_t>());
-            case Type::Tag::UINT64: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint64_t>());
-            default: break;
-        }
-        LUISA_ERROR_WITH_LOCATION("Invalid switch condition type.");
-    }();
+    auto static_cond = static_cast<Constant *>(cond);
+    switch (auto t = static_cond->type(); t->tag()) {
+        case Type::Tag::BOOL: return static_cond->as<bool>();
+        case Type::Tag::INT8: return static_cond->as<int8_t>();
+        case Type::Tag::UINT8: return static_cond->as<uint8_t>();
+        case Type::Tag::INT16: return static_cond->as<int16_t>();
+        case Type::Tag::UINT16: return static_cond->as<uint16_t>();
+        case Type::Tag::INT32: return static_cond->as<int32_t>();
+        case Type::Tag::UINT32: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint32_t>());
+        case Type::Tag::INT64:
+        case Type::Tag::UINT64:
+            return luisa::nullopt;
+        default: break;
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid switch condition type.");
 }
 
 void canonicalize_static_unstructured_branches_in_function(
@@ -272,21 +272,6 @@ void traverse_executable_successors(BasicBlock *block, Visit &&visit) noexcept {
     return reachable;
 }
 
-void repair_dead_control_flow_merges(
-    FunctionDefinition *definition,
-    const luisa::unordered_set<BasicBlock *> &exec_reachable) noexcept {
-    for (auto block : definition->basic_blocks()) {
-        if (!exec_reachable.contains(block) || !block->is_terminated()) { continue; }
-        auto terminator = block->terminator();
-        if (auto merge = terminator->control_flow_merge()) {
-            if (auto merge_block = merge->merge_block();
-                merge_block != nullptr && !exec_reachable.contains(merge_block)) {
-                merge->set_merge_block(nullptr);
-            }
-        }
-    }
-}
-
 [[nodiscard]] luisa::unordered_set<BasicBlock *> collect_structural_shell_blocks(
     FunctionDefinition *definition,
     const luisa::unordered_set<BasicBlock *> &exec_reachable) noexcept {
@@ -296,7 +281,13 @@ void repair_dead_control_flow_merges(
     luisa::unordered_set<BasicBlock *> shells;
     for (auto block : definition->basic_blocks()) {
         if (!exec_reachable.contains(block) || !block->is_terminated()) { continue; }
-        if (auto terminator = block->terminator(); terminator->isa<LoopInst>()) {
+        auto terminator = block->terminator();
+        if (auto merge = terminator->control_flow_merge()) {
+            if (auto merge_block = merge->merge_block()) {
+                shells.emplace(merge_block);
+            }
+        }
+        if (terminator->isa<LoopInst>()) {
             auto loop = static_cast<LoopInst *>(terminator);
             if (auto body = loop->body_block()) { shells.emplace(body); }
             if (auto update = loop->update_block()) { shells.emplace(update); }
@@ -378,7 +369,6 @@ void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
         if (auto definition = function->definition()) {
             canonicalize_static_unstructured_branches_in_function(definition, info);
             auto exec_reachable = collect_exec_reachable_blocks(definition);
-            repair_dead_control_flow_merges(definition, exec_reachable);
             eliminate_unreachable_blocks_in_function(definition, exec_reachable, info, removed_blocks);
             {
                 luisa::vector<PhiInst *> phi_nodes;

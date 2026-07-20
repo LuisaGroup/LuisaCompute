@@ -1,10 +1,10 @@
 // Test for atomic operations on buffers and shared memory.
 //
 // This test verifies various atomic operation types:
-// - fetch_add: Atomically add and return old value
-// - fetch_sub: Atomically subtract and return old value
-// - fetch_max: Atomically compute max and return old value
-// - compare_exchange: Atomic compare-and-swap
+// - exchange and compare-exchange
+// - integer add, subtract, and bitwise operations
+// - signed, unsigned, and floating-point min/max
+// - returned old values and final stored values
 //
 // Atomic operations ensure thread-safe concurrent access to memory
 // locations from multiple threads.
@@ -18,6 +18,8 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
+#include <array>
+#include <cstdint>
 #include <cstring>
 
 using namespace luisa;
@@ -32,6 +34,176 @@ struct Something {
 };
 
 LUISA_STRUCT(Something, x, v) {};
+
+void test_raw_buffer_atomic_matrix(Device &device) {
+
+    constexpr size_t uint_value_count = 10u;
+    constexpr size_t int_value_count = 2u;
+    constexpr size_t float_value_count = 2u;
+
+    std::array<uint32_t, uint_value_count> uint_values{
+        0x10203040u,
+        17u,
+        23u,
+        10u,
+        10u,
+        0xf0ccaa55u,
+        0x10010010u,
+        0xffff0000u,
+        0xfffffff0u,
+        17u};
+    std::array<int32_t, int_value_count> int_values{7, -4};
+    std::array<float, float_value_count> float_values{8.5f, -3.5f};
+
+    auto uint_buffer = device.create_buffer<uint32_t>(uint_value_count);
+    auto int_buffer = device.create_buffer<int32_t>(int_value_count);
+    auto float_buffer = device.create_buffer<float>(float_value_count);
+    auto uint_old_buffer = device.create_buffer<uint32_t>(uint_value_count);
+    auto int_old_buffer = device.create_buffer<int32_t>(int_value_count);
+    auto float_old_buffer = device.create_buffer<float>(float_value_count);
+
+    Kernel1D atomic_matrix_kernel = [](BufferUInt uint_buffer,
+                                       BufferInt int_buffer,
+                                       BufferFloat float_buffer,
+                                       BufferUInt uint_old_buffer,
+                                       BufferInt int_old_buffer,
+                                       BufferFloat float_old_buffer) noexcept {
+        uint_old_buffer.write(0u, uint_buffer.atomic(0u).exchange(0xa0b0c0d0u));
+        uint_old_buffer.write(1u, uint_buffer.atomic(1u).compare_exchange(17u, 99u));
+        uint_old_buffer.write(2u, uint_buffer.atomic(2u).compare_exchange(24u, 100u));
+        uint_old_buffer.write(3u, uint_buffer.atomic(3u).fetch_add(7u));
+        uint_old_buffer.write(4u, uint_buffer.atomic(4u).fetch_sub(3u));
+        uint_old_buffer.write(5u, uint_buffer.atomic(5u).fetch_and(0x0ff00ff0u));
+        uint_old_buffer.write(6u, uint_buffer.atomic(6u).fetch_or(0x01101001u));
+        uint_old_buffer.write(7u, uint_buffer.atomic(7u).fetch_xor(0x0ff00ff0u));
+        uint_old_buffer.write(8u, uint_buffer.atomic(8u).fetch_min(17u));
+        uint_old_buffer.write(9u, uint_buffer.atomic(9u).fetch_max(0xfffffff0u));
+
+        int_old_buffer.write(0u, int_buffer.atomic(0u).fetch_min(-4));
+        int_old_buffer.write(1u, int_buffer.atomic(1u).fetch_max(7));
+
+        float_old_buffer.write(0u, float_buffer.atomic(0u).fetch_min(-2.25f));
+        float_old_buffer.write(1u, float_buffer.atomic(1u).fetch_max(6.75f));
+    };
+    auto atomic_matrix_shader = device.compile(atomic_matrix_kernel);
+
+    std::array<uint32_t, uint_value_count> uint_old_values{};
+    std::array<int32_t, int_value_count> int_old_values{};
+    std::array<float, float_value_count> float_old_values{};
+    auto stream = device.create_stream();
+    stream << uint_buffer.copy_from(luisa::span{uint_values})
+           << int_buffer.copy_from(luisa::span{int_values})
+           << float_buffer.copy_from(luisa::span{float_values})
+           << atomic_matrix_shader(
+                  uint_buffer, int_buffer, float_buffer,
+                  uint_old_buffer, int_old_buffer, float_old_buffer)
+                  .dispatch(1u)
+           << uint_buffer.copy_to(luisa::span{uint_values})
+           << int_buffer.copy_to(luisa::span{int_values})
+           << float_buffer.copy_to(luisa::span{float_values})
+           << uint_old_buffer.copy_to(luisa::span{uint_old_values})
+           << int_old_buffer.copy_to(luisa::span{int_old_values})
+           << float_old_buffer.copy_to(luisa::span{float_old_values})
+           << synchronize();
+
+    constexpr std::array<uint32_t, uint_value_count> expected_uint_values{
+        0xa0b0c0d0u,
+        99u,
+        23u,
+        17u,
+        7u,
+        0xf0ccaa55u & 0x0ff00ff0u,
+        0x10010010u | 0x01101001u,
+        0xffff0000u ^ 0x0ff00ff0u,
+        17u,
+        0xfffffff0u};
+    constexpr std::array<uint32_t, uint_value_count> expected_uint_old_values{
+        0x10203040u,
+        17u,
+        23u,
+        10u,
+        10u,
+        0xf0ccaa55u,
+        0x10010010u,
+        0xffff0000u,
+        0xfffffff0u,
+        17u};
+    constexpr std::array<int32_t, int_value_count> expected_int_values{-4, 7};
+    constexpr std::array<int32_t, int_value_count> expected_int_old_values{7, -4};
+    constexpr std::array<float, float_value_count> expected_float_values{-2.25f, 6.75f};
+    constexpr std::array<float, float_value_count> expected_float_old_values{8.5f, -3.5f};
+
+    for (size_t i = 0u; i < uint_value_count; ++i) {
+        expect(uint_old_values[i] == expected_uint_old_values[i])
+            << "Unexpected uint atomic old value at operation " << i;
+        expect(uint_values[i] == expected_uint_values[i])
+            << "Unexpected uint atomic final value at operation " << i;
+    }
+    for (size_t i = 0u; i < int_value_count; ++i) {
+        expect(int_old_values[i] == expected_int_old_values[i])
+            << "Unexpected signed atomic old value at operation " << i;
+        expect(int_values[i] == expected_int_values[i])
+            << "Unexpected signed atomic final value at operation " << i;
+    }
+    for (size_t i = 0u; i < float_value_count; ++i) {
+        expect(float_old_values[i] == expected_float_old_values[i])
+            << "Unexpected float atomic old value at operation " << i;
+        expect(float_values[i] == expected_float_values[i])
+            << "Unexpected float atomic final value at operation " << i;
+    }
+}
+
+void test_shared_compare_exchange(Device &device) {
+    constexpr auto thread_count = 64u;
+    auto old_values_buffer = device.create_buffer<uint>(thread_count);
+    auto final_value_buffer = device.create_buffer<uint>(1u);
+
+    Kernel1D shared_compare_exchange = [](BufferUInt old_values,
+                                          BufferUInt final_value) noexcept {
+        set_block_size(thread_count, 1u, 1u);
+        Shared<uint> shared_value{1u};
+        auto lane = thread_id().x;
+        $if (lane == 0u) {
+            shared_value.write(0u, 0u);
+        };
+        sync_block();
+
+        // Exactly one lane may replace zero. All losing lanes must observe the
+        // winning lane's nonzero value as the returned old value.
+        auto old = shared_value.atomic(0u).compare_exchange(0u, lane + 1u);
+        old_values.write(lane, old);
+        sync_block();
+        $if (lane == 0u) {
+            final_value.write(0u, shared_value.read(0u));
+        };
+    };
+
+    auto shader = device.compile(shared_compare_exchange);
+    std::array<uint, thread_count> old_values{};
+    uint final_value = 0u;
+    auto stream = device.create_stream();
+    stream << shader(old_values_buffer, final_value_buffer).dispatch(thread_count)
+           << old_values_buffer.copy_to(luisa::span{old_values})
+           << final_value_buffer.copy_to(luisa::span{&final_value, 1u})
+           << synchronize();
+
+    auto winner_count = 0u;
+    auto winner_value = 0u;
+    for (auto lane = 0u; lane < thread_count; lane++) {
+        if (old_values[lane] == 0u) {
+            winner_count++;
+            winner_value = lane + 1u;
+        }
+    }
+    expect(winner_count == 1u)
+        << "shared compare-exchange must have exactly one successful lane";
+    expect(final_value == winner_value)
+        << "shared compare-exchange final value must come from the winning lane";
+    for (auto old : old_values) {
+        expect(old == 0u || old == winner_value)
+            << "losing shared compare-exchange lanes must observe the winner";
+    }
+}
 
 void test_atomic(Device &device) {
 
@@ -108,10 +280,6 @@ void test_atomic(Device &device) {
     Kernel1D struct_atomic_kernel = [](BufferVar<Something> buffer) noexcept {
         auto a = buffer.atomic(0u);
         a.v.x.fetch_max(1.f);// Atomic max on struct member
-
-        // Test shared memory atomics
-        Shared<float> s{16};
-        s.atomic(0).compare_exchange(0.f, 1.f);// CAS on shared memory
     };
 
     // Validate float atomic addition
@@ -214,5 +382,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
     auto &device = dc->device;
+    test_raw_buffer_atomic_matrix(device);
+    test_shared_compare_exchange(device);
     test_atomic(device);
 }

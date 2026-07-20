@@ -85,64 +85,68 @@ PassPipeline &PassPipeline::add_fixed_point(luisa::string name,
     return *this;
 }
 
+void PassPipeline::_merge_record(Stats::Record &record,
+                                 const Stats::Record &other) noexcept {
+    LUISA_ASSERT(record.name == other.name &&
+                     record.children.size() == other.children.size(),
+                 "Pass pipeline group shape changed while running.");
+    record.invocations += other.invocations;
+    record.elapsed_ms += other.elapsed_ms;
+    record.changed |= other.changed;
+    record.report.merge_sum(other.report);
+    for (size_t i = 0u; i < other.children.size(); ++i) {
+        _merge_record(record.children[i], other.children[i]);
+    }
+}
+
+PassPipeline::Stats::Record PassPipeline::_run_entry(const Entry &entry,
+                                                      Module *module) noexcept {
+    if (!entry.is_group) {
+        luisa::Clock clock;
+        PassReport report;
+        auto changed = entry.run(module, report);
+        return Stats::Record{
+            .name = entry.name,
+            .invocations = 1u,
+            .elapsed_ms = clock.toc(),
+            .changed = changed,
+            .report = std::move(report),
+            .children = {},
+        };
+    }
+    Stats::Record record{
+        .name = entry.name,
+        .invocations = 0u,
+        .elapsed_ms = 0.0,
+        .changed = false,
+        .report = {},
+        .children = {},
+    };
+    record.children.reserve(entry.children.size());
+    luisa::Clock clock;
+    for (uint32_t iteration = 0u; iteration < entry.max_iterations; ++iteration) {
+        auto any_changed = false;
+        for (size_t i = 0u; i < entry.children.size(); ++i) {
+            auto child = _run_entry(entry.children[i], module);
+            any_changed |= child.changed;
+            if (iteration == 0u) {
+                record.children.emplace_back(std::move(child));
+            } else {
+                _merge_record(record.children[i], child);
+            }
+        }
+        record.invocations++;
+        if (!any_changed) { break; }
+        record.changed = true;
+    }
+    record.elapsed_ms = clock.toc();
+    return record;
+}
+
 void PassPipeline::_run_entries(luisa::span<const Entry> entries,
                                 Module *module, Stats &stats) noexcept {
     for (auto &entry : entries) {
-        if (entry.is_group) {
-            Stats::Record rec{
-                .name = entry.name,
-                .invocations = 0u,
-                .elapsed_ms = 0.0,
-                .changed = false,
-                .report = {},
-                .children = {},
-            };
-            rec.children.reserve(entry.children.size());
-            luisa::Clock clock;
-            for (uint32_t iter = 0u; iter < entry.max_iterations; ++iter) {
-                bool any_changed = false;
-                for (size_t ci = 0u; ci < entry.children.size(); ++ci) {
-                    luisa::Clock child_clock;
-                    PassReport child_report;
-                    auto changed = entry.children[ci].run(module, child_report);
-                    auto child_elapsed = child_clock.toc();
-                    any_changed |= changed;
-                    if (iter == 0u) {
-                        rec.children.emplace_back(Stats::Record{
-                            .name = entry.children[ci].name,
-                            .invocations = 1u,
-                            .elapsed_ms = child_elapsed,
-                            .changed = changed,
-                            .report = std::move(child_report),
-                            .children = {},
-                        });
-                    } else {
-                        rec.children[ci].invocations++;
-                        rec.children[ci].elapsed_ms += child_elapsed;
-                        rec.children[ci].changed |= changed;
-                        rec.children[ci].report.merge_sum(child_report);
-                    }
-                }
-                rec.invocations++;
-                if (!any_changed) { break; }
-                rec.changed = true;
-            }
-            rec.elapsed_ms = clock.toc();
-            stats.records.emplace_back(std::move(rec));
-        } else {
-            luisa::Clock clock;
-            PassReport report;
-            auto changed = entry.run(module, report);
-            auto elapsed = clock.toc();
-            stats.records.emplace_back(Stats::Record{
-                .name = entry.name,
-                .invocations = 1u,
-                .elapsed_ms = elapsed,
-                .changed = changed,
-                .report = std::move(report),
-                .children = {},
-            });
-        }
+        stats.records.emplace_back(_run_entry(entry, module));
     }
 }
 

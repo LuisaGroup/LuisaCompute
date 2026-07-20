@@ -1,8 +1,5 @@
 #include <luisa/core/logging.h>
 #include <luisa/xir/passes/post_dom_tree.h>
-#include <luisa/xir/instructions/return.h>
-#include <luisa/xir/instructions/unreachable.h>
-#include <luisa/xir/instructions/raster_discard.h>
 
 namespace luisa::compute::xir {
 
@@ -111,7 +108,7 @@ bool PostDomTree::strictly_post_dominates(BasicBlock *a, BasicBlock *b) const no
 
 auto PostDomTree::immediate_post_dominator(BasicBlock *block) const noexcept -> BasicBlock * {
     auto n = this->node_or_null(block);
-    if (n == nullptr || n->parent() == _root) { return nullptr; }
+    if (n == nullptr || n == _root || n->parent() == nullptr || n->parent() == _root) { return nullptr; }
     return n->parent()->block();
 }
 
@@ -120,17 +117,63 @@ static const auto kUnknownDom = reinterpret_cast<BasicBlock *>(uintptr_t(-1));
 PostDomTree compute_post_dom_tree(Function *function) noexcept {
     auto definition = function->definition();
     LUISA_ASSERT(definition != nullptr, "Function has no definition.");
-    // collect all blocks and identify sink blocks
+    // Collect all blocks and identify real exits. Testing the CFG successor set
+    // instead of enumerating instruction tags also covers CoroTerminateInst and
+    // future zero-successor terminators.
     luisa::vector<BasicBlock *> all_blocks;
-    luisa::unordered_set<BasicBlock *> sinks;
+    luisa::unordered_set<BasicBlock *> reachable_blocks;
+    luisa::unordered_set<BasicBlock *> real_sinks;
     definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
         all_blocks.emplace_back(block);
-        if (auto term = block->terminator()) {
-            if (term->isa<ReturnInst>() || term->isa<UnreachableInst>() || term->isa<RasterDiscardInst>()) {
-                sinks.emplace(block);
+        reachable_blocks.emplace(block);
+        if (!block->is_terminated()) { return; }
+        auto has_successor = false;
+        block->traverse_successors(false, [&](BasicBlock *) noexcept { has_successor = true; });
+        if (!has_successor) { real_sinks.emplace(block); }
+    });
+
+    luisa::unordered_map<BasicBlock *, uint8_t> color;
+    luisa::unordered_set<BasicBlock *> virtual_exit_sources;
+    struct DFSFrame {
+        BasicBlock *block;
+        luisa::vector<BasicBlock *> successors;
+        size_t next_successor;
+    };
+    for (auto *root : all_blocks) {
+        if (color[root] != 0u) { continue; }
+        luisa::vector<DFSFrame> stack;
+        color[root] = 1u;
+        stack.emplace_back(DFSFrame{root, {}, 0u});
+        root->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (reachable_blocks.contains(succ)) {
+                stack.back().successors.emplace_back(succ);
+            }
+        });
+        while (!stack.empty()) {
+            auto &frame = stack.back();
+            if (frame.next_successor == frame.successors.size()) {
+                color[frame.block] = 2u;
+                stack.pop_back();
+                continue;
+            }
+            auto *successor = frame.successors[frame.next_successor++];
+            auto successor_color = color[successor];
+            if (successor_color == 1u) {
+                virtual_exit_sources.emplace(frame.block);
+            } else if (successor_color == 0u) {
+                color[successor] = 1u;
+                stack.emplace_back(DFSFrame{successor, {}, 0u});
+                successor->traverse_successors(false, [&](BasicBlock *next) noexcept {
+                    if (reachable_blocks.contains(next)) {
+                        stack.back().successors.emplace_back(next);
+                    }
+                });
             }
         }
-    });
+    }
+    auto sinks = std::move(real_sinks);
+    sinks.insert(virtual_exit_sources.begin(), virtual_exit_sources.end());
+
     // compute postorder on reversed CFG (follow original predecessors)
     luisa::unordered_set<BasicBlock *> visited;
     luisa::vector<BasicBlock *> postorder;
@@ -149,7 +192,9 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
             auto block = frame.block;
             preds.clear();
             block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                preds.emplace_back(pred);
+                if (reachable_blocks.contains(pred)) {
+                    preds.emplace_back(pred);
+                }
             });
             bool pushed = false;
             while (frame.next_pred_idx < preds.size()) {

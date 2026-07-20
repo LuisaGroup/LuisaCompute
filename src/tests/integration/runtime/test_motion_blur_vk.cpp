@@ -179,9 +179,15 @@ void test_motion_blur_vk(Device &device) {
             color = triangle_interpolate(hit.bary, red, green, blue);
         };
         // Progressive accumulation
-        auto old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        auto t = 1.0f / (cast<float>(frame_index) + 1.0f);
-        image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
+        UInt pixel_index = coord.y * dispatch_size_x() + coord.x;
+        $if (frame_index == 0u) {
+            image.write(pixel_index, make_float4(color, 1.0f));
+        }
+        $else {
+            auto old = image.read(pixel_index).xyz();
+            auto t = 1.0f / (cast<float>(frame_index) + 1.0f);
+            image.write(pixel_index, make_float4(lerp(old, color, t), 1.0f));
+        };
     };
 
     // HDR to LDR conversion
@@ -221,7 +227,28 @@ void test_motion_blur_vk(Device &device) {
            << synchronize();
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_motion_blur_vk.png", width, height, 4, pixels.data(), 0);
+    auto output_directory = std::filesystem::path{opts.output_dir};
+    std::error_code output_error;
+    std::filesystem::create_directories(output_directory, output_error);
+    boost::ut::expect(!output_error)
+        << luisa::format("Failed to create output directory '{}': {}",
+                         output_directory.string(), output_error.message());
+    auto output_path = output_directory / "test_motion_blur_vk.png";
+    auto saved = !output_error &&
+                 stbi_write_png(output_path.string().c_str(), width, height, 4,
+                                pixels.data(), static_cast<int>(width * 4u)) != 0;
+    boost::ut::expect(saved)
+        << luisa::format("Failed to save output image '{}'.", output_path.string());
+    if (!saved) { return; }
+    LUISA_INFO("Saved output to {}", output_path.string());
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_motion_blur_vk]: {} ({})",
+                   result.passed ? "PASSED" : "FAILED", result.message);
+        boost::ut::expect(result.passed) << result.message;
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -229,7 +256,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_motion_blur_vk(device);
 }

@@ -95,6 +95,10 @@ int main(int argc, char *argv[]) {
             sample_dispatch = false;
         }
     }
+    if (sample_dispatch && opts.compare_path) {
+        LUISA_WARNING("--compare requires race-free per-pixel accumulation; forcing --batch-dispatch.");
+        sample_dispatch = false;
+    }
     bool offline = opts.offline;
 #if !ENABLE_DISPLAY
     if (!offline) {
@@ -370,9 +374,6 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Coroutine dispatch shape: {} ({} SPP/pass, {} SPP/coroutine)",
                sample_dispatch ? "old wavefront-style 3D sample dispatch" : "per-pixel batched coroutine",
                samples_per_pass, spp_per_coroutine);
-    if (sample_dispatch && opts.compare_path) {
-        LUISA_WARNING("3D sample dispatch matches the old wavefront workload shape but multiple samples write the same 2D pixel; disable --compare or use --batch-dispatch for reference validation.");
-    }
 
     // ─── Make sampler shader ─────────────────────────────────────────
     auto make_sampler_shader = device.compile(Kernel2D([&](ImageUInt seed_image) noexcept {
@@ -443,9 +444,12 @@ int main(int argc, char *argv[]) {
         stream << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false).dispatch(resolution)
                << ldr_image.copy_to(luisa::span{host_image})
                << synchronize();
-        stbi_write_png("coro_path_tracing.png",
-                       resolution.x, resolution.y, 4,
-                       host_image.data(), 0);
+        if (stbi_write_png("coro_path_tracing.png",
+                           resolution.x, resolution.y, 4,
+                           host_image.data(), 0) == 0) {
+            LUISA_ERROR("Failed to write 'coro_path_tracing.png'.");
+            return 1;
+        }
 
         LUISA_INFO("Rendered {} passes in {:.1f} ms total ({:.1f} ms/pass)",
                    passes, total_ms, total_ms / passes);
@@ -514,9 +518,12 @@ int main(int argc, char *argv[]) {
                << synchronize();
 
         LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000.0);
-        stbi_write_png("coro_path_tracing.png",
-                       resolution.x, resolution.y, 4,
-                       host_image.data(), 0);
+        if (stbi_write_png("coro_path_tracing.png",
+                           resolution.x, resolution.y, 4,
+                           host_image.data(), 0) == 0) {
+            LUISA_ERROR("Failed to write 'coro_path_tracing.png'.");
+            return 1;
+        }
 #else
         LUISA_ERROR("GUI support is disabled. Use --offline.");
 #endif

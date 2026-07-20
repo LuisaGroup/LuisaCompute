@@ -1,4 +1,5 @@
 #pragma once
+#include "pipeline_ref.h"
 #include "resource.h"
 #include <volk.h>
 #include "../common/hlsl/shader_property.h"
@@ -48,6 +49,7 @@ protected:
 public:
     auto pipeline_layout() const { return _pipeline_layout; }
     auto shader_tag() const { return _shader_tag; }
+    virtual PipelineRef *pipeline_ref() const noexcept { return nullptr; }
     virtual bool serialize_pso(vstd::vector<std::byte> &result) const { return false; }
     auto binds() const { return vstd::span<const hlsl::Property>{_binds}; }
     auto captured() const { return vstd::span<const Argument>{_captured}; }

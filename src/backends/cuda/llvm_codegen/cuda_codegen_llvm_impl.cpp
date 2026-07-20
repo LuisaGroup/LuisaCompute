@@ -48,12 +48,10 @@ const llvm::Target *CUDACodegenLLVMImpl::_get_nvptx_target() noexcept {
     // initialize NVPTX target
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
-#if LLVM_VERSION_MAJOR < 22
         LLVMInitializeNVPTXTargetInfo();
         LLVMInitializeNVPTXTarget();
         LLVMInitializeNVPTXTargetMC();
         LLVMInitializeNVPTXAsmPrinter();
-#endif
     });
     // lookup target
     static auto target = [] {

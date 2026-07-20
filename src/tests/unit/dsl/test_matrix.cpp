@@ -20,58 +20,73 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+static bool finite_approx(float actual, float expected, float eps = 1e-3f) noexcept {
+    return std::isfinite(actual) && std::isfinite(expected) && std::abs(actual - expected) <= eps;
+}
+
+static void expect_float2_eq(const char *operation, float2 actual, float2 expected) {
+    for (auto i = 0u; i < 2u; ++i) {
+        expect(finite_approx(actual[i], expected[i]))
+            << operation << " mismatch at [" << i << "]: got " << actual[i] << ", expected " << expected[i];
+    }
+}
+
+static void expect_float2x2_eq(const char *operation, const float2x2 &actual, const float2x2 &expected) {
+    for (auto col = 0u; col < 2u; ++col) {
+        for (auto row = 0u; row < 2u; ++row) {
+            expect(finite_approx(actual[col][row], expected[col][row]))
+                << operation << " mismatch at [" << col << "][" << row << "]: got " << actual[col][row] << ", expected " << expected[col][row];
+        }
+    }
+}
+
 int test_matrix2x2(Device &device) {
-    auto m = make_float2x2(1.f, 2.f, 3.f, 4.f);
-    // Matrix in LC is col-first order
-    // 1 3
-    // 2 4
-    // M[i][j] means i-th col and j-th row
-    boost::ut::expect(static_cast<bool>(std::abs((m[0][0]) - (1.f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((m[0][1]) - (2.f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((m[1][0]) - (3.f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((m[1][1]) - (4.f)) < 0.001f));
-    // transpose
-    auto mt = transpose(m);
-    boost::ut::expect(static_cast<bool>(std::abs((mt[0][0]) - (1.f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((mt[0][1]) - (3.f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((mt[1][0]) - (2.f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((mt[1][1]) - (4.f)) < 0.001f));
+    Stream stream = device.create_stream();
+    float2x2 host_matrices[] = {
+        // Matrix in LC is column-major: [[1, 3], [2, 4]].
+        make_float2x2(1.0f, 2.0f, 3.0f, 4.0f),
+        make_float2x2(5.0f, 6.0f, 7.0f, 8.0f)};
+    auto host_vector = make_float2(1.0f, 2.0f);
 
-    // Matrix-Vector Multiplication
-    auto v = make_float2(1.f, 2.f);
-    auto mv = m * v;
-    // m * v
-    // 1 3  x 1 = 7
-    // 2 4    2   10
-    boost::ut::expect(static_cast<bool>(mv[0] == 7.f));
-    boost::ut::expect(static_cast<bool>(mv[1] == 10.f));
+    auto matrix_input = device.create_buffer<float2x2>(2u);
+    auto vector_input = device.create_buffer<float2>(1u);
+    auto matrix_output = device.create_buffer<float2x2>(3u);
+    auto vector_output = device.create_buffer<float2>(1u);
+    auto scalar_output = device.create_buffer<float>(1u);
 
-    // Matrix-Matrix Multiplication
-    auto w = make_float2x2(
-        make_float2(5.0f, 6.0f),
-        make_float2(7.0f, 8.0f));
+    Kernel1D kernel = [](BufferFloat2x2 matrices, BufferFloat2 vectors,
+                         BufferFloat2x2 matrix_results, BufferFloat2 vector_results,
+                         BufferFloat scalar_results) noexcept {
+        $float2x2 m = matrices.read(0u);
+        $float2x2 w = matrices.read(1u);
+        $float2 v = vectors.read(0u);
+        matrix_results.write(0u, transpose(m));
+        matrix_results.write(1u, m * w);
+        matrix_results.write(2u, inverse(m));
+        vector_results.write(0u, m * v);
+        scalar_results.write(0u, determinant(m));
+    };
 
-    // 1 3  x 5 7 = 23 31
-    // 2 4    6 8   34 46
-    auto mw = m * w;
-    // m^T * w
-    boost::ut::expect(static_cast<bool>(std::abs((mw[0][0]) - (23.0f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((mw[0][1]) - (34.0f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((mw[1][0]) - (31.0f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((mw[1][1]) - (46.0f)) < 0.001f));
+    float2x2 matrix_results[3]{};
+    float2 vector_result{};
+    float determinant_result = 0.0f;
+    auto shader = device.compile(kernel);
+    stream << matrix_input.copy_from(luisa::span{host_matrices, 2u})
+           << vector_input.copy_from(luisa::span{&host_vector, 1u})
+           << shader(matrix_input, vector_input, matrix_output, vector_output, scalar_output).dispatch(1u)
+           << matrix_output.copy_to(luisa::span{matrix_results, 3u})
+           << vector_output.copy_to(luisa::span{&vector_result, 1u})
+           << scalar_output.copy_to(luisa::span{&determinant_result, 1u})
+           << synchronize();
 
-    // calc inv
-    // inv 1 3  = -2   1
-    //     2 4  = 1.5 -0.5
-    auto inv_m = inverse(m);
-    boost::ut::expect(static_cast<bool>(std::abs((inv_m[0][0]) - (-2.0f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((inv_m[0][1]) - (+1.0f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((inv_m[1][0]) - (+1.5f)) < 0.001f));
-    boost::ut::expect(static_cast<bool>(std::abs((inv_m[1][1]) - (-0.5f)) < 0.001f));
-
-    // determinant
-    auto det_m = determinant(m);
-    boost::ut::expect(static_cast<bool>(det_m == -2.f));
+    expect_float2x2_eq("transpose", matrix_results[0], make_float2x2(1.0f, 3.0f, 2.0f, 4.0f));
+    // [[1, 3], [2, 4]] * [[5, 7], [6, 8]] = [[23, 31], [34, 46]].
+    expect_float2x2_eq("matrix multiply", matrix_results[1], make_float2x2(23.0f, 34.0f, 31.0f, 46.0f));
+    // inverse([[1, 3], [2, 4]]) = [[-2, 1.5], [1, -0.5]].
+    expect_float2x2_eq("inverse", matrix_results[2], make_float2x2(-2.0f, 1.0f, 1.5f, -0.5f));
+    expect_float2_eq("matrix-vector multiply", vector_result, make_float2(7.0f, 10.0f));
+    expect(finite_approx(determinant_result, -2.0f))
+        << "determinant mismatch: got " << determinant_result << ", expected -2";
 
     return 0;
 }

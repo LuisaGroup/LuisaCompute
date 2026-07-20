@@ -1,6 +1,7 @@
 #include "entry.h"
 #include <luisa/core/logging.h>
 #include <SPIRV/GLSL.std.450.h>
+#include <limits>
 
 namespace lc::spirv {
 
@@ -75,6 +76,103 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto operand = [&](size_t i) noexcept { return _emit_value(inst->operand(i)); };
     spv::Id id = spv::NoResult;
 
+    auto make_float_scalar_constant = [&](const Type *scalar_type, double value) noexcept -> spv::Id {
+        if (scalar_type->is_float16()) { return _builder.makeFloat16Constant(static_cast<float>(value)); }
+        if (scalar_type->is_float32()) { return _builder.makeFloatConstant(static_cast<float>(value)); }
+        if (scalar_type->is_float64()) { return _builder.makeDoubleConstant(value); }
+        LUISA_ERROR_WITH_LOCATION("Unsupported floating-point constant type {}.", scalar_type->description());
+    };
+    auto make_integer_constant = [&](const Type *value_type, uint64_t value) noexcept -> spv::Id {
+        auto scalar_type = value_type->is_vector() ? value_type->element() : value_type;
+        auto scalar_spv_type = _convert_type(scalar_type, Usage::READ);
+        auto bit_width = static_cast<uint32_t>(scalar_type->size() * 8u);
+        auto scalar = bit_width == 64u ?
+                          _builder.makeInt64Constant(scalar_spv_type, value, false) :
+                          _builder.makeIntConstant(scalar_spv_type, static_cast<uint32_t>(value), false);
+        return value_type->is_vector() ?
+                   _builder.smearScalar(spv::NoPrecision, scalar, _convert_type(value_type, Usage::READ)) :
+                   scalar;
+    };
+    auto decode_constant_index = [](const xir::Constant *constant) noexcept -> uint64_t {
+        switch (constant->type()->tag()) {
+            case Type::Tag::INT8: {
+                auto value = constant->as<int8_t>();
+                if (value < 0) { LUISA_ERROR_WITH_LOCATION("Negative aggregate index {}.", value); }
+                return static_cast<uint8_t>(value);
+            }
+            case Type::Tag::UINT8: return constant->as<uint8_t>();
+            case Type::Tag::INT16: {
+                auto value = constant->as<int16_t>();
+                if (value < 0) { LUISA_ERROR_WITH_LOCATION("Negative aggregate index {}.", value); }
+                return static_cast<uint16_t>(value);
+            }
+            case Type::Tag::UINT16: return constant->as<uint16_t>();
+            case Type::Tag::INT32: {
+                auto value = constant->as<int32_t>();
+                if (value < 0) { LUISA_ERROR_WITH_LOCATION("Negative aggregate index {}.", value); }
+                return static_cast<uint32_t>(value);
+            }
+            case Type::Tag::UINT32: return constant->as<uint32_t>();
+            case Type::Tag::INT64: {
+                auto value = constant->as<int64_t>();
+                if (value < 0) { LUISA_ERROR_WITH_LOCATION("Negative aggregate index {}.", value); }
+                return static_cast<uint64_t>(value);
+            }
+            case Type::Tag::UINT64: return constant->as<uint64_t>();
+            default: LUISA_ERROR_WITH_LOCATION("Invalid aggregate index type {}.", constant->type()->description());
+        }
+    };
+    auto validate_aggregate_indices = [&](const Type *aggregate_type, size_t first_index) noexcept {
+        auto current_type = aggregate_type;
+        for (auto i = first_index; i < inst->operand_count(); i++) {
+            auto index = inst->operand(i);
+            auto constant = index->isa<xir::Constant>() ? static_cast<const xir::Constant *>(index) : nullptr;
+            switch (current_type->tag()) {
+                case Type::Tag::ARRAY:
+                case Type::Tag::VECTOR: {
+                    if (constant != nullptr) {
+                        auto decoded = decode_constant_index(constant);
+                        if (decoded >= current_type->dimension()) {
+                            LUISA_ERROR_WITH_LOCATION(
+                                "Aggregate index {} is out of bounds for {}.",
+                                decoded, current_type->description());
+                        }
+                    }
+                    current_type = current_type->element();
+                    break;
+                }
+                case Type::Tag::MATRIX: {
+                    if (constant != nullptr) {
+                        auto decoded = decode_constant_index(constant);
+                        if (decoded >= current_type->dimension()) {
+                            LUISA_ERROR_WITH_LOCATION(
+                                "Aggregate index {} is out of bounds for {}.",
+                                decoded, current_type->description());
+                        }
+                    }
+                    current_type = Type::vector(current_type->element(), current_type->dimension());
+                    break;
+                }
+                case Type::Tag::STRUCTURE: {
+                    if (constant == nullptr) {
+                        LUISA_ERROR_WITH_LOCATION("Structure indices must be compile-time integer constants.");
+                    }
+                    auto decoded = decode_constant_index(constant);
+                    if (decoded >= current_type->members().size()) {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "Aggregate index {} is out of bounds for {}.",
+                            decoded, current_type->description());
+                    }
+                    current_type = current_type->members()[decoded];
+                    break;
+                }
+                default:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Cannot index non-aggregate type {}.", current_type->description());
+            }
+        }
+    };
+
     auto make_glsl_call = [&](int builtin, spv::Id result_type, std::vector<spv::Id> ops) noexcept -> spv::Id {
         auto needs_8bit_promote = [&](spv::Id ty) noexcept -> bool {
             auto scalar = _builder.getScalarTypeId(ty);
@@ -124,6 +222,25 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     };
     auto binary = [&](spv::Op op) noexcept -> spv::Id {
         return _builder.createBinOp(op, type, operand(0), operand(1));
+    };
+    auto operand_matching_result_type = [&](size_t i) noexcept -> spv::Id {
+        auto value = operand(i);
+        auto operand_type = inst->operand(i)->type();
+        if (t->is_vector() && operand_type->is_scalar()) {
+            LUISA_ASSERT(operand_type == t->element(),
+                         "Cannot broadcast {} to {}.",
+                         operand_type->description(), t->description());
+            value = _builder.smearScalar(spv::NoPrecision, value, type);
+        }
+        return value;
+    };
+    auto require_glsl_transcendental_support = [&](const char *op_name) noexcept {
+        if (elem->is_float64()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Native SPIR-V {} does not support float64 operands: "
+                "GLSL.std.450 transcendental instructions are limited to float16/float32.",
+                op_name);
+        }
     };
 
     switch (inst->op()) {
@@ -345,11 +462,29 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a = operand(0);
             auto b = operand(1);
             auto width = t->is_scalar() ? t->size() * 8 : t->element()->size() * 8;
-            auto width_id = _builder.makeUintConstant(static_cast<uint32_t>(width));
-            auto b_mod = _builder.createBinOp(spv::Op::OpUMod, _builder.makeUintType(32), b, width_id);
+            auto shift_type = inst->operand(1)->type();
+            auto shift_element = shift_type->is_vector() ? shift_type->element() : shift_type;
+            auto shift_unsigned_scalar_type = _builder.makeUintType(
+                static_cast<int32_t>(shift_element->size() * 8u));
+            auto shift_unsigned_type = shift_type->is_vector() ?
+                                           _builder.makeVectorType(shift_unsigned_scalar_type, shift_type->dimension()) :
+                                           shift_unsigned_scalar_type;
+            if (shift_element->is_int()) {
+                b = _builder.createUnaryOp(spv::Op::OpBitcast, shift_unsigned_type, b);
+            }
+            auto width_scalar = shift_element->size() == 8u ?
+                                    _builder.makeInt64Constant(shift_unsigned_scalar_type, width, false) :
+                                    _builder.makeIntConstant(shift_unsigned_scalar_type, static_cast<uint32_t>(width), false);
+            auto width_id = shift_type->is_vector() ?
+                                _builder.smearScalar(spv::NoPrecision, width_scalar, shift_unsigned_type) :
+                                width_scalar;
+            auto b_mod = _builder.createBinOp(spv::Op::OpUMod, shift_unsigned_type, b, width_id);
+            auto reverse_shift = _builder.createBinOp(
+                spv::Op::OpUMod, shift_unsigned_type,
+                _builder.createBinOp(spv::Op::OpISub, shift_unsigned_type, width_id, b_mod),
+                width_id);
             auto left = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, a, b_mod);
-            auto right = _builder.createBinOp(spv::Op::OpShiftRightLogical, type, a,
-                                              _builder.createBinOp(spv::Op::OpISub, _builder.makeUintType(32), width_id, b_mod));
+            auto right = _builder.createBinOp(spv::Op::OpShiftRightLogical, type, a, reverse_shift);
             id = _builder.createBinOp(spv::Op::OpBitwiseOr, type, left, right);
             break;
         }
@@ -357,11 +492,29 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a = operand(0);
             auto b = operand(1);
             auto width = t->is_scalar() ? t->size() * 8 : t->element()->size() * 8;
-            auto width_id = _builder.makeUintConstant(static_cast<uint32_t>(width));
-            auto b_mod = _builder.createBinOp(spv::Op::OpUMod, _builder.makeUintType(32), b, width_id);
+            auto shift_type = inst->operand(1)->type();
+            auto shift_element = shift_type->is_vector() ? shift_type->element() : shift_type;
+            auto shift_unsigned_scalar_type = _builder.makeUintType(
+                static_cast<int32_t>(shift_element->size() * 8u));
+            auto shift_unsigned_type = shift_type->is_vector() ?
+                                           _builder.makeVectorType(shift_unsigned_scalar_type, shift_type->dimension()) :
+                                           shift_unsigned_scalar_type;
+            if (shift_element->is_int()) {
+                b = _builder.createUnaryOp(spv::Op::OpBitcast, shift_unsigned_type, b);
+            }
+            auto width_scalar = shift_element->size() == 8u ?
+                                    _builder.makeInt64Constant(shift_unsigned_scalar_type, width, false) :
+                                    _builder.makeIntConstant(shift_unsigned_scalar_type, static_cast<uint32_t>(width), false);
+            auto width_id = shift_type->is_vector() ?
+                                _builder.smearScalar(spv::NoPrecision, width_scalar, shift_unsigned_type) :
+                                width_scalar;
+            auto b_mod = _builder.createBinOp(spv::Op::OpUMod, shift_unsigned_type, b, width_id);
+            auto reverse_shift = _builder.createBinOp(
+                spv::Op::OpUMod, shift_unsigned_type,
+                _builder.createBinOp(spv::Op::OpISub, shift_unsigned_type, width_id, b_mod),
+                width_id);
             auto right = _builder.createBinOp(spv::Op::OpShiftRightLogical, type, a, b_mod);
-            auto left = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, a,
-                                             _builder.createBinOp(spv::Op::OpISub, _builder.makeUintType(32), width_id, b_mod));
+            auto left = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, a, reverse_shift);
             id = _builder.createBinOp(spv::Op::OpBitwiseOr, type, left, right);
             break;
         }
@@ -450,7 +603,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 }
             }
             if (op_elem->is_float())
-                id = binary(spv::Op::OpFOrdNotEqual);
+                id = binary(spv::Op::OpFUnordNotEqual);
             else
                 id = binary(spv::Op::OpINotEqual);
             break;
@@ -520,10 +673,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::SATURATE:
             if (is_float) {
-                auto zero = _builder.makeFloatConstant(0.0f);
-                auto one = _builder.makeFloatConstant(1.0f);
+                auto zero = make_float_scalar_constant(elem, 0.0);
+                auto one = make_float_scalar_constant(elem, 1.0);
                 if (!is_scalar) {
-                    auto scalar_type = _convert_type(t->element(), Usage::READ);
                     zero = _builder.smearScalar(spv::NoPrecision, zero, type);
                     one = _builder.smearScalar(spv::NoPrecision, one, type);
                 }
@@ -533,13 +685,21 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             }
             break;
         case xir::ArithmeticOp::LERP:
-            id = glsl(GLSLstd450FMix, operand(0), operand(1), operand(2));
+            id = glsl(GLSLstd450FMix,
+                      operand_matching_result_type(0),
+                      operand_matching_result_type(1),
+                      operand_matching_result_type(2));
             break;
         case xir::ArithmeticOp::STEP:
-            id = glsl(GLSLstd450Step, operand(0), operand(1));
+            id = glsl(GLSLstd450Step,
+                      operand_matching_result_type(0),
+                      operand_matching_result_type(1));
             break;
         case xir::ArithmeticOp::SMOOTHSTEP:
-            id = glsl(GLSLstd450SmoothStep, operand(0), operand(1), operand(2));
+            id = glsl(GLSLstd450SmoothStep,
+                      operand_matching_result_type(0),
+                      operand_matching_result_type(1),
+                      operand_matching_result_type(2));
             break;
         case xir::ArithmeticOp::ABS:
             if (is_float)
@@ -560,16 +720,16 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::CLZ: {
             auto find_msb = glsl_typed(GLSLstd450FindSMsb, GLSLstd450FindSMsb, GLSLstd450FindUMsb, operand(0));
             auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
-            auto bit_width_id = elem->is_uint()
-                ? _builder.makeIntConstant(_builder.makeUintType(bit_width), static_cast<unsigned>(bit_width), false)
-                : _builder.makeIntConstant(_builder.makeIntType(bit_width), static_cast<unsigned>(bit_width), false);
-            auto minus_one = elem->is_uint() ? _builder.makeIntConstant(_builder.makeUintType(bit_width), 0xFFFFFFFFu, false) : _builder.makeIntConstant(_builder.makeIntType(bit_width), 0xFFFFFFFFu, false);
-            if (!is_scalar) {
-                bit_width_id = _builder.smearScalar(spv::NoPrecision, bit_width_id, type);
-                minus_one = _builder.smearScalar(spv::NoPrecision, minus_one, type);
-            }
-            auto is_zero = _builder.createBinOp(spv::Op::OpIEqual, _builder.makeBoolType(), find_msb, minus_one);
-            auto one = elem->is_uint() ? _builder.makeIntConstant(_builder.makeUintType(bit_width), 1u, false) : _builder.makeIntConstant(_builder.makeIntType(bit_width), 1u, false);
+            auto bit_width_id = make_integer_constant(t, static_cast<uint32_t>(bit_width));
+            auto all_ones = bit_width == 64 ?
+                                std::numeric_limits<uint64_t>::max() :
+                                (uint64_t{1} << static_cast<uint32_t>(bit_width)) - 1u;
+            auto minus_one = make_integer_constant(t, all_ones);
+            auto bool_type = is_scalar ?
+                                 _builder.makeBoolType() :
+                                 _builder.makeVectorType(_builder.makeBoolType(), t->dimension());
+            auto is_zero = _builder.createBinOp(spv::Op::OpIEqual, bool_type, find_msb, minus_one);
+            auto one = make_integer_constant(t, 1u);
             auto clz_val = _builder.createBinOp(spv::Op::OpISub, type, _builder.createBinOp(spv::Op::OpISub, type, bit_width_id, one), find_msb);
             id = _builder.createTriOp(spv::Op::OpSelect, type, is_zero, bit_width_id, clz_val);
             break;
@@ -577,15 +737,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::CTZ: {
             auto find_lsb = glsl(GLSLstd450FindILsb, operand(0));
             auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
-            auto bit_width_id = elem->is_uint()
-                ? _builder.makeIntConstant(_builder.makeUintType(bit_width), static_cast<unsigned>(bit_width), false)
-                : _builder.makeIntConstant(_builder.makeIntType(bit_width), static_cast<unsigned>(bit_width), false);
-            auto minus_one = elem->is_uint() ? _builder.makeIntConstant(_builder.makeUintType(bit_width), 0xFFFFFFFFu, false) : _builder.makeIntConstant(_builder.makeIntType(bit_width), 0xFFFFFFFFu, false);
-            if (!is_scalar) {
-                bit_width_id = _builder.smearScalar(spv::NoPrecision, bit_width_id, type);
-                minus_one = _builder.smearScalar(spv::NoPrecision, minus_one, type);
-            }
-            auto is_zero = _builder.createBinOp(spv::Op::OpIEqual, _builder.makeBoolType(), find_lsb, minus_one);
+            auto bit_width_id = make_integer_constant(t, static_cast<uint32_t>(bit_width));
+            auto all_ones = bit_width == 64 ?
+                                std::numeric_limits<uint64_t>::max() :
+                                (uint64_t{1} << static_cast<uint32_t>(bit_width)) - 1u;
+            auto minus_one = make_integer_constant(t, all_ones);
+            auto bool_type = is_scalar ?
+                                 _builder.makeBoolType() :
+                                 _builder.makeVectorType(_builder.makeBoolType(), t->dimension());
+            auto is_zero = _builder.createBinOp(spv::Op::OpIEqual, bool_type, find_lsb, minus_one);
             id = _builder.createTriOp(spv::Op::OpSelect, type, is_zero, bit_width_id, find_lsb);
             break;
         }
@@ -614,52 +774,68 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = unary(spv::Op::OpIsNan);
             break;
         case xir::ArithmeticOp::ACOS:
+            require_glsl_transcendental_support("acos");
             id = glsl(GLSLstd450Acos, operand(0));
             break;
         case xir::ArithmeticOp::ACOSH:
+            require_glsl_transcendental_support("acosh");
             id = glsl(GLSLstd450Acosh, operand(0));
             break;
         case xir::ArithmeticOp::ASIN:
+            require_glsl_transcendental_support("asin");
             id = glsl(GLSLstd450Asin, operand(0));
             break;
         case xir::ArithmeticOp::ASINH:
+            require_glsl_transcendental_support("asinh");
             id = glsl(GLSLstd450Asinh, operand(0));
             break;
         case xir::ArithmeticOp::ATAN:
+            require_glsl_transcendental_support("atan");
             id = glsl(GLSLstd450Atan, operand(0));
             break;
         case xir::ArithmeticOp::ATAN2:
+            require_glsl_transcendental_support("atan2");
             id = glsl(GLSLstd450Atan2, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::ATANH:
+            require_glsl_transcendental_support("atanh");
             id = glsl(GLSLstd450Atanh, operand(0));
             break;
         case xir::ArithmeticOp::COS:
+            require_glsl_transcendental_support("cos");
             id = glsl(GLSLstd450Cos, operand(0));
             break;
         case xir::ArithmeticOp::COSH:
+            require_glsl_transcendental_support("cosh");
             id = glsl(GLSLstd450Cosh, operand(0));
             break;
         case xir::ArithmeticOp::SIN:
+            require_glsl_transcendental_support("sin");
             id = glsl(GLSLstd450Sin, operand(0));
             break;
         case xir::ArithmeticOp::SINH:
+            require_glsl_transcendental_support("sinh");
             id = glsl(GLSLstd450Sinh, operand(0));
             break;
         case xir::ArithmeticOp::TAN:
+            require_glsl_transcendental_support("tan");
             id = glsl(GLSLstd450Tan, operand(0));
             break;
         case xir::ArithmeticOp::TANH:
+            require_glsl_transcendental_support("tanh");
             id = glsl(GLSLstd450Tanh, operand(0));
             break;
         case xir::ArithmeticOp::EXP:
+            require_glsl_transcendental_support("exp");
             id = glsl(GLSLstd450Exp, operand(0));
             break;
         case xir::ArithmeticOp::EXP2:
+            require_glsl_transcendental_support("exp2");
             id = glsl(GLSLstd450Exp2, operand(0));
             break;
         case xir::ArithmeticOp::EXP10: {
-            auto log2_10 = _builder.makeFloatConstant(3.321928094887362f);
+            require_glsl_transcendental_support("exp10");
+            auto log2_10 = make_float_scalar_constant(elem, 3.321928094887362);
             spv::Id scaled;
             if (!is_scalar)
                 scaled = _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, operand(0), log2_10);
@@ -669,13 +845,16 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         }
         case xir::ArithmeticOp::LOG:
+            require_glsl_transcendental_support("log");
             id = glsl(GLSLstd450Log, operand(0));
             break;
         case xir::ArithmeticOp::LOG2:
+            require_glsl_transcendental_support("log2");
             id = glsl(GLSLstd450Log2, operand(0));
             break;
         case xir::ArithmeticOp::LOG10: {
-            auto inv_log2_10 = _builder.makeFloatConstant(0.3010299956639812f);
+            require_glsl_transcendental_support("log10");
+            auto inv_log2_10 = make_float_scalar_constant(elem, 0.3010299956639812);
             auto log2_val = glsl(GLSLstd450Log2, operand(0));
             if (!is_scalar)
                 id = _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, log2_val, inv_log2_10);
@@ -684,11 +863,71 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         }
         case xir::ArithmeticOp::POW:
+            require_glsl_transcendental_support("pow");
             id = glsl(GLSLstd450Pow, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::POW_INT: {
-            auto exp_float = _builder.createUnaryOp(spv::Op::OpConvertSToF, type, operand(1));
-            id = glsl(GLSLstd450Pow, operand(0), exp_float);
+            auto exponent = operand(1);
+            auto exponent_xir_type = inst->operand(1)->type();
+            auto exponent_element = exponent_xir_type->is_vector() ? exponent_xir_type->element() : exponent_xir_type;
+            auto exponent_type = _convert_type(exponent_xir_type, Usage::READ);
+            auto exponent_scalar_type = _builder.getScalarTypeId(exponent_type);
+            auto exponent_width = static_cast<uint32_t>(_builder.getScalarTypeWidth(exponent_scalar_type));
+            auto exponent_unsigned_scalar_type = _builder.makeUintType(static_cast<int>(exponent_width));
+            auto exponent_unsigned_type = exponent_xir_type->is_vector() ?
+                                              _builder.makeVectorType(exponent_unsigned_scalar_type, exponent_xir_type->dimension()) :
+                                              exponent_unsigned_scalar_type;
+            auto bool_type = exponent_xir_type->is_vector() ?
+                                 _builder.makeVectorType(_builder.makeBoolType(), exponent_xir_type->dimension()) :
+                                 _builder.makeBoolType();
+            auto make_exponent_constant = [&](uint64_t value) noexcept {
+                auto scalar = exponent_width == 64u ?
+                                  _builder.makeInt64Constant(exponent_unsigned_scalar_type, value, false) :
+                                  _builder.makeIntConstant(exponent_unsigned_scalar_type, static_cast<uint32_t>(value), false);
+                return exponent_xir_type->is_vector() ?
+                           _builder.smearScalar(spv::NoPrecision, scalar, exponent_unsigned_type) :
+                           scalar;
+            };
+            auto make_float_constant = [&](double value) noexcept {
+                auto scalar = elem->is_float16() ?
+                                  _builder.makeFloat16Constant(static_cast<float>(value)) :
+                              elem->is_float64() ?
+                                  _builder.makeDoubleConstant(value) :
+                                  _builder.makeFloatConstant(static_cast<float>(value));
+                return is_scalar ? scalar : _builder.smearScalar(spv::NoPrecision, scalar, type);
+            };
+            auto zero_unsigned = make_exponent_constant(0u);
+            auto exponent_bits = _builder.createUnaryOp(spv::Op::OpBitcast, exponent_unsigned_type, exponent);
+            spv::Id negative = spv::NoResult;
+            spv::Id magnitude = exponent_bits;
+            if (exponent_element->is_int()) {
+                auto zero_signed_scalar = exponent_width == 64u ?
+                                              _builder.makeInt64Constant(exponent_scalar_type, 0u, false) :
+                                              _builder.makeIntConstant(exponent_scalar_type, 0u, false);
+                auto zero_signed = exponent_xir_type->is_vector() ?
+                                       _builder.smearScalar(spv::NoPrecision, zero_signed_scalar, exponent_type) :
+                                       zero_signed_scalar;
+                negative = _builder.createBinOp(spv::Op::OpSLessThan, bool_type, exponent, zero_signed);
+                auto negated = _builder.createBinOp(spv::Op::OpISub, exponent_unsigned_type, zero_unsigned, exponent_bits);
+                magnitude = _builder.createTriOp(spv::Op::OpSelect, exponent_unsigned_type, negative, negated, exponent_bits);
+            }
+            auto result = make_float_constant(1.0);
+            auto factor = operand(0);
+            for (uint32_t bit = 0u; bit < exponent_width; ++bit) {
+                auto mask = make_exponent_constant(uint64_t{1} << bit);
+                auto masked = _builder.createBinOp(spv::Op::OpBitwiseAnd, exponent_unsigned_type, magnitude, mask);
+                auto bit_set = _builder.createBinOp(spv::Op::OpINotEqual, bool_type, masked, zero_unsigned);
+                auto product = _builder.createBinOp(spv::Op::OpFMul, type, result, factor);
+                result = _builder.createTriOp(spv::Op::OpSelect, type, bit_set, product, result);
+                if (bit + 1u < exponent_width) {
+                    factor = _builder.createBinOp(spv::Op::OpFMul, type, factor, factor);
+                }
+            }
+            if (negative != spv::NoResult) {
+                auto reciprocal = _builder.createBinOp(spv::Op::OpFDiv, type, make_float_constant(1.0), result);
+                result = _builder.createTriOp(spv::Op::OpSelect, type, negative, reciprocal, result);
+            }
+            id = result;
             break;
         }
         case xir::ArithmeticOp::SQRT:
@@ -710,16 +949,25 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = glsl(GLSLstd450Trunc, operand(0));
             break;
         case xir::ArithmeticOp::ROUND: {
-            auto x = operand(0);
-            auto half = _builder.makeFloatConstant(0.5f);
-            auto sign = glsl(GLSLstd450FSign, x);
-            spv::Id signed_half;
-            if (!is_scalar)
-                signed_half = _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, sign, half);
-            else
-                signed_half = _builder.createBinOp(spv::Op::OpFMul, type, half, sign);
-            auto sum = _builder.createBinOp(spv::Op::OpFAdd, type, x, signed_half);
-            id = glsl(GLSLstd450Trunc, sum);
+            auto value = operand(0);
+            auto half = elem->is_float16() ?
+                            _builder.makeFloat16Constant(0.5f) :
+                        elem->is_float64() ?
+                            _builder.makeDoubleConstant(0.5) :
+                            _builder.makeFloatConstant(0.5f);
+            auto sign = glsl(GLSLstd450FSign, value);
+            auto signed_half = is_scalar ?
+                                   _builder.createBinOp(spv::Op::OpFMul, type, sign, half) :
+                                   _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, sign, half);
+            auto biased = _builder.createBinOp(spv::Op::OpFAdd, type, value, signed_half);
+            auto rounded = glsl(GLSLstd450Trunc, biased);
+            auto bool_type = is_scalar ?
+                                 _builder.makeBoolType() :
+                                 _builder.makeVectorType(_builder.makeBoolType(), t->dimension());
+            auto is_zero = _builder.createBinOp(
+                spv::Op::OpFOrdEqual, bool_type, value,
+                _builder.makeNullConstant(type));
+            id = _builder.createTriOp(spv::Op::OpSelect, type, is_zero, value, rounded);
             break;
         }
         case xir::ArithmeticOp::RINT:
@@ -731,9 +979,26 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::COPYSIGN: {
             auto a = operand(0);
             auto b = operand(1);
-            auto abs_a = glsl(GLSLstd450FAbs, a);
-            auto sign_b = glsl(GLSLstd450FSign, b);
-            id = _builder.createBinOp(spv::Op::OpFMul, type, abs_a, sign_b);
+            auto bit_width = static_cast<uint32_t>(elem->size() * 8u);
+            auto uint_scalar_type = _builder.makeUintType(static_cast<int32_t>(bit_width));
+            auto uint_type = is_scalar ?
+                                 uint_scalar_type :
+                                 _builder.makeVectorType(uint_scalar_type, t->dimension());
+            auto make_bit_constant = [&](uint64_t value) noexcept {
+                auto scalar = bit_width == 64u ?
+                                  _builder.makeInt64Constant(uint_scalar_type, value, false) :
+                                  _builder.makeIntConstant(uint_scalar_type, static_cast<uint32_t>(value), false);
+                return is_scalar ? scalar : _builder.smearScalar(spv::NoPrecision, scalar, uint_type);
+            };
+            auto sign_bit_value = uint64_t{1} << (bit_width - 1u);
+            auto sign_bit = make_bit_constant(sign_bit_value);
+            auto magnitude_bits = make_bit_constant(sign_bit_value - 1u);
+            auto a_bits = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, a);
+            auto b_bits = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, b);
+            auto magnitude = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, a_bits, magnitude_bits);
+            auto sign = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, b_bits, sign_bit);
+            auto copied = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, magnitude, sign);
+            id = _builder.createUnaryOp(spv::Op::OpBitcast, type, copied);
             break;
         }
         case xir::ArithmeticOp::CROSS:
@@ -980,11 +1245,20 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 indices.reserve(inst->operand_count());
                 for (uint i = 0u; i < inst->operand_count(); ++i) {
                     auto op = inst->operand(i);
-                    if (!op->isa<xir::ArithmeticInst>()) { all_extract = false; break; }
+                    if (!op->isa<xir::ArithmeticInst>()) {
+                        all_extract = false;
+                        break;
+                    }
                     auto ari = static_cast<const xir::ArithmeticInst *>(op);
-                    if (ari->op() != xir::ArithmeticOp::EXTRACT) { all_extract = false; break; }
+                    if (ari->op() != xir::ArithmeticOp::EXTRACT) {
+                        all_extract = false;
+                        break;
+                    }
                     auto base = ari->operand(0);
-                    if (!base->type()->is_vector()) { all_extract = false; break; }
+                    if (!base->type()->is_vector()) {
+                        all_extract = false;
+                        break;
+                    }
                     if (common_base == nullptr) {
                         common_base = base;
                     } else if (common_base != base) {
@@ -992,12 +1266,18 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         break;
                     }
                     // Index must be constant
-                    if (ari->operand_count() < 2u || !ari->operand(1)->isa<xir::Constant>()) {
+                    if (ari->operand_count() != 2u || !ari->operand(1)->isa<xir::Constant>()) {
                         all_extract = false;
                         break;
                     }
-                    auto idx_val = static_cast<const xir::Constant *>(ari->operand(1))->as<uint32_t>();
-                    indices.push_back(static_cast<uint32_t>(idx_val));
+                    auto index = decode_constant_index(
+                        static_cast<const xir::Constant *>(ari->operand(1)));
+                    if (index >= base->type()->dimension()) {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "Vector extraction index {} is out of bounds for {}.",
+                            index, base->type()->description());
+                    }
+                    indices.push_back(static_cast<uint32_t>(index));
                 }
                 if (all_extract && common_base != nullptr) {
                     auto base_spv = _emit_value(const_cast<xir::Value *>(common_base));
@@ -1026,8 +1306,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             shuffle_indices.reserve(dim);
             for (auto i = 1u; i <= dim; ++i) {
                 if (inst->operand(i)->isa<xir::Constant>()) {
-                    auto idx = static_cast<const xir::Constant *>(inst->operand(i))->as<uint32_t>();
-                    shuffle_indices.push_back(static_cast<uint32_t>(idx));
+                    auto index = decode_constant_index(
+                        static_cast<const xir::Constant *>(inst->operand(i)));
+                    auto source_type = inst->operand(0)->type();
+                    if (index >= source_type->dimension()) {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "Shuffle index {} is out of bounds for {}.",
+                            index, source_type->description());
+                    }
+                    shuffle_indices.push_back(static_cast<uint32_t>(index));
                 } else {
                     all_const = false;
                     break;
@@ -1048,6 +1335,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         }
         case xir::ArithmeticOp::INSERT: {
+            validate_aggregate_indices(inst->operand(0)->type(), 2u);
             auto v = operand(0);
             auto e = operand(1);
             std::vector<uint32_t> const_indices;
@@ -1056,8 +1344,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             for (auto i = 2u; i < inst->operand_count(); ++i) {
                 if (auto op = inst->operand(i); op->isa<xir::Constant>()) {
                     auto c = static_cast<const xir::Constant *>(op);
-                    auto idx = *static_cast<const uint32_t *>(c->data());
-                    const_indices.push_back(idx);
+                    const_indices.push_back(static_cast<uint32_t>(decode_constant_index(c)));
                 } else {
                     all_constant = false;
                     dynamic_indices.push_back(_emit_value(inst->operand(i)));
@@ -1067,51 +1354,27 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             if (all_constant) {
                 id = _builder.createCompositeInsert(e, v, type, const_indices);
             } else {
-                // Try to reuse an existing alloca variable if the base value
-                // came from a load of a local alloca. This avoids the insert_tmp
-                // temporary that would copy the full array.
-                spv::Id source_var = spv::NoResult;
-                spv::StorageClass source_sc = spv::StorageClass::Function;
-                if (auto base_xir = inst->operand(0); base_xir->isa<xir::LoadInst>()) {
-                    auto load = static_cast<const xir::LoadInst *>(base_xir);
-                    if (auto ptr = load->variable(); ptr->isa<xir::AllocaInst>()) {
-                        auto alloca = static_cast<const xir::AllocaInst *>(ptr);
-                        if (alloca->op() == xir::AllocaOp::LOCAL || alloca->op() == xir::AllocaOp::SHARED) {
-                            if (auto it = _value_map.find(alloca); it != _value_map.end()) {
-                                source_var = it->second;
-                                source_sc = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
-                            }
-                        }
-                    }
+                // INSERT is a pure SSA operation. Never reuse and mutate an alloca
+                // that happened to supply the base value: other loads may still
+                // need to observe the original aggregate.
+                auto temp_var = _builder.createVariable(
+                    spv::NoPrecision, spv::StorageClass::Function, type, "insert_tmp");
+                _builder.createStore(v, temp_var);
+                std::vector<spv::Id> access_indices;
+                for (auto i = 2u; i < inst->operand_count(); ++i) {
+                    access_indices.push_back(_emit_value(inst->operand(i)));
                 }
-                if (source_var != spv::NoResult) {
-                    // Use the existing alloca variable directly: access-chain,
-                    // store the new element, then load the updated composite.
-                    std::vector<spv::Id> access_indices;
-                    for (auto i = 2u; i < inst->operand_count(); ++i) {
-                        access_indices.push_back(_emit_value(inst->operand(i)));
-                    }
-                    auto ptr = _create_access_chain(source_sc, source_var, access_indices);
-                    _builder.createStore(e, ptr);
-                    id = _builder.createLoad(source_var, spv::NoPrecision);
-                } else {
-                    // Fallback: use alloca + access chain + store + load
-                    auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "insert_tmp");
-                    _builder.createStore(v, temp_var);
-                    std::vector<spv::Id> access_indices;
-                    for (auto i = 2u; i < inst->operand_count(); ++i) {
-                        access_indices.push_back(_emit_value(inst->operand(i)));
-                    }
-                    auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, access_indices);
-                    _builder.createStore(e, ptr);
-                    id = _builder.createLoad(temp_var, spv::NoPrecision);
-                }
+                auto ptr = _create_access_chain(
+                    spv::StorageClass::Function, temp_var, access_indices);
+                _builder.createStore(e, ptr);
+                id = _builder.createLoad(temp_var, spv::NoPrecision);
             }
             break;
         }
         case xir::ArithmeticOp::EXTRACT: {
             auto base_value = inst->operand(0);
             auto base_type = base_value->type();
+            validate_aggregate_indices(base_type, 1u);
 
             // Fast path for UBO-lowered constant arrays: emit a single indexed load
             // through the constant cache instead of materializing the array as an SSA value.
@@ -1138,31 +1401,12 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             for (auto i = 1u; i < inst->operand_count(); ++i) {
                 if (auto op = inst->operand(i); op->isa<xir::Constant>()) {
                     auto c = static_cast<const xir::Constant *>(op);
-                    auto idx = *static_cast<const uint32_t *>(c->data());
+                    auto idx = static_cast<uint32_t>(decode_constant_index(c));
                     const_indices.push_back(idx);
                     dynamic_indices.push_back(_builder.makeUintConstant(idx));
                 } else {
                     all_constant = false;
                     dynamic_indices.push_back(_emit_value(inst->operand(i)));
-                }
-            }
-            // Try to reuse an existing alloca variable if the base value
-            // came from a load of a local alloca. This avoids the extract_tmp
-            // temporary that would copy the full array.
-            spv::Id source_var = spv::NoResult;
-            spv::StorageClass source_sc = spv::StorageClass::Function;
-            if (!all_constant) {
-                if (auto base_xir = inst->operand(0); base_xir->isa<xir::LoadInst>()) {
-                    auto load = static_cast<const xir::LoadInst *>(base_xir);
-                    if (auto ptr = load->variable(); ptr->isa<xir::AllocaInst>()) {
-                        auto alloca = static_cast<const xir::AllocaInst *>(ptr);
-                        if (alloca->op() == xir::AllocaOp::LOCAL || alloca->op() == xir::AllocaOp::SHARED) {
-                            if (auto it = _value_map.find(alloca); it != _value_map.end()) {
-                                source_var = it->second;
-                                source_sc = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
-                            }
-                        }
-                    }
                 }
             }
             if (all_constant) {
@@ -1182,14 +1426,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     for (uint32_t i = 1u; i < elem_count; ++i) {
                         auto elem_i = _builder.createCompositeExtract(v, type, {i});
                         auto cmp = _builder.createBinOp(spv::Op::OpIEqual, _builder.makeBoolType(),
-                                                        idx, _builder.makeUintConstant(i));
+                                                        idx, make_integer_constant(inst->operand(1)->type(), i));
                         result = _builder.createTriOp(spv::Op::OpSelect, type, cmp, elem_i, result);
                     }
                     id = result;
-                } else if (source_var != spv::NoResult) {
-                    // Use the existing alloca variable directly: access-chain and load element.
-                    auto ptr = _create_access_chain(source_sc, source_var, dynamic_indices);
-                    id = _builder.createLoad(ptr, spv::NoPrecision);
                 } else {
                     auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
                                                             _convert_type(base_type, Usage::READ), "extract_tmp");
@@ -1197,20 +1437,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
                     id = _builder.createLoad(ptr, spv::NoPrecision);
                 }
-                } else if (base_type->is_structure()) {
-                    if (source_var != spv::NoResult) {
-                        auto ptr = _create_access_chain(source_sc, source_var, dynamic_indices);
-                        id = _builder.createLoad(ptr, spv::NoPrecision);
-                    } else {
-                        auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
-                                                                _convert_type(base_type, Usage::READ), "extract_tmp");
-                        _builder.createStore(v, temp_var);
-                        auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
-                        id = _builder.createLoad(ptr, spv::NoPrecision);
-                    }
-                } else {
-                    LUISA_NOT_IMPLEMENTED("SPIR-V dynamic extract for type {}.", base_type->description());
-                }
+            } else if (base_type->is_structure()) {
+                auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
+                                                        _convert_type(base_type, Usage::READ), "extract_tmp");
+                _builder.createStore(v, temp_var);
+                auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
+                id = _builder.createLoad(ptr, spv::NoPrecision);
+            } else {
+                LUISA_NOT_IMPLEMENTED("SPIR-V dynamic extract for type {}.", base_type->description());
+            }
             break;
         }
 
@@ -1936,7 +2171,9 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto accel_ptr = _emit_value(inst->operand(0));
             auto accel = _builder.createLoad(accel_ptr, spv::NoPrecision);
             auto ray = _emit_value(inst->operand(1));
-            auto mask = _emit_value(inst->operand(2));
+            auto is_motion = inst->op() == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR ||
+                             inst->op() == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR;
+            auto mask = _emit_value(inst->operand(is_motion ? 3u : 2u));
             auto float_type = _builder.makeFloatType(32);
             auto uint_type = _builder.makeUintType(32);
             auto vec3_type = _builder.makeVectorType(float_type, 3);
@@ -2023,9 +2260,9 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto it = _accel_instance_buffer_map.find(accel_ptr);
             LUISA_ASSERT(it != _accel_instance_buffer_map.end(), "SPIR-V ray_tracing_instance_transform: accel instance buffer not found.");
             auto instance_buffer = it->second;
-            auto instance_index = _emit_value(inst->operand(1));
-            if (!_uniformity.is_uniform(inst->operand(1))) { _builder.addDecoration(instance_index, spv::Decoration::NonUniformEXT); }
             auto uint_type = _builder.makeUintType(32);
+            auto instance_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            if (!_uniformity.is_uniform(inst->operand(1))) { _builder.addDecoration(instance_index, spv::Decoration::NonUniformEXT); }
             auto float_type = _builder.makeFloatType(32);
             auto float4_type = _builder.makeVectorType(float_type, 4);
             auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, instance_index, _builder.makeUintConstant(16u));
@@ -2054,6 +2291,35 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto col3 = _builder.createCompositeConstruct(float4_type, {p0_w, p1_w, p2_w, one});
             auto mat_type = _convert_type(inst->type(), Usage::READ);
             id = _builder.createCompositeConstruct(mat_type, {col0, col1, col2, col3});
+            break;
+        }
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID:
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: {
+            auto accel_ptr = _emit_value(inst->operand(0));
+            auto it = _accel_instance_buffer_map.find(accel_ptr);
+            LUISA_ASSERT(it != _accel_instance_buffer_map.end(),
+                         "SPIR-V ray-tracing instance buffer not found.");
+            auto uint_type = _builder.makeUintType(32);
+            auto instance_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            if (!_uniformity.is_uniform(inst->operand(1))) {
+                _builder.addDecoration(instance_index, spv::Decoration::NonUniformEXT);
+            }
+            auto word_offset = _builder.createBinOp(
+                spv::Op::OpIMul, uint_type, instance_index,
+                _builder.makeUintConstant(16u));
+            word_offset = _builder.createBinOp(
+                spv::Op::OpIAdd, uint_type, word_offset,
+                _builder.makeUintConstant(12u));
+            auto packed = _emit_buffer_read_impl(it->second, word_offset, Type::of<uint>());
+            if (inst->op() == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID) {
+                id = _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type, packed,
+                    _builder.makeUintConstant(0x00ffffffu));
+            } else {
+                id = _builder.createBinOp(
+                    spv::Op::OpShiftRightLogical, uint_type, packed,
+                    _builder.makeUintConstant(24u));
+            }
             break;
         }
         default:
@@ -2773,6 +3039,50 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             }
             break;
         }
+        case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ:
+        case xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ:
+        case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+        case xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: {
+            auto op = inst->op();
+            auto is_2d = op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ ||
+                         op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL;
+            auto has_level = op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL ||
+                             op == xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL;
+            auto bindless_array = _emit_value(inst->operand(0));
+            auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
+            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto base_offset = _builder.createBinOp(
+                spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
+            auto field_offset = _builder.makeUintConstant(is_2d ? 1u : 2u);
+            auto slot_word_offset = _builder.createBinOp(
+                spv::Op::OpIAdd, uint_type, base_offset, field_offset);
+            auto bdls_ptr = _create_access_chain(
+                _builder.getStorageClass(bindless_array), bindless_array,
+                {_builder.makeUintConstant(0u), slot_word_offset}, nonuniform);
+            auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            if (nonuniform) { _builder.addDecoration(packed, spv::Decoration::NonUniformEXT); }
+            auto tex_idx = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type, packed,
+                _builder.makeUintConstant(0x0fffffffu));
+            auto heap_id = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
+            LUISA_ASSERT(heap_id != spv::NoResult,
+                         "SPIR-V {} texture heap not bound.", is_2d ? "2D" : "3D");
+            auto tex_ptr = _create_access_chain(
+                spv::StorageClass::UniformConstant, heap_id, {tex_idx}, nonuniform);
+            auto tex = _builder.createLoad(tex_ptr, spv::NoPrecision);
+            if (nonuniform) { _builder.addDecoration(tex, spv::Decoration::NonUniformEXT); }
+            auto coord = _emit_value(inst->operand(2));
+            auto lod = has_level ?
+                           _ensure_type(_emit_value(inst->operand(3)), uint_type) :
+                           _builder.makeUintConstant(0u);
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, tex);
+            operands.emplace_back(true, coord);
+            operands.emplace_back(false, spv::ImageOperandsMask::Lod);
+            operands.emplace_back(true, lod);
+            id = _builder.createOp(spv::Op::OpImageFetch, type, operands);
+            break;
+        }
         case xir::ResourceReadOp::BINDLESS_BUFFER_READ: {
             auto bindless_array = _emit_value(inst->operand(0));
             auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
@@ -2965,14 +3275,37 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
                     break;
                 }
                 case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK: {
-                    auto value = _emit_value(inst->operand(2));
-                    auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, _builder.makeUintConstant(13u));
+                    auto value = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+                    value = _builder.createBinOp(
+                        spv::Op::OpBitwiseAnd, uint_type, value,
+                        _builder.makeUintConstant(0xffu));
+                    value = _builder.createBinOp(
+                        spv::Op::OpShiftLeftLogical, uint_type, value,
+                        _builder.makeUintConstant(24u));
+                    auto word_offset = _builder.createBinOp(
+                        spv::Op::OpIAdd, uint_type, base_offset,
+                        _builder.makeUintConstant(12u));
+                    auto old = _emit_buffer_read_impl(buffer, word_offset, Type::of<uint>());
+                    old = _builder.createBinOp(
+                        spv::Op::OpBitwiseAnd, uint_type, old,
+                        _builder.makeUintConstant(0x00ffffffu));
+                    value = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, old, value);
                     _emit_buffer_write_impl(buffer, word_offset, value, Type::of<uint>());
                     break;
                 }
                 case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID: {
-                    auto value = _emit_value(inst->operand(2));
-                    auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, _builder.makeUintConstant(12u));
+                    auto value = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+                    value = _builder.createBinOp(
+                        spv::Op::OpBitwiseAnd, uint_type, value,
+                        _builder.makeUintConstant(0x00ffffffu));
+                    auto word_offset = _builder.createBinOp(
+                        spv::Op::OpIAdd, uint_type, base_offset,
+                        _builder.makeUintConstant(12u));
+                    auto old = _emit_buffer_read_impl(buffer, word_offset, Type::of<uint>());
+                    old = _builder.createBinOp(
+                        spv::Op::OpBitwiseAnd, uint_type, old,
+                        _builder.makeUintConstant(0xff000000u));
+                    value = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, old, value);
                     _emit_buffer_write_impl(buffer, word_offset, value, Type::of<uint>());
                     break;
                 }
@@ -2981,7 +3314,17 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
                     auto value = _builder.createOp(spv::Op::OpSelect, uint_type, {
                         opaque, _builder.makeUintConstant(4u), _builder.makeUintConstant(8u)
                     });
-                    auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, _builder.makeUintConstant(14u));
+                    value = _builder.createBinOp(
+                        spv::Op::OpShiftLeftLogical, uint_type, value,
+                        _builder.makeUintConstant(24u));
+                    auto word_offset = _builder.createBinOp(
+                        spv::Op::OpIAdd, uint_type, base_offset,
+                        _builder.makeUintConstant(13u));
+                    auto old = _emit_buffer_read_impl(buffer, word_offset, Type::of<uint>());
+                    old = _builder.createBinOp(
+                        spv::Op::OpBitwiseAnd, uint_type, old,
+                        _builder.makeUintConstant(0x00ffffffu));
+                    value = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, old, value);
                     _emit_buffer_write_impl(buffer, word_offset, value, Type::of<uint>());
                     break;
                 }
@@ -3425,71 +3768,39 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             if (cast->op() == xir::CastOp::BITWISE_CAST) {
                 auto from_is_bool = from->is_bool() || from->is_bool_vector();
                 auto to_is_bool = to->is_bool() || to->is_bool_vector();
-                if (from_is_bool != to_is_bool || (from_is_bool && from->size() != to->size())) {
-                    // Cannot bitcast between bool and non-bool, or between different-sized bools
-                    // Convert bool to/from uint first
-                    auto uint_type = _builder.makeUintType(32);
-                    spv::Id uint_val = val;
-                    if (from_is_bool && !to_is_bool) {
-                        // bool → non-bool: convert to uint first
-                        if (spv::Id bool_type = _convert_type(from, Usage::READ);
-                            _builder.isBoolType(bool_type)) {
-                            uint_val = _builder.createOp(spv::Op::OpSelect, uint_type, {val, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
-                        } else {
-                            // Bool vector: decompose and pack
-                            auto dim = _builder.getNumTypeComponents(bool_type);
-                            uint_val = _builder.makeUintConstant(0u);
-                            for (uint i = 0u; i < dim; ++i) {
-                                auto comp = _builder.createCompositeExtract(val, _builder.makeBoolType(), i);
-                                auto bit = _builder.createOp(spv::Op::OpSelect, uint_type, {comp, _builder.makeUintConstant(1u << i), _builder.makeUintConstant(0u)});
-                                uint_val = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, uint_val, bit);
-                            }
-                        }
-                        id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, uint_val);
-                    } else if (!from_is_bool && to_is_bool) {
-                        // non-bool → bool: bitcast to uint, then convert
-                        uint_val = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, val);
-                        if (_builder.isBoolType(spv_to)) {
-                            id = _builder.createBinOp(spv::Op::OpINotEqual, spv_to, uint_val, _builder.makeUintConstant(0u));
-                        } else {
-                            // Bool vector: unpack bits
-                            auto dim = _builder.getNumTypeComponents(spv_to);
-                            std::vector<spv::Id> comps;
-                            comps.reserve(dim);
-                            for (uint i = 0u; i < dim; ++i) {
-                                auto bit = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, uint_val, _builder.makeUintConstant(1u << i));
-                                comps.push_back(_builder.createBinOp(spv::Op::OpINotEqual, _builder.makeBoolType(), bit, _builder.makeUintConstant(0u)));
-                            }
-                            id = _builder.createCompositeConstruct(spv_to, comps);
-                        }
-                    } else {
-                        // bool → bool with different sizes: compare with 0
-                        id = _builder.createBinOp(spv::Op::OpINotEqual, spv_to, val, _builder.makeUintConstant(0u));
-                    }
-                } else {
-                    id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, val);
+                if (from_is_bool || to_is_bool) {
+                    LUISA_NOT_IMPLEMENTED(
+                        "SPIR-V bitwise cast involving boolean type: {} -> {}.",
+                        from->description(), to->description());
                 }
+                auto logical_size = [](const Type *type) noexcept {
+                    return type->is_vector() ?
+                               type->element()->size() * type->dimension() :
+                               type->size();
+                };
+                LUISA_ASSERT(logical_size(from) == logical_size(to),
+                             "SPIR-V bitwise cast width mismatch: {} -> {}.",
+                             from->description(), to->description());
+                id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, val);
             } else {
-                if (from == to) {
-                    id = val;
-                } else if (from->is_bool() && to->is_scalar()) {
+                auto make_scalar_zero_one = [&](const Type *type) noexcept {
                     spv::Id zero = spv::NoResult;
                     spv::Id one = spv::NoResult;
-                    if (to->is_int()) {
-                        auto bit_width = static_cast<int32_t>(to->size() * 8);
+                    if (type->is_int()) {
+                        auto bit_width = static_cast<int32_t>(type->size() * 8);
                         zero = _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false);
                         one = _builder.makeIntConstant(_builder.makeIntType(bit_width), 1u, false);
-                    } else if (to->is_uint()) {
-                        auto bit_width = static_cast<int32_t>(to->size() * 8);
+                    } else if (type->is_uint()) {
+                        auto bit_width = static_cast<int32_t>(type->size() * 8);
                         zero = _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
                         one = _builder.makeIntConstant(_builder.makeUintType(bit_width), 1u, false);
-                    } else if (to->is_float()) {
-                        auto bit_width = static_cast<int32_t>(to->size() * 8);
+                    } else if (type->is_float()) {
+                        auto bit_width = static_cast<int32_t>(type->size() * 8);
                         if (bit_width == 8) {
-                            if (to->is_float8_e5m2()) {
+                            if (type->is_float8_e5m2()) {
                                 zero = _builder.makeFloatE5M2Constant(0.0f);
                                 one = _builder.makeFloatE5M2Constant(1.0f);
-                            } else if (to->is_float8_e4m3()) {
+                            } else if (type->is_float8_e4m3()) {
                                 zero = _builder.makeFloatE4M3Constant(0.0f);
                                 one = _builder.makeFloatE4M3Constant(1.0f);
                             }
@@ -3505,70 +3816,86 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                         }
                     }
                     if (zero == spv::NoResult || one == spv::NoResult) {
-                        LUISA_NOT_IMPLEMENTED("SPIR-V bool-to-scalar cast for {}.", to->description());
+                        LUISA_NOT_IMPLEMENTED("SPIR-V scalar cast constant for {}.", type->description());
                     }
-                    id = _builder.createTriOp(spv::Op::OpSelect, spv_to, val, one, zero);
-                } else if (to->is_bool() && from->is_scalar()) {
-                    spv::Id zero = spv::NoResult;
-                    if (from->is_int()) {
-                        auto bit_width = static_cast<int32_t>(from->size() * 8);
-                        zero = _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false);
-                    } else if (from->is_uint()) {
-                        auto bit_width = static_cast<int32_t>(from->size() * 8);
-                        zero = _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
-                    } else if (from->is_float()) {
-                        auto bit_width = static_cast<int32_t>(from->size() * 8);
-                        if (bit_width == 8) {
-                            if (from->is_float8_e5m2()) {
-                                zero = _builder.makeFloatE5M2Constant(0.0f);
-                            } else if (from->is_float8_e4m3()) {
-                                zero = _builder.makeFloatE4M3Constant(0.0f);
-                            }
-                        } else if (bit_width == 16) {
-                            zero = _builder.makeFloat16Constant(0.0f);
-                        } else if (bit_width == 32) {
-                            zero = _builder.makeFloatConstant(0.0f);
-                        } else if (bit_width == 64) {
-                            zero = _builder.makeDoubleConstant(0.0);
+                    return std::pair{zero, one};
+                };
+                auto static_cast_scalar = [&](spv::Id scalar, const Type *source,
+                                              const Type *target) noexcept {
+                    auto spv_target = _convert_type(target, Usage::READ);
+                    if (source == target) { return scalar; }
+                    if (source->is_bool()) {
+                        auto [zero, one] = make_scalar_zero_one(target);
+                        return _builder.createTriOp(spv::Op::OpSelect, spv_target,
+                                                    scalar, one, zero);
+                    }
+                    if (target->is_bool()) {
+                        auto [zero, one] = make_scalar_zero_one(source);
+                        static_cast<void>(one);
+                        return _builder.createBinOp(
+                            source->is_float() ? spv::Op::OpFUnordNotEqual :
+                                                 spv::Op::OpINotEqual,
+                            spv_target, scalar, zero);
+                    }
+                    if (source->is_float() && target->is_int()) {
+                        return _builder.createUnaryOp(spv::Op::OpConvertFToS, spv_target, scalar);
+                    }
+                    if (source->is_float() && target->is_uint()) {
+                        return _builder.createUnaryOp(spv::Op::OpConvertFToU, spv_target, scalar);
+                    }
+                    if (source->is_int() && target->is_float()) {
+                        return _builder.createUnaryOp(spv::Op::OpConvertSToF, spv_target, scalar);
+                    }
+                    if (source->is_uint() && target->is_float()) {
+                        return _builder.createUnaryOp(spv::Op::OpConvertUToF, spv_target, scalar);
+                    }
+                    if (source->is_float() && target->is_float()) {
+                        return _builder.createUnaryOp(spv::Op::OpFConvert, spv_target, scalar);
+                    }
+                    if ((source->is_int() || source->is_uint()) &&
+                        (target->is_int() || target->is_uint())) {
+                        if (source->size() == target->size()) {
+                            return _builder.createUnaryOp(spv::Op::OpBitcast,
+                                                          spv_target, scalar);
                         }
-                    }
-                    if (zero == spv::NoResult) {
-                        LUISA_NOT_IMPLEMENTED("SPIR-V scalar-to-bool cast for {}.", from->description());
-                    }
-                    if (from->is_float()) {
-                        id = _builder.createBinOp(spv::Op::OpFOrdNotEqual, spv_to, val, zero);
-                    } else {
-                        id = _builder.createBinOp(spv::Op::OpINotEqual, spv_to, val, zero);
-                    }
-                } else if (from->is_float() && to->is_int()) {
-                    id = _builder.createUnaryOp(spv::Op::OpConvertFToS, spv_to, val);
-                } else if (from->is_float() && to->is_uint()) {
-                    id = _builder.createUnaryOp(spv::Op::OpConvertFToU, spv_to, val);
-                } else if (from->is_int() && to->is_float()) {
-                    id = _builder.createUnaryOp(spv::Op::OpConvertSToF, spv_to, val);
-                } else if (from->is_uint() && to->is_float()) {
-                    id = _builder.createUnaryOp(spv::Op::OpConvertUToF, spv_to, val);
-                } else if (from->is_float() && to->is_float()) {
-                    id = _builder.createUnaryOp(spv::Op::OpFConvert, spv_to, val);
-                } else if ((from->is_int() || from->is_uint()) && (to->is_int() || to->is_uint())) {
-                    if (from->size() == to->size()) {
-                        if (from->is_int() != to->is_int()) {
-                            id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, val);
-                        } else {
-                            id = val;
+                        if (source->is_int() == target->is_int()) {
+                            return _builder.createUnaryOp(
+                                source->is_int() ? spv::Op::OpSConvert :
+                                                   spv::Op::OpUConvert,
+                                spv_target, scalar);
                         }
-                    } else if (from->is_int() && to->is_int()) {
-                        id = _builder.createUnaryOp(spv::Op::OpSConvert, spv_to, val);
-                    } else if (from->is_uint() && to->is_uint()) {
-                        id = _builder.createUnaryOp(spv::Op::OpUConvert, spv_to, val);
-                    } else {
-                        // Cross-signedness with different sizes: convert first, then bitcast
-                        auto tmp_type = _builder.makeIntegerType(static_cast<int32_t>(to->size() * 8), from->is_int());
-                        id = _builder.createUnaryOp(from->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, tmp_type, val);
-                        id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, id);
+                        auto temporary_type = _builder.makeIntegerType(
+                            static_cast<int32_t>(target->size() * 8),
+                            source->is_int());
+                        auto converted = _builder.createUnaryOp(
+                            source->is_int() ? spv::Op::OpSConvert :
+                                               spv::Op::OpUConvert,
+                            temporary_type, scalar);
+                        return _builder.createUnaryOp(spv::Op::OpBitcast,
+                                                      spv_target, converted);
                     }
+                    LUISA_NOT_IMPLEMENTED("SPIR-V static cast from {} to {}.",
+                                          source->description(), target->description());
+                };
+                if (from->is_scalar() && to->is_scalar()) {
+                    id = static_cast_scalar(val, from, to);
+                } else if (from->is_vector() && to->is_vector() &&
+                           from->dimension() == to->dimension()) {
+                    auto source_element = from->element();
+                    auto target_element = to->element();
+                    auto spv_source_element = _convert_type(source_element, Usage::READ);
+                    std::vector<spv::Id> elements;
+                    elements.reserve(from->dimension());
+                    for (auto i = 0u; i < from->dimension(); i++) {
+                        auto source_value = _builder.createCompositeExtract(
+                            val, spv_source_element, i);
+                        elements.emplace_back(static_cast_scalar(
+                            source_value, source_element, target_element));
+                    }
+                    id = _builder.createCompositeConstruct(spv_to, elements);
                 } else {
-                    LUISA_NOT_IMPLEMENTED("SPIR-V static cast from {} to {}.", from->description(), to->description());
+                    LUISA_NOT_IMPLEMENTED("SPIR-V static cast from {} to {}.",
+                                          from->description(), to->description());
                 }
             }
             set_result(id);

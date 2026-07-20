@@ -9,23 +9,33 @@ namespace luisa::compute::xir {
 class Constant;
 class LoopInst;
 class PassReport;
+class Value;
 
 class SCEV {
 public:
-    enum class Kind { UNKNOWN, CONSTANT, ADD_REC, ADD, MUL };
+    enum class Kind { UNKNOWN,
+                      CONSTANT,
+                      ADD_REC,
+                      ADD,
+                      MUL };
     virtual ~SCEV() = default;
     [[nodiscard]] virtual Kind kind() const noexcept = 0;
     [[nodiscard]] virtual const Type *type() const noexcept = 0;
 };
 
 class SCEVUnknown : public SCEV {
-    Instruction *_inst;
+    Value *_value;
 
 public:
-    explicit SCEVUnknown(Instruction *inst) noexcept;
+    explicit SCEVUnknown(Value *value) noexcept;
     [[nodiscard]] Kind kind() const noexcept override { return Kind::UNKNOWN; }
     [[nodiscard]] const Type *type() const noexcept override;
-    [[nodiscard]] Instruction *inst() const noexcept { return _inst; }
+    [[nodiscard]] Value *value() const noexcept { return _value; }
+    [[nodiscard]] Instruction *inst() const noexcept {
+        return _value != nullptr && _value->isa<Instruction>() ?
+                   static_cast<Instruction *>(_value) :
+                   nullptr;
+    }
 };
 
 class SCEVConstant : public SCEV {
@@ -74,10 +84,44 @@ public:
 
 struct SCEVInfo {
     size_t analyzed_loop_count{0u};
+    size_t rejected_loop_count{0u};
+    size_t invalid_function_count{0u};
+
+    [[nodiscard]] bool succeeded() const noexcept {
+        return rejected_loop_count == 0u && invalid_function_count == 0u;
+    }
+};
+
+class LUISA_XIR_API SCEVAnalysis {
+private:
+    struct Impl;
+    luisa::unique_ptr<Impl> _impl;
+    [[nodiscard]] const SCEV *_get_unchecked(Instruction *inst) const noexcept;
+    friend SCEVInfo scev_pass_run_on_function(FunctionDefinition *def) noexcept;
+    friend const SCEV *scev_get_for_value(Instruction *inst) noexcept;
+
+public:
+    SCEVAnalysis() noexcept;
+    ~SCEVAnalysis() noexcept;
+    SCEVAnalysis(SCEVAnalysis &&) noexcept;
+    SCEVAnalysis &operator=(SCEVAnalysis &&) noexcept;
+    SCEVAnalysis(const SCEVAnalysis &) = delete;
+    SCEVAnalysis &operator=(const SCEVAnalysis &) = delete;
+
+    void clear() noexcept;
+    [[nodiscard]] SCEVInfo analyze(FunctionDefinition *def) noexcept;
+    [[nodiscard]] const SCEV *get(Instruction *inst) const noexcept;
+    [[nodiscard]] FunctionDefinition *function() const noexcept;
+    [[nodiscard]] bool is_current() const noexcept;
 };
 
 [[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_function(FunctionDefinition *def) noexcept;
 [[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API const SCEV *scev_get_for_value(Instruction *inst) noexcept;
+
+namespace detail {
+LUISA_XIR_API void scev_register_function(Function *function) noexcept;
+LUISA_XIR_API void scev_invalidate_function(Function *function) noexcept;
+}// namespace detail
 
 }// namespace luisa::compute::xir

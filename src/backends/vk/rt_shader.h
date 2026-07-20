@@ -1,5 +1,6 @@
 #pragma once
 #include "shader.h"
+#include "pipeline_ref.h"
 #include "default_buffer.h"
 #include <volk.h>
 #include "vk_allocator.h"
@@ -23,8 +24,7 @@ using namespace luisa::compute;
 // Uses VK_KHR_ray_tracing_pipeline with VK_NV_ray_tracing_motion_blur
 // to support time-parameterized ray tracing (OpTraceMotionNV).
 class RayTracingShader : public Shader {
-    VkPipelineCache _pipe_cache{};
-    VkPipeline _pipeline{};
+    PipelineRef *_pipeline_ref{};
     uint3 _block_size;
     // Shader Binding Table
     VkBuffer _sbt_vk_buffer{};
@@ -35,7 +35,9 @@ class RayTracingShader : public Shader {
     VkStridedDeviceAddressRegionKHR _callable_region{};
 
 public:
-    auto pipeline() const { return _pipeline; }
+    auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
+    auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
+    PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
     bool serialize_pso(vstd::vector<std::byte> &result) const override;
     auto block_size() const { return _block_size; }
     auto const &raygen_region() const { return _raygen_region; }

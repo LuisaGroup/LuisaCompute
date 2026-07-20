@@ -1,3 +1,5 @@
+// Test for the conservative XIR loop-fusion contract.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
@@ -75,7 +77,7 @@ struct CountedLoopFixture {
 
 void reg_loop_fusion() {
 
-    "loop_fusion_two_independent_loops"_test = [] {
+    "loop_fusion_rejects_structured_independent_loops"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -103,11 +105,18 @@ void reg_loop_fusion() {
         b.set_insertion_point(loop2.merge);
         b.return_void();
 
+        auto *loop1_term = body->terminator();
+        auto *loop2_term = loop1.merge->terminator();
         auto info = loop_fusion_pass_run_on_function(k);
-        expect(info.fused_loop_count == 1u);
+        expect(info.fused_loop_count == 0u);
+        expect(info.structured_cfg_error_count == 1u);
+        expect(body->terminator() == loop1_term);
+        expect(loop1.merge->terminator() == loop2_term);
+        expect(loop1.loop->merge_block() == loop1.merge);
+        expect(loop2.loop->merge_block() == loop2.merge);
     };
 
-    "loop_fusion_flow_dependence_not_fused"_test = [] {
+    "loop_fusion_rejects_structured_dependent_loops"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -139,12 +148,16 @@ void reg_loop_fusion() {
 
         auto info = loop_fusion_pass_run_on_function(k);
         expect(info.fused_loop_count == 0u);
+        expect(info.structured_cfg_error_count == 1u);
+        expect(body->terminator() == loop1.loop);
+        expect(loop1.merge->terminator() == loop2.loop);
     };
 
     "loop_fusion_empty_module"_test = [] {
         Module m;
         auto info = loop_fusion_pass_run_on_module(&m);
         expect(info.fused_loop_count == 0u);
+        expect(info.succeeded());
     };
 
     "loop_fusion_no_loop"_test = [] {
@@ -157,6 +170,7 @@ void reg_loop_fusion() {
 
         auto info = loop_fusion_pass_run_on_function(k);
         expect(info.fused_loop_count == 0u);
+        expect(info.succeeded());
     };
 }
 

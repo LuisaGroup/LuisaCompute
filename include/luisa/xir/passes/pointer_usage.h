@@ -7,6 +7,9 @@ namespace luisa::compute::xir {
 
 class Value;
 class BasicBlock;
+class FunctionDefinition;
+class Module;
+class PassReport;
 
 // This pass analyzes the usage of pointers in a function,
 // including reference arguments, alloca's, and GEP's.
@@ -19,6 +22,9 @@ struct PointerUsage {
     AggregateFieldBitmask kill;
     AggregateFieldBitmask touch;
     AggregateFieldBitmask live;
+
+    explicit PointerUsage(const Type *type) noexcept
+        : kill{type}, touch{type}, live{type} {}
 };
 
 using PointerUsageMap = luisa::unordered_map<Value *, luisa::unique_ptr<PointerUsage>>;
@@ -27,5 +33,44 @@ struct BasicBlockPointerUsage {
     PointerUsageMap in;
     PointerUsageMap out;
 };
+
+struct PointerUsageAnalysisInfo {
+    size_t tracked_pointer_count{0u};
+    size_t analyzed_block_count{0u};
+    size_t conservative_access_count{0u};
+    size_t invalid_access_count{0u};
+    size_t invalid_function_count{0u};
+
+    [[nodiscard]] bool succeeded() const noexcept {
+        return invalid_access_count == 0u && invalid_function_count == 0u;
+    }
+};
+
+class LUISA_XIR_API PointerUsageAnalysis {
+private:
+    struct Impl;
+    luisa::unique_ptr<Impl> _impl;
+
+public:
+    PointerUsageAnalysis() noexcept;
+    ~PointerUsageAnalysis() noexcept;
+    PointerUsageAnalysis(PointerUsageAnalysis &&) noexcept;
+    PointerUsageAnalysis &operator=(PointerUsageAnalysis &&) noexcept;
+    PointerUsageAnalysis(const PointerUsageAnalysis &) = delete;
+    PointerUsageAnalysis &operator=(const PointerUsageAnalysis &) = delete;
+
+    void clear() noexcept;
+    [[nodiscard]] PointerUsageAnalysisInfo analyze(FunctionDefinition *function) noexcept;
+    [[nodiscard]] bool is_current() const noexcept;
+    [[nodiscard]] FunctionDefinition *function() const noexcept;
+    [[nodiscard]] const BasicBlockPointerUsage *block_usage(BasicBlock *block) const noexcept;
+    [[nodiscard]] const PointerUsage *in_usage(BasicBlock *block, Value *pointer) const noexcept;
+    [[nodiscard]] const PointerUsage *out_usage(BasicBlock *block, Value *pointer) const noexcept;
+};
+
+[[nodiscard]] LUISA_XIR_API PointerUsageAnalysisInfo pointer_usage_pass_run_on_function(
+    FunctionDefinition *function, PointerUsageAnalysis *analysis = nullptr) noexcept;
+[[nodiscard]] LUISA_XIR_API PointerUsageAnalysisInfo pointer_usage_pass_run_on_module(
+    Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

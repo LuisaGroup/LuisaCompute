@@ -5,6 +5,9 @@
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/autodiff.h>
+#include <luisa/xir/instructions/outline.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/passes/lex_scope_analysis.h>
 
 namespace luisa::compute::xir {
@@ -123,6 +126,48 @@ static void walk_lexical_scopes_recursively(const BasicBlock *block,
                 });
                 // merge block should be of the parent block
                 walk_lexical_scopes_recursively(simple_loop_inst->merge_block(), config, stack, info);
+                break;
+            }
+            case DerivedInstructionTag::RAY_QUERY_LOOP: {
+                auto ray_query_loop = static_cast<const RayQueryLoopInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        ray_query_loop->dispatch_block(), config, stack, info);
+                });
+                walk_lexical_scopes_recursively(
+                    ray_query_loop->merge_block(), config, stack, info);
+                break;
+            }
+            case DerivedInstructionTag::RAY_QUERY_DISPATCH: {
+                auto dispatch = static_cast<const RayQueryDispatchInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        dispatch->on_surface_candidate_block(), config, stack, info);
+                });
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        dispatch->on_procedural_candidate_block(), config, stack, info);
+                });
+                break;
+            }
+            case DerivedInstructionTag::AUTODIFF_SCOPE: {
+                auto scope = static_cast<const AutodiffScopeInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        scope->entry_block(), config, stack, info);
+                });
+                walk_lexical_scopes_recursively(
+                    scope->merge_block(), config, stack, info);
+                break;
+            }
+            case DerivedInstructionTag::OUTLINE: {
+                auto outline = static_cast<const OutlineInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        outline->target_block(), config, stack, info);
+                });
+                walk_lexical_scopes_recursively(
+                    outline->merge_block(), config, stack, info);
                 break;
             }
             default: {

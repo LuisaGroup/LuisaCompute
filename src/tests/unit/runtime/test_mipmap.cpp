@@ -1,166 +1,184 @@
+// Deterministic compute mipmap-generation test.
+//
+// A single shader dispatch recursively box-filters five mip levels through
+// shared memory. The source is generated in memory and every texel of every
+// level is compared with an independent host implementation, so the test has
+// no working-directory dependency and never treats image dumping as success.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
-// Test for mipmap generation using compute shaders.
-//
-// This test implements parallel mipmap generation using the
-// recursive box filter algorithm. Each level is computed by
-// averaging 2x2 pixel blocks from the previous level.
-//
-// Implementation features:
-// - Single-pass multi-level generation using shared memory
-// - Hierarchical reduction within thread blocks
-// - Support for up to 6 mipmap levels
-//
-// Mipmaps are used for:
-// - Texture minification filtering
-// - Level-of-detail (LOD) selection
-// - Faster texture sampling at distance
 
-#include <stb/stb_image.h>
-#include <stb/stb_image_write.h>
-#include <luisa/runtime/context.h>
-#include <luisa/runtime/device.h>
-#include <luisa/runtime/stream.h>
-#include <luisa/runtime/image.h>
-#include <luisa/core/logging.h>
-#include <luisa/dsl/syntax.h>
-#include <luisa/dsl/sugar.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <memory>
+
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+namespace {
+
+constexpr auto base_size = make_uint2(64u, 64u);
+constexpr auto mip_level_count = 6u;
+constexpr auto reduction_tile_size = 32u;
+
+[[nodiscard]] uint2 mip_size(uint32_t level) noexcept {
+    return max(base_size >> level, make_uint2(1u));
+}
+
+[[nodiscard]] auto make_source() noexcept {
+    luisa::vector<float4> pixels(
+        static_cast<size_t>(base_size.x) * base_size.y);
+    for (auto y = 0u; y < base_size.y; y++) {
+        for (auto x = 0u; x < base_size.x; x++) {
+            auto index = static_cast<size_t>(y) * base_size.x + x;
+            pixels[index] = make_float4(
+                static_cast<float>(x + 2u * y) * (1.0f / 256.0f),
+                static_cast<float>((3u * x) ^ y) * (1.0f / 256.0f),
+                static_cast<float>((x & 3u) + 4u * (y & 3u)) * (1.0f / 32.0f),
+                0.75f);
+        }
+    }
+    return pixels;
+}
+
+[[nodiscard]] auto make_reference_levels() noexcept {
+    std::array<luisa::vector<float4>, mip_level_count> levels;
+    levels[0] = make_source();
+    for (auto level = 1u; level < mip_level_count; level++) {
+        auto previous_size = mip_size(level - 1u);
+        auto size = mip_size(level);
+        levels[level].resize(static_cast<size_t>(size.x) * size.y);
+        for (auto y = 0u; y < size.y; y++) {
+            for (auto x = 0u; x < size.x; x++) {
+                auto p00 = static_cast<size_t>(2u * y) * previous_size.x + 2u * x;
+                auto p10 = p00 + 1u;
+                auto p01 = p00 + previous_size.x;
+                auto p11 = p01 + 1u;
+                auto value = (levels[level - 1u][p00] +
+                              levels[level - 1u][p10] +
+                              levels[level - 1u][p01] +
+                              levels[level - 1u][p11]) *
+                             0.25f;
+                value.w = 1.0f;
+                levels[level][static_cast<size_t>(y) * size.x + x] = value;
+            }
+        }
+    }
+    return levels;
+}
+
+[[nodiscard]] float max_error(float4 a, float4 b) noexcept {
+    auto d = abs(a - b);
+    return std::max(std::max(d.x, d.y), std::max(d.z, d.w));
+}
+
+}// namespace
+
 void test_mipmap(Device &device) {
-    Stream stream = device.create_stream();
+    auto reference = make_reference_levels();
+    auto texture = device.create_image<float>(
+        PixelStorage::FLOAT4, base_size, mip_level_count);
 
-    // Load input image
-    auto image_width = 0;
-    auto image_height = 0;
-    auto image_channels = 0;
-    auto image_pixels = stbi_load("logo.png", &image_width, &image_height, &image_channels, 4);
-
-    // Create texture with 6 mipmap levels
-    auto texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 6u);
-
-    // Block size for compute kernel
-    constexpr uint32_t block_size = 32;
-
-    // Helper to write to specific mipmap level using switch
-    auto WriteTex = [&](ImageVar<float> **levels, UInt2 pixel, Float4 value, UInt index) {
+    auto write_level = [](ImageVar<float> **levels, UInt2 pixel,
+                          Float4 value, UInt index) noexcept {
         switch_(index)
-            .case_(0, [&] {
-                levels[0]->write(pixel, value);
-            })
-            .case_(1, [&] {
-                levels[1]->write(pixel, value);
-            })
-            .case_(2, [&] {
-                levels[2]->write(pixel, value);
-            })
-            .case_(3, [&] {
-                levels[3]->write(pixel, value);
-            })
-            .case_(4, [&] {
-                levels[4]->write(pixel, value);
-            })
-            .case_(5, [&] {
-                levels[5]->write(pixel, value);
-            });
+            .case_(0u, [&] { levels[0]->write(pixel, value); })
+            .case_(1u, [&] { levels[1]->write(pixel, value); })
+            .case_(2u, [&] { levels[2]->write(pixel, value); })
+            .case_(3u, [&] { levels[3]->write(pixel, value); })
+            .case_(4u, [&] { levels[4]->write(pixel, value); })
+            .case_(5u, [&] { levels[5]->write(pixel, value); });
     };
 
-    // Mipmap generation kernel
-    // Uses shared memory for efficient 2x2 averaging across multiple levels
     Kernel2D generate_mip_levels =
         [&](ImageVar<float> level0,
             ImageVar<float> level1,
             ImageVar<float> level2,
             ImageVar<float> level3,
             ImageVar<float> level4,
-            ImageVar<float> level5) {
-            set_block_size(block_size, block_size, 1);
-
-            // Shared memory for hierarchical reduction
-            // Stores intermediate results during 2x2 averaging
-            Shared<float3> shared_array{block_size * block_size};
-
-            // Array of mipmap level views
+            ImageVar<float> level5) noexcept {
+            set_block_size(reduction_tile_size, reduction_tile_size, 1u);
+            Shared<float3> shared_array{reduction_tile_size * reduction_tile_size};
             ImageVar<float> *levels[] = {
-                std::addressof(level0),
-                std::addressof(level1),
-                std::addressof(level2),
-                std::addressof(level3),
-                std::addressof(level4),
-                std::addressof(level5)};
+                std::addressof(level0), std::addressof(level1),
+                std::addressof(level2), std::addressof(level3),
+                std::addressof(level4), std::addressof(level5)};
 
-            Var block_coord = block_id().xy();
-            Var local_coord = thread_id().xy();
-            Var tex_size = dispatch_size().xy();
+            auto block_coord = block_id().xy();
+            auto local_coord = thread_id().xy();
+            auto texture_size = dispatch_size().xy();
+            auto color = level0.read(dispatch_id().xy()).xyz();
+            auto active_size = def(reduction_tile_size);
+            auto level = def(0u);
 
-            // Read source pixel with clamping to handle borders
-            Var col = level0.read(clamp(dispatch_id().xy(), make_uint2(0u), tex_size - 1u)).xyz();
-
-            Var lefted_block = block_size;
-            Var ite = 0u;
-
-            // Hierarchical reduction loop
-            // Each iteration halves the resolution by averaging 2x2 blocks
-            $while (lefted_block > 0) {
-                Var next_block = lefted_block / 2;
-
-                // Store current values to shared memory
-                $if (all(local_coord < make_uint2(lefted_block))) {
-                    shared_array[lefted_block * local_coord.y + local_coord.x] = col;
+            $while (active_size > 1u) {
+                $if (all(local_coord < make_uint2(active_size))) {
+                    shared_array.write(
+                        active_size * local_coord.y + local_coord.x, color);
                 };
                 sync_block();
 
-                // Average 2x2 blocks for next mipmap level
-                $if (all(local_coord < make_uint2(next_block))) {
-                    Var last_coord = local_coord * make_uint2(2);
-                    // Box filter: average 4 neighboring pixels
-                    col = shared_array[lefted_block * last_coord.y + last_coord.x] +
-                          shared_array[lefted_block * (last_coord.y + 1) + last_coord.x] +
-                          shared_array[lefted_block * last_coord.y + (last_coord.x + 1)] +
-                          shared_array[lefted_block * (last_coord.y + 1) + (last_coord.x + 1)];
-                    col *= 0.25f;// Divide by 4
-
-                    ite += 1u;
-                    Var level_coord = block_coord * next_block + local_coord;
-
-                    // Write to appropriate mipmap level if within bounds
-                    $if (all(level_coord < tex_size)) {
-                        WriteTex(levels, level_coord, make_float4(col, 1.0f), ite);
+                auto next_size = active_size / 2u;
+                $if (all(local_coord < make_uint2(next_size))) {
+                    auto source = local_coord * 2u;
+                    color = (shared_array.read(active_size * source.y + source.x) +
+                             shared_array.read(active_size * (source.y + 1u) + source.x) +
+                             shared_array.read(active_size * source.y + source.x + 1u) +
+                             shared_array.read(active_size * (source.y + 1u) + source.x + 1u)) *
+                            0.25f;
+                    level += 1u;
+                    texture_size /= 2u;
+                    auto level_coord = block_coord * next_size + local_coord;
+                    $if (all(level_coord < texture_size)) {
+                        write_level(levels, level_coord,
+                                    make_float4(color, 1.0f), level);
                     };
                 };
-
-                // Prepare for next iteration (half resolution)
-                lefted_block = next_block;
-                tex_size /= 2u;
+                sync_block();
+                active_size = next_size;
             };
         };
 
-    // Compile and execute kernel
     auto shader = device.compile(generate_mip_levels);
-    stream << texture.copy_from(luisa::span{image_pixels, static_cast<size_t>(image_width * image_height * 4)})
-           << shader(
-                  texture.view(0),
-                  texture.view(1),
-                  texture.view(2),
-                  texture.view(3),
-                  texture.view(4),
-                  texture.view(5))
-                  .dispatch(texture.size());
+    auto stream = device.create_stream();
+    stream << texture.view(0u).copy_from(luisa::span{reference[0]})
+           << shader(texture.view(0u), texture.view(1u), texture.view(2u),
+                     texture.view(3u), texture.view(4u), texture.view(5u))
+                  .dispatch(base_size);
 
-    // Save generated mipmap levels
-    for (int i = 1; i < 6; ++i) {
-        auto view = texture.view(i);
-        luisa::vector<std::byte> host_image(view.size_bytes());
-        stream << view.copy_to(luisa::span{host_image}) << synchronize();
-        auto name = luisa::string{"logo_mip"}.append(std::to_string(i)).append(".png");
-        auto size = view.size();
-        stbi_write_png(name.c_str(), size.x, size.y, 4, host_image.data(), 0);
+    std::array<luisa::vector<float4>, mip_level_count> actual;
+    for (auto level = 0u; level < mip_level_count; level++) {
+        auto size = texture.view(level).size();
+        actual[level].resize(static_cast<size_t>(size.x) * size.y);
+        stream << texture.view(level).copy_to(luisa::span{actual[level]});
     }
-    expect(true) << "mipmap test completed";
+    stream << synchronize();
+
+    constexpr auto epsilon = 1.0e-6f;
+    for (auto level = 0u; level < mip_level_count; level++) {
+        auto size = texture.view(level).size();
+        auto expected_size = mip_size(level);
+        expect(static_cast<bool>(size.x == expected_size.x &&
+                                 size.y == expected_size.y))
+            << "mip view must report the expected dimensions";
+        auto valid = true;
+        for (auto i = 0u; i < actual[level].size(); i++) {
+            auto error = max_error(actual[level][i], reference[level][i]);
+            if (error > epsilon) {
+                LUISA_WARNING(
+                    "Mip {} texel {} mismatch: got {}, expected {}, max error {}.",
+                    level, i, actual[level][i], reference[level][i], error);
+                valid = false;
+                break;
+            }
+        }
+        expect(valid) << "every generated mip texel must match the recursive host box filter";
+    }
 }
 
 int main(int argc, char *argv[]) {

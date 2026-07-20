@@ -6,6 +6,7 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/arithmetic.h>
 
 #include "helpers.h"
 
@@ -26,6 +27,21 @@ namespace {
         if (!is_operand_invariant(inst->operand(i), invariant)) { return false; }
     }
     return true;
+}
+
+[[nodiscard]] bool is_safe_to_speculate(Instruction *inst) noexcept {
+    if (!inst->isa<ArithmeticInst>()) { return true; }
+    // LICM moves body instructions before the loop condition, so even a loop
+    // with zero iterations will evaluate them. Keep operations with undefined
+    // operands in place until the IR has explicit poison/trap semantics.
+    switch (static_cast<ArithmeticInst *>(inst)->op()) {
+        case ArithmeticOp::BINARY_DIV:
+        case ArithmeticOp::BINARY_MOD:
+        case ArithmeticOp::BINARY_SHIFT_LEFT:
+        case ArithmeticOp::BINARY_SHIFT_RIGHT:
+            return false;
+        default: return true;
+    }
 }
 
 void collect_loop_body_blocks(BasicBlock *body, BasicBlock *update,
@@ -82,7 +98,8 @@ void licm_on_loop(LoopInst *loop, LICMInfo &info, DomTree &dom_tree) noexcept {
             // Moving a memory read from the body into prepare speculates it before
             // the loop condition and also requires alias/clobber analysis. Keep
             // memory operations in place until the pass can prove both properties.
-            bool can_hoist = bb == prepare || mem.is_pure();
+            bool can_hoist = bb == prepare ||
+                             (mem.is_pure() && is_safe_to_speculate(inst));
             if (can_hoist) {
                 invariant.insert(inst);
                 changed = true;
@@ -94,13 +111,48 @@ void licm_on_loop(LoopInst *loop, LICMInfo &info, DomTree &dom_tree) noexcept {
         }
     }
 
-    luisa::vector<Instruction *> to_hoist;
-    for (auto *bb : loop_body_blocks) {
+    // Collect candidates in the stable function-owned block/instruction order,
+    // then topologically order their intra-set dependencies. Generic CFG
+    // traversal can omit temporarily disconnected or raw structured child
+    // blocks, while iterating loop_body_blocks directly is nondeterministic.
+    luisa::vector<Instruction *> candidates;
+    auto *definition = loop->parent_function()->definition();
+    for (auto *bb : definition->basic_blocks()) {
+        if (!loop_body_blocks.contains(bb)) { continue; }
         for (auto *inst : bb->instructions()) {
             if (invariant.contains(inst) && !inst->is_terminator()) {
-                to_hoist.push_back(inst);
+                candidates.emplace_back(inst);
             }
         }
+    }
+
+    luisa::unordered_set<Instruction *> remaining;
+    remaining.reserve(candidates.size());
+    for (auto *inst : candidates) { remaining.emplace(inst); }
+    luisa::vector<Instruction *> to_hoist;
+    to_hoist.reserve(candidates.size());
+    while (!remaining.empty()) {
+        auto made_progress = false;
+        for (auto *inst : candidates) {
+            if (!remaining.contains(inst)) { continue; }
+            auto ready = true;
+            for (size_t i = 0u; i < inst->operand_count(); ++i) {
+                auto *operand = inst->operand(i);
+                if (operand->isa<Instruction>() &&
+                    remaining.contains(static_cast<Instruction *>(operand))) {
+                    ready = false;
+                    break;
+                }
+            }
+            if (ready) {
+                remaining.erase(inst);
+                to_hoist.emplace_back(inst);
+                made_progress = true;
+            }
+        }
+        // Valid SSA cannot contain a non-phi instruction dependency cycle. Do
+        // not partially mutate malformed input if one is nevertheless present.
+        if (!made_progress) { return; }
     }
 
     if (to_hoist.empty()) { return; }

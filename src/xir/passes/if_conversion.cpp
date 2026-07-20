@@ -5,6 +5,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/phi.h>
 
 #include "helpers.h"
@@ -22,14 +23,35 @@ static constexpr size_t kIfConversionInstructionCap = 16u;
 [[nodiscard]] static bool is_speculation_safe(Instruction *inst) noexcept {
     auto info = get_memory_info(inst);
     if (!info.is_pure()) return false;
-    switch (inst->derived_instruction_tag()) {
-        case DerivedInstructionTag::ARITHMETIC: [[fallthrough]];
-        case DerivedInstructionTag::CAST: [[fallthrough]];
-        case DerivedInstructionTag::GEP:
-            return true;
-        default:
+    if (inst->isa<CastInst>()) { return true; }
+    if (!inst->isa<ArithmeticInst>()) { return false; }
+    switch (static_cast<ArithmeticInst *>(inst)->op()) {
+        case ArithmeticOp::BINARY_DIV:
+        case ArithmeticOp::BINARY_MOD:
+        case ArithmeticOp::BINARY_SHIFT_LEFT:
+        case ArithmeticOp::BINARY_SHIFT_RIGHT:
             return false;
+        default: return true;
     }
+}
+
+[[nodiscard]] static bool can_rewrite_phis(BasicBlock *merge,
+                                           BasicBlock *t_block,
+                                           BasicBlock *f_block) noexcept {
+    for (auto *inst : merge->instructions()) {
+        if (!inst->isa<PhiInst>()) { continue; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        auto true_count = 0u;
+        auto false_count = 0u;
+        for (auto i = 0u; i < phi->incoming_count(); i++) {
+            auto incoming = phi->incoming(i);
+            if (incoming.value == nullptr || incoming.value->type() != phi->type()) { return false; }
+            true_count += incoming.block == t_block;
+            false_count += incoming.block == f_block;
+        }
+        if (true_count != 1u || false_count != 1u) { return false; }
+    }
+    return true;
 }
 
 [[nodiscard]] static size_t count_predecessors(BasicBlock *block) noexcept {
@@ -134,6 +156,8 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     if (t_merge != f_merge) return false;
     auto merge = t_merge;
     auto cond = cond_br->condition();
+    if (cond == nullptr || cond->type() == nullptr || !cond->type()->is_bool()) { return false; }
+    if (!can_rewrite_phis(merge, t_block, f_block)) { return false; }
     // Hoist non-terminator instructions from each side into b before the
     // current cond_br terminator.
     auto hoist = [&](BasicBlock *side) noexcept {
@@ -170,6 +194,13 @@ static void run_if_conversion_on_function(Function *function, IfConversionInfo &
     if (function == nullptr || !function->is_definition()) return;
     auto def = function->definition();
     if (def == nullptr || def->body_block() == nullptr) return;
+    if (contains_structured_control_flow(def)) {
+        ++info.structured_cfg_error_count;
+        LUISA_WARNING_WITH_LOCATION(
+            "If conversion rejected structured CFG; run destructure_cfg first. "
+            "IR was left unchanged.");
+        return;
+    }
     // A successful conversion deletes the two side blocks, so any snapshot of
     // the block list would dangle on the next pass. Re-traverse from the top
     // after each conversion until no eligible diamond remains.
@@ -200,6 +231,7 @@ IfConversionInfo if_conversion_pass_run_on_module(Module *module, PassReport *re
         report->set("converted_diamonds", info.converted_diamond_count);
         report->set("hoisted_insts", info.hoisted_inst_count);
         report->set("replaced_phis", info.replaced_phi_count);
+        report->set("structured_cfg_error_count", info.structured_cfg_error_count);
     }
     return info;
 }

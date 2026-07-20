@@ -1,8 +1,10 @@
 #include "ut/ut.hpp"
+#include <utility>
 #include <luisa/luisa-compute.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -19,13 +21,41 @@ namespace {
     return static_cast<FunctionDefinition *>(nullptr);
 }
 
-[[nodiscard]] auto roundtrip_text(compute::Function function) noexcept {
+struct RoundtripResult {
+    luisa::unique_ptr<Module> module;
+    luisa::string text;
+};
+
+[[nodiscard]] RoundtripResult roundtrip(compute::Function function) noexcept {
     auto module = ast_to_xir_translate(function, {});
+    expect(module != nullptr);
+    if (module == nullptr) { return {}; }
     xir_to_ast_normalize_module(module.get());
+    expect(xir_verify_module(module.get(), {.require_no_phi = true}).succeeded());
     auto *def = first_kernel_definition(module.get());
+    expect(def != nullptr);
+    if (def == nullptr) { return {}; }
     auto ast = xir_to_ast_translate(*def, {});
+    expect(ast != nullptr);
+    if (ast == nullptr) { return {}; }
     auto rebuilt = ast_to_xir_translate(ast->function(), {});
-    return xir_to_text_translate(rebuilt.get(), false);
+    expect(rebuilt != nullptr);
+    if (rebuilt == nullptr) { return {}; }
+    expect(xir_verify_module(
+               rebuilt.get(),
+               {.require_canonical_break_continue_targets = true})
+               .succeeded());
+    auto text = xir_to_text_translate(rebuilt.get(), false);
+    return {.module = std::move(rebuilt), .text = std::move(text)};
+}
+
+[[nodiscard]] size_t count_occurrences(luisa::string_view text, luisa::string_view needle) noexcept {
+    size_t count = 0u;
+    for (auto offset = text.find(needle); offset != luisa::string_view::npos;
+         offset = text.find(needle, offset + needle.size())) {
+        count++;
+    }
+    return count;
 }
 
 }// namespace
@@ -40,8 +70,10 @@ int main(int argc, char *argv[]) {
             auto idx = dispatch_id().x;
             buffer->write(idx, add_two(buffer->read(idx)));
         };
-        auto text = roundtrip_text(kernel.function()->function());
-        expect(text.find("call") != string::npos);
+        auto result = roundtrip(kernel.function()->function());
+        auto &text = result.text;
+        expect(count_occurrences(text, "arithmetic binary_add") >= 2u);
+        expect(text.find("resource_read buffer_read") != string::npos);
         expect(text.find("resource_write buffer_write") != string::npos);
     };
 
@@ -52,8 +84,8 @@ int main(int argc, char *argv[]) {
         Kernel1D kernel = [&write_one](BufferFloat buffer) noexcept {
             write_one(buffer, dispatch_id().x);
         };
-        auto text = roundtrip_text(kernel.function()->function());
-        expect(text.find("call") != string::npos);
+        auto result = roundtrip(kernel.function()->function());
+        auto &text = result.text;
         expect(text.find("resource_write buffer_write") != string::npos);
     };
 
@@ -69,9 +101,11 @@ int main(int argc, char *argv[]) {
             };
             buffer->write(idx, y);
         };
-        auto text = roundtrip_text(kernel.function()->function());
-        expect(text.find("if") != string::npos);
+        auto result = roundtrip(kernel.function()->function());
+        auto &text = result.text;
+        expect(text.find("arithmetic select") != string::npos);
         expect(text.find("arithmetic binary_mul") != string::npos);
+        expect(text.find("arithmetic unary_minus") != string::npos);
         expect(text.find("resource_write buffer_write") != string::npos);
     };
 
@@ -84,10 +118,72 @@ int main(int argc, char *argv[]) {
             };
             buffer->write(idx, sum);
         };
-        auto text = roundtrip_text(kernel.function()->function());
-        expect(text.find("loop") != string::npos);
-        expect(text.find("arithmetic binary_add") != string::npos);
+        auto result = roundtrip(kernel.function()->function());
+        auto &text = result.text;
+        expect(text.find("simple_loop") != string::npos);
+        expect(count_occurrences(text, "arithmetic binary_add") >= 2u);
         expect(text.find("resource_write buffer_write") != string::npos);
+    };
+
+    "xir_to_ast_roundtrip_nested_continue_runs_update"_test = [] {
+        Kernel1D kernel = [](BufferUInt buffer) noexcept {
+            UInt sum = 0u;
+            $for (i, 0u, 4u) {
+                $if (i == 1u) {
+                    $continue;
+                };
+                sum += i;
+            };
+            buffer->write(dispatch_id().x, sum);
+        };
+        auto result = roundtrip(kernel.function()->function());
+        expect(result.module != nullptr);
+        if (result.module == nullptr) { return; }
+        auto *kernel_definition = first_kernel_definition(result.module.get());
+        expect(kernel_definition != nullptr);
+        if (kernel_definition == nullptr) { return; }
+        auto equality_if_count = 0u;
+        auto skipped_body_action_is_guarded = false;
+        auto induction_update_is_common = false;
+        for (auto *block : kernel_definition->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                if (inst->isa<IfInst>()) {
+                    auto *if_inst = static_cast<IfInst *>(inst);
+                    auto *condition = if_inst->condition();
+                    if (condition->isa<ArithmeticInst>() && static_cast<ArithmeticInst *>(condition)->op() == ArithmeticOp::BINARY_EQUAL) {
+                        equality_if_count++;
+                        auto count_adds_and_stores = [](BasicBlock *branch) noexcept {
+                            auto add_count = 0u;
+                            auto store_count = 0u;
+                            if (branch != nullptr) {
+                                for (auto *branch_inst : branch->instructions()) {
+                                    add_count += branch_inst->isa<ArithmeticInst>() &&
+                                                 static_cast<ArithmeticInst *>(branch_inst)->op() ==
+                                                     ArithmeticOp::BINARY_ADD;
+                                    store_count += branch_inst->isa<StoreInst>();
+                                }
+                            }
+                            return std::pair{add_count, store_count};
+                        };
+                        auto [true_adds, true_stores] =
+                            count_adds_and_stores(if_inst->true_block());
+                        auto [false_adds, false_stores] =
+                            count_adds_and_stores(if_inst->false_block());
+                        auto [merge_adds, merge_stores] =
+                            count_adds_and_stores(if_inst->merge_block());
+                        skipped_body_action_is_guarded |=
+                            true_adds == 0u && true_stores >= 1u &&
+                            false_adds == 1u && false_stores >= 1u;
+                        induction_update_is_common |=
+                            merge_adds == 1u && merge_stores >= 1u;
+                    }
+                }
+            }
+        }
+        expect(equality_if_count == 1u);
+        expect(skipped_body_action_is_guarded);
+        expect(induction_update_is_common);
+        expect(result.text.find("resource_write buffer_write") != string::npos);
     };
 
     "xir_to_ast_roundtrip_path_tracing_kernel"_test = [] {
@@ -127,9 +223,10 @@ int main(int argc, char *argv[]) {
             auto color = radiance / cast<float>(frame_index + 1u);
             output.write(coord, make_float4(color, 1.0f));
         };
-        auto text = roundtrip_text(kernel.function()->function());
-        expect(text.find("call") != string::npos);
-        expect(text.find("loop") != string::npos);
+        auto result = roundtrip(kernel.function()->function());
+        auto &text = result.text;
+        expect(text.find("arithmetic sqrt") != string::npos);
+        expect(text.find("simple_loop") != string::npos);
         expect(text.find("resource_write texture2d_write") != string::npos);
     };
 
@@ -175,7 +272,8 @@ int main(int argc, char *argv[]) {
             };
             output.write(coord, make_float4(color, 1.0f));
         };
-        auto text = roundtrip_text(kernel.function()->function());
+        auto result = roundtrip(kernel.function()->function());
+        auto &text = result.text;
         expect(text.find("call") != string::npos);
         expect(text.find("loop") != string::npos);
         expect(text.find("if") != string::npos);
@@ -187,7 +285,8 @@ int main(int argc, char *argv[]) {
             auto idx = dispatch_id().x;
             output->write(idx, input->read(idx) + 1.0f);
         };
-        auto text = roundtrip_text(kernel.function()->function());
+        auto result = roundtrip(kernel.function()->function());
+        auto &text = result.text;
         expect(text.find("resource_read buffer_read") != string::npos);
         expect(text.find("resource_write buffer_write") != string::npos);
     };

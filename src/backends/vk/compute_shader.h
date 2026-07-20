@@ -1,5 +1,6 @@
 #pragma once
 #include "shader.h"
+#include "pipeline_ref.h"
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/vstl/md5.h>
 #include <luisa/vstl/functional.h>
@@ -16,12 +17,13 @@ namespace lc::vk {
 using namespace luisa;
 using namespace luisa::compute;
 class ComputeShader : public Shader {
-    VkPipelineCache _pipe_cache{};
-    VkPipeline _pipeline{};
+    PipelineRef *_pipeline_ref{};
     uint3 _block_size;
 public:
     static bool verify_type_md5(luisa::span<const luisa::compute::Type *const> arg_types, vstd::MD5 md5);
-    auto pipeline() const { return _pipeline; }
+    auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
+    auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
+    PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
     bool serialize_pso(vstd::vector<std::byte> &result) const override;
     auto block_size() const { return _block_size; }
     ComputeShader(

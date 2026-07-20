@@ -105,9 +105,15 @@ void test_rtx(Device &device) {
             color = triangle_interpolate(hit.bary, red, green, blue);
         };
         // Progressive accumulation: blend new sample with previous samples
-        Float3 old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        Float t = 1.0f / (cast<float>(frame_index) + 1.0f);
-        image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
+        UInt pixel_index = coord.y * dispatch_size_x() + coord.x;
+        $if (frame_index == 0u) {
+            image.write(pixel_index, make_float4(color, 1.0f));
+        }
+        $else {
+            Float3 old = image.read(pixel_index).xyz();
+            Float t = 1.0f / (cast<float>(frame_index) + 1.0f);
+            image.write(pixel_index, make_float4(lerp(old, color, t), 1.0f));
+        };
     };
 
     // Convert HDR image to LDR for display/output

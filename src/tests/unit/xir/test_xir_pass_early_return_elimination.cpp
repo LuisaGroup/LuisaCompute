@@ -4,9 +4,12 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/undefined.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 
 using namespace luisa;
@@ -195,6 +198,63 @@ void reg_early_return_elimination() {
         expect(info.removed_return_count == 1u);
         expect(count_terminator_kind(k1->definition(), DerivedInstructionTag::RETURN) == 1u);
         expect(count_terminator_kind(k2->definition(), DerivedInstructionTag::RETURN) == 1u);
+    };
+
+    "conditionalized_merge_chain_repairs_phi_predecessors"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *body = k->create_body_block();
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *outer = b.if_(cond);
+        auto *early = outer->create_true_block();
+        auto *fallthrough = outer->create_false_block();
+        auto *first_merge = outer->create_merge_block();
+        b.set_insertion_point(early);
+        b.return_void();
+        b.set_insertion_point(fallthrough);
+        b.br(first_merge);
+
+        b.set_insertion_point(first_merge);
+        auto *inner = b.if_(cond);
+        auto *inner_true = inner->create_true_block();
+        auto *inner_false = inner->create_false_block();
+        auto *final_merge = inner->create_merge_block();
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        b.set_insertion_point(inner_true);
+        auto *true_phi = b.phi(Type::of<int>());
+        true_phi->add_incoming(one, first_merge);
+        b.br(final_merge);
+        b.set_insertion_point(inner_false);
+        auto *false_phi = b.phi(Type::of<int>());
+        false_phi->add_incoming(zero, first_merge);
+        b.br(final_merge);
+        b.set_insertion_point(final_merge);
+        auto *merge_phi = b.phi(Type::of<int>());
+        merge_phi->add_incoming(true_phi, inner_true);
+        merge_phi->add_incoming(false_phi, inner_false);
+        b.return_void();
+
+        auto info = early_return_elimination_pass_run_on_function(k);
+        expect(info.removed_return_count == 1u);
+        auto *guard = static_cast<IfInst *>(first_merge->terminator());
+        auto *taken_wrapper = guard->true_block();
+        auto *skipped_wrapper = guard->false_block();
+        expect(taken_wrapper->terminator() == inner);
+        expect(true_phi->incoming(0u).block == taken_wrapper);
+        expect(false_phi->incoming(0u).block == taken_wrapper);
+        bool found_skip_incoming = false;
+        for (size_t i = 0u; i < merge_phi->incoming_count(); ++i) {
+            auto incoming = merge_phi->incoming(i);
+            if (incoming.block == skipped_wrapper) {
+                expect(incoming.value->isa<Undefined>());
+                found_skip_incoming = true;
+            }
+        }
+        expect(found_skip_incoming);
+        expect(merge_phi->incoming_count() == 3u);
     };
 }
 

@@ -13,12 +13,14 @@
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/IntrinsicsAMDGPU.h>
 #include <llvm/IR/InlineAsm.h>
+#include <llvm/ADT/DenseSet.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Target/TargetMachine.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/ast/type.h>
+#include <luisa/runtime/rhi/resource.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/ray_query.h>
@@ -47,6 +49,8 @@ public:
         static constexpr auto argument_alignment = 16u;
         llvm::StructType *llvm_type;
         std::vector<size_t> argument_indices;
+        size_t print_buffer_index{0};
+        bool has_print_buffer{false};
         size_t dispatch_size_and_kernel_id_index;
         size_t rt_global_stack_buffer_index{0};
         bool has_rt_global_stack_buffer{false};
@@ -60,6 +64,8 @@ public:
         llvm::BasicBlock *llvm_entry_block;
         llvm::Value *llvm_dispatch_size{nullptr};
         llvm::Value *llvm_kernel_id{nullptr};
+        llvm::Value *llvm_print_buffer_capacity{nullptr};
+        llvm::Value *llvm_print_buffer_content{nullptr};
         // RT global stack buffer fields (only set for RT-enabled kernels/callables)
         llvm::Value *llvm_rt_stack_size{nullptr};
         llvm::Value *llvm_rt_stack_count{nullptr};
@@ -84,16 +90,24 @@ public:
         bool uses_ray_tracing = false;
         bool uses_ray_query = false;
         bool uses_motion_blur = false;
+        bool uses_static_trace = false;
+        bool uses_motion_ray_query = false;
+    };
+
+    struct PrintInfo {
+        const Type *type;
+        uint32_t index;
     };
 
     static constexpr auto llvm_buffer_type_ptr_index = 0;
     static constexpr auto llvm_buffer_type_size_index = 1;
 
     static constexpr auto llvm_texture_type_handle_index = 0;
-    static constexpr auto llvm_texture_type_storage_index = 1;
+    static constexpr auto llvm_texture_type_descriptor_index = 1;
 
     static constexpr auto llvm_bindless_array_type_slots_index = 0;
     static constexpr auto llvm_bindless_array_type_size_index = 1;
+    static constexpr auto llvm_bindless_array_type_samplers_index = 2;
 
     static constexpr auto llvm_bindless_array_slot_type_buffer_ptr_index = 0;
     static constexpr auto llvm_bindless_array_slot_type_buffer_size_index = 1;
@@ -105,8 +119,6 @@ public:
     static constexpr auto llvm_bindless_array_slot_type_texture3d_size_xy_index = 7;
     static constexpr auto llvm_bindless_array_slot_type_texture3d_size_z_index = 8;
 
-    static constexpr auto llvm_texture_object_sampler_offset = 48u;
-
     static constexpr auto llvm_accel_type_handle_index = 0;
     static constexpr auto llvm_accel_type_instances_index = 1;
 
@@ -116,6 +128,7 @@ public:
     static constexpr auto llvm_accel_instance_type_mask_index = 3;
     static constexpr auto llvm_accel_instance_type_flags_index = 4;
     static constexpr auto llvm_accel_instance_type_handle_index = 5;
+    static constexpr auto llvm_accel_instance_type_motion_data_index = 6;
 
     static constexpr auto llvm_ray_type_origin_index = 0;
     static constexpr auto llvm_ray_type_t_min_index = 1;
@@ -136,7 +149,11 @@ public:
     static constexpr auto llvm_committed_hit_type_hit_kind_index = 3;
     static constexpr auto llvm_committed_hit_type_t_index = 4;
 
-    static constexpr auto llvm_ray_query_type_accel_index = 0;
+    // The first opaque word carries the private-address-space traversal-state
+    // pointer. Keeping the state with the query object is required when a
+    // lowered ray-query pipeline invokes outlined candidate handlers: those
+    // handlers otherwise have a different FunctionContext::llvm_rq_state.
+    static constexpr auto llvm_ray_query_type_state_index = 0;
     static constexpr auto llvm_ray_query_type_ray_index = 1;
     static constexpr auto llvm_ray_query_type_time_index = 2;
     static constexpr auto llvm_ray_query_type_mask_index = 3;
@@ -145,6 +162,7 @@ public:
     static constexpr auto llvm_ray_query_state_surface_terminated = 0;
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
+    static constexpr auto llvm_ray_query_state_custom_candidate = 3;
 
     static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa_ray_query_world_space_ray";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa_ray_query_procedural_candidate_hit";
@@ -159,6 +177,7 @@ public:
     static constexpr std::string_view llvm_ray_query_intrinsic_name_initialize = "luisa_ray_query_initialize";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_spawn = "luisa_ray_query_spawn";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_proceed = "luisa_ray_query_proceed";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_advance = "luisa_ray_query_advance";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_dispatch = "luisa_ray_query_dispatch";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_terminate = "luisa_ray_query_terminate";
 
@@ -189,10 +208,14 @@ private:
     std::unique_ptr<llvm::DataLayout> _data_layout;
     llvm::LLVMContext _llvm_context;
     std::unique_ptr<llvm::Module> _llvm_module;
+    bool _supports_hardware_rt_stack{false};
+    bool _uses_hardware_rt_stack{false};
+    bool _requires_global_rt_stack{false};
 
     RayTracingAnalysis _rt_analysis;
 
     llvm::Type *_llvm_buffer_type{nullptr};
+    llvm::Type *_llvm_print_buffer_type{nullptr};
     llvm::Type *_llvm_texture_type{nullptr};
     llvm::Type *_llvm_bindless_array_type{nullptr};
     llvm::Type *_llvm_bindless_array_slot_type{nullptr};
@@ -206,6 +229,9 @@ private:
     llvm::DenseMap<const Type *, luisa::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, luisa::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
+    luisa::unordered_map<const xir::PrintInst *, PrintInfo> _print_info;
+    luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
+    size_t _ray_query_pipeline_count{0u};
 
     template<typename T = llvm::Value>
         requires std::derived_from<T, llvm::Value>
@@ -242,15 +268,24 @@ private:
 
 private:
     void _initialize() noexcept;
+    void _analyze_ray_tracing_usage(const xir::Module &module) noexcept;
+    void _analyze_ray_tracing_in_function(
+        const xir::Function *function,
+        llvm::DenseSet<const xir::Function *> &visited) noexcept;
+    void _link_native_include() noexcept;
+    void _specialize_oclc_options() noexcept;
+    void _link_ockl_if_needed() noexcept;
     void _postprocess_rt_kernel() noexcept;
     void _run_optimization_passes() noexcept;
     void _dump_module(const std::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_code() const noexcept;
 
     [[nodiscard]] static size_t _get_type_alignment(const Type *type) noexcept;
+    void _collect_print_info(const xir::Module &xir_module) noexcept;
     [[nodiscard]] const LLVMTypeInfo *_get_llvm_type(const Type *type) noexcept;
     [[nodiscard]] const KernelArgumentStruct *_get_kernel_argument_struct(const xir::KernelFunction *func) noexcept;
     [[nodiscard]] llvm::Type *_get_llvm_buffer_type() noexcept;
+    [[nodiscard]] llvm::Type *_get_llvm_print_buffer_type() noexcept;
     [[nodiscard]] llvm::Type *_get_llvm_texture_type() noexcept;
     [[nodiscard]] llvm::Type *_get_llvm_bindless_array_type() noexcept;
     [[nodiscard]] llvm::Type *_get_llvm_bindless_array_slot_type() noexcept;
@@ -305,6 +340,10 @@ private:
     [[nodiscard]] llvm::Value *_static_cast_scalar_to_vector(IB &b, FunctionContext &func_ctx, llvm::Value *llvm_src, const Type *src_type, const Type *dst_type) noexcept;
     [[nodiscard]] llvm::Value *_static_cast_vector_to_vector(IB &b, FunctionContext &func_ctx, llvm::Value *llvm_src, const Type *src_type, const Type *dst_type) noexcept;
     [[nodiscard]] llvm::Value *_texel_cast(IB &b, llvm::Value *llvm_src, llvm::Type *dst_type) noexcept;
+    [[nodiscard]] llvm::Value *_unpack_r10g10b10a2(
+        IB &b, llvm::Value *packed, llvm::VectorType *dst_type) noexcept;
+    [[nodiscard]] llvm::Value *_pack_r10g10b10a2(
+        IB &b, llvm::Value *value) noexcept;
     [[nodiscard]] llvm::Value *_safe_fp_cast(IB &b, llvm::Value *llvm_src, llvm::Type *dst_type, const llvm::Twine &name = "") const noexcept;
 
     [[nodiscard]] static llvm::Value *_create_llvm_vector(IB &b, llvm::ArrayRef<llvm::Value *> elems) noexcept;
@@ -322,14 +361,14 @@ private:
     void _translate_return_inst(IB &b, const FunctionContext &func_ctx, const xir::ReturnInst *inst) noexcept;
 
     [[nodiscard]] llvm::PHINode *_translate_phi_inst(IB &b, FunctionContext &func_ctx, const xir::PhiInst *inst) noexcept;
-    void _finalize_pending_phi_nodes(const FunctionContext &func_ctx) noexcept;
+    void _finalize_pending_phi_nodes(const FunctionContext &func_ctx, const luisa::unordered_set<const xir::BasicBlock *> &translated_blocks) noexcept;
 
     [[nodiscard]] llvm::Value *_translate_alloca_inst(IB &b, FunctionContext &func_ctx, const xir::AllocaInst *inst) noexcept;
     [[nodiscard]] llvm::Value *_translate_load_inst(IB &b, const FunctionContext &func_ctx, const xir::LoadInst *inst) noexcept;
     void _translate_store_inst(IB &b, const FunctionContext &func_ctx, const xir::StoreInst *inst) noexcept;
     [[nodiscard]] llvm::Value *_translate_gep_inst(IB &b, FunctionContext &func_ctx, const xir::GEPInst *inst) noexcept;
-    [[nodiscard]] llvm::Value *_load_llvm_value(IB &b, llvm::Value *llvm_ptr, const Type *type) noexcept;
-    void _store_llvm_value(IB &b, llvm::Value *llvm_ptr, llvm::Value *llvm_value, const Type *type) noexcept;
+    [[nodiscard]] llvm::Value *_load_llvm_value(IB &b, llvm::Value *llvm_ptr, const Type *type, bool is_volatile = false) noexcept;
+    void _store_llvm_value(IB &b, llvm::Value *llvm_ptr, llvm::Value *llvm_value, const Type *type, bool is_volatile = false) noexcept;
     [[nodiscard]] static llvm::Value *_create_temp_in_alloca_block(const FunctionContext &func_ctx, llvm::Type *t, size_t align = 0) noexcept;
 
     [[nodiscard]] llvm::Value *_translate_atomic_inst(IB &b, FunctionContext &func_ctx, const xir::AtomicInst *inst) noexcept;
@@ -353,22 +392,47 @@ private:
     [[nodiscard]] llvm::Value *_translate_resource_read_inst(IB &b, const FunctionContext &func_ctx, const xir::ResourceReadInst *inst) noexcept;
     void _translate_resource_write_inst(IB &b, FunctionContext &func_ctx, const xir::ResourceWriteInst *inst) noexcept;
     [[nodiscard]] llvm::Value *_get_buffer_element_pointer(IB &b, llvm::Value *buffer, llvm::Value *index, size_t index_stride, size_t element_size) noexcept;
+    [[nodiscard]] llvm::Value *_get_direct_texture_descriptor_pointer(IB &b, llvm::Value *texture) noexcept;
+    [[nodiscard]] llvm::Value *_get_direct_texture_base_level(IB &b, llvm::Value *texture) noexcept;
+    [[nodiscard]] llvm::Value *_get_direct_texture_storage(IB &b, llvm::Value *texture) noexcept;
+    [[nodiscard]] llvm::Value *_sample_packed_r10g10b10a2(
+        IB &b, llvm::Value *resource, llvm::Value *coord,
+        llvm::ArrayRef<llvm::Value *> sizes, llvm::Value *filter,
+        llvm::Value *address) noexcept;
+    [[nodiscard]] llvm::Value *_sample_texture_level(
+        IB &b, bool is_2d, llvm::Value *resource, llvm::Value *sampler,
+        llvm::Value *coord, llvm::ArrayRef<llvm::Value *> sizes,
+        llvm::Value *filter, llvm::Value *address,
+        llvm::Value *is_packed_r10g10b10a2) noexcept;
     [[nodiscard]] llvm::Value *_get_bindless_array_slot_pointer(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index) noexcept;
+    [[nodiscard]] llvm::Value *_get_bindless_array_texture_storage(
+        IB &b, llvm::Value *bindless_array,
+        llvm::Value *slot_index, int dim) noexcept;
     [[nodiscard]] llvm::Value *_get_bindless_array_texture_handle(IB &b, llvm::Value *bindless_array,
-                                                                   llvm::Value *slot_index, int dim,
-                                                                   llvm::Value *level = nullptr) noexcept;
+                                                                  llvm::Value *slot_index, int dim,
+                                                                  llvm::Value *level = nullptr) noexcept;
     [[nodiscard]] llvm::Value *_get_accel_instance_pointer(IB &b, llvm::Value *accel, llvm::Value *instance_index) noexcept;
+    [[nodiscard]] llvm::Value *_get_accel_instance_motion_frame(
+        IB &b, llvm::Value *accel, llvm::Value *instance_index,
+        llvm::Value *key_index, AccelMotionMode expected_mode) noexcept;
     [[nodiscard]] llvm::Value *_load_accel_affine_matrix(IB &b, llvm::Value *affine_ptr) noexcept;
     static void _store_accel_affine_matrix(IB &b, llvm::Value *affine_ptr, llvm::Value *matrix) noexcept;
     void _set_accel_instance_opacity(IB &b, llvm::Value *accel, llvm::Value *instance_index, llvm::Value *is_opaque) noexcept;
-    [[nodiscard]] llvm::Value *_accel_trace_closest(IB &b, const FunctionContext &func_ctx, llvm::Value *accel, llvm::Value *ray, llvm::Value *mask) noexcept;
-    [[nodiscard]] llvm::Value *_accel_trace_any(IB &b, const FunctionContext &func_ctx, llvm::Value *accel, llvm::Value *ray, llvm::Value *mask) noexcept;
+    [[nodiscard]] llvm::Value *_accel_trace_closest(
+        IB &b, const FunctionContext &func_ctx, llvm::Value *accel,
+        llvm::Value *ray, llvm::Value *time, llvm::Value *mask) noexcept;
+    [[nodiscard]] llvm::Value *_accel_trace_any(
+        IB &b, const FunctionContext &func_ctx, llvm::Value *accel,
+        llvm::Value *ray, llvm::Value *time, llvm::Value *mask) noexcept;
 
     void _translate_ray_query_loop_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryLoopInst *inst) noexcept;
     void _translate_ray_query_dispatch_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryDispatchInst *inst) noexcept;
     [[nodiscard]] llvm::Value *_translate_ray_query_object_read_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectReadInst *inst) noexcept;
     void _translate_ray_query_object_write_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectWriteInst *inst) noexcept;
     void _translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept;
+    [[nodiscard]] llvm::Value *_get_ray_query_state_pointer(IB &b, const FunctionContext &func_ctx, const xir::Value *query_object) noexcept;
+    [[nodiscard]] llvm::Value *_advance_ray_query(IB &b, llvm::Value *llvm_state_ptr) noexcept;
+    [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::Value *llvm_state_ptr, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, FunctionContext &func_ctx, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     [[nodiscard]] static llvm::Value *_create_opaque_float_barrier(IB &b, llvm::Value *val, const llvm::Twine &name) noexcept;
 
@@ -387,6 +451,11 @@ private:
 public:
     explicit HIPCodegenLLVMImpl(HIPCodegenLLVMConfig config) noexcept;
     [[nodiscard]] luisa::string generate(const xir::Module &xir_module) noexcept;
+    [[nodiscard]] bool requires_global_rt_stack() const noexcept {
+        return _requires_global_rt_stack;
+    }
+    [[nodiscard]] luisa::vector<std::pair<luisa::string, luisa::string>>
+    take_print_formats() && noexcept;
 };
 
 }// namespace luisa::compute::hip

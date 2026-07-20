@@ -39,6 +39,7 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/verifier.h>
 
 #include "cuda_codegen_xir.h"
 
@@ -86,11 +87,22 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     return false;
 }();
 
+void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
+                         const xir::XIRVerificationOptions &options = {}) noexcept {
+    auto verification = xir::xir_verify_module(module, options);
+    if (!verification.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid XIR at CUDA {}: {} ({} error(s) total).",
+            stage, verification.errors.front().message, verification.errors.size());
+    }
+}
+
 [[nodiscard]] auto luisa_cuda_backend_translate_ast_to_xir(Function kernel, const ShaderOption &option, bool lower_rq = true) noexcept {
     Clock translate_clk;
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
     if (!option.name.empty()) { xir_module->set_location(option.name); }
+    verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
     // dump for debugging
@@ -136,6 +148,7 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
     auto pre_cfg_stats = pipeline.run(xir_module.get());
+    verify_xir_or_error(xir_module.get(), "pre-CFG optimization");
     pre_cfg_stats.log("CUDA backend pre-CFG optimization");
     if (LUISA_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
@@ -146,6 +159,11 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     if (lower_rq) {
         cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+            if (!i.succeeded()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "CUDA XIR ray-query lowering rejected {} loop(s).",
+                    i.error_count);
+            }
             return i.lowered_loop_count > 0u;
         });
         cfg.add("reg2mem", [](xir::Module *m, xir::PassReport &r) {
@@ -156,6 +174,11 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     if (LUISA_XIR_NORMALIZE_CFG) {
         cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
+            if (!i.succeeded()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "CUDA XIR destructuring failed (errors={}, leaked_blocks={}).",
+                    i.error_count, i.leaked_block_count);
+            }
             return i.destructured_if_count > 0u ||
                    i.destructured_loop_count > 0u ||
                    i.destructured_simple_loop_count > 0u;
@@ -169,11 +192,19 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
         if (LUISA_XIR_RESTRUCTURE_CFG) {
             cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+                if (!i.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "CUDA XIR restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+                        i.irreducible_region_count, i.unstructured_branch_count,
+                        i.invalid_construct_count, i.iteration_limit_count);
+                }
                 return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
             });
         }
     }
     auto cfg_stats = cfg.run(xir_module.get());
+    verify_xir_or_error(xir_module.get(), "codegen handoff",
+                        {.require_no_phi = lower_rq});
     cfg_stats.log("CUDA backend CFG normalization");
 
     // dump for debugging

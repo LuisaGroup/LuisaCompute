@@ -89,6 +89,65 @@ static constexpr auto max_ad_loop_unroll_count = 64u;
                                type->is_int64() || type->is_uint64());
 }
 
+struct IntegerTypeInfo {
+    bool is_signed;
+    uint64_t mask;
+    uint64_t sign_bit;
+};
+
+[[nodiscard]] auto integer_type_info(const Type *type) noexcept -> luisa::optional<IntegerTypeInfo> {
+    uint32_t bit_width = 0u;
+    auto is_signed = false;
+    switch (type->tag()) {
+        case Type::Tag::INT8:
+            bit_width = 8u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT8: bit_width = 8u; break;
+        case Type::Tag::INT16:
+            bit_width = 16u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT16: bit_width = 16u; break;
+        case Type::Tag::INT32:
+            bit_width = 32u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT32: bit_width = 32u; break;
+        case Type::Tag::INT64:
+            bit_width = 64u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT64: bit_width = 64u; break;
+        default: return luisa::nullopt;
+    }
+    auto mask = bit_width == 64u ? std::numeric_limits<uint64_t>::max() : (uint64_t{1u} << bit_width) - 1u;
+    return IntegerTypeInfo{
+        .is_signed = is_signed,
+        .mask = mask,
+        .sign_bit = uint64_t{1u} << (bit_width - 1u),
+    };
+}
+
+[[nodiscard]] auto constant_integer_bits(Value *value, const IntegerTypeInfo &info) noexcept
+    -> luisa::optional<uint64_t> {
+    if (value == nullptr || !value->isa<Constant>()) { return luisa::nullopt; }
+    auto *constant = static_cast<Constant *>(value);
+    uint64_t bits = 0u;
+    switch (constant->type()->tag()) {
+        case Type::Tag::INT8: bits = static_cast<uint64_t>(constant->as<int8_t>()); break;
+        case Type::Tag::UINT8: bits = constant->as<uint8_t>(); break;
+        case Type::Tag::INT16: bits = static_cast<uint64_t>(constant->as<int16_t>()); break;
+        case Type::Tag::UINT16: bits = constant->as<uint16_t>(); break;
+        case Type::Tag::INT32: bits = static_cast<uint64_t>(constant->as<int32_t>()); break;
+        case Type::Tag::UINT32: bits = constant->as<uint32_t>(); break;
+        case Type::Tag::INT64: bits = static_cast<uint64_t>(constant->as<int64_t>()); break;
+        case Type::Tag::UINT64: bits = constant->as<uint64_t>(); break;
+        default: return luisa::nullopt;
+    }
+    return bits & info.mask;
+}
+
 [[nodiscard]] auto find_store_before(BasicBlock *block, Instruction *before, Value *variable) noexcept -> StoreInst * {
     StoreInst *store = nullptr;
     if (block == nullptr || before == nullptr || variable == nullptr) { return nullptr; }
@@ -101,22 +160,26 @@ static constexpr auto max_ad_loop_unroll_count = 64u;
     return store;
 }
 
-[[nodiscard]] auto constant_i64_before(Value *value, BasicBlock *block, Instruction *before,
-                                       luisa::unordered_set<Value *> &visiting) noexcept -> luisa::optional<int64_t> {
-    if (auto c = constant_i64(value)) { return c; }
-    auto load = value != nullptr && value->isa<LoadInst>() ? static_cast<LoadInst *>(value) : nullptr;
+[[nodiscard]] auto constant_integer_bits_before(Value *value, BasicBlock *block, Instruction *before,
+                                                const IntegerTypeInfo &info,
+                                                luisa::unordered_set<Value *> &visiting) noexcept
+    -> luisa::optional<uint64_t> {
+    if (auto constant = constant_integer_bits(value, info)) { return constant; }
+    auto *load = value != nullptr && value->isa<LoadInst>() ? static_cast<LoadInst *>(value) : nullptr;
     if (load == nullptr || !is_integer_lvalue(load->variable())) { return luisa::nullopt; }
     if (!visiting.emplace(load->variable()).second) { return luisa::nullopt; }
-    auto store = find_store_before(block, before, load->variable());
-    auto result = store == nullptr ? luisa::optional<int64_t>{} :
-                                     constant_i64_before(store->value(), block, before, visiting);
+    auto *store = find_store_before(block, before, load->variable());
+    auto result = store == nullptr ? luisa::optional<uint64_t>{} :
+                                     constant_integer_bits_before(store->value(), block, before, info, visiting);
     visiting.erase(load->variable());
     return result;
 }
 
-[[nodiscard]] auto constant_i64_before(Value *value, BasicBlock *block, Instruction *before) noexcept -> luisa::optional<int64_t> {
+[[nodiscard]] auto constant_integer_bits_before(Value *value, BasicBlock *block, Instruction *before,
+                                                const IntegerTypeInfo &info) noexcept
+    -> luisa::optional<uint64_t> {
     luisa::unordered_set<Value *> visiting;
-    return constant_i64_before(value, block, before, visiting);
+    return constant_integer_bits_before(value, block, before, info, visiting);
 }
 
 void reject_loop_autodiff() noexcept {
@@ -201,9 +264,7 @@ void traverse_loop_region_successors(BasicBlock *block, const luisa::unordered_s
 
 struct LoopTripCount {
     Value *variable{};
-    int64_t start{};
-    int64_t step{};
-    int64_t trip_count{};
+    size_t trip_count{};
 };
 
 struct LoopCondition {
@@ -226,14 +287,18 @@ struct LoopCondition {
     if (!value->isa<ArithmeticInst>()) { return luisa::nullopt; }
     auto inst = static_cast<ArithmeticInst *>(value);
     if (inst->operand_count() != 2u) { return luisa::nullopt; }
-    auto lhs = constant_i64_before(inst->operand(0), block, before);
-    auto rhs = constant_i64_before(inst->operand(1), block, before);
+    auto info = integer_type_info(inst->operand(0)->type());
+    if (!info) { return luisa::nullopt; }
+    auto lhs = constant_integer_bits_before(inst->operand(0), block, before, *info);
+    auto rhs = constant_integer_bits_before(inst->operand(1), block, before, *info);
     if (!lhs || !rhs) { return luisa::nullopt; }
+    auto lhs_ordered = info->is_signed ? *lhs ^ info->sign_bit : *lhs;
+    auto rhs_ordered = info->is_signed ? *rhs ^ info->sign_bit : *rhs;
     switch (inst->op()) {
-        case ArithmeticOp::BINARY_LESS: return *lhs < *rhs;
-        case ArithmeticOp::BINARY_LESS_EQUAL: return *lhs <= *rhs;
-        case ArithmeticOp::BINARY_GREATER: return *lhs > *rhs;
-        case ArithmeticOp::BINARY_GREATER_EQUAL: return *lhs >= *rhs;
+        case ArithmeticOp::BINARY_LESS: return lhs_ordered < rhs_ordered;
+        case ArithmeticOp::BINARY_LESS_EQUAL: return lhs_ordered <= rhs_ordered;
+        case ArithmeticOp::BINARY_GREATER: return lhs_ordered > rhs_ordered;
+        case ArithmeticOp::BINARY_GREATER_EQUAL: return lhs_ordered >= rhs_ordered;
         case ArithmeticOp::BINARY_EQUAL: return *lhs == *rhs;
         case ArithmeticOp::BINARY_NOT_EQUAL: return *lhs != *rhs;
         default: return luisa::nullopt;
@@ -275,10 +340,13 @@ struct LoopCondition {
     auto cmp = loop_cond->compare;
     auto op = cmp->op();
     auto load = cmp->operand(0)->isa<LoadInst>() ? static_cast<LoadInst *>(cmp->operand(0)) : nullptr;
-    auto bound = constant_i64_before(cmp->operand(1), preheader, loop);
-    if (load == nullptr || !bound) { return luisa::nullopt; }
+    if (load == nullptr) { return luisa::nullopt; }
     auto variable = load->variable();
     if (!is_integer_lvalue(variable)) { return luisa::nullopt; }
+    auto integer_info = integer_type_info(variable->type());
+    if (!integer_info) { return luisa::nullopt; }
+    auto bound = constant_integer_bits_before(cmp->operand(1), preheader, loop, *integer_info);
+    if (!bound) { return luisa::nullopt; }
     auto update_br = update->terminator();
     if (update_br == nullptr || !update_br->isa<BranchInst>() ||
         static_cast<BranchInst *>(update_br)->target_block() != prepare) {
@@ -286,7 +354,7 @@ struct LoopCondition {
     }
     auto init_store = find_store_before(preheader, loop, variable);
     if (init_store == nullptr) { return luisa::nullopt; }
-    auto start = constant_i64_before(init_store->value(), preheader, loop);
+    auto start = constant_integer_bits_before(init_store->value(), preheader, loop, *integer_info);
     if (!start) { return luisa::nullopt; }
     StoreInst *update_store = nullptr;
     for (auto inst : update->instructions()) {
@@ -305,32 +373,30 @@ struct LoopCondition {
     auto add = static_cast<ArithmeticInst *>(step_value);
     if (add->op() != ArithmeticOp::BINARY_ADD || add->operand_count() != 2u) { return luisa::nullopt; }
     auto update_load = add->operand(0)->isa<LoadInst>() ? static_cast<LoadInst *>(add->operand(0)) : nullptr;
-    auto step = constant_i64_before(add->operand(1), preheader, loop);
+    auto step = constant_integer_bits_before(add->operand(1), preheader, loop, *integer_info);
     if (update_load == nullptr || update_load->variable() != variable || !step) { return luisa::nullopt; }
-    if (*step == 0) { return luisa::nullopt; }
-    auto compare = [&](int64_t v) noexcept {
+    if (*step == 0u) { return luisa::nullopt; }
+    auto compare = [&](uint64_t v) noexcept {
+        auto lhs_ordered = integer_info->is_signed ? v ^ integer_info->sign_bit : v;
+        auto rhs_ordered = integer_info->is_signed ? *bound ^ integer_info->sign_bit : *bound;
         auto result = false;
         switch (op) {
-            case ArithmeticOp::BINARY_LESS: result = v < *bound; break;
-            case ArithmeticOp::BINARY_LESS_EQUAL: result = v <= *bound; break;
-            case ArithmeticOp::BINARY_GREATER: result = v > *bound; break;
-            case ArithmeticOp::BINARY_GREATER_EQUAL: result = v >= *bound; break;
+            case ArithmeticOp::BINARY_LESS: result = lhs_ordered < rhs_ordered; break;
+            case ArithmeticOp::BINARY_LESS_EQUAL: result = lhs_ordered <= rhs_ordered; break;
+            case ArithmeticOp::BINARY_GREATER: result = lhs_ordered > rhs_ordered; break;
+            case ArithmeticOp::BINARY_GREATER_EQUAL: result = lhs_ordered >= rhs_ordered; break;
             default: break;
         }
         return loop_cond->inverted ? !result : result;
     };
     auto v = *start;
-    int64_t trips = 0;
+    size_t trips = 0u;
     while (compare(v)) {
         trips++;
         if (trips > max_ad_loop_unroll_count) { return luisa::nullopt; }
-        if ((*step > 0 && v > std::numeric_limits<int64_t>::max() - *step) ||
-            (*step < 0 && v < std::numeric_limits<int64_t>::min() - *step)) {
-            return luisa::nullopt;
-        }
-        v += *step;
+        v = (v + *step) & integer_info->mask;
     }
-    return LoopTripCount{.variable = variable, .start = *start, .step = *step, .trip_count = trips};
+    return LoopTripCount{.variable = variable, .trip_count = trips};
 }
 
 struct CloneRemap final : public InstructionCloneValueResolver {
@@ -805,7 +871,7 @@ struct TransformAdScope {
     void collect_first_level_loops(BasicBlock *block, BasicBlock *merge,
                                    luisa::unordered_set<BasicBlock *> &visited,
                                    luisa::vector<LoopInst *> &loops) noexcept {
-        if (block == merge || !visited.emplace(block).second) { return; }
+        if (block == nullptr || block == merge || !visited.emplace(block).second) { return; }
         auto term = block->terminator();
         if (term == nullptr) { return; }
         if (auto loop = term->isa<LoopInst>() ? static_cast<LoopInst *>(term) : nullptr) {
@@ -814,17 +880,27 @@ struct TransformAdScope {
         }
         if (term->isa<SimpleLoopInst>()) { reject_loop_autodiff(); }
         if (auto if_inst = term->isa<IfInst>() ? static_cast<IfInst *>(term) : nullptr) {
-            collect_first_level_loops(if_inst->true_block(), if_inst->merge_block(), visited, loops);
-            collect_first_level_loops(if_inst->false_block(), if_inst->merge_block(), visited, loops);
-            collect_first_level_loops(if_inst->merge_block(), merge, visited, loops);
+            auto *structured_merge = if_inst->merge_block();
+            // Match collect_forward: a null local merge means both arms are
+            // bounded by the enclosing structured region.
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            collect_first_level_loops(if_inst->true_block(), branch_merge, visited, loops);
+            collect_first_level_loops(if_inst->false_block(), branch_merge, visited, loops);
+            if (structured_merge != nullptr) {
+                collect_first_level_loops(structured_merge, merge, visited, loops);
+            }
             return;
         }
         if (auto switch_inst = term->isa<SwitchInst>() ? static_cast<SwitchInst *>(term) : nullptr) {
-            collect_first_level_loops(switch_inst->default_block(), switch_inst->merge_block(), visited, loops);
+            auto *structured_merge = switch_inst->merge_block();
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            collect_first_level_loops(switch_inst->default_block(), branch_merge, visited, loops);
             for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                collect_first_level_loops(switch_inst->case_block(i), switch_inst->merge_block(), visited, loops);
+                collect_first_level_loops(switch_inst->case_block(i), branch_merge, visited, loops);
             }
-            collect_first_level_loops(switch_inst->merge_block(), merge, visited, loops);
+            if (structured_merge != nullptr) {
+                collect_first_level_loops(structured_merge, merge, visited, loops);
+            }
             return;
         }
         block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
@@ -1278,7 +1354,7 @@ struct TransformAdScope {
     }
 
     void lower_epilogue_gradients(BasicBlock *block, BasicBlock *merge, luisa::unordered_set<BasicBlock *> &visited) noexcept {
-        if (block == merge || !visited.emplace(block).second) { return; }
+        if (block == nullptr || block == merge || !visited.emplace(block).second) { return; }
         luisa::vector<AutodiffIntrinsicInst *> gradients;
         for (auto inst : block->instructions()) {
             if (inst->isa<AutodiffIntrinsicInst>()) {
@@ -1291,15 +1367,23 @@ struct TransformAdScope {
                 }
             }
             if (auto if_inst = inst->isa<IfInst>() ? static_cast<IfInst *>(inst) : nullptr) {
-                lower_epilogue_gradients(if_inst->true_block(), if_inst->merge_block(), visited);
-                lower_epilogue_gradients(if_inst->false_block(), if_inst->merge_block(), visited);
-                lower_epilogue_gradients(if_inst->merge_block(), merge, visited);
-            } else if (auto switch_inst = inst->isa<SwitchInst>() ? static_cast<SwitchInst *>(inst) : nullptr) {
-                lower_epilogue_gradients(switch_inst->default_block(), switch_inst->merge_block(), visited);
-                for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                    lower_epilogue_gradients(switch_inst->case_block(i), switch_inst->merge_block(), visited);
+                auto *structured_merge = if_inst->merge_block();
+                auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+                lower_epilogue_gradients(if_inst->true_block(), branch_merge, visited);
+                lower_epilogue_gradients(if_inst->false_block(), branch_merge, visited);
+                if (structured_merge != nullptr) {
+                    lower_epilogue_gradients(structured_merge, merge, visited);
                 }
-                lower_epilogue_gradients(switch_inst->merge_block(), merge, visited);
+            } else if (auto switch_inst = inst->isa<SwitchInst>() ? static_cast<SwitchInst *>(inst) : nullptr) {
+                auto *structured_merge = switch_inst->merge_block();
+                auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+                lower_epilogue_gradients(switch_inst->default_block(), branch_merge, visited);
+                for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                    lower_epilogue_gradients(switch_inst->case_block(i), branch_merge, visited);
+                }
+                if (structured_merge != nullptr) {
+                    lower_epilogue_gradients(structured_merge, merge, visited);
+                }
             } else if (inst->isa<LoopInst>() || inst->isa<SimpleLoopInst>()) {
                 reject_loop_autodiff();
             }
@@ -1379,16 +1463,16 @@ struct TransformAdScope {
         };
         switch (inst->op()) {
             case ArithmeticOp::BINARY_ADD:
-                accum(arg(0), out_grad);
-                accum(arg(1), out_grad);
+                accum_component(arg(0), out_grad);
+                accum_component(arg(1), out_grad);
                 break;
             case ArithmeticOp::MATRIX_COMP_ADD:
                 accum_component(arg(0), out_grad);
                 accum_component(arg(1), out_grad);
                 break;
             case ArithmeticOp::BINARY_SUB:
-                accum(arg(0), out_grad);
-                accum(arg(1), neg(b, arg(1)->type(), out_grad));
+                accum_component(arg(0), out_grad);
+                accum_component(arg(1), neg(b, type, out_grad));
                 break;
             case ArithmeticOp::MATRIX_COMP_SUB:
                 accum_component(arg(0), out_grad);
@@ -1399,8 +1483,8 @@ struct TransformAdScope {
                 accum(arg(0), neg(b, arg(0)->type(), out_grad));
                 break;
             case ArithmeticOp::BINARY_MUL:
-                accum(arg(0), mul(b, arg(0)->type(), out_grad, arg(1)));
-                accum(arg(1), mul(b, arg(1)->type(), out_grad, arg(0)));
+                accum_component(arg(0), mul(b, type, out_grad, lift_value_to_type(b, type, arg(1))));
+                accum_component(arg(1), mul(b, type, out_grad, lift_value_to_type(b, type, arg(0))));
                 break;
             case ArithmeticOp::MATRIX_COMP_MUL:
                 accum_component(arg(0), mul(b, type, out_grad, lift_value_to_type(b, type, arg(1))));
@@ -1424,13 +1508,14 @@ struct TransformAdScope {
                 break;
             }
             case ArithmeticOp::BINARY_DIV: {
-                auto lhs_grad = div(b, arg(0)->type(), out_grad, arg(1));
-                auto neg_lhs = neg(b, arg(0)->type(), arg(0));
-                auto sqr_rhs = mul(b, arg(1)->type(), arg(1), arg(1));
-                auto rhs_factor = div(b, arg(1)->type(), neg_lhs, sqr_rhs);
-                auto rhs_grad = mul(b, arg(1)->type(), out_grad, rhs_factor);
-                accum(arg(0), lhs_grad);
-                accum(arg(1), rhs_grad);
+                auto lhs = lift_value_to_type(b, type, arg(0));
+                auto rhs = lift_value_to_type(b, type, arg(1));
+                auto lhs_grad = div(b, type, out_grad, rhs);
+                auto sqr_rhs = mul(b, type, rhs, rhs);
+                auto rhs_factor = div(b, type, neg(b, type, lhs), sqr_rhs);
+                auto rhs_grad = mul(b, type, out_grad, rhs_factor);
+                accum_component(arg(0), lhs_grad);
+                accum_component(arg(1), rhs_grad);
                 break;
             }
             case ArithmeticOp::MATRIX_COMP_DIV: {
@@ -1445,10 +1530,12 @@ struct TransformAdScope {
                 break;
             }
             case ArithmeticOp::BINARY_MOD: {
-                auto quotient = div(b, type, arg(0), arg(1));
+                auto lhs = lift_value_to_type(b, type, arg(0));
+                auto rhs = lift_value_to_type(b, type, arg(1));
+                auto quotient = div(b, type, lhs, rhs);
                 auto truncated = b.call(type, ArithmeticOp::TRUNC, {quotient});
-                accum(arg(0), out_grad);
-                accum(arg(1), neg(b, type, mul(b, type, out_grad, truncated)));
+                accum_component(arg(0), out_grad);
+                accum_component(arg(1), neg(b, type, mul(b, type, out_grad, truncated)));
                 break;
             }
             case ArithmeticOp::SELECT: {
@@ -2296,13 +2383,13 @@ struct TransformForwardAdScope {
             Value *grad = nullptr;
             switch (inst->op()) {
                 case ArithmeticOp::BINARY_ADD:
-                    grad = add(b, type, g(arg(0), i), g(arg(1), i));
+                    grad = add(b, type, component_g(arg(0), i), component_g(arg(1), i));
                     break;
                 case ArithmeticOp::MATRIX_COMP_ADD:
                     grad = add(b, type, component_g(arg(0), i), component_g(arg(1), i));
                     break;
                 case ArithmeticOp::BINARY_SUB:
-                    grad = sub(b, type, g(arg(0), i), g(arg(1), i));
+                    grad = sub(b, type, component_g(arg(0), i), component_g(arg(1), i));
                     break;
                 case ArithmeticOp::MATRIX_COMP_SUB:
                     grad = sub(b, type, component_g(arg(0), i), component_g(arg(1), i));
@@ -2312,8 +2399,8 @@ struct TransformForwardAdScope {
                     grad = neg(b, type, g(arg(0), i));
                     break;
                 case ArithmeticOp::BINARY_MUL: {
-                    auto lhs = mul(b, type, g(arg(0), i), arg(1));
-                    auto rhs = mul(b, type, g(arg(1), i), arg(0));
+                    auto lhs = mul(b, type, component_g(arg(0), i), component_v(arg(1)));
+                    auto rhs = mul(b, type, component_g(arg(1), i), component_v(arg(0)));
                     grad = add(b, type, lhs, rhs);
                     break;
                 }
@@ -2324,10 +2411,12 @@ struct TransformForwardAdScope {
                     break;
                 }
                 case ArithmeticOp::BINARY_DIV: {
-                    auto lhs = mul(b, type, g(arg(0), i), arg(1));
-                    auto rhs = mul(b, type, g(arg(1), i), arg(0));
+                    auto lhs_value = component_v(arg(0));
+                    auto rhs_value = component_v(arg(1));
+                    auto lhs = mul(b, type, component_g(arg(0), i), rhs_value);
+                    auto rhs = mul(b, type, component_g(arg(1), i), lhs_value);
                     auto numer = sub(b, type, lhs, rhs);
-                    auto denom = mul(b, type, arg(1), arg(1));
+                    auto denom = mul(b, type, rhs_value, rhs_value);
                     grad = div(b, type, numer, denom);
                     break;
                 }
@@ -2342,9 +2431,9 @@ struct TransformForwardAdScope {
                     break;
                 }
                 case ArithmeticOp::BINARY_MOD: {
-                    auto quotient = div(b, type, arg(0), arg(1));
+                    auto quotient = div(b, type, component_v(arg(0)), component_v(arg(1)));
                     auto truncated = b.call(type, ArithmeticOp::TRUNC, {quotient});
-                    grad = sub(b, type, g(arg(0), i), mul(b, type, truncated, g(arg(1), i)));
+                    grad = sub(b, type, component_g(arg(0), i), mul(b, type, truncated, component_g(arg(1), i)));
                     break;
                 }
                 case ArithmeticOp::SELECT:
@@ -2740,17 +2829,25 @@ struct TransformForwardAdScope {
         auto term = block->terminator();
         if (term == nullptr) { return; }
         if (auto if_inst = term->isa<IfInst>() ? static_cast<IfInst *>(term) : nullptr) {
-            transform_region(if_inst->true_block(), if_inst->merge_block(), visited);
-            transform_region(if_inst->false_block(), if_inst->merge_block(), visited);
-            transform_region(if_inst->merge_block(), merge, visited);
+            auto *structured_merge = if_inst->merge_block();
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            transform_region(if_inst->true_block(), branch_merge, visited);
+            transform_region(if_inst->false_block(), branch_merge, visited);
+            if (structured_merge != nullptr) {
+                transform_region(structured_merge, merge, visited);
+            }
             return;
         }
         if (auto switch_inst = term->isa<SwitchInst>() ? static_cast<SwitchInst *>(term) : nullptr) {
-            transform_region(switch_inst->default_block(), switch_inst->merge_block(), visited);
+            auto *structured_merge = switch_inst->merge_block();
+            auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
+            transform_region(switch_inst->default_block(), branch_merge, visited);
             for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                transform_region(switch_inst->case_block(i), switch_inst->merge_block(), visited);
+                transform_region(switch_inst->case_block(i), branch_merge, visited);
             }
-            transform_region(switch_inst->merge_block(), merge, visited);
+            if (structured_merge != nullptr) {
+                transform_region(structured_merge, merge, visited);
+            }
             return;
         }
         if (auto loop = term->isa<LoopInst>() ? static_cast<LoopInst *>(term) : nullptr) {

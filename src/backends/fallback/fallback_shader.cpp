@@ -36,6 +36,7 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/verifier.h>
 
 #include "../common/shader_print_formatter.h"
 
@@ -94,6 +95,20 @@ static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
 
 namespace luisa::compute::fallback {
 
+namespace {
+
+void verify_xir_or_error(const xir::Module *module,
+                         luisa::string_view stage) noexcept {
+    auto verification = xir::xir_verify_module(module);
+    if (!verification.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid XIR at fallback {}: {} ({} error(s) total).",
+            stage, verification.errors.front().message, verification.errors.size());
+    }
+}
+
+}// namespace
+
 [[nodiscard]] static luisa::half luisa_fallback_asin_f16(luisa::half x) noexcept { return ::half_float::asin(x); }
 [[nodiscard]] static float luisa_fallback_asin_f32(float x) noexcept { return std::asin(x); }
 [[nodiscard]] static double luisa_fallback_asin_f64(double x) noexcept { return std::asin(x); }
@@ -115,13 +130,15 @@ namespace luisa::compute::fallback {
     return counter;
 }
 
+static constexpr size_t luisa_coro_allocation_alignment = 2u * sizeof(intptr_t);
+
 static void luisa_coro_reset_counter() noexcept {
     luisa_coro_buffer_counter() = 0u;
 }
 
 [[nodiscard]] static void *luisa_coro_alloc(size_t size) noexcept {
-    thread_local std::byte buffer[luisa::compute::fallback::max_thread_frame_size];
-    size = luisa::align(size, 2u * sizeof(intptr_t));
+    alignas(luisa_coro_allocation_alignment) thread_local std::byte buffer[luisa::compute::fallback::max_thread_frame_size];
+    size = luisa::align(size, luisa_coro_allocation_alignment);
     auto n = (luisa_coro_buffer_counter() += size);
     LUISA_ASSERT(n <= sizeof(buffer), "Coroutine buffer overflow.");
     return buffer + n - size;
@@ -130,7 +147,7 @@ static void luisa_coro_reset_counter() noexcept {
 static void luisa_coro_free(void *ptr) noexcept { /* do nothing */ }
 
 static void *luisa_shared_memory() noexcept {
-    static thread_local std::byte buffer[luisa::compute::fallback::max_shared_memory_size];
+    alignas(luisa_coro_allocation_alignment) static thread_local std::byte buffer[luisa::compute::fallback::max_shared_memory_size];
     return buffer;
 }
 
@@ -172,6 +189,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
     if (!option.name.empty()) { xir_module->set_location(option.name); }
+    verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
     // dump for debugging
@@ -226,11 +244,21 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     xir::PassPipeline cfg;
     cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Fallback XIR ray-query lowering rejected {} loop(s).",
+                i.error_count);
+        }
         return i.lowered_loop_count > 0u;
     });
     if (LUISA_XIR_NORMALIZE_CFG) {
         cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
+            if (!i.succeeded()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Fallback XIR destructuring failed (errors={}, leaked_blocks={}).",
+                    i.error_count, i.leaked_block_count);
+            }
             return i.destructured_if_count > 0u ||
                    i.destructured_loop_count > 0u ||
                    i.destructured_simple_loop_count > 0u;
@@ -244,11 +272,18 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         if (LUISA_XIR_RESTRUCTURE_CFG) {
             cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+                if (!i.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Fallback XIR restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+                        i.irreducible_region_count, i.unstructured_branch_count,
+                        i.invalid_construct_count, i.iteration_limit_count);
+                }
                 return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
             });
         }
     }
     auto cfg_stats = cfg.run(xir_module.get());
+    verify_xir_or_error(xir_module.get(), "codegen handoff");
     cfg_stats.log("Fallback backend CFG normalization");
     if (LUISA_XIR_NORMALIZE_CFG && LUISA_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());

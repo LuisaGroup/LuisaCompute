@@ -3,7 +3,9 @@
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -106,6 +108,37 @@ struct RegisterInfo {
         map.emplace(regs[i].name, FRAME_RESERVED_FIELD_COUNT + i);
     }
     return map;
+}
+
+[[nodiscard]] static bool frame_type_matches_cfg(Value *frame,
+                                                 const CoroCfgDistillResult &cfg) noexcept {
+    if (frame == nullptr || frame->type() == nullptr || !frame->type()->is_structure()) { return false; }
+    auto members = frame->type()->members();
+    if (members.size() != FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size()) { return false; }
+    for (auto i = 0u; i < FRAME_RESERVED_FIELD_COUNT; ++i) {
+        if (members[i] != Type::of<uint>()) { return false; }
+    }
+    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
+        if (cfg.frame_values[i].type == nullptr ||
+            members[FRAME_RESERVED_FIELD_COUNT + i] != cfg.frame_values[i].type) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool validate_cfg_trigger_tokens(const CoroCfgDistillResult &cfg) noexcept {
+    if (cfg.scopes.empty()) { return false; }
+    luisa::unordered_set<uint32_t> tokens;
+    for (size_t i = 0u; i < cfg.scopes.size(); ++i) {
+        auto token = cfg.scopes[i].trigger_token;
+        if ((i == 0u && token != 0u) ||
+            (i != 0u && (token == 0u || token == TERMINAL_TOKEN)) ||
+            !tokens.emplace(token).second) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void store_user_vars_to_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
@@ -356,10 +389,72 @@ static void populate_value_transition_edges(CoroMaterializeInfo &info,
     return sets;
 }
 
+[[nodiscard]] static luisa::vector<CallableFunction *> collect_materialize_callables(
+    Module *module) noexcept {
+    luisa::vector<CallableFunction *> callables;
+    if (module == nullptr) { return callables; }
+    for (auto *function : module->function_list()) {
+        if (function->isa<CallableFunction>() && function->definition() != nullptr) {
+            auto *callable = static_cast<CallableFunction *>(function);
+            if (find_frame_operand(callable) != nullptr) {
+                callables.emplace_back(callable);
+            }
+        }
+    }
+    return callables;
+}
+
+[[nodiscard]] static size_t count_structured_inputs(
+    const CoroCfgDistillResult *cfg,
+    const luisa::vector<CallableFunction *> &callables) noexcept {
+    size_t count = 0u;
+    luisa::unordered_set<FunctionDefinition *> definitions;
+    if (cfg != nullptr) {
+        for (auto &scope : cfg->scopes) {
+            for (auto *block : scope.blocks) {
+                if (block == nullptr) { continue; }
+                auto *parent = block->parent_function();
+                if (parent != nullptr && parent->definition() != nullptr) {
+                    definitions.emplace(parent->definition());
+                }
+            }
+        }
+    }
+    for (auto *callable : callables) {
+        if (callable != nullptr && callable->definition() != nullptr) {
+            definitions.emplace(callable->definition());
+        }
+    }
+    for (auto *definition : definitions) {
+        if (contains_structured_control_flow(definition)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+static void warn_structured_rejection(size_t count) noexcept {
+    LUISA_WARNING_WITH_LOCATION(
+        "Coro materialize rejected {} function definition(s) with structured or ambiguous "
+        "CFG; run lower_switch followed by destructure_cfg first. The module "
+        "was left unchanged.",
+        count);
+}
+
 }// namespace detail
 
 CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
     CoroMaterializeInfo info;
+    if (m == nullptr) { return info; }
+
+    auto callables = detail::collect_materialize_callables(m);
+    // Preflight the complete worklist before collecting/materializing the
+    // first callable so a rejection cannot leave a partially mutated module.
+    info.structured_cfg_error_count = detail::count_structured_inputs(nullptr, callables);
+    if (info.structured_cfg_error_count != 0u) {
+        detail::warn_structured_rejection(info.structured_cfg_error_count);
+        return info;
+    }
 
     auto regs = detail::collect_registers(m);
     info.register_count = regs.size();
@@ -367,18 +462,17 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
         info.name_to_type.emplace(reg.name, reg.type);
     }
 
-    luisa::vector<CallableFunction *> callables;
-    for (auto *f : m->function_list()) {
-        if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-            if (detail::find_frame_operand(static_cast<CallableFunction *>(f)) != nullptr) {
-                callables.push_back(static_cast<CallableFunction *>(f));
-            }
-        }
-    }
-
     auto field_map = detail::build_field_map(regs);
     info.name_to_field = field_map;
     info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + regs.size();
+    info.frame_fields.reserve(regs.size());
+    for (size_t i = 0u; i < regs.size(); ++i) {
+        info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
+            .name = regs[i].name,
+            .type = regs[i].type,
+            .index = detail::FRAME_RESERVED_FIELD_COUNT + i,
+        });
+    }
 
     for (auto *func : callables) {
         detail::process_callable(m, func, detail::find_frame_operand(func), regs, field_map, nullptr, nullptr, true, info);
@@ -390,28 +484,117 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
 
 CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     Module *m, const CoroCfgDistillResult &cfg) noexcept {
+    CoroMaterializeInfo info;
+    if (m == nullptr) { return info; }
+    if (!detail::validate_cfg_trigger_tokens(cfg)) {
+        info.invalid_input_error_count = 1u;
+        return info;
+    }
+    auto callables = detail::collect_materialize_callables(m);
+    info.structured_cfg_error_count = detail::count_structured_inputs(&cfg, callables);
+    if (info.structured_cfg_error_count != 0u) {
+        detail::warn_structured_rejection(info.structured_cfg_error_count);
+        return info;
+    }
     return coro_materialize_pass_run_on_module(m);
 }
 
 CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     Module *m, const CoroCfgDistillResult &cfg, const CoroSplitInfo &split) noexcept {
     CoroMaterializeInfo info;
+    if (m == nullptr) { return info; }
+    info.structured_cfg_error_count = split.structured_cfg_error_count;
+    info.invalid_input_error_count = split.invalid_cfg_error_count;
+    if (!detail::validate_cfg_trigger_tokens(cfg)) {
+        ++info.invalid_input_error_count;
+    }
+
+    // Validate the complete request before projecting it by scope index. Doing
+    // this after projection would let a duplicate or out-of-range entry hide a
+    // malformed/structured callable and would break all-or-nothing rejection.
+    luisa::vector<CallableFunction *> requested_callables;
+    requested_callables.reserve(split.subroutines.size());
+    luisa::unordered_set<size_t> seen_scope_indices;
+    luisa::unordered_set<CallableFunction *> seen_callables;
+    for (auto &subroutine : split.subroutines) {
+        auto valid = true;
+        if (subroutine.scope_index >= cfg.scopes.size() ||
+            !seen_scope_indices.emplace(subroutine.scope_index).second) {
+            valid = false;
+        }
+        auto *callable = subroutine.callable;
+        if (callable == nullptr || callable->definition() == nullptr ||
+            callable->parent_module() != m) {
+            valid = false;
+        } else {
+            requested_callables.emplace_back(callable);
+            if (!seen_callables.emplace(callable).second) { valid = false; }
+        }
+        auto *frame = subroutine.frame_argument;
+        if (frame == nullptr || !frame->isa<Argument>()) {
+            valid = false;
+        } else {
+            auto *argument = static_cast<Argument *>(frame);
+            if (!argument->is_reference() || argument->parent_function() != callable) {
+                valid = false;
+            }
+        }
+        if (!detail::frame_type_matches_cfg(frame, cfg)) { valid = false; }
+        if (subroutine.scope_index < cfg.scopes.size() &&
+            subroutine.trigger_token != cfg.scopes[subroutine.scope_index].trigger_token) {
+            valid = false;
+        }
+        if (!valid) {
+            ++info.invalid_input_error_count;
+        }
+    }
+    if (!cfg.scopes.empty() && seen_scope_indices.size() != cfg.scopes.size()) {
+        ++info.invalid_input_error_count;
+    }
+
+    auto detected_structured_count = detail::count_structured_inputs(&cfg, requested_callables);
+    if (detected_structured_count > info.structured_cfg_error_count) {
+        info.structured_cfg_error_count = detected_structured_count;
+    }
+    if (!info.succeeded()) {
+        if (info.structured_cfg_error_count != 0u) {
+            detail::warn_structured_rejection(info.structured_cfg_error_count);
+        }
+        if (info.invalid_input_error_count != 0u) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Coro materialize rejected invalid coro-split metadata. "
+                "The module was left unchanged.");
+        }
+        return info;
+    }
 
     luisa::vector<const CoroSplitInfo::Subroutine *> subroutines(cfg.scopes.size(), nullptr);
     for (auto &subroutine : split.subroutines) {
-        if (subroutine.scope_index < subroutines.size()) {
-            subroutines[subroutine.scope_index] = &subroutine;
-        }
+        subroutines[subroutine.scope_index] = &subroutine;
     }
-
     luisa::unordered_map<Value *, size_t> value_field_map;
     info.register_count = cfg.frame_values.size();
     info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size();
+    info.frame_fields.reserve(cfg.frame_values.size());
+    luisa::unordered_set<luisa::string> used_names;
     for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
         auto &value = cfg.frame_values[i];
         auto field_index = i + detail::FRAME_RESERVED_FIELD_COUNT;
-        info.name_to_field.emplace(value.name, field_index);
-        info.name_to_type.emplace(value.name, value.type);
+        auto name = value.name;
+        if (!used_names.emplace(name).second) {
+            auto base = name;
+            auto suffix = i;
+            do {
+                name = luisa::format("{}#{}", base, suffix++);
+            } while (!used_names.emplace(name).second);
+        }
+        info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
+            .name = name,
+            .type = value.type,
+            .index = field_index,
+        });
+        info.name_to_field.emplace(name, field_index);
+        info.name_to_type.emplace(name, value.type);
         value_field_map.emplace(value.value, field_index);
     }
     detail::populate_value_transition_edges(info, cfg, value_field_map);

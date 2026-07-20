@@ -1,3 +1,5 @@
+// Test for coroutine-frame dead-field analysis and elimination.
+
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
 #include <luisa/dsl/coro_frame.h>
@@ -49,6 +51,9 @@ void reg_coro_dead_field() {
         expect(info.name_to_field.contains("x"));
         expect(info.name_to_field.contains("y"));
         expect(!info.name_to_field.contains("z"));
+        expect(info.name_to_type.contains("x"));
+        expect(info.name_to_type.contains("y"));
+        expect(!info.name_to_type.contains("z"));
         expect(info.name_to_field.at("x") == r);
         expect(info.name_to_field.at("y") == r + 1u);
         expect(info.frame_field_count == r + 2u);
@@ -363,6 +368,50 @@ void reg_coro_dead_field() {
         expect(desc.field_count() == 2u);
         expect(desc.field(0u).name == "a");
         expect(desc.field(1u).name == "d");
+    };
+
+    "malformed_materialize_metadata_is_rejected_without_mutation"_test = [] {
+        auto r = CoroFrameDesc::reserved_field_count;
+        CoroMaterializeInfo info;
+        info.frame_field_count = r + 1u;
+        info.name_to_field.emplace("x", r);
+        info.name_to_type.emplace("x", Type::of<float>());
+        CoroMaterializeInfo::TransitionEdge edge;
+        edge.load_fields.emplace_back(r + 1u);
+        info.edges.emplace_back(edge);
+        CoroFrameDesc desc;
+        desc.from_materialize_info(info);
+        auto original_size = desc.total_size();
+
+        auto result = dead_field_elimination_pass_run(info, desc);
+
+        expect(!result.succeeded());
+        expect(result.invalid_input_error_count == 1u);
+        expect(result.eliminated_field_count == 0u);
+        expect(result.remaining_field_count == r + 1u);
+        expect(info.frame_field_count == r + 1u);
+        expect(info.name_to_field.at("x") == r);
+        expect(info.edges[0u].load_fields[0u] == r + 1u);
+        expect(desc.field_count() == 1u);
+        expect(desc.total_size() == original_size);
+    };
+
+    "failed_materialize_result_is_not_consumed"_test = [] {
+        auto r = CoroFrameDesc::reserved_field_count;
+        CoroMaterializeInfo info;
+        info.frame_field_count = r + 1u;
+        info.invalid_input_error_count = 1u;
+        info.name_to_field.emplace("x", r);
+        info.name_to_type.emplace("x", Type::of<float>());
+        CoroFrameDesc desc;
+        desc.from_materialize_info(info);
+
+        auto result = dead_field_elimination_pass_run(info, desc);
+
+        expect(!result.succeeded());
+        expect(info.frame_field_count == r + 1u);
+        expect(info.name_to_field.contains("x"));
+        expect(desc.field_count() == 1u);
     };
 }
 

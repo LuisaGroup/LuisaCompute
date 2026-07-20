@@ -47,13 +47,13 @@ inline void DomTree::compute_dominance_frontiers() noexcept {
         });
         if (preds.size() >= 2) {
             for (auto pred : preds) {
-                auto runner = pred;
-                while (runner != node->parent()->block()) {
-                    auto runner_node = _nodes[runner].get();
+                auto runner_node = _nodes[pred].get();
+                auto stop_node = node->parent();
+                while (runner_node != stop_node) {
                     if (frontiers[runner_node].emplace(node.get()).second) {
                         runner_node->add_frontier(node.get());
                     }
-                    runner = runner_node->parent()->block();
+                    runner_node = const_cast<DomTreeNode *>(runner_node->parent());
                 }
             }
         }

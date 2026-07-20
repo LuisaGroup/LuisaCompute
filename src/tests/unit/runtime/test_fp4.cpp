@@ -40,8 +40,7 @@ Kernel2D fp4_test_kernel = [](BufferVar<uint> input_buf,
         auto bits = (int_val >> (i * 4u)) & 0x0fu;
         auto v = fp4e2m1_to_float()(bits);
         v = v * v;
-        result <<= 4u;
-        result |= fp4e2m1_from_float()(v);
+        result |= fp4e2m1_from_float()(v) << (i * 4u);
     }
     out_to.write(input_idx, result);
 };
@@ -49,10 +48,10 @@ Kernel2D fp4_test_kernel = [](BufferVar<uint> input_buf,
 // ==================== Main ====================
 
 int main(int argc, char **argv) {
-    constexpr size_t N_SIZE = 4096;
+    constexpr size_t N_SIZE = 512;
     constexpr size_t N = N_SIZE * N_SIZE;
-    constexpr int WARMUP_ITERS = 10;
-    constexpr int PROFILE_ITERS = 128;
+    constexpr int WARMUP_ITERS = 2;
+    constexpr int PROFILE_ITERS = 8;
 
     // Parse backend
     luisa::string backend_name = (argc > 1) ? argv[1] : "dx";
@@ -174,4 +173,9 @@ int main(int argc, char **argv) {
         LUISA_INFO("  All outputs match CPU reference.");
     }
     LUISA_INFO("========================================");
+    if (mismatch != 0u) {
+        LUISA_WARNING("FP4 device conversion disagrees with the CPU oracle.");
+        return 1;
+    }
+    return 0;
 }

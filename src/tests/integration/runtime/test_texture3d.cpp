@@ -327,7 +327,8 @@ void test_texture3d(Device &device, int argc, const char *const *argv) {
     stream << bindless.update()
            << make_perlin_noise(volume, settings)
                   .dispatch(make_uint3(volume_size))
-           << make_sampler_states(seeds).dispatch(resolution);
+           << make_sampler_states(seeds).dispatch(resolution)
+           << synchronize();
 
     Image<float> accum = device.create_image<float>(PixelStorage::FLOAT4, resolution);
 

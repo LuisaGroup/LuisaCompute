@@ -35,14 +35,16 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 
 void test_denoiser(Device &device) {
 
-    auto argc = boost::ut::detail::cfg::largc;
-    auto argv = boost::ut::detail::cfg::largv;
-
     log_level_verbose();
 
     auto opts = luisa::test::ImageTestOptions::parse(
         boost::ut::detail::cfg::largc,
         boost::ut::detail::cfg::largv);
+    auto denoiser_ext = device.extension<DenoiserExt>();
+    if (denoiser_ext == nullptr) {
+        LUISA_INFO("Skipping denoiser test: backend '{}' does not provide DenoiserExt.", device.backend_name());
+        return;
+    }
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -328,13 +330,16 @@ void test_denoiser(Device &device) {
     Image<float> noisy_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     Image<float> beauty_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
 
-    auto denoiser_ext = device.extension<DenoiserExt>();
     auto color_buf = device.create_buffer<float4>(resolution.x * resolution.y);
     auto albedo_buf = device.create_buffer<float4>(resolution.x * resolution.y);
     auto normal_buf = device.create_buffer<float4>(resolution.x * resolution.y);
     auto output_buf = device.create_buffer<float4>(resolution.x * resolution.y);
 
     auto denoiser = denoiser_ext->create(stream);
+    if (denoiser == nullptr) {
+        boost::ut::expect(false) << "DenoiserExt failed to create a denoiser.";
+        return;
+    }
     {
         auto input = DenoiserExt::DenoiserInput{resolution.x, resolution.y};
         input.push_noisy_image(color_buf.view(), output_buf.view(), DenoiserExt::ImageFormat::FLOAT3, DenoiserExt::ImageColorSpace::HDR);
@@ -452,9 +457,9 @@ void test_denoiser(Device &device) {
                 *opts.compare_path);
             LUISA_INFO("Reference comparison [test_denoiser]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
             if (!result.passed) {
-            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-            return;
-        }
+                boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+                return;
+            }
         }
         return;
     }
@@ -465,7 +470,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_denoiser(device);
 }

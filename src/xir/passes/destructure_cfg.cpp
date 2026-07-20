@@ -22,15 +22,80 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+[[nodiscard]] static size_t validate_destructure_input(Function *function) noexcept {
+    if (function == nullptr) { return 0u; }
+    auto *def = function->definition();
+    if (def == nullptr) { return 0u; }
+    size_t errors = 0u;
+    auto valid_block = [&](BasicBlock *block) noexcept {
+        return block != nullptr && block->parent_function() == function;
+    };
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || !block->is_terminated()) { continue; }
+        auto *term = block->terminator();
+        switch (term->derived_instruction_tag()) {
+            case DerivedInstructionTag::IF: {
+                auto *if_inst = static_cast<IfInst *>(term);
+                errors += if_inst->condition() == nullptr ||
+                                  if_inst->condition()->type() != Type::of<bool>() ||
+                                  !valid_block(if_inst->true_block()) ||
+                                  !valid_block(if_inst->false_block()) ||
+                                  (if_inst->merge_block() != nullptr &&
+                                   !valid_block(if_inst->merge_block())) ?
+                              1u :
+                              0u;
+                break;
+            }
+            case DerivedInstructionTag::LOOP: {
+                auto *loop = static_cast<LoopInst *>(term);
+                errors += !valid_block(loop->prepare_block()) ||
+                                  !valid_block(loop->body_block()) ||
+                                  !valid_block(loop->update_block()) ||
+                                  !valid_block(loop->merge_block()) ?
+                              1u :
+                              0u;
+                break;
+            }
+            case DerivedInstructionTag::SIMPLE_LOOP: {
+                auto *loop = static_cast<SimpleLoopInst *>(term);
+                errors += !valid_block(loop->body_block()) ||
+                                  !valid_block(loop->merge_block()) ?
+                              1u :
+                              0u;
+                break;
+            }
+            case DerivedInstructionTag::BREAK: {
+                errors += !valid_block(static_cast<BreakInst *>(term)->target_block()) ? 1u : 0u;
+                break;
+            }
+            case DerivedInstructionTag::CONTINUE: {
+                errors += !valid_block(static_cast<ContinueInst *>(term)->target_block()) ? 1u : 0u;
+                break;
+            }
+            case DerivedInstructionTag::RAY_QUERY_LOOP: errors += 1u; break;
+            case DerivedInstructionTag::RETURN: {
+                auto *return_inst = static_cast<ReturnInst *>(term);
+                auto *return_type = function->type();
+                auto *value = return_inst->return_value();
+                errors += return_type == nullptr ? value != nullptr :
+                                                   value == nullptr || value->type() != return_type;
+                break;
+            }
+            default: break;
+        }
+    }
+    return errors;
+}
+
 static void terminate_leaked_blocks(Function *function, DestructureCFGInfo &info) noexcept {
     if (function == nullptr) { return; }
     auto def = function->definition();
     if (def == nullptr) { return; }
     luisa::vector<BasicBlock *> leaked;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr) { return; }
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr) { continue; }
         if (!block->is_terminated()) { leaked.emplace_back(block); }
-    });
+    }
     if (leaked.empty()) { return; }
     XIRBuilder b;
     for (auto block : leaked) {
@@ -47,13 +112,13 @@ static void spill_early_returns(Function *function, DestructureCFGInfo &info) no
     auto body = def->body_block();
     if (body == nullptr) { return; }
     luisa::vector<ReturnInst *> returns;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr || !block->is_terminated()) { return; }
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || !block->is_terminated()) { continue; }
         auto term = block->terminator();
         if (term != nullptr && term->isa<ReturnInst>()) {
             returns.emplace_back(static_cast<ReturnInst *>(term));
         }
-    });
+    }
     if (returns.size() <= 1) { return; }
     auto ret_type = function->type();
     XIRBuilder b;
@@ -90,22 +155,24 @@ static void spill_early_returns(Function *function, DestructureCFGInfo &info) no
     }
 }
 
-static void verify_terminators(Function *function) noexcept {
-    if (function == nullptr) { return; }
+static size_t verify_terminators(Function *function) noexcept {
+    if (function == nullptr) { return 0u; }
     auto def = function->definition();
-    if (def == nullptr) { return; }
+    if (def == nullptr) { return 0u; }
     size_t return_count = 0;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr) { return; }
+    size_t errors = 0u;
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr) { continue; }
         if (!block->is_terminated()) {
             LUISA_WARNING_WITH_LOCATION(
                 "destructure_cfg: unterminated basic block survived destructuring "
                 "(function={}, block={}).",
                 static_cast<void *>(function), static_cast<void *>(block));
-            return;
+            ++errors;
+            continue;
         }
         auto term = block->terminator();
-        if (term == nullptr) { return; }
+        if (term == nullptr) { continue; }
         switch (term->derived_instruction_tag()) {
             case DerivedInstructionTag::BRANCH:
             case DerivedInstructionTag::CONDITIONAL_BRANCH:
@@ -124,14 +191,17 @@ static void verify_terminators(Function *function) noexcept {
                 LUISA_WARNING_WITH_LOCATION(
                     "destructure_cfg: unexpected terminator tag {} survived destructuring.",
                     static_cast<int>(term->derived_instruction_tag()));
+                ++errors;
                 break;
         }
-    });
+    }
     if (return_count > 1) {
         LUISA_WARNING_WITH_LOCATION(
             "destructure_cfg: function still has {} ReturnInsts after early-return spill.",
             return_count);
+        ++errors;
     }
+    return errors;
 }
 
 static void destructure_in_function(Function *function, DestructureCFGInfo &info) noexcept {
@@ -144,10 +214,10 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
         luisa::vector<SimpleLoopInst *> simple_loop_insts;
         luisa::vector<BreakInst *> break_insts;
         luisa::vector<ContinueInst *> continue_insts;
-        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            if (block == nullptr || !block->is_terminated()) { return; }
+        for (auto *block : def->basic_blocks()) {
+            if (block == nullptr || !block->is_terminated()) { continue; }
             auto term = block->terminator();
-            if (term == nullptr) { return; }
+            if (term == nullptr) { continue; }
             switch (term->derived_instruction_tag()) {
                 case DerivedInstructionTag::IF:
                     if_insts.emplace_back(static_cast<IfInst *>(term));
@@ -166,12 +236,13 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                     break;
                 default: break;
             }
-        });
+        }
         if (if_insts.empty() && loop_insts.empty() && simple_loop_insts.empty() &&
             break_insts.empty() && continue_insts.empty()) {
             break;
         }
         XIRBuilder b;
+        auto any_destructured = false;
         for (auto brk : break_insts) {
             if (brk == nullptr) { continue; }
             auto block = brk->parent_block();
@@ -183,6 +254,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             brk->remove_self();
             b.set_insertion_point(block);
             b.br(target);
+            ++info.destructured_break_count;
+            any_destructured = true;
         }
         for (auto cont : continue_insts) {
             if (cont == nullptr) { continue; }
@@ -195,6 +268,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             cont->remove_self();
             b.set_insertion_point(block);
             b.br(target);
+            ++info.destructured_continue_count;
+            any_destructured = true;
         }
         for (auto if_inst : if_insts) {
             if (if_inst == nullptr) { continue; }
@@ -209,6 +284,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             if_inst->remove_self();
             b.set_insertion_point(block);
             b.cond_br(cond, true_block, false_block);
+            ++info.destructured_if_count;
+            any_destructured = true;
         }
         for (auto loop_inst : loop_insts) {
             if (loop_inst == nullptr) { continue; }
@@ -221,6 +298,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             loop_inst->remove_self();
             b.set_insertion_point(block);
             b.br(prepare);
+            ++info.destructured_loop_count;
+            any_destructured = true;
         }
         for (auto sl : simple_loop_insts) {
             if (sl == nullptr) { continue; }
@@ -233,16 +312,16 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
             sl->remove_self();
             b.set_insertion_point(block);
             b.br(body);
+            ++info.destructured_simple_loop_count;
+            any_destructured = true;
         }
-        info.destructured_if_count += if_insts.size();
-        info.destructured_loop_count += loop_insts.size();
-        info.destructured_simple_loop_count += simple_loop_insts.size();
-        info.destructured_break_count += break_insts.size();
-        info.destructured_continue_count += continue_insts.size();
+        // Malformed structured terminators are left unchanged after emitting a
+        // warning. Do not spin forever or claim they were transformed.
+        if (!any_destructured) { break; }
     }
     terminate_leaked_blocks(function, info);
     spill_early_returns(function, info);
-    verify_terminators(function);
+    info.error_count += verify_terminators(function);
 }
 
 }// namespace detail
@@ -250,6 +329,13 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
 DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noexcept {
     DestructureCFGInfo info;
     if (function == nullptr) { return info; }
+    info.error_count = detail::validate_destructure_input(function);
+    if (info.error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "destructure_cfg: rejecting function with {} malformed or unsupported construct(s).",
+            info.error_count);
+        return info;
+    }
     detail::destructure_in_function(function, info);
     return info;
 }
@@ -257,6 +343,18 @@ DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noex
 DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DestructureCFGInfo info;
     if (module == nullptr) { return info; }
+    for (auto *f : module->function_list()) {
+        info.error_count += detail::validate_destructure_input(f);
+    }
+    if (info.error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "destructure_cfg: rejecting module with {} malformed or unsupported construct(s).",
+            info.error_count);
+        if (report != nullptr) {
+            report->set("error", info.error_count);
+        }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::destructure_in_function(f, info);
     }
@@ -268,6 +366,7 @@ DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module, PassReport
         report->set("destructured_continue", info.destructured_continue_count);
         report->set("destructured_early_return", info.destructured_early_return_count);
         report->set("leaked_block", info.leaked_block_count);
+        report->set("error", info.error_count);
     }
     return info;
 }

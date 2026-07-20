@@ -832,7 +832,7 @@ struct cfg {
       cfg::largv = nullptr;
     }
 #else
-    {
+    else {
       cfg::largc = 0;
       cfg::largv = nullptr;
     }
@@ -841,13 +841,32 @@ struct cfg {
   }
 
   static void parse(int argc, const char* argv[]) {
+    // The runner singleton may re-enter parse at program exit (from ~runner ->
+    // run -> on(run_begin)). By that time the lazily-initialized static strings
+    // below may already be destroyed (static destruction order fiasco), so only
+    // ever parse once: the first invocation happens in main() while the statics
+    // are guaranteed alive; later invocations reuse the already-parsed state.
+    static bool already_parsed = false;
+    if (already_parsed) { return; }
+    already_parsed = true;
     const std::size_t n_args = argc > 0 ? static_cast<std::size_t>(argc) : 0U;
     if (n_args > 0 && argv != nullptr) {
       executable_name = argv[0];
     }
     query_pattern = "";
     bool found_first_option = false;
-    for (auto i = 1U; i < n_args && argv != nullptr; i++) {
+    // LuisaCompute backend tests conventionally use argv[1] for the backend.
+    // It is test configuration, not a Boost.UT name filter.
+    auto first_ut_arg = 1U;
+    if (n_args > 1U && argv != nullptr) {
+      const std::string_view first{argv[1]};
+      if (first == "cuda" || first == "dx" || first == "cpu" ||
+          first == "fallback" || first == "hip" || first == "metal" ||
+          first == "vk") {
+        first_ut_arg = 2U;
+      }
+    }
+    for (auto i = first_ut_arg; i < n_args && argv != nullptr; i++) {
       std::string cmd(argv[i]);
       auto cmd_option = find_arg(cmd);
       if (!cmd_option.has_value()) {

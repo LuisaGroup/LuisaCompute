@@ -22,6 +22,7 @@
 // 14.  $lambda inside $for loop
 // 15.  Mixed: Callable invoked from inside $lambda
 
+#include <cmath>
 #include <numeric>
 #include <iostream>
 #include <vector>
@@ -52,7 +53,7 @@ static void check(const char *name,
     uint mismatch_count = 0u;
     for (uint i = 0u; i < result.size(); i++) {
         float diff = std::abs(result[i] - expected[i]);
-        if (diff > 1e-4f) {
+        if (!std::isfinite(result[i]) || !std::isfinite(expected[i]) || diff > 1e-4f) {
             if (mismatch_count < 5u) {
                 LUISA_WARNING("{}: mismatch at [{}]: got {} expected {} (diff {})",
                               name, i, result[i], expected[i], diff);

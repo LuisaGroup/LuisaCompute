@@ -129,9 +129,9 @@ int main(int argc, char *argv[]) {
     }();
 
     // Helper: compute 1D grid index from 2D coordinates with clamping
-    auto index = [](UInt2 xy) noexcept {
-        auto p = clamp(xy, static_cast<uint2>(0), static_cast<uint2>(n_grid - 1));
-        return p.x + p.y * n_grid;
+    auto index = [](Int2 xy) noexcept {
+        auto p = clamp(xy, static_cast<int2>(0), static_cast<int2>(n_grid - 1));
+        return cast<uint>(p.x) + cast<uint>(p.y) * n_grid;
     };
 
     // Helper: compute outer product of two vectors (a * b^T)
@@ -144,7 +144,7 @@ int main(int argc, char *argv[]) {
 
     // Kernel: Clear grid velocities and masses
     auto clear_grid = device.compile<2>([&] {
-        UInt idx = index(dispatch_id().xy());
+        UInt idx = index(make_int2(dispatch_id().xy()));
         grid_v->write(idx * 2u, 0.f);
         grid_v->write(idx * 2u + 1u, 0.f);
         grid_m->write(idx, 0.f);
@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
     // Kernel: Grid velocity update (explicit time integration)
     auto simulate_grid = device.compile<2>([&] {
         UInt2 coord = dispatch_id().xy();
-        UInt i = index(coord);
+        UInt i = index(make_int2(coord));
 
         // Read grid velocity and mass
         Float2 v = make_float2(grid_v->read(i * 2u), grid_v->read(i * 2u + 1u));

@@ -1,3 +1,5 @@
+// Test for XIR pass-pipeline ordering, nesting, fixed points, and failure propagation.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/dce.h>
@@ -141,6 +143,38 @@ int main() {
         expect(stats.records.size() == 2u);
         expect(stats.records[1].children.size() == 2u);
         expect(stats.records[0].report.entries().size() == 2u);
+    };
+
+    "stats_own_pass_names"_test = [] {
+        Module m;
+        auto stats = [&] {
+            PassPipeline pipeline;
+            pipeline.add("owned-name", [](Module *, PassReport &) { return false; });
+            return pipeline.run(&m);
+        }();
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].name == "owned-name");
+    };
+
+    "nested_fixed_point_groups"_test = [] {
+        Module m;
+        uint32_t invocations = 0u;
+        PassPipeline leaf;
+        leaf.add("leaf", [&](Module *, PassReport &) {
+            invocations++;
+            return invocations < 2u;
+        });
+        PassPipeline middle;
+        middle.add_fixed_point("inner", std::move(leaf), 4u);
+        PassPipeline pipeline;
+        pipeline.add_fixed_point("outer", std::move(middle), 4u);
+        auto stats = pipeline.run(&m);
+        expect(invocations == 3u);
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].children.size() == 1u);
+        expect(stats.records[0].children[0].children.size() == 1u);
+        expect(stats.records[0].children[0].children[0].name == "leaf");
+        expect(stats.records[0].children[0].children[0].invocations == 3u);
     };
 
     "factory_basic_optimization"_test = [] {

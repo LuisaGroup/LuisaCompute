@@ -145,15 +145,16 @@ LUISA_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Ty
                 .rhs = rhs,
                 .result = rhs};
     }
-    // otherwise, must be matrix * vector
-    LUISA_ASSERT(lhs->is_matrix() && rhs->is_vector() &&
+    // otherwise, must be matrix * vector or vector * matrix
+    LUISA_ASSERT(((lhs->is_matrix() && rhs->is_vector()) ||
+                  (lhs->is_vector() && rhs->is_matrix())) &&
                      lhs->dimension() == rhs->dimension(),
                  "Invalid operand types '{}' and '{}' "
                  "for binary operation.",
                  lhs->description(), rhs->description());
     auto v = Type::vector(Type::of<float>(), lhs->dimension());
-    return {.lhs = lhs,
-            .rhs = v,
+    return {.lhs = lhs->is_matrix() ? lhs : v,
+            .rhs = rhs->is_matrix() ? rhs : v,
             .result = v};
 }
 

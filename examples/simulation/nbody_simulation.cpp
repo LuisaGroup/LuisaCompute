@@ -8,6 +8,7 @@
 // - Real-time 3D visualization
 // - Softening parameter to prevent numerical singularities
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -61,7 +62,6 @@ int main(int argc, char *argv[]) {
             force_offline = true;
         } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
             compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
             force_offline = true;
         }
     }
@@ -311,7 +311,41 @@ int main(int argc, char *argv[]) {
         }
         luisa::vector<uint8_t> host_image(width * height * 4u);
         stream << display.copy_to(luisa::span{host_image}) << synchronize();
-        stbi_write_png("test_nbody_simulation.png", width, height, 4, host_image.data(), 0);
+        static constexpr uint feature_tile_size = 32u;
+        luisa::vector<uint8_t> feature_tiles(
+            (width / feature_tile_size) * (height / feature_tile_size), 0u);
+        size_t bright_pixel_count = 0u;
+        size_t active_pixel_count = 0u;
+        for (auto i = 0u; i < width * height; i++) {
+            auto offset = static_cast<size_t>(i) * 4u;
+            auto peak = std::max({host_image[offset + 0u],
+                                  host_image[offset + 1u],
+                                  host_image[offset + 2u]});
+            if (peak >= 32u) { active_pixel_count++; }
+            if (peak >= 128u) {
+                bright_pixel_count++;
+                auto x = i % width;
+                auto y = i / width;
+                auto tile_x = x / feature_tile_size;
+                auto tile_y = y / feature_tile_size;
+                feature_tiles[tile_y * (width / feature_tile_size) + tile_x] = 1u;
+            }
+        }
+        auto feature_tile_count = static_cast<size_t>(std::count(feature_tiles.cbegin(), feature_tiles.cend(), uint8_t{1u}));
+        auto scene_is_valid = active_pixel_count >= 3000u && active_pixel_count <= 20000u &&
+                              bright_pixel_count >= 200u && bright_pixel_count <= 2000u &&
+                              feature_tile_count >= 20u && feature_tile_count <= 100u;
+        if (!scene_is_valid) {
+            LUISA_ERROR(
+                "N-body output failed feature checks: {} active pixels (expected 3000-20000), "
+                "{} bright pixels (expected 200-2000), {} occupied feature tiles (expected 20-100).",
+                active_pixel_count, bright_pixel_count, feature_tile_count);
+            return 1;
+        }
+        if (stbi_write_png("test_nbody_simulation.png", width, height, 4, host_image.data(), 0) == 0) {
+            LUISA_ERROR("Failed to write test_nbody_simulation.png.");
+            return 1;
+        }
         if (compare_path) {
             auto result = luisa::ref::compare_with_reference_file(
                 reinterpret_cast<const uint8_t *>(host_image.data()),

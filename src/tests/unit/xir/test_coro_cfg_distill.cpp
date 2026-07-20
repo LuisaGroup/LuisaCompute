@@ -1,3 +1,5 @@
+// Test for coroutine CFG distillation and malformed-graph rejection.
+
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/basic_block.h>
@@ -752,6 +754,77 @@ void reg_coro_cfg_distill() {
         expect(result.frame_values[0u].name == "large");
         expect(result.frame_values[0u].type == float3_ty);
         expect(result.frame_values[1u].type->alignment() >= result.frame_values[2u].type->alignment());
+    };
+
+    "partial_aggregate_store_preserves_live_in_frame_value"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *pair_type = Type::structure({Type::of<float>(), Type::of<float>()});
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(pair_type);
+        state->set_name("state");
+        b.store(state, m.create_constant_zero(pair_type));
+        b.coro_suspend(1u, "first", nullptr);
+
+        auto *resume_first = k->create_basic_block();
+        b.set_insertion_point(resume_first);
+        b.coro_resume(1u, nullptr);
+        uint32_t first_index = 0u;
+        auto *first = m.create_constant(Type::of<uint32_t>(), &first_index);
+        auto *first_ptr = b.gep(Type::of<float>(), state, {first});
+        b.store(first_ptr, m.create_constant_one(Type::of<float>()));
+        b.coro_suspend(2u, "second", nullptr);
+
+        auto *resume_second = k->create_basic_block();
+        b.set_insertion_point(resume_second);
+        b.coro_resume(2u, nullptr);
+        uint32_t second_index = 1u;
+        auto *second = m.create_constant(Type::of<uint32_t>(), &second_index);
+        auto *second_ptr = b.gep(Type::of<float>(), state, {second});
+        auto *value = b.load(Type::of<float>(), second_ptr);
+        b.return_(value);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        expect(result.scopes.size() == 3u);
+        expect(result.scopes[1u].live_in_values.size() == 1u);
+        expect(result.scopes[1u].live_in_values[0u] == state);
+        bool stored_on_second_suspend = false;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.from_scope == 1u && edge.to_scope == 2u) {
+                for (auto *stored : edge.store_values) {
+                    if (stored == state) { stored_on_second_suspend = true; }
+                }
+            }
+        }
+        expect(stored_on_second_suspend);
+    };
+
+    "duplicate_alloca_names_get_distinct_frame_field_names"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *lhs = b.alloca_local(Type::of<float>());
+        auto *rhs = b.alloca_local(Type::of<float>());
+        lhs->set_name("duplicate");
+        rhs->set_name("duplicate");
+        b.store(lhs, m.create_constant_one(Type::of<float>()));
+        b.store(rhs, m.create_constant_one(Type::of<float>()));
+        b.coro_suspend(1u, "checkpoint", nullptr);
+
+        auto *resume = k->create_basic_block();
+        b.set_insertion_point(resume);
+        b.coro_resume(1u, nullptr);
+        auto *lhs_value = b.load(Type::of<float>(), lhs);
+        auto *rhs_value = b.load(Type::of<float>(), rhs);
+        b.return_(b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {lhs_value, rhs_value}));
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_values[0u].name != result.frame_values[1u].name);
     };
 }
 
