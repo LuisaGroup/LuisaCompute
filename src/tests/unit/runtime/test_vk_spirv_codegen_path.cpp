@@ -6683,6 +6683,168 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_triangle_ray_query_candidate_state"_test = [&] {
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_triangle_ray_query"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+
+        const std::array vertices{
+            float3{-0.5f, -0.5f, 0.0f},
+            float3{0.5f, -0.5f, 0.0f},
+            float3{0.0f, 0.5f, 0.0f}};
+        const std::array triangles{Triangle{0u, 1u, 2u}};
+        auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+        auto triangle_buffer =
+            device.create_buffer<Triangle>(triangles.size());
+        auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+        auto accel = device.create_accel();
+        accel.emplace_back(
+            mesh, make_float4x4(1.0f), 0xffu, false);
+        auto uint_result = device.create_buffer<uint32_t>(12u);
+        auto float_result = device.create_buffer<float>(36u);
+
+        Kernel1D kernel = [](AccelVar accel_var, BufferUInt uint_output,
+                             BufferFloat float_output) noexcept {
+            auto lane = dispatch_x();
+            auto origin_x = ite(lane == 2u, 2.0f, 0.0f);
+            auto ray = make_ray(
+                make_float3(origin_x, 0.0f, 2.0f),
+                make_float3(0.0f, 0.0f, -1.0f), 0.25f, 8.0f);
+            UInt callback_count = 0u;
+            UInt candidate_inst = ~0u;
+            UInt candidate_prim = ~0u;
+            Float2 candidate_bary = make_float2(-1.0f);
+            Float candidate_t = -1.0f;
+            Float3 candidate_origin = make_float3(-1.0f);
+            Float candidate_t_min = -1.0f;
+            Float3 candidate_direction = make_float3(-1.0f);
+            Float candidate_t_max = -1.0f;
+            Float committed_t_max = -1.0f;
+            auto committed = accel_var.traverse(ray, {})
+                                 .on_surface_candidate(
+                                     [&](SurfaceCandidate &candidate) noexcept {
+                                         callback_count += 1u;
+                                         auto hit = candidate.hit();
+                                         candidate_inst = hit->inst;
+                                         candidate_prim = hit->prim;
+                                         candidate_bary = hit->bary;
+                                         candidate_t = hit->distance();
+                                         auto candidate_ray = candidate.ray();
+                                         candidate_origin =
+                                             candidate_ray->origin();
+                                         candidate_t_min =
+                                             candidate_ray->t_min();
+                                         candidate_direction =
+                                             candidate_ray->direction();
+                                         candidate_t_max =
+                                             candidate_ray->t_max();
+                                         $if (lane == 0u) {
+                                             candidate.commit();
+                                             committed_t_max =
+                                                 candidate.ray()->t_max();
+                                         }
+                                         $else {
+                                             candidate.terminate();
+                                         };
+                                     })
+                                 .on_procedural_candidate(
+                                     [](ProceduralCandidate &) noexcept {})
+                                 .trace();
+
+            auto uint_base = lane * 4u;
+            uint_output.write(uint_base, callback_count);
+            uint_output.write(uint_base + 1u, candidate_inst);
+            uint_output.write(uint_base + 2u, candidate_prim);
+            uint_output.write(uint_base + 3u, committed->hit_type);
+            auto float_base = lane * 12u;
+            float_output.write(float_base, candidate_bary.x);
+            float_output.write(float_base + 1u, candidate_bary.y);
+            float_output.write(float_base + 2u, candidate_t);
+            float_output.write(float_base + 3u, candidate_origin.x);
+            float_output.write(float_base + 4u, candidate_origin.y);
+            float_output.write(float_base + 5u, candidate_origin.z);
+            float_output.write(float_base + 6u, candidate_t_min);
+            float_output.write(float_base + 7u, candidate_direction.x);
+            float_output.write(float_base + 8u, candidate_direction.y);
+            float_output.write(float_base + 9u, candidate_direction.z);
+            float_output.write(float_base + 10u, candidate_t_max);
+            float_output.write(float_base + 11u, committed_t_max);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint32_t, 12u> uint_values{};
+        std::array<float, 36u> float_values{};
+        stream << vertex_buffer.copy_from(luisa::span{vertices})
+               << triangle_buffer.copy_from(luisa::span{triangles})
+               << mesh.build()
+               << accel.build()
+               << shader(accel, uint_result, float_result).dispatch(3u)
+               << uint_result.copy_to(luisa::span{uint_values})
+               << float_result.copy_to(luisa::span{float_values})
+               << synchronize();
+
+        constexpr auto surface = static_cast<uint32_t>(HitType::Surface);
+        constexpr auto miss = static_cast<uint32_t>(HitType::Miss);
+        constexpr auto invalid = std::numeric_limits<uint32_t>::max();
+        expect(uint_values == std::array<uint32_t, 12u>{
+                                  1u, 0u, 0u, surface,
+                                  1u, 0u, 0u, miss,
+                                  0u, invalid, invalid, miss})
+            << "triangle traversal must distinguish committed, terminated, "
+               "and absent candidates while preserving candidate IDs";
+        auto expect_near = [&](size_t index, float expected) noexcept {
+            expect(std::abs(float_values[index] - expected) < 1.0e-6f)
+                << luisa::format(
+                       "triangle ray-query float field {}: got {}, expected {}",
+                       index, float_values[index], expected);
+        };
+        for (auto lane : {0u, 1u}) {
+            auto base = static_cast<size_t>(lane) * 12u;
+            expect_near(base, 0.25f);
+            expect_near(base + 1u, 0.5f);
+            expect_near(base + 2u, 2.0f);
+            expect_near(base + 3u, 0.0f);
+            expect_near(base + 4u, 0.0f);
+            expect_near(base + 5u, 2.0f);
+            expect_near(base + 6u, 0.25f);
+            expect_near(base + 7u, 0.0f);
+            expect_near(base + 8u, 0.0f);
+            expect_near(base + 9u, -1.0f);
+            expect_near(base + 10u, 8.0f);
+        }
+        expect_near(11u, 2.0f);
+        expect_near(23u, -1.0f);
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "triangle ray-query regression should emit one native "
+               "SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly,
+                       "RayQueryConfirmIntersectionKHR") == 1u);
+            expect(count_spirv_opcode(
+                       disassembly, "RayQueryTerminateKHR") == 1u);
+            expect(count_spirv_opcode(
+                       disassembly,
+                       "RayQueryGetWorldRayOriginKHR") == 2u);
+            expect(count_spirv_opcode(
+                       disassembly,
+                       "RayQueryGetWorldRayDirectionKHR") == 2u);
+        }
+    };
+
     "vk_user_compute_ray_instance_metadata_queries"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;
