@@ -92,6 +92,16 @@ LUISA_STRUCT(WideVectorStorageRecord, prefix, payload, suffix) {};
 static_assert(offsetof(WideVectorStorageRecord, payload) == 16u);
 static_assert(sizeof(WideVectorStorageRecord) == 64u);
 
+struct NestedMatrixStorageRecord {
+    float4 prefix;
+    float2x2 transforms[2];
+    uint32_t suffix;
+};
+LUISA_STRUCT(NestedMatrixStorageRecord, prefix, transforms, suffix) {};
+static_assert(offsetof(NestedMatrixStorageRecord, transforms) == 16u);
+static_assert(offsetof(NestedMatrixStorageRecord, suffix) == 48u);
+static_assert(sizeof(NestedMatrixStorageRecord) == 64u);
+
 struct SpirvCallableAggregate {
     float2 pair;
     uint32_t tag;
@@ -3042,13 +3052,16 @@ OpName %8 "Fma"
         constexpr std::array source{
             WideVectorStorageRecord{
                 {1.0f, 2.0f, 3.0f, 4.0f},
-                {10.0, 20.0, 30.0, 40.0}, 0x11223344u},
+                {10.0, 20.0, 30.0, 40.0},
+                0x11223344u},
             WideVectorStorageRecord{
                 {-1.0f, -2.0f, -3.0f, -4.0f},
-                {-10.0, -20.0, -30.0, -40.0}, 0x55667788u},
+                {-10.0, -20.0, -30.0, -40.0},
+                0x55667788u},
             WideVectorStorageRecord{
                 {0.25f, 0.5f, 0.75f, 1.0f},
-                {0.125, 0.25, 0.5, 1.0}, 0xaabbccddu}};
+                {0.125, 0.25, 0.5, 1.0},
+                0xaabbccddu}};
         auto expected = source;
         for (auto i = 0u; i < source.size(); ++i) {
             auto value = source[i];
@@ -3088,6 +3101,99 @@ OpName %8 "Fma"
             expect(count_spirv_opcode(
                        disassembly, "AtomicCompareExchange") == 0u)
                 << "proven-aligned non-atomic word stores must not expand into masked CAS loops";
+        }
+    };
+
+    "vk_user_compute_typed_nested_matrix_layout_round_trip"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_nested_matrix_storage_layout"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input =
+            dc.device.create_buffer<NestedMatrixStorageRecord>(2u);
+        auto output =
+            dc.device.create_buffer<NestedMatrixStorageRecord>(2u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](
+                              BufferVar<NestedMatrixStorageRecord> in,
+                              BufferVar<NestedMatrixStorageRecord> out) noexcept {
+            auto i = dispatch_x();
+            auto source = in.read(i);
+            Var<NestedMatrixStorageRecord> result{source};
+            result.prefix = source.prefix + make_float4(
+                                                cast<float>(i), 1.0f,
+                                                2.0f, 3.0f);
+            result.transforms[0] = source.transforms[1];
+            result.transforms[1] = source.transforms[0];
+            result.suffix = source.suffix ^ (0x01020304u + i);
+            out.write(1u - i, result);
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            NestedMatrixStorageRecord{
+                {1.0f, 2.0f, 3.0f, 4.0f},
+                {make_float2x2(5.0f, 6.0f, 7.0f, 8.0f),
+                 make_float2x2(9.0f, 10.0f, 11.0f, 12.0f)},
+                0x11223344u},
+            NestedMatrixStorageRecord{
+                {-1.0f, -2.0f, -3.0f, -4.0f},
+                {make_float2x2(-5.0f, -6.0f, -7.0f, -8.0f),
+                 make_float2x2(-9.0f, -10.0f, -11.0f, -12.0f)},
+                0xaabbccddu}};
+        auto expected = source;
+        for (auto i = 0u; i < source.size(); ++i) {
+            auto value = source[i];
+            value.prefix += float4{
+                static_cast<float>(i), 1.0f, 2.0f, 3.0f};
+            std::swap(value.transforms[0], value.transforms[1]);
+            value.suffix ^= 0x01020304u + i;
+            expected[1u - i] = value;
+        }
+
+        std::array<NestedMatrixStorageRecord, 2u> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(2u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+
+        for (auto element = 0u; element < result.size(); ++element) {
+            for (auto component = 0u; component < 4u; ++component) {
+                expect(result[element].prefix[component] ==
+                       expected[element].prefix[component]);
+            }
+            for (auto matrix = 0u; matrix < 2u; ++matrix) {
+                for (auto column = 0u; column < 2u; ++column) {
+                    for (auto row = 0u; row < 2u; ++row) {
+                        expect(result[element].transforms[matrix][column][row] ==
+                               expected[element].transforms[matrix][column][row]);
+                    }
+                }
+            }
+            expect(result[element].suffix == expected[element].suffix);
+        }
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "nested-matrix layout regression should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(spirv_opcode_has_adjacent_operands(
+                disassembly, "Decorate", "ArrayStride", "64"))
+                << "the outer typed runtime array must retain the 64-byte host stride";
+            expect(spirv_opcode_has_adjacent_operands(
+                disassembly, "Decorate", "ArrayStride", "16"))
+                << "the nested float2x2 array must retain its 16-byte element stride";
+            expect(spirv_opcode_has_adjacent_operands(
+                disassembly, "MemberDecorate", "MatrixStride", "8"))
+                << "the array-bearing struct member must carry the float2 column stride";
         }
     };
 

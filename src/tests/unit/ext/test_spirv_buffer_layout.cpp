@@ -16,6 +16,11 @@ int main() {
             16u, {Type::of<double2>(), Type::of<float4>()});
         auto *wide_vector_array = Type::array(
             Type::of<double4>(), 3u);
+        auto *matrix_array = Type::array(
+            Type::of<float2x2>(), 2u);
+        auto *nested_matrix_struct = Type::structure(
+            16u, {Type::of<float4>(), matrix_array,
+                  Type::of<uint32_t>()});
 
         expect(lc::spirv::plan_spirv_typed_buffer_layout(
                    Type::of<double4>())
@@ -26,6 +31,11 @@ int main() {
         expect(lc::spirv::plan_spirv_typed_buffer_layout(
                    wide_vector_array)
                    .compatible());
+        auto nested_matrix_layout =
+            lc::spirv::plan_spirv_typed_buffer_layout(
+                nested_matrix_struct);
+        expect(nested_matrix_layout.compatible());
+        expect(eq(nested_matrix_layout.base_alignment, 16u));
     };
 
     "spirv_typed_buffer_layout_rejects_host_vulkan_alignment_mismatch"_test = [] {
