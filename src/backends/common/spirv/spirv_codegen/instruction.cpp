@@ -86,6 +86,13 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto operand = [&](size_t i) noexcept { return _emit_value(inst->operand(i)); };
     spv::Id id = spv::NoResult;
 
+    auto require_uint32_bit_operation = [&]() noexcept {
+        LUISA_ASSERT(
+            (t->is_scalar() || t->is_vector()) && elem->is_uint32(),
+            "SPIR-V bit operation '{}' requires a uint32 scalar/vector, got {}.",
+            xir::to_string(inst->op()), t->description());
+    };
+
     auto make_float_scalar_constant = [&](const Type *scalar_type, double value) noexcept -> spv::Id {
         if (scalar_type->is_float16()) { return _builder.makeFloat16Constant(static_cast<float>(value)); }
         if (scalar_type->is_float32()) { return _builder.makeFloatConstant(static_cast<float>(value)); }
@@ -562,7 +569,8 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                             operand(0), operand(1));
             break;
         case xir::ArithmeticOp::CLZ: {
-            auto find_msb = glsl_typed(GLSLstd450FindSMsb, GLSLstd450FindSMsb, GLSLstd450FindUMsb, operand(0));
+            require_uint32_bit_operation();
+            auto find_msb = glsl(GLSLstd450FindUMsb, operand(0));
             auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
             auto bit_width_id = make_integer_constant(t, static_cast<uint32_t>(bit_width));
             auto all_ones = bit_width == 64 ?
@@ -579,6 +587,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         }
         case xir::ArithmeticOp::CTZ: {
+            require_uint32_bit_operation();
             auto find_lsb = glsl(GLSLstd450FindILsb, operand(0));
             auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
             auto bit_width_id = make_integer_constant(t, static_cast<uint32_t>(bit_width));
@@ -594,21 +603,13 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         }
         case xir::ArithmeticOp::POPCOUNT: {
-            auto op = operand(0);
-            auto op_scalar = _builder.getScalarTypeId(_builder.getTypeId(op));
-            if (_builder.getTypeClass(op_scalar) == spv::Op::OpTypeInt && _builder.getScalarTypeWidth(op_scalar) == 8) {
-                op = _ensure_type(op, type);
-            }
-            id = _builder.createUnaryOp(spv::Op::OpBitCount, type, op);
+            require_uint32_bit_operation();
+            id = unary(spv::Op::OpBitCount);
             break;
         }
         case xir::ArithmeticOp::REVERSE: {
-            auto op = operand(0);
-            auto op_scalar = _builder.getScalarTypeId(_builder.getTypeId(op));
-            if (_builder.getTypeClass(op_scalar) == spv::Op::OpTypeInt && _builder.getScalarTypeWidth(op_scalar) == 8) {
-                op = _ensure_type(op, type);
-            }
-            id = _builder.createUnaryOp(spv::Op::OpBitReverse, type, op);
+            require_uint32_bit_operation();
+            id = unary(spv::Op::OpBitReverse);
             break;
         }
         case xir::ArithmeticOp::ISINF:

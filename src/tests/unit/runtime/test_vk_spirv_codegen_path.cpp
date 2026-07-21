@@ -5800,6 +5800,8 @@ OpName %8 "Fma"
         auto integer_input = device.create_buffer<uint2>(2u);
         auto clz_output = device.create_buffer<uint2>(2u);
         auto ctz_output = device.create_buffer<uint2>(2u);
+        auto popcount_output = device.create_buffer<uint2>(2u);
+        auto reverse_output = device.create_buffer<uint2>(2u);
         auto vector_input = device.create_buffer<float4>(1u);
         auto aggregate_output = device.create_buffer<float2>(1u);
         auto extract_output = device.create_buffer<float>(1u);
@@ -5810,6 +5812,8 @@ OpName %8 "Fma"
         Kernel1D kernel = [](BufferUInt2 integers,
                              BufferUInt2 clz_out,
                              BufferUInt2 ctz_out,
+                             BufferUInt2 popcount_out,
+                             BufferUInt2 reverse_out,
                              BufferFloat4 vectors,
                              BufferFloat2 aggregate_out,
                              BufferFloat extract_out,
@@ -5822,6 +5826,8 @@ OpName %8 "Fma"
                 auto value = integers.read(i);
                 clz_out.write(i, clz(value));
                 ctz_out.write(i, ctz(value));
+                popcount_out.write(i, popcount(value));
+                reverse_out.write(i, reverse(value));
             };
             $if (i == 0u) {
                 auto value = vectors.read(0u);
@@ -5848,6 +5854,8 @@ OpName %8 "Fma"
         std::array dynamic_index_source{static_cast<short>(2)};
         std::array<uint2, 2u> clz_result{};
         std::array<uint2, 2u> ctz_result{};
+        std::array<uint2, 2u> popcount_result{};
+        std::array<uint2, 2u> reverse_result{};
         std::array<float2, 1u> aggregate_result{};
         std::array<float, 1u> extract_result{};
         std::array<float2, 1u> shuffle_result{};
@@ -5857,12 +5865,15 @@ OpName %8 "Fma"
                << matrix_input.copy_from(luisa::span{matrix_source})
                << dynamic_index_input.copy_from(luisa::span{dynamic_index_source})
                << shader(integer_input, clz_output, ctz_output,
-                         vector_input, aggregate_output, extract_output,
-                         shuffle_output, matrix_input, dynamic_index_input,
+                         popcount_output, reverse_output, vector_input,
+                         aggregate_output, extract_output, shuffle_output,
+                         matrix_input, dynamic_index_input,
                          dynamic_extract_output)
                       .dispatch(2u)
                << clz_output.copy_to(luisa::span{clz_result})
                << ctz_output.copy_to(luisa::span{ctz_result})
+               << popcount_output.copy_to(luisa::span{popcount_result})
+               << reverse_output.copy_to(luisa::span{reverse_result})
                << aggregate_output.copy_to(luisa::span{aggregate_result})
                << extract_output.copy_to(luisa::span{extract_result})
                << shuffle_output.copy_to(luisa::span{shuffle_result})
@@ -5872,6 +5883,12 @@ OpName %8 "Fma"
         expect_vector_equal(clz_result[1], uint2{0u, 27u});
         expect_vector_equal(ctz_result[0], uint2{32u, 0u});
         expect_vector_equal(ctz_result[1], uint2{31u, 4u});
+        expect_vector_equal(popcount_result[0], uint2{0u, 1u});
+        expect_vector_equal(popcount_result[1], uint2{1u, 1u});
+        expect_vector_equal(
+            reverse_result[0], uint2{0u, 0x80000000u});
+        expect_vector_equal(
+            reverse_result[1], uint2{1u, 0x08000000u});
         expect_vector_equal(aggregate_result[0], float2{20.0f, 40.0f});
         expect(extract_result[0] == 30.0f);
         expect_vector_equal(shuffle_result[0], float2{40.0f, 20.0f});

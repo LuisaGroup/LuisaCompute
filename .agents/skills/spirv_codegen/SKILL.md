@@ -604,6 +604,16 @@ must prove fresh JIT code generation rather than execution of a valid cached
 native artifact; source dumping forces the native compile path before cache
 deserialization.
 
+## Integer bit operations
+
+XIR `CLZ`, `CTZ`, `POPCOUNT`, and `REVERSE` accept only `uint32` scalars or
+vectors. Keep their emitter paths exact: `CLZ` uses `FindUMsb`, `CTZ` uses
+`FindILsb`, and popcount/reverse lower directly to their core SPIR-V
+instructions. Signed selection and narrow-integer promotion in these paths are
+dead repair logic, not forward-compatible support. Runtime checks for
+popcount/reverse must compare integer results directly; converting full-width
+bit patterns to `float` loses enough precision to hide incorrect results.
+
 ## Floating-point contraction
 
 When `ShaderOption::enable_fast_math` is false, every emitted floating
