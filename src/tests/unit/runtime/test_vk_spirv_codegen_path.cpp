@@ -5063,8 +5063,8 @@ OpName %8 "Fma"
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;
         auto stream = device.create_stream();
-        auto input = device.create_buffer<float4>(2u);
-        auto output = device.create_buffer<float4>(2u);
+        auto input = device.create_buffer<float4>(3u);
+        auto output = device.create_buffer<float4>(3u);
         Kernel1D kernel = [](BufferFloat4 in, BufferFloat4 out) noexcept {
             auto i = dispatch_x();
             out.write(i, round(in.read(i)));
@@ -5073,10 +5073,15 @@ OpName %8 "Fma"
         auto shader = device.compile(kernel, option);
         std::array source{
             float4{-2.5f, -0.5f, 0.5f, 3.5f},
-            float4{-0.0f, 0.0f, 1.25f, -1.25f}};
-        std::array<float4, 2u> result{};
+            float4{-0.0f, 0.0f, 1.25f, -1.25f},
+            float4{
+                std::nextafter(0.5f, 0.0f),
+                std::nextafter(-0.5f, 0.0f),
+                std::nextafter(0.5f, 1.0f),
+                std::nextafter(-0.5f, -1.0f)}};
+        std::array<float4, 3u> result{};
         stream << input.copy_from(luisa::span{source})
-               << shader(input, output).dispatch(2u)
+               << shader(input, output).dispatch(3u)
                << output.copy_to(luisa::span{result})
                << synchronize();
         expect(result[0][0] == -3.0f);
@@ -5087,6 +5092,12 @@ OpName %8 "Fma"
         expect(!std::signbit(result[1][1]));
         expect(result[1][2] == 1.0f);
         expect(result[1][3] == -1.0f);
+        expect(result[2][0] == 0.0f &&
+               !std::signbit(result[2][0]));
+        expect(result[2][1] == 0.0f &&
+               std::signbit(result[2][1]));
+        expect(result[2][2] == 1.0f);
+        expect(result[2][3] == -1.0f);
     };
 
     "vk_user_compute_float_to_bool_treats_nan_as_nonzero"_test = [&] {

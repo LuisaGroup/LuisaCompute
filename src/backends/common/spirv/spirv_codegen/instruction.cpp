@@ -200,6 +200,47 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         return value;
     };
+    auto copy_float_sign = [&](spv::Id magnitude_value,
+                               spv::Id sign_value) noexcept -> spv::Id {
+        LUISA_ASSERT(is_float,
+                     "SPIR-V floating sign copy requires a floating-point result.");
+        auto bit_width = static_cast<uint32_t>(elem->size() * 8u);
+        auto uint_scalar_type =
+            _builder.makeUintType(static_cast<int32_t>(bit_width));
+        auto uint_type = is_scalar ?
+                             uint_scalar_type :
+                             _builder.makeVectorType(
+                                 uint_scalar_type, t->dimension());
+        auto make_bit_constant = [&](uint64_t value) noexcept {
+            auto scalar = bit_width == 64u ?
+                              _builder.makeInt64Constant(
+                                  uint_scalar_type, value, false) :
+                              _builder.makeIntConstant(
+                                  uint_scalar_type,
+                                  static_cast<uint32_t>(value), false);
+            return is_scalar ?
+                       scalar :
+                       _builder.smearScalar(
+                           spv::NoPrecision, scalar, uint_type);
+        };
+        auto sign_bit_value = uint64_t{1} << (bit_width - 1u);
+        auto sign_bit = make_bit_constant(sign_bit_value);
+        auto magnitude_bits = make_bit_constant(sign_bit_value - 1u);
+        auto value_bits = _builder.createUnaryOp(
+            spv::Op::OpBitcast, uint_type, magnitude_value);
+        auto source_sign_bits = _builder.createUnaryOp(
+            spv::Op::OpBitcast, uint_type, sign_value);
+        auto magnitude = _builder.createBinOp(
+            spv::Op::OpBitwiseAnd, uint_type,
+            value_bits, magnitude_bits);
+        auto sign = _builder.createBinOp(
+            spv::Op::OpBitwiseAnd, uint_type,
+            source_sign_bits, sign_bit);
+        auto copied = _builder.createBinOp(
+            spv::Op::OpBitwiseOr, uint_type, magnitude, sign);
+        return _builder.createUnaryOp(
+            spv::Op::OpBitcast, type, copied);
+    };
     LUISA_ASSERT(
         !spirv_glsl_transcendental_rejects_float64(inst->op()) ||
             !elem->is_float64(),
@@ -742,24 +783,30 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::ROUND: {
             auto value = operand(0);
-            auto half = elem->is_float16() ?
-                            _builder.makeFloat16Constant(0.5f) :
-                        elem->is_float64() ?
-                            _builder.makeDoubleConstant(0.5) :
-                            _builder.makeFloatConstant(0.5f);
-            auto sign = glsl(GLSLstd450FSign, value);
-            auto signed_half = is_scalar ?
-                                   _builder.createBinOp(spv::Op::OpFMul, type, sign, half) :
-                                   _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, sign, half);
-            auto biased = _builder.createBinOp(spv::Op::OpFAdd, type, value, signed_half);
-            auto rounded = glsl(GLSLstd450Trunc, biased);
+            auto magnitude = glsl(GLSLstd450FAbs, value);
+            auto integral = glsl(GLSLstd450Floor, magnitude);
+            auto fraction = _builder.createBinOp(
+                spv::Op::OpFSub, type, magnitude, integral);
+            auto half = make_float_scalar_constant(elem, 0.5);
+            auto one = make_float_scalar_constant(elem, 1.0);
+            if (!is_scalar) {
+                half = _builder.smearScalar(
+                    spv::NoPrecision, half, type);
+                one = _builder.smearScalar(
+                    spv::NoPrecision, one, type);
+            }
             auto bool_type = is_scalar ?
                                  _builder.makeBoolType() :
                                  _builder.makeVectorType(_builder.makeBoolType(), t->dimension());
-            auto is_zero = _builder.createBinOp(
-                spv::Op::OpFOrdEqual, bool_type, value,
-                _builder.makeNullConstant(type));
-            id = _builder.createTriOp(spv::Op::OpSelect, type, is_zero, value, rounded);
+            auto round_away = _builder.createBinOp(
+                spv::Op::OpFOrdGreaterThanEqual, bool_type,
+                fraction, half);
+            auto next_integral = _builder.createBinOp(
+                spv::Op::OpFAdd, type, integral, one);
+            auto rounded_magnitude = _builder.createTriOp(
+                spv::Op::OpSelect, type, round_away,
+                next_integral, integral);
+            id = copy_float_sign(rounded_magnitude, value);
             break;
         }
         case xir::ArithmeticOp::RINT:
@@ -768,31 +815,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::FMA:
             id = glsl(GLSLstd450Fma, operand(0), operand(1), operand(2));
             break;
-        case xir::ArithmeticOp::COPYSIGN: {
-            auto a = operand(0);
-            auto b = operand(1);
-            auto bit_width = static_cast<uint32_t>(elem->size() * 8u);
-            auto uint_scalar_type = _builder.makeUintType(static_cast<int32_t>(bit_width));
-            auto uint_type = is_scalar ?
-                                 uint_scalar_type :
-                                 _builder.makeVectorType(uint_scalar_type, t->dimension());
-            auto make_bit_constant = [&](uint64_t value) noexcept {
-                auto scalar = bit_width == 64u ?
-                                  _builder.makeInt64Constant(uint_scalar_type, value, false) :
-                                  _builder.makeIntConstant(uint_scalar_type, static_cast<uint32_t>(value), false);
-                return is_scalar ? scalar : _builder.smearScalar(spv::NoPrecision, scalar, uint_type);
-            };
-            auto sign_bit_value = uint64_t{1} << (bit_width - 1u);
-            auto sign_bit = make_bit_constant(sign_bit_value);
-            auto magnitude_bits = make_bit_constant(sign_bit_value - 1u);
-            auto a_bits = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, a);
-            auto b_bits = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, b);
-            auto magnitude = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, a_bits, magnitude_bits);
-            auto sign = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, b_bits, sign_bit);
-            auto copied = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, magnitude, sign);
-            id = _builder.createUnaryOp(spv::Op::OpBitcast, type, copied);
+        case xir::ArithmeticOp::COPYSIGN:
+            id = copy_float_sign(operand(0), operand(1));
             break;
-        }
         case xir::ArithmeticOp::CROSS:
             id = glsl(GLSLstd450Cross, operand(0), operand(1));
             break;

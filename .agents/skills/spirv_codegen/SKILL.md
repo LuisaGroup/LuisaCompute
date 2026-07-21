@@ -601,6 +601,14 @@ only scalar/vector `OpFMul`, `OpFAdd`, and `OpFSub`. Decorating only a final
 operations. Keep a rounding-sensitive runtime check and exact SPIR-V
 decoration count for scalar and matrix multiply/add paths.
 
+XIR `ROUND` has the C/C++ `round` contract: halfway cases round away from
+zero and signed zero is preserved. Do not implement it as
+`trunc(x + sign(x) * 0.5)`: the addition can round the float immediately below
+`0.5` to `1.0`. Classify the fractional magnitude against an exactly typed
+`0.5`, choose the adjacent integral magnitude, then copy the original sign
+bit. Runtime coverage must include `nextafter` values on both sides of
+positive and negative `0.5`, not only exact halfway values.
+
 Run `test_vk_native_route_guard vk` in both native-XIR and LLVM/HLSL-only
 Vulkan build trees. The native configuration verifies an explicit fallback
 reason is rejected; the non-native configuration verifies the build-unavailable
