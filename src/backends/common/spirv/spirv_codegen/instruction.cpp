@@ -1070,64 +1070,12 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
 
         // Composite operations
         case xir::ArithmeticOp::AGGREGATE: {
-            // Peephole: detect Extract-from-same-vector pattern and emit OpVectorShuffle
-            if (t->is_vector() && inst->operand_count() >= 2u) {
-                const xir::Value *common_base = nullptr;
-                bool all_extract = true;
-                luisa::vector<uint32_t> indices;
-                indices.reserve(inst->operand_count());
-                for (uint i = 0u; i < inst->operand_count(); ++i) {
-                    auto op = inst->operand(i);
-                    if (!op->isa<xir::ArithmeticInst>()) {
-                        all_extract = false;
-                        break;
-                    }
-                    auto ari = static_cast<const xir::ArithmeticInst *>(op);
-                    if (ari->op() != xir::ArithmeticOp::EXTRACT) {
-                        all_extract = false;
-                        break;
-                    }
-                    auto base = ari->operand(0);
-                    if (!base->type()->is_vector()) {
-                        all_extract = false;
-                        break;
-                    }
-                    if (common_base == nullptr) {
-                        common_base = base;
-                    } else if (common_base != base) {
-                        all_extract = false;
-                        break;
-                    }
-                    // Index must be constant
-                    if (ari->operand_count() != 2u || !ari->operand(1)->isa<xir::Constant>()) {
-                        all_extract = false;
-                        break;
-                    }
-                    auto index = decode_constant_index(
-                        static_cast<const xir::Constant *>(ari->operand(1)));
-                    if (index >= base->type()->dimension()) {
-                        LUISA_ERROR_WITH_LOCATION(
-                            "Vector extraction index {} is out of bounds for {}.",
-                            index, base->type()->description());
-                    }
-                    indices.push_back(static_cast<uint32_t>(index));
-                }
-                if (all_extract && common_base != nullptr) {
-                    auto base_spv = _emit_value(const_cast<xir::Value *>(common_base));
-                    std::vector<uint32_t> std_indices(indices.begin(), indices.end());
-                    id = _builder.createRvalueSwizzle(spv::NoPrecision, type, base_spv, std_indices);
-                    break;
-                }
+            std::vector<spv::Id> components;
+            components.reserve(inst->operand_count());
+            for (auto i = 0u; i < inst->operand_count(); ++i) {
+                components.emplace_back(operand(i));
             }
-            // Fallthrough: normal CompositeConstruct
-            {
-                std::vector<spv::Id> comps;
-                comps.reserve(inst->operand_count());
-                for (uint i = 0u; i < inst->operand_count(); ++i) {
-                    comps.push_back(operand(i));
-                }
-                id = _builder.createCompositeConstruct(type, comps);
-            }
+            id = _builder.createCompositeConstruct(type, components);
             break;
         }
         case xir::ArithmeticOp::SHUFFLE: {

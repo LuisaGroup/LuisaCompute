@@ -121,12 +121,26 @@ struct IntegerSelect {
     uint32_t false_value_id{0u};
 };
 
+struct CompositeExtract {
+    uint32_t result_id{0u};
+    uint32_t composite_id{0u};
+    uint32_t index{0u};
+};
+
+struct CompositeConstruct {
+    uint32_t result_id{0u};
+    std::vector<uint32_t> constituents;
+};
+
 struct IntegerModuleFacts {
     std::vector<ShiftSignature> shifts;
     std::vector<IntegerConstant> constants;
     std::vector<IntegerOperation> operations;
     std::vector<IntegerBitcast> bitcasts;
     std::vector<IntegerSelect> selects;
+    std::vector<CompositeExtract> composite_extracts;
+    std::vector<CompositeConstruct> composite_constructs;
+    size_t vector_shuffle_count{0u};
     size_t untyped_shift_count{0u};
     size_t unsigned_64_mod_count{0u};
     size_t unsigned_64_sub_count{0u};
@@ -258,6 +272,21 @@ struct IntegerModuleFacts {
                 .condition_id = words[offset + 3u],
                 .true_value_id = words[offset + 4u],
                 .false_value_id = words[offset + 5u]});
+        } else if (opcode == spv::Op::OpCompositeExtract &&
+                   word_count == 5u) {
+            facts.composite_extracts.emplace_back(CompositeExtract{
+                .result_id = words[offset + 2u],
+                .composite_id = words[offset + 3u],
+                .index = words[offset + 4u]});
+        } else if (opcode == spv::Op::OpCompositeConstruct &&
+                   word_count >= 3u) {
+            facts.composite_constructs.emplace_back(CompositeConstruct{
+                .result_id = words[offset + 2u],
+                .constituents = std::vector<uint32_t>{
+                    words.begin() + static_cast<ptrdiff_t>(offset + 3u),
+                    words.begin() + static_cast<ptrdiff_t>(offset + word_count)}});
+        } else if (opcode == spv::Op::OpVectorShuffle) {
+            facts.vector_shuffle_count++;
         }
         offset += word_count;
     }
@@ -404,6 +433,27 @@ struct IntegerModuleFacts {
             return select.true_value_id == true_value_id &&
                    select.false_value_id == false_value_id;
         }));
+}
+
+[[nodiscard]] bool has_reversed_two_component_construct(
+    const IntegerModuleFacts &facts) noexcept {
+    for (auto &&first : facts.composite_extracts) {
+        if (first.index != 0u) { continue; }
+        for (auto &&second : facts.composite_extracts) {
+            if (second.index != 1u ||
+                second.composite_id != first.composite_id) {
+                continue;
+            }
+            for (auto &&construct : facts.composite_constructs) {
+                if (construct.constituents.size() == 2u &&
+                    construct.constituents[0] == second.result_id &&
+                    construct.constituents[1] == first.result_id) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] size_t count_shift_values(
@@ -617,7 +667,7 @@ int main(int argc, char *argv[]) {
             << "no extra or missing shift may hide a changed rotate lowering";
     };
 
-    "spirv_ordinary_integer_constants_do_not_become_specialization_constants"_test = [] {
+    "spirv_ordinary_integer_operations_remain_explicit_at_optimizer_zero"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *output = kernel->create_resource_argument(
@@ -649,6 +699,32 @@ int main(int argc, char *argv[]) {
             Type::of<uint32_t>(), ArithmeticOp::SELECT,
             luisa::span<Value *const>{select_operands.data(),
                                       select_operands.size()});
+        auto *vector = make_constant(module, make_uint2(7u, 3u));
+        auto *index_zero = make_constant(module, uint32_t{0u});
+        auto *index_one = make_constant(module, uint32_t{1u});
+        std::array<Value *, 2u> extract_first_operands{
+            vector, index_zero};
+        std::array<Value *, 2u> extract_second_operands{
+            vector, index_one};
+        auto *first = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::EXTRACT,
+            luisa::span<Value *const>{extract_first_operands.data(),
+                                      extract_first_operands.size()});
+        auto *second = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::EXTRACT,
+            luisa::span<Value *const>{extract_second_operands.data(),
+                                      extract_second_operands.size()});
+        std::array<Value *, 2u> aggregate_operands{second, first};
+        auto *reversed = builder.call(
+            Type::of<uint2>(), ArithmeticOp::AGGREGATE,
+            luisa::span<Value *const>{aggregate_operands.data(),
+                                      aggregate_operands.size()});
+        std::array<Value *, 2u> reversed_first_operands{
+            reversed, index_zero};
+        auto *reversed_first = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::EXTRACT,
+            luisa::span<Value *const>{reversed_first_operands.data(),
+                                      reversed_first_operands.size()});
         auto write = [&](uint32_t index, Value *value) noexcept {
             auto *index_value = make_constant(module, index);
             std::array<Value *, 3u> operands{
@@ -662,6 +738,7 @@ int main(int argc, char *argv[]) {
         write(2u, builder.static_cast_(Type::of<uint32_t>(), equal));
         write(3u, builder.static_cast_(Type::of<uint32_t>(), not_equal));
         write(4u, selected);
+        write(5u, reversed_first);
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
@@ -710,6 +787,10 @@ int main(int argc, char *argv[]) {
                   1u));
         expect(eq(count_select_values(facts, three_id, seven_id), 1u))
             << "ordinary XIR select must remain OpSelect at optimizer level zero";
+        expect(has_reversed_two_component_construct(facts))
+            << "XIR aggregate must consume its extracted operands with OpCompositeConstruct";
+        expect(eq(facts.vector_shuffle_count, 0u))
+            << "aggregate lowering must not add a redundant vector-shuffle peephole";
     };
 
     return 0;
