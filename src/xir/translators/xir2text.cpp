@@ -344,7 +344,7 @@ private:
                     _main << luisa::format(
                         "{}", luisa::bit_cast<int64_t>(value));
                     break;
-                default: _main << value; break;
+                default: _main << luisa::format("{}", value); break;
             }
             _main << " ";
             _flat_blocks ? _emit_basic_block_ref(inst->case_block(i)) : _emit_basic_block(inst->case_block(i), indent);

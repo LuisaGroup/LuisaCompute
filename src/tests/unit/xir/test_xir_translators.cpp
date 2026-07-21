@@ -9,6 +9,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/translators/ast2xir.h>
@@ -191,6 +192,39 @@ void reg_xir2text() {
         auto text = xir_to_flat_text_translate(module.get(), true);
         expect(!text.empty());
         expect(text.find("define {") != luisa::string::npos);
+    };
+
+    "xir_to_text_preserves_u64_switch_case_bits"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *selector =
+            callable->create_value_argument(Type::of<uint64_t>());
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *switch_inst = builder.switch_(selector);
+        auto *low_word_block =
+            switch_inst->create_case_block(0x00000000ffffffffull);
+        auto *all_ones_block =
+            switch_inst->create_case_block(0xffffffffffffffffull);
+        auto *default_block = switch_inst->create_default_block();
+        auto *merge_block = switch_inst->create_merge_block();
+        for (auto *block :
+             {low_word_block, all_ones_block, default_block}) {
+            builder.set_insertion_point(block);
+            builder.br(merge_block);
+        }
+        builder.set_insertion_point(merge_block);
+        builder.return_void();
+
+        auto verify = [](luisa::string_view text) noexcept {
+            expect(text.find("case 4294967295 ") !=
+                   luisa::string_view::npos);
+            expect(text.find("case 18446744073709551615 ") !=
+                   luisa::string_view::npos);
+        };
+        verify(xir_to_text_translate(&module, false));
+        verify(xir_to_flat_text_translate(&module, false));
     };
 
     "xir_to_text_emits_all_marker_metadata"_test = [] {
