@@ -4597,7 +4597,7 @@ OpName %8 "Fma"
         auto dc = luisa::test::create_device(argc, argv);
         auto matrices = dc.device.create_buffer<float2x2>(2u);
         auto vectors = dc.device.create_buffer<float2>(2u);
-        auto matrix_output = dc.device.create_buffer<float4>(3u);
+        auto matrix_output = dc.device.create_buffer<float4>(4u);
         auto vector_output = dc.device.create_buffer<float2>(2u);
         auto stream = dc.device.create_stream();
         Kernel1D kernel = [](BufferFloat2x2 matrix_input,
@@ -4613,6 +4613,10 @@ OpName %8 "Fma"
                 luisa::compute::detail::FunctionBuilder::current()->call(
                     Type::of<float2x2>(), CallOp::OUTER_PRODUCT,
                     {v.expression(), w.expression()}));
+            auto matrix_outer_product = def<float2x2>(
+                luisa::compute::detail::FunctionBuilder::current()->call(
+                    Type::of<float2x2>(), CallOp::OUTER_PRODUCT,
+                    {a.expression(), b.expression()}));
             auto scaled_matrix = a * 2.0f;
             auto vector_matrix_product = def<float2>(
                 luisa::compute::detail::FunctionBuilder::current()->binary(
@@ -4633,6 +4637,11 @@ OpName %8 "Fma"
                                 scaled_matrix[0u].y,
                                 scaled_matrix[1u].x,
                                 scaled_matrix[1u].y));
+            matrix_out.write(
+                3u, make_float4(matrix_outer_product[0u].x,
+                                matrix_outer_product[0u].y,
+                                matrix_outer_product[1u].x,
+                                matrix_outer_product[1u].y));
             vector_out.write(0u, a * v);
             vector_out.write(1u, vector_matrix_product);
         };
@@ -4645,7 +4654,7 @@ OpName %8 "Fma"
             make_float2x2(5.0f, 6.0f, 7.0f, 8.0f)};
         constexpr std::array vector_source{
             float2{2.0f, -1.0f}, float2{-3.0f, 5.0f}};
-        std::array<float4, 3u> matrix_result{};
+        std::array<float4, 4u> matrix_result{};
         std::array<float2, 2u> vector_result{};
         stream << matrices.copy_from(luisa::span{matrix_source})
                << vectors.copy_from(luisa::span{vector_source})
@@ -4661,6 +4670,8 @@ OpName %8 "Fma"
             matrix_result[1], float4{-6.0f, 3.0f, 10.0f, -5.0f});
         expect_vector_equal(
             matrix_result[2], float4{2.0f, 4.0f, 6.0f, 8.0f});
+        expect_vector_equal(
+            matrix_result[3], float4{26.0f, 38.0f, 30.0f, 44.0f});
         expect_vector_equal(vector_result[0], float2{-1.0f, 0.0f});
         expect_vector_equal(vector_result[1], float2{0.0f, 2.0f});
 
@@ -4670,7 +4681,8 @@ OpName %8 "Fma"
         if (dumps.size() == 1u) {
             auto disassembly = read_text_file(dumps.front());
             expect(count_spirv_opcode(
-                       disassembly, "MatrixTimesMatrix") == 1u);
+                       disassembly, "MatrixTimesMatrix") == 2u)
+                << "matrix multiplication and generalized matrix outer product must each emit one OpMatrixTimesMatrix";
             expect(count_spirv_opcode(
                        disassembly, "MatrixTimesVector") == 1u);
             expect(count_spirv_opcode(
@@ -4679,6 +4691,9 @@ OpName %8 "Fma"
                        disassembly, "OuterProduct") == 1u);
             expect(count_spirv_opcode(
                        disassembly, "MatrixTimesScalar") == 1u);
+            expect(count_spirv_opcode(
+                       disassembly, "Transpose") == 1u)
+                << "generalized matrix outer product must transpose its right operand exactly once";
         }
     };
 

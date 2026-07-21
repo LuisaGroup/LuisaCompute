@@ -627,6 +627,10 @@ to `OpDot` and needs the same decoration. Decorating only a final
 operations. Keep a rounding-sensitive runtime check and exact SPIR-V
 decoration count for ordinary, reduction, and matrix multiply/add paths.
 
+XIR generalizes `OUTER_PRODUCT` to two matrix operands for autodiff. That form
+means `A * transpose(B)` and should lower to one `OpTranspose` followed by one
+`OpMatrixTimesMatrix`; the ordinary vector form remains `OpOuterProduct`.
+
 XIR `ROUND` has the C/C++ `round` contract: halfway cases round away from
 zero and signed zero is preserved. Do not implement it as
 `trunc(x + sign(x) * 0.5)`: the addition can round the float immediately below

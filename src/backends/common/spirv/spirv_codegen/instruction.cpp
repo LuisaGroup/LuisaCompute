@@ -288,10 +288,12 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     auto a = _emit_value(mul_inst->operand(0));
                     auto b = _emit_value(mul_inst->operand(1));
                     auto c = _emit_value(add_op);
-                    // Ensure all operands match the result type for FMA
-                    a = _ensure_type(a, type);
-                    b = _ensure_type(b, type);
-                    c = _ensure_type(c, type);
+                    LUISA_ASSERT(
+                        _builder.getTypeId(a) == type &&
+                            _builder.getTypeId(b) == type &&
+                            _builder.getTypeId(c) == type,
+                        "SPIR-V FMA peephole requires the exact verified "
+                        "multiply/add operand type.");
                     id = _builder.createBuiltinCall(type, _glsl450, GLSLstd450Fma, {a, b, c});
                     return true;
                 };
