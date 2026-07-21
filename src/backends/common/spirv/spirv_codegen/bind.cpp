@@ -258,38 +258,53 @@ void SpirvCodegenEntry::generate_binding(
     uint reg_count = _has_argument_buffer ? 1u : 0u;
     auto next_reg = [&](RegType) -> uint { return reg_count++; };
 
-    vstd::vector<const Type *> buffer_elem_types;
-    vstd::vector<luisa::string> buffer_names;// per-property variable names
+    enum class PropertyRole : uint8_t {
+        ORDINARY,
+        ARGUMENT_BUFFER,
+        BINDLESS_ARRAY,
+        BINDLESS_TEXTURE_2D_HEAP,
+        BINDLESS_TEXTURE_3D_HEAP,
+    };
+    struct PropertyEmission {
+        const Type *element_type;
+        luisa::string name;
+        PropertyRole role;
+    };
+    vstd::vector<PropertyEmission> property_emissions;
+    auto add_property = [&](Property property, const Type *element_type,
+                            luisa::string name,
+                            PropertyRole role = PropertyRole::ORDINARY) noexcept {
+        auto index = _properties.size();
+        _properties.emplace_back(property);
+        property_emissions.emplace_back(
+            PropertyEmission{element_type, std::move(name), role});
+        return index;
+    };
 
-    // Push constant at space=0 reg=0 — does NOT go into _properties to avoid creating
-    // a descriptor set layout binding (push constants are handled via vkCmdPushConstants).
-    // The ConstantValue property is added only to buffer_elem_types/buffer_names for
-    // correlation with _property_ids[0] in emit.cpp.
-    buffer_elem_types.push_back(nullptr);
-    buffer_names.emplace_back("dsp_c");
+    // The push constant is deliberately absent from _properties: it has no
+    // descriptor-set layout binding. _property_ids owns that separate leading
+    // entry explicitly during SPIR-V variable emission below.
 
     // Sampler heap at space=1, reg=0 (fixed position, separate space).
     // Its descriptor count is the same ABI constant used to bound dynamic
     // selector indices during instruction emission.
-    _properties.emplace_back(
+    add_property(
         Property{
             ShaderVariableType::SamplerHeap,
             1u,
             0u,
-            spirv_configured_sampler_heap_size});
-    buffer_elem_types.push_back(nullptr);
-    buffer_names.emplace_back("samplers");
+            spirv_configured_sampler_heap_size},
+        nullptr, "samplers");
 
     // CBuffer (global argument buffer) — fixed at reg=0, but bumps counter for subsequent args
     if (_has_argument_buffer) {
-        _properties.emplace_back(
+        add_property(
             Property{
                 ShaderVariableType::StructuredBuffer,
                 0,
                 0u,
-                1});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("_Global");
+                1},
+            nullptr, "_Global", PropertyRole::ARGUMENT_BUFFER);
     }
 
     // Plan a portable std140 block before emitting any UBO-related SPIR-V.
@@ -433,47 +448,45 @@ void SpirvCodegenEntry::generate_binding(
         _constant_ubo_var = _builder.createVariable(
             spv::NoPrecision, spv::StorageClass::Uniform, struct_type, "_constant_ubo");
 
-        _properties.emplace_back(
+        add_property(
             Property{
                 ShaderVariableType::ConstantBuffer,
                 0u,
                 next_reg(RegType::CBV),
-                1u});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("_constant_ubo");
+                1u},
+            nullptr, "_constant_ubo");
     }
 
     // Bindless resources: spaces start at 2 for SPIR-V
     uint space_idx = 2;
     if (_use_buffer_bindless) {
-        _properties.emplace_back(
+        add_property(
             Property{
                 ShaderVariableType::SRVBufferHeap,
                 space_idx++,
                 0u,
-                std::numeric_limits<uint>::max()});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("bdls");
+                std::numeric_limits<uint>::max()},
+            nullptr, "bdls");
     }
     if (_use_tex2d_bindless) {
-        _properties.emplace_back(
+        add_property(
             Property{
                 ShaderVariableType::SRVTextureHeap,
                 space_idx++,
                 0u,
-                std::numeric_limits<uint>::max()});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("tex2d_heap");
+                std::numeric_limits<uint>::max()},
+            nullptr, "tex2d_heap",
+            PropertyRole::BINDLESS_TEXTURE_2D_HEAP);
     }
     if (_use_tex3d_bindless) {
-        _properties.emplace_back(
+        add_property(
             Property{
                 ShaderVariableType::SRVTextureHeap,
                 space_idx++,
                 0u,
-                std::numeric_limits<uint>::max()});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("tex3d_heap");
+                std::numeric_limits<uint>::max()},
+            nullptr, "tex3d_heap",
+            PropertyRole::BINDLESS_TEXTURE_3D_HEAP);
     }
 
     // Kernel arguments — use RegType matching HLSL's register type selection
@@ -482,51 +495,53 @@ void SpirvCodegenEntry::generate_binding(
             case Type::Tag::TEXTURE: {
                 auto &binding = add_resource_binding(arg);
                 if (has_usage(binding.usage, Usage::READ)) {
-                    binding.read_property_index = _properties.size();
-                    _properties.emplace_back(
+                    binding.read_property_index = add_property(
                         Property{
                             ShaderVariableType::SRVTextureHeap,
                             0,
                             next_reg(RegType::SRV),
-                            1});
-                    buffer_elem_types.push_back(arg.type());
-                    buffer_names.emplace_back(
-                        luisa::string("_tx_") + vstd::to_string(arg.uid()));
+                            1},
+                        arg.type(),
+                        luisa::string("_tx_") +
+                            vstd::to_string(arg.uid()));
                 }
                 if (has_usage(binding.usage, Usage::WRITE)) {
-                    binding.write_property_index = _properties.size();
-                    _properties.emplace_back(
+                    binding.write_property_index = add_property(
                         Property{
                             ShaderVariableType::UAVTextureHeap,
                             0,
                             next_reg(RegType::UAV),
-                            1});
-                    buffer_elem_types.push_back(arg.type());
-                    buffer_names.emplace_back(
-                        luisa::string("_tx_rw_") + vstd::to_string(arg.uid()));
+                            1},
+                        arg.type(),
+                        luisa::string("_tx_rw_") +
+                            vstd::to_string(arg.uid()));
                 }
                 break;
             }
             case Type::Tag::BUFFER: {
                 auto &binding = add_resource_binding(arg);
-                auto property_index = _properties.size();
+                auto property_index = size_t{};
                 if (is_writable(arg)) {
-                    _properties.emplace_back(
+                    property_index = add_property(
                         Property{
                             ShaderVariableType::RWStructuredBuffer,
                             0,
                             next_reg(RegType::UAV),
-                            1});
+                            1},
+                        arg.type(),
+                        luisa::string("_buf_") +
+                            vstd::to_string(arg.uid()));
                 } else {
-                    _properties.emplace_back(
+                    property_index = add_property(
                         Property{
                             ShaderVariableType::StructuredBuffer,
                             0,
                             next_reg(RegType::SRV),
-                            1});
+                            1},
+                        arg.type(),
+                        luisa::string("_buf_") +
+                            vstd::to_string(arg.uid()));
                 }
-                buffer_elem_types.push_back(arg.type());// Store full buffer type for _convert_type cache
-                buffer_names.emplace_back(luisa::string("_buf_") + vstd::to_string(arg.uid()));
                 if (has_usage(binding.usage, Usage::READ)) {
                     binding.read_property_index = property_index;
                 }
@@ -537,28 +552,27 @@ void SpirvCodegenEntry::generate_binding(
             }
             case Type::Tag::BINDLESS_ARRAY: {
                 auto &binding = add_resource_binding(arg);
-                binding.read_property_index = _properties.size();
-                _properties.emplace_back(
+                binding.read_property_index = add_property(
                     Property{
                         ShaderVariableType::StructuredBuffer,
                         0,
                         next_reg(RegType::SRV),
-                        1});
-                buffer_elem_types.push_back(nullptr);
-                buffer_names.emplace_back(luisa::string("_bdarr_") + vstd::to_string(arg.uid()));
+                        1},
+                    nullptr,
+                    luisa::string("_bdarr_") +
+                        vstd::to_string(arg.uid()),
+                    PropertyRole::BINDLESS_ARRAY);
                 if (binding.requires_bindless_buffer_metadata) {
                     binding.bindless_buffer_metadata_property_index =
-                        _properties.size();
-                    _properties.emplace_back(
-                        Property{
-                            ShaderVariableType::SPIRVBindlessBufferMetadata,
-                            0,
-                            next_reg(RegType::SRV),
-                            1});
-                    buffer_elem_types.push_back(nullptr);
-                    buffer_names.emplace_back(
-                        luisa::string("_bdmeta_") +
-                        vstd::to_string(arg.uid()));
+                        add_property(
+                            Property{
+                                ShaderVariableType::SPIRVBindlessBufferMetadata,
+                                0,
+                                next_reg(RegType::SRV),
+                                1},
+                            nullptr,
+                            luisa::string("_bdmeta_") +
+                                vstd::to_string(arg.uid()));
                 }
                 break;
             }
@@ -567,29 +581,29 @@ void SpirvCodegenEntry::generate_binding(
                 auto usage = luisa::to_underlying(binding.usage);
                 auto writes = (usage & luisa::to_underlying(Usage::WRITE)) != 0u;
                 if (binding.requires_accel_traversal_descriptor) {
-                    binding.read_property_index = _properties.size();
-                    _properties.emplace_back(
+                    binding.read_property_index = add_property(
                         Property{
                             ShaderVariableType::SPIRVAccel,
                             0,
                             next_reg(RegType::SRV),
-                            1});
-                    buffer_elem_types.push_back(nullptr);
-                    buffer_names.emplace_back(luisa::string("_accel_") + vstd::to_string(arg.uid()));
+                            1},
+                        nullptr,
+                        luisa::string("_accel_") +
+                            vstd::to_string(arg.uid()));
                 }
                 if (binding.requires_accel_instance_buffer) {
-                    binding.accel_instance_property_index = _properties.size();
-                    _properties.emplace_back(
+                    binding.accel_instance_property_index = add_property(
                         Property{
                             writes ? ShaderVariableType::SPIRVAccelInstanceRW :
                                      ShaderVariableType::SPIRVAccelInstance,
                             0,
                             next_reg(writes ? RegType::UAV : RegType::SRV),
-                            1});
-                    buffer_elem_types.push_back(nullptr);
-                    buffer_names.emplace_back(
-                        luisa::string(writes ? "_accel_rw_" : "_accel_inst_") +
-                        vstd::to_string(arg.uid()));
+                            1},
+                        nullptr,
+                        luisa::string(writes ?
+                                          "_accel_rw_" :
+                                          "_accel_inst_") +
+                            vstd::to_string(arg.uid()));
                 }
                 LUISA_ASSERT(
                     binding.requires_accel_traversal_descriptor ||
@@ -602,15 +616,13 @@ void SpirvCodegenEntry::generate_binding(
                 if (arg.type()->description() == "LC_IndirectDispatchBuffer"sv) {
                     auto &binding = add_resource_binding(arg);
                     binding.usage = Usage::WRITE;
-                    binding.write_property_index = _properties.size();
-                    _properties.emplace_back(
+                    binding.write_property_index = add_property(
                         Property{
                             ShaderVariableType::RWStructuredBuffer,
                             0,
                             next_reg(RegType::UAV),
-                            1});
-                    buffer_elem_types.push_back(nullptr);
-                    buffer_names.emplace_back("_indirect_dispatch");
+                            1},
+                        nullptr, "_indirect_dispatch");
                 }
                 break;
             default:
@@ -618,14 +630,13 @@ void SpirvCodegenEntry::generate_binding(
         }
     }
     if (_allow_indirect_dispatch) {
-        _properties.emplace_back(
+        add_property(
             Property{
                 ShaderVariableType::SPIRVIndirectDispatch,
                 0u,
                 next_reg(RegType::SRV),
-                1u});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("_indirect_dispatch_source");
+                1u},
+            nullptr, "_indirect_dispatch_source");
     }
     auto resource_argument_count = std::ranges::count_if(
         kernel.arguments(), [&](const Variable &argument) noexcept {
@@ -726,22 +737,20 @@ void SpirvCodegenEntry::generate_binding(
 
     // Print buffers
     if (kernel.requires_printing()) {
-        _properties.emplace_back(
+        add_property(
             Property{
                 ShaderVariableType::RWStructuredBuffer,
                 0,
                 next_reg(RegType::UAV),
-                1});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("_printCounter");
-        _properties.emplace_back(
+                1},
+            nullptr, "_printCounter");
+        add_property(
             Property{
                 ShaderVariableType::RWStructuredBuffer,
                 0,
                 next_reg(RegType::UAV),
-                1});
-        buffer_elem_types.push_back(nullptr);
-        buffer_names.emplace_back("_printBuffer");
+                1},
+            nullptr, "_printBuffer");
     }
     // NonWritable is a statement about the memory backing a declaration, not
     // merely about the access path through that declaration. User resources
@@ -756,9 +765,59 @@ void SpirvCodegenEntry::generate_binding(
         [&](const KernelResourceBinding &binding) noexcept {
             return has_usage(binding.usage, Usage::WRITE);
         });
-    LUISA_ASSERT(buffer_elem_types.size() == _properties.size() + 1u &&
-                     buffer_names.size() == _properties.size() + 1u,
-                 "SPIR-V descriptor properties, element types, and names are out of sync.");
+    LUISA_ASSERT(
+        property_emissions.size() == _properties.size(),
+        "SPIR-V descriptor properties and emission roles are out of sync.");
+    auto count_role = [&](PropertyRole role) noexcept -> size_t {
+        return static_cast<size_t>(std::ranges::count_if(
+            property_emissions,
+            [role](const PropertyEmission &emission) noexcept {
+                return emission.role == role;
+            }));
+    };
+    auto bindless_argument_count = static_cast<size_t>(
+        std::ranges::count_if(
+            _kernel_resource_bindings,
+            [](const KernelResourceBinding &binding) noexcept {
+                return binding.type_tag == Type::Tag::BINDLESS_ARRAY;
+            }));
+    LUISA_ASSERT(
+        count_role(PropertyRole::ARGUMENT_BUFFER) ==
+                (_has_argument_buffer ? 1u : 0u) &&
+            count_role(PropertyRole::BINDLESS_ARRAY) ==
+                bindless_argument_count &&
+            count_role(PropertyRole::BINDLESS_TEXTURE_2D_HEAP) ==
+                (_use_tex2d_bindless ? 1u : 0u) &&
+            count_role(PropertyRole::BINDLESS_TEXTURE_3D_HEAP) ==
+                (_use_tex3d_bindless ? 1u : 0u),
+        "SPIR-V descriptor emission roles disagree with the frozen runtime "
+        "resource plan.");
+    for (auto i = 0u; i < _properties.size(); ++i) {
+        auto &&property = _properties[i];
+        auto &&emission = property_emissions[i];
+        auto is_argument_or_bindless_table =
+            emission.role == PropertyRole::ARGUMENT_BUFFER ||
+            emission.role == PropertyRole::BINDLESS_ARRAY;
+        if (is_argument_or_bindless_table) {
+            LUISA_ASSERT(
+                property.type == ShaderVariableType::StructuredBuffer &&
+                    property.array_size == 1u &&
+                    emission.element_type == nullptr,
+                "SPIR-V internal buffer role {} has an incompatible public "
+                "property shape.",
+                static_cast<uint32_t>(emission.role));
+        }
+        auto is_bindless_texture_heap =
+            emission.role == PropertyRole::BINDLESS_TEXTURE_2D_HEAP ||
+            emission.role == PropertyRole::BINDLESS_TEXTURE_3D_HEAP;
+        LUISA_ASSERT(
+            is_bindless_texture_heap ==
+                (property.type == ShaderVariableType::SRVTextureHeap &&
+                 property.array_size == std::numeric_limits<uint>::max()),
+            "SPIR-V unbounded texture property {} is missing its exact 2D/3D "
+            "emission role.",
+            i);
+    }
 
     // Create SPIR-V global variables and add OpDecorate for property bindings
     _property_ids.clear();
@@ -804,7 +863,9 @@ void SpirvCodegenEntry::generate_binding(
             spv::Decoration::Offset, 0u);
         return struct_type;
     };
-    auto get_image_sampled_type_and_dim = [&](const Type *elem_type, size_t name_idx) -> std::pair<spv::Id, spv::Dim> {
+    auto get_image_sampled_type_and_dim =
+        [&](const Type *elem_type,
+            PropertyRole role) -> std::pair<spv::Id, spv::Dim> {
         spv::Id sampled_type = _builder.makeFloatType(32);
         spv::Dim dim = spv::Dim::Dim2D;
         if (elem_type != nullptr && elem_type->tag() == Type::Tag::TEXTURE) {
@@ -820,10 +881,9 @@ void SpirvCodegenEntry::generate_binding(
                 }
             }
             dim = (elem_type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
-        } else if (elem_type == nullptr) {
-            if (buffer_names[name_idx + 1] == "tex3d_heap") {
-                dim = spv::Dim::Dim3D;
-            }
+        } else if (role ==
+                   PropertyRole::BINDLESS_TEXTURE_3D_HEAP) {
+            dim = spv::Dim::Dim3D;
         }
         return {sampled_type, dim};
     };
@@ -847,18 +907,17 @@ void SpirvCodegenEntry::generate_binding(
 
     for (size_t i = 0; i < _properties.size(); ++i) {
         auto &&prop = _properties[i];
-        // buffer_elem_types and buffer_names still include the push constant at index 0,
-        // so offset by 1 to match _properties (which no longer includes ConstantValue).
-        auto elem_type = buffer_elem_types[i + 1];
-        auto var_name = (i + 1) < buffer_names.size() ? buffer_names[i + 1].c_str() : "resource";
+        auto &&emission = property_emissions[i];
+        auto elem_type = emission.element_type;
+        auto var_name = emission.name.c_str();
         // A user buffer always carries its logical Type. Untyped read-only
         // StructuredBuffer properties are the backend-owned argument or
         // bindless slot tables; the separate metadata property is likewise
         // backend-owned. Derive the memory contract from those persisted
         // property facts rather than from diagnostic variable names.
         auto backend_owned_immutable =
-            (prop.type == ShaderVariableType::StructuredBuffer &&
-             elem_type == nullptr) ||
+            emission.role == PropertyRole::ARGUMENT_BUFFER ||
+            emission.role == PropertyRole::BINDLESS_ARRAY ||
             prop.type ==
                 ShaderVariableType::SPIRVBindlessBufferMetadata;
         spv::Id var = spv::NoResult;
@@ -897,7 +956,8 @@ void SpirvCodegenEntry::generate_binding(
                     prop.type == ShaderVariableType::SPIRVAccelInstanceRW;
                 bool is_untyped = elem_type == nullptr;
                 spv::Id struct_type;
-                if (is_untyped && luisa::string_view{var_name}.starts_with("_bdarr_")) {
+                if (is_untyped &&
+                    emission.role == PropertyRole::BINDLESS_ARRAY) {
                     // Bindless array: use _convert_type to ensure type consistency with callable parameters
                     struct_type = _convert_type(Type::from("bindless_array"), Usage::READ);
                 } else if (elem_type != nullptr && prop.type == ShaderVariableType::StructuredBuffer) {
@@ -912,7 +972,7 @@ void SpirvCodegenEntry::generate_binding(
                 }
                 spv::StorageClass storage = spv::StorageClass::StorageBuffer;
                 var = _builder.createVariable(spv::NoPrecision, storage, struct_type, var_name);
-                if (luisa::string_view{var_name} == "_Global") {
+                if (emission.role == PropertyRole::ARGUMENT_BUFFER) {
                     _argument_buffer_id = var;
                 } else if (prop.type ==
                            ShaderVariableType::SPIRVIndirectDispatch) {
@@ -966,7 +1026,9 @@ void SpirvCodegenEntry::generate_binding(
                 break;
             }
             case ShaderVariableType::SRVTextureHeap: {
-                auto [sampled_type, dim] = get_image_sampled_type_and_dim(elem_type, i);
+                auto [sampled_type, dim] =
+                    get_image_sampled_type_and_dim(
+                        elem_type, emission.role);
                 auto image_type = elem_type == nullptr ?
                                       _builder.makeImageType(sampled_type, dim, false, false, false,
                                                              1, spv::ImageFormat::Unknown, "image") :
@@ -1003,9 +1065,11 @@ void SpirvCodegenEntry::generate_binding(
                                    prop.register_index);
                 _builder.addDecoration(var, spv::Decoration::Aliased);
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
-                    if (buffer_names[i + 1] == "tex2d_heap") {
+                    if (emission.role ==
+                        PropertyRole::BINDLESS_TEXTURE_2D_HEAP) {
                         _tex2d_heap_id = var;
-                    } else if (buffer_names[i + 1] == "tex3d_heap") {
+                    } else if (emission.role ==
+                               PropertyRole::BINDLESS_TEXTURE_3D_HEAP) {
                         _tex3d_heap_id = var;
                     }
                 }
@@ -1018,7 +1082,9 @@ void SpirvCodegenEntry::generate_binding(
                     "storage-image descriptor arrays; the required "
                     "StorageImageArrayNonUniformIndexing feature is not part "
                     "of the native artifact contract.");
-                auto [sampled_type, dim] = get_image_sampled_type_and_dim(elem_type, i);
+                auto [sampled_type, dim] =
+                    get_image_sampled_type_and_dim(
+                        elem_type, emission.role);
                 auto image_type = elem_type == nullptr ?
                                       _builder.makeImageType(sampled_type, dim, false, false, false,
                                                              2, spv::ImageFormat::Unknown, "image") :
@@ -1094,8 +1160,14 @@ void SpirvCodegenEntry::generate_binding(
                 break;
             }
             default:
-                break;
+                LUISA_ERROR_WITH_LOCATION(
+                    "Unsupported SPIR-V descriptor property type {}.",
+                    static_cast<uint32_t>(prop.type));
         }
+        LUISA_ASSERT(
+            var != spv::NoResult,
+            "SPIR-V descriptor property {} produced no global variable.",
+            i);
         _property_ids.emplace_back(var);
     }
     LUISA_ASSERT(

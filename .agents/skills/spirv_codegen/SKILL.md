@@ -344,6 +344,12 @@ shape. Runtime planning separately checks ordinary descriptor limits,
 update-after-bind aggregate limits, acceleration-structure limits, set count,
 and `vkGetDescriptorSetLayoutSupport`.
 
+Keep internal emission roles explicit beside each public property. Debug names
+such as `_Global`, `_bdarr_*`, `tex2d_heap`, and `tex3d_heap` may describe the
+generated module, but must not select argument-buffer IDs, bindless table
+types, texture dimensions, or heap IDs. Unknown public property kinds fail
+closed before a `NoResult` ID can enter the interface list.
+
 Native direct-buffer views use an internal argument buffer. Non-resource
 values are host-layout packed first; `StorageBufferMetadata` records follow at
 their natural alignment. HLSL debug validation words use a mutually exclusive
