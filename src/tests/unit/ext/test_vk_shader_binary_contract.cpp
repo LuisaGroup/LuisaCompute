@@ -619,7 +619,7 @@ int main(int argc, char *argv[]) {
         auto properties = compute_round_trip_properties();
         std::array arguments{uniform_int_argument()};
         auto printer_argument_pack = luisa::compute::Type::structure(
-            {luisa::compute::Type::of<uint32_t>()});
+            {luisa::compute::Type::from("uint")});
         std::array printers{
             std::pair{luisa::string{"value={}"},
                       printer_argument_pack}};
@@ -871,7 +871,7 @@ int main(int argc, char *argv[]) {
         auto properties = compute_printer_properties();
         std::array arguments{uniform_int_argument()};
         auto printer_argument_pack = luisa::compute::Type::structure(
-            {luisa::compute::Type::of<uint32_t>()});
+            {luisa::compute::Type::from("uint")});
         std::array printers{
             std::pair{luisa::string{"value={}"},
                       printer_argument_pack}};
