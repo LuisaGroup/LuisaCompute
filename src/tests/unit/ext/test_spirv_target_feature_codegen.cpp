@@ -25,6 +25,7 @@
 #include <luisa/xir/verifier.h>
 
 #include "spirv_codegen/entry.h"
+#include "spirv_codegen/optimizer.h"
 #include "spirv_codegen/texture_sampling.h"
 
 using namespace luisa;
@@ -1081,6 +1082,14 @@ int main(int argc, char *argv[]) {
         expect(eq(
             compiled.argument_roles.front(),
             lc::spirv::kernel_argument_role::accel_traversal));
+        expect(!lc::spirv::spirv_target_feature_is_capability_owned(
+            lc::spirv::target_feature::ray_query));
+        expect(eq(
+            lc::spirv::reconcile_spirv_target_features(
+                compiled.words.data(), compiled.words.size(), 0u),
+            lc::spirv::target_feature::ray_query))
+            << "a present RayQueryKHR capability must recover an omitted "
+               "runtime-owned artifact requirement";
     };
 
     "spirv_instance_only_accel_roles_do_not_require_ray_query"_test = [] {
@@ -1386,6 +1395,16 @@ int main(int argc, char *argv[]) {
             expect(!contains(compiled.text,
                              "OpCapability ShaderNonUniform"));
             expect(!contains(compiled.text, " NonUniform"));
+            expect(!lc::spirv::spirv_target_feature_is_capability_owned(
+                lc::spirv::target_feature::runtime_descriptor_array));
+            auto reconciled =
+                lc::spirv::reconcile_spirv_target_features(
+                    compiled.words.data(), compiled.words.size(), 0u);
+            expect((reconciled &
+                    lc::spirv::target_feature::runtime_descriptor_array) !=
+                   0u)
+                << "a present RuntimeDescriptorArray capability must recover "
+                   "an omitted runtime-owned artifact requirement";
             auto facts = inspect_configured_sampler_path(
                 luisa::span<const uint32_t>{compiled.words});
             expect_bindless_image_fetch_path(facts, false);

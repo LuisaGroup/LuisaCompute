@@ -103,9 +103,12 @@ void register_compute_passes(spvtools::Optimizer &optimizer) {
     return !has_uniform_storage_16 || has_16bit_arithmetic;
 }
 
-// These requirements have a one-to-one representation in OpCapability. Do
-// not add runtime-only feature bits here: descriptor-layout flags and sampler
-// anisotropy, for example, are not recoverable from capability declarations.
+// These requirements are owned entirely by OpCapability: if optimization
+// removes the declaration, reconciliation may remove the provisional bit.
+// A runtime-owned requirement may still be implied by a present capability
+// in target_feature_from_capability() below. That lets artifact validation
+// detect an omitted bit without treating capability absence as proof that a
+// semantic or descriptor-layout requirement disappeared.
 constexpr auto capability_owned_target_features =
     target_feature::sampled_image_array_dynamic_indexing |
     target_feature::sampled_image_array_non_uniform_indexing |
@@ -186,6 +189,10 @@ target_feature_from_capability(spv::Capability capability) noexcept {
             return target_feature::storage_buffer_array_non_uniform_indexing;
         case spv::Capability::StorageBufferArrayDynamicIndexing:
             return target_feature::storage_buffer_array_dynamic_indexing;
+        case spv::Capability::RuntimeDescriptorArray:
+            return target_feature::runtime_descriptor_array;
+        case spv::Capability::RayQueryKHR:
+            return target_feature::ray_query;
         case spv::Capability::ShaderClockKHR:
             return target_feature::shader_device_clock;
         default: return 0u;
