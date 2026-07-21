@@ -28,6 +28,8 @@
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/gep.h>
