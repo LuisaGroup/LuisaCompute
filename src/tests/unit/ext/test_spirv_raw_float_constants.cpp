@@ -543,6 +543,44 @@ int main(int argc, char *argv[]) {
                         e4m3_type);
         keep_conversion(Type::of<float>(), &source_float,
                         e5m2_type);
+
+        auto keep_bool_conversions = [&](const Type *source_type,
+                                         uint8_t source_bits) noexcept {
+            auto *source = module.create_constant(
+                source_type, &source_bits);
+            constexpr uint8_t zero_bits = 0u;
+            auto *zero = module.create_constant(
+                source_type, &zero_bits);
+            auto *scalar_bool = builder.static_cast_(
+                Type::of<bool>(), source);
+            builder.store(
+                builder.alloca_local(Type::of<bool>()), scalar_bool);
+
+            auto *source_vector_type = Type::vector(source_type, 2u);
+            auto *source_vector = builder.call(
+                source_vector_type, ArithmeticOp::AGGREGATE,
+                {source, zero});
+            auto *other_vector = builder.call(
+                source_vector_type, ArithmeticOp::AGGREGATE,
+                {zero, source});
+            constexpr bool condition_value = true;
+            auto *condition = module.create_constant(
+                Type::of<bool>(), &condition_value);
+            auto *condition_slot = builder.alloca_local(Type::of<bool>());
+            builder.store(condition_slot, condition);
+            auto *selected_vector = builder.call(
+                source_vector_type, ArithmeticOp::SELECT,
+                {other_vector, source_vector,
+                 builder.load(Type::of<bool>(), condition_slot)});
+            auto *bool_vector_type = Type::vector(Type::of<bool>(), 2u);
+            auto *vector_bool = builder.cast_(
+                bool_vector_type, xir::CastOp::STATIC_CAST,
+                selected_vector);
+            builder.store(
+                builder.alloca_local(bool_vector_type), vector_bool);
+        };
+        keep_bool_conversions(e4m3_type, e4m3_one_bits);
+        keep_bool_conversions(e5m2_type, e5m2_one_bits);
         builder.return_void();
 
         Kernel1D ast_kernel = []() noexcept {};
@@ -583,7 +621,12 @@ int main(int argc, char *argv[]) {
             << "FP8 conversions must report shaderFloat8 and no unrelated "
                "target feature";
 
+        std::unordered_map<spv::Id, spv::Id> value_types;
+        std::unordered_map<spv::Id, uint32_t> float_widths;
         size_t conversion_count = 0u;
+        size_t comparison_count = 0u;
+        size_t float32_comparison_count = 0u;
+        size_t select_count = 0u;
         for (auto offset = 5u; offset < compiled.spv_bin.size();) {
             auto word_count = compiled.spv_bin[offset] >> 16u;
             auto opcode = static_cast<spv::Op>(
@@ -592,12 +635,53 @@ int main(int argc, char *argv[]) {
                 offset + word_count > compiled.spv_bin.size()) {
                 break;
             }
-            conversion_count += opcode == spv::Op::OpFConvert;
+            if (opcode == spv::Op::OpTypeFloat && word_count >= 3u) {
+                float_widths.emplace(
+                    compiled.spv_bin[offset + 1u],
+                    compiled.spv_bin[offset + 2u]);
+            }
+            if ((opcode == spv::Op::OpConstant ||
+                 opcode == spv::Op::OpFConvert) &&
+                word_count >= 3u) {
+                value_types.emplace(
+                    compiled.spv_bin[offset + 2u],
+                    compiled.spv_bin[offset + 1u]);
+            }
+            if (opcode == spv::Op::OpFConvert) {
+                conversion_count++;
+            } else if (opcode == spv::Op::OpSelect) {
+                select_count++;
+            } else if (opcode == spv::Op::OpFUnordNotEqual &&
+                       word_count == 5u) {
+                comparison_count++;
+                auto lhs_type = value_types.find(
+                    compiled.spv_bin[offset + 3u]);
+                auto rhs_type = value_types.find(
+                    compiled.spv_bin[offset + 4u]);
+                auto lhs_width = lhs_type == value_types.end() ?
+                                     float_widths.end() :
+                                     float_widths.find(lhs_type->second);
+                auto rhs_width = rhs_type == value_types.end() ?
+                                     float_widths.end() :
+                                     float_widths.find(rhs_type->second);
+                if (lhs_width != float_widths.end() &&
+                    rhs_width != float_widths.end() &&
+                    lhs_width->second == 32u &&
+                    rhs_width->second == 32u) {
+                    float32_comparison_count++;
+                }
+            }
             offset += word_count;
         }
-        expect(eq(conversion_count, size_t{4u}))
-            << "both directions for both FP8 encodings must lower through "
-               "OpFConvert";
+        expect(eq(conversion_count, size_t{10u}))
+            << "both directions plus scalar/vector boolean casts for both "
+               "FP8 encodings must lower through OpFConvert";
+        expect(eq(comparison_count, size_t{6u}));
+        expect(eq(float32_comparison_count, comparison_count))
+            << "FP8-to-bool must widen every scalar lane before the unordered "
+               "zero comparison required for NaN truthiness";
+        expect(eq(select_count, size_t{2u}))
+            << "both FP8 encodings must remain legal operands of OpSelect";
     };
 
     return 0;

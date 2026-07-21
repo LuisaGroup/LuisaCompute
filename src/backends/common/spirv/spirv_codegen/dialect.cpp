@@ -506,17 +506,19 @@ private:
                                 inst->op())) {
             return;
         }
-        // The emitter deliberately rejects arithmetic results in an FP8
-        // scalar/vector/matrix. Comparisons and classification operations need
-        // an operand check as well because their boolean result would otherwise
-        // bypass that result-side guard and reach unsupported FP8 arithmetic.
+        // SPV_EXT_float8 permits transport operations such as composites and
+        // OpSelect, but not general arithmetic. Comparisons and classification
+        // operations need an operand check because their boolean result would
+        // otherwise bypass the result-side guard.
         auto fp8_value_type = [](const Type *type) noexcept {
             return type != nullptr &&
                    (type->is_scalar() || type->is_vector() ||
                     type->is_matrix()) &&
                    type_contains_float8(type);
         };
-        auto uses_fp8_arithmetic = fp8_value_type(inst->type());
+        auto uses_fp8_arithmetic =
+            fp8_value_type(inst->type()) &&
+            !spirv_fp8_transport_op_supported(inst->op());
         switch (inst->op()) {
             case xir::ArithmeticOp::BINARY_LESS:
             case xir::ArithmeticOp::BINARY_GREATER:

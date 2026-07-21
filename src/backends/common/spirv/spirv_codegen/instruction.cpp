@@ -72,7 +72,8 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto type = _convert_type(inst->type(), Usage::READ);
     auto t = inst->type();
     auto elem = t->is_vector() || t->is_matrix() ? t->element() : t;
-    if (elem->is_float8()) {
+    if (elem->is_float8() &&
+        !spirv_fp8_transport_op_supported(inst->op())) {
         LUISA_ERROR_WITH_LOCATION(
             "SPIR-V backend does not support general arithmetic on FP8 types. "
             "Please up-convert to float16 or float32, perform arithmetic, and down-convert.");
@@ -4676,6 +4677,16 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                                                     scalar, one, zero);
                     }
                     if (target->is_bool()) {
+                        // SPV_EXT_float8 permits FP8 values in conversions and
+                        // OpSelect, but not in floating-point comparisons.
+                        // Preserve C-style truthiness by widening before the
+                        // unordered comparison (so NaN remains true).
+                        if (source->is_float8()) {
+                            source = Type::of<float>();
+                            scalar = _builder.createUnaryOp(
+                                spv::Op::OpFConvert,
+                                _convert_type(source, Usage::READ), scalar);
+                        }
                         auto [zero, one] = make_scalar_zero_one(source);
                         static_cast<void>(one);
                         return _builder.createBinOp(
