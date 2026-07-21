@@ -15,6 +15,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
 
+#include "spirv_codegen/arithmetic_support.h"
 #include "spirv_codegen/call_graph_validation.h"
 #include "spirv_codegen/control_flow_plan.h"
 #include "spirv_codegen/dialect.h"
@@ -2142,6 +2143,25 @@ int main(int argc, char *argv[]) {
         expect(!validation.succeeded());
         expect(has_diagnostic(validation, "binary_equal"));
         expect(has_diagnostic(validation, "does not support FP8"));
+    };
+
+    "spirv_fp8_transport_allowlist_excludes_matrix_instructions"_test = [] {
+        // SPV_EXT_float8 admits composite and selection instructions, but
+        // does not admit the matrix-instruction category that owns
+        // OpTranspose. Keep the XIR classification exact even though Luisa's
+        // current ordinary matrix type is float32-only.
+        expect(lc::spirv::spirv_fp8_transport_op_supported(
+            ArithmeticOp::SELECT));
+        expect(lc::spirv::spirv_fp8_transport_op_supported(
+            ArithmeticOp::AGGREGATE));
+        expect(lc::spirv::spirv_fp8_transport_op_supported(
+            ArithmeticOp::SHUFFLE));
+        expect(lc::spirv::spirv_fp8_transport_op_supported(
+            ArithmeticOp::INSERT));
+        expect(lc::spirv::spirv_fp8_transport_op_supported(
+            ArithmeticOp::EXTRACT));
+        expect(!lc::spirv::spirv_fp8_transport_op_supported(
+            ArithmeticOp::MATRIX_TRANSPOSE));
     };
 
     "spirv_xir_function_local_atomic_is_rejected_before_emission"_test = [] {

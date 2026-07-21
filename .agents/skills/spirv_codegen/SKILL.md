@@ -160,8 +160,10 @@ Important type boundaries include:
   and nested storage arrays with zero-sized elements are rejected;
 - `SPV_EXT_float8` permits FP8 values only in its listed transport, storage,
   conversion, composite and selection instructions. General FP8 arithmetic
-  and comparisons remain invalid. FP8-to-bool casts must widen each scalar
-  lane to float32 before the unordered comparison so NaN remains truthy;
+  and comparisons remain invalid. Do not classify `OpTranspose` as transport:
+  it belongs to the matrix-instruction category, which the extension does not
+  admit. FP8-to-bool casts must widen each scalar lane to float32 before the
+  unordered comparison so NaN remains truthy;
 - texture dimensions are 2 or 3 and scalar elements are float32/int32/uint32;
 - opaque ray-query values have deliberately restricted lifetime and argument
   rules;

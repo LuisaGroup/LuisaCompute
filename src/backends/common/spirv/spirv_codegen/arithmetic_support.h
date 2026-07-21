@@ -13,7 +13,6 @@ spirv_fp8_transport_op_supported(
     using luisa::compute::xir::ArithmeticOp;
     switch (op) {
         case ArithmeticOp::SELECT:
-        case ArithmeticOp::MATRIX_TRANSPOSE:
         case ArithmeticOp::AGGREGATE:
         case ArithmeticOp::SHUFFLE:
         case ArithmeticOp::INSERT:
