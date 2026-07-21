@@ -4698,6 +4698,7 @@ OpName %8 "Fma"
         auto rhs = dc.device.create_buffer<float>(1u);
         auto addend = dc.device.create_buffer<float>(1u);
         auto output = dc.device.create_buffer<uint32_t>(1u);
+        auto reduction_output = dc.device.create_buffer<uint32_t>(1u);
         auto matrix_lhs = dc.device.create_buffer<float2x2>(1u);
         auto matrix_addend = dc.device.create_buffer<float2x2>(1u);
         auto matrix_output = dc.device.create_buffer<uint4>(1u);
@@ -4706,11 +4707,17 @@ OpName %8 "Fma"
                              BufferFloat b,
                              BufferFloat c,
                              BufferUInt out,
+                             BufferUInt reduction_out,
                              BufferFloat2x2 matrix_a,
                              BufferFloat2x2 matrix_c,
                              BufferUInt4 matrix_out) noexcept {
             auto product = a.read(0u) * b.read(0u);
             out.write(0u, as<uint>(product + c.read(0u)));
+            auto reduction_product = reduce_prod(
+                make_float2(a.read(0u), b.read(0u)));
+            auto reduction_sum = reduce_sum(
+                make_float2(reduction_product, c.read(0u)));
+            reduction_out.write(0u, as<uint>(reduction_sum));
             auto matrix_product = matrix_a.read(0u) * b.read(0u);
             auto matrix_sum = matrix_product + matrix_c.read(0u);
             matrix_out.write(
@@ -4727,6 +4734,7 @@ OpName %8 "Fma"
         std::array multiplicand{std::bit_cast<float>(multiplicand_bits)};
         std::array addend_value{std::bit_cast<float>(addend_bits)};
         uint32_t result = 0xffffffffu;
+        uint32_t reduction_result = 0xffffffffu;
         auto repeated_matrix = [](float value) noexcept {
             return make_float2x2(value, value, value, value);
         };
@@ -4741,10 +4749,12 @@ OpName %8 "Fma"
                << matrix_lhs.copy_from(luisa::span{matrix_multiplicand})
                << matrix_addend.copy_from(
                       luisa::span{matrix_addend_value})
-               << shader(lhs, rhs, addend, output, matrix_lhs,
-                         matrix_addend, matrix_output)
+               << shader(lhs, rhs, addend, output, reduction_output,
+                         matrix_lhs, matrix_addend, matrix_output)
                       .dispatch(1u)
                << output.copy_to(luisa::span{&result, 1u})
+               << reduction_output.copy_to(
+                      luisa::span{&reduction_result, 1u})
                << matrix_output.copy_to(
                       luisa::span{&matrix_result, 1u})
                << synchronize();
@@ -4752,23 +4762,27 @@ OpName %8 "Fma"
             << luisa::format(
                    "non-contracted (1+2^-23)^2-(1+2^-22) must round to +0, got bits 0x{:08x}",
                    result);
+        expect(reduction_result == 0u)
+            << luisa::format(
+                   "non-contracted reduction product/sum must round to +0, got bits 0x{:08x}",
+                   reduction_result);
         expect_vector_equal(matrix_result, uint4{0u});
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "non-contraction regression should emit exactly one native SPIR-V dump";
         if (dumps.size() == 1u) {
             auto disassembly = read_text_file(dumps.front());
-            expect(count_spirv_opcode(disassembly, "FMul") == 1u)
-                << "non-fast-math multiplication must remain one OpFMul";
-            expect(count_spirv_opcode(disassembly, "FAdd") == 3u)
-                << "scalar and two matrix-column additions must remain OpFAdd";
+            expect(count_spirv_opcode(disassembly, "FMul") == 2u)
+                << "ordinary and reduction multiplications must remain OpFMul";
+            expect(count_spirv_opcode(disassembly, "FAdd") == 4u)
+                << "ordinary, reduction, and matrix additions must remain OpFAdd";
             expect(count_spirv_opcode(
                        disassembly, "MatrixTimesScalar") == 1u)
                 << "matrix scaling must remain one OpMatrixTimesScalar";
             expect(count_spirv_extended_instruction(disassembly, "Fma") == 0u)
                 << "non-fast-math SPIR-V must not contain a fused Fma instruction";
-            expect(count_substring(disassembly, "NoContraction") == 5u)
-                << "all scalar and matrix multiply/add results must carry NoContraction";
+            expect(count_substring(disassembly, "NoContraction") == 7u)
+                << "all ordinary, reduction, and matrix multiply/add results must carry NoContraction";
         }
     };
 

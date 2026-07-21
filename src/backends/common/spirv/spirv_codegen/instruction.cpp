@@ -852,13 +852,19 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 switch (inst->op()) {
                     case xir::ArithmeticOp::REDUCE_SUM:
                         if (elem_type->is_float())
-                            id = _builder.createBinOp(spv::Op::OpFAdd, elem_spv_type, id, comp);
+                            id = mark_no_contraction(
+                                _builder.createBinOp(
+                                    spv::Op::OpFAdd, elem_spv_type,
+                                    id, comp));
                         else
                             id = _builder.createBinOp(spv::Op::OpIAdd, elem_spv_type, id, comp);
                         break;
                     case xir::ArithmeticOp::REDUCE_PRODUCT:
                         if (elem_type->is_float())
-                            id = _builder.createBinOp(spv::Op::OpFMul, elem_spv_type, id, comp);
+                            id = mark_no_contraction(
+                                _builder.createBinOp(
+                                    spv::Op::OpFMul, elem_spv_type,
+                                    id, comp));
                         else
                             id = _builder.createBinOp(spv::Op::OpIMul, elem_spv_type, id, comp);
                         break;

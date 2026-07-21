@@ -609,11 +609,12 @@ deserialization.
 When `ShaderOption::enable_fast_math` is false, every emitted floating
 multiply/add/subtract that represents a source arithmetic operation must carry
 `NoContraction`. This includes the component instructions used to expand
-matrix arithmetic and native matrix multiply/outer-product instructions, not
-only scalar/vector `OpFMul`, `OpFAdd`, and `OpFSub`. Decorating only a final
+matrix arithmetic, the instructions used to expand floating reductions, and
+native matrix multiply/outer-product instructions, not only scalar/vector
+`OpFMul`, `OpFAdd`, and `OpFSub`. Decorating only a final
 `OpCompositeConstruct` is invalid and does not protect its component
 operations. Keep a rounding-sensitive runtime check and exact SPIR-V
-decoration count for scalar and matrix multiply/add paths.
+decoration count for ordinary, reduction, and matrix multiply/add paths.
 
 XIR `ROUND` has the C/C++ `round` contract: halfway cases round away from
 zero and signed zero is preserved. Do not implement it as
