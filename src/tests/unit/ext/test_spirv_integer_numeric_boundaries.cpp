@@ -114,11 +114,19 @@ struct IntegerBitcast {
     uint32_t operand_id{0u};
 };
 
+struct IntegerSelect {
+    uint32_t result_id{0u};
+    uint32_t condition_id{0u};
+    uint32_t true_value_id{0u};
+    uint32_t false_value_id{0u};
+};
+
 struct IntegerModuleFacts {
     std::vector<ShiftSignature> shifts;
     std::vector<IntegerConstant> constants;
     std::vector<IntegerOperation> operations;
     std::vector<IntegerBitcast> bitcasts;
+    std::vector<IntegerSelect> selects;
     size_t untyped_shift_count{0u};
     size_t unsigned_64_mod_count{0u};
     size_t unsigned_64_sub_count{0u};
@@ -243,6 +251,13 @@ struct IntegerModuleFacts {
             facts.bitcasts.emplace_back(IntegerBitcast{
                 .result_id = words[offset + 2u],
                 .operand_id = words[offset + 3u]});
+        } else if (opcode == spv::Op::OpSelect &&
+                   word_count == 6u) {
+            facts.selects.emplace_back(IntegerSelect{
+                .result_id = words[offset + 2u],
+                .condition_id = words[offset + 3u],
+                .true_value_id = words[offset + 4u],
+                .false_value_id = words[offset + 5u]});
         }
         offset += word_count;
     }
@@ -376,6 +391,18 @@ struct IntegerModuleFacts {
             return operation.opcode == opcode &&
                    operation.lhs_id == lhs_id &&
                    operation.rhs_id == rhs_id;
+        }));
+}
+
+[[nodiscard]] size_t count_select_values(
+    const IntegerModuleFacts &facts,
+    uint32_t true_value_id,
+    uint32_t false_value_id) noexcept {
+    return static_cast<size_t>(std::count_if(
+        facts.selects.begin(), facts.selects.end(),
+        [=](auto &&select) noexcept {
+            return select.true_value_id == true_value_id &&
+                   select.false_value_id == false_value_id;
         }));
 }
 
@@ -615,6 +642,13 @@ int main(int argc, char *argv[]) {
                              ArithmeticOp::BINARY_EQUAL);
         auto *not_equal = binary(Type::of<bool>(),
                                  ArithmeticOp::BINARY_NOT_EQUAL);
+        auto *true_value = make_constant(module, true);
+        std::array<Value *, 3u> select_operands{
+            seven, three, true_value};
+        auto *selected = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::SELECT,
+            luisa::span<Value *const>{select_operands.data(),
+                                      select_operands.size()});
         auto write = [&](uint32_t index, Value *value) noexcept {
             auto *index_value = make_constant(module, index);
             std::array<Value *, 3u> operands{
@@ -627,6 +661,7 @@ int main(int argc, char *argv[]) {
         write(1u, product);
         write(2u, builder.static_cast_(Type::of<uint32_t>(), equal));
         write(3u, builder.static_cast_(Type::of<uint32_t>(), not_equal));
+        write(4u, selected);
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
@@ -673,6 +708,8 @@ int main(int argc, char *argv[]) {
                       facts, spv::Op::OpINotEqual,
                       seven_id, three_id),
                   1u));
+        expect(eq(count_select_values(facts, three_id, seven_id), 1u))
+            << "ordinary XIR select must remain OpSelect at optimizer level zero";
     };
 
     return 0;

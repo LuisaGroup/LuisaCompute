@@ -481,15 +481,6 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::SELECT: {
             // XIR SELECT operands are (false_value, true_value, condition)
-            // Constant-fold: if condition is a constant bool, pick the correct operand
-            if (inst->operand(2)->isa<xir::Constant>()) {
-                auto cond_const = static_cast<const xir::Constant *>(inst->operand(2));
-                if (cond_const->type()->is_bool()) {
-                    bool cond_val = cond_const->as<bool>();
-                    id = cond_val ? operand(1) : operand(0);
-                    break;
-                }
-            }
             auto cond = operand(2);
             auto cond_type = _builder.getTypeId(cond);
             auto is_bool_condition =
