@@ -6696,44 +6696,73 @@ OpName %8 "Fma"
         auto vertex_buffer = device.create_buffer<float3>(vertices.size());
         auto triangle_buffer = device.create_buffer<Triangle>(1u);
         auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
-        auto accel = device.create_accel();
+        auto accel = device.create_accel({.allow_update = true});
         constexpr auto expected_visibility = static_cast<uint8_t>(0x5au);
         constexpr auto expected_user_id = 0x00c0ffeeu;
-        accel.emplace_back(mesh, make_float4x4(1.0f),
+        const auto expected_transform = make_float4x4(
+            float4{2.0f, 3.0f, 5.0f, 0.0f},
+            float4{0.0f, 7.0f, 11.0f, 0.0f},
+            float4{0.0f, 0.0f, 13.0f, 0.0f},
+            float4{17.0f, 19.0f, 23.0f, 1.0f});
+        const auto updated_transform = make_float4x4(
+            float4{-2.0f, 1.0f, 0.0f, 0.0f},
+            float4{0.0f, 3.0f, 1.0f, 0.0f},
+            float4{1.0f, 0.0f, 4.0f, 0.0f},
+            float4{-5.0f, 6.0f, 7.0f, 1.0f});
+        accel.emplace_back(mesh, expected_transform,
                            expected_visibility, true, expected_user_id);
 
-        Kernel1D query_kernel = [](AccelVar accel_var, BufferUInt output) noexcept {
+        Kernel1D query_kernel = [](AccelVar accel_var, BufferUInt output,
+                                   BufferFloat4x4 transform_output) noexcept {
             output.write(0u, accel_var.instance_user_id(0));
             output.write(1u, accel_var.instance_visibility_mask(0u));
+            transform_output.write(
+                0u, accel_var.instance_transform(0u));
         };
-        Kernel1D update_kernel = [](AccelVar accel_var) noexcept {
+        Kernel1D update_kernel = [](AccelVar accel_var,
+                                    Float4x4 transform) noexcept {
             accel_var.set_instance_user_id(0u, 0x000badc0u);
             accel_var.set_instance_visibility(0, 0xa5u);
+            accel_var.set_instance_transform(0u, transform);
         };
         auto shader = device.compile(query_kernel);
         auto update_shader = device.compile(update_kernel);
         auto output = device.create_buffer<uint32_t>(2u);
+        auto transform_output = device.create_buffer<float4x4>(1u);
         std::array<uint32_t, 2u> result{};
+        std::array<float4x4, 1u> transform_result{};
         stream << vertex_buffer.copy_from(luisa::span{vertices})
                << triangle_buffer.copy_from(luisa::span{indices})
                << mesh.build()
                << accel.build()
-               << shader(accel, output).dispatch(1u)
+               << shader(accel, output, transform_output).dispatch(1u)
                << output.copy_to(luisa::span{result})
+               << transform_output.copy_to(luisa::span{transform_result})
                << synchronize();
 
         expect(result[0] == expected_user_id);
         expect(result[1] == expected_visibility);
+        for (auto column = 0u; column < 4u; ++column) {
+            expect_vector_equal(
+                transform_result[0][column],
+                expected_transform[column]);
+        }
 
         result.fill(0u);
-        stream << update_shader(accel).dispatch(1u)
-               << shader(accel, output).dispatch(1u)
+        stream << update_shader(accel, updated_transform).dispatch(1u)
+               << shader(accel, output, transform_output).dispatch(1u)
                << output.copy_to(luisa::span{result})
+               << transform_output.copy_to(luisa::span{transform_result})
                << synchronize();
         expect(result[0] == 0x000badc0u)
             << luisa::format("updated user ID mismatch: got 0x{:08x}", result[0]);
         expect(result[1] == 0xa5u)
             << luisa::format("updated visibility mismatch: got 0x{:08x}", result[1]);
+        for (auto column = 0u; column < 4u; ++column) {
+            expect_vector_equal(
+                transform_result[0][column],
+                updated_transform[column]);
+        }
     };
 
     "vk_indirect_rejects_imported_native_writable_source_alias"_test = [&] {
