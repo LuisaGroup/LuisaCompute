@@ -6,6 +6,7 @@
 
 #include "ut/ut.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +21,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/verifier.h>
 
 #include "spirv_codegen/dialect.h"
 #include "spirv_codegen/entry.h"
@@ -121,6 +123,7 @@ struct IntegerModuleFacts {
     size_t unsigned_64_mod_count{0u};
     size_t unsigned_64_sub_count{0u};
     size_t unsigned_32_or_count{0u};
+    size_t spec_constant_op_count{0u};
 };
 
 [[nodiscard]] IntegerModuleFacts inspect_integer_module(
@@ -211,7 +214,11 @@ struct IntegerModuleFacts {
                 .rhs_id = words[offset + 4u]});
         } else if ((opcode == spv::Op::OpUMod ||
                     opcode == spv::Op::OpISub ||
-                    opcode == spv::Op::OpBitwiseOr) &&
+                    opcode == spv::Op::OpBitwiseOr ||
+                    opcode == spv::Op::OpIAdd ||
+                    opcode == spv::Op::OpIMul ||
+                    opcode == spv::Op::OpIEqual ||
+                    opcode == spv::Op::OpINotEqual) &&
                    word_count == 5u) {
             facts.operations.emplace_back(IntegerOperation{
                 .opcode = opcode,
@@ -229,6 +236,8 @@ struct IntegerModuleFacts {
                        result.width == 32u && !result.is_signed) {
                 facts.unsigned_32_or_count++;
             }
+        } else if (opcode == spv::Op::OpSpecConstantOp) {
+            facts.spec_constant_op_count++;
         } else if (opcode == spv::Op::OpBitcast &&
                    word_count == 4u) {
             facts.bitcasts.emplace_back(IntegerBitcast{
@@ -356,6 +365,18 @@ struct IntegerModuleFacts {
                      0u;
     }
     return count;
+}
+
+[[nodiscard]] size_t count_binary_values(
+    const IntegerModuleFacts &facts, spv::Op opcode,
+    uint32_t lhs_id, uint32_t rhs_id) noexcept {
+    return static_cast<size_t>(std::ranges::count_if(
+        facts.operations,
+        [=](const IntegerOperation &operation) noexcept {
+            return operation.opcode == opcode &&
+                   operation.lhs_id == lhs_id &&
+                   operation.rhs_id == rhs_id;
+        }));
 }
 
 [[nodiscard]] size_t count_shift_values(
@@ -567,6 +588,91 @@ int main(int argc, char *argv[]) {
                "the reverse count for the left shift";
         expect(eq(facts.shifts.size(), 7u))
             << "no extra or missing shift may hide a changed rotate lowering";
+    };
+
+    "spirv_ordinary_integer_constants_do_not_become_specialization_constants"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *output = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *seven = make_constant(module, uint32_t{7u});
+        auto *three = make_constant(module, uint32_t{3u});
+        auto *body = kernel->create_body_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto binary = [&](const Type *type, ArithmeticOp op) noexcept {
+            std::array<Value *, 2u> operands{seven, three};
+            return builder.call(
+                type, op,
+                luisa::span<Value *const>{operands.data(), operands.size()});
+        };
+        auto *sum = binary(Type::of<uint32_t>(),
+                           ArithmeticOp::BINARY_ADD);
+        auto *product = binary(Type::of<uint32_t>(),
+                               ArithmeticOp::BINARY_MUL);
+        auto *equal = binary(Type::of<bool>(),
+                             ArithmeticOp::BINARY_EQUAL);
+        auto *not_equal = binary(Type::of<bool>(),
+                                 ArithmeticOp::BINARY_NOT_EQUAL);
+        auto write = [&](uint32_t index, Value *value) noexcept {
+            auto *index_value = make_constant(module, index);
+            std::array<Value *, 3u> operands{
+                output, index_value, value};
+            builder.call(
+                ResourceWriteOp::BUFFER_WRITE,
+                luisa::span<Value *const>{operands.data(), operands.size()});
+        };
+        write(0u, sum);
+        write(1u, product);
+        write(2u, builder.static_cast_(Type::of<uint32_t>(), equal));
+        write(3u, builder.static_cast_(Type::of<uint32_t>(), not_equal));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+        expect(dialect.succeeded());
+        if (!dialect.succeeded()) { return; }
+
+        Kernel1D ast_kernel = [](BufferUInt) noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto compiled =
+            lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+                ast_kernel.function()->function(), &module,
+                ShaderOption{.enable_cache = false}, {});
+
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        expect(tools.Validate(compiled.spv_bin.data(),
+                              compiled.spv_bin.size()));
+        auto facts = inspect_integer_module(compiled.spv_bin);
+        constexpr IntegerType u32{.width = 32u, .is_signed = false};
+        auto seven_id = find_constant(facts, u32, 7u);
+        auto three_id = find_constant(facts, u32, 3u);
+        expect(seven_id != 0u && three_id != 0u);
+        expect(eq(facts.spec_constant_op_count, 0u))
+            << "ordinary XIR constants must not acquire specialization semantics";
+        expect(eq(count_binary_values(
+                      facts, spv::Op::OpIAdd,
+                      seven_id, three_id),
+                  1u));
+        expect(eq(count_binary_values(
+                      facts, spv::Op::OpIMul,
+                      seven_id, three_id),
+                  1u));
+        expect(eq(count_binary_values(
+                      facts, spv::Op::OpIEqual,
+                      seven_id, three_id),
+                  1u));
+        expect(eq(count_binary_values(
+                      facts, spv::Op::OpINotEqual,
+                      seven_id, three_id),
+                  1u));
     };
 
     return 0;

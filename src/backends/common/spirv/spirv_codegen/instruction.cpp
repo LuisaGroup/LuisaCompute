@@ -250,25 +250,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 if (try_fma(inst->operand(0), inst->operand(1))) break;
                 if (try_fma(inst->operand(1), inst->operand(0))) break;
                 id = binary(spv::Op::OpFAdd);
-            } else if (is_float) {
-                id = binary(spv::Op::OpFAdd);
             } else {
-                auto a = operand(0);
-                auto b = operand(1);
-                // Constant-fold at emission time
-                auto op_a = _builder.getOpCode(a);
-                auto op_b = _builder.getOpCode(b);
-                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
-                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
-                    auto type_a = _builder.getTypeId(a);
-                    if (_builder.isIntType(type_a) || _builder.isUintType(type_a)) {
-                        // Attempt to compute folded constant
-                        std::vector<spv::Id> ops = {a, b};
-                        id = _builder.createSpecConstantOp(spv::Op::OpIAdd, type, ops, {});
-                        break;
-                    }
-                }
-                id = binary(spv::Op::OpIAdd);
+                id = binary(is_float ?
+                                spv::Op::OpFAdd :
+                                spv::Op::OpIAdd);
             }
             break;
         }
@@ -279,77 +264,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 id = binary(spv::Op::OpISub);
             break;
         case xir::ArithmeticOp::BINARY_MUL: {
-            if (is_float) {
-                // Peephole: if one operand is a smeared scalar, use VectorTimesScalar
-                if (!is_scalar) {
-                    auto op0 = inst->operand(0);
-                    auto op1 = inst->operand(1);
-                    auto try_vts = [&](const xir::Value *vec, const xir::Value *smeared) -> spv::Id {
-                        if (smeared->isa<xir::Instruction>()) {
-                            auto *smear_inst = static_cast<const xir::Instruction *>(smeared);
-                            if (smear_inst->derived_instruction_tag() == xir::DerivedInstructionTag::ARITHMETIC) {
-                                auto *arith = static_cast<const xir::ArithmeticInst *>(smear_inst);
-                                if (arith->op() == xir::ArithmeticOp::AGGREGATE) {
-                                    bool all_same = arith->operand_count() > 1;
-                                    for (size_t j = 1; j < arith->operand_count(); ++j) {
-                                        if (arith->operand(j) != arith->operand(0)) {
-                                            all_same = false;
-                                            break;
-                                        }
-                                    }
-                                    if (all_same) {
-                                        auto scalar = _emit_value(arith->operand(0));
-                                        return _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, _emit_value(vec), scalar);
-                                    }
-                                }
-                            }
-                        }
-                        return spv::NoResult;
-                    };
-                    id = try_vts(op0, op1);
-                    if (id == spv::NoResult) id = try_vts(op1, op0);
-                }
-                if (id == spv::NoResult) id = binary(spv::Op::OpFMul);
-            } else {
-                auto a = operand(0);
-                auto b = operand(1);
-                // Strength reduction: IMul(x, 2^n) → ShiftLeftLogical(x, n)
-                if (inst->operand(1)->isa<xir::Constant>()) {
-                    auto c = static_cast<const xir::Constant *>(inst->operand(1));
-                    uint32_t val = 0;
-                    bool is_pow2 = false;
-                    if (c->type()->is_uint32()) {
-                        val = c->as<uint32_t>();
-                        is_pow2 = (val & (val - 1u)) == 0u && val != 0u;
-                    } else if (c->type()->is_int32()) {
-                        int32_t sval = c->as<int32_t>();
-                        if (sval > 0) {
-                            val = static_cast<uint32_t>(sval);
-                            is_pow2 = (val & (val - 1u)) == 0u;
-                        }
-                    }
-                    if (is_pow2) {
-                        uint32_t shift = 0;
-                        while (val >>= 1u) ++shift;
-                        auto shift_id = _builder.makeUintConstant(shift);
-                        id = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, a, shift_id);
-                        break;
-                    }
-                }
-                // Constant-fold at emission time
-                auto op_a = _builder.getOpCode(a);
-                auto op_b = _builder.getOpCode(b);
-                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
-                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
-                    auto type_a = _builder.getTypeId(a);
-                    if (_builder.isIntType(type_a) || _builder.isUintType(type_a)) {
-                        std::vector<spv::Id> ops = {a, b};
-                        id = _builder.createSpecConstantOp(spv::Op::OpIMul, type, ops, {});
-                        break;
-                    }
-                }
-                id = binary(spv::Op::OpIMul);
-            }
+            id = binary(is_float ?
+                            spv::Op::OpFMul :
+                            spv::Op::OpIMul);
             break;
         }
         case xir::ArithmeticOp::BINARY_DIV:
@@ -502,20 +419,6 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::BINARY_EQUAL: {
             auto op_elem = inst->operand(0)->type();
             op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
-            // Constant-fold at emission time
-            if (inst->operand(0)->isa<xir::Constant>() && inst->operand(1)->isa<xir::Constant>()) {
-                auto a = operand(0);
-                auto b = operand(1);
-                auto op_a = _builder.getOpCode(a);
-                auto op_b = _builder.getOpCode(b);
-                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
-                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
-                    if (_builder.isIntType(_builder.getTypeId(a)) || _builder.isUintType(_builder.getTypeId(a))) {
-                        id = _builder.createSpecConstantOp(spv::Op::OpIEqual, type, {a, b}, {});
-                        break;
-                    }
-                }
-            }
             if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdEqual);
             else if (op_elem->is_bool())
@@ -527,20 +430,6 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::BINARY_NOT_EQUAL: {
             auto op_elem = inst->operand(0)->type();
             op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
-            // Constant-fold at emission time
-            if (inst->operand(0)->isa<xir::Constant>() && inst->operand(1)->isa<xir::Constant>()) {
-                auto a = operand(0);
-                auto b = operand(1);
-                auto op_a = _builder.getOpCode(a);
-                auto op_b = _builder.getOpCode(b);
-                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
-                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
-                    if (_builder.isIntType(_builder.getTypeId(a)) || _builder.isUintType(_builder.getTypeId(a))) {
-                        id = _builder.createSpecConstantOp(spv::Op::OpINotEqual, type, {a, b}, {});
-                        break;
-                    }
-                }
-            }
             if (op_elem->is_float())
                 id = binary(spv::Op::OpFUnordNotEqual);
             else if (op_elem->is_bool())

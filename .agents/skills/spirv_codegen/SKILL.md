@@ -92,6 +92,12 @@ the frozen AST/XIR ABI are hard invariants. Do not coerce invalid arithmetic
 operands or synthesize missing kernel arguments. Assert if a verified boolean
 `select` or planned argument buffer does not lower as expected.
 
+Emit ordinary XIR arithmetic as ordinary SPIR-V instructions. Do not turn
+constant operands into `OpSpecConstantOp`: the runtime exposes no matching
+specialization-constant ABI. Keep optional integer constant folding and
+strength reduction in the XIR/SPIRV-Tools optimization layers instead of
+embedding partial, always-on peepholes in instruction selection.
+
 `SpirvCodegenEntry` owns its `spv::Builder` normally. Its destructor first
 clears maps keyed by XIR objects, then the builder is destroyed. Do not add a
 `release()` leak workaround.
