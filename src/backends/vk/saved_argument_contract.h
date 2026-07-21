@@ -19,30 +19,32 @@ using namespace luisa::compute;
 // intentional and means byte-addressed storage (Type::buffer(nullptr)); typed
 // buffers carry their nonzero logical element stride.
 struct SavedArgument {
-    static constexpr uint invalid_buffer_metadata_index = ~0u;
-    static constexpr uint buffer_metadata_index_mask = 0x7fffffffu;
-    static constexpr uint native_buffer_device_address =
+    static constexpr uint32_t invalid_buffer_metadata_index = ~0u;
+    static constexpr uint32_t buffer_metadata_index_mask = 0x7fffffffu;
+    static constexpr uint32_t native_buffer_role_flag = 0x80000000u;
+    static constexpr uint32_t unspecified_native_resource_roles = ~0u;
+    // MSVC 2022 (14.44) workaround: static constexpr initialized from
+    // cross-namespace inline constexpr typedef aliases may fail.
+    inline static constexpr uint32_t native_buffer_device_address =
         spirv::kernel_argument_role::buffer_device_address;
-    static constexpr uint native_buffer_role_flag = 0x80000000u;
-    static constexpr uint unspecified_native_resource_roles = ~0u;
-    static constexpr uint native_accel_role_traversal =
+    inline static constexpr uint32_t native_accel_role_traversal =
         spirv::kernel_argument_role::accel_traversal;
-    static constexpr uint native_accel_role_instance =
+    inline static constexpr uint32_t native_accel_role_instance =
         spirv::kernel_argument_role::accel_instance;
-    static constexpr uint native_accel_role_known_mask =
+    inline static constexpr uint32_t native_accel_role_known_mask =
         spirv::kernel_argument_role::accel_known_mask;
-    static constexpr uint native_bindless_role_known_mask =
+    inline static constexpr uint32_t native_bindless_role_known_mask =
         spirv::kernel_argument_role::bindless_known_mask;
     Type::Tag tag{};
     Usage var_usage{};
-    uint struct_size{};
+    uint32_t struct_size{};
     // The argument tag is the discriminator for this stable 32-bit ABI word:
     // BUFFER stores its dense metadata index plus the native role flag;
     // native ACCEL and BINDLESS_ARRAY arguments store their exact role masks.
     // All other arguments and legacy resource artifacts keep the all-ones
     // unspecified sentinel. Keep one canonical scalar instead of a union so
     // hashing/serialization never reads an inactive member.
-    uint resource_aux{invalid_buffer_metadata_index};
+    uint32_t resource_aux{invalid_buffer_metadata_index};
     SavedArgument() = default;
     SavedArgument(Function kernel, Variable const &var)
         : SavedArgument(var.type()) {
@@ -53,7 +55,7 @@ struct SavedArgument {
         var_usage = usage;
     }
     explicit SavedArgument(Type const *type);
-    void set_buffer_metadata_index(uint index) noexcept {
+    void set_buffer_metadata_index(uint32_t index) noexcept {
         if (index == invalid_buffer_metadata_index) {
             resource_aux = invalid_buffer_metadata_index;
         } else {
@@ -63,10 +65,10 @@ struct SavedArgument {
             resource_aux = role | index;
         }
     }
-    [[nodiscard]] uint buffer_metadata_index() const noexcept {
+    [[nodiscard]] uint32_t buffer_metadata_index() const noexcept {
         return resource_aux & buffer_metadata_index_mask;
     }
-    void set_native_buffer_roles(uint roles) noexcept {
+    void set_native_buffer_roles(uint32_t roles) noexcept {
         if (resource_aux == invalid_buffer_metadata_index) { return; }
         resource_aux =
             (resource_aux & buffer_metadata_index_mask) |
@@ -78,16 +80,16 @@ struct SavedArgument {
         return tag == Type::Tag::BUFFER && has_buffer_metadata() &&
                (resource_aux & native_buffer_role_flag) != 0u;
     }
-    void set_native_accel_roles(uint roles) noexcept {
+    void set_native_accel_roles(uint32_t roles) noexcept {
         resource_aux = roles;
     }
-    [[nodiscard]] uint native_accel_roles() const noexcept {
+    [[nodiscard]] uint32_t native_accel_roles() const noexcept {
         return resource_aux;
     }
-    void set_native_bindless_roles(uint roles) noexcept {
+    void set_native_bindless_roles(uint32_t roles) noexcept {
         resource_aux = roles;
     }
-    [[nodiscard]] uint native_bindless_roles() const noexcept {
+    [[nodiscard]] uint32_t native_bindless_roles() const noexcept {
         return resource_aux;
     }
     [[nodiscard]] bool has_buffer_metadata() const noexcept {

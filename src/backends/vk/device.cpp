@@ -1062,6 +1062,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_float8 = true;
         }
     }
+#ifndef NDEBUG
     if (supported_ext.find(VK_KHR_SHADER_CLOCK_EXTENSION_NAME) !=
         supported_ext.end()) {
         VkPhysicalDeviceShaderClockFeaturesKHR supported_shader_clock{
@@ -1077,6 +1078,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_shader_device_clock = true;
         }
     }
+#endif
     {
         VkPhysicalDeviceVulkan12Features vk12_subgroup_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -1299,6 +1301,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             }
         }
     }
+#if ENABLE_HIDDEN_FEATURES
     VkPhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR workgroup_memory_explicit_layout_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_FEATURES_KHR,
         .pNext = nullptr,
@@ -1324,6 +1327,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_device_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
         }
     }
+#endif // ENABLE_HIDDEN_FEATURES
     if (bindless_enabled) {
         // Descriptor indexing is core in Vulkan 1.2. Query the promoted feature
         // structure directly: chaining it together with the EXT structure is
@@ -1552,11 +1556,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         subgroup_size_control_enabled = false;
         _subgroup_size_control_properties = {};
         enable_subgroup_extended_types = false;
+#ifndef NDEBUG
         enable_shader_device_clock = false;
+#endif
         enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
         cooperative_vector_enabled = false;
         cooperative_vector_fp32_enabled = false;
+#if ENABLE_HIDDEN_FEATURES
         async_copy_enabled = false;
+#endif
         interop_enabled = false;
         device_address_enabled = false;
         surface_enabled = false;
@@ -1740,6 +1748,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (enable_float8) {
         feature_next = &float8_features;
     }
+#ifndef NDEBUG
     VkPhysicalDeviceShaderClockFeaturesKHR shader_clock_features{
         .sType =
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
@@ -1750,6 +1759,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (enable_shader_device_clock) {
         feature_next = &shader_clock_features;
     }
+#endif
     VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
         .pNext = feature_next,
@@ -1782,12 +1792,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         cooperative_vector_features_nv.pNext = feature_next;
         feature_next = &cooperative_vector_features_nv;
     }
+#if ENABLE_HIDDEN_FEATURES
     if (async_copy_enabled) {
         maintenance5_features.pNext = feature_next;
         feature_next = &maintenance5_features;
         workgroup_memory_explicit_layout_features.pNext = feature_next;
         feature_next = &workgroup_memory_explicit_layout_features;
     }
+#endif
     VkPhysicalDeviceSynchronization2Features barrier_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
         .pNext = feature_next,
@@ -1878,8 +1890,10 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     // this backend itself requested while creating the device.
     subgroup_extended_types_enabled =
         external_device == VK_NULL_HANDLE && enable_subgroup_extended_types;
+#ifndef NDEBUG
     _shader_device_clock_enabled =
         external_device == VK_NULL_HANDLE && enable_shader_device_clock;
+#endif
     if (external_device == VK_NULL_HANDLE) {
         _numeric_features = {
             .shader_float8 = enable_float8,

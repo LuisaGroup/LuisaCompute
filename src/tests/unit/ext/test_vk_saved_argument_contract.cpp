@@ -104,7 +104,7 @@ int main(int argc, char *argv[]) {
     "vk_saved_argument_contract_validates_native_accel_role_bits"_test = [] {
         using namespace lc::vk;
         using luisa::compute::Type;
-        std::array argument{saved(Type::Tag::ACCEL)};
+        std::array<lc::vk::SavedArgument, 1u> argument{saved(Type::Tag::ACCEL)};
         argument[0].set_native_accel_roles(
             SavedArgument::native_accel_role_traversal |
             SavedArgument::native_accel_role_instance);

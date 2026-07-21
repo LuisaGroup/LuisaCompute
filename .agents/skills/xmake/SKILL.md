@@ -175,6 +175,24 @@ Available backends: `dx`, `vk`, `cuda`, `metal`.
 - The SPIR-V libraries and their tests are created only when the Vulkan
   backend and one of those codegen options are enabled.
 
+### PCH Stale After Header Edits
+When modifying a header included by a precompiled header (PCH), xmake
+detects the size change and refuses to reuse the stale PCH. To force a
+clean rebuild:
+
+```bash
+xmake f -c              # reconfigure (clears cache)
+xmake build -r <target> # force rebuild target and its deps
+# or remove the build directory entirely:
+rmdir /s build
+xmake f -c
+xmake build
+```
+
+Without `-r`, xmake may still pick up stale object files and fail with
+errors like "file has been modified since the precompiled header was
+built". When this happens, reconfigure and rebuild with `-r`.
+
 ### Minimal Target Skeleton
 ```lua
 target("my-target")

@@ -6,6 +6,13 @@
 #include <luisa/core/dll_export.h>
 #include <luisa/core/basic_types.h>
 
+// WORKAROUND: Windows SDK corecrt_math.h defines OVERFLOW as a macro
+// (expanded to the constant _OVERFLOW == 3), which conflicts with
+// PixelStorageSizeStatus::OVERFLOW. Undefine it before the enum.
+#ifdef OVERFLOW
+#undef OVERFLOW
+#endif
+
 namespace luisa::compute {
 
 namespace detail {

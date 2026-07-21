@@ -107,8 +107,8 @@ int main(int argc, char *argv[]) {
 
         constexpr uint32_t expected = 0x5a17c3e9u;
         uint32_t actual{};
-        consumer << sparse_buffer.copy_from(&expected)
-                 << sparse_buffer.copy_to(&actual)
+        consumer << sparse_buffer.view().copy_from(luisa::span{&expected, 1u})
+                 << sparse_buffer.view().copy_to(luisa::span{&actual, 1u})
                  << synchronize();
         expect(actual == expected)
             << "mapped sparse-buffer data must survive a transfer round trip";

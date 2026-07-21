@@ -588,7 +588,7 @@ public:
     using Bitset = std::bitset<call_op_count>;
 
     /// CallOpSet::Iterator
-    class Iterator {
+    class LUISA_AST_API Iterator {
 
     private:
         const CallOpSet &_set;
