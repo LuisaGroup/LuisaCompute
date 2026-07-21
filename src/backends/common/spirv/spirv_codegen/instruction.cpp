@@ -814,14 +814,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = glsl(GLSLstd450Cross, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::DOT:
-            id = binary(spv::Op::OpDot);
+            id = mark_no_contraction(binary(spv::Op::OpDot));
             break;
         case xir::ArithmeticOp::LENGTH:
             id = glsl(GLSLstd450Length, operand(0));
             break;
         case xir::ArithmeticOp::LENGTH_SQUARED: {
             auto a = operand(0);
-            id = _builder.createBinOp(spv::Op::OpDot, type, a, a);
+            id = mark_no_contraction(
+                _builder.createBinOp(spv::Op::OpDot, type, a, a));
             break;
         }
         case xir::ArithmeticOp::NORMALIZE:

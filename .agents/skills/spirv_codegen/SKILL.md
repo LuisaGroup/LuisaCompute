@@ -620,8 +620,9 @@ When `ShaderOption::enable_fast_math` is false, every emitted floating
 multiply/add/subtract that represents a source arithmetic operation must carry
 `NoContraction`. This includes the component instructions used to expand
 matrix arithmetic, the instructions used to expand floating reductions, and
-native matrix multiply/outer-product instructions, not only scalar/vector
-`OpFMul`, `OpFAdd`, and `OpFSub`. Decorating only a final
+native dot, matrix multiply, and outer-product instructions, not only
+scalar/vector `OpFMul`, `OpFAdd`, and `OpFSub`. `LENGTH_SQUARED` also lowers
+to `OpDot` and needs the same decoration. Decorating only a final
 `OpCompositeConstruct` is invalid and does not protect its component
 operations. Keep a rounding-sensitive runtime check and exact SPIR-V
 decoration count for ordinary, reduction, and matrix multiply/add paths.
