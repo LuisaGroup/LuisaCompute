@@ -5001,6 +5001,14 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
 spv::Id SpirvCodegenEntry::_ensure_type(spv::Id value, spv::Id target_type) noexcept {
     auto value_type = _builder.getTypeId(value);
     if (value_type == target_type) { return value; }
+    auto value_is_vector = _builder.isVectorType(value_type);
+    auto target_is_vector = _builder.isVectorType(target_type);
+    LUISA_ASSERT(
+        value_is_vector == target_is_vector &&
+            (!value_is_vector ||
+             _builder.getNumTypeComponents(value_type) ==
+                 _builder.getNumTypeComponents(target_type)),
+        "SPIR-V numeric type conversion requires equal scalar/vector shapes.");
     auto val_scalar = _builder.getScalarTypeId(value_type);
     auto tgt_scalar = _builder.getScalarTypeId(target_type);
     auto val_class = _builder.getTypeClass(val_scalar);
@@ -5035,20 +5043,9 @@ spv::Id SpirvCodegenEntry::_ensure_type(spv::Id value, spv::Id target_type) noex
     if (val_class == spv::Op::OpTypeInt && tgt_class == spv::Op::OpTypeFloat) {
         return _builder.createUnaryOp(_builder.isIntType(val_scalar) ? spv::Op::OpConvertSToF : spv::Op::OpConvertUToF, target_type, value);
     }
-    if (val_class == spv::Op::OpTypeBool && tgt_class == spv::Op::OpTypeInt) {
-        // bool → int: select 1 or 0
-        auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(tgt_scalar));
-        auto one = _builder.isIntType(tgt_scalar) ? _builder.makeIntConstant(_builder.makeIntType(bit_width), 1u, false) : _builder.makeIntConstant(_builder.makeUintType(bit_width), 1u, false);
-        auto zero = _builder.isIntType(tgt_scalar) ? _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false) : _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
-        return _builder.createOp(spv::Op::OpSelect, target_type, {value, one, zero});
-    }
-    if (val_class == spv::Op::OpTypeInt && tgt_class == spv::Op::OpTypeBool) {
-        // int → bool: compare with 0
-        auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(val_scalar));
-        auto zero = _builder.isIntType(val_scalar) ? _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false) : _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
-        return _builder.createBinOp(spv::Op::OpINotEqual, target_type, value, zero);
-    }
-    return _builder.createUnaryOp(spv::Op::OpBitcast, target_type, value);
+    LUISA_ERROR_WITH_LOCATION(
+        "Unsupported implicit SPIR-V numeric conversion from type ID {} to {}.",
+        value_type, target_type);
 }
 
 }// namespace lc::spirv

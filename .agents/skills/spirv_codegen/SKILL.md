@@ -91,6 +91,10 @@ The same rule applies inside emission: generic XIR, the native dialect, and
 the frozen AST/XIR ABI are hard invariants. Do not coerce invalid arithmetic
 operands or synthesize missing kernel arguments. Assert if a verified boolean
 `select` or planned argument buffer does not lower as expected.
+`_ensure_type` is an internal same-shape numeric conversion helper, not a
+general cast operation: boolean conversion belongs to XIR `STATIC_CAST`, and
+unsupported class or shape pairs must fail rather than fall through to
+`OpBitcast`.
 
 Emit ordinary XIR arithmetic as ordinary SPIR-V instructions. Do not turn
 constant operands into `OpSpecConstantOp`: the runtime exposes no matching
