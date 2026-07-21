@@ -454,6 +454,51 @@ private:
         }
     }
 
+    void _validate_load(const xir::Function *function,
+                        const xir::BasicBlock *block,
+                        const xir::LoadInst *load) noexcept {
+        if (load->operand_count() != 1u || load->variable() == nullptr ||
+            load->variable()->type() == nullptr || load->type() == nullptr) {
+            _error(
+                function, block, load,
+                "Native XIR-to-SPIR-V load requires exactly one typed lvalue operand and a typed result.");
+            return;
+        }
+        if (!load->variable()->is_lvalue() ||
+            load->variable()->type() != load->type()) {
+            _error(
+                function, block, load,
+                luisa::format(
+                    "Native XIR-to-SPIR-V load requires an lvalue address whose type exactly matches the result; got {} -> {}.",
+                    load->variable()->type()->description(),
+                    load->type()->description()));
+        }
+    }
+
+    void _validate_store(const xir::Function *function,
+                         const xir::BasicBlock *block,
+                         const xir::StoreInst *store) noexcept {
+        if (store->operand_count() != 2u || store->variable() == nullptr ||
+            store->value() == nullptr ||
+            store->variable()->type() == nullptr ||
+            store->value()->type() == nullptr) {
+            _error(
+                function, block, store,
+                "Native XIR-to-SPIR-V store requires exactly one typed lvalue address and one typed rvalue.");
+            return;
+        }
+        if (!store->variable()->is_lvalue() ||
+            store->value()->is_lvalue() ||
+            store->variable()->type() != store->value()->type()) {
+            _error(
+                function, block, store,
+                luisa::format(
+                    "Native XIR-to-SPIR-V store requires an lvalue address and an rvalue of exactly the same type; got {} <- {}.",
+                    store->variable()->type()->description(),
+                    store->value()->type()->description()));
+        }
+    }
+
     void _validate_arithmetic(const xir::Function *function,
                               const xir::BasicBlock *block,
                               const xir::ArithmeticInst *inst) noexcept {
@@ -1590,8 +1635,17 @@ private:
             case xir::DerivedInstructionTag::BREAK:
             case xir::DerivedInstructionTag::CONTINUE:
             case xir::DerivedInstructionTag::RETURN:
+                break;
             case xir::DerivedInstructionTag::LOAD:
-            case xir::DerivedInstructionTag::STORE: break;
+                _validate_load(
+                    function, block,
+                    static_cast<const xir::LoadInst *>(inst));
+                break;
+            case xir::DerivedInstructionTag::STORE:
+                _validate_store(
+                    function, block,
+                    static_cast<const xir::StoreInst *>(inst));
+                break;
             case xir::DerivedInstructionTag::SWITCH: {
                 auto switch_inst = static_cast<const xir::SwitchInst *>(inst);
                 auto selector = switch_inst->operand_count() >

@@ -101,6 +101,26 @@ void expect_generic_xir_invalid_at(
     expect(error.message.find(expected_fragment) != luisa::string::npos);
 }
 
+void expect_generic_xir_error_at(
+    const Module &module,
+    const luisa::compute::xir::Function *expected_function,
+    const BasicBlock *expected_block,
+    const Instruction *expected_instruction,
+    luisa::string_view expected_fragment) noexcept {
+    auto verification = xir_verify_module(&module);
+    expect(!verification.succeeded());
+    auto found = false;
+    for (auto &&error : verification.errors) {
+        found |= error.function == expected_function &&
+                 error.block == expected_block &&
+                 error.instruction == expected_instruction &&
+                 error.message.find(expected_fragment) !=
+                     luisa::string::npos;
+    }
+    expect(found)
+        << "generic XIR verification must report the exact malformed memory access";
+}
+
 [[nodiscard]] const lc::spirv::SpirvXIRDialectDiagnostic *
 expect_only_diagnostic_location(
     const lc::spirv::SpirvXIRDialectValidationResult &result,
@@ -144,6 +164,25 @@ void expect_only_diagnostic_at(
         expect(diagnostic->message.find(expected_fragment) !=
                luisa::string::npos);
     }
+}
+
+void expect_diagnostic_at(
+    const lc::spirv::SpirvXIRDialectValidationResult &result,
+    const luisa::compute::xir::Function *expected_function,
+    const BasicBlock *expected_block,
+    const Instruction *expected_instruction,
+    luisa::string_view expected_fragment) noexcept {
+    expect(!result.succeeded());
+    auto found = false;
+    for (auto &&diagnostic : result.diagnostics) {
+        found |= diagnostic.function == expected_function &&
+                 diagnostic.block == expected_block &&
+                 diagnostic.instruction == expected_instruction &&
+                 diagnostic.message.find(expected_fragment) !=
+                     luisa::string::npos;
+    }
+    expect(found)
+        << "SPIR-V dialect validation must report the exact malformed instruction";
 }
 
 void expect_only_diagnostic(
@@ -349,6 +388,78 @@ int main(int argc, char *argv[]) {
         expect_only_diagnostic_at(
             validation, kernel, entry, alloca,
             "remaining phi reg2mem spill");
+    };
+
+    "spirv_xir_memory_access_requires_exact_lvalue_rvalue_types"_test = [] {
+        {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *entry = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *declared_slot = builder.alloca_local(Type::of<float>());
+            auto *wrong_slot = builder.alloca_local(Type::of<uint32_t>());
+            auto *load = builder.load(Type::of<float>(), declared_slot);
+            load->set_variable(wrong_slot);
+            builder.return_void();
+
+            expect_generic_xir_error_at(
+                module, kernel, entry, load,
+                "Load variable or result type is invalid");
+            auto validation =
+                lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+            expect_diagnostic_at(
+                validation, kernel, entry, load,
+                "type exactly matches the result");
+        }
+        {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *entry = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *slot = builder.alloca_local(Type::of<uint2>());
+            auto *declared_value =
+                module.create_constant_one(Type::of<uint2>());
+            auto *wrong_value =
+                module.create_constant_one(Type::of<uint32_t>());
+            auto *store = builder.store(slot, declared_value);
+            store->set_value(wrong_value);
+            builder.return_void();
+
+            expect_generic_xir_error_at(
+                module, kernel, entry, store,
+                "Store variable or value type is invalid");
+            auto validation =
+                lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+            expect_diagnostic_at(
+                validation, kernel, entry, store,
+                "rvalue of exactly the same type");
+        }
+        {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *entry = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *destination =
+                builder.alloca_local(Type::of<uint32_t>());
+            auto *source = builder.alloca_local(Type::of<uint32_t>());
+            auto *store = builder.store(
+                destination,
+                module.create_constant_zero(Type::of<uint32_t>()));
+            store->set_value(source);
+            builder.return_void();
+
+            expect_generic_xir_error_at(
+                module, kernel, entry, store,
+                "Store variable or value type is invalid");
+            auto validation =
+                lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+            expect_diagnostic_at(
+                validation, kernel, entry, store,
+                "an lvalue address and an rvalue");
+        }
     };
 
     "spirv_xir_canonical_loop_prepare_conditional_is_accepted"_test = [] {

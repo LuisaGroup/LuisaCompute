@@ -4470,15 +4470,9 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 static_cast<void>(_ray_query_state(val));
                 _value_map[store->variable()] = val;
             } else {
-                if (pointee_type != val_type) {
-                    if (_builder.isScalarType(val_type) && _builder.isVectorType(pointee_type)) {
-                        val = _builder.smearScalar(spv::NoPrecision, val, pointee_type);
-                    } else if (!_builder.isStructType(pointee_type) && !_builder.isStructType(val_type) &&
-                               _builder.getTypeClass(pointee_type) == _builder.getTypeClass(val_type) &&
-                               _builder.getNumTypeComponents(pointee_type) == _builder.getNumTypeComponents(val_type)) {
-                        val = _builder.createUnaryOp(spv::Op::OpBitcast, pointee_type, val);
-                    }
-                }
+                LUISA_ASSERT(
+                    pointee_type == val_type,
+                    "SPIR-V store type mismatch escaped XIR dialect validation.");
                 _builder.createStore(val, ptr);
             }
             break;

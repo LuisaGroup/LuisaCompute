@@ -357,6 +357,13 @@ an exact fixed-point argument role through callables; do not mark every buffer
 with the same element type coherent, because that needlessly disables caching
 for unrelated resources.
 
+Ordinary XIR `LoadInst` and `StoreInst` are exact-typed memory operations: the
+address is an lvalue of the loaded/stored type, and a stored value is an
+rvalue. Enforce that contract at the dialect handoff. Do not smear scalars or
+insert bitcasts in the SPIR-V emitter to make a mismatched store validate;
+those conversions manufacture semantics for invalid XIR and can hide an
+upstream pass defect.
+
 Bindless buffer planning has two independent facts. A real bindless read/write
 needs the global unbounded buffer heap and the matching array's local metadata
 descriptor; a size-only query needs only that local metadata descriptor.
