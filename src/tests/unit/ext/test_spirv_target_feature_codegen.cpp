@@ -154,6 +154,7 @@ struct SamplerClampFacts {
     size_t nonuniform_bindless_image_pointer_count{0u};
     size_t nonuniform_bindless_image_load_count{0u};
     size_t nonuniform_bindless_image_fetch_count{0u};
+    size_t nonuniform_integer_constant_count{0u};
     bool parse_succeeded{true};
 };
 
@@ -366,6 +367,12 @@ struct SamplerClampFacts {
         offset += word_count;
     }
     if (!facts.parse_succeeded) { return facts; }
+
+    for (auto id = uint32_t{1u}; id < id_bound; ++id) {
+        if (nonuniform_ids[id] && integer_constants[id].has_value()) {
+            facts.nonuniform_integer_constant_count++;
+        }
+    }
 
     auto instruction_of =
         [&](uint32_t result_id) noexcept
@@ -710,6 +717,8 @@ void expect_bindless_image_fetch_path(
               expected_nonuniform));
     expect(eq(facts.nonuniform_bindless_image_fetch_count,
               expected_nonuniform));
+    expect(eq(facts.nonuniform_integer_constant_count, 0u))
+        << "NonUniformEXT must not contaminate interned constant indices";
 }
 
 enum class SamplerSelectorSource : uint8_t {

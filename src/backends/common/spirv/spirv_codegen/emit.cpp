@@ -713,10 +713,14 @@ spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::
     new_access_chain.descHeapInfo.structRsrcTyFirstArrIndex = 0;
     new_access_chain.descHeapInfo.structRemappedBase = spv::NoResult;
     if (nonuniform) {
+        LUISA_ASSERT(!indices.empty(),
+                     "A non-uniform SPIR-V access chain must have an index.");
         new_access_chain.coherentFlags.nonUniform = 1;
-        for (auto idx : indices) {
-            _builder.addDecoration(idx, spv::Decoration::NonUniformEXT);
-        }
+        // Only the varying descriptor-array index is non-uniform. Prefix
+        // indices select enclosing structs/arrays and are commonly interned
+        // constants; decorating them would contaminate every use of the same
+        // SPIR-V constant throughout the module.
+        _builder.addDecoration(indices.back(), spv::Decoration::NonUniformEXT);
     }
     _builder.setAccessChain(new_access_chain);
     auto id = _builder.createAccessChain(storage, base, indices);

@@ -388,6 +388,13 @@ layout/index-mode flags through AST↔XIR, cloning, verification, text/bitcode,
 callable argument analysis, persisted Vulkan argument roles, runtime layout
 checking, and SPIR-V slot resolution before the fallback can be relaxed.
 
+For a divergent descriptor lookup, apply `NonUniformEXT` to the actual
+descriptor-array index and preserve it through the resulting access-chain
+pointer, descriptor load, and consuming image/sampler value as required. Do
+not decorate prefix structure/array indices. Those are commonly interned
+constants such as zero; decorating one contaminates every unrelated use of the
+same module-global SPIR-V ID and may unnecessarily pessimize driver analysis.
+
 Acceleration structures likewise have two independent native roles: traversal
 uses `SPIRVAccel`, while instance-property access uses the separate
 `SPIRVAccelInstance`/`SPIRVAccelInstanceRW` buffer. `SpirvResult::argument_roles`
