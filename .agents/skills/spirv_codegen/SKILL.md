@@ -180,6 +180,9 @@ Important type boundaries include:
   admit. FP8-to-bool casts must widen each scalar lane to float32 before the
   unordered comparison so NaN remains truthy;
 - texture dimensions are 2 or 3 and scalar elements are float32/int32/uint32;
+- texture writes consume exactly the verifier-mandated four-component texel
+  vector. The emitter must not pad, smear, or otherwise repair a scalar or
+  short-vector payload that crossed the dialect boundary;
 - opaque ray-query values have deliberately restricted lifetime and argument
   rules;
 - kernel reference arguments are not part of the Vulkan descriptor ABI.
