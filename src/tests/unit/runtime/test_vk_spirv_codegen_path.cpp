@@ -6472,6 +6472,111 @@ OpName %8 "Fma"
                "intentionally unchecked for a miss";
     };
 
+    "vk_user_compute_procedural_ray_query_commit_and_reject"_test = [&] {
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_procedural_ray_query"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+
+        AABB box{};
+        box.packed_min = {-0.5f, -0.5f, -0.5f};
+        box.packed_max = {0.5f, 0.5f, 0.5f};
+        const std::array boxes{box};
+        auto box_buffer = device.create_buffer<AABB>(boxes.size());
+        auto primitive =
+            device.create_procedural_primitive(box_buffer.view());
+        auto accel = device.create_accel();
+        accel.emplace_back(primitive);
+        auto result = device.create_buffer<uint32_t>(9u);
+        auto distance = device.create_buffer<float>(3u);
+
+        Kernel1D kernel = [](AccelVar accel_var, BufferUInt result_buffer,
+                             BufferFloat distance_buffer) noexcept {
+            auto lane = dispatch_x();
+            auto origin_x = ite(lane == 2u, 2.0f, 0.0f);
+            auto ray = make_ray(
+                make_float3(origin_x, 0.0f, 2.0f),
+                make_float3(0.0f, 0.0f, -1.0f), 0.0f, 10.0f);
+            UInt callback_count = 0u;
+            UInt candidate_primitive = ~0u;
+            auto committed = accel_var.traverse(ray, {})
+                                 .on_surface_candidate(
+                                     [](SurfaceCandidate &) noexcept {})
+                                 .on_procedural_candidate(
+                                     [&](ProceduralCandidate &candidate) noexcept {
+                                         callback_count += 1u;
+                                         candidate_primitive =
+                                             candidate.hit()->prim;
+                                         $if (lane == 0u) {
+                                             candidate.commit(1.75f);
+                                         };
+                                     })
+                                 .trace();
+            Float committed_distance = -1.0f;
+            $if (committed->is_procedural()) {
+                committed_distance = committed->distance();
+            };
+            result_buffer.write(lane * 3u, callback_count);
+            result_buffer.write(lane * 3u + 1u, committed->hit_type);
+            result_buffer.write(lane * 3u + 2u, candidate_primitive);
+            distance_buffer.write(lane, committed_distance);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint32_t, 9u> result_values{};
+        std::array<float, 3u> distance_values{};
+        stream << box_buffer.copy_from(luisa::span{boxes})
+               << primitive.build()
+               << accel.build()
+               << shader(accel, result, distance).dispatch(3u)
+               << result.copy_to(luisa::span{result_values})
+               << distance.copy_to(luisa::span{distance_values})
+               << synchronize();
+
+        constexpr auto miss = static_cast<uint32_t>(HitType::Miss);
+        constexpr auto procedural =
+            static_cast<uint32_t>(HitType::Procedural);
+        constexpr auto invalid_primitive =
+            std::numeric_limits<uint32_t>::max();
+        expect(result_values == std::array<uint32_t, 9u>{
+                                    1u, procedural, 0u,
+                                    1u, miss, 0u,
+                                    0u, miss, invalid_primitive})
+            << "procedural traversal must distinguish committed, rejected, "
+               "and absent AABB candidates";
+        expect(std::abs(distance_values[0] - 1.75f) < 1.0e-6f &&
+               distance_values[1] == -1.0f &&
+               distance_values[2] == -1.0f)
+            << "only the committed procedural candidate may expose its "
+               "generated intersection distance";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "procedural ray-query regression should emit one native "
+               "SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly,
+                       "RayQueryGenerateIntersectionKHR") == 1u)
+                << "procedural commit must lower to exactly one generated "
+                   "intersection instruction at opt0";
+            expect(count_spirv_opcode(
+                       disassembly, "RayQueryProceedKHR") == 1u)
+                << "the traversal loop must advance with one ray-query "
+                   "proceed instruction at opt0";
+        }
+    };
+
     "vk_user_compute_ray_instance_metadata_queries"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;
