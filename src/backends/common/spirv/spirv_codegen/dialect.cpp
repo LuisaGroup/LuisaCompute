@@ -1892,8 +1892,7 @@ public:
                             size_t{0u};
                     for (auto *argument : function->arguments()) {
                         auto usage = spirv_function_argument_usage_of(
-                            argument_analysis, function, argument,
-                            Usage::NONE);
+                            argument_analysis, function, argument);
                         if (argument->is_resource() &&
                             usage == Usage::NONE) {
                             continue;

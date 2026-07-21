@@ -54,9 +54,7 @@ analyze_spirv_function_argument_usage(
 spirv_function_argument_usage_of(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const luisa::compute::xir::Function *function,
-    const luisa::compute::xir::Argument *argument,
-    luisa::compute::Usage fallback =
-        luisa::compute::Usage::NONE) noexcept;
+    const luisa::compute::xir::Argument *argument) noexcept;
 
 [[nodiscard]] bool
 spirv_function_argument_requires_accel_traversal_descriptor(

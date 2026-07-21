@@ -1189,7 +1189,7 @@ int main(int argc, char *argv[]) {
         auto argument_usage =
             lc::spirv::analyze_spirv_function_argument_usage(&module);
         expect(lc::spirv::spirv_function_argument_usage_of(
-                   argument_usage, kernel, buffer, Usage::NONE) ==
+                   argument_usage, kernel, buffer) ==
                Usage::READ_WRITE);
 
         Kernel1D ast_kernel = [](BufferUInt, Bool) noexcept {};

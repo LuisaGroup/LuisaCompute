@@ -1306,7 +1306,7 @@ Usage SpirvCodegenEntry::_function_argument_usage_of(
     const xir::Function *function,
     const xir::Argument *argument) const noexcept {
     auto usage = spirv_function_argument_usage_of(
-        _function_argument_usage, function, argument, Usage::READ);
+        _function_argument_usage, function, argument);
     return usage == Usage::NONE ? Usage::READ : usage;
 }
 
@@ -1323,7 +1323,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
     luisa::vector<bool> arg_used;
     for (auto arg : callable->arguments()) {
         auto analyzed_usage = spirv_function_argument_usage_of(
-            _function_argument_usage, callable, arg, Usage::NONE);
+            _function_argument_usage, callable, arg);
         bool used = analyzed_usage != Usage::NONE;
         arg_used.push_back(used);
         if (!used && _is_kernel_resource_argument(arg)) {

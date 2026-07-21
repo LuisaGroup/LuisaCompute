@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <utility>
 
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/type_traits.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/function.h>
@@ -17,6 +18,39 @@ namespace lc::spirv {
 
 namespace xir = luisa::compute::xir;
 using luisa::compute::Usage;
+
+namespace {
+
+[[nodiscard]] const SpirvFunctionArgumentAnalysis &
+function_argument_analysis_of(
+    const SpirvFunctionArgumentAnalysisMap &analysis,
+    const xir::Function *function,
+    const xir::Argument *argument) noexcept {
+    LUISA_ASSERT(function != nullptr && argument != nullptr,
+                 "SPIR-V argument analysis lookup requires a non-null "
+                 "function and argument.");
+    auto fit = analysis.find(function);
+    LUISA_ASSERT(
+        fit != analysis.end(),
+        "SPIR-V argument analysis has no entry for the queried function.");
+    auto index = size_t{0u};
+    for (auto *candidate : function->arguments()) {
+        if (candidate == argument) {
+            LUISA_ASSERT(
+                index < fit->second.size(),
+                "SPIR-V argument analysis entry has {} slots for argument "
+                "index {}.",
+                fit->second.size(), index);
+            return fit->second[index];
+        }
+        index++;
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "SPIR-V argument analysis lookup received an argument not owned by "
+        "the queried function.");
+}
+
+}// namespace
 
 bool spirv_resource_query_requires_accel_traversal_descriptor(
     xir::ResourceQueryOp op) noexcept {
@@ -391,110 +425,55 @@ analyze_spirv_function_argument_usage(
 Usage spirv_function_argument_usage_of(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const xir::Function *function,
-    const xir::Argument *argument,
-    Usage fallback) noexcept {
-    auto fit = analysis.find(function);
-    if (fit == analysis.end()) { return fallback; }
-    auto index = size_t{0u};
-    for (auto *candidate : function->arguments()) {
-        if (candidate == argument) {
-            return index < fit->second.size() ?
-                       fit->second[index].usage :
-                       fallback;
-        }
-        index++;
-    }
-    return fallback;
+    const xir::Argument *argument) noexcept {
+    return function_argument_analysis_of(
+               analysis, function, argument)
+        .usage;
 }
 
 bool spirv_function_argument_requires_accel_traversal_descriptor(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const xir::Function *function,
     const xir::Argument *argument) noexcept {
-    auto fit = analysis.find(function);
-    if (fit == analysis.end()) { return false; }
-    auto index = size_t{0u};
-    for (auto *candidate : function->arguments()) {
-        if (candidate == argument) {
-            return index < fit->second.size() &&
-                   fit->second[index]
-                       .requires_accel_traversal_descriptor;
-        }
-        index++;
-    }
-    return false;
+    return function_argument_analysis_of(
+               analysis, function, argument)
+        .requires_accel_traversal_descriptor;
 }
 
 bool spirv_function_argument_requires_accel_instance_buffer(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const xir::Function *function,
     const xir::Argument *argument) noexcept {
-    auto fit = analysis.find(function);
-    if (fit == analysis.end()) { return false; }
-    auto index = size_t{0u};
-    for (auto *candidate : function->arguments()) {
-        if (candidate == argument) {
-            return index < fit->second.size() &&
-                   fit->second[index]
-                       .requires_accel_instance_buffer;
-        }
-        index++;
-    }
-    return false;
+    return function_argument_analysis_of(
+               analysis, function, argument)
+        .requires_accel_instance_buffer;
 }
 
 bool spirv_function_argument_requires_bindless_buffer_metadata(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const xir::Function *function,
     const xir::Argument *argument) noexcept {
-    auto fit = analysis.find(function);
-    if (fit == analysis.end()) { return false; }
-    auto index = size_t{0u};
-    for (auto *candidate : function->arguments()) {
-        if (candidate == argument) {
-            return index < fit->second.size() &&
-                   fit->second[index]
-                       .requires_bindless_buffer_metadata;
-        }
-        index++;
-    }
-    return false;
+    return function_argument_analysis_of(
+               analysis, function, argument)
+        .requires_bindless_buffer_metadata;
 }
 
 bool spirv_function_argument_requires_buffer_device_address(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const xir::Function *function,
     const xir::Argument *argument) noexcept {
-    auto fit = analysis.find(function);
-    if (fit == analysis.end()) { return false; }
-    auto index = size_t{0u};
-    for (auto *candidate : function->arguments()) {
-        if (candidate == argument) {
-            return index < fit->second.size() &&
-                   fit->second[index]
-                       .requires_buffer_device_address;
-        }
-        index++;
-    }
-    return false;
+    return function_argument_analysis_of(
+               analysis, function, argument)
+        .requires_buffer_device_address;
 }
 
 bool spirv_function_argument_requires_buffer_coherence(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const xir::Function *function,
     const xir::Argument *argument) noexcept {
-    auto fit = analysis.find(function);
-    if (fit == analysis.end()) { return false; }
-    auto index = size_t{0u};
-    for (auto *candidate : function->arguments()) {
-        if (candidate == argument) {
-            return index < fit->second.size() &&
-                   fit->second[index]
-                       .requires_buffer_coherence;
-        }
-        index++;
-    }
-    return false;
+    return function_argument_analysis_of(
+               analysis, function, argument)
+        .requires_buffer_coherence;
 }
 
 }// namespace lc::spirv

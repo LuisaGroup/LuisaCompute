@@ -185,8 +185,7 @@ void SpirvCodegenEntry::generate_binding(
                 // from a branch that AST-to-XIR eliminated; using it here
                 // would create a descriptor with no matching emitted access.
                 binding.usage = spirv_function_argument_usage_of(
-                    _function_argument_usage, xir_kernel, xir_argument,
-                    Usage::NONE);
+                    _function_argument_usage, xir_kernel, xir_argument);
                 binding.requires_accel_traversal_descriptor =
                     spirv_function_argument_requires_accel_traversal_descriptor(
                         _function_argument_usage, xir_kernel, xir_argument);
