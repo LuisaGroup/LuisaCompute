@@ -88,9 +88,15 @@ public:
 struct SpirvVolatileFacts {
     std::unordered_map<std::string, uint32_t> named_ids;
     std::unordered_set<uint32_t> coherent_ids;
+    std::unordered_set<uint32_t> coherent_member_types;
+    std::unordered_set<uint32_t> nonwritable_member_types;
+    std::unordered_map<uint32_t, uint32_t> value_types;
+    std::unordered_map<uint32_t, uint32_t> pointer_pointee_types;
     size_t volatile_loads{0u};
     size_t volatile_stores{0u};
     size_t memory_barriers{0u};
+    bool global_argument_is_coherent{false};
+    bool global_argument_is_nonwritable{false};
     bool structurally_valid{true};
 };
 
@@ -111,10 +117,28 @@ struct SpirvVolatileFacts {
                 decode_literal_string(words, offset + 2u,
                                       offset + word_count),
                 words[offset + 1u]);
+        } else if (op == spv::Op::OpTypePointer && word_count == 4u) {
+            facts.pointer_pointee_types.emplace(
+                words[offset + 1u], words[offset + 3u]);
+        } else if (op == spv::Op::OpVariable && word_count >= 4u) {
+            facts.value_types.emplace(
+                words[offset + 2u], words[offset + 1u]);
         } else if (op == spv::Op::OpDecorate && word_count >= 3u &&
                    words[offset + 2u] == static_cast<uint32_t>(
-                                              spv::Decoration::Coherent)) {
+                                             spv::Decoration::Coherent)) {
             facts.coherent_ids.emplace(words[offset + 1u]);
+        } else if (op == spv::Op::OpMemberDecorate &&
+                   word_count >= 4u) {
+            auto decoration = words[offset + 3u];
+            if (decoration == static_cast<uint32_t>(
+                                  spv::Decoration::Coherent)) {
+                facts.coherent_member_types.emplace(
+                    words[offset + 1u]);
+            } else if (decoration == static_cast<uint32_t>(
+                                         spv::Decoration::NonWritable)) {
+                facts.nonwritable_member_types.emplace(
+                    words[offset + 1u]);
+            }
         } else if (op == spv::Op::OpLoad && word_count >= 5u &&
                    (words[offset + 4u] & volatile_mask) != 0u) {
             facts.volatile_loads++;
@@ -125,6 +149,22 @@ struct SpirvVolatileFacts {
             facts.memory_barriers++;
         }
         offset += word_count;
+    }
+    if (auto global = facts.named_ids.find("_Global");
+        global != facts.named_ids.end()) {
+        if (auto pointer = facts.value_types.find(global->second);
+            pointer != facts.value_types.end()) {
+            if (auto pointee =
+                    facts.pointer_pointee_types.find(pointer->second);
+                pointee != facts.pointer_pointee_types.end()) {
+                facts.global_argument_is_coherent =
+                    facts.coherent_member_types.contains(
+                        pointee->second);
+                facts.global_argument_is_nonwritable =
+                    facts.nonwritable_member_types.contains(
+                        pointee->second);
+            }
+        }
     }
     return facts;
 }
@@ -233,6 +273,11 @@ int main(int argc, char *argv[]) {
         expect(eq(facts.volatile_loads, 1u));
         expect(eq(facts.volatile_stores, 1u));
         expect(eq(facts.memory_barriers, 2u));
+        expect(facts.coherent_member_types.empty())
+            << "ordinary internal descriptor blocks must not inherit Coherent";
+        expect(!facts.global_argument_is_coherent);
+        expect(facts.global_argument_is_nonwritable)
+            << "the backend-owned argument block is immutable shader input";
         if (ast_arguments.size() == 2u) {
             auto volatile_name =
                 std::string{"_buf_"} +

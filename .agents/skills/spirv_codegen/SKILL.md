@@ -361,7 +361,11 @@ Volatile direct-buffer accesses require three matching SPIR-V facts: a
 fence, and `Coherent` on that exact buffer declaration. Propagate coherence as
 an exact fixed-point argument role through callables; do not mark every buffer
 with the same element type coherent, because that needlessly disables caching
-for unrelated resources.
+for unrelated resources. `Coherent` is not a substitute for an uncertain alias
+contract: omit `NonWritable` when a read declaration may alias writable user
+memory, but do not make it coherent. The backend-owned `_Global` argument block
+and bindless metadata blocks cannot alias user resources; keep them
+`NonWritable` and do not decorate them `Aliased` or `Coherent`.
 
 Ordinary XIR `LoadInst` and `StoreInst` are exact-typed memory operations: the
 address is an lvalue of the loaded/stored type, and a stored value is an

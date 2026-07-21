@@ -764,7 +764,10 @@ void SpirvCodegenEntry::generate_binding(
     _property_ids.clear();
     _property_ids.reserve(_properties.size());
 
-    auto make_typed_buffer_struct_type = [&](const Type *elem_type, bool writable, const char *name) -> spv::Id {
+    auto make_typed_buffer_struct_type =
+        [&](const Type *elem_type, bool writable,
+            bool backend_owned_immutable,
+            const char *name) -> spv::Id {
         if (elem_type == nullptr) {
             // Untyped buffer (e.g., cbuffer / global argument buffer)
             auto uint_type = _builder.makeUintType(32);
@@ -777,10 +780,10 @@ void SpirvCodegenEntry::generate_binding(
             add_u32_member_decoration(
                 _builder, struct_type, 0u,
                 spv::Decoration::Offset, 0u);
-            if (!writable && !may_alias_writable_user_resource) {
+            if (!writable &&
+                (backend_owned_immutable ||
+                 !may_alias_writable_user_resource)) {
                 _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
-            } else {
-                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Coherent);
             }
             return struct_type;
         }
@@ -848,6 +851,16 @@ void SpirvCodegenEntry::generate_binding(
         // so offset by 1 to match _properties (which no longer includes ConstantValue).
         auto elem_type = buffer_elem_types[i + 1];
         auto var_name = (i + 1) < buffer_names.size() ? buffer_names[i + 1].c_str() : "resource";
+        // A user buffer always carries its logical Type. Untyped read-only
+        // StructuredBuffer properties are the backend-owned argument or
+        // bindless slot tables; the separate metadata property is likewise
+        // backend-owned. Derive the memory contract from those persisted
+        // property facts rather than from diagnostic variable names.
+        auto backend_owned_immutable =
+            (prop.type == ShaderVariableType::StructuredBuffer &&
+             elem_type == nullptr) ||
+            prop.type ==
+                ShaderVariableType::SPIRVBindlessBufferMetadata;
         spv::Id var = spv::NoResult;
         switch (prop.type) {
             case ShaderVariableType::ConstantBuffer: {
@@ -893,7 +906,9 @@ void SpirvCodegenEntry::generate_binding(
                 } else if (elem_type != nullptr && prop.type == ShaderVariableType::RWStructuredBuffer) {
                     struct_type = _convert_type(elem_type, Usage::READ_WRITE);
                 } else {
-                    struct_type = make_typed_buffer_struct_type(elem_type, writable, "_Buffer");
+                    struct_type = make_typed_buffer_struct_type(
+                        elem_type, writable,
+                        backend_owned_immutable, "_Buffer");
                 }
                 spv::StorageClass storage = spv::StorageClass::StorageBuffer;
                 var = _builder.createVariable(spv::NoPrecision, storage, struct_type, var_name);
@@ -909,12 +924,17 @@ void SpirvCodegenEntry::generate_binding(
                 add_u32_decoration(_builder, var,
                                    spv::Decoration::Binding,
                                    prop.register_index);
-                // Luisa permits the same resource, or overlapping views of it,
-                // to be bound through distinct kernel arguments. Under the
-                // Vulkan memory model, separate memory-object declarations are
-                // assumed not to alias unless every potentially aliasing
-                // declaration carries Aliased.
-                _builder.addDecoration(var, spv::Decoration::Aliased);
+                if (!backend_owned_immutable) {
+                    // Luisa permits the same resource, or overlapping views
+                    // of it, to be bound through distinct kernel arguments.
+                    // Under the Vulkan memory model, separate memory-object
+                    // declarations are assumed not to alias unless every
+                    // potentially aliasing declaration carries Aliased. The
+                    // internal argument and bindless-metadata blocks are
+                    // backend-owned and never overlap user resource memory.
+                    _builder.addDecoration(
+                        var, spv::Decoration::Aliased);
+                }
                 // Only add Coherent when necessary:
                 // - this exact buffer is used by a volatile access,
                 // - buffer is used with atomics, or

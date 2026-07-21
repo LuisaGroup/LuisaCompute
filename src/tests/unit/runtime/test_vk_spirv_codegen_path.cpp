@@ -4138,6 +4138,8 @@ OpName %8 "Fma"
                     disassembly, *read_buffer_id, "NonWritable"))
                     << "a read descriptor that may alias a writable user buffer cannot claim its backing memory is NonWritable";
             }
+            expect(count_substring(disassembly, "Coherent") == 0u)
+                << "ordinary writable/aliased buffers must not make internal descriptor blocks coherent";
         }
     };
 
