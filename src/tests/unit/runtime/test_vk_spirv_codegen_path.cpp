@@ -3150,6 +3150,76 @@ OpName %8 "Fma"
             << "unaligned scalar/vector writes must preserve every surrounding canary byte";
     };
 
+    "vk_user_compute_volatile_buffer_is_coherent"_test = [&] {
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_volatile_buffer"};
+        ScopedSourceDump source_dump;
+        auto dc = luisa::test::create_device(argc, argv);
+        auto volatile_buffer = dc.device.create_buffer<uint32_t>(2u);
+        auto ordinary_buffer = dc.device.create_buffer<uint32_t>(2u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferUInt volatile_values,
+                             BufferUInt ordinary_values) noexcept {
+            auto volatile_value = volatile_values.volatile_read(0u);
+            volatile_values.volatile_write(
+                1u, volatile_value + 1u);
+            auto ordinary_value = ordinary_values.read(0u);
+            ordinary_values.write(1u, ordinary_value + 1u);
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array<uint32_t, 2u> volatile_source{
+            0x12345678u, 0u};
+        constexpr std::array<uint32_t, 2u> ordinary_source{
+            0x87654321u, 0u};
+        std::array<uint32_t, 2u> volatile_result{};
+        std::array<uint32_t, 2u> ordinary_result{};
+        stream << volatile_buffer.copy_from(
+                      luisa::span{volatile_source})
+               << ordinary_buffer.copy_from(
+                      luisa::span{ordinary_source})
+               << shader(volatile_buffer, ordinary_buffer).dispatch(1u)
+               << volatile_buffer.copy_to(
+                      luisa::span{volatile_result})
+               << ordinary_buffer.copy_to(
+                      luisa::span{ordinary_result})
+               << synchronize();
+
+        expect(volatile_result[0] == volatile_source[0]);
+        expect(volatile_result[1] == volatile_source[0] + 1u);
+        expect(ordinary_result[0] == ordinary_source[0]);
+        expect(ordinary_result[1] == ordinary_source[0] + 1u);
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "volatile-buffer regression should emit exactly one native SPIR-V dump";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            auto volatile_id = spirv_id_named(
+                disassembly, "_buf_0");
+            auto ordinary_id = spirv_id_named(
+                disassembly, "_buf_1");
+            expect(volatile_id.has_value());
+            expect(ordinary_id.has_value());
+            if (volatile_id) {
+                expect(spirv_id_has_decoration(
+                    disassembly, *volatile_id, "Coherent"));
+            }
+            if (ordinary_id) {
+                expect(!spirv_id_has_decoration(
+                    disassembly, *ordinary_id, "Coherent"));
+            }
+            expect(count_spirv_opcode(
+                       disassembly, "MemoryBarrier") == 2u)
+                << "volatile read/write should retain their matching device fences";
+            expect(disassembly.find("Volatile") !=
+                   std::string::npos)
+                << "volatile loads/stores must retain their memory-access operand";
+        }
+    };
+
     "vk_user_compute_sliced_buffer_descriptor_bias_is_exact"_test = [&] {
         constexpr auto byte_count = 37u;
         constexpr auto view_offset = 5u;

@@ -180,6 +180,29 @@ analyze_spirv_function_argument_usage(
         slot = true;
         return true;
     };
+    auto require_buffer_coherence = [&](
+                                        const xir::Function *function,
+                                        const xir::Value *value) noexcept {
+        if (function == nullptr || value == nullptr ||
+            !value->isa<xir::Argument>()) {
+            return false;
+        }
+        auto *argument = static_cast<const xir::Argument *>(value);
+        if (argument->parent_function() != function ||
+            argument->type() == nullptr ||
+            !argument->type()->is_buffer()) {
+            return false;
+        }
+        auto fit = indices.find(function);
+        if (fit == indices.end()) { return false; }
+        auto ait = fit->second.find(argument);
+        if (ait == fit->second.end()) { return false; }
+        auto &slot = analysis.at(function)[ait->second]
+                         .requires_buffer_coherence;
+        if (slot) { return false; }
+        slot = true;
+        return true;
+    };
     auto traverse_definition = [](
                                    const xir::FunctionDefinition *definition,
                                    auto &&visit) noexcept {
@@ -250,6 +273,15 @@ analyze_spirv_function_argument_usage(
                                         function,
                                         instruction->operand(0u)));
                             }
+                            if (read->op() ==
+                                    xir::ResourceReadOp::BUFFER_VOLATILE_READ ||
+                                read->op() ==
+                                    xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ) {
+                                static_cast<void>(
+                                    require_buffer_coherence(
+                                        function,
+                                        instruction->operand(0u)));
+                            }
                         }
                         break;
                     }
@@ -268,6 +300,15 @@ analyze_spirv_function_argument_usage(
                                     .buffer_metadata) {
                                 static_cast<void>(
                                     require_bindless_buffer_metadata(
+                                        function,
+                                        instruction->operand(0u)));
+                            }
+                            if (write->op() ==
+                                    xir::ResourceWriteOp::BUFFER_VOLATILE_WRITE ||
+                                write->op() ==
+                                    xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE) {
+                                static_cast<void>(
+                                    require_buffer_coherence(
                                         function,
                                         instruction->operand(0u)));
                             }
@@ -334,6 +375,10 @@ analyze_spirv_function_argument_usage(
                         }
                         if (incoming.requires_buffer_device_address) {
                             changed |= require_buffer_device_address(
+                                function, actual);
+                        }
+                        if (incoming.requires_buffer_coherence) {
+                            changed |= require_buffer_coherence(
                                 function, actual);
                         }
                     }
@@ -428,6 +473,24 @@ bool spirv_function_argument_requires_buffer_device_address(
             return index < fit->second.size() &&
                    fit->second[index]
                        .requires_buffer_device_address;
+        }
+        index++;
+    }
+    return false;
+}
+
+bool spirv_function_argument_requires_buffer_coherence(
+    const SpirvFunctionArgumentAnalysisMap &analysis,
+    const xir::Function *function,
+    const xir::Argument *argument) noexcept {
+    auto fit = analysis.find(function);
+    if (fit == analysis.end()) { return false; }
+    auto index = size_t{0u};
+    for (auto *candidate : function->arguments()) {
+        if (candidate == argument) {
+            return index < fit->second.size() &&
+                   fit->second[index]
+                       .requires_buffer_coherence;
         }
         index++;
     }

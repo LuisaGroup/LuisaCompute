@@ -35,6 +35,11 @@ struct SpirvFunctionArgumentAnalysis {
     // Direct and bindless buffer-address queries require the runtime metadata
     // record to carry a proven VkDeviceAddress for the exact logical view.
     bool requires_buffer_device_address{false};
+    // Volatile direct-buffer accesses require a Coherent storage-buffer
+    // declaration in addition to the Volatile memory operand and fence. Keep
+    // this per argument so unrelated buffers of the same element type retain
+    // their ordinary cache policy.
+    bool requires_buffer_coherence{false};
 };
 
 using SpirvFunctionArgumentAnalysisMap = luisa::unordered_map<
@@ -73,6 +78,12 @@ spirv_function_argument_requires_bindless_buffer_metadata(
 
 [[nodiscard]] bool
 spirv_function_argument_requires_buffer_device_address(
+    const SpirvFunctionArgumentAnalysisMap &analysis,
+    const luisa::compute::xir::Function *function,
+    const luisa::compute::xir::Argument *argument) noexcept;
+
+[[nodiscard]] bool
+spirv_function_argument_requires_buffer_coherence(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const luisa::compute::xir::Function *function,
     const luisa::compute::xir::Argument *argument) noexcept;

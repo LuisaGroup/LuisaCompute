@@ -156,7 +156,8 @@ void SpirvCodegenEntry::generate_binding(
             if (argument.first.uid() == v.uid()) { break; }
             ast_index++;
         }
-        if (binding.type_tag == Type::Tag::ACCEL ||
+        if (binding.type_tag == Type::Tag::BUFFER ||
+            binding.type_tag == Type::Tag::ACCEL ||
             binding.type_tag == Type::Tag::BINDLESS_ARRAY) {
             auto xir_index = size_t{0u};
             const xir::Argument *xir_argument = nullptr;
@@ -174,7 +175,11 @@ void SpirvCodegenEntry::generate_binding(
                 "SPIR-V resource binding of type {} has no matching XIR "
                 "kernel argument at index {}.",
                 v.type()->description(), ast_index);
-            if (binding.type_tag == Type::Tag::ACCEL) {
+            if (binding.type_tag == Type::Tag::BUFFER) {
+                binding.requires_buffer_coherence =
+                    spirv_function_argument_requires_buffer_coherence(
+                        _function_argument_usage, xir_kernel, xir_argument);
+            } else if (binding.type_tag == Type::Tag::ACCEL) {
                 // Acceleration-structure descriptors are split by their exact
                 // lowered XIR role. AST usage can conservatively retain a read
                 // from a branch that AST-to-XIR eliminated; using it here
@@ -911,6 +916,7 @@ void SpirvCodegenEntry::generate_binding(
                 // declaration carries Aliased.
                 _builder.addDecoration(var, spv::Decoration::Aliased);
                 // Only add Coherent when necessary:
+                // - this exact buffer is used by a volatile access,
                 // - buffer is used with atomics, or
                 // - element type uses word storage (sub-word updates can cause false sharing).
                 // Coherent forces GPU to bypass caches; for disjoint writes this is pure overhead.
@@ -920,13 +926,22 @@ void SpirvCodegenEntry::generate_binding(
                     // can optimize a genuinely immutable user-buffer access.
                     _builder.addDecoration(var, spv::Decoration::NonWritable);
                 }
+                auto needs_coherent = std::ranges::any_of(
+                    _kernel_resource_bindings,
+                    [i](const KernelResourceBinding &binding) noexcept {
+                        return binding.type_tag == Type::Tag::BUFFER &&
+                               binding.requires_buffer_coherence &&
+                               (binding.read_property_index == i ||
+                                binding.write_property_index == i);
+                    });
                 if (writable && elem_type != nullptr) {
-                    bool needs_coherent = _needs_atomic_buffer_types.contains(elem_type);
+                    needs_coherent |=
+                        _needs_atomic_buffer_types.contains(elem_type);
                     needs_coherent |=
                         _buffer_uses_word_storage(elem_type);
-                    if (needs_coherent) {
-                        _builder.addDecoration(var, spv::Decoration::Coherent);
-                    }
+                }
+                if (needs_coherent) {
+                    _builder.addDecoration(var, spv::Decoration::Coherent);
                 }
                 break;
             }

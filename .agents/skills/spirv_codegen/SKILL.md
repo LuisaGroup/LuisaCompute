@@ -350,6 +350,13 @@ writable accel-instance storage, writable textures/external memory, and the
 custom indirect-dispatch buffer in that proof. Do not infer immutability from
 the declaration's local `Usage::READ` alone.
 
+Volatile direct-buffer accesses require three matching SPIR-V facts: a
+`Volatile` memory operand on each load/store, the backend's matching device
+fence, and `Coherent` on that exact buffer declaration. Propagate coherence as
+an exact fixed-point argument role through callables; do not mark every buffer
+with the same element type coherent, because that needlessly disables caching
+for unrelated resources.
+
 Bindless buffer planning has two independent facts. A real bindless read/write
 needs the global unbounded buffer heap and the matching array's local metadata
 descriptor; a size-only query needs only that local metadata descriptor.
@@ -547,12 +554,14 @@ Vulkan build trees. The native configuration verifies an explicit fallback
 reason is rejected; the non-native configuration verifies the build-unavailable
 diagnostic. The test isolates fatal diagnostics in a child process.
 
-`test_vk_spirv_codegen_path` contains 61 strict-native cases and three explicit
+`test_vk_spirv_codegen_path` contains strict-native cases and three explicit
 compatibility cases: typed `BUFFER_ONLY`, an HLSL-writer/native-consumer ABI
-test, and an empty-plan test with a deliberately native-HLSL shader. Run all 64
-under Vulkan validation without the strict guard, then run the 61 native cases
-with `LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1`. Do not clear the guard inside
-the compatibility tests or describe their HLSL shaders as native XIR output.
+test, and an empty-plan test with a deliberately native-HLSL shader. Run the
+whole suite under Vulkan validation without the strict guard, then run every
+native case with `LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1`. Do not clear the
+guard inside the compatibility tests or describe their HLSL shaders as native
+XIR output. Keep the strict runner's explicit compatibility exclusions in sync
+instead of documenting a case count that changes whenever coverage grows.
 
 The Vulkan backend's shared `backend_print_code_enabled()` contract reads
 `LUISA_DUMP_SOURCE`; it does not read the obsolete

@@ -121,6 +121,7 @@ private:
         bool requires_accel_traversal_descriptor{false};
         bool requires_accel_instance_buffer{false};
         bool requires_bindless_buffer_metadata{false};
+        bool requires_buffer_coherence{false};
         size_t read_property_index{invalid_resource_property_index};
         size_t write_property_index{invalid_resource_property_index};
         size_t accel_instance_property_index{invalid_resource_property_index};
