@@ -939,6 +939,29 @@ int main(int argc, char *argv[]) {
                          "OpCapability StorageBuffer8BitAccess"));
         expect(!contains(arithmetic_spirv.text,
                          "OpCapability StorageBuffer16BitAccess"));
+
+        constexpr auto storage_arithmetic_features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                lc::spirv::target_feature::storage_buffer_16bit_access |
+                lc::spirv::target_feature::shader_float16);
+        Kernel1D storage_arithmetic = [](
+                                          BufferHalf float_input,
+                                          BufferHalf float_output) noexcept {
+            float_output.write(
+                0u, float_input.read(0u) * float_input.read(1u));
+        };
+        auto storage_arithmetic_spirv = compile_spirv_fixture(
+            storage_arithmetic, storage_arithmetic_features);
+        constexpr auto expected_storage_arithmetic_features =
+            lc::spirv::target_feature::storage_buffer_16bit_access |
+            lc::spirv::target_feature::shader_float16;
+        expect(eq(storage_arithmetic_spirv.required_features,
+                  expected_storage_arithmetic_features));
+        expect(contains(storage_arithmetic_spirv.text,
+                        "OpCapability StorageBuffer16BitAccess"));
+        expect(contains(storage_arithmetic_spirv.text,
+                        "OpCapability Float16"));
+        expect(contains(storage_arithmetic_spirv.text, "OpFMul"));
     };
 
     "spirv_copysign_reports_lowering_integer_features_exactly"_test = [] {
@@ -973,9 +996,9 @@ int main(int argc, char *argv[]) {
                 lc::spirv::target_feature::shader_float64 |
                 lc::spirv::target_feature::shader_int64);
         Kernel1D double_copysign = [](
-                                        BufferVar<double> magnitude,
-                                        BufferVar<double> sign,
-                                        BufferVar<double> output) noexcept {
+                                       BufferVar<double> magnitude,
+                                       BufferVar<double> sign,
+                                       BufferVar<double> output) noexcept {
             output.write(0u, copysign(
                                  magnitude.read(0u), sign.read(0u)));
         };
