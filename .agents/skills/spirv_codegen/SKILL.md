@@ -87,6 +87,11 @@ The compile sequence is:
 The pre-optimization module must be valid. The optimizer is never a repair
 step for malformed SPIR-V.
 
+The same rule applies inside emission: generic XIR, the native dialect, and
+the frozen AST/XIR ABI are hard invariants. Do not coerce invalid arithmetic
+operands or synthesize missing kernel arguments. Assert if a verified boolean
+`select` or planned argument buffer does not lower as expected.
+
 `SpirvCodegenEntry` owns its `spv::Builder` normally. Its destructor first
 clears maps keyed by XIR objects, then the builder is destroyed. Do not add a
 `release()` leak workaround.

@@ -562,39 +562,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             }
             auto cond = operand(2);
             auto cond_type = _builder.getTypeId(cond);
-            bool is_bool_cond = _builder.isBoolType(cond_type);
-            if (_builder.isVectorType(cond_type) && _builder.isBoolType(_builder.getContainedTypeId(cond_type))) {
-                is_bool_cond = true;
-            }
-            if (!is_bool_cond) {
-                spv::Id zero = spv::NoResult;
-                spv::Id bool_type = _builder.makeBoolType();
-                if (_builder.isIntType(cond_type) || _builder.isUintType(cond_type)) {
-                    auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(cond_type));
-                    zero = _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false);
-                } else if (_builder.isFloatType(cond_type)) {
-                    auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(cond_type));
-                    if (bit_width == 16) {
-                        zero = _builder.makeFloat16Constant(0.0f);
-                    } else if (bit_width == 32) {
-                        zero = _builder.makeFloatConstant(0.0f);
-                    } else if (bit_width == 64) {
-                        zero = _builder.makeDoubleConstant(0.0);
-                    } else if (bit_width == 8) {
-                        // FP8: use the appropriate constant constructor
-                        // We don't know the exact encoding here, but float8 values
-                        // should not appear as SELECT conditions. Fall through.
-                    }
-                }
-                if (zero != spv::NoResult) {
-                    if (_builder.isVectorType(cond_type)) {
-                        auto dim = static_cast<int32_t>(_builder.getNumTypeComponents(cond_type));
-                        zero = _builder.smearScalar(spv::NoPrecision, zero, cond_type);
-                        bool_type = _builder.makeVectorType(bool_type, dim);
-                    }
-                    cond = _builder.createBinOp(spv::Op::OpINotEqual, bool_type, cond, zero);
-                }
-            }
+            auto is_bool_condition =
+                _builder.isBoolType(cond_type) ||
+                (_builder.isVectorType(cond_type) &&
+                 _builder.isBoolType(
+                     _builder.getContainedTypeId(cond_type)));
+            LUISA_ASSERT(
+                is_bool_condition,
+                "SPIR-V arithmetic emission received a SELECT condition "
+                "that did not lower to bool or bool vector.");
             id = _builder.createTriOp(spv::Op::OpSelect, type, cond, operand(1), operand(0));
             break;
         }

@@ -682,6 +682,8 @@ void reg_xir_verifier() {
         auto *array_value = callable->create_value_argument(array_type);
         auto *index = callable->create_value_argument(uint_type);
         auto *narrow_value = callable->create_value_argument(Type::of<uint16_t>());
+        auto *bool3_value = callable->create_value_argument(
+            Type::vector(Type::of<bool>(), 3u));
         auto *body = callable->create_body_block();
         XIRBuilder builder;
         builder.set_insertion_point(body);
@@ -702,6 +704,12 @@ void reg_xir_verifier() {
             int_type, ArithmeticOp::CLZ, {int_value}));
         malformed.emplace_back(builder.call(
             Type::of<uint16_t>(), ArithmeticOp::POPCOUNT, {narrow_value}));
+        malformed.emplace_back(builder.call(
+            float_type, ArithmeticOp::SELECT,
+            {float_value, float_value, int_value}));
+        malformed.emplace_back(builder.call(
+            float2_type, ArithmeticOp::SELECT,
+            {float2_value, float2_value, bool3_value}));
         malformed.emplace_back(builder.call(
             float2_type, ArithmeticOp::DOT, {float2_value, float2_value}));
         malformed.emplace_back(builder.call(

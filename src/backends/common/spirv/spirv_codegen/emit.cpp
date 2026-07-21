@@ -1153,27 +1153,20 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
     // plan. Direct buffer-view metadata begins at the plan's final aligned
     // offset; emission never recalculates that boundary independently.
     if (!argument_layout.value_arguments.empty()) {
-        if (_has_argument_buffer && _argument_buffer_id != spv::NoResult) {
-            for (auto &&placement :
-                 argument_layout.value_arguments) {
-                auto *arg = placement.argument;
-                auto align = arg->type()->alignment();
-                auto byte_offset = _builder.makeUintConstant(
-                    placement.byte_offset);
-                auto loaded = _emit_buffer_read_impl(
-                    _argument_buffer_id, byte_offset, arg->type(), align);
-                _value_map.emplace(arg, loaded);
-            }
-        } else {
-            // Fallback: create null values if cbuffer is not available
-            for (auto &&placement :
-                 argument_layout.value_arguments) {
-                auto *arg = placement.argument;
-                auto type = _convert_type(arg->type(), Usage::READ);
-                spirv_codegen_add_narrow_constant_capabilities(
-                    _builder, arg->type());
-                _value_map.emplace(arg, _builder.makeNullConstant(type));
-            }
+        LUISA_ASSERT(
+            _has_argument_buffer &&
+                _argument_buffer_id != spv::NoResult,
+            "SPIR-V kernel value arguments require a generated argument "
+            "buffer at the AST/XIR ABI handoff.");
+        for (auto &&placement :
+             argument_layout.value_arguments) {
+            auto *arg = placement.argument;
+            auto align = arg->type()->alignment();
+            auto byte_offset = _builder.makeUintConstant(
+                placement.byte_offset);
+            auto loaded = _emit_buffer_read_impl(
+                _argument_buffer_id, byte_offset, arg->type(), align);
+            _value_map.emplace(arg, loaded);
         }
     }
     _buffer_metadata_offset =
