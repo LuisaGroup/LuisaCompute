@@ -627,6 +627,14 @@ to `OpDot` and needs the same decoration. Decorating only a final
 operations. Keep a rounding-sensitive runtime check and exact SPIR-V
 decoration count for ordinary, reduction, and matrix multiply/add paths.
 
+When fast math contracts a multiply/add pair, select the multiply exactly once
+and share that plan with instruction scheduling and FMA emission. An add may
+have two multiply operands, and its first multiply may be multi-use while its
+second is single-use. Deferring every single-use multiply whose user is an add
+can therefore suppress a value that the chosen FMA still needs as its addend,
+causing a use-before-definition failure. Only the selected single-use multiply
+may be deferred; all other products must be emitted normally.
+
 XIR generalizes `OUTER_PRODUCT` to two matrix operands for autodiff. That form
 means `A * transpose(B)` and should lower to one `OpTranspose` followed by one
 `OpMatrixTimesMatrix`; the ordinary vector form remains `OpOuterProduct`.

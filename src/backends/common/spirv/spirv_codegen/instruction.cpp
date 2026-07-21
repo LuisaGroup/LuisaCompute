@@ -15,14 +15,44 @@ namespace lc::spirv {
 
 namespace {
 
-[[nodiscard]] bool is_single_use_fast_math_fma_multiply(
-    const xir::ArithmeticInst *inst) noexcept {
-    if (inst == nullptr ||
-        inst->op() != xir::ArithmeticOp::BINARY_MUL ||
-        inst->type() == nullptr ||
-        !inst->type()->is_float_or_float_vector()) {
-        return false;
+struct FastMathFmaPlan {
+    const xir::ArithmeticInst *multiply{nullptr};
+    const xir::Value *addend{nullptr};
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return multiply != nullptr;
     }
+};
+
+[[nodiscard]] FastMathFmaPlan plan_fast_math_fma(
+    const xir::ArithmeticInst *add) noexcept {
+    if (add == nullptr ||
+        add->op() != xir::ArithmeticOp::BINARY_ADD ||
+        add->type() == nullptr ||
+        !add->type()->is_float_or_float_vector()) {
+        return {};
+    }
+    auto *type = add->type();
+    for (auto multiply_operand = 0u; multiply_operand < 2u;
+         ++multiply_operand) {
+        auto *candidate = add->operand(multiply_operand);
+        if (!candidate->isa<xir::ArithmeticInst>()) { continue; }
+        auto *multiply = static_cast<const xir::ArithmeticInst *>(candidate);
+        auto *addend = add->operand(1u - multiply_operand);
+        if (multiply->op() == xir::ArithmeticOp::BINARY_MUL &&
+            multiply->type() == type &&
+            multiply->operand(0u)->type() == type &&
+            multiply->operand(1u)->type() == type &&
+            addend->type() == type) {
+            return {.multiply = multiply, .addend = addend};
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] bool is_deferred_fast_math_fma_multiply(
+    const xir::ArithmeticInst *inst) noexcept {
+    if (inst == nullptr) { return false; }
     const xir::Use *only_use = nullptr;
     for (auto *use : inst->use_list()) {
         if (only_use != nullptr) { return false; }
@@ -32,9 +62,10 @@ namespace {
         !only_use->user()->isa<xir::ArithmeticInst>()) {
         return false;
     }
-    auto *user = static_cast<const xir::ArithmeticInst *>(
+    auto *add = static_cast<const xir::ArithmeticInst *>(
         only_use->user());
-    return user->op() == xir::ArithmeticOp::BINARY_ADD;
+    auto plan = plan_fast_math_fma(add);
+    return plan && plan.multiply == inst;
 }
 
 }// namespace
@@ -273,33 +304,18 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 // Peephole: detect FMul+FAdd pattern and emit fused multiply-add (FMA).
                 // BINARY_ADD(BINARY_MUL(a, b), c) -> Fma(a, b, c)
                 // BINARY_ADD(c, BINARY_MUL(a, b)) -> Fma(a, b, c)
-                auto try_fma = [&](const xir::Value *mul_op, const xir::Value *add_op) -> bool {
-                    if (!mul_op->isa<xir::ArithmeticInst>()) return false;
-                    auto *mul_inst = static_cast<const xir::ArithmeticInst *>(mul_op);
-                    if (mul_inst->op() != xir::ArithmeticOp::BINARY_MUL) return false;
-                    // Verify the mul result is float (scalar or vector)
-                    auto mul_t = mul_inst->type();
-                    auto mul_elem = mul_t->is_vector() || mul_t->is_matrix() ? mul_t->element() : mul_t;
-                    if (!mul_elem->is_float()) return false;
+                if (auto fma = plan_fast_math_fma(inst)) {
                     // The multiply's operands dominate this add. A single-use
                     // multiply is deliberately deferred by _emit_instruction;
                     // multi-use multiplies remain materialized for their other
                     // consumers while this add still receives an FMA.
-                    auto a = _emit_value(mul_inst->operand(0));
-                    auto b = _emit_value(mul_inst->operand(1));
-                    auto c = _emit_value(add_op);
-                    LUISA_ASSERT(
-                        _builder.getTypeId(a) == type &&
-                            _builder.getTypeId(b) == type &&
-                            _builder.getTypeId(c) == type,
-                        "SPIR-V FMA peephole requires the exact verified "
-                        "multiply/add operand type.");
+                    auto a = _emit_value(fma.multiply->operand(0u));
+                    auto b = _emit_value(fma.multiply->operand(1u));
+                    auto c = _emit_value(fma.addend);
                     id = _builder.createBuiltinCall(type, _glsl450, GLSLstd450Fma, {a, b, c});
-                    return true;
-                };
-                if (try_fma(inst->operand(0), inst->operand(1))) break;
-                if (try_fma(inst->operand(1), inst->operand(0))) break;
-                id = binary(spv::Op::OpFAdd);
+                } else {
+                    id = binary(spv::Op::OpFAdd);
+                }
             } else {
                 id = binary(is_float ?
                                 spv::Op::OpFAdd :
@@ -4365,7 +4381,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             auto *arithmetic =
                 static_cast<const xir::ArithmeticInst *>(inst);
             if (_enable_fast_math &&
-                is_single_use_fast_math_fma_multiply(arithmetic)) {
+                is_deferred_fast_math_fma_multiply(arithmetic)) {
                 break;
             }
             _emit_arithmetic_inst(arithmetic);

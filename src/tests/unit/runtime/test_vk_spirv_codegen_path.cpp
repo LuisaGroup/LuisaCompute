@@ -4893,6 +4893,70 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_fast_math_fma_deferral_matches_selected_product"_test = [&] {
+        ScopedEnvironmentVariable enable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", nullptr};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_fast_math_fma_selection"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto lhs = dc.device.create_buffer<float>(2u);
+        auto rhs = dc.device.create_buffer<float>(2u);
+        auto other_lhs = dc.device.create_buffer<float>(2u);
+        auto other_rhs = dc.device.create_buffer<float>(2u);
+        auto output = dc.device.create_buffer<float>(3u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferFloat a,
+                             BufferFloat b,
+                             BufferFloat c,
+                             BufferFloat d,
+                             BufferFloat out) noexcept {
+            auto first_product = a.read(0u) * b.read(0u);
+            auto second_product = c.read(0u) * d.read(0u);
+            out.write(0u, first_product + second_product);
+
+            auto reused_product = a.read(1u) * b.read(1u);
+            auto other_product = c.read(1u) * d.read(1u);
+            out.write(1u, reused_product + other_product);
+            out.write(2u, reused_product);
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = true});
+
+        constexpr std::array lhs_values{2.0f, 3.0f};
+        constexpr std::array rhs_values{5.0f, 7.0f};
+        constexpr std::array other_lhs_values{11.0f, 13.0f};
+        constexpr std::array other_rhs_values{17.0f, 19.0f};
+        std::array<float, 3u> result{};
+        stream << lhs.copy_from(luisa::span{lhs_values})
+               << rhs.copy_from(luisa::span{rhs_values})
+               << other_lhs.copy_from(luisa::span{other_lhs_values})
+               << other_rhs.copy_from(luisa::span{other_rhs_values})
+               << shader(lhs, rhs, other_lhs, other_rhs, output).dispatch(1u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        expect(result == std::array{197.0f, 268.0f, 21.0f});
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "fast-math FMA selection regression should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_extended_instruction(disassembly, "Fma") == 2u)
+                << "both product sums must emit a fused Fma";
+            expect(count_spirv_opcode(disassembly, "FMul") == 3u)
+                << "only the selected single-use product may be deferred";
+            expect(count_spirv_opcode(disassembly, "FAdd") == 0u)
+                << "both fast-math product sums must be fused";
+        }
+    };
+
     "vk_user_compute_integer_power_scalar_and_vector_semantics"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto scalar_base = dc.device.create_buffer<float>(5u);
