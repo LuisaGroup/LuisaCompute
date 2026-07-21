@@ -809,6 +809,63 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    "spirv_nested_exit_merge_dependency_stays_reachable"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *inner_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+
+        // The inner true arm is also the enclosing selection's merge. It then
+        // flows to the inner merge. glslang's structured traversal used to
+        // delay the enclosing merge, misclassify the dominated inner merge as
+        // dead, rewrite its live payload to OpUnreachable, and serialize the
+        // inner merge before its dominator.
+        builder.set_insertion_point(entry);
+        auto *outer = builder.if_(outer_condition);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+        builder.set_insertion_point(outer_true);
+        builder.return_void();
+        builder.set_insertion_point(outer_false);
+        auto *inner = builder.if_(inner_condition);
+        inner->set_true_target(outer_merge);
+        auto *inner_false = inner->create_false_block();
+        auto *inner_merge = inner->create_merge_block();
+        builder.set_insertion_point(inner_false);
+        builder.return_void();
+        builder.set_insertion_point(outer_merge);
+        builder.br(inner_merge);
+        builder.set_insertion_point(inner_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module, {.require_unique_merge_blocks = true})
+                   .succeeded());
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(&module)
+                   .succeeded());
+        auto plan = lc::spirv::ControlFlowPlan::create(kernel);
+        expect(plan.nested_selection_merge_rotations().size() == 1u);
+        expect(plan.if_region(outer).merge_target ==
+               lc::spirv::ControlFlowPlan::Target::xir(inner_merge));
+        expect(plan.if_region(inner).merge_target ==
+               lc::spirv::ControlFlowPlan::Target::xir(outer_merge));
+
+        Kernel1D ast_kernel = [](Bool, Bool) noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        auto compiled = compile_exact_xir(
+            ast_kernel.function()->function(), &module);
+        auto words = luisa::span{compiled.spv_bin};
+        expect(validates(words));
+        expect(count_opcode(words, spv::Op::OpUnreachable) == 0u)
+            << "both nested merges are reachable on the inner true path";
+    };
+
     "spirv_plan_separates_selection_merge_from_simple_loop_body"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

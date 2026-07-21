@@ -375,6 +375,17 @@ glslang::OutputSpvBin(spirv, "out.spv");
 glslang::OutputSpvHex(spirv, "out.h", "g_spv");
 ```
 
+Both `postProcessCFG()` and `Function::dump()` traverse physical blocks with
+`inReadableOrder()`, which assumes structured merge roles already nest. If an
+outer selection merge is also an inner arm and then branches to the inner
+merge, the physical graph exits the inner construct and re-enters it. The
+traversal can initially mask that invalid topology by classifying the inner
+merge as dead, replacing live code with `OpUnreachable`, and serializing it
+before its dominator. Fix the producer's physical control-flow plan: preserve
+the payload blocks but rotate the adjacent merge declarations so the inner
+merge physically precedes the outer merge. Do not patch serialization order or
+disable post-processing/validation around an invalid graph.
+
 `OpSwitch` case literals are sized by the selector's `OpTypeInt`, not by the
 generated operand-table class alone. A selector up to 32 bits uses one literal
 word; a 64-bit selector uses two low-word-first literal words followed by one

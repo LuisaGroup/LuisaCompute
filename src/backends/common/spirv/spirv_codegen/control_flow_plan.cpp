@@ -1020,6 +1020,165 @@ ControlFlowPlan ControlFlowPlan::_create(
         LUISA_ASSERT(inserted,
                      "SPIR-V wrapped Switch merge was bound more than once.");
     }
+
+    // XIR can express a nested selection exit with two adjacent logical merge
+    // blocks in payload order:
+    //
+    //   outer merge A (also an inner arm) -> inner merge B
+    //
+    // Emitting A as the outer physical merge and B as the inner physical merge
+    // would leave the inner construct through A and then branch back into it
+    // through B, which SPIR-V forbids. Preserve both blocks and their payload
+    // order, but rotate their physical roles: A becomes the inner merge and B
+    // becomes the outer merge, yielding the properly nested path A -> B.
+    struct NestedSelectionMergeCandidate {
+        const xir::Instruction *outer_instruction;
+        const xir::Instruction *inner_instruction;
+        const xir::BasicBlock *outer_merge;
+        const xir::BasicBlock *inner_merge;
+    };
+    auto is_ordinary_selection = [&](const xir::Instruction *instruction) noexcept {
+        if (instruction->isa<xir::IfInst>()) { return true; }
+        if (instruction->isa<xir::SwitchInst>()) {
+            auto *switch_inst = static_cast<const xir::SwitchInst *>(instruction);
+            return !plan._switch_regions.at(
+                                            plan._switch_indices.at(switch_inst))
+                        .loop_wrapped;
+        }
+        return false;
+    };
+    auto is_direct_selection_entry = [&](const xir::Instruction *instruction,
+                                         const xir::BasicBlock *block) noexcept {
+        if (instruction->isa<xir::IfInst>()) {
+            auto *if_inst = static_cast<const xir::IfInst *>(instruction);
+            return if_inst->true_block() == block ||
+                   if_inst->false_block() == block;
+        }
+        LUISA_ASSERT(instruction->isa<xir::SwitchInst>(),
+                     "SPIR-V nested selection rotation received a non-selection owner.");
+        auto *switch_inst = static_cast<const xir::SwitchInst *>(instruction);
+        if (switch_inst->default_block() == block) { return true; }
+        for (size_t i = 0u; i < switch_inst->case_count(); ++i) {
+            if (switch_inst->case_block(i) == block) { return true; }
+        }
+        return false;
+    };
+    luisa::vector<NestedSelectionMergeCandidate> rotation_candidates;
+    for (auto [outer_merge, outer_instruction] : plan._merge_owners) {
+        if (!is_ordinary_selection(outer_instruction) ||
+            !outer_merge->terminator()->isa<xir::BranchInst>()) {
+            continue;
+        }
+        auto *branch = static_cast<const xir::BranchInst *>(
+            outer_merge->terminator());
+        auto *inner_merge = branch->target_block();
+        auto inner_owner_iter = plan._merge_owners.find(inner_merge);
+        if (inner_owner_iter == plan._merge_owners.end() ||
+            !is_ordinary_selection(inner_owner_iter->second)) {
+            continue;
+        }
+        auto *inner_instruction = inner_owner_iter->second;
+        auto *inner_header = inner_instruction->parent_block();
+        if (!is_direct_selection_entry(inner_instruction, outer_merge) ||
+            !plan._merge_scopes.at(outer_merge).contains(inner_header) ||
+            !plan._merge_scopes.at(inner_merge).contains(outer_merge)) {
+            continue;
+        }
+
+        // Rotation is exact only when the inner arm is the logical merge's
+        // sole predecessor. Otherwise an ordinary outer exit would have to
+        // execute A's payload before reaching B, which cannot be represented
+        // by exchanging the two physical declarations alone.
+        luisa::unordered_set<const xir::BasicBlock *> predecessors_of_outer_merge;
+        for (auto &source_plan : plan._blocks) {
+            for (auto *operand_use :
+                 source_plan.block->terminator()->operand_uses()) {
+                if (operand_use->value() == outer_merge) {
+                    predecessors_of_outer_merge.emplace(source_plan.block);
+                }
+            }
+        }
+        if (predecessors_of_outer_merge.size() != 1u ||
+            !predecessors_of_outer_merge.contains(inner_header)) {
+            if (reject_planning_precondition(
+                    "SPIR-V control-flow plan cannot rotate a nested "
+                    "selection merge with additional logical predecessors. "
+                    "restructure_cfg must split the shared arm/merge block.")) {
+                return plan;
+            }
+        }
+        if (plan._merge_targets.at(outer_merge) != Target::xir(outer_merge) ||
+            plan._merge_targets.at(inner_merge) != Target::xir(inner_merge)) {
+            if (reject_planning_precondition(
+                    "SPIR-V control-flow plan cannot rotate nested selection "
+                    "merges that already require physical merge proxies.")) {
+                return plan;
+            }
+        }
+        rotation_candidates.emplace_back(NestedSelectionMergeCandidate{
+            .outer_instruction = outer_instruction,
+            .inner_instruction = inner_instruction,
+            .outer_merge = outer_merge,
+            .inner_merge = inner_merge});
+    }
+    std::sort(
+        rotation_candidates.begin(), rotation_candidates.end(),
+        [&](auto &&lhs, auto &&rhs) noexcept {
+            return plan._block_indices.at(lhs.outer_merge) <
+                   plan._block_indices.at(rhs.outer_merge);
+        });
+    luisa::unordered_set<const xir::BasicBlock *> rotated_merge_blocks;
+    for (auto &&candidate : rotation_candidates) {
+        if (rotated_merge_blocks.contains(candidate.outer_merge) ||
+            rotated_merge_blocks.contains(candidate.inner_merge)) {
+            if (reject_planning_precondition(
+                    "SPIR-V control-flow plan rejected an overlapping nested "
+                    "selection merge-rotation chain. restructure_cfg must "
+                    "split the shared merge roles.")) {
+                return plan;
+            }
+        }
+        rotated_merge_blocks.emplace(candidate.outer_merge);
+        rotated_merge_blocks.emplace(candidate.inner_merge);
+        auto outer_target = Target::xir(candidate.inner_merge);
+        auto inner_target = Target::xir(candidate.outer_merge);
+        plan._merge_targets[candidate.outer_merge] = outer_target;
+        plan._merge_targets[candidate.inner_merge] = inner_target;
+        auto rotation_index =
+            plan._nested_selection_merge_rotations.size();
+        plan._nested_selection_merge_rotations.emplace_back(
+            NestedSelectionMergeRotation{
+                .outer_instruction = candidate.outer_instruction,
+                .inner_instruction = candidate.inner_instruction,
+                .outer_logical_merge = candidate.outer_merge,
+                .inner_logical_merge = candidate.inner_merge,
+                .outer_physical_merge = outer_target,
+                .inner_physical_merge = inner_target});
+        auto [inner_iter, inner_inserted] =
+            plan._nested_selection_rotation_inner_indices.emplace(
+                candidate.inner_instruction, rotation_index);
+        static_cast<void>(inner_iter);
+        LUISA_ASSERT(inner_inserted,
+                     "SPIR-V nested selection received multiple merge rotations.");
+        auto [forward_iter, forward_inserted] =
+            plan._nested_selection_merge_forward_targets.emplace(
+                candidate.outer_merge, candidate.inner_merge);
+        static_cast<void>(forward_iter);
+        LUISA_ASSERT(forward_inserted,
+                     "SPIR-V nested selection merge forwarding was rotated twice.");
+    }
+    // The ordinary region records were initialized before rotations were
+    // known. Refresh them from the final immutable merge-role table.
+    for (auto &region : plan._if_regions) {
+        region.merge_target =
+            plan._merge_targets.at(region.instruction->merge_block());
+    }
+    for (auto &region : plan._switch_regions) {
+        if (!region.loop_wrapped) {
+            region.merge_target = plan._merge_targets.at(
+                region.instruction->merge_block());
+        }
+    }
     for (auto &region : plan._loop_regions) {
         region.entry_target = plan._resolve_ordinary_target(
             region.owner, region.prepare);
@@ -1032,6 +1191,27 @@ ControlFlowPlan ControlFlowPlan::_create(
             plan._resolve_loop_boundary_target(region.update);
     }
 
+    auto resolve_selection_operand =
+        [&](const xir::Instruction *instruction,
+            const xir::BasicBlock *source,
+            const xir::BasicBlock *logical_target,
+            const xir::BasicBlock *logical_merge,
+            Target physical_merge) noexcept {
+            if (logical_target == logical_merge) { return physical_merge; }
+            if (auto rotation_iter =
+                    plan._nested_selection_rotation_inner_indices.find(
+                        instruction);
+                rotation_iter !=
+                plan._nested_selection_rotation_inner_indices.end()) {
+                auto &rotation = plan._nested_selection_merge_rotations.at(
+                    rotation_iter->second);
+                if (logical_target == rotation.outer_logical_merge) {
+                    return rotation.inner_physical_merge;
+                }
+            }
+            return plan._resolve_ordinary_target(source, logical_target);
+        };
+
     // Third pass: resolve every executable edge against the frozen role table.
     for (auto &block_plan : plan._blocks) {
         auto *block = block_plan.block;
@@ -1040,14 +1220,12 @@ ControlFlowPlan ControlFlowPlan::_create(
             case xir::DerivedInstructionTag::IF: {
                 auto *inst = static_cast<const xir::IfInst *>(terminator);
                 auto &region = plan._if_regions[plan._if_indices.at(inst)];
-                region.true_target = inst->true_block() == inst->merge_block() ?
-                                         region.merge_target :
-                                         plan._resolve_ordinary_target(
-                                             block, inst->true_block());
-                region.false_target = inst->false_block() == inst->merge_block() ?
-                                          region.merge_target :
-                                          plan._resolve_ordinary_target(
-                                              block, inst->false_block());
+                region.true_target = resolve_selection_operand(
+                    inst, block, inst->true_block(), inst->merge_block(),
+                    region.merge_target);
+                region.false_target = resolve_selection_operand(
+                    inst, block, inst->false_block(), inst->merge_block(),
+                    region.merge_target);
                 break;
             }
             case xir::DerivedInstructionTag::SWITCH: {
@@ -1056,10 +1234,9 @@ ControlFlowPlan ControlFlowPlan::_create(
                 luisa::vector<std::pair<Target, Target>> exit_trampolines;
                 auto resolve_switch_operand =
                     [&](const xir::BasicBlock *logical_target) noexcept {
-                        auto target = logical_target == inst->merge_block() ?
-                                          region.merge_target :
-                                          plan._resolve_ordinary_target(
-                                              block, logical_target);
+                        auto target = resolve_selection_operand(
+                            inst, block, logical_target,
+                            inst->merge_block(), region.merge_target);
                         if (!region.direct_exit_targets.contains(
                                 logical_target)) {
                             return target;
@@ -1085,8 +1262,14 @@ ControlFlowPlan ControlFlowPlan::_create(
             }
             case xir::DerivedInstructionTag::BRANCH: {
                 auto *inst = static_cast<const xir::BranchInst *>(terminator);
-                auto target = plan._resolve_ordinary_target(
-                    block, inst->target_block());
+                auto forward_iter =
+                    plan._nested_selection_merge_forward_targets.find(block);
+                auto target = forward_iter !=
+                                          plan._nested_selection_merge_forward_targets.end() &&
+                                      forward_iter->second == inst->target_block() ?
+                                  Target::xir(inst->target_block()) :
+                                  plan._resolve_ordinary_target(
+                                      block, inst->target_block());
                 if (auto loop_iter = plan._loop_prepare_indices.find(block);
                     loop_iter != plan._loop_prepare_indices.end()) {
                     auto &&loop = plan._loop_regions[loop_iter->second];

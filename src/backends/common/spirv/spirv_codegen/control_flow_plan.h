@@ -238,6 +238,20 @@ public:
         luisa::vector<PhiIncomingPlan> incomings;
     };
 
+    // Normalized XIR may represent a nested selection exit as
+    // outer-merge -> inner-merge, with the outer merge also serving as a
+    // direct arm of the inner selection. SPIR-V must nest those physical merge
+    // roles in the opposite order. The logical blocks keep their payloads and
+    // edge order; only the two declarations/entry edges exchange roles.
+    struct NestedSelectionMergeRotation {
+        const luisa::compute::xir::Instruction *outer_instruction{nullptr};
+        const luisa::compute::xir::Instruction *inner_instruction{nullptr};
+        const luisa::compute::xir::BasicBlock *outer_logical_merge{nullptr};
+        const luisa::compute::xir::BasicBlock *inner_logical_merge{nullptr};
+        Target outer_physical_merge{};
+        Target inner_physical_merge{};
+    };
+
 private:
     const luisa::compute::xir::FunctionDefinition *_function{nullptr};
     luisa::vector<BlockPlan> _blocks;
@@ -247,6 +261,7 @@ private:
     luisa::vector<SimpleLoopRegion> _simple_loop_regions;
     luisa::vector<SwitchRegion> _switch_regions;
     luisa::vector<PhiPlan> _phi_plans;
+    luisa::vector<NestedSelectionMergeRotation> _nested_selection_merge_rotations;
     luisa::unordered_map<const luisa::compute::xir::BasicBlock *, size_t> _block_indices;
     luisa::unordered_map<const luisa::compute::xir::IfInst *, size_t> _if_indices;
     luisa::unordered_map<const luisa::compute::xir::LoopInst *, size_t> _loop_indices;
@@ -268,6 +283,12 @@ private:
         luisa::unordered_set<const luisa::compute::xir::BasicBlock *>>
         _merge_scopes;
     luisa::unordered_map<const luisa::compute::xir::Instruction *, Target> _edge_targets;
+    luisa::unordered_map<const luisa::compute::xir::Instruction *, size_t>
+        _nested_selection_rotation_inner_indices;
+    luisa::unordered_map<
+        const luisa::compute::xir::BasicBlock *,
+        const luisa::compute::xir::BasicBlock *>
+        _nested_selection_merge_forward_targets;
     luisa::string _planning_diagnostic;
 
 private:
@@ -311,6 +332,9 @@ public:
     [[nodiscard]] const auto &simple_loop_regions() const noexcept { return _simple_loop_regions; }
     [[nodiscard]] const auto &switch_regions() const noexcept { return _switch_regions; }
     [[nodiscard]] const auto &phi_plans() const noexcept { return _phi_plans; }
+    [[nodiscard]] const auto &nested_selection_merge_rotations() const noexcept {
+        return _nested_selection_merge_rotations;
+    }
     [[nodiscard]] const BlockPlan &block(const luisa::compute::xir::BasicBlock *block) const noexcept;
     [[nodiscard]] const IfRegion &if_region(const luisa::compute::xir::IfInst *instruction) const noexcept;
     [[nodiscard]] const LoopRegion &loop_region(const luisa::compute::xir::LoopInst *instruction) const noexcept;

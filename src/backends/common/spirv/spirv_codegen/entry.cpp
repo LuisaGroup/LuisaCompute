@@ -394,12 +394,15 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
         spv::Disassemble(disasm, words);
         LUISA_VERBOSE("=== PRE-VALIDATION SPIR-V for {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
     }
-    luisa_spirv_validate(words, "pre-optimization");
+    // Keep the exact emitter output available when the mandatory validator
+    // rejects it. Dumping after validation made LUISA_DUMP_SPV ineffective for
+    // precisely the failures it is intended to diagnose.
     if (std::getenv("LUISA_DUMP_SPV")) {
         auto filename = luisa::format("/tmp/opencode/kernel_{:016x}.spv", kernel.hash());
         std::ofstream file(filename.c_str(), std::ios::binary);
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
     }
+    luisa_spirv_validate(words, "pre-optimization");
     auto optimizer_report = optimize_spirv(
         words, spirv_optimizer_options_from_environment());
     if (!optimizer_report.attempted) {
