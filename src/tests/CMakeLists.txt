@@ -72,7 +72,6 @@ target_include_directories(test_spirv_motion_patch PRIVATE ../backends/vk)
 if (TARGET luisa-compute-backend-vk)
     luisa_compute_add_test(test_vk_device_feature_plan unit/ext/test_vk_device_feature_plan.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_device_feature_plan PRIVATE ../backends/vk)
-    target_link_libraries(test_vk_device_feature_plan PRIVATE luisa-compute-ext-volk)
     luisa_compute_add_test(test_vk_sparse_residency_registry unit/ext/test_vk_sparse_residency_registry.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_sparse_residency_registry PRIVATE ../backends/vk)
     target_sources(test_vk_sparse_residency_registry PRIVATE ../backends/vk/sparse_residency_registry.cpp)
@@ -95,6 +94,15 @@ if (TARGET luisa-compute-backend-vk)
     target_include_directories(test_vk_resource_barrier_contract PRIVATE ../backends/vk)
     luisa_compute_add_test(test_vk_cuda_interop_texture_plan unit/ext/test_vk_cuda_interop_texture_plan.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_cuda_interop_texture_plan PRIVATE ../backends/vk)
+    foreach (_vulkan_header_test IN ITEMS
+            test_vk_device_feature_plan
+            test_vk_resource_barrier_contract
+            test_vk_cuda_interop_texture_plan)
+        # These tests consume backend planning headers that expose Vulkan
+        # types. Inherit the vendored Vulkan headers from Volk instead of
+        # relying on a system Vulkan SDK being installed on the CI host.
+        target_link_libraries(${_vulkan_header_test} PRIVATE luisa-compute-ext-volk)
+    endforeach ()
     # Requires a Vulkan physical device. Keep it out of unattended CTest and
     # run it explicitly; the executable capability-skips unsupported sparse
     # residency while forcing Vulkan validation when the layer is installed.

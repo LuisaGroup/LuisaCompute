@@ -109,8 +109,10 @@ indirect_dispatch_max_group_count_for_uint32_global_id(
     }
     auto remaining = static_cast<uint32_t>(capacity - offset);
     auto count = maximum_count < remaining ? maximum_count : remaining;
-    if (count > std::numeric_limits<size_t>::max() /
-                    IndirectDispatchLayout::vulkan_command_size) {
+    auto count_size = static_cast<size_t>(count);
+    if (count_size != 0u &&
+        IndirectDispatchLayout::vulkan_command_size >
+            std::numeric_limits<size_t>::max() / count_size) {
         return {.error =
                     IndirectDispatchPlanError::SCRATCH_SIZE_OVERFLOW};
     }
@@ -119,7 +121,7 @@ indirect_dispatch_max_group_count_for_uint32_global_id(
             .source_record_offset = offset,
             .command_count = count,
             .scratch_size_bytes =
-                static_cast<size_t>(count) *
+                count_size *
                 IndirectDispatchLayout::vulkan_command_size}};
 }
 
