@@ -416,6 +416,37 @@ void reg_xir_pass_mutation_safety() {
         expect(count_instructions(kernel, DerivedInstructionTag::LOAD) == 0u);
     };
 
+    "fix_self_referential_preserves_legal_loop_phi_self_reference"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *latch = kernel->create_basic_block();
+        auto *exit = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.br(header);
+        builder.set_insertion_point(header);
+        auto *phi = builder.phi(Type::of<uint>());
+        phi->add_incoming(zero, body);
+        phi->add_incoming(phi, latch);
+        builder.cond_br(condition, latch, exit);
+        builder.set_insertion_point(latch);
+        builder.br(header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = fix_self_referential_pass_run_on_function(kernel);
+        expect(info.fixed_count == 0u);
+        expect(info.unresolved_count == 0u);
+        expect(info.succeeded());
+        expect(phi->incoming(1u).value == phi);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "fix_self_referential_accepts_null_or_bodyless_function"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

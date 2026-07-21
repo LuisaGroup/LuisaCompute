@@ -2,6 +2,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/passes/dom_tree.h>
@@ -29,6 +30,12 @@ static void fix_self_referential_instructions_on_function(Function *function, Fi
             if (inst->operand(i) == inst) { self_operands.emplace_back(i); }
         }
         if (self_operands.empty()) { return; }
+        // A loop-carried Phi may legitimately keep its previous value on a
+        // backedge by naming itself as that edge's incoming value. This is
+        // valid SSA and maps directly to a self-referencing OpPhi. The repair
+        // below is only for malformed ordinary value instructions produced by
+        // aggregate-store rewrites.
+        if (inst->isa<PhiInst>()) { return; }
         if (!inst->isa<ArithmeticInst>() ||
             static_cast<ArithmeticInst *>(inst)->op() != ArithmeticOp::INSERT) {
             info.unresolved_count += self_operands.size();
