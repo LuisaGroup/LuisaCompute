@@ -804,6 +804,19 @@ int main(int argc, char *argv[]) {
             << "isnan must produce a bool with OpIsNan, not a floating-point logarithm";
     };
 
+    "spirv_wide_integer_boolean_cast_constants_are_well_formed"_test = [] {
+        Kernel1D kernel = [](BufferULong input,
+                             BufferULong output) noexcept {
+            auto truth = cast<bool>(input.read(0u));
+            output.write(0u, cast<luisa::ulong>(truth));
+        };
+        auto compiled = compile_spirv_fixture(kernel);
+        expect(eq(compiled.required_features,
+                  lc::spirv::target_feature::shader_int64));
+        expect(contains(compiled.text, "OpINotEqual"));
+        expect(contains(compiled.text, "OpSelect"));
+    };
+
     "spirv_narrow_constant_ubo_optimization_respects_storage_features"_test = [] {
         constexpr std::array narrow_values{
             int16_t{-7}, int16_t{11}, int16_t{23}, int16_t{-31}};

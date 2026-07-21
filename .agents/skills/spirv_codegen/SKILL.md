@@ -552,6 +552,13 @@ extension `makeFpConstantFromBits` interns the declared-width payload directly;
 do not round-trip through host `double`. Tests cover signed zero, NaNs and
 payload preservation.
 
+Use glslang's width-matched integer constant constructor. A 64-bit
+`OpConstant` requires two literal words, even when its value is only zero or
+one; `makeIntConstant(type, value, ...)` emits one word, so use
+`makeInt64Constant` for every 64-bit integer type. Keep a SPIRV-Tools
+validation fixture for helper-generated constants such as integer/bool cast
+zero and one values.
+
 Variable-length literals such as switch cases retain the selector width and
 signedness in XIR/text/binary interchange. SPIR-V `OpSwitch` emits the exact
 one- or two-word case encoding required by the selector width.

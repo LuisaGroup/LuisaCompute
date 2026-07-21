@@ -4555,14 +4555,21 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 auto make_scalar_zero_one = [&](const Type *type) noexcept {
                     spv::Id zero = spv::NoResult;
                     spv::Id one = spv::NoResult;
-                    if (type->is_int()) {
+                    if (type->is_int() || type->is_uint()) {
                         auto bit_width = static_cast<int32_t>(type->size() * 8);
-                        zero = _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false);
-                        one = _builder.makeIntConstant(_builder.makeIntType(bit_width), 1u, false);
-                    } else if (type->is_uint()) {
-                        auto bit_width = static_cast<int32_t>(type->size() * 8);
-                        zero = _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
-                        one = _builder.makeIntConstant(_builder.makeUintType(bit_width), 1u, false);
+                        auto int_type = _builder.makeIntegerType(
+                            bit_width, type->is_int());
+                        if (bit_width == 64) {
+                            zero = _builder.makeInt64Constant(
+                                int_type, 0u, false);
+                            one = _builder.makeInt64Constant(
+                                int_type, 1u, false);
+                        } else {
+                            zero = _builder.makeIntConstant(
+                                int_type, 0u, false);
+                            one = _builder.makeIntConstant(
+                                int_type, 1u, false);
+                        }
                     } else if (type->is_float()) {
                         auto bit_width = static_cast<int32_t>(type->size() * 8);
                         if (bit_width == 8) {

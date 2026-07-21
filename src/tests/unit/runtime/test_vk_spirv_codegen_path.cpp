@@ -5059,6 +5059,31 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_wide_integer_boolean_casts_are_exact"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input = dc.device.create_buffer<luisa::ulong>(2u);
+        auto output = dc.device.create_buffer<luisa::ulong>(2u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferULong in,
+                             BufferULong out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, cast<luisa::ulong>(cast<bool>(in.read(i))));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            luisa::ulong{0u}, luisa::ulong{0xfedcba9876543210ull}};
+        std::array<luisa::ulong, 2u> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(2u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        expect(result == std::array{
+                             luisa::ulong{0u}, luisa::ulong{1u}});
+    };
+
     "vk_user_compute_vector_rounds_half_away_from_zero"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto &device = dc.device;
