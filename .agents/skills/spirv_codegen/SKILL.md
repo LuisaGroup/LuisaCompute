@@ -569,6 +569,17 @@ must prove fresh JIT code generation rather than execution of a valid cached
 native artifact; source dumping forces the native compile path before cache
 deserialization.
 
+## Floating-point contraction
+
+When `ShaderOption::enable_fast_math` is false, every emitted floating
+multiply/add/subtract that represents a source arithmetic operation must carry
+`NoContraction`. This includes the component instructions used to expand
+matrix arithmetic and native matrix multiply/outer-product instructions, not
+only scalar/vector `OpFMul`, `OpFAdd`, and `OpFSub`. Decorating only a final
+`OpCompositeConstruct` is invalid and does not protect its component
+operations. Keep a rounding-sensitive runtime check and exact SPIR-V
+decoration count for scalar and matrix multiply/add paths.
+
 Run `test_vk_native_route_guard vk` in both native-XIR and LLVM/HLSL-only
 Vulkan build trees. The native configuration verifies an explicit fallback
 reason is rejected; the non-native configuration verifies the build-unavailable

@@ -182,6 +182,13 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto binary = [&](spv::Op op) noexcept -> spv::Id {
         return _builder.createBinOp(op, type, operand(0), operand(1));
     };
+    auto mark_no_contraction = [&](spv::Id arithmetic) noexcept {
+        if (!_enable_fast_math) {
+            _builder.addDecoration(
+                arithmetic, spv::Decoration::NoContraction);
+        }
+        return arithmetic;
+    };
     auto operand_matching_result_type = [&](size_t i) noexcept -> spv::Id {
         auto value = operand(i);
         auto operand_type = inst->operand(i)->type();
@@ -1002,10 +1009,14 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
             if (a_type->is_vector() && b_type->is_vector()) {
-                id = _builder.createBinOp(spv::Op::OpOuterProduct, type, a, b);
+                id = mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpOuterProduct, type, a, b));
             } else {
                 auto b_t = _builder.createUnaryOp(spv::Op::OpTranspose, type, b);
-                id = _builder.createBinOp(spv::Op::OpMatrixTimesMatrix, type, a, b_t);
+                id = mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpMatrixTimesMatrix, type, a, b_t));
             }
             break;
         }
@@ -1045,7 +1056,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 } else {
                     rhs = _builder.createCompositeExtract(b, row_type, i);
                 }
-                new_rows.push_back(_builder.createBinOp(spv::Op::OpFAdd, row_type, lhs, rhs));
+                new_rows.push_back(mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpFAdd, row_type, lhs, rhs)));
             }
             id = _builder.createCompositeConstruct(type, new_rows);
             break;
@@ -1071,7 +1084,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 } else {
                     rhs = _builder.createCompositeExtract(b, row_type, i);
                 }
-                new_rows.push_back(_builder.createBinOp(spv::Op::OpFSub, row_type, lhs, rhs));
+                new_rows.push_back(mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpFSub, row_type, lhs, rhs)));
             }
             id = _builder.createCompositeConstruct(type, new_rows);
             break;
@@ -1082,9 +1097,13 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
             if (a_type->is_scalar()) {
-                id = _builder.createBinOp(spv::Op::OpMatrixTimesScalar, type, b, a);
+                id = mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpMatrixTimesScalar, type, b, a));
             } else if (b_type->is_scalar()) {
-                id = _builder.createBinOp(spv::Op::OpMatrixTimesScalar, type, a, b);
+                id = mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpMatrixTimesScalar, type, a, b));
             } else {
                 auto rows = t->dimension();
                 auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
@@ -1093,7 +1112,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 for (uint i = 0u; i < rows; ++i) {
                     auto row_a = _builder.createCompositeExtract(a, row_type, i);
                     auto row_b = _builder.createCompositeExtract(b, row_type, i);
-                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFMul, row_type, row_a, row_b));
+                    new_rows.push_back(mark_no_contraction(
+                        _builder.createBinOp(
+                            spv::Op::OpFMul, row_type, row_a, row_b)));
                 }
                 id = _builder.createCompositeConstruct(type, new_rows);
             }
@@ -1134,14 +1155,25 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::MATRIX_LINALG_MUL: {
             auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
-            if (a_type->is_scalar() || b_type->is_scalar()) {
-                id = _builder.createBinOp(spv::Op::OpFMul, type, operand(0), operand(1));
-            } else if (a_type->is_vector() && b_type->is_matrix()) {
-                id = _builder.createBinOp(spv::Op::OpVectorTimesMatrix, type, operand(0), operand(1));
+            if (a_type->is_vector() && b_type->is_matrix()) {
+                id = mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpVectorTimesMatrix, type,
+                        operand(0), operand(1)));
             } else if (a_type->is_matrix() && b_type->is_vector()) {
-                id = _builder.createBinOp(spv::Op::OpMatrixTimesVector, type, operand(0), operand(1));
+                id = mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpMatrixTimesVector, type,
+                        operand(0), operand(1)));
             } else {
-                id = _builder.createBinOp(spv::Op::OpMatrixTimesMatrix, type, operand(0), operand(1));
+                LUISA_ASSERT(a_type->is_matrix() && b_type->is_matrix(),
+                             "SPIR-V dialect validation accepted invalid "
+                             "matrix multiplication operands {} and {}.",
+                             a_type->description(), b_type->description());
+                id = mark_no_contraction(
+                    _builder.createBinOp(
+                        spv::Op::OpMatrixTimesMatrix, type,
+                        operand(0), operand(1)));
             }
             break;
         }
@@ -1403,7 +1435,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         (inst->op() == xir::ArithmeticOp::BINARY_ADD ||
          inst->op() == xir::ArithmeticOp::BINARY_SUB ||
          inst->op() == xir::ArithmeticOp::BINARY_MUL)) {
-        _builder.addDecoration(id, spv::Decoration::NoContraction);
+        mark_no_contraction(id);
     }
     if (inst->type() != nullptr) {
         _value_map.emplace(inst, id);
