@@ -68,71 +68,88 @@ void upload_host_data(Stream &stream, AttentionDeviceBuffers &buffers, const Att
 
 namespace {
 
-void run_mla_cooperative(Device &device, Stream &stream, AttentionDeviceBuffers &buffers, ShaderOption &opt, Clock &compile_clock) {
-    LUISA_INFO("Compiling MLA cooperative kernels ...");
+void run_mla(Device &device, Stream &stream, AttentionDeviceBuffers &buffers,
+               ShaderOption &opt, Clock &compile_clock, bool cooperative) {
+    if (cooperative) {
+        LUISA_INFO("Compiling MLA cooperative kernels ...");
+    } else {
+        LUISA_INFO("Compiling MLA kernels ...");
+    }
 
-    opt.name = "mla_project_q_coop";
-    auto project_q_shader = device.compile<1>(create_project_q_coop_kernel(), opt);
-    opt.name = "mla_project_kv_coop";
-    auto project_kv_shader = device.compile(create_project_kv_coop_kernel(), opt);
-    opt.name = "mla_online_attention_coop";
-    auto online_attention_shader = device.compile(create_online_attention_coop_kernel(), opt);
+    // Compile: use ternary to select the template instantiation.
+    opt.name = cooperative ? "mla_project_q_coop" : "mla_project_q";
+    auto project_q_shader = cooperative
+        ? device.compile<1>(create_project_q_kernel<true>(), opt)
+        : device.compile<1>(create_project_q_kernel<false>(), opt);
+
+    opt.name = cooperative ? "mla_project_kv_coop" : "mla_project_kv";
+    auto project_kv_shader = cooperative
+        ? device.compile(create_project_kv_kernel<true>(), opt)
+        : device.compile(create_project_kv_kernel<false>(), opt);
+
+    opt.name = cooperative ? "mla_online_attention_coop" : "mla_online_attention";
+    auto online_attention_shader = cooperative
+        ? device.compile(create_online_attention_kernel<true>(), opt)
+        : device.compile(create_online_attention_kernel<false>(), opt);
 
     double compile_ms = compile_clock.toc();
-    LUISA_INFO("  MLA cooperative kernels compiled in {:.2f} ms", compile_ms);
+    if (cooperative) {
+        LUISA_INFO("  MLA cooperative kernels compiled in {:.2f} ms", compile_ms);
+    } else {
+        LUISA_INFO("  MLA kernels compiled in {:.2f} ms", compile_ms);
+    }
 
     // Warm-up dispatch (not measured).
     {
         CommandList warmup = CommandList::create();
-        warmup << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf, buffers.krope_buf, buffers.wuv_buf, buffers.o_buf, buffers.q_byte_buf, buffers.ckv_byte_buf, buffers.krope_byte_buf, buffers.wuv_byte_buf).dispatch(batch * num_heads * seq_len);
+        warmup << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf,
+                                          buffers.krope_buf, buffers.wuv_buf, buffers.o_buf,
+                                          buffers.q_byte_buf, buffers.ckv_byte_buf,
+                                          buffers.krope_byte_buf, buffers.wuv_byte_buf)
+                      .dispatch(batch * num_heads * seq_len);
         stream << warmup.commit() << synchronize();
     }
 
-    LUISA_INFO("Dispatching MLA cooperative GPU kernels ...");
-    Clock dispatch_clock;
-    CommandList cmd_list = CommandList::create();
-    cmd_list << project_q_shader(buffers.h_buf, buffers.q_buf, buffers.wq_buf, buffers.wq_byte_buf).dispatch(batch * seq_len * project_q_block_size)
-             << project_kv_shader(buffers.h_buf, buffers.ckv_buf, buffers.krope_buf, buffers.wdkv_buf, buffers.wkr_buf, buffers.h_byte_buf, buffers.wdkv_byte_buf, buffers.wkr_byte_buf).dispatch(batch * seq_len * project_kv_block_size)
-        // Refresh the byte-buffer aliases of the projected tensors device-side
-        // so the cooperative-vector loads in the attention kernel see them.
-             << buffers.q_byte_buf.copy_from(buffers.q_buf)
-             << buffers.ckv_byte_buf.copy_from(buffers.ckv_buf)
-             << buffers.krope_byte_buf.copy_from(buffers.krope_buf)
-             << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf, buffers.krope_buf, buffers.wuv_buf, buffers.o_buf, buffers.q_byte_buf, buffers.ckv_byte_buf, buffers.krope_byte_buf, buffers.wuv_byte_buf).dispatch(batch * num_heads * seq_len);
-    stream << cmd_list.commit() << synchronize();
-    double dispatch_ms = dispatch_clock.toc();
-    LUISA_INFO("  MLA cooperative GPU dispatch + sync: {:.2f} ms", dispatch_ms);
-}
-
-void run_mla(Device &device, Stream &stream, AttentionDeviceBuffers &buffers, ShaderOption &opt, Clock &compile_clock) {
-    LUISA_INFO("Compiling MLA kernels ...");
-
-    opt.name = "mla_project_q";
-    auto project_q_shader = device.compile<1>(create_project_q_kernel(), opt);
-    opt.name = "mla_project_kv";
-    auto project_kv_shader = device.compile(create_project_kv_kernel(), opt);
-    opt.name = "mla_online_attention";
-    auto online_attention_shader = device.compile(create_online_attention_kernel(), opt);
-
-    double compile_ms = compile_clock.toc();
-    LUISA_INFO("  MLA kernels compiled in {:.2f} ms", compile_ms);
-
-    // Warm-up dispatch (not measured).
-    {
-        CommandList warmup = CommandList::create();
-        warmup << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf, buffers.krope_buf, buffers.wuv_buf, buffers.o_buf).dispatch(batch * num_heads * seq_len);
-        stream << warmup.commit() << synchronize();
+    if (cooperative) {
+        LUISA_INFO("Dispatching MLA cooperative GPU kernels ...");
+    } else {
+        LUISA_INFO("Dispatching MLA GPU kernels ...");
     }
 
-    LUISA_INFO("Dispatching MLA GPU kernels ...");
     Clock dispatch_clock;
     CommandList cmd_list = CommandList::create();
-    cmd_list << project_q_shader(buffers.h_buf, buffers.q_buf, buffers.wq_buf).dispatch(batch * seq_len * project_q_block_size)
-             << project_kv_shader(buffers.h_buf, buffers.ckv_buf, buffers.krope_buf, buffers.wdkv_buf, buffers.wkr_buf).dispatch(batch * seq_len * project_kv_block_size)
-             << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf, buffers.krope_buf, buffers.wuv_buf, buffers.o_buf).dispatch(batch * num_heads * seq_len);
+
+    // Project Q: unified signature always passes all params (ByteBuf ignored in fallback).
+    cmd_list << project_q_shader(buffers.h_buf, buffers.q_buf, buffers.wq_buf, buffers.wq_byte_buf)
+                    .dispatch(batch * seq_len * project_q_block_size)
+             << project_kv_shader(buffers.h_buf, buffers.ckv_buf, buffers.krope_buf,
+                                  buffers.wdkv_buf, buffers.wkr_buf,
+                                  buffers.wdkv_byte_buf, buffers.wkr_byte_buf)
+                    .dispatch(batch * seq_len * project_kv_block_size);
+
+    // Refresh the byte-buffer aliases of the projected tensors device-side
+    // so the cooperative-vector loads in the attention kernel see them.
+    // (No-op in fallback path but harmless — the copy is a device-side alias.)
+    if (cooperative) {
+        cmd_list << buffers.q_byte_buf.copy_from(buffers.q_buf)
+                 << buffers.ckv_byte_buf.copy_from(buffers.ckv_buf)
+                 << buffers.krope_byte_buf.copy_from(buffers.krope_buf);
+    }
+
+    // Online attention: unified signature always passes all ByteBuf params.
+    cmd_list << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf,
+                                         buffers.krope_buf, buffers.wuv_buf, buffers.o_buf,
+                                         buffers.q_byte_buf, buffers.ckv_byte_buf,
+                                         buffers.krope_byte_buf, buffers.wuv_byte_buf)
+                    .dispatch(batch * num_heads * seq_len);
+
     stream << cmd_list.commit() << synchronize();
     double dispatch_ms = dispatch_clock.toc();
-    LUISA_INFO("  MLA GPU dispatch + sync: {:.2f} ms", dispatch_ms);
+    if (cooperative) {
+        LUISA_INFO("  MLA cooperative GPU dispatch + sync: {:.2f} ms", dispatch_ms);
+    } else {
+        LUISA_INFO("  MLA GPU dispatch + sync: {:.2f} ms", dispatch_ms);
+    }
 }
 
 void run_mha(Device &device, Stream &stream, AttentionDeviceBuffers &buffers, ShaderOption &opt, Clock &compile_clock) {
@@ -156,16 +173,13 @@ void run_mha(Device &device, Stream &stream, AttentionDeviceBuffers &buffers, Sh
 
 }// namespace
 
-void run_attention(Device &device, Stream &stream, AttentionDeviceBuffers &buffers, bool use_mla, bool cooperative_vector) {
+void run_attention(Device &device, Stream &stream, AttentionDeviceBuffers &buffers,
+                   bool use_mla, bool cooperative_vector) {
     ShaderOption opt{.enable_debug_info = false};
     Clock compile_clock;
 
     if (use_mla) {
-        if (cooperative_vector) {
-            run_mla_cooperative(device, stream, buffers, opt, compile_clock);
-        } else {
-            run_mla(device, stream, buffers, opt, compile_clock);
-        }
+        run_mla(device, stream, buffers, opt, compile_clock, cooperative_vector);
     } else {
         run_mha(device, stream, buffers, opt, compile_clock);
     }
