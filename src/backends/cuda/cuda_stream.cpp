@@ -145,19 +145,15 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         // signal that the stream has been dispatched
         auto ticket = 1u + _current_ticket.fetch_add(1u, std::memory_order_relaxed);
-        if (_callback_semaphore_device) {
-            LUISA_CHECK_CUDA(cuStreamWriteValue64(_stream, _callback_semaphore_device,
-                                                  ticket, CU_STREAM_WRITE_VALUE_DEFAULT));
-        } else {
-            auto update = StreamCallbackSemaphoreUpdate::create(_callback_semaphore, ticket);
-            LUISA_CHECK_CUDA(cuLaunchHostFunc(
-                _stream,
-                [](void *data) noexcept {
-                    auto update = static_cast<StreamCallbackSemaphoreUpdate *>(data);
-                    update->recycle();
-                },
-                update));
-        }
+        // signal via cuLaunchHostFunc so the driver orders the host write after the stream's prior DMAs
+        auto update = StreamCallbackSemaphoreUpdate::create(_callback_semaphore, ticket);
+        LUISA_CHECK_CUDA(cuLaunchHostFunc(
+            _stream,
+            [](void *data) noexcept {
+                auto update = static_cast<StreamCallbackSemaphoreUpdate *>(data);
+                update->recycle();
+            },
+            update));
         // enqueue callbacks
         {
             CallbackPackage package{
