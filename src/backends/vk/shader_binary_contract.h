@@ -340,9 +340,9 @@ struct PipelineCacheArtifactHeader {
     // SPIR-V header: magic, version, generator, id bound, reserved schema.
     constexpr uint32_t spirv_magic = 0x07230203u;
     constexpr uint32_t spirv_1_0 = 0x00010000u;
-    constexpr uint32_t spirv_1_5 = 0x00010500u;
+    constexpr uint32_t spirv_1_6 = 0x00010600u;
     return words.size() >= 5u && words[0] == spirv_magic &&
-           words[1] >= spirv_1_0 && words[1] <= spirv_1_5 &&
+           words[1] >= spirv_1_0 && words[1] <= spirv_1_6 &&
            words[3] != 0u && words[4] == 0u;
 }
 

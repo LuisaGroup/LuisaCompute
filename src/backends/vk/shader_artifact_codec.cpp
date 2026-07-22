@@ -525,17 +525,23 @@ SpirvArtifactModuleValidationResult validate_spirv_artifact_modules(
             result.diagnostics = "SPIR-V header, instruction framing, or expected main entry point is invalid.";
             return result;
         }
+        // Validate SPIR-V through SPIRV-Tools only for native XIR codegen.
+        // HLSL-to-SPIR-V artifacts are validated by DXC and may use SPIR-V
+        // versions beyond what SPIRV-Tools configured for Vulkan 1.2 accepts
+        // (e.g., SPIR-V 1.6 for cooperative vector).
 #if defined(LUISA_XIR_TO_SPIRV) || defined(LUISA_AST_LLVM_TO_SPIRV)
-        auto validation = spirv::validate_spirv(
-            module.data(), module.size());
-        if (!validation.valid) {
-            result.error = ShaderArtifactCodecError::INVALID_SPIRV;
-            result.diagnostics = std::move(validation.diagnostics);
-            return result;
-        }
-        result.has_warning |= validation.has_warning;
-        if (!validation.diagnostics.empty()) {
-            result.diagnostics.append(validation.diagnostics);
+        if (dialect == ShaderCodegenDialect::XIR_SPIRV) {
+            auto validation = spirv::validate_spirv(
+                module.data(), module.size());
+            if (!validation.valid) {
+                result.error = ShaderArtifactCodecError::INVALID_SPIRV;
+                result.diagnostics = std::move(validation.diagnostics);
+                return result;
+            }
+            result.has_warning |= validation.has_warning;
+            if (!validation.diagnostics.empty()) {
+                result.diagnostics.append(validation.diagnostics);
+            }
         }
 #endif
     }

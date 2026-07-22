@@ -1059,101 +1059,23 @@ template <> struct ComponentTypeMap<DATA_TYPE_FLOAT8_E5M2> {
 };
 
 //
-// Helper: construct cooperative vector from regular vector via OpCompositeConstruct.
-// Uses template specialization to pick the right N-argument builtin.
-//
-template <typename ElTy, int ElCount>
-struct CoopVecConstructor {
-  static vk::nv::CooperativeVector<ElTy, ElCount> Construct(vector<ElTy, ElCount> v);
-};
-
-template <typename ElTy>
-struct CoopVecConstructor<ElTy, 1> {
-  static vk::nv::CooperativeVector<ElTy, 1> Construct(vector<ElTy, 1> v) {
-    using CV = vk::nv::CooperativeVector<ElTy, 1>;
-    CV result;
-    result._vector = __builtin_spv_ConstructCooperativeVector<typename CV::SpirvVectorType>(v[0]);
-    return result;
-  }
-};
-
-template <typename ElTy>
-struct CoopVecConstructor<ElTy, 2> {
-  static vk::nv::CooperativeVector<ElTy, 2> Construct(vector<ElTy, 2> v) {
-    using CV = vk::nv::CooperativeVector<ElTy, 2>;
-    CV result;
-    result._vector = __builtin_spv_ConstructCooperativeVector_2<typename CV::SpirvVectorType>(v[0], v[1]);
-    return result;
-  }
-};
-
-template <typename ElTy>
-struct CoopVecConstructor<ElTy, 4> {
-  static vk::nv::CooperativeVector<ElTy, 4> Construct(vector<ElTy, 4> v) {
-    using CV = vk::nv::CooperativeVector<ElTy, 4>;
-    CV result;
-    result._vector = __builtin_spv_ConstructCooperativeVector_4<typename CV::SpirvVectorType>(v[0], v[1], v[2], v[3]);
-    return result;
-  }
-};
-
-template <typename ElTy>
-struct CoopVecConstructor<ElTy, 8> {
-  static vk::nv::CooperativeVector<ElTy, 8> Construct(vector<ElTy, 8> v) {
-    using CV = vk::nv::CooperativeVector<ElTy, 8>;
-    CV result;
-    result._vector = __builtin_spv_ConstructCooperativeVector_8<typename CV::SpirvVectorType>(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
-    return result;
-  }
-};
-
-template <typename ElTy>
-struct CoopVecConstructor<ElTy, 16> {
-  static vk::nv::CooperativeVector<ElTy, 16> Construct(vector<ElTy, 16> v) {
-    using CV = vk::nv::CooperativeVector<ElTy, 16>;
-    CV result;
-    result._vector = __builtin_spv_ConstructCooperativeVector_16<typename CV::SpirvVectorType>(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]);
-    return result;
-  }
-};
-
-//
-// Helpers: convert between vector and vk::nv::CooperativeVector
-//
-template <typename ElTy, int ElCount>
-vk::nv::CooperativeVector<ElTy, ElCount> ToCooperativeVector(vector<ElTy, ElCount> v) {
-  return CoopVecConstructor<ElTy, ElCount>::Construct(v);
-}
-
-template <typename ElTy, uint ElCount>
-vector<ElTy, ElCount> ToVector(vk::nv::CooperativeVector<ElTy, ElCount> cv) {
-  vector<ElTy, ElCount> v;
-  [unroll] for (uint32_t i = 0; i < ElCount; ++i) {
-    v[i] = cv.Get(i);
-  }
-  return v;
-}
-
-//
 // CoopMul — SPIR-V version (uses CooperativeVector)
 //
 template <typename MatrixBuffer, typename InType, typename OutType,
           DataType MatRefType, uint in_dim, uint out_dim>
-vector<OutType, out_dim> CoopMul(
+vk::nv::CooperativeVector<OutType, out_dim> CoopMul(
     MatrixBuffer mat_buffer,
     uint mat_offset,
-    vector<InType, in_dim> input_vec
+    vk::nv::CooperativeVector<InType, in_dim> input_vec
 ) {
-    vk::nv::CooperativeVector<OutType, out_dim> result =
-        vk::nv::cooperativeVectorMatrixMul<OutType, InType, out_dim, in_dim>(
-            ToCooperativeVector(input_vec),
-            ComponentTypeMap<MatRefType>::value,
-            mat_buffer, mat_offset,
-            ComponentTypeMap<MatRefType>::value,
-            /*stride*/ 0,
-            vk::CooperativeVectorMatrixLayoutInferencingOptimalNV,
-            /*transpose*/ false);
-    return ToVector(result);
+    return vk::nv::cooperativeVectorMatrixMul<OutType, InType, out_dim, in_dim>(
+        input_vec,
+        ComponentTypeMap<MatRefType>::value,
+        mat_buffer, mat_offset,
+        ComponentTypeMap<MatRefType>::value,
+        /*stride*/ 0,
+        vk::CooperativeVectorMatrixLayoutInferencingOptimalNV,
+        /*transpose*/ false);
 }
 
 //
@@ -1162,25 +1084,23 @@ vector<OutType, out_dim> CoopMul(
 template <typename MatrixBuffer, typename BiasBuffer, typename InType,
           typename OutType, DataType MatRefType, DataType BiasRefType,
           uint in_dim, uint out_dim>
-vector<OutType, out_dim> CoopMulAdd(
+vk::nv::CooperativeVector<OutType, out_dim> CoopMulAdd(
     MatrixBuffer mat_buffer,
     uint mat_offset,
     BiasBuffer bias_buffer,
     uint bias_offset,
-    vector<InType, in_dim> input_vec
+    vk::nv::CooperativeVector<InType, in_dim> input_vec
 ) {
-    vk::nv::CooperativeVector<OutType, out_dim> result =
-        vk::nv::cooperativeVectorMatrixMulAdd<OutType, InType, out_dim, in_dim>(
-            ToCooperativeVector(input_vec),
-            ComponentTypeMap<MatRefType>::value,
-            mat_buffer, mat_offset,
-            ComponentTypeMap<MatRefType>::value,
-            bias_buffer, bias_offset,
-            ComponentTypeMap<BiasRefType>::value,
-            /*stride*/ 0,
-            vk::CooperativeVectorMatrixLayoutInferencingOptimalNV,
-            /*transpose*/ false);
-    return ToVector(result);
+    return vk::nv::cooperativeVectorMatrixMulAdd<OutType, InType, out_dim, in_dim>(
+        input_vec,
+        ComponentTypeMap<MatRefType>::value,
+        mat_buffer, mat_offset,
+        ComponentTypeMap<MatRefType>::value,
+        bias_buffer, bias_offset,
+        ComponentTypeMap<BiasRefType>::value,
+        /*stride*/ 0,
+        vk::CooperativeVectorMatrixLayoutInferencingOptimalNV,
+        /*transpose*/ false);
 }
 
 //
@@ -1191,11 +1111,11 @@ template <typename MatrixBuffer, typename ElTy, int MatrixM, int MatrixN,
 void CoopOuterProductAccum(
   MatrixBuffer buffer,
   uint buffer_offset,
-  vector<ElTy, MatrixM> v1,
-  vector<ElTy, MatrixN> v2
+  vk::nv::CooperativeVector<ElTy, MatrixM> v1,
+  vk::nv::CooperativeVector<ElTy, MatrixN> v2
 ){
   vk::nv::cooperativeVectorOuterProductAccumulate(
-      ToCooperativeVector(v1), ToCooperativeVector(v2),
+      v1, v2,
       buffer, buffer_offset, /*stride*/ 0,
       vk::CooperativeVectorMatrixLayoutTrainingOptimalNV,
       ComponentTypeMap<MatrixDT>::value);
@@ -1206,58 +1126,60 @@ void CoopOuterProductAccum(
 //
 template <typename ElTy, int ElCount>
 void CoopVectorAccumulate(RWByteAddressBuffer Buffer, uint Offset,
-                          vector<ElTy, ElCount> InputVector) {
+                          vk::nv::CooperativeVector<ElTy, ElCount> InputVector) {
   vk::nv::cooperativeVectorReduceSumAccumulate(
-      ToCooperativeVector(InputVector), Buffer, Offset);
+      InputVector, Buffer, Offset);
 }
 
 //
-// CoopVecLoad — SPIR-V version (element-wise load from byte buffer)
+// CoopVecLoad — SPIR-V version (element-wise load via .Set() — works reliably)
 //
 template <typename ElTy, int ElCount>
-vector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
-    vector<ElTy, ElCount> result;
+vk::nv::CooperativeVector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
+    vk::nv::CooperativeVector<ElTy, ElCount> result;
     [unroll] for (int i = 0; i < ElCount; ++i) {
-        result[i] = buf.Load<ElTy>(offset + i * sizeof(ElTy));
+        result.Set(buf.Load<ElTy>(offset + i * sizeof(ElTy)), i);
     }
     return result;
 }
 
 //
-// CoopVecStore — SPIR-V version (element-wise store to byte buffer)
+// CoopVecStore — SPIR-V version (element-wise store via .Get() — works reliably)
 //
 template <typename ElTy, int ElCount>
-void CoopVecStore(RWByteAddressBuffer buf, uint offset, vector<ElTy, ElCount> v) {
+void CoopVecStore(RWByteAddressBuffer buf, uint offset, vk::nv::CooperativeVector<ElTy, ElCount> v) {
     [unroll] for (int i = 0; i < ElCount; ++i) {
-        buf.Store(offset + i * sizeof(ElTy), v[i]);
+        buf.Store(offset + i * sizeof(ElTy), v.Get(i));
     }
 }
 
 //
-// CoopVecSplat — SPIR-V version (native HLSL vector splat via cast)
+// CoopVecSplat — SPIR-V version (construct element-by-element for reliability)
 //
 template <typename ElTy, int ElCount>
-vector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
-    return (vector<ElTy, ElCount>)scalar;
+vk::nv::CooperativeVector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
+    vk::nv::CooperativeVector<ElTy, ElCount> result;
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        result.Set(scalar, i);
+    }
+    return result;
 }
 
 //
-// CoopVecCast — SPIR-V version (native HLSL cast on vector)
+// CoopVecCast — SPIR-V version (cast on cooperative vector)
 //
 template <typename ToTy, typename FromTy, int ElCount>
-vector<ToTy, ElCount> CoopVecCast(vector<FromTy, ElCount> v) {
-    return (vector<ToTy, ElCount>)v;
+vk::nv::CooperativeVector<ToTy, ElCount> CoopVecCast(vk::nv::CooperativeVector<FromTy, ElCount> v) {
+    return v.template cast<ToTy>();
 }
 
 //
 // CoopVecWorkgroupLoad — SPIR-V version using WorkgroupSpirvPointer
 //
 template <typename ElTy, int ElCount, typename SharedBufType>
-vector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index) {
-    vk::nv::CooperativeVector<ElTy, ElCount> cv =
-        vk::nv::CooperativeVector<ElTy, ElCount>::Load(
-            vk::GetGroupSharedAddress(shared_data[index]));
-    return ToVector(cv);
+vk::nv::CooperativeVector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index) {
+    return vk::nv::CooperativeVector<ElTy, ElCount>::Load(
+        vk::GetGroupSharedAddress(shared_data[index]));
 }
 
 //
@@ -1265,9 +1187,8 @@ vector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index
 //
 template <typename ElTy, int ElCount, typename SharedBufType>
 void CoopVecWorkgroupStore(SharedBufType shared_data, uint index,
-                           vector<ElTy, ElCount> v) {
-    vk::nv::CooperativeVector<ElTy, ElCount> cv = ToCooperativeVector(v);
-    cv.Store(vk::GetGroupSharedAddress(shared_data[index]));
+                           vk::nv::CooperativeVector<ElTy, ElCount> v) {
+    v.Store(vk::GetGroupSharedAddress(shared_data[index]));
 }
 
 } // namespace linalg

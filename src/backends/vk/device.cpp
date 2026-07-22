@@ -1227,20 +1227,36 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             VkResult cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
                 physical_device, &prop_count, nullptr);
             if (cv_result == VK_SUCCESS && prop_count > 0u) {
-                // Allocate and zero-initialize the properties array on the stack.
-                VkCooperativeVectorPropertiesNV cv_props_storage[16];
-                auto cv_props = cv_props_storage;
-                uint32_t query_count = std::min<uint32_t>(prop_count, 16u);
+                // Allocate and zero-initialize the properties array dynamically
+                // so we can handle any number of configs the driver returns.
+                vstd::vector<VkCooperativeVectorPropertiesNV> cv_props(prop_count);
+                uint32_t query_count = prop_count;
                 for (uint32_t i = 0; i < query_count; ++i) {
                     cv_props[i] = VkCooperativeVectorPropertiesNV{};
                     cv_props[i].sType = VK_STRUCTURE_TYPE_COOPERATIVE_VECTOR_PROPERTIES_NV;
                 }
                 cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
-                    physical_device, &query_count, cv_props);
-                if (cv_result == VK_SUCCESS) {
-                    auto actual_count = std::min<uint32_t>(query_count, prop_count);
+                    physical_device, &query_count, cv_props.data());
+                if (cv_result == VK_INCOMPLETE || cv_result == VK_SUCCESS) {
+                    // query_count is now the actual number written by the driver.
+                    // Iterate only over valid entries and skip any with obviously
+                    // invalid enum values (driver corruption guard).
+                    // The VkComponentTypeKHR enum includes packed/quantized types
+                    // with large values (e.g. 0x10001450001, 1000491000). Accept
+                    // any value that is not an obviously corrupted pointer.
+                    constexpr uint32_t max_reasonable = 0x20000000u;
+                    auto actual_count = query_count;
                     for (uint32_t i = 0; i < actual_count; ++i) {
                         auto const &p = cv_props[i];
+                        if (static_cast<uint32_t>(p.inputType) >= max_reasonable ||
+                            static_cast<uint32_t>(p.inputInterpretation) >= max_reasonable ||
+                            static_cast<uint32_t>(p.matrixInterpretation) >= max_reasonable ||
+                            static_cast<uint32_t>(p.biasInterpretation) >= max_reasonable ||
+                            static_cast<uint32_t>(p.resultType) >= max_reasonable) {
+                            LUISA_VERBOSE(
+                                "  CooperativeVector config[{}]: SKIPPED (corrupted entry)", i);
+                            continue;
+                        }
                         LUISA_INFO("  CooperativeVector config[{}]: inputType={}, inputInterp={}, matrixInterp={}, biasInterp={}, resultType={}, transpose={}",
                                    i,
                                    static_cast<int>(p.inputType),
@@ -1254,6 +1270,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                     bool has_fp32_float_config = false;
                     for (uint32_t i = 0; i < actual_count; ++i) {
                         auto const &p = cv_props[i];
+                        if (static_cast<uint32_t>(p.inputType) >= max_reasonable) { continue; }
                         if (p.inputType == VK_COMPONENT_TYPE_FLOAT32_KHR &&
                             p.inputInterpretation == VK_COMPONENT_TYPE_FLOAT32_KHR &&
                             p.matrixInterpretation == VK_COMPONENT_TYPE_FLOAT32_KHR &&

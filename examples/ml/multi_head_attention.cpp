@@ -3,7 +3,8 @@
 // This example implements two attention paths selected by `use_mla`:
 //
 //   use_mla = false  -- classic Multi-Head Attention (MHA) reference.
-//                       Three GPU passes: QK^T + scale, softmax, AV.
+//                       Single fused online-softmax (flash-attention style)
+//                       kernel with shared-memory K/V tiles.
 //
 //   use_mla = true   -- Multi-Head Latent Attention reference.
 //                       Demonstrates the DeepSeek-V2/V3 techniques:

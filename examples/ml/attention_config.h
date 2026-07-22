@@ -33,6 +33,14 @@ constexpr float rope_theta = 10000.0f;
 static_assert(content_dim > 0u, "head_dim must be larger than rope_dim");
 static_assert(rope_dim % 2u == 0u, "rope_dim must be even for pair-wise RoPE");
 
+// Block sizes for the block-per-token projection kernels. The host must
+// dispatch (batch * seq_len * block_size) threads so each block covers
+// exactly one token; kernels index the token via block_id().x.
+constexpr uint32_t project_q_block_size = 256u;  // 2 outputs (one d-pair) per thread
+constexpr uint32_t project_kv_block_size = 128u; // one cKV output or Krope pair per thread
+static_assert(num_heads * head_dim == 2u * project_q_block_size);
+static_assert(project_kv_block_size == latent_dim + num_heads * rope_dim / 2u);
+
 // Cooperative vector chunk size (max supported by CoopVecConstructor codegen).
 constexpr uint32_t kCoopChunk = 16u;
 constexpr uint32_t kLatentChunks = latent_dim / kCoopChunk;

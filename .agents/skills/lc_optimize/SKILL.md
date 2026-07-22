@@ -5,6 +5,8 @@ description: Optimize LuisaCompute DSL kernels using warp/wave primitives, share
 
 # LuisaCompute DSL Kernel Optimization Guide
 
+> **Zero-initialization note:** All temporary local variables in DSL kernels — scalars, vectors, matrices, structs, and arrays (excluding shared arrays `Shared<T>`) — are created with a zero value automatically. There is no need to manually set them to zero before use. This applies to variables declared with `Var<T>`, `auto`, or type-inferred syntax inside a kernel or callable body.
+
 ## 1. Available Warp/Wave Primitives
 
 LuisaCompute exposes the following warp-level (subgroup) intrinsics via `luisa/dsl/builtin.h`. All operate on *active lanes within the current warp*.

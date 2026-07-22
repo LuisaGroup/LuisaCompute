@@ -26,6 +26,7 @@ public:
         bool is_matrix : 1;
         bool is_covered_class : 1;
         bool is_array : 1;
+        bool is_cooperative_vector : 1;
     };
     struct MemberNode {
         uint member_index;

@@ -45,7 +45,8 @@ AttentionDeviceBuffers create_device_buffers(Device &device) {
 }
 
 void upload_host_data(Stream &stream, AttentionDeviceBuffers &buffers, const AttentionHostData &host) {
-    // Upload everything in one batch.
+    // Upload the float buffers once, then derive the byte-buffer aliases
+    // device-side (halves upload traffic). All in one batch.
     CommandList upload = CommandList::create();
     upload << buffers.q_buf.copy_from(luisa::span{host.q})
            << buffers.k_buf.copy_from(luisa::span{host.k})
@@ -56,12 +57,12 @@ void upload_host_data(Stream &stream, AttentionDeviceBuffers &buffers, const Att
            << buffers.wuk_buf.copy_from(luisa::span{host.wuk})
            << buffers.wuv_buf.copy_from(luisa::span{host.wuv})
            << buffers.wkr_buf.copy_from(luisa::span{host.wkr})
-           << buffers.wuv_byte_buf.copy_from(host.wuv.data())
-           << buffers.wq_byte_buf.copy_from(host.wq.data())
-           << buffers.wdkv_byte_buf.copy_from(host.wdkv.data())
-           << buffers.wkr_byte_buf.copy_from(host.wkr.data())
-           << buffers.h_byte_buf.copy_from(host.h.data())
-           << buffers.q_byte_buf.copy_from(host.q.data());
+           << buffers.wuv_byte_buf.copy_from(buffers.wuv_buf)
+           << buffers.wq_byte_buf.copy_from(buffers.wq_buf)
+           << buffers.wdkv_byte_buf.copy_from(buffers.wdkv_buf)
+           << buffers.wkr_byte_buf.copy_from(buffers.wkr_buf)
+           << buffers.h_byte_buf.copy_from(buffers.h_buf)
+           << buffers.q_byte_buf.copy_from(buffers.q_buf);
     stream << upload.commit() << synchronize();
 }
 
@@ -90,8 +91,13 @@ void run_mla_cooperative(Device &device, Stream &stream, AttentionDeviceBuffers 
     LUISA_INFO("Dispatching MLA cooperative GPU kernels ...");
     Clock dispatch_clock;
     CommandList cmd_list = CommandList::create();
-    cmd_list << project_q_shader(buffers.h_buf, buffers.q_buf, buffers.wq_buf, buffers.wq_byte_buf).dispatch(batch * seq_len)
-             << project_kv_shader(buffers.h_buf, buffers.ckv_buf, buffers.krope_buf, buffers.wdkv_buf, buffers.wkr_buf, buffers.h_byte_buf, buffers.wdkv_byte_buf, buffers.wkr_byte_buf).dispatch(batch * seq_len)
+    cmd_list << project_q_shader(buffers.h_buf, buffers.q_buf, buffers.wq_buf, buffers.wq_byte_buf).dispatch(batch * seq_len * project_q_block_size)
+             << project_kv_shader(buffers.h_buf, buffers.ckv_buf, buffers.krope_buf, buffers.wdkv_buf, buffers.wkr_buf, buffers.h_byte_buf, buffers.wdkv_byte_buf, buffers.wkr_byte_buf).dispatch(batch * seq_len * project_kv_block_size)
+        // Refresh the byte-buffer aliases of the projected tensors device-side
+        // so the cooperative-vector loads in the attention kernel see them.
+             << buffers.q_byte_buf.copy_from(buffers.q_buf)
+             << buffers.ckv_byte_buf.copy_from(buffers.ckv_buf)
+             << buffers.krope_byte_buf.copy_from(buffers.krope_buf)
              << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf, buffers.krope_buf, buffers.wuv_buf, buffers.o_buf, buffers.q_byte_buf, buffers.ckv_byte_buf, buffers.krope_byte_buf, buffers.wuv_byte_buf).dispatch(batch * num_heads * seq_len);
     stream << cmd_list.commit() << synchronize();
     double dispatch_ms = dispatch_clock.toc();
@@ -121,8 +127,8 @@ void run_mla(Device &device, Stream &stream, AttentionDeviceBuffers &buffers, Sh
     LUISA_INFO("Dispatching MLA GPU kernels ...");
     Clock dispatch_clock;
     CommandList cmd_list = CommandList::create();
-    cmd_list << project_q_shader(buffers.h_buf, buffers.q_buf, buffers.wq_buf).dispatch(batch * seq_len)
-             << project_kv_shader(buffers.h_buf, buffers.ckv_buf, buffers.krope_buf, buffers.wdkv_buf, buffers.wkr_buf).dispatch(batch * seq_len)
+    cmd_list << project_q_shader(buffers.h_buf, buffers.q_buf, buffers.wq_buf).dispatch(batch * seq_len * project_q_block_size)
+             << project_kv_shader(buffers.h_buf, buffers.ckv_buf, buffers.krope_buf, buffers.wdkv_buf, buffers.wkr_buf).dispatch(batch * seq_len * project_kv_block_size)
              << online_attention_shader(buffers.q_buf, buffers.ckv_buf, buffers.wuk_buf, buffers.krope_buf, buffers.wuv_buf, buffers.o_buf).dispatch(batch * num_heads * seq_len);
     stream << cmd_list.commit() << synchronize();
     double dispatch_ms = dispatch_clock.toc();
@@ -140,9 +146,10 @@ void run_mha(Device &device, Stream &stream, AttentionDeviceBuffers &buffers, Sh
 
     LUISA_INFO("Dispatching MHA GPU kernels ...");
     Clock dispatch_clock;
-    stream << mha_online_shader(buffers.q_buf, buffers.k_buf, buffers.v_buf, buffers.o_buf)
-                  .dispatch(batch * num_heads * seq_len)
-           << synchronize();
+    CommandList cmd_list = CommandList::create();
+    cmd_list << mha_online_shader(buffers.q_buf, buffers.k_buf, buffers.v_buf, buffers.o_buf)
+                    .dispatch(batch * num_heads * seq_len);
+    stream << cmd_list.commit() << synchronize();
     double dispatch_ms = dispatch_clock.toc();
     LUISA_INFO("  MHA GPU dispatch + sync: {:.2f} ms", dispatch_ms);
 }
