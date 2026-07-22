@@ -94,7 +94,13 @@ endif ()
 luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_coro_sdf_renderer rendering/coro_sdf_renderer.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
-luisa_compute_add_example(example_multi_head_attention ml/multi_head_attention.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_multi_head_attention
+        ml/multi_head_attention.cpp
+        ml/attention_kernels.cpp
+        ml/attention_host_data.cpp
+        ml/attention_cpu_reference.cpp
+        ml/attention_runner.cpp
+        MIRROR_AS_TEST)
 
 # coroutine (headless)
 luisa_compute_add_example(example_coro_path_tracing rendering/coro_path_tracing.cpp)
