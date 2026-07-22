@@ -180,8 +180,6 @@ if has_config("lc_vk_backend") then
     end)
     test_proj("test_vk_saved_argument_contract", "unit/ext/test_vk_saved_argument_contract.cpp", false, function()
         add_includedirs("../backends/vk")
-        add_includedirs("../backends/common/spirv/spirv_codegen")
-        add_deps("lc-volk", "lc-spirv")
     end)
     test_proj("test_vk_indirect_dispatch", "unit/ext/test_vk_indirect_dispatch.cpp", false, function()
         add_includedirs("../backends/common")
