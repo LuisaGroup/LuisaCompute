@@ -1324,13 +1324,35 @@ private:
         );
     }
 
+    void _validate_static_byte_buffer_alignment(
+        CurrentFunction &current, IRBuilder &b, const xir::Value *offset,
+        const Type *access_type) noexcept {
+        auto llvm_offset = _lookup_value(current, b, offset);
+        if (auto constant = llvm::dyn_cast<llvm::ConstantInt>(llvm_offset)) {
+            auto alignment = _get_type_alignment(access_type);
+            auto byte_offset = constant->getZExtValue();
+            if (byte_offset % alignment != 0u) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Misaligned fallback byte-buffer access: type {} at byte "
+                    "offset {} requires {}-byte alignment. Use an aligned "
+                    "offset or a packed scalar array type (for example "
+                    "std::array<float, 3> instead of float3).",
+                    access_type->description(), byte_offset, alignment);
+            }
+        }
+    }
+
     [[nodiscard]] llvm::Value *_translate_buffer_write(CurrentFunction &current, IRBuilder &b,
                                                        const xir::ResourceWriteInst *inst,
                                                        bool is_volatile, bool byte_address = false) noexcept {
         auto buffer = inst->operand(0u);
         auto slot = inst->operand(1u);
-        auto llvm_elem_ptr = _get_buffer_element_ptr(current, b, buffer, slot, byte_address);
         auto value = inst->operand(2u);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, slot, value->type());
+        }
+        auto llvm_elem_ptr = _get_buffer_element_ptr(current, b, buffer, slot, byte_address);
         auto llvm_value = _lookup_value(current, b, value);// Get the value to write
         auto alignment = _get_type_alignment(value->type());
         return b.CreateAlignedStore(llvm_value, llvm_elem_ptr, llvm::MaybeAlign{alignment}, is_volatile);
@@ -1341,6 +1363,10 @@ private:
                                                       bool is_volatile, bool byte_address = false) noexcept {
         auto buffer = inst->operand(0u);
         auto slot = inst->operand(1u);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, slot, inst->type());
+        }
         auto llvm_elem_ptr = _get_buffer_element_ptr(current, b, buffer, slot, byte_address);
         auto alignment = _get_type_alignment(inst->type());
         auto llvm_element_type = _translate_type(inst->type(), true);// Type of the value being read
@@ -1533,6 +1559,10 @@ private:
         auto bindless = inst->operand(0);
         auto slot_index = inst->operand(1);
         auto index_or_offset = inst->operand(2);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, index_or_offset, result_type);
+        }
         auto llvm_slot = _load_bindless_array_slot(current, b, llvm_slot_type, bindless, slot_index);
         auto llvm_buffer_ptr = b.CreateExtractValue(llvm_slot, {0});
         auto llvm_offset = _lookup_value(current, b, index_or_offset);
@@ -1552,6 +1582,10 @@ private:
         auto slot_index = inst->operand(1);
         auto index_or_offset = inst->operand(2);
         auto value = inst->operand(3);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, index_or_offset, value->type());
+        }
         auto llvm_slot = _load_bindless_array_slot(current, b, llvm_slot_type, bindless, slot_index);
         auto llvm_buffer_ptr = b.CreateExtractValue(llvm_slot, {0});
         auto llvm_offset = _lookup_value(current, b, index_or_offset);
