@@ -330,7 +330,14 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MS
             SPIRV-Tools SPIRV-Tools-static SPIRV-Tools-opt
             SPIRV-Tools-link SPIRV-Tools-reduce SPIRV-Tools-shared)
         if (TARGET ${_spirv_target})
-            target_compile_options(${_spirv_target} PRIVATE -Wno-unused-function)
+            # target_compile_options cannot be used on ALIAS targets; resolve first
+            get_target_property(_spirv_aliased ${_spirv_target} ALIASED_TARGET)
+            if (_spirv_aliased)
+                target_compile_options(${_spirv_aliased} PRIVATE -Wno-unused-function)
+            else()
+                target_compile_options(${_spirv_target} PRIVATE -Wno-unused-function)
+            endif()
+            unset(_spirv_aliased)
         endif()
     endforeach()
     unset(_spirv_target)
