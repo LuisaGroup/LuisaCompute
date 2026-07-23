@@ -21,8 +21,11 @@
 #include <luisa/xir/passes/dead_store_elimination.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/div_rem_pairs.h>
+#include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/fix_self_referential.h>
 #include <luisa/xir/passes/gvn.h>
+#include <luisa/xir/passes/if_conversion.h>
+#include <luisa/xir/passes/indvar_simplify.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/licm.h>
 #include <luisa/xir/passes/local_load_elimination.h>
@@ -306,6 +309,11 @@ void verify_xir_or_error(
         auto i = xir::cvp_pass_run_on_module(m, &r);
         return i.replaced_inst_count > 0u;
     });
+    pipeline.add("indvar-simplify", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::indvar_simplify_pass_run_on_module(m, &r);
+        return i.simplified_iv_count > 0u ||
+               i.removed_dead_iv_count > 0u;
+    });
     pipeline.add("div-rem-pairs", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::div_rem_pairs_pass_run_on_module(m, &r);
         return i.merged_pair_count > 0u;
@@ -565,6 +573,11 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
             auto i = xir::const_fold_pass_run_on_module(m, &r);
             return i.folded_inst_count > 0u;
         });
+        // Reassociate after inlining exposes new CSE opportunities.
+        pipeline.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::reassociate_pass_run_on_module(m, &r);
+            return i.reassociated_inst_count > 0u;
+        });
         pipeline.add("sccp", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::sccp_pass_run_on_module(m, &r);
             return i.folded_inst_count > 0u ||
@@ -574,6 +587,10 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
             auto i = xir::dce_pass_run_on_module(m, &r);
             return i.removed_inst_count > 0u ||
                    i.removed_block_count > 0u;
+        });
+        pipeline.add("early-cse", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::early_cse_pass_run_on_module(m, &r);
+            return i.eliminated_inst_count > 0u;
         });
         pipeline.add("local-store-forward", [](xir::Module *m,
                                                xir::PassReport &r) {
@@ -595,11 +612,13 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
             return i.replaced_inst_count > 0u ||
                    i.removed_inst_count > 0u;
         });
-        // Keep native SwitchInst regions intact for direct OpSwitch emission.
-        // if_conversion is a raw-CFG pass and rejects a function containing
-        // any structured region, even when the candidate diamond is unrelated
-        // to that switch. SPIR-V optimization can perform this optional
-        // canonicalization after the complete structured module is emitted.
+        // After destructure_cfg, all structured regions are lowered to plain
+        // CFG. if_conversion can safely convert eligible diamonds to select
+        // instructions, enabling downstream GVN/CSE to value-number across them.
+        pipeline.add("if-conversion", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::if_conversion_pass_run_on_module(m, &r);
+            return i.converted_diamond_count > 0u;
+        });
         pipeline.add("phi-cleanup", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::phi_cleanup_pass_run_on_module(m, &r);
             return i.removed_phi_count > 0u;
