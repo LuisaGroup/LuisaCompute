@@ -105,31 +105,11 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
     }
     if (is_spirv && ops.test(CallOp::ASYNC_COPY)) {
         builder << R"(
-[[vk::ext_instruction(259, "")]]
-[[vk::ext_capability(18)]]
-uint __builtin_spirv_group_async_copy_typed(
-    uint execution_scope,
-    [[vk::ext_reference]] inout uint destination,
-    [[vk::ext_reference]] in uint source,
-    uint num_elements,
-    uint stride,
-    uint event);
-uint __builtin_spirv_group_async_copy(
-    uint execution_scope,
-    [[vk::ext_reference]] inout uint destination,
-    [[vk::ext_reference]] in uint source,
-    uint element_num_bytes,
-    uint num_elements,
-    uint stride,
-    uint event) {
-    return __builtin_spirv_group_async_copy_typed(
-        execution_scope,
-        destination,
-        source,
-        num_elements,
-        stride / element_num_bytes,
-        event);
-}
+// --- Vulkan async-copy builtins ---
+// Workgroup scratch buffer for async copies (byte-addressed).
+// The async_copy src/dst offsets index into this buffer (dst)
+// and the first StructuredBuffer argument (src).
+groupshared uint _vk_wg_copy_buf[4096];
 )";
     }
     size_t immutable_size = builder.size();

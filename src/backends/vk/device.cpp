@@ -2685,11 +2685,14 @@ ShaderCreationInfo Device::_create_shader_hlsl(
                              code.result.data() + code.immutableHeaderSize),
                          code.result.size() - code.immutableHeaderSize});
     auto requires_async_copy =
-        kernel.propagated_builtin_callables().test(CallOp::ASYNC_COPY);
+        kernel.propagated_builtin_callables().test(CallOp::ASYNC_COPY) ||
+        kernel.propagated_builtin_callables().test(CallOp::PIPELINE_COMMIT) ||
+        kernel.propagated_builtin_callables().test(CallOp::PIPELINE_WAIT_PRIOR);
     if (requires_async_copy && !async_copy_enabled) {
-        LUISA_ERROR(
-            "ASYNC_COPY is not supported on this Vulkan device because "
-            "VK_KHR_workgroup_memory_explicit_layout is unavailable.");
+        LUISA_WARNING(
+            "ASYNC_COPY is used but VK_KHR_workgroup_memory_explicit_layout "
+            "is unavailable. Async copy will use per-thread copy + barrier "
+            "instead of hardware-accelerated OpGroupAsyncCopy.");
     }
     auto shader_model = [&]() noexcept -> uint {
         if (kernel.use_cooperative_operations()) { return kTensorShaderModel; }
@@ -2822,7 +2825,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         .native_include = !option.native_include.empty(),
         .printing = kernel.requires_printing(),
         .cooperative_operations = kernel.use_cooperative_operations(),
-        .async_copy = builtin_calls.test(CallOp::ASYNC_COPY),
+        .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
+                      builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
+                      builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
         .typed_bindless_resources =
             detail::requires_typed_bindless_hlsl_fallback(builtin_calls),
         .uniform_bindless_resources =

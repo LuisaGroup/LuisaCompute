@@ -149,4 +149,8 @@ static inline const auto reg = [] {
     return 0;
 }();
 
-int main() {}
+int main(int argc, char *argv[]) {
+    // Pass through to Boost.UT's stored args for create_device_from_ut()
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+}

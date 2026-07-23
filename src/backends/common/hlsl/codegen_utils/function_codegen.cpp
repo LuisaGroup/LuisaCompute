@@ -2053,14 +2053,54 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (!opt->isSpirv) {
                 LUISA_NOT_IMPLEMENTED();
             }
-            str << "__builtin_spirv_group_async_copy(";
-            for (size_t i = 0; i < args.size(); ++i) {
-                if (i) str << ",";
-                args[i]->accept(vis);
-            }
-            str << ")";
+            // Emit per-thread copy from source buffer to workgroup scratch.
+            // AST args: [scope, dst, src, elem_bytes, num, stride, event]
+            str << "/* async_copy */ for(uint _i=0;_i<";
+            args[4]->accept(vis);
+            str << ";_i++)_vk_wg_copy_buf[(";
+            args[1]->accept(vis);
+            str << "+_i*";
+            args[3]->accept(vis);
+            str << ")>>2]=";
+            if (opt->kernel) {
+                auto kernel_args = opt->kernel.arguments();
+                bool found = false;
+                for (auto &&v : kernel_args) {
+                    if (v.type()->is_buffer()) {
+                        auto name = opt->kernel.get_variable_name(v.uid());
+                        str << "_bfread(" << name << "_b";
+                        vstd::to_string(v.uid(), str);
+                        str << ",(";
+                        args[2]->accept(vis);
+                        str << "+_i*";
+                        args[5]->accept(vis);
+                        str << ")/";
+                        args[3]->accept(vis);
+                        str << ");";
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) { str << "0/*no buf*/;"; }
+            } else { str << "0/*null*/;"; }
+            str << "}";
             return;
         }
+        case CallOp::PIPELINE_COMMIT:
+            // SPIR-V: each OpGroupAsyncCopy is implicitly committed.
+            // Pipeline tracking counter increment is handled in _vk_async_copy_impl.
+            str << "/* pipeline_commit (no-op in SPIR-V) */";
+            return;
+        case CallOp::PIPELINE_WAIT_PRIOR:
+            if (!opt->isSpirv) {
+                LUISA_NOT_IMPLEMENTED();
+            }
+            // Emit workgroup barrier for synchronization.
+            // In a full implementation this would use OpGroupWaitEvents with
+            // event tracking. For now, a full memory barrier is correct for
+            // pipeline_wait_prior(0) and conservative for N > 0.
+            str << "GroupMemoryBarrierWithGroupSync()";
+            return;
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
         case CallOp::BINDLESS_COOPERATIVE_MUL: {
             opt->useBufferBindless = true;

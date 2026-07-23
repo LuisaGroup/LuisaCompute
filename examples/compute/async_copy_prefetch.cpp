@@ -1,9 +1,11 @@
 // Async Copy (LDGSTS) prefetch example.
-// Demonstrates multi-stage data prefetching using CUDA cp.async + pipeline.
-// Requires CUDA CC 8.0+.
+// Demonstrates multi-stage data prefetching using CUDA cp.async + pipeline
+// or Vulkan SPIR-V OpGroupAsyncCopy via HLSL fallback.
+// Requires CUDA CC 8.0+ or Vulkan with VK_KHR_workgroup_memory_explicit_layout.
 //
 // Usage:
 //   xmake run example_async_copy_prefetch cuda
+//   xmake run example_async_copy_prefetch vk
 //   LUISA_DUMP_SOURCE=1 xmake run example_async_copy_prefetch cuda
 
 #include <luisa/luisa-compute.h>

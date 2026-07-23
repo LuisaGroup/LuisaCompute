@@ -1,6 +1,19 @@
 // Runtime capability probe for CallOp::ASYNC_COPY.
-// Device execution is intentionally skipped until the AST and XIR type
-// systems can represent the event and pointer types required by SPIR-V.
+//
+// Vulkan backend: async_copy, pipeline_commit, and pipeline_wait_prior are
+// implemented via the HLSL-to-SPIR-V fallback path. The HLSL codegen emits
+// per-thread copies from the first StructuredBuffer argument to a groupshared
+// scratch buffer (_vk_wg_copy_buf). pipeline_wait_prior uses a workgroup
+// barrier (GroupMemoryBarrierWithGroupSync) for synchronization.
+//
+// CUDA backend: async_copy uses lc_pipeline_memcpy_async (cp.async PTX),
+// pipeline_commit uses lc_pipeline_commit, and pipeline_wait_prior uses
+// lc_pipeline_wait_prior.
+//
+// Known limitation: the AST API passes uint byte-offsets for dst/src, but
+// both CUDA (void*) and SPIR-V (typed pointers) require actual memory
+// pointers. Full runtime verification is pending API improvements.
+//
 // CUDA async copy execution is tested in test_async_copy_cuda.cpp.
 
 #include "ut/ut.hpp"

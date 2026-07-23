@@ -1977,14 +1977,16 @@ inline void sync_block() noexcept {
 // async copy (CUDA LDGSTS, CC 8.0+)
 
 /// Initiate an async copy from global to shared memory (CUDA: LDGSTS via cp.async).
+/// Returns a dummy uint (event handle in SPIR-V, zero in CUDA).
 /// Signature: async_copy(scope, dst, src, elem_bytes, num, stride, event) -> uint
 inline void async_copy(Expr<uint> scope, Expr<uint> dst, Expr<uint> src,
                        Expr<uint> elem_bytes, Expr<uint> num,
                        Expr<uint> stride, Expr<uint> event) noexcept {
     detail::FunctionBuilder::current()->call(
-        CallOp::ASYNC_COPY, {scope.expression(), dst.expression(), src.expression(),
-                             elem_bytes.expression(), num.expression(),
-                             stride.expression(), event.expression()});
+        Type::of<uint>(), CallOp::ASYNC_COPY,
+        {scope.expression(), dst.expression(), src.expression(),
+         elem_bytes.expression(), num.expression(),
+         stride.expression(), event.expression()});
 }
 
 /// Commit pending async copies in the pipeline (CUDA).
