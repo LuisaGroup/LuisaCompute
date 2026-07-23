@@ -321,21 +321,20 @@ set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
 set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
 set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
 add_subdirectory(SPIRV-Tools)
-# clang-cl uses SPIRV-Tools' MSVC warning flags (/W2 /WX) which are added
-# unconditionally regardless of SPIRV_WERROR. In clang-cl, /W2 enables -Wall
-# (including -Wunused-function) and /WX enables -Werror. Suppress the
-# unused-function warning explicitly for all SPIRV-Tools targets.
-if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+# SPIRV-Tools adds /WX to its base MSVC warning list even when SPIRV_WERROR is
+# disabled. Append /WX- so warnings in the bundled dependency stay non-fatal.
+if (MSVC)
     foreach(_spirv_target IN ITEMS
-            SPIRV-Tools SPIRV-Tools-static SPIRV-Tools-opt
-            SPIRV-Tools-link SPIRV-Tools-reduce SPIRV-Tools-shared)
+            SPIRV-Tools SPIRV-Tools-static SPIRV-Tools-shared
+            SPIRV-Tools-opt SPIRV-Tools-link SPIRV-Tools-reduce
+            SPIRV-Tools-lint SPIRV-Tools-diff)
         if (TARGET ${_spirv_target})
             # target_compile_options cannot be used on ALIAS targets; resolve first
             get_target_property(_spirv_aliased ${_spirv_target} ALIASED_TARGET)
             if (_spirv_aliased)
-                target_compile_options(${_spirv_aliased} PRIVATE -Wno-unused-function)
+                target_compile_options(${_spirv_aliased} PRIVATE /WX-)
             else()
-                target_compile_options(${_spirv_target} PRIVATE -Wno-unused-function)
+                target_compile_options(${_spirv_target} PRIVATE /WX-)
             endif()
             unset(_spirv_aliased)
         endif()
