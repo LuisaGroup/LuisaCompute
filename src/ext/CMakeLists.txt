@@ -321,6 +321,20 @@ set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
 set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
 set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
 add_subdirectory(SPIRV-Tools)
+# clang-cl uses SPIRV-Tools' MSVC warning flags (/W2 /WX) which are added
+# unconditionally regardless of SPIRV_WERROR. In clang-cl, /W2 enables -Wall
+# (including -Wunused-function) and /WX enables -Werror. Suppress the
+# unused-function warning explicitly for all SPIRV-Tools targets.
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    foreach(_spirv_target IN ITEMS
+            SPIRV-Tools SPIRV-Tools-static SPIRV-Tools-opt
+            SPIRV-Tools-link SPIRV-Tools-reduce SPIRV-Tools-shared)
+        if (TARGET ${_spirv_target})
+            target_compile_options(${_spirv_target} PRIVATE -Wno-unused-function)
+        endif()
+    endforeach()
+    unset(_spirv_target)
+endif()
 endif ()
 
 
