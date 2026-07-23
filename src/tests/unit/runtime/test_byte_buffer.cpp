@@ -22,6 +22,10 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/byte_buffer.h>
 
+#include <array>
+#include <cstddef>
+#include <cstring>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
@@ -105,6 +109,51 @@ void test_byte_buffer_volatile_io(Device &device) {
     expect(all_correct) << "volatile byte-buffer reads must observe preceding volatile writes";
 }
 
+void test_byte_buffer_vector_alignment(Device &device) {
+    expect(Type::of<float3>()->alignment() == 16u)
+        << "float3 byte-buffer ABI alignment";
+    expect(Type::of<std::array<float, 3u>>()->alignment() == alignof(float))
+        << "packed float array byte-buffer ABI alignment";
+
+    auto input = device.create_byte_buffer(64u);
+    auto output = device.create_byte_buffer(32u);
+    std::array<std::byte, 64u> source{};
+    const std::array<float, 3u> packed_expected{1.25f, -2.5f, 3.75f};
+    const float3 aligned_expected{-4.0f, 5.5f, 6.25f};
+    std::memcpy(
+        source.data() + 12u, packed_expected.data(), sizeof(packed_expected));
+    std::memcpy(
+        source.data() + 32u, &aligned_expected, sizeof(aligned_expected));
+
+    auto shader = device.compile<1>(
+        [](ByteBufferVar src, ByteBufferVar dst) noexcept {
+            const auto packed =
+                src.read<std::array<float, 3u>>(12u);
+            const Float3 aligned = src.read<float3>(32u);
+            dst.write(0u, packed);
+            dst.write(16u, aligned);
+        });
+    std::array<std::byte, 32u> result{};
+    auto stream = device.create_stream();
+    stream << input.copy_from(source.data())
+           << shader(input, output).dispatch(1u)
+           << output.copy_to(result.data())
+           << synchronize();
+
+    std::array<float, 3u> packed_actual{};
+    float3 aligned_actual{};
+    std::memcpy(
+        packed_actual.data(), result.data(), sizeof(packed_actual));
+    std::memcpy(
+        &aligned_actual, result.data() + 16u, sizeof(aligned_actual));
+    expect(packed_actual == packed_expected)
+        << "packed float array byte-buffer access";
+    expect(aligned_actual.x == aligned_expected.x &&
+           aligned_actual.y == aligned_expected.y &&
+           aligned_actual.z == aligned_expected.z)
+        << "aligned float3 byte-buffer access";
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -116,4 +165,5 @@ int main(int argc, char *argv[]) {
     test_byte_buffer(device);
     test_byte_buffer_bool_read(device);
     test_byte_buffer_volatile_io(device);
+    test_byte_buffer_vector_alignment(device);
 }

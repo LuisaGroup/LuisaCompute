@@ -151,6 +151,9 @@ public:
     /// Return RefExpr
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
+    /// Read T at a byte offset satisfying Type::of<T>()->alignment().
+    /// Use a scalar array (for example std::array<float, 3>) for packed data
+    /// that does not satisfy the vector ABI alignment.
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto read(I &&byte_offset) const noexcept {
@@ -161,6 +164,7 @@ public:
              detail::extract_expression(std::forward<I>(byte_offset))});
         return def<T>(expr);
     }
+    /// Write a value at a byte offset satisfying its DSL type alignment.
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void write(I &&byte_offset, V &&value) const noexcept {
@@ -171,6 +175,7 @@ public:
              detail::extract_expression(std::forward<V>(value))});
     }
 
+    /// Volatile form of read<T>(); the same alignment requirement applies.
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto volatile_read(I &&byte_offset) const noexcept {
@@ -181,6 +186,7 @@ public:
              detail::extract_expression(std::forward<I>(byte_offset))});
         return def<T>(expr);
     }
+    /// Volatile form of write(); the same alignment requirement applies.
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void volatile_write(I &&byte_offset, V &&value) const noexcept {
@@ -413,6 +419,9 @@ public:
     BindlessByteBuffer(const RefExpr *array, const Expression *index, bool is_typed, bool is_uniform) noexcept
         : _array{array}, _index{index}, _is_typed{is_typed}, _is_uniform{is_uniform} {}
 
+    /// Read T at a byte offset satisfying Type::of<T>()->alignment().
+    /// Use a scalar array for packed data that does not satisfy vector
+    /// alignment.
     template<typename T, typename I>
         requires is_valid_buffer_element_v<T> && is_integral_expr_v<I>
     [[nodiscard]] auto read(I &&offset) const noexcept {
