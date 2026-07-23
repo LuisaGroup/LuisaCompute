@@ -4,16 +4,8 @@
 // from kernel definition to GPU execution and display.
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 
-#if __has_include("ut/ut.hpp")
 #include "ut/ut.hpp"
-#else
-#include "../../ut/ut.hpp"
-#endif
-#if __has_include("test_device.h")
 #include "test_device.h"
-#else
-#include "../../test_device.h"
-#endif
 
 #include <atomic>
 #include <numbers>
@@ -21,7 +13,7 @@
 #include <algorithm>
 #include <filesystem>
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -69,7 +61,6 @@ void test_kernel_ir(Device &device) {
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
     auto image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
 
     // Create graphics stream and window
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
@@ -100,27 +91,26 @@ void test_kernel_ir(Device &device) {
         stream << render(image).dispatch(width, height)
                << image.copy_to(luisa::span{pixels})
                << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
-            "test_kernel_ir", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        expect(static_cast<bool>(result.passed)) << result.message;
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_kernel_ir: {}", result.message);
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_kernel_ir]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }
 }
 
-static inline const auto reg = [] {
-    "test_kernel_ir"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_kernel_ir(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_kernel_ir(device);
+}

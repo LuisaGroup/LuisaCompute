@@ -18,6 +18,7 @@ class CUDAOldDenoiserExt;
 class CUDADenoiserExt;
 class CUDADStorageExt;
 class CUDAPinnedMemoryExt;
+class CudaGraphExtImpl;
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 class CUDATexCompressExt;
@@ -108,6 +109,7 @@ private:
     luisa::unique_ptr<DeviceConfigExt> _device_config_ext;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
     luisa::unique_ptr<CUDAPinnedMemoryExt> _pinned_memory_ext;
+    luisa::unique_ptr<CudaGraphExtImpl> _cuda_graph_ext;
     luisa::unique_ptr<CUDAExternalExt> _external_ext;
 #if LUISA_BACKEND_ENABLE_OIDN
     luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;

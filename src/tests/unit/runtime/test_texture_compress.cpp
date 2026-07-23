@@ -1,5 +1,3 @@
-#include "ut/ut.hpp"
-#include "test_device.h"
 // Texture Compression Test
 // Demonstrates BC6H and BC7 texture compression using compute shaders.
 // Block compression reduces memory bandwidth and storage requirements.
@@ -8,6 +6,9 @@
 // - BC6H (HDR) texture compression
 // - BC7 (LDR with alpha) texture compression
 // - Compressed texture sampling via bindless arrays
+
+#include "ut/ut.hpp"
+#include "test_device.h"
 
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/image.h>
@@ -20,6 +21,8 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 
+#include <filesystem>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
@@ -27,13 +30,28 @@ using namespace boost::ut::literals;
 
 void test_texture_compress(Device &device) {
     auto tex_ext = device.extension<TexCompressExt>();
+    if (tex_ext == nullptr) {
+        LUISA_INFO("Skipping texture-compression test: backend '{}' does not provide TexCompressExt.", device.backend_name());
+        return;
+    }
+    auto builtin_status = tex_ext->check_builtin_shader();
+    boost::ut::expect(builtin_status == TexCompressExt::Result::Success) << "Texture-compression builtins are unavailable.";
+    if (builtin_status != TexCompressExt::Result::Success) {
+        return;
+    }
     Stream stream = device.create_stream();
 
     // Load source image
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
-    auto image_pixels = stbi_load("logo.png", &image_width, &image_height, &image_channels, 4);
+    auto image_path = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path() / "logo.png";
+    auto image_pixels = stbi_load(image_path.string().c_str(), &image_width, &image_height, &image_channels, 4);
+    boost::ut::expect(image_pixels != nullptr) << "Failed to load texture-compression source image " << image_path.string() << ".";
+    if (image_pixels == nullptr) {
+        return;
+    }
+    boost::ut::expect(static_cast<bool>(image_width > 0 && image_height > 0)) << "Texture-compression source image has invalid dimensions.";
     auto resolution = make_uint2(image_width, image_height);
 
     // Create images for different compression formats
@@ -44,17 +62,26 @@ void test_texture_compress(Device &device) {
     Buffer<uint> bc7_buffer{device.create_buffer<uint>(bc7_image.view().size_bytes() / sizeof(uint))};
     stream << byte4_image.copy_from(luisa::span{image_pixels, static_cast<size_t>(image_width * image_height * 4)}) << synchronize();
 
-
     // Compress to BC6H format (HDR, no alpha)
     Clock clk;
-    tex_ext->compress_bc6h(stream, byte4_image, bc6h_buffer);
+    auto bc6h_status = tex_ext->compress_bc6h(stream, byte4_image, bc6h_buffer);
+    boost::ut::expect(bc6h_status == TexCompressExt::Result::Success) << "BC6H compression failed.";
+    if (bc6h_status != TexCompressExt::Result::Success) {
+        stbi_image_free(image_pixels);
+        return;
+    }
     stream << synchronize();
     auto compress_time = clk.toc();
     LUISA_INFO("Compress BC6 {}x{} image spend {} ms", resolution.x, resolution.y, compress_time);
 
     // Compress to BC7 format (LDR with alpha)
     clk.tic();
-    tex_ext->compress_bc7(stream, byte4_image, bc7_buffer, 0 /*No need alpha channel*/);
+    auto bc7_status = tex_ext->compress_bc7(stream, byte4_image, bc7_buffer, 0 /*No need alpha channel*/);
+    boost::ut::expect(bc7_status == TexCompressExt::Result::Success) << "BC7 compression failed.";
+    if (bc7_status != TexCompressExt::Result::Success) {
+        stbi_image_free(image_pixels);
+        return;
+    }
     stream << synchronize();
     compress_time = clk.toc();
     LUISA_INFO("Compress BC7 {}x{} image spend {} ms", resolution.x, resolution.y, compress_time);
@@ -74,6 +101,21 @@ void test_texture_compress(Device &device) {
     };
     auto present_shader = device.compile(present_kernel);
 
+    stbi_image_free(image_pixels);
+
+    auto output_has_variation = [](luisa::span<const std::byte> pixels) noexcept {
+        if (pixels.size() < 8u) { return false; }
+        auto r = pixels[0u];
+        auto g = pixels[1u];
+        auto b = pixels[2u];
+        for (auto i = 4u; i + 2u < pixels.size(); i += 4u) {
+            if (pixels[i + 0u] != r || pixels[i + 1u] != g || pixels[i + 2u] != b) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     // Decompress and save results
     luisa::vector<std::byte> host_image(byte4_image.view().size_bytes());
     stream
@@ -81,24 +123,24 @@ void test_texture_compress(Device &device) {
         << present_shader(bc7_image_index).dispatch(resolution)
         << byte4_image.copy_to(luisa::span{host_image})
         << synchronize();
+    boost::ut::expect(output_has_variation(luisa::span<const std::byte>{host_image})) << "BC7 decompression produced a constant image.";
     stbi_write_png("test_bc7_compress.png", resolution.x, resolution.y, 4, host_image.data(), 0);
     stream
         << bc6h_image.copy_from(bc6h_buffer.view())
         << present_shader(bc6h_image_index).dispatch(resolution)
         << byte4_image.copy_to(luisa::span{host_image})
         << synchronize();
-    expect(true) << "texture compress completed";
+    boost::ut::expect(output_has_variation(luisa::span<const std::byte>{host_image})) << "BC6H decompression produced a constant image.";
     stbi_write_png("test_bc6h_compress.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
 
-static inline const auto reg = [] {
-    "texture_compress"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_texture_compress(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_texture_compress(device);
+}

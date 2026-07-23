@@ -4,6 +4,7 @@
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/clock.h>
+#include <luisa/runtime/dispatch_buffer.h>
 
 #include "hip_check.h"
 #include "hip_buffer.h"
@@ -15,16 +16,346 @@
 #include "hip_shader.h"
 #include "hip_shader_native.h"
 #include "hip_mesh.h"
+#include "hip_curve.h"
+#include "hip_motion_instance.h"
+#include "hip_motion_mesh_builtin.h"
 #include "hip_procedural_primitive.h"
 #include "hip_accel.h"
+#include "hip_pinned_memory.h"
 #include "hip_device.h"
+
+#ifdef LUISA_ENABLE_IR
+#include <luisa/ir/ir2ast.h>
+#endif
 
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/verifier.h>
+#include <llvm/TargetParser/TargetParser.h>
 #include "llvm_codegen/hip_codegen_llvm.h"
 #endif
 
 namespace luisa::compute::hip {
+
+#ifdef LUISA_COMPUTE_ENABLE_LLVM
+namespace {
+
+static constexpr char hip_shader_package_magic[] = "LCHIPAOT";
+static constexpr auto hip_shader_package_version = 2u;
+
+class HIPShaderPackageWriter {
+
+private:
+    luisa::vector<std::byte> _data;
+
+public:
+    void write_bytes(const void *data, size_t size) noexcept {
+        auto bytes = static_cast<const std::byte *>(data);
+        _data.insert(_data.end(), bytes, bytes + size);
+    }
+
+    void write_u8(uint8_t value) noexcept {
+        _data.emplace_back(static_cast<std::byte>(value));
+    }
+
+    void write_u32(uint32_t value) noexcept {
+        for (auto i = 0u; i < 4u; i++) {
+            write_u8(static_cast<uint8_t>(value >> (i * 8u)));
+        }
+    }
+
+    void write_u64(uint64_t value) noexcept {
+        for (auto i = 0u; i < 8u; i++) {
+            write_u8(static_cast<uint8_t>(value >> (i * 8u)));
+        }
+    }
+
+    void write_string(luisa::string_view value) noexcept {
+        write_u64(value.size());
+        write_bytes(value.data(), value.size());
+    }
+
+    [[nodiscard]] luisa::vector<std::byte> finish() && noexcept {
+        return std::move(_data);
+    }
+};
+
+class HIPShaderPackageReader {
+
+private:
+    luisa::span<const std::byte> _data;
+    size_t _offset{};
+
+public:
+    explicit HIPShaderPackageReader(luisa::span<const std::byte> data) noexcept
+        : _data{data} {}
+
+    [[nodiscard]] bool read_bytes(void *dst, size_t size) noexcept {
+        if (size > _data.size() - std::min(_offset, _data.size())) { return false; }
+        std::memcpy(dst, _data.data() + _offset, size);
+        _offset += size;
+        return true;
+    }
+
+    [[nodiscard]] bool read_u8(uint8_t &value) noexcept {
+        std::byte byte{};
+        if (!read_bytes(&byte, sizeof(byte))) { return false; }
+        value = std::to_integer<uint8_t>(byte);
+        return true;
+    }
+
+    [[nodiscard]] bool read_u32(uint32_t &value) noexcept {
+        value = 0u;
+        for (auto i = 0u; i < 4u; i++) {
+            uint8_t byte{};
+            if (!read_u8(byte)) { return false; }
+            value |= static_cast<uint32_t>(byte) << (i * 8u);
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool read_u64(uint64_t &value) noexcept {
+        value = 0u;
+        for (auto i = 0u; i < 8u; i++) {
+            uint8_t byte{};
+            if (!read_u8(byte)) { return false; }
+            value |= static_cast<uint64_t>(byte) << (i * 8u);
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool read_string(luisa::string &value) noexcept {
+        uint64_t size{};
+        if (!read_u64(size) || size > remaining()) { return false; }
+        value.resize(static_cast<size_t>(size));
+        return read_bytes(value.data(), value.size());
+    }
+
+    [[nodiscard]] size_t remaining() const noexcept {
+        return _offset <= _data.size() ? _data.size() - _offset : 0u;
+    }
+};
+
+struct HIPShaderPackage {
+    HIPShaderMetadata metadata;
+    luisa::string amdgpu_arch;
+    uint32_t wave_size{};
+    luisa::string code;
+};
+
+[[nodiscard]] luisa::vector<std::byte> serialize_hip_shader_package(
+    luisa::string_view code, const HIPShaderMetadata &metadata,
+    luisa::string_view amdgpu_arch, uint32_t wave_size) noexcept {
+    HIPShaderPackageWriter writer;
+    writer.write_bytes(hip_shader_package_magic, sizeof(hip_shader_package_magic) - 1u);
+    writer.write_u32(hip_shader_package_version);
+    writer.write_u64(metadata.checksum);
+    writer.write_u64(metadata.curve_bases.to_u64());
+    writer.write_u8(static_cast<uint8_t>(metadata.kind));
+    auto flags = static_cast<uint32_t>(metadata.enable_debug) |
+                 static_cast<uint32_t>(metadata.requires_trace_closest) << 1u |
+                 static_cast<uint32_t>(metadata.requires_trace_any) << 2u |
+                 static_cast<uint32_t>(metadata.requires_ray_query) << 3u |
+                 static_cast<uint32_t>(metadata.requires_printing) << 4u |
+                 static_cast<uint32_t>(metadata.requires_motion_blur) << 5u |
+                 static_cast<uint32_t>(metadata.requires_global_rt_stack) << 6u;
+    writer.write_u32(flags);
+    writer.write_u32(metadata.max_register_count);
+    writer.write_u32(metadata.block_size.x);
+    writer.write_u32(metadata.block_size.y);
+    writer.write_u32(metadata.block_size.z);
+    writer.write_u32(static_cast<uint32_t>(metadata.argument_types.size()));
+    for (auto &&type : metadata.argument_types) { writer.write_string(type); }
+    writer.write_u32(static_cast<uint32_t>(metadata.argument_usages.size()));
+    for (auto usage : metadata.argument_usages) {
+        writer.write_u32(static_cast<uint32_t>(usage));
+    }
+    writer.write_u32(static_cast<uint32_t>(metadata.format_types.size()));
+    for (auto &&[format, type] : metadata.format_types) {
+        writer.write_string(format);
+        writer.write_string(type);
+    }
+    writer.write_string(amdgpu_arch);
+    writer.write_u32(wave_size);
+    writer.write_string(code);
+    return std::move(writer).finish();
+}
+
+[[nodiscard]] luisa::optional<HIPShaderPackage> deserialize_hip_shader_package(
+    luisa::span<const std::byte> data) noexcept {
+    HIPShaderPackageReader reader{data};
+    char magic[sizeof(hip_shader_package_magic) - 1u]{};
+    uint32_t version{};
+    if (!reader.read_bytes(magic, sizeof(magic)) ||
+        std::memcmp(magic, hip_shader_package_magic, sizeof(magic)) != 0 ||
+        !reader.read_u32(version) ||
+        (version != 1u && version != hip_shader_package_version)) {
+        return luisa::nullopt;
+    }
+    HIPShaderPackage package{};
+    uint64_t curve_bases{};
+    uint8_t kind{};
+    uint32_t flags{};
+    if (!reader.read_u64(package.metadata.checksum) ||
+        !reader.read_u64(curve_bases) ||
+        !reader.read_u8(kind) ||
+        !reader.read_u32(flags) ||
+        !reader.read_u32(package.metadata.max_register_count) ||
+        !reader.read_u32(package.metadata.block_size.x) ||
+        !reader.read_u32(package.metadata.block_size.y) ||
+        !reader.read_u32(package.metadata.block_size.z)) {
+        return luisa::nullopt;
+    }
+    if (kind != static_cast<uint8_t>(HIPShaderMetadata::Kind::COMPUTE) &&
+        kind != static_cast<uint8_t>(HIPShaderMetadata::Kind::RAY_TRACING)) {
+        return luisa::nullopt;
+    }
+    package.metadata.curve_bases = CurveBasisSet::from_u64(curve_bases);
+    package.metadata.kind = static_cast<HIPShaderMetadata::Kind>(kind);
+    package.metadata.enable_debug = (flags & (1u << 0u)) != 0u;
+    package.metadata.requires_trace_closest = (flags & (1u << 1u)) != 0u;
+    package.metadata.requires_trace_any = (flags & (1u << 2u)) != 0u;
+    package.metadata.requires_ray_query = (flags & (1u << 3u)) != 0u;
+    package.metadata.requires_printing = (flags & (1u << 4u)) != 0u;
+    package.metadata.requires_motion_blur = (flags & (1u << 5u)) != 0u;
+    package.metadata.requires_global_rt_stack =
+        version >= 2u && (flags & (1u << 6u)) != 0u;
+    if ((flags & ~(version >= 2u ? 0x7fu : 0x3fu)) != 0u) {
+        return luisa::nullopt;
+    }
+    auto read_count = [&reader](uint32_t &count) noexcept {
+        return reader.read_u32(count) && count <= (1u << 20u);
+    };
+    uint32_t count{};
+    if (!read_count(count)) { return luisa::nullopt; }
+    package.metadata.argument_types.resize(count);
+    for (auto &type : package.metadata.argument_types) {
+        if (!reader.read_string(type)) { return luisa::nullopt; }
+    }
+    if (!read_count(count)) { return luisa::nullopt; }
+    package.metadata.argument_usages.reserve(count);
+    for (auto i = 0u; i < count; i++) {
+        uint32_t usage{};
+        if (!reader.read_u32(usage) || usage > static_cast<uint32_t>(Usage::READ_WRITE)) {
+            return luisa::nullopt;
+        }
+        package.metadata.argument_usages.emplace_back(static_cast<Usage>(usage));
+    }
+    if (!read_count(count)) { return luisa::nullopt; }
+    package.metadata.format_types.resize(count);
+    for (auto &[format, type] : package.metadata.format_types) {
+        if (!reader.read_string(format) || !reader.read_string(type)) {
+            return luisa::nullopt;
+        }
+    }
+    if (!reader.read_string(package.amdgpu_arch) ||
+        !reader.read_u32(package.wave_size) ||
+        !reader.read_string(package.code) || reader.remaining() != 0u) {
+        return luisa::nullopt;
+    }
+    if (version == 1u) {
+        // Version 1 kernels used a 16-byte global-stack kernarg tail for every
+        // software-stack RT shader and for every motion shader, including
+        // direct motion traces. Preserve that legacy ABI when loading an old
+        // package instead of launching it with a shortened argument buffer.
+        auto legacy_hardware_stack =
+            package.amdgpu_arch == "gfx1200" ||
+            package.amdgpu_arch == "gfx1201";
+        auto package_requires_hiprt =
+            package.metadata.kind == HIPShaderMetadata::Kind::RAY_TRACING;
+        package.metadata.requires_global_rt_stack =
+            package_requires_hiprt &&
+            (!legacy_hardware_stack || package.metadata.requires_motion_blur);
+    }
+    return package;
+}
+
+}// namespace
+
+static const bool LUISA_XIR_NORMALIZE_CFG = [] {
+    if (auto env = std::getenv("LUISA_XIR_NORMALIZE_CFG")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
+    if (auto env = std::getenv("LUISA_XIR_RESTRUCTURE_CFG")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
+    if (auto env = std::getenv("LUISA_XIR_ELIMINATE_EARLY_RETURN")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+[[nodiscard]] static llvm::AMDGPU::GPUKind hip_amdgpu_kind(
+    luisa::string_view amdgpu_arch) noexcept {
+    auto arch = llvm::StringRef{amdgpu_arch.data(), amdgpu_arch.size()};
+    auto kind = llvm::AMDGPU::parseArchAMDGCN(arch);
+    LUISA_ASSERT(kind != llvm::AMDGPU::GK_NONE,
+                 "Unsupported AMDGPU architecture '{}'.", amdgpu_arch);
+    return kind;
+}
+
+[[nodiscard]] static bool hip_wave_size_supported(
+    luisa::string_view amdgpu_arch, uint32_t wave_size) noexcept {
+    if (wave_size == 64u) { return true; }
+    if (wave_size != 32u) { return false; }
+    auto attributes = llvm::AMDGPU::getArchAttrAMDGCN(
+        hip_amdgpu_kind(amdgpu_arch));
+    return (attributes & llvm::AMDGPU::FEATURE_WAVE32) != 0u;
+}
+
+[[nodiscard]] static uint32_t select_hip_wave_size(
+    luisa::string_view amdgpu_arch, uint32_t native_wave_size,
+    luisa::optional<uint8_t> requested_wave_size,
+    bool requires_hiprt, bool uses_hardware_rt_stack) noexcept {
+    auto wave_size = static_cast<uint32_t>(requested_wave_size.value_or(
+        static_cast<uint8_t>(native_wave_size)));
+    if (!requested_wave_size) {
+        if (auto env = std::getenv("LUISA_HIP_WAVE64");
+            env && std::string_view{env} == "1") {
+            wave_size = 64u;
+        }
+    }
+    if (!hip_wave_size_supported(amdgpu_arch, wave_size)) {
+        LUISA_ERROR_WITH_LOCATION(
+            "HIP wave{} code generation is not supported on AMDGPU architecture '{}'. "
+            "HIP kernels may request only native wave32 or wave64 modes supported by the target.",
+            wave_size, amdgpu_arch);
+    }
+    if (requires_hiprt && uses_hardware_rt_stack && wave_size != 32u) {
+        LUISA_ERROR_WITH_LOCATION(
+            "HIPRT ray tracing on AMDGPU architecture '{}' requires wave32, "
+            "but the kernel requests wave{}.",
+            amdgpu_arch, wave_size);
+    }
+    return wave_size;
+}
+
+static void verify_xir_or_error(const xir::Module *module,
+                                luisa::string_view stage) noexcept {
+    auto verification = xir::xir_verify_module(module);
+    if (!verification.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid XIR at HIP {}: {} ({} error(s) total).",
+            stage, verification.errors.front().message, verification.errors.size());
+    }
+}
+#endif
 
 void luisa_initialize_hip() noexcept {
     static std::once_flag flag;
@@ -34,18 +365,16 @@ void luisa_initialize_hip() noexcept {
 }
 
 struct HIPDeviceGuard {
-    int current_device_id = 0;
-    int previous_device_id = 0;
-    explicit HIPDeviceGuard(int device_id) noexcept : current_device_id{device_id} {
-        LUISA_CHECK_HIP(hipGetDevice(&previous_device_id));
-        if (previous_device_id != current_device_id) {
-            LUISA_CHECK_HIP(hipSetDevice(current_device_id));
-        }
+    hipCtx_t context{nullptr};
+    explicit HIPDeviceGuard(hipCtx_t ctx) noexcept : context{ctx} {
+        LUISA_ASSERT(context != nullptr, "HIP device context is null.");
+        LUISA_CHECK_HIP(hipCtxPushCurrent(context));
     }
     ~HIPDeviceGuard() noexcept {
-        if (current_device_id != previous_device_id) {
-            LUISA_CHECK_HIP(hipSetDevice(previous_device_id));
-        }
+        hipCtx_t popped_context{nullptr};
+        LUISA_CHECK_HIP(hipCtxPopCurrent(&popped_context));
+        LUISA_ASSERT(popped_context == context,
+                     "Unexpected HIP context popped from the current thread.");
     }
     HIPDeviceGuard(HIPDeviceGuard &&) noexcept = delete;
     HIPDeviceGuard(const HIPDeviceGuard &) noexcept = delete;
@@ -55,7 +384,7 @@ struct HIPDeviceGuard {
 
 template<typename F>
 decltype(auto) HIPDevice::with_device(F &&f) const noexcept {
-    HIPDeviceGuard guard{_device_id};
+    HIPDeviceGuard guard{_hip_context};
     return std::invoke(std::forward<F>(f));
 }
 
@@ -68,13 +397,22 @@ HIPDevice::HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept
       _device_id{config == nullptr || config->device_index == ~0ull ? 0 : static_cast<int>(config->device_index)} {
     auto device_count = 0;
     LUISA_CHECK_HIP(hipGetDeviceCount(&device_count));
-    LUISA_ASSERT(_device_id < device_count,
+    LUISA_ASSERT(_device_id >= 0 && _device_id < device_count,
                  "HIP device index out of range (required = {}, count = {}).",
                  _device_id, device_count);
+    LUISA_CHECK_HIP(hipDeviceGet(&_hip_device, _device_id));
+    LUISA_CHECK_HIP(hipDevicePrimaryCtxRetain(&_hip_context, _hip_device));
+
     // log device name and version
     hipDeviceProp_t prop;
     LUISA_CHECK_HIP(hipGetDeviceProperties(&prop, _device_id));
-    _gcn_arch = std::stoi(prop.gcnArchName + 3);
+    auto arch_name = std::string_view{prop.gcnArchName};
+    if (auto feature_suffix = arch_name.find(':'); feature_suffix != std::string_view::npos) {
+        arch_name = arch_name.substr(0u, feature_suffix);
+    }
+    LUISA_ASSERT(arch_name.starts_with("gfx") && arch_name.size() > 3u,
+                 "Invalid AMDGPU architecture name '{}' reported by HIP.", prop.gcnArchName);
+    _amdgpu_arch.assign(arch_name.data(), arch_name.size());
     auto driver_version = 0;
     auto runtime_version = 0;
     LUISA_CHECK_HIP(hipDriverGetVersion(&driver_version));
@@ -82,55 +420,123 @@ HIPDevice::HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept
     auto version_major = [](auto x) noexcept { return x / 10000000; };
     auto version_minor = [](auto x) noexcept { return x % 10000000 / 100000; };
     auto version_patch = [](auto x) noexcept { return x % 100000; };
-    LUISA_INFO("Created HIP device {}: {} (cc = {}.{}, driver = {}.{}.{}, runtime = {}.{}.{}, build = {}.{}.{}).",
-               _device_id, prop.name, prop.major, prop.minor,
+    LUISA_INFO("Created HIP device {}: {} (arch = {}, cc = {}.{}, driver = {}.{}.{}, runtime = {}.{}.{}, build = {}.{}.{}).",
+               _device_id, prop.name, _amdgpu_arch, prop.major, prop.minor,
                version_major(driver_version), version_minor(driver_version), version_patch(driver_version),
                version_major(runtime_version), version_minor(runtime_version), version_patch(runtime_version),
                HIP_VERSION_MAJOR, HIP_VERSION_MINOR, HIP_VERSION_PATCH);
 
-    // create hiprt context
-    hiprtContextCreationInput hiprt_ctx_input{};
-    hiprt_ctx_input.deviceType = std::string_view{prop.name}.find("NVIDIA") != std::string::npos ?
-                                     hiprtDeviceNVIDIA :
-                                     hiprtDeviceAMD;
-    hiprt_ctx_input.device = device_id();
-    LUISA_CHECK_HIP(hipCtxGetCurrent(reinterpret_cast<hipCtx_t *>(&hiprt_ctx_input.ctxt)));
-    LUISA_CHECK_HIPRT(hiprtCreateContext(HIPRT_API_VERSION, hiprt_ctx_input, _hiprt_context));
-    LUISA_CHECK_HIPRT(hiprtSetLogLevel(_hiprt_context,
-                                       static_cast<hiprtLogLevel>(hiprtLogLevelInfo | hiprtLogLevelWarn | hiprtLogLevelError)));
-
-    // create global stack buffer for HIPRT traversal (LDS-backed, avoids scratch memory)
-    hiprtGlobalStackBufferInput stack_input{};
-    stack_input.type = hiprtStackTypeGlobal;
-    stack_input.entryType = hiprtStackEntryTypeInteger;
-    stack_input.stackSize = 64u;
-    // threadCount determines global stack buffer allocation:
-    // size = stackSize * threadCount * sizeof(uint32_t)
-    // Use max expected dispatch size. 2048*2048 covers typical RT renders.
-    stack_input.threadCount = 2048u * 2048u;
-    LUISA_CHECK_HIPRT(hiprtCreateGlobalStackBuffer(_hiprt_context, stack_input, _hiprt_global_stack_buffer));
-    LUISA_INFO("Created HIPRT global stack buffer (stackSize={}, threadCount={}).",
-               stack_input.stackSize, stack_input.threadCount);
-
     // hipLimitStackSize controls per-thread scratch allocation for uses_dynamic_stack=true kernels.
-    // HIPRT traversal uses its own GlobalStack (LDS + global memory), not this.
+    // HIPRT traversal uses its hardware stack or a dedicated dynamic stack buffer, not this.
     // With full LTO inlining of HIPRT functions, no dynamic call stack is needed.
-    {
+    with_device([&] {
         auto ret = hipDeviceSetLimit(hipLimitStackSize, 0u);
         if (ret != hipSuccess) {
             LUISA_WARNING("hipDeviceSetLimit(hipLimitStackSize) failed: {}",
                           hipGetErrorString(ret));
         }
-    }
+    });
 }
 
 HIPDevice::~HIPDevice() noexcept {
-    LUISA_CHECK_HIPRT(hiprtDestroyGlobalStackBuffer(_hiprt_context, _hiprt_global_stack_buffer));
-    LUISA_CHECK_HIPRT(hiprtDestroyContext(_hiprt_context));
+    {
+        std::scoped_lock lock{_motion_mesh_builtin_mutex};
+        if (_motion_mesh_builtin != nullptr) {
+            with_device([&] {
+                // Module unloading is not stream-ordered. All streams should
+                // already have been destroyed by the runtime, but drain the
+                // context defensively before releasing the embedded module.
+                LUISA_CHECK_HIP(hipDeviceSynchronize());
+                _motion_mesh_builtin.reset();
+            });
+        }
+    }
+    {
+        std::scoped_lock lock{_hiprt_mutex};
+        if (_hiprt_context != nullptr) {
+            with_device([&] {
+                if (_hiprt_global_stack_buffer_initialized) {
+                    LUISA_CHECK_HIPRT(hiprtDestroyGlobalStackBuffer(
+                        _hiprt_context, _hiprt_global_stack_buffer));
+                    _hiprt_global_stack_buffer = {};
+                    _hiprt_global_stack_buffer_initialized = false;
+                }
+                LUISA_CHECK_HIPRT(hiprtDestroyContext(_hiprt_context));
+                _hiprt_context = nullptr;
+            });
+        }
+    }
+    LUISA_CHECK_HIP(hipDevicePrimaryCtxRelease(_hip_device));
+    _hip_context = nullptr;
+}
+
+HIPMotionMeshBuiltin &HIPDevice::motion_mesh_builtin() const noexcept {
+    std::scoped_lock lock{_motion_mesh_builtin_mutex};
+    if (_motion_mesh_builtin == nullptr) {
+        // The module belongs to this device's primary context. Push it even
+        // when the caller already runs under with_device(), so this accessor
+        // remains safe if it is reused from another host path later.
+        with_device([&] {
+            _motion_mesh_builtin =
+                luisa::make_unique<HIPMotionMeshBuiltin>();
+        });
+    }
+    return *_motion_mesh_builtin;
+}
+
+hiprtContext HIPDevice::_ensure_hiprt_context_locked() const noexcept {
+    if (_hiprt_context == nullptr) {
+        with_device([&] {
+            hipDeviceProp_t prop{};
+            LUISA_CHECK_HIP(hipGetDeviceProperties(&prop, _device_id));
+            hiprtContextCreationInput input{};
+            input.deviceType = std::string_view{prop.name}.find("NVIDIA") != std::string_view::npos ?
+                                   hiprtDeviceNVIDIA :
+                                   hiprtDeviceAMD;
+            input.device = static_cast<hiprtApiDevice>(_hip_device);
+            input.ctxt = _hip_context;
+            LUISA_CHECK_HIPRT(hiprtCreateContext(HIPRT_API_VERSION, input, _hiprt_context));
+            LUISA_CHECK_HIPRT(hiprtSetLogLevel(
+                _hiprt_context,
+                static_cast<hiprtLogLevel>(hiprtLogLevelInfo | hiprtLogLevelWarn | hiprtLogLevelError)));
+            LUISA_INFO("Created HIPRT context lazily for HIP device {}.", _device_id);
+        });
+    }
+    return _hiprt_context;
+}
+
+hiprtContext HIPDevice::hiprt_context() const noexcept {
+    std::scoped_lock lock{_hiprt_mutex};
+    return _ensure_hiprt_context_locked();
+}
+
+hiprtGlobalStackBuffer HIPDevice::hiprt_global_stack_buffer() const noexcept {
+    std::scoped_lock lock{_hiprt_mutex};
+    auto context = _ensure_hiprt_context_locked();
+    if (!_hiprt_global_stack_buffer_initialized) {
+        with_device([&] {
+            hiprtGlobalStackBufferInput input{};
+            input.type = hiprtStackTypeDynamic;
+            input.entryType = hiprtStackEntryTypeInteger;
+            input.stackSize = 64u;
+            // Dynamic stacks allocate for the maximum concurrently resident
+            // threads and use per-wave locks. Unlike a fixed global stack, the
+            // allocation is bounded by device occupancy rather than dispatch size.
+            input.threadCount = 0u;
+            LUISA_CHECK_HIPRT(hiprtCreateGlobalStackBuffer(
+                context, input, _hiprt_global_stack_buffer));
+            _hiprt_global_stack_buffer_initialized = true;
+            LUISA_INFO("Created bounded HIPRT dynamic stack buffer "
+                       "(stackSize={}, stackCount={}).",
+                       _hiprt_global_stack_buffer.stackSize,
+                       _hiprt_global_stack_buffer.stackCount);
+        });
+    }
+    return _hiprt_global_stack_buffer;
 }
 
 void HIPDevice::set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept {
-    DeviceInterface::set_stream_log_callback(stream_handle, callback);
+    reinterpret_cast<HIPStream *>(stream_handle)->set_log_callback(callback);
 }
 
 ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
@@ -138,28 +544,52 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, const ir
 }
 
 ResourceCreationInfo HIPDevice::create_curve(const AccelOption &option) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    auto context = hiprt_context();
+    auto curve = with_device([&] {
+        return luisa::new_with_allocator<HIPCurve>(context, option);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(curve),
+            .native_handle = curve};
 }
 
 void HIPDevice::destroy_curve(uint64_t handle) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    with_device([&] {
+        auto curve = reinterpret_cast<HIPCurve *>(handle);
+        luisa::delete_with_allocator(curve);
+    });
 }
 
 ResourceCreationInfo HIPDevice::create_motion_instance(const AccelMotionOption &option) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    auto context = hiprt_context();
+    auto instance = with_device([&] {
+        return luisa::new_with_allocator<HIPMotionInstance>(context, option);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(instance),
+            .native_handle = instance};
 }
 
 void HIPDevice::destroy_motion_instance(uint64_t handle) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    with_device([&] {
+        auto instance = reinterpret_cast<HIPMotionInstance *>(handle);
+        luisa::delete_with_allocator(instance);
+    });
 }
 
 luisa::string HIPDevice::query(luisa::string_view property) noexcept {
-    // TODO: support more properties
+    if (property == "amdgpu_arch") {
+        return _amdgpu_arch;
+    }
     return DeviceInterface::query(property);
 }
 
 DeviceExtension *HIPDevice::extension(luisa::string_view name) noexcept {
-    // TODO: support extensions
+    if (name == PinnedMemoryExt::name) {
+        std::scoped_lock lock{_extension_mutex};
+        if (_pinned_memory_ext == nullptr) {
+            _pinned_memory_ext = luisa::make_unique<HIPPinnedMemoryExt>(this);
+        }
+        return _pinned_memory_ext.get();
+    }
     return DeviceInterface::extension(name);
 }
 
@@ -228,7 +658,7 @@ hipUUID_t HIPDevice::device_uuid_for_vulkan() const noexcept {
 }
 
 void *HIPDevice::native_handle() const noexcept {
-    return reinterpret_cast<void *>(static_cast<uintptr_t>(_device_id));
+    return _hip_context;
 }
 
 uint HIPDevice::compute_warp_size() const noexcept {
@@ -245,6 +675,20 @@ uint64_t HIPDevice::memory_granularity() const noexcept {
 }
 
 BufferCreationInfo HIPDevice::create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept {
+    elem_count = std::max<size_t>(elem_count, 1u);
+    if (element == Type::of<IndirectKernelDispatch>()) {
+        LUISA_ASSERT(external_memory == nullptr,
+                     "Indirect dispatch buffers cannot import external memory.");
+        auto buffer = with_device([&] {
+            return HIPBuffer::create_indirect_buffer(elem_count);
+        });
+        BufferCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = buffer->handle();
+        info.element_stride = sizeof(HIPBuffer::IndirectDispatch);
+        info.total_size_bytes = buffer->size_bytes();
+        return info;
+    }
     LUISA_ASSERT(element == nullptr || element->is_basic() || element->is_structure() || element->is_array(),
                  "Invalid buffer element type {}.", element->description());
     auto elem_stride = element == nullptr ? 1u : element->size();
@@ -263,7 +707,13 @@ BufferCreationInfo HIPDevice::create_buffer(const Type *element, size_t elem_cou
 }
 
 BufferCreationInfo HIPDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+#ifdef LUISA_ENABLE_IR
+    auto type = IR2AST::get_type(element->get());
+    return create_buffer(type, elem_count, external_memory);
+#else
+    LUISA_ERROR_WITH_LOCATION("HIP backend was compiled without legacy IR support.");
+    return BufferCreationInfo::make_invalid();
+#endif
 }
 
 void HIPDevice::destroy_buffer(uint64_t handle) noexcept {
@@ -397,27 +847,107 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     Clock translate_clk;
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
+    if (!option.name.empty()) { xir_module->set_location(option.name); }
+    verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
-    auto wave_size = 32u;
-    if (auto env = std::getenv("LUISA_HIP_WAVE64"); env && std::string_view{env} == "1") {
-        wave_size = 64u;
+    if (kernel.requires_autodiff()) {
+        auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
+        auto autodiff_info = xir::autodiff_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE(
+            "HIP XIR autodiff lowering: inlined {} call(s), transformed {} scope(s), removed {} instruction(s).",
+            inline_info.inlined_call_count,
+            autodiff_info.transformed_scope_count,
+            autodiff_info.removed_instruction_count);
+        verify_xir_or_error(xir_module.get(), "autodiff lowering");
     }
+
+    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
+        auto early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("XIR early-return elimination: removed {} early return(s).",
+                      early_return_info.removed_return_count);
+    }
+    {
+        xir::PassReport report;
+        auto ray_query_info = xir::lower_ray_query_loop_pass_run_on_module(
+            xir_module.get(), &report);
+        if (!ray_query_info.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "HIP XIR ray-query lowering rejected {} loop(s).",
+                ray_query_info.error_count);
+        }
+        LUISA_VERBOSE(
+            "HIP XIR ray-query lowering: outlined {} loop(s).",
+            ray_query_info.lowered_loop_count);
+        verify_xir_or_error(xir_module.get(), "ray-query lowering");
+    }
+    if (LUISA_XIR_NORMALIZE_CFG) {
+        xir::PassPipeline cfg_pipeline;
+        cfg_pipeline.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
+            if (!i.succeeded()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "HIP XIR destructuring failed (errors={}, leaked_blocks={}).",
+                    i.error_count, i.leaked_block_count);
+            }
+            return i.destructured_if_count > 0u ||
+                   i.destructured_loop_count > 0u ||
+                   i.destructured_simple_loop_count > 0u;
+        });
+        cfg_pipeline.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
+            return i.folded_constant_cond_br_count > 0u ||
+                   i.threaded_empty_block_count > 0u ||
+                   i.removed_unreachable_block_count > 0u;
+        });
+        if (LUISA_XIR_RESTRUCTURE_CFG) {
+            cfg_pipeline.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+                if (!i.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "HIP XIR restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+                        i.irreducible_region_count, i.unstructured_branch_count,
+                        i.invalid_construct_count, i.iteration_limit_count);
+                }
+                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+            });
+        }
+        auto stats = cfg_pipeline.run(xir_module.get());
+        stats.log("HIP backend CFG normalization");
+    }
+    verify_xir_or_error(xir_module.get(), "codegen handoff");
+
+    auto builtin_callables = kernel.propagated_builtin_callables();
+    auto requires_hiprt = kernel.requires_raytracing() ||
+                          builtin_callables.uses_ray_query();
+    auto wave_size = select_hip_wave_size(
+        _amdgpu_arch, compute_warp_size(), kernel.allowed_warp_size(),
+        requires_hiprt, uses_hardware_rt_stack());
     HIPCodegenLLVMConfig config{
         .source_file = option.name,
+        .native_include = option.native_include,
         .bindings = kernel.bound_arguments(),
         .block_size = {kernel.block_size().x, kernel.block_size().y, kernel.block_size().z},
-        .amdgpu_arch = 1201,
+        .amdgpu_arch = _amdgpu_arch,
         .wave_size = wave_size,
+        .max_register_count = option.max_registers,
         .opt_level = HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE,
         .enable_fast_math = option.enable_fast_math,
         .enable_debug_info = option.enable_debug_info,
         .requires_ray_tracing = kernel.requires_raytracing(),
-        .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
+        .requires_ray_query = builtin_callables.uses_ray_query(),
+        .requires_motion_blur = kernel.requires_motion_blur(),
+        .requires_static_trace =
+            builtin_callables.test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
+            builtin_callables.test(CallOp::RAY_TRACING_TRACE_ANY),
+        .requires_motion_ray_query =
+            builtin_callables.uses_ray_query_motion_blur(),
+        .requires_printing = kernel.requires_printing(),
+        .curve_bases = kernel.required_curve_bases(),
     };
 
-    auto code = hip_codegen_llvm(*xir_module, config);
-    LUISA_INFO("Generated AMDGPU code ({} bytes)", code.size());
+    auto codegen_result = hip_codegen_llvm(*xir_module, config);
+    LUISA_INFO("Generated AMDGPU code ({} bytes)", codegen_result.code.size());
 
     luisa::vector<Usage> argument_usages;
     argument_usages.reserve(kernel.arguments().size());
@@ -426,24 +956,46 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     }
 
     HIPShaderMetadata metadata{
-        .checksum = 0u,
+        .checksum = kernel.hash(),
+        .curve_bases = kernel.required_curve_bases(),
         .kind = kernel.requires_raytracing() ?
                     HIPShaderMetadata::Kind::RAY_TRACING :
                     HIPShaderMetadata::Kind::COMPUTE,
         .enable_debug = option.enable_debug_info,
-        .requires_trace_closest = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
-                                  kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR),
-        .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY) ||
-                              kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
-        .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
+        .requires_trace_closest = builtin_callables.test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
+                                  builtin_callables.test(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR),
+        .requires_trace_any = builtin_callables.test(CallOp::RAY_TRACING_TRACE_ANY) ||
+                              builtin_callables.test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
+        .requires_ray_query = builtin_callables.uses_ray_query(),
         .requires_printing = kernel.requires_printing(),
         .requires_motion_blur = kernel.requires_motion_blur(),
-        .max_register_count = 0u,
+        .requires_global_rt_stack = codegen_result.requires_global_rt_stack,
+        .max_register_count = option.max_registers,
         .block_size = kernel.block_size(),
-        .argument_types = {},
+        .argument_types = [&kernel] {
+            luisa::vector<luisa::string> types;
+            types.reserve(kernel.arguments().size());
+            for (auto &&arg : kernel.arguments()) {
+                types.emplace_back(arg.type()->description());
+            }
+            return types;
+        }(),
         .argument_usages = std::move(argument_usages),
-        .format_types = {},
+        .format_types = std::move(codegen_result.format_types),
     };
+
+    if (!option.name.empty()) {
+        auto package = serialize_hip_shader_package(
+            codegen_result.code, metadata, _amdgpu_arch, wave_size);
+        auto package_data = luisa::span{package.data(), package.size()};
+        auto path = _io->write_shader_bytecode(option.name, package_data);
+        auto saved_path = path.empty() ? option.name : luisa::string{path.string()};
+        LUISA_INFO("Saved HIP AOT shader package ({} bytes) to '{}'.",
+                   package.size(), saved_path);
+    }
+    if (option.compile_only) {
+        return ShaderCreationInfo::make_invalid();
+    }
 
     // process bound arguments
     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments;
@@ -477,15 +1029,20 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
 
     HIPShaderNative *shader = nullptr;
     if (metadata.kind == HIPShaderMetadata::Kind::RAY_TRACING) {
-        shader = luisa::new_with_allocator<HIPShaderNative>(
-            this, std::move(code),
-            "kernel_main", metadata,
-            _hiprt_context,
-            std::move(bound_arguments));
+        auto rt_context = hiprt_context();
+        shader = with_device([&] {
+            return luisa::new_with_allocator<HIPShaderNative>(
+                this, std::move(codegen_result.code),
+                "kernel_main", metadata,
+                rt_context,
+                std::move(bound_arguments));
+        });
     } else {
-        shader = luisa::new_with_allocator<HIPShaderNative>(
-            this, std::move(code),
-            "kernel_main", metadata, std::move(bound_arguments));
+        shader = with_device([&] {
+            return luisa::new_with_allocator<HIPShaderNative>(
+                this, std::move(codegen_result.code),
+                "kernel_main", metadata, std::move(bound_arguments));
+        });
     }
 
     ShaderCreationInfo info{};
@@ -499,20 +1056,96 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
 }
 
 ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+#ifdef LUISA_ENABLE_IR
+    Clock clk;
+    auto function = IR2AST::build(kernel);
+    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
+    return create_shader(option, function->function());
+#else
+    LUISA_ERROR_WITH_LOCATION("HIP backend was compiled without legacy IR support.");
+    return ShaderCreationInfo::make_invalid();
+#endif
 }
 
 ShaderCreationInfo HIPDevice::load_shader(luisa::string_view name, luisa::span<Type const *const> arg_types) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+#ifdef LUISA_COMPUTE_ENABLE_LLVM
+    auto stream = _io->read_shader_bytecode(name);
+    if (stream == nullptr || stream->length() == 0u) {
+        LUISA_WARNING_WITH_LOCATION("HIP AOT shader package '{}' was not found.", name);
+        return ShaderCreationInfo::make_invalid();
+    }
+    luisa::vector<std::byte> bytes(stream->length());
+    stream->read(luisa::span{bytes.data(), bytes.size()});
+    auto package = deserialize_hip_shader_package(bytes);
+    if (!package) {
+        LUISA_WARNING_WITH_LOCATION("HIP AOT shader package '{}' is invalid or unsupported.", name);
+        return ShaderCreationInfo::make_invalid();
+    }
+    if (package->amdgpu_arch != _amdgpu_arch) {
+        LUISA_WARNING_WITH_LOCATION(
+            "HIP AOT shader package '{}' targets {}, but this device is {}.",
+            name, package->amdgpu_arch, _amdgpu_arch);
+        return ShaderCreationInfo::make_invalid();
+    }
+    if (!hip_wave_size_supported(_amdgpu_arch, package->wave_size)) {
+        LUISA_WARNING_WITH_LOCATION(
+            "HIP AOT shader package '{}' targets wave{}, which is unsupported on {}.",
+            name, package->wave_size, _amdgpu_arch);
+        return ShaderCreationInfo::make_invalid();
+    }
+    auto package_requires_hiprt =
+        package->metadata.kind == HIPShaderMetadata::Kind::RAY_TRACING ||
+        package->metadata.requires_ray_query;
+    if (package_requires_hiprt && uses_hardware_rt_stack() &&
+        package->wave_size != 32u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "HIP AOT shader package '{}' targets wave{} ray tracing, "
+            "but HIPRT on {} requires wave32.",
+            name, package->wave_size, _amdgpu_arch);
+        return ShaderCreationInfo::make_invalid();
+    }
+    if (package->metadata.argument_types.size() != arg_types.size()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "HIP AOT shader package '{}' expects {} argument(s), but {} were requested.",
+            name, package->metadata.argument_types.size(), arg_types.size());
+        return ShaderCreationInfo::make_invalid();
+    }
+    for (auto i = 0u; i < arg_types.size(); i++) {
+        if (package->metadata.argument_types[i] != arg_types[i]->description()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "HIP AOT shader package '{}' argument {} has type '{}', not '{}'.",
+                name, i, package->metadata.argument_types[i], arg_types[i]->description());
+            return ShaderCreationInfo::make_invalid();
+        }
+    }
+    auto shader = with_device([&]() noexcept -> HIPShaderNative * {
+        if (package->metadata.kind == HIPShaderMetadata::Kind::RAY_TRACING) {
+            return luisa::new_with_allocator<HIPShaderNative>(
+                this, std::move(package->code), "kernel_main",
+                package->metadata, hiprt_context());
+        }
+        return luisa::new_with_allocator<HIPShaderNative>(
+            this, std::move(package->code), "kernel_main", package->metadata);
+    });
+    shader->set_name(luisa::string{name});
+    ShaderCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(shader);
+    info.native_handle = shader->handle();
+    info.block_size = package->metadata.block_size;
+    return info;
+#else
+    LUISA_WARNING_WITH_LOCATION("HIP AOT loading requires LLVM support.");
+    return ShaderCreationInfo::make_invalid();
+#endif
 }
 
 Usage HIPDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    return reinterpret_cast<const HIPShader *>(handle)->argument_usage(index);
 }
 
 void HIPDevice::destroy_shader(uint64_t handle) noexcept {
     auto shader = reinterpret_cast<HIPShader *>(handle);
-    luisa::delete_with_allocator(shader);
+    with_device([&] { luisa::delete_with_allocator(shader); });
 }
 
 ResourceCreationInfo HIPDevice::create_event() noexcept {
@@ -557,8 +1190,9 @@ void HIPDevice::synchronize_event(uint64_t handle, uint64_t fence_value) noexcep
 }
 
 ResourceCreationInfo HIPDevice::create_mesh(const AccelOption &option) noexcept {
+    auto context = hiprt_context();
     auto mesh = with_device([&] {
-        return luisa::new_with_allocator<HIPMesh>(_hiprt_context, option);
+        return luisa::new_with_allocator<HIPMesh>(context, option);
     });
     return {.handle = reinterpret_cast<uint64_t>(mesh),
             .native_handle = mesh};
@@ -572,8 +1206,9 @@ void HIPDevice::destroy_mesh(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo HIPDevice::create_procedural_primitive(const AccelOption &option) noexcept {
+    auto context = hiprt_context();
     auto prim = with_device([&] {
-        return luisa::new_with_allocator<HIPProceduralPrimitive>(_hiprt_context, option);
+        return luisa::new_with_allocator<HIPProceduralPrimitive>(context, option);
     });
     return {.handle = reinterpret_cast<uint64_t>(prim),
             .native_handle = prim};
@@ -587,8 +1222,9 @@ void HIPDevice::destroy_procedural_primitive(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo HIPDevice::create_accel(const AccelOption &option) noexcept {
+    auto context = hiprt_context();
     auto accel = with_device([&] {
-        return luisa::new_with_allocator<HIPAccel>(_hiprt_context, option);
+        return luisa::new_with_allocator<HIPAccel>(context, option);
     });
     return {.handle = reinterpret_cast<uint64_t>(accel),
             .native_handle = accel};

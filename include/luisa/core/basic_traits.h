@@ -40,8 +40,9 @@ static_assert(std::is_same_v<decltype(1._h + 1._h), half>,
 static_assert(std::is_same_v<decltype(sin(1._h)), half>,
               "half should support std::sin.");
 
-static_assert(std::is_arithmetic_v<half>,
-              "half should be arithmetic.");
+// NOTE: half_float::half is a class type and cannot satisfy std::is_arithmetic.
+// static_assert(std::is_arithmetic_v<half>,
+//               "half should be arithmetic.");
 
 using byte = int8_t;
 using ubyte = uint8_t;
@@ -91,12 +92,22 @@ template<typename T>
 constexpr auto is_floating_point_v = is_floating_point<T>::value;
 
 template<typename T>
+using is_arithmetic = std::disjunction<
+    is_boolean<T>,
+    is_integral<T>,
+    is_floating_point<T>>;
+
+template<typename T>
+constexpr auto is_arithmetic_v = is_arithmetic<T>::value;
+
+template<typename T>
 using is_signed = std::disjunction<
     is_floating_point<T>,
     std::is_same<std::remove_cvref_t<T>, char>,
     std::is_same<std::remove_cvref_t<T>, byte>,
     std::is_same<std::remove_cvref_t<T>, short>,
     std::is_same<std::remove_cvref_t<T>, int>,
+    std::is_same<std::remove_cvref_t<T>, long>,
     std::is_same<std::remove_cvref_t<T>, slong>>;
 
 template<typename T>
@@ -108,6 +119,7 @@ using is_unsigned = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, ubyte>,
     std::is_same<std::remove_cvref_t<T>, ushort>,
     std::is_same<std::remove_cvref_t<T>, uint>,
+    std::is_same<std::remove_cvref_t<T>, unsigned long>,
     std::is_same<std::remove_cvref_t<T>, ulong>>;
 
 template<typename T>

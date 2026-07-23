@@ -10,6 +10,8 @@
 #include "hip_bindless_array.h"
 #include "hip_command_encoder.h"
 #include "hip_mesh.h"
+#include "hip_curve.h"
+#include "hip_motion_instance.h"
 #include "hip_procedural_primitive.h"
 #include "hip_accel.h"
 #include "hip_shader.h"
@@ -129,7 +131,8 @@ void HIPCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     LUISA_ASSERT(command->buffer() != invalid_resource_handle);
     auto texture = reinterpret_cast<HIPTexture *>(command->texture());
     auto buffer = reinterpret_cast<const HIPBuffer *>(command->buffer());
-    auto buffer_binding = buffer->binding(command->buffer_offset(), buffer->size_bytes());
+    auto copy_size_bytes = pixel_storage_size(command->storage(), command->size());
+    auto buffer_binding = buffer->binding(command->buffer_offset(), copy_size_bytes);
     auto array = texture->level(command->level());
     memcpy_buffer_to_texture(buffer_binding, array, command->storage(),
                              command->size(), _stream->handle());
@@ -218,7 +221,8 @@ void HIPCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
     LUISA_ASSERT(command->buffer() != invalid_resource_handle);
     auto texture = reinterpret_cast<HIPTexture *>(command->texture());
     auto buffer = reinterpret_cast<const HIPBuffer *>(command->buffer());
-    auto buffer_binding = buffer->binding(command->buffer_offset(), buffer->size_bytes());
+    auto copy_size_bytes = pixel_storage_size(command->storage(), command->size());
+    auto buffer_binding = buffer->binding(command->buffer_offset(), copy_size_bytes);
     auto array = texture->level(command->level());
     HIP_MEMCPY3D copy{};
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
@@ -245,7 +249,9 @@ void HIPCommandEncoder::visit(MeshBuildCommand *command) noexcept {
     mesh->build(*this, command);
 }
 
-void HIPCommandEncoder::visit(CurveBuildCommand *) noexcept {
+void HIPCommandEncoder::visit(CurveBuildCommand *command) noexcept {
+    auto curve = reinterpret_cast<HIPCurve *>(command->handle());
+    curve->build(*this, command);
 }
 
 void HIPCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
@@ -253,7 +259,9 @@ void HIPCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept
     prim->build(*this, command);
 }
 
-void HIPCommandEncoder::visit(MotionInstanceBuildCommand *) noexcept {
+void HIPCommandEncoder::visit(MotionInstanceBuildCommand *command) noexcept {
+    auto instance = reinterpret_cast<HIPMotionInstance *>(command->handle());
+    instance->build(*this, command);
 }
 
 void HIPCommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {

@@ -1,0 +1,21 @@
+struct Ele{
+uint a;
+uint b;
+uint c;
+};
+struct Src{
+uint idx;
+Ele e;
+};
+RWStructuredBuffer<Ele> _Dst:register(u1);
+StructuredBuffer<Src> _Src:register(t0);
+struct _CBType{
+uint v;
+};
+[[vk::push_constant]] ConstantBuffer<_CBType> dsp:register(b0);
+[numthreads(256,1,1)]
+void main(uint id:SV_DISPATCHTHREADID){
+if(id >= dsp.v) return;
+Src s=_Src[id];
+_Dst[s.idx]=s.e;
+}

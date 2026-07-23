@@ -32,7 +32,15 @@ BindlessArray::BindlessArray(BindlessArray &&rhs) noexcept
 }
 
 BindlessArray::BindlessArray(DeviceInterface *device, size_t size, BindlessSlotType type) noexcept
-    : Resource{device, Tag::BINDLESS_ARRAY, device->create_bindless_array(size, type)},
+    : Resource{device, Tag::BINDLESS_ARRAY, [&] {
+                   auto info = device->create_bindless_array(size, type);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                   if (!info.valid()) {
+                       LUISA_ERROR("Failed to create bindless array.");
+                   }
+#endif
+                   return info;
+               }()},
       _size{size} {
     switch (type) {
         case BindlessSlotType::MULTIPLE: _updates.emplace<ModSlotSet_MultiPurpose>(); break;
@@ -42,7 +50,9 @@ BindlessArray::BindlessArray(DeviceInterface *device, size_t size, BindlessSlotT
     }
 }
 
-void BindlessArray::emplace_buffer_handle_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+void BindlessArray::emplace_buffer_handle_on_update(
+    size_t index, uint64_t handle, size_t offset_bytes,
+    size_t size_bytes) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
     if (index >= _size) [[unlikely]] {
@@ -54,7 +64,9 @@ void BindlessArray::emplace_buffer_handle_on_update(size_t index, uint64_t handl
         [&]<typename Mod>(luisa::unordered_set<Mod, ModSlotHash, ModSlotEqual> &mods) noexcept {
             if constexpr (std::is_same_v<Mod, Modification> || std::is_same_v<Mod, BufferModification>) {
                 auto [iter, _] = mods.emplace(index);
-                const_cast<typename Mod::Buffer &>(iter->buffer) = Modification::Buffer::emplace(handle, offset_bytes);
+                const_cast<typename Mod::Buffer &>(iter->buffer) =
+                    Modification::Buffer::emplace(
+                        handle, offset_bytes, size_bytes);
             } else {
                 LUISA_ERROR_WITH_LOCATION("Invalid bindless slot type for emplace_buffer_handle_on_update.");
             }

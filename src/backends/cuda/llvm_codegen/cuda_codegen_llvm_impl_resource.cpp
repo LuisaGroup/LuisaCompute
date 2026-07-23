@@ -30,18 +30,20 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
         case xir::ResourceQueryOp::TEXTURE2D_SIZE: {
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::int2>() || inst->type() == Type::of<luisa::uint2>());
             auto llvm_texture = _get_llvm_value(b, func_ctx, inst->operand(0));
-            auto llvm_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_width = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_width, {llvm_handle});
-            auto llvm_height = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_height, {llvm_handle});
+            auto llvm_storage = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            // extract width from bits [0:15] and height from bits [16:31]
+            auto llvm_width = b.CreateTrunc(b.CreateAnd(llvm_storage, b.getInt64(0xFFFF)), b.getInt32Ty());
+            auto llvm_height = b.CreateTrunc(b.CreateAnd(b.CreateLShr(llvm_storage, b.getInt64(16)), b.getInt64(0xFFFF)), b.getInt32Ty());
             return _create_llvm_vector(b, {llvm_width, llvm_height});
         }
         case xir::ResourceQueryOp::TEXTURE3D_SIZE: {
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::int3>() || inst->type() == Type::of<luisa::uint3>());
             auto llvm_texture = _get_llvm_value(b, func_ctx, inst->operand(0));
-            auto llvm_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_width = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_width, {llvm_handle});
-            auto llvm_height = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_height, {llvm_handle});
-            auto llvm_depth = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_depth, {llvm_handle});
+            auto llvm_storage = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            // extract width from bits [0:15], height from bits [16:31], depth from bits [32:47]
+            auto llvm_width = b.CreateTrunc(b.CreateAnd(llvm_storage, b.getInt64(0xFFFF)), b.getInt32Ty());
+            auto llvm_height = b.CreateTrunc(b.CreateAnd(b.CreateLShr(llvm_storage, b.getInt64(16)), b.getInt64(0xFFFF)), b.getInt32Ty());
+            auto llvm_depth = b.CreateTrunc(b.CreateAnd(b.CreateLShr(llvm_storage, b.getInt64(32)), b.getInt64(0xFFFF)), b.getInt32Ty());
             return _create_llvm_vector(b, {llvm_width, llvm_height, llvm_depth});
         }
         case xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE: [[fallthrough]];
@@ -66,8 +68,8 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2);
-            auto llvm_width = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_width, {llvm_handle});
-            auto llvm_height = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_height, {llvm_handle});
+            auto llvm_width = b.CreateIntrinsic(llvm::Intrinsic::nvvm_txq_width, {llvm_handle});
+            auto llvm_height = b.CreateIntrinsic(llvm::Intrinsic::nvvm_txq_height, {llvm_handle});
             auto llvm_size = _create_llvm_vector(b, {llvm_width, llvm_height});
             if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL) {
                 auto llvm_level = b.CreateVectorSplat(2, _get_llvm_value(b, func_ctx, inst->operand(2)));
@@ -81,9 +83,9 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3);
-            auto llvm_width = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_width, {llvm_handle});
-            auto llvm_height = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_height, {llvm_handle});
-            auto llvm_depth = b.CreateIntrinsic(llvm::Intrinsic::nvvm_suq_depth, {llvm_handle});
+            auto llvm_width = b.CreateIntrinsic(llvm::Intrinsic::nvvm_txq_width, {llvm_handle});
+            auto llvm_height = b.CreateIntrinsic(llvm::Intrinsic::nvvm_txq_height, {llvm_handle});
+            auto llvm_depth = b.CreateIntrinsic(llvm::Intrinsic::nvvm_txq_depth, {llvm_handle});
             auto llvm_size = _create_llvm_vector(b, {llvm_width, llvm_height, llvm_depth});
             if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL) {
                 auto llvm_level = b.CreateVectorSplat(3, _get_llvm_value(b, func_ctx, inst->operand(2)));
@@ -352,7 +354,9 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Fun
             auto llvm_texture = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_texture_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_texture_storage = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            auto llvm_texture_storage_packed = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            // extract pixel storage enum from bits [48:55]
+            auto llvm_texture_storage = b.CreateAnd(b.CreateLShr(llvm_texture_storage_packed, b.getInt64(48)), b.getInt64(0xFF));
             auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
             LUISA_DEBUG_ASSERT(llvm_result_type->isVectorTy());
             auto llvm_func = _get_texture2d_read_function(llvm::cast<llvm::VectorType>(llvm_result_type));
@@ -362,7 +366,9 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Fun
             auto llvm_texture = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_texture_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_texture_storage = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            auto llvm_texture_storage_packed = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            // extract pixel storage enum from bits [48:55]
+            auto llvm_texture_storage = b.CreateAnd(b.CreateLShr(llvm_texture_storage_packed, b.getInt64(48)), b.getInt64(0xFF));
             auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
             LUISA_DEBUG_ASSERT(llvm_result_type->isVectorTy());
             auto llvm_func = _get_texture3d_read_function(llvm::cast<llvm::VectorType>(llvm_result_type));
@@ -507,7 +513,9 @@ void CUDACodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext 
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_value = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_texture_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_texture_storage = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            auto llvm_texture_storage_packed = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            // extract pixel storage enum from bits [48:55]
+            auto llvm_texture_storage = b.CreateAnd(b.CreateLShr(llvm_texture_storage_packed, b.getInt64(48)), b.getInt64(0xFF));
             LUISA_DEBUG_ASSERT(llvm_value->getType()->isVectorTy());
             auto llvm_func = _get_texture2d_write_function(llvm::cast<llvm::VectorType>(llvm_value->getType()));
             b.CreateCall(llvm_func, {llvm_texture_handle, llvm_texture_storage, llvm_coord, llvm_value});
@@ -518,7 +526,9 @@ void CUDACodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext 
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_value = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_texture_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_texture_storage = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            auto llvm_texture_storage_packed = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+            // extract pixel storage enum from bits [48:55]
+            auto llvm_texture_storage = b.CreateAnd(b.CreateLShr(llvm_texture_storage_packed, b.getInt64(48)), b.getInt64(0xFF));
             LUISA_DEBUG_ASSERT(llvm_value->getType()->isVectorTy());
             auto llvm_func = _get_texture3d_write_function(llvm::cast<llvm::VectorType>(llvm_value->getType()));
             b.CreateCall(llvm_func, {llvm_texture_handle, llvm_texture_storage, llvm_coord, llvm_value});

@@ -501,6 +501,19 @@ enum struct CallOp : uint32_t {
     COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,// ResultMatrix += InputVector1 * Transpose(InputVector2);
     // void(matrix_buffer: byte_buffer, matrix_offset: coop_mat_ref, input_vec1 : coop_vector, input_vec2 : coop_vector, )
     COOPERATIVE_VECTOR_ACCUMULATE,// void(vector_buffer: byte_buffer, vector_offset: coop_vec_ref, input_vec: coop_vector)
+    COOPERATIVE_VECTOR_LOAD,         // coop_vec<T,N> (byte_buffer, coop_vec_ref<N, CoopRefType>)
+    COOPERATIVE_VECTOR_STORE,        // void (byte_buffer, coop_vec_ref<N, CoopRefType>, coop_vec<T,N>)
+    COOPERATIVE_VECTOR_SPLAT,        // coop_vec<T,N> (T scalar)
+    COOPERATIVE_VECTOR_CAST,         // coop_vec<ToT,N> (coop_vec<FromT,N>)
+    BINDLESS_COOPERATIVE_VECTOR_LOAD,        // coop_vec<T,N> (bindless_array, buffer_handle: uint, offset: coop_vec_ref)
+    TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD,  // typed variant
+    BINDLESS_COOPERATIVE_VECTOR_STORE,       // void (bindless_array, buffer_handle: uint, offset: coop_vec_ref, coop_vec<T,N>)
+    TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE, // typed variant
+    COOPERATIVE_VECTOR_WORKGROUP_LOAD,  // coop_vec<T,N> (shared_buf: array<T>, index: uint)
+    COOPERATIVE_VECTOR_WORKGROUP_STORE, // void (shared_buf: array<T>, index: uint, coop_vec<T,N>)
+
+    // Async group copy
+    ASYNC_COPY,/// [(uint scope, ref dst, ref src, uint elem_bytes, uint num, uint stride, uint event) -> uint]: async group copy
 
     // Clock
     CLOCK,// (): uint64
@@ -532,6 +545,32 @@ static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
+
+/// Returns whether the operation uses the descriptor layout of a typed
+/// bindless resource array. The typed-uniform and typed-nonuniform resource
+/// operations deliberately form one contiguous block in CallOp.
+[[nodiscard]] constexpr auto is_typed_bindless_resource_call(CallOp op) noexcept {
+    auto value = luisa::to_underlying(op);
+    return value >= luisa::to_underlying(
+                        CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+           value <= luisa::to_underlying(
+                        CallOp::TYPED_BINDLESS_BUFFER_ADDRESS);
+}
+
+/// Returns whether the operation carries the caller's block-uniform bindless
+/// index promise. Native compiler dialects must preserve this promise rather
+/// than rediscovering (or silently discarding) it.
+[[nodiscard]] constexpr auto is_uniform_bindless_resource_call(CallOp op) noexcept {
+    auto value = luisa::to_underlying(op);
+    return (value >= luisa::to_underlying(
+                         CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+            value <= luisa::to_underlying(
+                         CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS)) ||
+           (value >= luisa::to_underlying(
+                         CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+            value <= luisa::to_underlying(
+                         CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS));
+}
 class Expression;
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept;
 
@@ -549,7 +588,7 @@ public:
     using Bitset = std::bitset<call_op_count>;
 
     /// CallOpSet::Iterator
-    class Iterator {
+    class LUISA_AST_API Iterator {
 
     private:
         const CallOpSet &_set;
@@ -624,6 +663,18 @@ public:
                test(CallOp::BACKWARD) ||
                test(CallOp::DETACH);
     }
+    [[nodiscard]] auto uses_typed_bindless_resources() const noexcept {
+        for (auto op : *this) {
+            if (is_typed_bindless_resource_call(op)) { return true; }
+        }
+        return false;
+    }
+    [[nodiscard]] auto uses_uniform_bindless_resources() const noexcept {
+        for (auto op : *this) {
+            if (is_uniform_bindless_resource_call(op)) { return true; }
+        }
+        return false;
+    }
     [[nodiscard]] auto uses_cooperative() const noexcept {
         return test(CallOp::COOPERATIVE_MUL_ADD) ||
                test(CallOp::BINDLESS_COOPERATIVE_MUL_ADD) ||
@@ -632,7 +683,17 @@ public:
                test(CallOp::BINDLESS_COOPERATIVE_MUL) ||
                test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) ||
                test(CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE) ||
-               test(CallOp::COOPERATIVE_VECTOR_ACCUMULATE);
+               test(CallOp::COOPERATIVE_VECTOR_ACCUMULATE) ||
+               test(CallOp::COOPERATIVE_VECTOR_LOAD) ||
+               test(CallOp::COOPERATIVE_VECTOR_STORE) ||
+               test(CallOp::COOPERATIVE_VECTOR_SPLAT) ||
+               test(CallOp::COOPERATIVE_VECTOR_CAST) ||
+               test(CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+               test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+               test(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE) ||
+               test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) ||
+               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD) ||
+               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE);
     }
 };
 

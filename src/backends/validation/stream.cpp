@@ -1,6 +1,7 @@
 #include "device.h"
 #include "event.h"
 #include "stream.h"
+#include "../common/indirect_dispatch_layout.h"
 #include "accel.h"
 #include "buffer.h"
 #include "texture.h"
@@ -355,6 +356,42 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::EShaderDispatchCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
                 auto c = static_cast<ShaderDispatchCommand *>(cmd);
+                if (c->is_indirect()) {
+                    auto source = c->indirect_dispatch();
+                    if (source.handle == invalid_resource_handle ||
+                        source.handle == 0u) [[unlikely]] {
+                        LUISA_ERROR(
+                            "Invalid indirect-dispatch source buffer handle.");
+                    }
+                    auto buffer = RWResource::get<Buffer>(
+                        source.handle, "indirect dispatch buffer");
+                    if (!buffer->is_indirect_dispatch_buffer()) [[unlikely]] {
+                        LUISA_ERROR(
+                            "Indirect dispatch requires an "
+                            "IndirectDispatchBuffer source.");
+                    }
+                    auto plan = ::lc::plan_indirect_dispatch(
+                        buffer->indirect_dispatch_capacity(),
+                        source.offset, source.max_dispatch_size);
+                    if (!plan) [[unlikely]] {
+                        LUISA_ERROR(
+                            "Invalid indirect-dispatch range: capacity {}, "
+                            "offset {}, maximum count {}, planner error {}.",
+                            buffer->indirect_dispatch_capacity(),
+                            source.offset, source.max_dispatch_size,
+                            static_cast<uint32_t>(plan.error));
+                    }
+                    if (plan.plan.command_count == 0u) {
+                        // Match backend execution: a host-proven empty range
+                        // has no source, target-argument, or shader use.
+                        break;
+                    }
+                    // The GPU-authored count and records are a hidden source
+                    // of the target shader. Track the whole opaque resource
+                    // because its public argument encodes record capacity
+                    // rather than a byte range.
+                    mark_handle(source.handle, Usage::READ, Range{});
+                }
                 mark_shader_dispatch(dev, c, true);
             } break;
             case CmdTag::ETextureUploadCommand: {
@@ -415,14 +452,10 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::EBindlessArrayUpdateCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
                 auto c = static_cast<BindlessArrayUpdateCommand *>(cmd);
-                c->visit_modifications([&]<typename T>(T const &t) {
-                    if constexpr (std::is_same_v<T, luisa::vector<BindlessArrayUpdateCommand::Modification>> || std::is_same_v<T, luisa::vector<BindlessArrayUpdateCommand::BufferModification>>) {
-                        for (auto &i : t) {
-                            if (i.buffer.op == BindlessArrayUpdateCommand::Operation::EMPLACE)
-                                check_align(i.buffer.offset_bytes);
-                        }
-                    }
-                });
+                // Bindless buffer views are byte-addressed API objects. Backends
+                // must preserve arbitrary logical offsets at their descriptor or
+                // pointer boundary; reporting Vulkan's old 16-byte assumption
+                // here rejects otherwise valid views.
                 mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;
             case CmdTag::ECustomCommand: {

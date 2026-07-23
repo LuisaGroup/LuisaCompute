@@ -4,6 +4,7 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             hlsl_header.bytes
             spv_alias.bytes
             dx_linalg.bytes
+            vk_linalg.bytes
             hlsl_header_fallback.bytes
             raytracing_header.bytes
             raytracing_motion_header.bytes
@@ -19,6 +20,11 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             bindless_common.bytes
             auto_diff.bytes
             reduce.bytes
+            bindless_upload.bytes
+            bindless_upload_vk.bytes
+            accel_process.bytes
+            accel_process_vk.bytes
+            accel_process_vk_motion.bytes
             accel_process_vk.dxil
             load_bdls.dxil
             load_bdls_vk.dxil
@@ -32,17 +38,28 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             bc7_trymode456.dxil
     )
     list(TRANSFORM LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES PREPEND ${CMAKE_CURRENT_LIST_DIR}/builtin/)
+    set(LUISA_COMPUTE_HLSL_EMBEDDED_SOURCE
+            ${CMAKE_CURRENT_LIST_DIR}/builtin/hlsl_builtin_embed.cpp)
+    set_source_files_properties(${LUISA_COMPUTE_HLSL_EMBEDDED_SOURCE}
+            PROPERTIES GENERATED TRUE)
     add_custom_target(luisa-compute-backend-hlsl-embed
-            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES} --unsigned -o builtin/hlsl_builtin_embed.cpp --preserve-ext
-            BYPRODUCTS ${CMAKE_CURRENT_LIST_DIR}/builtin/hlsl_builtin_embed.cpp
-            DEPENDS luisa_embed_device_lib ${CMAKE_CURRENT_LIST_FILE}
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES} --unsigned -o ${LUISA_COMPUTE_HLSL_EMBEDDED_SOURCE} --preserve-ext
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> --check ${LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES} --unsigned -o ${LUISA_COMPUTE_HLSL_EMBEDDED_SOURCE} --preserve-ext
+            BYPRODUCTS ${LUISA_COMPUTE_HLSL_EMBEDDED_SOURCE}
+            DEPENDS luisa_embed_device_lib ${CMAKE_CURRENT_LIST_FILE} ${LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES}
             SOURCES ${LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES}
             WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
             COMMENT "Embedding HLSL built-in sources..."
             VERBATIM)
+    add_custom_target(luisa-compute-backend-hlsl-embed-check
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> --check ${LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES} --unsigned -o ${LUISA_COMPUTE_HLSL_EMBEDDED_SOURCE} --preserve-ext
+            DEPENDS luisa_embed_device_lib ${CMAKE_CURRENT_LIST_FILE} ${LUISA_COMPUTE_HLSL_DEVICE_LIB_SOURCES}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+            COMMENT "Checking generated HLSL built-in embedding..."
+            VERBATIM)
 
     set(LUISA_COMPUTE_HLSL_SOURCES
-            builtin/hlsl_builtin_embed.cpp
+            ${LUISA_COMPUTE_HLSL_EMBEDDED_SOURCE}
             access_chain.cpp
             access_chain.h
             binding_to_arg.cpp
@@ -72,6 +89,11 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
     )
 
     add_library(luisa-compute-hlsl-codegen OBJECT ${LUISA_COMPUTE_HLSL_SOURCES})
+    # The embed target intentionally runs whenever the codegen target is built.
+    # The generator writes only on content changes, so edits to any canonical
+    # .bytes/.dxil input cannot leave a stale aggregate or trigger
+    # needless recompilation when the aggregate is already current.
+    add_dependencies(luisa-compute-hlsl-codegen luisa-compute-backend-hlsl-embed)
     target_link_libraries(luisa-compute-hlsl-codegen PUBLIC luisa-compute-runtime luisa-compute-core luisa-compute-vstl)
     set_target_properties(luisa-compute-hlsl-codegen PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

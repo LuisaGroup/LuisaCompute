@@ -14,8 +14,11 @@
 #endif
 #include "VulkanDevice.h"
 #include <luisa/core/logging.h>
+#include <luisa/core/platform.h>
 #include "log.h"
 #include "device.h"
+#include "queue_family_contract.h"
+#include "vulkan_loader_identity.h"
 #include <luisa/core/dynamic_module.h>
 #include <luisa/backends/common/volk_init.h>
 namespace vks {
@@ -25,20 +28,77 @@ namespace vks {
 	* @param physical_device Physical device that is to be used
 	*/
 static luisa::spin_mutex g_volk_mtx;
-static int32 g_volk_ref_count = 0;
 static luisa::compute::VolkInitializer volk_initer;
+static bool g_volk_loader_identity_pinned{};
+
+struct VulkanLoaderIdentity {
+    lc::vk::detail::VulkanLoaderSource source{
+        lc::vk::detail::VulkanLoaderSource::DEFAULT_LOADER};
+    luisa::string search_path;
+    luisa::string library_name;
+
+    [[nodiscard]] auto view() const noexcept {
+        return lc::vk::detail::VulkanLoaderIdentityView{
+            .source = source,
+            .search_path = search_path,
+            .library_name = library_name};
+    }
+};
+
+static VulkanLoaderIdentity g_volk_loader_identity;
+
+[[nodiscard]] static auto make_vulkan_loader_identity(
+    luisa::filesystem::path const &custom_path,
+    luisa::string_view lib_name) {
+    if (custom_path.empty() && lib_name.empty()) {
+        return VulkanLoaderIdentity{};
+    }
+    auto search_path = custom_path.empty() ?
+                           luisa::filesystem::canonical(
+                               luisa::current_executable_path())
+                               .parent_path() :
+                           custom_path;
+    // Resolve relative paths and symlink aliases before pinning the request.
+    // Otherwise an unchanged spelling could select a different loader after
+    // a working-directory or symlink change.
+    search_path = luisa::filesystem::weakly_canonical(
+        luisa::filesystem::absolute(search_path));
+    return VulkanLoaderIdentity{
+        .source = lc::vk::detail::VulkanLoaderSource::CUSTOM_LOADER,
+        .search_path = luisa::string{search_path.generic_string()},
+        .library_name = luisa::string{lib_name}};
+}
 
 void VulkanDevice::init_volk(luisa::filesystem::path const &custom_path, luisa::string_view lib_name) {
     std::lock_guard lck(g_volk_mtx);
-    if (!volk_initer.vk_module) {
+    auto requested_identity =
+        make_vulkan_loader_identity(custom_path, lib_name);
+    auto plan = lc::vk::detail::plan_vulkan_loader_initialization(
+        g_volk_loader_identity_pinned,
+        g_volk_loader_identity.view(),
+        requested_identity.view());
+    LUISA_ASSERT(
+        static_cast<bool>(plan),
+        "Vulkan loader identity cannot change after initialization: {}. "
+        "Pinned loader: source='{}', search path='{}', library='{}'. "
+        "Requested loader: source='{}', search path='{}', library='{}'. "
+        "Use one loader for all Vulkan backend enumeration, instance, and "
+        "Device operations in this process.",
+        lc::vk::detail::vulkan_loader_initialization_status_name(plan.status),
+        lc::vk::detail::vulkan_loader_source_name(
+            g_volk_loader_identity.source),
+        g_volk_loader_identity.search_path,
+        g_volk_loader_identity.library_name,
+        lc::vk::detail::vulkan_loader_source_name(requested_identity.source),
+        requested_identity.search_path,
+        requested_identity.library_name);
+    if (plan.should_initialize()) {
         volk_initer.init(custom_path, lib_name);
+        g_volk_loader_identity = std::move(requested_identity);
+        g_volk_loader_identity_pinned = true;
     }
 }
 VulkanDevice::VulkanDevice(VkPhysicalDevice physical_device) {
-    {
-        std::lock_guard lck(g_volk_mtx);
-        ++g_volk_ref_count;
-    }
     assert(physical_device);
     this->physical_device = physical_device;
 
@@ -81,15 +141,6 @@ VulkanDevice::~VulkanDevice() {
     if (logical_device) {
         vkDestroyDevice(logical_device, lc::vk::Device::alloc_callbacks());
     }
-    {
-        std::lock_guard lck(g_volk_mtx);
-        if (--g_volk_ref_count == 0) {
-            force_free_volk();
-        }
-    }
-}
-void VulkanDevice::force_free_volk() {
-    volk_initer.vk_module.reset();
 }
 
 /**
@@ -157,7 +208,15 @@ uint32_t VulkanDevice::get_queue_family_index(VkQueueFlags queueFlags) const {
 
     // For other queue types or if no separate compute queue is present, return the first one to support the requested flags
     for (uint32_t i = 0; i < static_cast<uint32_t>(queue_family_properties.size()); i++) {
-        if ((queue_family_properties[i].queueFlags & queueFlags) == queueFlags) {
+        auto available_flags = queue_family_properties[i].queueFlags;
+        // Vulkan defines graphics- and compute-capable queues to support
+        // transfer operations even when VK_QUEUE_TRANSFER_BIT is omitted
+        // from the reported flags.
+        if ((available_flags &
+             (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) != 0u) {
+            available_flags |= VK_QUEUE_TRANSFER_BIT;
+        }
+        if ((available_flags & queueFlags) == queueFlags) {
             return i;
         }
     }
@@ -188,10 +247,15 @@ VkResult VulkanDevice::create_logical_device(VkPhysicalDeviceFeatures &enabled_f
     const float defaultQueuePriority(1.0f);
     const float computedefaultQueuePriority(0.5f);
     const float copydefaultQueuePriority(0.0f);
+    const float sparsedefaultQueuePriority(0.0f);
 
     // Graphics queue
     if (requested_queue_types & VK_QUEUE_GRAPHICS_BIT) {
-        queue_family_indices.graphics = get_queue_family_index(VK_QUEUE_GRAPHICS_BIT);
+        // A Luisa GRAPHICS stream accepts both raster and compute commands.
+        // Select a family that supports the complete stream contract rather
+        // than assuming every graphics-capable family also supports compute.
+        queue_family_indices.graphics = get_queue_family_index(
+            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
         VkDeviceQueueCreateInfo queueInfo{};
         queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queueInfo.queueFamilyIndex = queue_family_indices.graphics;
@@ -234,6 +298,37 @@ VkResult VulkanDevice::create_logical_device(VkPhysicalDeviceFeatures &enabled_f
     } else {
         // Else we use the same queue
         queue_family_indices.transfer = queue_family_indices.graphics;
+    }
+
+    // Sparse binding is a queue capability independent of graphics, compute,
+    // and transfer. If the feature is enabled, request one sparse-capable
+    // family even when none of the ordinary stream families support it.
+    if (enabled_features.sparseBinding == VK_TRUE) {
+        auto sparse_queue = lc::vk::detail::select_sparse_binding_queue_family(
+            luisa::span<const VkQueueFamilyProperties>{
+                queue_family_properties.data(),
+                queue_family_properties.size()});
+        LUISA_ASSERT(
+            static_cast<bool>(sparse_queue),
+            "Vulkan reports sparseBinding support but exposes no non-empty "
+            "queue family with VK_QUEUE_SPARSE_BINDING_BIT.");
+        queue_family_indices.sparse = sparse_queue.family_index;
+        auto already_requested = std::any_of(
+            queueCreateInfos.begin(), queueCreateInfos.end(),
+            [&](auto const &info) noexcept {
+                return info.queueFamilyIndex ==
+                       queue_family_indices.sparse;
+            });
+        if (!already_requested) {
+            VkDeviceQueueCreateInfo queueInfo{};
+            queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueInfo.queueFamilyIndex = queue_family_indices.sparse;
+            queueInfo.queueCount = 1;
+            queueInfo.pQueuePriorities = &sparsedefaultQueuePriority;
+            queueCreateInfos.push_back(queueInfo);
+        }
+    } else {
+        queue_family_indices.sparse = VK_QUEUE_FAMILY_IGNORED;
     }
 
     // Create the logical device representation

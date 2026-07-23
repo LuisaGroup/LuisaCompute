@@ -1,3 +1,4 @@
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
@@ -8,6 +9,7 @@
 
 #include <stb/stb_image_write.h>
 
+#include "common/photon_mapping_plan.h"
 #include "common/reference_compare.h"
 
 #include <luisa/luisa-compute.h>
@@ -63,14 +65,10 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
     Device device = context.create_device(argv[1]);
     Callable lcg = [](UInt &state) noexcept {
@@ -156,7 +154,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
 
@@ -211,16 +209,48 @@ int main(int argc, char *argv[]) {
 
     constexpr uint photon_number = 1000000u;
     constexpr uint max_depth = 8u;
-    // constexpr auto scale = 1000u;
+    constexpr auto photon_storage_plan =
+        photon_mapping::plan_photon_storage(photon_number, max_depth);
+    static_assert(photon_storage_plan.valid);
+    constexpr uint photon_capacity = photon_storage_plan.capacity;
+
+    // The largest stored power is the first-bounce power: every later bounce
+    // multiplies it by at most 0.725 / 0.9 < 1. Gathering contributes at most
+    // albedo * inv_pi * power, which is below 70 for this scene. With at most
+    // photon_capacity contributions, this plan proves that each quantized term
+    // fits uint32 and the complete sum fits two uint32 words.
+    constexpr auto photon_accumulator_plan =
+        photon_mapping::plan_fixed_point_accumulator(
+            photon_capacity, 70u, 24u);
+    static_assert(photon_accumulator_plan.valid);
+    constexpr float photon_accumulator_scale =
+        static_cast<float>(photon_accumulator_plan.scale);
+    constexpr float photon_accumulator_inverse_scale =
+        1.0f / photon_accumulator_scale;
+    constexpr float two_to_32 = 4294967296.0f;
+    constexpr float max_material_albedo = 0.725f;
+    constexpr float russian_roulette_probability = 0.9f;
+    auto max_initial_power =
+        light_emission.x / (light_area * constants::inv_pi);
+    auto max_photon_contribution =
+        max_material_albedo * constants::inv_pi * max_initial_power;
+    LUISA_ASSERT(
+        max_material_albedo / russian_roulette_probability < 1.0f &&
+            max_photon_contribution <=
+                static_cast<float>(
+                    photon_accumulator_plan.max_term_ceiling),
+        "Photon fixed-point bound is invalid: maximum contribution is {}.",
+        max_photon_contribution);
 
     luisa::vector<uint> seeds(photon_number);
-    std::mt19937 rng{std::random_device{}()};
+    // Reference-image comparisons must see the same photon distribution on
+    // every run. Interactive runs may still use a fresh distribution.
+    std::mt19937 rng{opts.offline ? 42u : std::random_device{}()};
     for (uint i = 0u; i < photon_number; i++) {
         seeds[i] = rng();
     }
     Buffer<uint> seed_buffer = device.create_buffer<uint>(photon_number);
-    Buffer<Photon> photon_buffer = device.create_buffer<Photon>(photon_number * max_depth);
-    Buffer<uint> photon_limit_buffer = device.create_buffer<uint>(1u);
+    Buffer<Photon> photon_buffer = device.create_buffer<Photon>(photon_capacity);
 
     constexpr uint split_per_dim = 128u;
     float3 grid_real_size = grid_max - grid_min;
@@ -283,10 +313,15 @@ int main(int argc, char *argv[]) {
 
             Var<Material> material = material_buffer->read(hit.inst);
 
-            // store photons
-            UInt index = photon_limit_buffer->atomic(0).fetch_add(1u);
-
-            UInt3 grid_index = make_uint3((p - grid_min) / grid_len);
+            // Each path/depth pair owns one stable slot, so scheduling cannot
+            // change photon record addresses and no global allocation atomic
+            // is needed. Grid-list insertion remains unordered, so gathering
+            // uses a commutative fixed-point accumulator below.
+            UInt index = dispatch_x() * max_depth + depth;
+            UInt3 grid_index = make_uint3(clamp(
+                (p - grid_min) / grid_len,
+                0.0f,
+                make_float3(grid_size - 1u)));
             UInt grid_index_m = grid_index.x * grid_size.y * grid_size.z + grid_index.y * grid_size.z + grid_index.z;
             UInt link_head = grid_head_buffer->atomic(grid_index_m).exchange(index);
 
@@ -306,7 +341,7 @@ int main(int argc, char *argv[]) {
             power *= material.albedo;
 
             // rr
-            Float rr_prob = 0.9f;
+            Float rr_prob = russian_roulette_probability;
             Float rr_check = lcg(state);
             $if (rr_check >= rr_prob) { $break; };
             power *= 1.0f / rr_prob;
@@ -325,10 +360,36 @@ int main(int argc, char *argv[]) {
         return x * grid_size.y * grid_size.z + y * grid_size.z + z;
     };
 
-    auto density_estimation_radius = [&](UInt2 coord, Float3 p, Float3 dir, Float r, Var<Material> material) noexcept {
-        Float3 radiance = def(make_float3(0.0f));
+    Callable accumulate_photon_contribution =
+        [&](UInt3 &low, UInt3 &high,
+            Float3 contribution) noexcept {
+            UInt3 quantized = make_uint3(
+                contribution * photon_accumulator_scale + 0.5f);
+
+            UInt previous = low.x;
+            low.x += quantized.x;
+            high.x += select(0u, 1u, low.x < previous);
+
+            previous = low.y;
+            low.y += quantized.y;
+            high.y += select(0u, 1u, low.y < previous);
+
+            previous = low.z;
+            low.z += quantized.z;
+            high.z += select(0u, 1u, low.z < previous);
+        };
+
+    Callable decode_photon_contribution =
+        [&](UInt3 low, UInt3 high) noexcept {
+            return (make_float3(high) * two_to_32 +
+                    make_float3(low)) *
+                   photon_accumulator_inverse_scale;
+        };
+
+    auto density_estimation_radius = [&](Float3 p, Float r, Var<Material> material) noexcept {
+        UInt3 radiance_low = def(make_uint3(0u));
+        UInt3 radiance_high = def(make_uint3(0u));
         UInt3 p_index = get_index_from_point(p);
-        UInt photon_sum = def(0);
 
         $for (x, ite(p_index.x == 0, 0u, p_index.x - 1), min(p_index.x + 1, grid_size.x)) {
             $for (y, ite(p_index.y == 0, 0u, p_index.y - 1), min(p_index.y + 1, grid_size.y)) {
@@ -336,11 +397,13 @@ int main(int argc, char *argv[]) {
                     UInt grid_index_m = get_index_merge(x, y, z);
                     UInt photon_index = grid_head_buffer->read(grid_index_m);
                     $while (photon_index != ~0u) {
-                        photon_sum += 1;
                         Var<Photon> photon = photon_buffer->read(photon_index);
                         Float dis = distance(Float3{photon.position}, p);
                         $if (dis < r) {
-                            radiance += material.albedo * inv_pi * Float3{photon.power};
+                            accumulate_photon_contribution(
+                                radiance_low, radiance_high,
+                                material.albedo * inv_pi *
+                                    Float3{photon.power});
                         };
                         photon_index = photon.nxt;
                     };
@@ -348,7 +411,8 @@ int main(int argc, char *argv[]) {
             };
         };
 
-        return radiance;
+        return decode_photon_contribution(
+            radiance_low, radiance_high);
     };
 
     /*
@@ -401,7 +465,7 @@ int main(int argc, char *argv[]) {
     };
     */
 
-    Callable indirect_illumination = [&](UInt2 coord, Var<Ray> ray, AccelVar accel) {
+    Callable indirect_illumination = [&](Var<Ray> ray, AccelVar accel) {
         Float3 radiance = def(make_float3(0.0f));
         Float radius = def(photon_radius);
 
@@ -422,8 +486,8 @@ int main(int argc, char *argv[]) {
                 Float cos_wi = dot(-ray->direction(), n);
 
                 $if (cos_wi > 1e-4f) {
-                    radiance = density_estimation_radius(coord, p, -ray->direction(), radius, material);
-                    radiance *= inv_pi / (radius * radius * photon_number);
+                    radiance = density_estimation_radius(p, radius, material);
+                    radiance *= inv_pi / (radius * radius * cast<float>(photon_number));
 
                     // $if(dot(radiance, radiance) > 10000) {
                     //     printer.info_with_location("p : ({}, {}, {}) o ({}, {}, {}) dir ({}, {}, {}) inst {} prim {}",
@@ -494,7 +558,7 @@ int main(int argc, char *argv[]) {
                     Float new_cos = dot(new_direction, n);
                     Float pdf_dir = inv_pi * new_cos;
 
-                    Float3 indirect = indirect_illumination(coord, ray, accel);
+                    Float3 indirect = indirect_illumination(ray, accel);
                     // radiance += material.albedo * inv_pi * new_cos * indirect / pdf_dir =>
                     radiance += material.albedo * indirect;
                 };
@@ -559,12 +623,12 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Photon tracing done");
 
     uint frame_count = 0;
-    bool infinite_render = !force_offline;
-    uint total_spp = force_offline ? 256u : 0u;
+    bool infinite_render = !opts.offline;
+    uint total_spp = opts.offline ? (opts.spp == 0u ? 256u : opts.spp) : 0u;
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("Display", resolution.x, resolution.y);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -578,7 +642,7 @@ int main(int argc, char *argv[]) {
             }));
     }
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     Clock clk;
     while (infinite_render || frame_count < total_spp) {
@@ -592,12 +656,12 @@ int main(int argc, char *argv[]) {
         cmd_list
             << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution);
         stream << cmd_list.commit();
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             stream << swap_chain->present(ldr_image);
         }
         frame_count += spp_per_dispatch;
 
-        if (!force_offline && window) {
+        if (!opts.offline && window) {
             window->poll_events();
             if (window->should_close()) { break; }
         }
@@ -605,16 +669,15 @@ int main(int argc, char *argv[]) {
     stream << ldr_image.copy_to(luisa::span{host_image}) << synchronize();
 
     stbi_write_png("test_photon_mapping.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution.x, resolution.y, 4,
-            "test_photon_mapping",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+    if (opts.offline) {
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

@@ -118,7 +118,9 @@ public:
     }
 
     // on-update functions' operations will be committed by update()
-    void emplace_buffer_handle_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
+    void emplace_buffer_handle_on_update(
+        size_t index, uint64_t handle, size_t offset_bytes,
+        size_t size_bytes = BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size) noexcept;
     void emplace_tex2d_handle_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
     void emplace_tex3d_handle_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
 
@@ -130,12 +132,16 @@ public:
         requires is_buffer_or_view_v<std::remove_cvref_t<T>>
     auto &emplace_on_update(size_t index, T &&buffer) noexcept {
         size_t offset_bytes;
+        size_t size_bytes;
         if constexpr (is_buffer_view_v<std::remove_cvref_t<T>>) {
             offset_bytes = buffer.offset_bytes();
+            size_bytes = buffer.size_bytes();
         } else {
             offset_bytes = 0;
+            size_bytes = buffer.size_bytes();
         }
-        emplace_buffer_handle_on_update(index, buffer.handle(), offset_bytes);
+        emplace_buffer_handle_on_update(
+            index, buffer.handle(), offset_bytes, size_bytes);
         return *this;
     }
 

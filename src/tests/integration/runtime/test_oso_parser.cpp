@@ -5,6 +5,7 @@
 #include "test_device.h"
 
 #include <cstdio>
+#include <filesystem>
 
 #include <luisa/osl/shader.h>
 #include <luisa/osl/oso_parser.h>
@@ -19,8 +20,8 @@ void test_oso_parser(luisa::compute::Device &device) {
 
     luisa::unique_ptr<luisa::compute::osl::Shader> shader;
 
-    // Use embedded shader code if no file argument provided
-    if (argc < 2) {
+    // Use embedded shader code if no file argument follows the backend name.
+    if (argc < 3) {
         static constexpr auto code = R"oso(
 OpenShadingLanguage 1.00
 # Compiled by oslc 1.13.4.0dev
@@ -176,21 +177,30 @@ end
         shader = luisa::compute::osl::OSOParser::parse(code);
     } else {
         // Parse shader from file
-        shader = luisa::compute::osl::OSOParser::parse_file(argv[1]);
+        auto shader_path = std::filesystem::path{argv[2]};
+        boost::ut::expect(std::filesystem::is_regular_file(shader_path)) << "OSO input file does not exist: " << shader_path.string();
+        if (!std::filesystem::is_regular_file(shader_path)) {
+            return;
+        }
+        shader = luisa::compute::osl::OSOParser::parse_file(shader_path.string());
     }
 
     // Dump parsed shader information
-    puts(shader->dump().c_str());
+    boost::ut::expect(shader != nullptr) << "OSO parser returned a null shader.";
+    if (shader == nullptr) {
+        return;
+    }
+    auto dump = shader->dump();
+    boost::ut::expect(!dump.empty()) << "Parsed OSO shader dump is empty.";
+    puts(dump.c_str());
 }
 
-static inline const auto reg = [] {
-    "test_oso_parser"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_oso_parser(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_oso_parser(device);
+}

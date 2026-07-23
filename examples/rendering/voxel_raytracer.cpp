@@ -47,15 +47,13 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Voxel Ray Tracer");
     LUISA_INFO("Controls: Arrow Keys = Rotate, W/S = Zoom, R = Reset view");
 
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
 
     // Image dimensions
     static constexpr uint width = 1024u;
@@ -347,15 +345,14 @@ int main(int argc, char *argv[]) {
                << display.copy_to(luisa::span{host_image})
                << synchronize();
         stbi_write_png("test_voxel_raytracer.png", width, height, 4, host_image.data(), 0);
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            width, height, 4,
-            "test_voxel_raytracer",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                width, height, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     } else {
         // Main loop
         while (!window->should_close()) {

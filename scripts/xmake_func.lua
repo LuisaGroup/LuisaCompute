@@ -40,7 +40,8 @@ set_showmenu(false)
 -- Declare dependencies on all backend and feature options
 add_deps("lc_dx_backend", "lc_vk_backend", "lc_cuda_backend", "lc_metal_backend", "lc_enable_tests", "lc_py_include",
     "lc_cuda_ext_lcub", "lc_enable_dsl", "lc_enable_gui", "lc_bin_dir", "lc_dx_cuda_interop", "lc_vk_cuda_interop",
-    "_lc_enable_py", "lc_enable_py", "lc_enable_xir", "lc_fallback_backend", "lc_llvm_path", "lc_embree_path")
+    "_lc_enable_py", "lc_enable_py", "lc_enable_xir", 'lc_vk_backend_use_xir_spirv', 'lc_vk_backend_use_ast_llvm_spirv',
+    "lc_fallback_backend", "lc_llvm_path", "lc_embree_path")
 
 before_check(function(option)
     -- Load custom options from options.lua if in project root
@@ -99,11 +100,34 @@ before_check(function(option)
     local lc_llvm_path = option:dep("lc_llvm_path")
     local lc_embree_path = option:dep("lc_embree_path")
     local lc_enable_xir = option:dep("lc_enable_xir")
+    local lc_vk_backend_use_xir_spirv = option:dep("lc_vk_backend_use_xir_spirv")
+    local lc_vk_backend_use_ast_llvm_spirv = option:dep("lc_vk_backend_use_ast_llvm_spirv")
 
     -- Enable XIR if fallback backend or LLVM path is set
     if lc_fallback_backend:enabled() or lc_llvm_path:enabled() then
         lc_enable_xir:enable(true, {
             force = true
+        })
+    end
+
+    -- AST LLVM codegen requires an explicit LLVM installation and XIR, and
+    -- disables XIR→SPIR-V.
+    if lc_vk_backend_use_ast_llvm_spirv:enabled() then
+        local configured_llvm_path = get_config("lc_llvm_path")
+        if type(configured_llvm_path) ~= "string" or
+            configured_llvm_path:len() == 0 then
+            raise("lc_vk_backend_use_ast_llvm_spirv requires " ..
+                  "lc_llvm_path to name an LLVM installation built with " ..
+                  "the native SPIR-V target.")
+        end
+        lc_enable_xir:enable(true, {force = true})
+        lc_vk_backend_use_xir_spirv:enable(false, {force = true})
+    end
+
+    -- Disable XIR→SPIR-V if XIR not enabled
+    if not lc_enable_xir:enabled() then
+        lc_vk_backend_use_xir_spirv:enable(false, {
+            force = false
         })
     end
 
@@ -280,6 +304,9 @@ on_load(function(target)
             target:set("exceptions", "cxx")
         else
             target:set("exceptions", "no-cxx")
+            if target:is_plat('windows') then
+                target:add('defines', '_HAS_EXCEPTIONS=0')
+            end
         end
     end
 
@@ -519,12 +546,33 @@ on_load(function(target, opt)
         return nil
     end
 
+    -- Try build/debug or build/release first, fall back to lc_llvm_path directly
+    local llvm_build_dir
+    local debug_dir = path.join(lc_llvm_path, "build", "debug")
+    local release_dir = path.join(lc_llvm_path, "build", "release")
+    if is_mode("debug") and os.exists(debug_dir) then
+        llvm_build_dir = debug_dir
+    elseif is_mode("release") and os.exists(release_dir) then
+        llvm_build_dir = release_dir
+    else
+        llvm_build_dir = lc_llvm_path
+    end
+
     -- Add LLVM library and include paths
-    target:add("linkdirs", path.join(lc_llvm_path, "lib"))
-    target:add("includedirs", path.join(lc_llvm_path, "include"))
+    target:add("linkdirs", path.join(llvm_build_dir, "lib"))
+    target:add("includedirs", path.join(llvm_build_dir, "include"))
+    -- Also add LLVM source include dir (for in-tree builds where headers are split)
+    local llvm_src_include = path.join(lc_llvm_path, "llvm", "include")
+    if os.exists(llvm_src_include) then
+        target:add("includedirs", llvm_src_include)
+    end
+    local clang_src_include = path.join(lc_llvm_path, "clang", "include")
+    if os.exists(clang_src_include) then
+        target:add("includedirs", clang_src_include)
+    end
 
     -- Collect all LLVM libraries (excluding LLVM-C)
-    for __, filepath in ipairs(os.files(path.join(lc_llvm_path, "lib/*.lib"))) do
+    for __, filepath in ipairs(os.files(path.join(llvm_build_dir, "lib/*.lib"))) do
         local basename = path.basename(filepath)
         if basename:match("LLVM") ~= nil and basename ~= "LLVM-C" then
             table.insert(libs, basename)
@@ -556,6 +604,18 @@ after_build(function(target)
         return nil
     end
 
+    -- Use same build dir resolution as on_load
+    local llvm_build_dir
+    local debug_dir = path.join(lc_llvm_path, "build", "debug")
+    local release_dir = path.join(lc_llvm_path, "build", "release")
+    if is_mode("debug") and os.exists(debug_dir) then
+        llvm_build_dir = debug_dir
+    elseif is_mode("release") and os.exists(release_dir) then
+        llvm_build_dir = release_dir
+    else
+        llvm_build_dir = lc_llvm_path
+    end
+
     local function copy(src_path, dst_path)
         os.cp(src_path, dst_path, {
             copy_if_different = true,
@@ -567,8 +627,8 @@ after_build(function(target)
     local dst_path = target:targetdir()
     local jobs = jobgraph.new()
 
-    for __, filepath in ipairs(os.files(path.join(lc_llvm_path, "bin/*.dll"))) do
-        jobs.add(filepath, function()
+    for __, filepath in ipairs(os.files(path.join(llvm_build_dir, "bin/*.dll"))) do
+        jobs:add(filepath, function()
             copy(filepath, path.join(dst_path, path.filename(filepath)))
         end)
     end

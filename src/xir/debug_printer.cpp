@@ -9,6 +9,7 @@
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/curve_basis.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/debug_printer.h>
 
 namespace luisa::compute::xir {
@@ -442,6 +443,10 @@ void XIRDebugPrinter::emit_metadata_list(luisa::string &s, const MetadataList &m
                                      comment_md->comment());
                     break;
                 }
+                case DerivedMetadataTag::SIGNATURE_CONSTRAINT: {
+                    s.append("signature_constraint, "sv);
+                    break;
+                }
                 case DerivedMetadataTag::CURVE_BASIS: {
                     auto curve_md = static_cast<const CurveBasisMD *>(md);
                     s.append("curve_basis = ("sv);
@@ -467,6 +472,13 @@ void XIRDebugPrinter::emit_metadata_list(luisa::string &s, const MetadataList &m
                         s.pop_back();
                     }
                     s.append("), "sv);
+                    break;
+                }
+                case DerivedMetadataTag::REG2MEM_SPILL: {
+                    auto spill_md = static_cast<const Reg2MemSpillMD *>(md);
+                    luisa::format_to(std::back_inserter(s),
+                                     "reg2mem_spill = {}, ",
+                                     to_string(spill_md->kind()));
                     break;
                 }
             }

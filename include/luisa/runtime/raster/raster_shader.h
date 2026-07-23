@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/logging.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/runtime/raster/depth_buffer.h>
@@ -152,11 +153,19 @@ private:
         : Resource(
               device,
               Tag::RASTER_SHADER,
-              raster_ext->create_raster_shader(
-                  vert,
-                  pixel,
-                  option)),
-                  _raster_ext{raster_ext}
+              [&] {
+                  auto info = raster_ext->create_raster_shader(
+                      vert,
+                      pixel,
+                      option);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                  if (!info.valid()) {
+                      LUISA_ERROR("Failed to create raster shader.");
+                  }
+#endif
+                  return info;
+              }()),
+              _raster_ext{raster_ext}
         {
         }
     // AOT Shader
@@ -168,9 +177,17 @@ private:
               device,
               Tag::RASTER_SHADER,
               // TODO
-              raster_ext->load_raster_shader(
-                detail::shader_argument_types<Args...>(),
-                file_path)),
+              [&] {
+                  auto info = raster_ext->load_raster_shader(
+                      detail::shader_argument_types<Args...>(),
+                      file_path);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                  if (!info.valid()) {
+                      LUISA_ERROR("Failed to load raster shader from '{}'.", file_path);
+                  }
+#endif
+                  return info;
+              }()),
             _raster_ext{raster_ext}
         {
         }

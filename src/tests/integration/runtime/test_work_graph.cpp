@@ -351,14 +351,12 @@ void test_work_graph(Device &device) {
     accel_work_graph_test(device, stream);
 }
 
-static inline const auto reg = [] {
-    "test_work_graph"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_work_graph(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_work_graph(device);
+}

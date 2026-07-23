@@ -64,6 +64,14 @@ else ()
     option(LUISA_COMPUTE_EMBREE_ZIP_PATH "Path to embree zip file. Use this if embree fails to download" "")
 endif ()
 
+option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
+option(LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV "Use AST LLVM codegen for Vulkan backend SPIR-V generation" OFF)
+if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV AND LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+    message(FATAL_ERROR "Vulkan compute shader codegen options are mutually exclusive. "
+            "Use LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV for the default native SPIR-V path, "
+            "or LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV for the experimental LLVM SPIR-V path.")
+endif ()
+
 option(LUISA_COMPUTE_USE_SYSTEM_LIBS "Prefer system libraries over bundled ones" OFF)
 
 option(LUISA_COMPUTE_USE_SYSTEM_STL "Use system STL instead of the bundled EASTL" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})

@@ -423,6 +423,7 @@ void Tlas::pre_build(
             _instance_buffer->vk_buffer(),
             0,
             _instance_buffer->byte_size()};
+        auto local_write_begin = write_desc_sets.size();
         write_desc_sets.emplace_back(VkWriteDescriptorSet{
             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             nullptr,
@@ -445,6 +446,13 @@ void Tlas::pre_build(
             nullptr,
             &buffer_info,
             nullptr});
+        LUISA_ASSERT(
+            write_desc_sets.size() - local_write_begin ==
+                shader->local_descriptor_binding_count(),
+            "Vulkan acceleration-update kernel consumed {} local descriptor "
+            "bindings but its validated interface requires {}.",
+            write_desc_sets.size() - local_write_begin,
+            shader->local_descriptor_binding_count());
         vkUpdateDescriptorSets(
             device()->logic_device(),
             write_desc_sets.size(),
@@ -504,6 +512,7 @@ void Tlas::pre_build(
         cmdbuffer.states()->dispose_after_flush(std::move(_accel_buffer));
     }
     if (!_accel_buffer) {
+        update = false;
         _accel_buffer = vstd::make_unique<DefaultBuffer>(
             device(),
             acceleration_structure_build_sizes_info.accelerationStructureSize,
@@ -529,17 +538,23 @@ void Tlas::pre_build(
         acceleration_structure_create_info.createFlags = VK_ACCELERATION_STRUCTURE_CREATE_MOTION_BIT_NV;
         acceleration_structure_create_info.pNext = &motion_info;
     }
-    if (_accel) {
-        cmdbuffer.states()->callbacks.emplace_back([a = _accel, device = device()]() {
-            vkDestroyAccelerationStructureKHR(device->logic_device(), a, Device::alloc_callbacks());
-        });
+    if (!update) {
+        if (_accel) {
+            cmdbuffer.states()->callbacks.emplace_back([a = _accel, device = device()]() {
+                vkDestroyAccelerationStructureKHR(device->logic_device(), a, Device::alloc_callbacks());
+            });
+            _accel = VK_NULL_HANDLE;
+        }
+        VK_CHECK_RESULT(vkCreateAccelerationStructureKHR(device()->logic_device(), &acceleration_structure_create_info, Device::alloc_callbacks(), &_accel));
     }
-    VK_CHECK_RESULT(vkCreateAccelerationStructureKHR(device()->logic_device(), &acceleration_structure_create_info, Device::alloc_callbacks(), &_accel));
     scratch_buffer_size = (scratch_buffer_size + 255) & (~(255u));
-    auto scratch_chunk = cmdbuffer.scratch_buffer_alloc->allocate(scratch_buffer_size);
+    scratch_buffer_size += 256u; // extra padding for GPU buffer address misalignment
+    auto scratch_chunk = cmdbuffer.scratch_buffer_alloc->allocate(scratch_buffer_size, 256u);
 
     _scratch_buffer = reinterpret_cast<Buffer const *>(scratch_chunk.handle);
-    _scratch_buffer_offset = scratch_chunk.offset;
+    auto addr = _scratch_buffer->get_device_address() + scratch_chunk.offset;
+    auto misalign = addr & 255u;
+    _scratch_buffer_offset = scratch_chunk.offset + (misalign ? (256u - misalign) : 0u);
     cmdbuffer.resource_barrier->record(
         _scratch_buffer,
         ResourceBarrier::Usage::kComputeUAV);
@@ -555,6 +570,9 @@ void Tlas::build(
     CommandBuffer &cmdbuffer,
     uint instance_count) {
     _acceleration_build_geometry_info->dstAccelerationStructure = _accel;
+    if (_acceleration_build_geometry_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR) {
+        _acceleration_build_geometry_info->srcAccelerationStructure = _accel;
+    }
     _acceleration_build_geometry_info->scratchData.deviceAddress = _scratch_buffer->get_device_address() + _scratch_buffer_offset;
     auto acceleration_structure_build_range_info = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureBuildRangeInfoKHR>();
     acceleration_structure_build_range_info->primitiveCount = instance_count;

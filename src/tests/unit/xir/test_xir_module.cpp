@@ -1,3 +1,5 @@
+// Exercises XIR module ownership, function kinds, arguments, values, and metadata.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
@@ -10,7 +12,34 @@ using namespace luisa::compute::xir;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-static inline const auto reg_module_basics = [] {
+// ---- KernelFunction ----
+
+// ---- CallableFunction ----
+
+// ---- ExternalFunction ----
+
+// ---- Multiple functions in module ----
+
+// ---- Arguments ----
+
+// ---- BasicBlock ----
+
+// ---- Constants ----
+
+// ---- Undefined ----
+
+// ---- Special Registers ----
+
+// ---- Metadata ----
+
+// ---- Value hierarchy ----
+
+// ---- Traversal ----
+
+// ---- to_string for tags ----
+
+void reg_module_basics() {
+
     "xir_module_construction"_test = [] {
         Module module;
         auto count = 0u;
@@ -26,12 +55,10 @@ static inline const auto reg_module_basics = [] {
         for ([[maybe_unused]] auto *s : module.special_register_list()) { scount++; }
         expect(scount == 0u) << "new module should have no special registers";
     };
-    return 0;
-}();
+}
 
-// ---- KernelFunction ----
+void reg_kernel() {
 
-static inline const auto reg_kernel = [] {
     "xir_kernel_function"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -61,12 +88,10 @@ static inline const auto reg_kernel = [] {
         expect(body3 != nullptr);
         expect(kernel->body_block() == body3);
     };
-    return 0;
-}();
+}
 
-// ---- CallableFunction ----
+void reg_callable() {
 
-static inline const auto reg_callable = [] {
     "xir_callable_function"_test = [] {
         Module module;
         auto *float_type = Type::of<float>();
@@ -83,12 +108,10 @@ static inline const auto reg_callable = [] {
         expect(callable != nullptr);
         expect(callable->type() == nullptr) << "void callable should have null type";
     };
-    return 0;
-}();
+}
 
-// ---- ExternalFunction ----
+void reg_external() {
 
-static inline const auto reg_external = [] {
     "xir_external_function"_test = [] {
         Module module;
         auto *ext = module.create_external_function(Type::of<int>());
@@ -97,12 +120,10 @@ static inline const auto reg_external = [] {
         expect(ext->is_definition() == false) << "external functions are not definitions";
         expect(ext->definition() == nullptr) << "external functions have no definition";
     };
-    return 0;
-}();
+}
 
-// ---- Multiple functions in module ----
+void reg_multi_func() {
 
-static inline const auto reg_multi_func = [] {
     "xir_multiple_functions"_test = [] {
         Module module;
         (void)module.create_kernel();
@@ -112,12 +133,10 @@ static inline const auto reg_multi_func = [] {
         for ([[maybe_unused]] auto *f : module.function_list()) { count++; }
         expect(count == 3u) << "module should have 3 functions";
     };
-    return 0;
-}();
+}
 
-// ---- Arguments ----
+void reg_arguments() {
 
-static inline const auto reg_arguments = [] {
     "xir_value_argument"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -170,12 +189,21 @@ static inline const auto reg_arguments = [] {
         expect(val_arg->is_value() == true);
         expect(ref_arg->is_reference() == true);
     };
-    return 0;
-}();
 
-// ---- BasicBlock ----
+    "xir_create_argument_routes_opaque_types_to_references"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *opaque_type = Type::custom("LC_IndirectDispatchBuffer");
+        auto *opaque_arg = kernel->create_argument(opaque_type, false);
+        expect(opaque_arg != nullptr);
+        expect(opaque_arg->type() == opaque_type);
+        expect(opaque_arg->is_reference());
+        expect(opaque_arg->is_lvalue());
+    };
+}
 
-static inline const auto reg_basic_block = [] {
+void reg_basic_block() {
+
     "xir_basic_block_creation"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -194,12 +222,10 @@ static inline const auto reg_basic_block = [] {
         for ([[maybe_unused]] auto *b : kernel->basic_blocks()) { count++; }
         expect(count == 2u);
     };
-    return 0;
-}();
+}
 
-// ---- Constants ----
+void reg_constants() {
 
-static inline const auto reg_constants = [] {
     "xir_constant_create"_test = [] {
         Module module;
         auto *float_type = Type::of<float>();
@@ -277,12 +303,10 @@ static inline const auto reg_constants = [] {
         expect(zero != one) << "zero and one constants should differ";
         expect(zero->as<int>() != one->as<int>());
     };
-    return 0;
-}();
+}
 
-// ---- Undefined ----
+void reg_undefined() {
 
-static inline const auto reg_undefined = [] {
     "xir_undefined_creation"_test = [] {
         Module module;
         auto *float_type = Type::of<float>();
@@ -315,12 +339,10 @@ static inline const auto reg_undefined = [] {
         for ([[maybe_unused]] auto *u : module.undefined_list()) { count++; }
         expect(count == 2u);
     };
-    return 0;
-}();
+}
 
-// ---- Special Registers ----
+void reg_special_regs() {
 
-static inline const auto reg_special_regs = [] {
     "xir_special_register_thread_id"_test = [] {
         Module module;
         auto *tid = module.create_thread_id();
@@ -409,12 +431,10 @@ static inline const auto reg_special_regs = [] {
         for ([[maybe_unused]] auto *s : module.special_register_list()) { count++; }
         expect(count == 3u);
     };
-    return 0;
-}();
+}
 
-// ---- Metadata ----
+void reg_metadata() {
 
-static inline const auto reg_metadata = [] {
     "xir_metadata_name_on_module"_test = [] {
         Module module;
         expect(!module.name().has_value());
@@ -466,12 +486,10 @@ static inline const auto reg_metadata = [] {
         expect(arg->name().has_value());
         expect(arg->name().value() == "input_x");
     };
-    return 0;
-}();
+}
 
-// ---- Value hierarchy ----
+void reg_value_hierarchy() {
 
-static inline const auto reg_value_hierarchy = [] {
     "xir_value_tag_function"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -507,12 +525,10 @@ static inline const auto reg_value_hierarchy = [] {
         auto *arg = kernel->create_value_argument(Type::of<float>());
         expect(arg->is_global() == false);
     };
-    return 0;
-}();
+}
 
-// ---- Traversal ----
+void reg_traversal() {
 
-static inline const auto reg_traversal = [] {
     "xir_traverse_basic_blocks_default_order"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -526,12 +542,10 @@ static inline const auto reg_traversal = [] {
         kernel->traverse_basic_blocks([&](BasicBlock *) { count++; });
         expect(count >= 1u) << "traversal should visit at least the body block";
     };
-    return 0;
-}();
+}
 
-// ---- to_string for tags ----
+void reg_tag_strings() {
 
-static inline const auto reg_tag_strings = [] {
     "xir_function_tag_to_string"_test = [] {
         expect(to_string(DerivedFunctionTag::KERNEL) == "kernel");
         expect(to_string(DerivedFunctionTag::CALLABLE) == "callable");
@@ -565,7 +579,24 @@ static inline const auto reg_tag_strings = [] {
         expect(ref->derived_argument_tag() == DerivedArgumentTag::REFERENCE);
         expect(res->derived_argument_tag() == DerivedArgumentTag::RESOURCE);
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_module_basics();
+    reg_kernel();
+    reg_callable();
+    reg_external();
+    reg_multi_func();
+    reg_arguments();
+    reg_basic_block();
+    reg_constants();
+    reg_undefined();
+    reg_special_regs();
+    reg_metadata();
+    reg_value_hierarchy();
+    reg_traversal();
+    reg_tag_strings();
+    return 0;
+}

@@ -78,6 +78,7 @@ pub struct ShaderOption {
     pub enable_debug_info: bool,
     pub compile_only: bool,
     pub time_trace: bool,
+    pub enable_extended_accel_limits: bool,
     pub max_registers: u32,
     pub name: *const std::ffi::c_char,
     pub native_include: *const std::ffi::c_char,
@@ -95,6 +96,7 @@ impl Default for ShaderOption {
             enable_debug_info: false,
             compile_only: false,
             time_trace: false,
+            enable_extended_accel_limits: false,
             max_registers: 0,
             name: std::ptr::null(),
             native_include: std::ptr::null(),
@@ -666,6 +668,7 @@ pub struct BindlessArrayUpdateBuffer {
     pub op: BindlessArrayUpdateOperation,
     pub handle: Buffer,
     pub offset: usize,
+    pub size: usize,
 }
 
 impl Default for BindlessArrayUpdateBuffer {
@@ -674,6 +677,7 @@ impl Default for BindlessArrayUpdateBuffer {
             op: BindlessArrayUpdateOperation::None,
             handle: Buffer(INVALID_RESOURCE_HANDLE),
             offset: 0,
+            size: usize::MAX,
         }
     }
 }

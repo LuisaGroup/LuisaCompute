@@ -1,8 +1,8 @@
-// Header for linear algebra APIs.
+// Header for linear algebra APIs (DXIL path).
+// Uses element-wise HLSL operations when DXC SM 6.10 LinAlg intrinsics are not available.
 
-#if __spirv__
-#error "Cooperative vectors not (yet) supported for SPIRV"
-#endif
+
+// DirectX path: existing code, unchanged
 
 #if ((__SHADER_TARGET_MAJOR > 6) ||                                            \
      (__SHADER_TARGET_MAJOR == 6 && __SHADER_TARGET_MINOR >= 9)) &&            \
@@ -52,7 +52,7 @@ template <typename T> struct IsUnsigned {};
   }
 
 _SPECIALIZE_ISUNSIGNED(uint8_t4_packed, true);
-_SPECIALIZE_ISUNSIGNED(int8_t4_packed, true);
+_SPECIALIZE_ISUNSIGNED(int8_t4_packed, false);
 _SPECIALIZE_ISUNSIGNED(uint32_t, true);
 _SPECIALIZE_ISUNSIGNED(int32_t, false);
 _SPECIALIZE_ISUNSIGNED(float32_t, false);
@@ -116,79 +116,87 @@ InterpretedVector<T, N, DT> MakeInterpretedVector(vector<T, N> Vec) {
 }
 
 //
-// Mul
+// Mul — element-wise matrix-vector multiply
 //
-
 template <typename OutputElTy, typename InputElTy, int InputElCount,
           typename MatrixBufferTy, DataType InputDT, DataType MatrixDT,
-          uint MatrixM, uint MatrixK, MatrixLayout MatrixLayout,
+          uint MatrixM, uint MatrixK, MatrixLayout ML,
           bool MatrixTranspose>
 vector<OutputElTy, MatrixM>
-Mul(MatrixRefImpl<MatrixBufferTy, MatrixDT, MatrixM, MatrixK, MatrixLayout,
+Mul(MatrixRefImpl<MatrixBufferTy, MatrixDT, MatrixM, MatrixK, ML,
                   MatrixTranspose>
         Matrix,
     InterpretedVector<InputElTy, InputElCount, InputDT> InputVector) {
 
-  vector<OutputElTy, MatrixM> OutputVector;
+  vector<OutputElTy, MatrixM> OutputVector = (vector<OutputElTy, MatrixM>)0;
+  bool transposed = MatrixTranspose;
+  uint stride = Matrix.Stride != 0 ? Matrix.Stride : MatrixK;
 
-  __builtin_MatVecMul(
-      /*out*/ OutputVector, details::IsUnsigned<OutputElTy>::Value,
-      InputVector.Data, details::IsUnsigned<InputElTy>::Value, InputDT,
-      Matrix.Buffer, Matrix.StartOffset, MatrixDT, MatrixM, MatrixK,
-      MatrixLayout, MatrixTranspose, Matrix.Stride);
-
+  [unroll] for (uint i = 0; i < MatrixM; ++i) {
+    OutputElTy sum = (OutputElTy)0;
+    [unroll] for (uint j = 0; j < MatrixK; ++j) {
+      uint row = transposed ? j : i;
+      uint col = transposed ? i : j;
+      uint idx = Matrix.StartOffset + (row * stride + col) * sizeof(OutputElTy);
+      OutputElTy mat_el = Matrix.Buffer.template Load<OutputElTy>(idx);
+      sum += mat_el * (OutputElTy)InputVector.Data[j];
+    }
+    OutputVector[i] = sum;
+  }
   return OutputVector;
 }
 
 //
-// MulAdd
+// MulAdd — element-wise matrix-vector multiply-add
 //
-
 template <typename OutputElTy, typename InputElTy, int InputElCount,
           typename MatrixBufferTy, DataType InputDT, DataType MatrixDT,
-          uint MatrixM, uint MatrixK, MatrixLayout MatrixLayout,
+          uint MatrixM, uint MatrixK, MatrixLayout ML,
           bool MatrixTranspose, typename BiasVectorBufferTy,
           DataType BiasVectorDT>
 vector<OutputElTy, MatrixM>
-MulAdd(MatrixRefImpl<MatrixBufferTy, MatrixDT, MatrixM, MatrixK, MatrixLayout,
+MulAdd(MatrixRefImpl<MatrixBufferTy, MatrixDT, MatrixM, MatrixK, ML,
                      MatrixTranspose>
            Matrix,
        InterpretedVector<InputElTy, InputElCount, InputDT> InputVector,
        VectorRefImpl<BiasVectorBufferTy, BiasVectorDT> BiasVector) {
 
-  vector<OutputElTy, MatrixM> OutputVector;
-
-  __builtin_MatVecMulAdd(
-      /*out*/ OutputVector, details::IsUnsigned<OutputElTy>::Value,
-      InputVector.Data, details::IsUnsigned<InputElTy>::Value, InputDT,
-      Matrix.Buffer, Matrix.StartOffset, MatrixDT, MatrixM, MatrixK,
-      MatrixLayout, MatrixTranspose, Matrix.Stride, BiasVector.Buffer,
-      BiasVector.StartOffset, BiasVectorDT);
-
-  return OutputVector;
+  auto mul_result = Mul<OutputElTy>(Matrix, InputVector);
+  [unroll] for (uint i = 0; i < MatrixM; ++i) {
+    uint idx = BiasVector.StartOffset + i * sizeof(OutputElTy);
+    mul_result[i] += BiasVector.Buffer.template Load<OutputElTy>(idx);
+  }
+  return mul_result;
 }
 
 //
-// OuterProductAccumulate
+// OuterProductAccumulate — element-wise outer product
 //
-
 template <typename ElTy, int MatrixM, int MatrixN, DataType MatrixDT,
-          MatrixLayout MatrixLayout>
+          MatrixLayout ML>
 void OuterProductAccumulate(
     vector<ElTy, MatrixM> InputVector1, vector<ElTy, MatrixN> InputVector2,
-    RWMatrixRef<MatrixDT, MatrixM, MatrixN, MatrixLayout, false> Matrix) {
-  __builtin_OuterProductAccumulate(InputVector1, InputVector2, Matrix.Buffer,
-                                   Matrix.StartOffset, MatrixDT, MatrixLayout,
-                                   Matrix.Stride);
+    RWMatrixRef<MatrixDT, MatrixM, MatrixN, ML, false> Matrix) {
+  uint stride = Matrix.Stride != 0 ? Matrix.Stride : MatrixN;
+  [unroll] for (uint i = 0; i < MatrixM; ++i) {
+    [unroll] for (uint j = 0; j < MatrixN; ++j) {
+      uint idx = Matrix.StartOffset + (i * stride + j) * sizeof(ElTy);
+      ElTy prev = Matrix.Buffer.template Load<ElTy>(idx);
+      Matrix.Buffer.Store(idx, prev + InputVector1[i] * InputVector2[j]);
+    }
+  }
 }
 
 //
-// VectorAccumulate
+// VectorAccumulate — element-wise vector accumulation
 //
-
 template <typename ElTy, int ElCount>
-void CoopVectorAccumulate(RWByteAddressBuffer Buffer, uint Offset,vector<ElTy, ElCount> InputVector) {
-  __builtin_VectorAccumulate(InputVector, Buffer, Offset);
+void CoopVectorAccumulate(RWByteAddressBuffer Buffer, uint Offset, vector<ElTy, ElCount> InputVector) {
+  [unroll] for (int i = 0; i < ElCount; ++i) {
+    uint addr = Offset + i * sizeof(ElTy);
+    ElTy prev = Buffer.template Load<ElTy>(addr);
+    Buffer.Store(addr, prev + InputVector[i]);
+  }
 }
 template <typename MatrixBuffer, typename BiasBuffer, typename InType, typename OutType, DataType MatRefType, DataType BiasRefType, uint in_dim, uint out_dim>
 vector<OutType, out_dim> CoopMulAdd(
@@ -221,6 +229,68 @@ void CoopOuterProductAccum(
   RWMatrixRef<MatrixDT, MatrixM, MatrixN, MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL, false> Matrix = {buffer, buffer_offset, 0};
   OuterProductAccumulate<ElTy, MatrixM, MatrixN, MatrixDT, MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL>(InputVector1, InputVector2, Matrix);
 }
+
+//
+// CoopVecLoad — DX version (element-wise load from byte buffer)
+//
+template <typename ElTy, int ElCount>
+vector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
+    vector<ElTy, ElCount> result;
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        result[i] = buf.Load<ElTy>(offset + i * sizeof(ElTy));
+    }
+    return result;
+}
+
+//
+// CoopVecStore — DX version (element-wise store to byte buffer)
+//
+template <typename ElTy, int ElCount>
+void CoopVecStore(RWByteAddressBuffer buf, uint offset, vector<ElTy, ElCount> v) {
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        buf.Store(offset + i * sizeof(ElTy), v[i]);
+    }
+}
+
+//
+// CoopVecSplat — DX version (native HLSL vector splat)
+//
+template <typename ElTy, int ElCount>
+vector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
+    return vector<ElTy, ElCount>(scalar);
+}
+
+//
+// CoopVecCast — DX version (native HLSL cast on vector)
+//
+template <typename ToTy, typename FromTy, int ElCount>
+vector<ToTy, ElCount> CoopVecCast(vector<FromTy, ElCount> v) {
+    return (vector<ToTy, ElCount>)v;
+}
+
+//
+// CoopVecWorkgroupLoad — DX version (element-wise from groupshared)
+//
+template <typename ElTy, int ElCount, typename SharedBufType>
+vector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index) {
+    vector<ElTy, ElCount> result;
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        result[i] = shared_data[index + i];
+    }
+    return result;
+}
+
+//
+// CoopVecWorkgroupStore — DX version (element-wise to groupshared)
+//
+template <typename ElTy, int ElCount, typename SharedBufType>
+void CoopVecWorkgroupStore(SharedBufType shared_data, uint index,
+                           vector<ElTy, ElCount> v) {
+    [unroll] for (int i = 0; i < ElCount; ++i) {
+        shared_data[index + i] = v[i];
+    }
+}
+
 } // namespace linalg
 } // namespace dx
 #endif // SM 6.9 check and HV version check

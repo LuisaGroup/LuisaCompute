@@ -20,7 +20,7 @@
 #include <luisa/runtime/event.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <luisa/gui/window.h>
 #include <luisa/ast/ast2json.h>
 using namespace luisa;
@@ -75,14 +75,12 @@ void test_present(Device &device) {
     }
 }
 
-static inline const auto reg = [] {
-    "test_present"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_present(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_present(device);
+}

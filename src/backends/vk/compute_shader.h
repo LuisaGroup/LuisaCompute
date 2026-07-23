@@ -1,5 +1,6 @@
 #pragma once
 #include "shader.h"
+#include "pipeline_ref.h"
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/vstl/md5.h>
 #include <luisa/vstl/functional.h>
@@ -16,12 +17,12 @@ namespace lc::vk {
 using namespace luisa;
 using namespace luisa::compute;
 class ComputeShader : public Shader {
-    VkPipelineCache _pipe_cache{};
-    VkPipeline _pipeline{};
+    PipelineRef *_pipeline_ref{};
     uint3 _block_size;
 public:
-    static bool verify_type_md5(luisa::span<const luisa::compute::Type *const> arg_types, vstd::MD5 md5);
-    auto pipeline() const { return _pipeline; }
+    auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
+    auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
+    PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
     bool serialize_pso(vstd::vector<std::byte> &result) const override;
     auto block_size() const { return _block_size; }
     ComputeShader(
@@ -35,9 +36,34 @@ public:
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
-        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers);
+        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
+        luisa::span<const std::byte> constant_ubo_data = {},
+        uint validation_count = 0,
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
+        uint32_t push_constant_size = 32u,
+        detail::ShaderCodegenDialect codegen_dialect =
+            detail::ShaderCodegenDialect::HLSL_SPIRV);
     ~ComputeShader();
     static ComputeShader *compile(
+        BinaryIO const *bin_io,
+        Device *device,
+        vstd::vector<SavedArgument> &&saved_args,
+        vstd::function<hlsl::CodegenResult()> const &codegen,
+        vstd::optional<vstd::MD5> const &code_md5,
+        luisa::optional<vstd::MD5> expected_type_md5,
+        vstd::vector<Argument> &&bindings,
+        uint3 block_size,
+        vstd::string_view file_name,
+        SerdeType serde_type,
+        uint shader_model,
+        bool unsafe_math,
+        uint validation_count = 0,
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
+        bool requires_sampler_anisotropy = false,
+        uint32_t push_constant_size = 32u,
+        detail::ShaderCodegenDialect codegen_dialect =
+            detail::ShaderCodegenDialect::HLSL_SPIRV);
+    static ComputeShader *compile_builtin_hlsl_to_spirv(
         BinaryIO const *bin_io,
         Device *device,
         vstd::vector<SavedArgument> &&saved_args,
@@ -48,6 +74,10 @@ public:
         vstd::string_view file_name,
         SerdeType serde_type,
         uint shader_model,
-        bool unsafe_math);
+        bool unsafe_math,
+        uint validation_count = 0,
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
+        bool requires_sampler_anisotropy = false,
+        uint32_t push_constant_size = 32u);
 };
 }// namespace lc::vk

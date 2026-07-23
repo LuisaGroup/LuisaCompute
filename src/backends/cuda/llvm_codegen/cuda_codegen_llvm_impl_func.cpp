@@ -214,7 +214,9 @@ llvm::BasicBlock *CUDACodegenLLVMImpl::_translate_function_definition(FunctionCo
     // which are handled separately after all blocks are generated
     auto dom_tree = xir::compute_dom_tree(const_cast<xir::FunctionDefinition *>(f));
     LUISA_ASSERT(dom_tree.root()->block() == f->body_block());
-    luisa_compute_cuda_codegen_llvm_traverse_dom_tree(dom_tree, [this, &func_ctx](const xir::BasicBlock *bb) noexcept {
+    luisa::unordered_set<const xir::BasicBlock *> translated_blocks;
+    luisa_compute_cuda_codegen_llvm_traverse_dom_tree(dom_tree, [this, &func_ctx, &translated_blocks](const xir::BasicBlock *bb) noexcept {
+        translated_blocks.emplace(bb);
         auto llvm_bb = func_ctx.get_local_value<llvm::BasicBlock>(bb);
         IB b{llvm_bb};
         for (auto inst : bb->instructions()) {
@@ -222,7 +224,17 @@ llvm::BasicBlock *CUDACodegenLLVMImpl::_translate_function_definition(FunctionCo
         }
     });
     // finalize phi nodes
-    _finalize_pending_phi_nodes(func_ctx);
+    _finalize_pending_phi_nodes(func_ctx, translated_blocks);
+    // Dominator traversal skips unreachable structured merge blocks, but LLVM still requires terminators.
+    for (auto bb : f->basic_blocks()) {
+        auto llvm_bb = func_ctx.get_local_value<llvm::BasicBlock>(bb);
+        if (!translated_blocks.contains(bb)) {
+            IB b{llvm_bb};
+            b.CreateUnreachable();
+        }
+        LUISA_ASSERT(llvm_bb->getTerminator() != nullptr,
+                     "LLVM basic block has no terminator after translation.");
+    }
     return func_ctx.get_local_value<llvm::BasicBlock>(f->body_block());
 }
 

@@ -382,7 +382,8 @@ public:
             m[i].buffer = api::BindlessArrayUpdateBuffer{
                 .op = convert_op(mod.buffer.op),
                 .handle = {mod.buffer.handle},
-                .offset = mod.buffer.offset_bytes};
+                .offset = mod.buffer.offset_bytes,
+                .size = mod.buffer.size_bytes};
             m[i].tex2d = api::BindlessArrayUpdateTexture{
                 .op = convert_op(mod.tex2d.op),
                 .handle = {mod.tex2d.handle},

@@ -16,6 +16,8 @@ end)
 add_files("*.cpp", 'codegen_utils/*.cpp')
 lc_set_pcxxheader("lc_hlsl_pch.h")
 add_headerfiles("*.h")
+-- XMake embeds the canonical inputs directly into objects, so it never
+-- consumes CMake's checked-in aggregate and tracks each input independently.
 add_rules("utils.bin2obj", {extensions = {".bytes", ".dxil"}})
 add_defines('LUISA_BIN_2_OBJ')
 add_files('builtin/*.bytes', 'builtin/*.dxil')

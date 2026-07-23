@@ -1,4 +1,5 @@
 #include "codegen_stack_data.h"
+#include "atomic_codegen_policy.h"
 #include <luisa/runtime/rtx/ray.h>
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/ast/type_registry.h>
@@ -21,6 +22,7 @@ CodegenStackData::CodegenStackData()
 void CodegenStackData::Clear() {
     tempSwitchExpr = nullptr;
     arguments.clear();
+    validate_index_map.clear();
     scopeCount = -1;
     tempSwitchCounter = 0;
     structTypes.clear();
@@ -45,8 +47,8 @@ void CodegenStackData::Clear() {
     useTex2DBindless = false;
     useTex3DBindless = false;
     useBufferBindless = false;
+    use_8bit = false;
     pixelUseBarycentric = false;
-    atomicFloatToInt = false;
     internalStruct.clear();
     internalStruct.emplace(Type::of<CommittedHit>(), "_Hit0");
     internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");
@@ -58,16 +60,6 @@ std::pair<vstd::string_view, bool> CodegenStackData::CreateAliasedStruct(Type co
     if (!util->TypeIsAliased(t)) {
         return {CreateStruct(t), false};
     }
-    // if (isSpirv && t->is_matrix()) {
-    //     switch (t->dimension()) {
-    //         case 2:
-    //             return {"_Alsfloat2x2"sv, true};
-    //         case 3:
-    //             return {"_Alsfloat3x4"sv, true};
-    //         case 4:
-    //             return {"_Alsfloat4x4"sv, true};
-    //     }
-    // }
     auto ite = customStructAliased.try_emplace(
         t,
         vstd::lazy_eval([&] {
@@ -176,41 +168,27 @@ static vstd::string_view _atomic_compare_exchange =
     R"(# r;InterlockedCompareExchange($,@,r);return r;)"sv;
 static vstd::string_view _atomic_compare_exchange_float =
     R"(# r;InterlockedCompareExchangeFloatBitwise($,@,r);return r;)"sv;
-static vstd::string_view _atomic_compare_exchange_float_spirv =
-    R"(# r;InterlockedCompareExchange($,asint(@),r);return asfloat(r);)"sv;
 static vstd::string_view _atomic_add =
     R"(# r;InterlockedAdd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_add_float =
-    R"(while(true){
-# old=$;
+    R"(# old=$;
+while(true){
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,old+@,r);
-if(old==r)return old;
-})"sv;
-static vstd::string_view _atomic_add_float_spirv =
-    R"(while(true){
-# old=asint($);
-# r;
-InterlockedCompareExchange($,old,asint(asfloat(old)+@),r);
-if(old==r)return asfloat(old);
+if(asuint(old)==asuint(r))return old;
+old=r;
 })"sv;
 static vstd::string_view _atomic_sub =
     R"(# r;
 InterlockedAdd($,-@,r);
 return r;)"sv;
 static vstd::string_view _atomic_sub_float =
-    R"(while(true){
-# old=$;
+    R"(# old=$;
+while(true){
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,old-@,r);
-if(old==r)return old;
-})"sv;
-static vstd::string_view _atomic_sub_float_spirv =
-    R"(while(true){
-# old=asint($);
-# r;
-InterlockedCompareExchange($,old,asint(asfloat(old)-@),r);
-if(old==r)return asfloat(old);
+if(asuint(old)==asuint(r))return old;
+old=r;
 })"sv;
 static vstd::string_view _atomic_and =
     R"(# r;InterlockedAnd($,@,r);return r;)"sv;
@@ -221,39 +199,25 @@ static vstd::string_view _atomic_xor =
 static vstd::string_view _atomic_min =
     R"(# r;InterlockedMin($,@,r);return r;)"sv;
 static vstd::string_view _atomic_min_float =
-    R"(while(true){
-# old=$;
-if(old<=@){
+    R"(# old=$;
+while(true){
+if(old<=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
-if(r==old) return old;
-}})"sv;
-static vstd::string_view _atomic_min_float_spirv =
-    R"(while(true){
-# old=asint($);
-if(asfloat(old)<=@){
-# r;
-InterlockedCompareExchange($,old,asint(@),r);
-if(r==old) return asfloat(old);
-}})"sv;
+if(asuint(r)==asuint(old)) return old;
+old=r;
+})"sv;
 static vstd::string_view _atomic_max =
     R"(# r;InterlockedMax($,@,r);return r;)"sv;
 static vstd::string_view _atomic_max_float =
-    R"(while(true){
-# old=$;
-if(old>=@){
+    R"(# old=$;
+while(true){
+if(old>=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
-if(r==old) return old;
-}})"sv;
-static vstd::string_view _atomic_max_float_spirv =
-    R"(while(true){
-# old=asint($);
-if(asfloat(old)>=@){
-# r;
-InterlockedCompareExchange($,old,asint(@),r);
-if(r==old) return asfloat(old);
-}})"sv;
+if(asuint(r)==asuint(old)) return old;
+old=r;
+})"sv;
 AccessChain const &CodegenStackData::GetAtomicFunc(
     Function func,
     CallOp op,
@@ -262,39 +226,40 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
     luisa::span<Expression const *const> exprs) {
     size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
     vstd::StringBuilder retTypeName;
-    if (atomicFloatToInt && (retType->is_float32() || retType->is_float64())) {
-        if (retType->is_float32()) {
-            util->GetTypeName(*Type::of<int>(), retTypeName, Usage::NONE, true);
-        } else {
-            util->GetTypeName(*Type::of<int64_t>(), retTypeName, Usage::NONE, true);
-        }
-    } else {
-        util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
-    }
+    util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
     TemplateFunction tmp{
         .ret_type = retTypeName.view(),
         .tmp_type_name = retTypeName.view(),
         .access_place = '$',
         .args_place = '@',
         .temp_type_place = '#'};
+    // The bundled DXC cannot lower float atomics to SPIR-V: its float CAS
+    // intrinsic is unimplemented and it does not expose atomic-float SPIR-V
+    // extensions. Fail closed; native XIR-to-SPIR-V owns Vulkan float atomics.
+    auto lowering = plan_hlsl_atomic_lowering(
+        op, retType->is_float32(), isSpirv);
+    if (lowering == HlslAtomicLowering::UNSUPPORTED) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Float atomics are unavailable in the HLSL-to-SPIR-V fallback "
+            "because the bundled DXC cannot lower them. Use native "
+            "XIR-to-SPIR-V codegen for this kernel.");
+    }
+    auto use_software_float_rmw =
+        lowering == HlslAtomicLowering::FLOAT_CAS_LOOP;
     switch (op) {
         case CallOp::ATOMIC_EXCHANGE:
             tmp.body = _atomic_exchange;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_compare_exchange_float_spirv : _atomic_compare_exchange_float)
-                           : _atomic_compare_exchange;
+            tmp.body = lowering == HlslAtomicLowering::FLOAT_COMPARE_EXCHANGE ?
+                           _atomic_compare_exchange_float :
+                           _atomic_compare_exchange;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_add_float_spirv : _atomic_add_float)
-                           : _atomic_add;
+            tmp.body = use_software_float_rmw ? _atomic_add_float : _atomic_add;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_sub_float_spirv : _atomic_sub_float)
-                           : _atomic_sub;
+            tmp.body = use_software_float_rmw ? _atomic_sub_float : _atomic_sub;
             break;
         case CallOp::ATOMIC_FETCH_AND:
             tmp.body = _atomic_and;
@@ -306,14 +271,10 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = _atomic_xor;
             break;
         case CallOp::ATOMIC_FETCH_MIN:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_min_float_spirv : _atomic_min_float)
-                           : _atomic_min;
+            tmp.body = use_software_float_rmw ? _atomic_min_float : _atomic_min;
             break;
         case CallOp::ATOMIC_FETCH_MAX:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_max_float_spirv : _atomic_max_float)
-                           : _atomic_max;
+            tmp.body = use_software_float_rmw ? _atomic_max_float : _atomic_max;
             break;
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid atomic operator.");

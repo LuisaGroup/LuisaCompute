@@ -7,6 +7,7 @@ namespace luisa::compute::xir {
 
 class Module;
 class Function;
+class PassReport;
 
 class RayQueryLoopInst;
 class RayQueryPipelineInst;
@@ -46,10 +47,16 @@ class RayQueryPipelineInst;
 
 struct RayQueryLoopLowerInfo {
     size_t lowered_loop_count{0u};
+    size_t error_count{0u};
+    [[nodiscard]] bool succeeded() const noexcept { return error_count == 0u; }
 };
 
+// Every loop in a function is preflighted before outlining. Unsupported handler
+// shapes (for example, multiple exits, overlapping handlers, cross-handler
+// PHIs, or nested ray-query loops inside a handler) are reported through
+// error_count/succeeded(); if any loop is rejected, the complete function is
+// left unchanged.
 [[nodiscard]] LUISA_XIR_API RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir
-

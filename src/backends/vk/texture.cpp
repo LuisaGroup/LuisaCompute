@@ -1,8 +1,54 @@
 #include "texture.h"
 #include "device.h"
+#include "device_feature_plan.h"
+#include "sparse_binding_plan.h"
 #include "log.h"
+#include <luisa/core/stl/vector.h>
 namespace lc::vk {
 using namespace luisa::compute;
+
+NativeImageState::NativeImageState(
+    VkImage image, VkFormat format, uint dimension, uint3 size,
+    uint mip_levels, bool simultaneous_access,
+    luisa::shared_ptr<std::atomic_size_t> expiration_counter)
+    : image{image},
+      format{format},
+      size{size},
+      mip_levels{mip_levels},
+      dimension{dimension},
+      simultaneous_access{simultaneous_access},
+      _expiration_counter{std::move(expiration_counter)} {
+    LUISA_ASSERT(image != VK_NULL_HANDLE,
+                 "Cannot track a null Vulkan image.");
+    LUISA_ASSERT(mip_levels > 0u,
+                 "A Vulkan image must have at least one mip level.");
+    _layouts.resize(mip_levels, VK_IMAGE_LAYOUT_UNDEFINED);
+}
+
+NativeImageState::~NativeImageState() noexcept {
+    // The registry owns only weak references. Keep a lifetime-independent
+    // counter so the next acquisition can promptly reclaim expired weak
+    // control blocks without calling back through a possibly destroyed Device.
+    _expiration_counter->fetch_add(1u, std::memory_order_relaxed);
+}
+
+VkImageLayout NativeImageState::layout(uint level) const {
+    std::lock_guard lock{_layout_mtx};
+    LUISA_ASSERT(level < _layouts.size(),
+                 "Vulkan image mip {} is outside [0, {}).",
+                 level, _layouts.size());
+    return _layouts[level];
+}
+
+void NativeImageState::set_layout(
+    uint level, VkImageLayout layout) const {
+    std::lock_guard lock{_layout_mtx};
+    LUISA_ASSERT(level < _layouts.size(),
+                 "Vulkan image mip {} is outside [0, {}).",
+                 level, _layouts.size());
+    _layouts[level] = layout;
+}
+
 Texture::Texture(Device *device)
     : Resource(device),
       _vk_img(nullptr),
@@ -11,6 +57,38 @@ Texture::Texture(Device *device)
       _dimension(0) {
     _allocation = nullptr;
 }
+
+void Texture::_acquire_native_state(VkFormat format) {
+    _native_state = device()->acquire_native_image_state(
+        _vk_img, format, _dimension, _size, _mip,
+        _simultaneous_access);
+}
+
+Texture::Texture(
+    Device *device,
+    VkImage external_image,
+    uint dimension,
+    compute::PixelFormat format,
+    uint3 size,
+    uint mip,
+    bool simultaneous_access,
+    VkDeviceMemory external_memory)
+    : Resource(device),
+      _vk_img(external_image),
+      _format(format),
+      _size(size),
+      _mip(mip),
+      _dimension(dimension),
+      _contained{false},
+      _simultaneous_access(simultaneous_access) {
+    _allocation = nullptr;
+    _acquire_native_state(to_vk_format(format));
+    if (external_memory) {
+        _allocated_memory = external_memory;
+        _external_allocation = true;
+    }
+}
+
 Texture::Texture(
     Device *device,
     VkImage external_image,
@@ -29,11 +107,11 @@ Texture::Texture(
       _dimension(dimension),
       _contained{false},
       _simultaneous_access(simultaneous_access) {
+    _allocation = nullptr;
+    _acquire_native_state(format);
     if (external_memory) {
         _allocated_memory = external_memory;
         _external_allocation = true;
-    } else {
-        _allocation = nullptr;
     }
 }
 
@@ -75,7 +153,7 @@ Texture::Texture(
             ((is_srgb(format) || is_block_compressed(format)) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT));
     _vk_img = allocation.image;
     _allocation = allocation.allocation;
-    _layouts.resize(mip);
+    _acquire_native_state(to_vk_format(format));
 }
 
 VkImageAspectFlags Texture::get_aspect_from_format(VkFormat format) {
@@ -116,9 +194,14 @@ Texture::Texture(
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
     _vk_img = allocation.image;
     _allocation = allocation.allocation;
-    _layouts.resize(1);
+    _acquire_native_state(to_vk_format(_format));
 }
 Texture::~Texture() {
+    // Drop the registry-visible state before destroying an owned VkImage. A
+    // concurrently created image may reuse the same handle immediately after
+    // vkDestroyImage; it must not inherit this image's stale metadata/layouts.
+    std::lock_guard native_state_lock{device()->_native_image_state_mtx};
+    _native_state.reset();
     if (_external_allocation) {
         vkDestroyImage(device()->logic_device(), _vk_img, Device::alloc_callbacks());
         vkFreeMemory(device()->logic_device(), _allocated_memory, Device::alloc_callbacks());
@@ -134,6 +217,20 @@ void Texture::init_as_sparse(
     uint3 size,
     uint mip,
     bool simultaneous_access) {
+    auto enabled = device()->enabled_features();
+    auto sparse_features = detail::validate_sparse_texture_features(
+        {.sparse_binding = enabled.sparseBinding == VK_TRUE,
+         .sparse_residency_image_2d =
+             enabled.sparseResidencyImage2D == VK_TRUE,
+         .sparse_residency_image_3d =
+             enabled.sparseResidencyImage3D == VK_TRUE},
+        dimension);
+    LUISA_ASSERT(
+        static_cast<bool>(sparse_features),
+        "Vulkan sparse-texture creation is unavailable for dimension {}: {}.",
+        dimension,
+        detail::sparse_residency_feature_status_name(
+            sparse_features.status));
     auto img_type = [&]() {
         switch (dimension) {
             case 1:
@@ -159,55 +256,76 @@ void Texture::init_as_sparse(
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+    device()->allocator().apply_queue_sharing(img_create_info);
     if (!(is_srgb(format) || is_block_compressed(format))) {
         img_create_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
+    uint32_t sparse_format_property_count{};
+    vkGetPhysicalDeviceSparseImageFormatProperties(
+        device()->physical_device(), img_create_info.format,
+        img_create_info.imageType, img_create_info.samples,
+        img_create_info.usage, img_create_info.tiling,
+        &sparse_format_property_count, nullptr);
+    LUISA_ASSERT(
+        sparse_format_property_count != 0u,
+        "Vulkan physical device does not support sparse residency for format "
+        "{}, dimension {}, and usage flags 0x{:x}.",
+        static_cast<uint32_t>(img_create_info.format), dimension,
+        img_create_info.usage);
     VK_CHECK_RESULT(vkCreateImage(device()->logic_device(), &img_create_info, Device::alloc_callbacks(), &_vk_img));
+    vkGetImageMemoryRequirements(
+        device()->logic_device(), _vk_img, &_memory_requirements);
+    LUISA_ASSERT(
+        _memory_requirements.alignment != 0u,
+        "Vulkan reported zero sparse-image block size.");
+
+    uint32_t sparse_requirement_count{};
+    vkGetImageSparseMemoryRequirements(
+        device()->logic_device(), _vk_img,
+        &sparse_requirement_count, nullptr);
+    LUISA_ASSERT(
+        sparse_requirement_count != 0u,
+        "Vulkan created a sparse-resident image without sparse memory requirements.");
+    luisa::vector<VkSparseImageMemoryRequirements> sparse_requirements;
+    sparse_requirements.resize(sparse_requirement_count);
+    vkGetImageSparseMemoryRequirements(
+        device()->logic_device(), _vk_img,
+        &sparse_requirement_count, sparse_requirements.data());
+    sparse_requirements.resize(sparse_requirement_count);
+    auto selection = detail::select_sparse_image_requirements(
+        std::span<const VkSparseImageMemoryRequirements>{
+            sparse_requirements.data(), sparse_requirements.size()});
+    LUISA_ASSERT(
+        static_cast<bool>(selection),
+        "Vulkan sparse-image memory requirements are not representable by "
+        "the Luisa tile API (status {}). Opaque metadata bindings and "
+        "ambiguous color-aspect layouts are unsupported.",
+        static_cast<uint32_t>(selection.status));
+    _sparse_memory_requirements =
+        sparse_requirements[selection.color_requirement_index];
+    auto mip_tail = detail::validate_sparse_image_mip_tail(
+        mip, _sparse_memory_requirements.imageMipTailFirstLod);
+    LUISA_ASSERT(
+        static_cast<bool>(mip_tail),
+        "Vulkan sparse image requests {} mip levels, but opaque mip-tail "
+        "binding begins at level {}. The Luisa sparse tile API cannot "
+        "represent mip tails; every requested level must be below {}.",
+        mip, _sparse_memory_requirements.imageMipTailFirstLod,
+        _sparse_memory_requirements.imageMipTailFirstLod);
+    auto granularity =
+        _sparse_memory_requirements.formatProperties.imageGranularity;
+    LUISA_ASSERT(
+        granularity.width != 0u && granularity.height != 0u &&
+            granularity.depth != 0u,
+        "Vulkan reported a zero sparse-image granularity ({}, {}, {}).",
+        granularity.width, granularity.height, granularity.depth);
     _format = format;
     _size = size;
     _mip = mip;
     _dimension = dimension;
     _simultaneous_access = simultaneous_access;
-    _layouts.resize(mip);
-    // TODO
+    _acquire_native_state(to_vk_format(format));
 }
-uint2 Texture::tex2d_tile_size(luisa::compute::PixelStorage storage) {
-    auto size = pixel_storage_size(storage, is_block_compressed(storage) ? uint3(4, 4, 1) : uint3(1));
-    switch (size) {
-        case 1:
-            return {256, 256};
-        case 2:
-            return {256, 128};
-        case 4:
-            return {128, 128};
-        case 8:
-            return {128, 64};
-        case 16:
-            return {64, 64};
-        default:
-            LUISA_ERROR("Invalid format.");
-            return {};
-    }
-}
-uint3 Texture::tex3d_tile_size(luisa::compute::PixelStorage storage) {
-    auto size = pixel_storage_size(storage, is_block_compressed(storage) ? uint3(4, 4, 1) : uint3(1));
-    switch (size) {
-        case 1:
-            return {64, 32, 32};
-        case 2:
-            return {32, 32, 32};
-        case 4:
-            return {32, 32, 16};
-        case 8:
-            return {32, 16, 16};
-        case 16:
-            return {16, 16, 16};
-        default:
-            LUISA_ERROR("Invalid format.");
-            return {};
-    }
-}
-
 VkFormat Texture::to_vk_format(PixelFormat format) {
     // native format
     if ((luisa::to_underlying(format) & (1u << 31u)) != 0) {

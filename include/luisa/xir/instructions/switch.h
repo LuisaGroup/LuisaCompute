@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <luisa/xir/instruction.h>
 
 namespace luisa::compute::xir {
@@ -18,7 +20,7 @@ namespace luisa::compute::xir {
 class LUISA_XIR_API SwitchInst final : public ControlFlowMergeMixin<DerivedTerminatorInstruction<SwitchInst, DerivedInstructionTag::SWITCH>> {
 
 public:
-    using case_value_type = int;
+    using case_value_type = uint64_t;
     static constexpr size_t operand_index_value = 0u;
     static constexpr size_t operand_index_default_block = 1u;
     static constexpr size_t operand_index_case_block_offset = 2u;
@@ -28,6 +30,9 @@ private:
 
 public:
     SwitchInst(BasicBlock *parent_block, Value *value) noexcept;
+
+    [[nodiscard]] static case_value_type canonicalize_case_value(
+        const Type *selector_type, case_value_type value) noexcept;
 
     void set_value(Value *value) noexcept;
     void set_default_block(BasicBlock *block) noexcept;

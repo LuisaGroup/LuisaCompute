@@ -5,7 +5,7 @@
 
 #include "ut/ut.hpp"
 #include "test_device.h"
-#include "../../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 #include <luisa/luisa-compute.h>
@@ -42,37 +42,24 @@ void test_motion_blur_mesh_3(Device &device) {
     std::array<MeshData, mesh_count> meshes_data{
         // Mesh 0: red triangle, moving right
         MeshData{
-            {
-                float3(-0.8f, -0.8f, 0.0f), float3(-0.4f, -0.8f, 0.0f), float3(-0.6f, -0.4f, 0.0f),
-                float3(-0.6f, -0.8f, 0.0f), float3(-0.2f, -0.8f, 0.0f), float3(-0.4f, -0.2f, 0.0f)
-            },
-            {0u, 1u, 2u}
-        },
+            {float3(-0.8f, -0.8f, 0.0f), float3(-0.4f, -0.8f, 0.0f), float3(-0.6f, -0.4f, 0.0f),
+             float3(-0.6f, -0.8f, 0.0f), float3(-0.2f, -0.8f, 0.0f), float3(-0.4f, -0.2f, 0.0f)},
+            {0u, 1u, 2u}},
         // Mesh 1: green triangle, moving left
         MeshData{
-            {
-                float3(0.4f, -0.8f, 0.0f), float3(0.8f, -0.8f, 0.0f), float3(0.6f, -0.4f, 0.0f),
-                float3(0.2f, -0.8f, 0.0f), float3(0.6f, -0.8f, 0.0f), float3(0.4f, -0.2f, 0.0f)
-            },
-            {0u, 1u, 2u}
-        },
+            {float3(0.4f, -0.8f, 0.0f), float3(0.8f, -0.8f, 0.0f), float3(0.6f, -0.4f, 0.0f),
+             float3(0.2f, -0.8f, 0.0f), float3(0.6f, -0.8f, 0.0f), float3(0.4f, -0.2f, 0.0f)},
+            {0u, 1u, 2u}},
         // Mesh 2: blue triangle, moving up
         MeshData{
-            {
-                float3(-0.8f, 0.4f, 0.0f), float3(-0.4f, 0.4f, 0.0f), float3(-0.6f, 0.8f, 0.0f),
-                float3(-0.8f, 0.6f, 0.0f), float3(-0.4f, 0.6f, 0.0f), float3(-0.6f, 1.0f, 0.0f)
-            },
-            {0u, 1u, 2u}
-        },
+            {float3(-0.8f, 0.4f, 0.0f), float3(-0.4f, 0.4f, 0.0f), float3(-0.6f, 0.8f, 0.0f),
+             float3(-0.8f, 0.6f, 0.0f), float3(-0.4f, 0.6f, 0.0f), float3(-0.6f, 1.0f, 0.0f)},
+            {0u, 1u, 2u}},
         // Mesh 3: yellow triangle, moving down
         MeshData{
-            {
-                float3(0.4f, 0.4f, 0.0f), float3(0.8f, 0.4f, 0.0f), float3(0.6f, 0.8f, 0.0f),
-                float3(0.4f, 0.2f, 0.0f), float3(0.8f, 0.2f, 0.0f), float3(0.6f, 0.6f, 0.0f)
-            },
-            {0u, 1u, 2u}
-        }
-    };
+            {float3(0.4f, 0.4f, 0.0f), float3(0.8f, 0.4f, 0.0f), float3(0.6f, 0.8f, 0.0f),
+             float3(0.4f, 0.2f, 0.0f), float3(0.8f, 0.2f, 0.0f), float3(0.6f, 0.6f, 0.0f)},
+            {0u, 1u, 2u}}};
 
     // Create buffers and meshes
     luisa::vector<Buffer<float3>> vertex_buffers;
@@ -169,10 +156,10 @@ void test_motion_blur_mesh_3(Device &device) {
         $if (hit->is_triangle()) {
             // Use instance_user_id from accel instead of hit.inst
             auto inst = accel.instance_user_id(hit.inst);
-            auto c0 = make_float3(1.0f, 0.0f, 0.0f);  // red
-            auto c1 = make_float3(0.0f, 1.0f, 0.0f);  // green
-            auto c2 = make_float3(0.0f, 0.0f, 1.0f);  // blue
-            auto c3 = make_float3(1.0f, 1.0f, 0.0f);  // yellow
+            auto c0 = make_float3(1.0f, 0.0f, 0.0f);// red
+            auto c1 = make_float3(0.0f, 1.0f, 0.0f);// green
+            auto c2 = make_float3(0.0f, 0.0f, 1.0f);// blue
+            auto c3 = make_float3(1.0f, 1.0f, 0.0f);// yellow
             $if (inst == 0u) {
                 color = c0;
             };
@@ -187,9 +174,15 @@ void test_motion_blur_mesh_3(Device &device) {
             };
         };
         // Progressive accumulation
-        auto old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        auto t = 1.0f / (cast<Float>(frame_index) + 1.0f);
-        image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
+        UInt pixel_index = coord.y * dispatch_size_x() + coord.x;
+        $if (frame_index == 0u) {
+            image.write(pixel_index, make_float4(color, 1.0f));
+        }
+        $else {
+            auto old = image.read(pixel_index).xyz();
+            auto t = 1.0f / (cast<Float>(frame_index) + 1.0f);
+            image.write(pixel_index, make_float4(lerp(old, color, t), 1.0f));
+        };
     };
 
     // HDR to LDR conversion
@@ -228,17 +221,36 @@ void test_motion_blur_mesh_3(Device &device) {
            << synchronize();
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_motion_blur_mesh_3.png", width, height, 4, pixels.data(), 0);
+    auto output_directory = std::filesystem::path{opts.output_dir};
+    std::error_code output_error;
+    std::filesystem::create_directories(output_directory, output_error);
+    boost::ut::expect(!output_error)
+        << luisa::format("Failed to create output directory '{}': {}",
+                         output_directory.string(), output_error.message());
+    auto output_path = output_directory / "test_motion_blur_mesh_3.png";
+    auto saved = !output_error &&
+                 stbi_write_png(output_path.string().c_str(), width, height, 4,
+                                pixels.data(), static_cast<int>(width * 4u)) != 0;
+    boost::ut::expect(saved)
+        << luisa::format("Failed to save output image '{}'.", output_path.string());
+    if (!saved) { return; }
+    LUISA_INFO("Saved output to {}", output_path.string());
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_motion_blur_mesh_3]: {} ({})",
+                   result.passed ? "PASSED" : "FAILED", result.message);
+        boost::ut::expect(result.passed) << result.message;
+    }
 }
 
-static inline const auto reg = [] {
-    "test_motion_blur_mesh_3"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_motion_blur_mesh_3(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_motion_blur_mesh_3(device);
+}

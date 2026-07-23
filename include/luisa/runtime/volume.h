@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/mathematics.h>
+#include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/mipmap.h>
@@ -59,10 +60,16 @@ private:
                      if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
                          detail::volume_size_zero_error();
                      }
-                     return device->create_texture(
+                     auto info = device->create_texture(
                          pixel_storage_to_format<T>(storage), 3u, size.x, size.y, size.z,
                          detail::max_mip_levels(size, mip_levels), nullptr,
                          simultaneous_access, allow_raster_target);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                     if (!info.valid()) {
+                         LUISA_ERROR("Failed to create volume.");
+                     }
+#endif
+                     return info;
                  }(),
                  storage, size, mip_levels} {}
 

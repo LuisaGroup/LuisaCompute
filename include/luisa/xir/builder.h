@@ -10,6 +10,7 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
@@ -130,7 +131,13 @@ public:
 
     OutlineInst *outline() noexcept;
 
-    AutodiffScopeInst *autodiff_scope() noexcept;
+    AutodiffScopeInst *autodiff_scope(bool forward = false, size_t n_forward_grads = 0u) noexcept;
+    AutodiffScopeInst *forward_autodiff_scope(size_t n_forward_grads) noexcept;
+
+    CoroSuspendInst *coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept;
+    CoroResumeInst *coro_resume(uint32_t token, Value *frame) noexcept;
+    CoroTerminateInst *coro_terminate() noexcept;
+
 
     RayQueryLoopInst *ray_query_loop() noexcept;
     RayQueryDispatchInst *ray_query_dispatch(Value *query_object) noexcept;

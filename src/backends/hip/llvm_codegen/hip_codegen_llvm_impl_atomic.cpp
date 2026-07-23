@@ -34,7 +34,7 @@ static llvm::Value *make_buffer_resource_descriptor(llvm::IRBuilder<> &b, llvm::
     return rsrc;
 }
 
-// Emit a buffer atomic intrinsic. Float-typed intrinsics are overloaded on data_ty.
+// Emit a buffer atomic intrinsic. AMDGPU raw-buffer atomics are overloaded on data_ty.
 static llvm::Value *emit_buffer_atomic(llvm::IRBuilder<> &b, llvm::Module *mod, llvm::LLVMContext &ctx,
                                        llvm::Intrinsic::ID intrinsic_id, llvm::Type *data_ty,
                                        llvm::Value *vdata, llvm::Value *rsrc,
@@ -42,12 +42,7 @@ static llvm::Value *emit_buffer_atomic(llvm::IRBuilder<> &b, llvm::Module *mod, 
                                        int cachepolicy = 0) {
     if (!soffset) soffset = b.getInt32(0);
     auto *cachepolicy_val = b.getInt32(cachepolicy);
-    llvm::Function *func;
-    if (data_ty->isFloatingPointTy()) {
-        func = llvm::Intrinsic::getOrInsertDeclaration(mod, intrinsic_id, {data_ty});
-    } else {
-        func = llvm::Intrinsic::getOrInsertDeclaration(mod, intrinsic_id);
-    }
+    auto *func = llvm::Intrinsic::getOrInsertDeclaration(mod, intrinsic_id, {data_ty});
     return b.CreateCall(func, {vdata, rsrc, voffset_bytes, soffset, cachepolicy_val});
 }
 

@@ -10,7 +10,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static void trace_gep_chain(Instruction *inst, luisa::fixed_vector<Value *, 16u> &chain) noexcept {
+static void trace_gep_chain(Instruction *inst, luisa::fixed_vector<Value *, 16> &chain) noexcept {
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::ALLOCA: {
             LUISA_DEBUG_ASSERT(!chain.empty(), "Invalid GEP chain.");
@@ -34,16 +34,34 @@ static void trace_gep_chain(Instruction *inst, luisa::fixed_vector<Value *, 16u>
 }
 
 [[nodiscard]] static auto trace_gep_chain(Instruction *inst) noexcept {
-    luisa::fixed_vector<Value *, 16u> gep_chain;
+    luisa::fixed_vector<Value *, 16> gep_chain;
     trace_gep_chain(inst, gep_chain);
     std::reverse(gep_chain.begin(), gep_chain.end());
     return gep_chain;
+}
+
+// Check if transposition should be skipped for large arrays with dynamic indexing.
+// Transposition converts O(1) GEP+load/store into O(N) load-insert/extract-store,
+// which is a regression for large arrays with dynamically-computed indices.
+[[nodiscard]] static bool should_skip_transpose(const luisa::fixed_vector<Value *, 16> &gep_chain) noexcept {
+    auto alloca_inst = static_cast<AllocaInst *>(gep_chain.front());
+    auto alloca_type = alloca_inst->type();
+    // Only skip for array types larger than the threshold (16 elements).
+    // Arrays ≤16 have a fast path in the SPIR-V codegen using OpSelect chains.
+    if (!alloca_type->is_array() || alloca_type->dimension() <= 16u) { return false; }
+    // Check if any GEP index is non-constant (dynamic).
+    for (size_t i = 1u; i < gep_chain.size(); ++i) {
+        if (!gep_chain[i]->isa<Constant>()) { return true; }
+    }
+    return false;
 }
 
 // Load(GEP(agg, indices...)) => Extract(Load(agg), indices...)
 static void transpose_load_gep(LoadInst *load, TransposeGEPInfo &info) noexcept {
     LUISA_DEBUG_ASSERT(load->variable()->isa<Instruction>(), "Invalid pointer.");
     auto gep_chain = trace_gep_chain(static_cast<Instruction *>(load->variable()));
+    // Skip transposition for large arrays with dynamic indexing.
+    if (should_skip_transpose(gep_chain)) { return; }
     XIRBuilder b;
     b.set_insertion_point(load);
     auto alloca_inst = gep_chain.front();
@@ -59,6 +77,8 @@ static void transpose_load_gep(LoadInst *load, TransposeGEPInfo &info) noexcept 
 static void transpose_store_gep(StoreInst *store, TransposeGEPInfo &info) noexcept {
     LUISA_DEBUG_ASSERT(store->variable()->isa<Instruction>(), "Invalid pointer.");
     auto gep_chain = trace_gep_chain(static_cast<Instruction *>(store->variable()));
+    // Skip transposition for large arrays with dynamic indexing.
+    if (should_skip_transpose(gep_chain)) { return; }
     XIRBuilder b;
     b.set_insertion_point(store);
     auto alloca_inst = gep_chain.front();
@@ -74,7 +94,7 @@ static void transpose_store_gep(StoreInst *store, TransposeGEPInfo &info) noexce
 static void run_transpose_gep_pass_on_function(Function *function, TransposeGEPInfo &info) noexcept {
     if (auto def = function->definition()) {
         // run the trace gep pass first to ensure that no nested GEP chains exist
-        if (auto trace_gep_info = trace_gep_pass_run_on_function(def); trace_gep_info.traced_gep_count != 0u) {
+        if (auto trace_gep_info = trace_gep_pass_run_on_function(def); trace_gep_info.traced_gep_count != 0) {
             LUISA_VERBOSE("Traced {} GEP chain(s) in transpose_gep pass.", trace_gep_info.traced_gep_count);
         }
         // run the pass
@@ -106,12 +126,21 @@ static void run_transpose_gep_pass_on_function(Function *function, TransposeGEPI
             });
             geps.erase(std::remove_if(geps.begin(), geps.end(), [&](GEPInst *gep) noexcept {
                            auto base = trace_pointer_base_local_alloca_inst(gep->base());
-                           return base == nullptr || non_applicable_allocas.contains(base);
+                           if (base == nullptr || non_applicable_allocas.contains(base)) { return true; }
+                           // Skip GEPs targeting large arrays with dynamic indices:
+                           // transposition would create O(N) full-array copy per element.
+                           auto base_type = base->type();
+                           if (base_type->is_array() && base_type->dimension() > 16u) {
+                               for (size_t idx_i = 0u; idx_i < gep->index_count(); ++idx_i) {
+                                   if (!gep->index(idx_i)->isa<Constant>()) { return true; }
+                               }
+                           }
+                           return false;
                        }),
                        geps.end());
         }
-        luisa::fixed_vector<LoadInst *, 64u> gep_loads;
-        luisa::fixed_vector<StoreInst *, 64u> gep_stores;
+        luisa::fixed_vector<LoadInst *, 64> gep_loads;
+        luisa::fixed_vector<StoreInst *, 64> gep_stores;
         for (auto gep : geps) {
             gep_loads.clear();
             gep_stores.clear();
