@@ -862,6 +862,13 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     auto supported_ext = detail::supported_exts(physical_device);
     VkPhysicalDeviceFeatures device_features{};
     vkGetPhysicalDeviceFeatures(physical_device, &device_features);
+    // Enable storage image read/write without format (required for
+    // -fspv-use-unknown-image-format in DXC SPIR-V compilation).
+    // These allow RWTexture/RWBuffer with Unknown image format to
+    // bind to image views of different formats without validation
+    // warnings and undefined behavior.
+    device_features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+    device_features.shaderStorageImageReadWithoutFormat = VK_TRUE;
     // Derived examples can override this to set actual features (based on above readings) to enable for logical device creation
 
     // Vulkan device creation
