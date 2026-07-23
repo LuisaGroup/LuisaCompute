@@ -30,7 +30,15 @@ void Blas::_pre_build(
     }
     _acceleration_build_geometry_info->geometryCount = 1;
     _acceleration_build_geometry_info->pGeometries = acceleration_structure_geometry;
-    bool update = _option.allow_update && request == AccelBuildRequest::PREFER_UPDATE;
+    // Vulkan updates operate in-place on an existing acceleration-structure
+    // handle and require the build geometry/primitive counts to match the
+    // original build. A preference for update on the first build, or after a
+    // primitive-count change, must therefore fall back to a full build.
+    bool update = _option.allow_update &&
+                  request == AccelBuildRequest::PREFER_UPDATE &&
+                  _accel != VK_NULL_HANDLE &&
+                  primitive_count == _last_primitive_count;
+    _last_primitive_count = primitive_count;
 
     VkAccelerationStructureBuildSizesInfoKHR acceleration_structure_build_sizes_info{};
     acceleration_structure_build_sizes_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
@@ -51,6 +59,9 @@ void Blas::_pre_build(
             (acceleration_structure_build_sizes_info.accelerationStructureSize + 65535u) & (~65535u),
             false, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR);
     }
+    _acceleration_build_geometry_info->mode = update ?
+                                                  VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR :
+                                                  VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     cmdbuffer.resource_barrier->record(
         _accel_buffer.get(),
         ResourceBarrier::Usage::kBuildAccel);
@@ -62,18 +73,27 @@ void Blas::_pre_build(
     if (_option.motion.is_enabled()) {
         acceleration_structure_create_info.createFlags = VK_ACCELERATION_STRUCTURE_CREATE_MOTION_BIT_NV;
     }
-    bool sync = _accel;
-    if (_accel) {
-        cmdbuffer.states()->callbacks.emplace_back([a = _accel, device = device()]() {
-            vkDestroyAccelerationStructureKHR(device->logic_device(), a, Device::alloc_callbacks());
-        });
+    auto recreate = !update;
+    auto sync = recreate && _accel != VK_NULL_HANDLE;
+    if (recreate) {
+        if (_accel) {
+            cmdbuffer.states()->callbacks.emplace_back([a = _accel, device = device()]() {
+                vkDestroyAccelerationStructureKHR(device->logic_device(), a, Device::alloc_callbacks());
+            });
+            _accel = VK_NULL_HANDLE;
+        }
+        VK_CHECK_RESULT(vkCreateAccelerationStructureKHR(
+            device()->logic_device(), &acceleration_structure_create_info,
+            Device::alloc_callbacks(), &_accel));
     }
-    VK_CHECK_RESULT(vkCreateAccelerationStructureKHR(device()->logic_device(), &acceleration_structure_create_info, Device::alloc_callbacks(), &_accel));
     scratch_buffer_size = (scratch_buffer_size + 255) & (~(255u));
-    auto scratch_chunk = cmdbuffer.scratch_buffer_alloc->allocate(scratch_buffer_size);
+    scratch_buffer_size += 256u; // extra padding for GPU buffer address misalignment
+    auto scratch_chunk = cmdbuffer.scratch_buffer_alloc->allocate(scratch_buffer_size, 256u);
 
     _scratch_buffer = reinterpret_cast<Buffer const *>(scratch_chunk.handle);
-    _scratch_buffer_offset = scratch_chunk.offset;
+    auto addr = _scratch_buffer->get_device_address() + scratch_chunk.offset;
+    auto misalign = addr & 255u;
+    _scratch_buffer_offset = scratch_chunk.offset + (misalign ? (256u - misalign) : 0u);
     cmdbuffer.resource_barrier->record(
         _scratch_buffer,
         ResourceBarrier::Usage::kComputeUAV);
@@ -167,6 +187,11 @@ void Blas::build(
     CommandBuffer &cmdbuffer,
     ProceduralPrimitiveBuildCommand const *cmd) {
     _acceleration_build_geometry_info->dstAccelerationStructure = _accel;
+    _acceleration_build_geometry_info->srcAccelerationStructure =
+        _acceleration_build_geometry_info->mode ==
+                VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR ?
+            _accel :
+            VK_NULL_HANDLE;
     _acceleration_build_geometry_info->scratchData.deviceAddress = _scratch_buffer->get_device_address() + _scratch_buffer_offset;
     auto acceleration_structure_build_range_info = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureBuildRangeInfoKHR>();
     acceleration_structure_build_range_info->primitiveCount = cmd->aabb_buffer_size() / sizeof(luisa::compute::AABB);
@@ -183,6 +208,11 @@ void Blas::build(
     CommandBuffer &cmdbuffer,
     MeshBuildCommand const *cmd) {
     _acceleration_build_geometry_info->dstAccelerationStructure = _accel;
+    _acceleration_build_geometry_info->srcAccelerationStructure =
+        _acceleration_build_geometry_info->mode ==
+                VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR ?
+            _accel :
+            VK_NULL_HANDLE;
     _acceleration_build_geometry_info->scratchData.deviceAddress = _scratch_buffer->get_device_address() + _scratch_buffer_offset;
     auto acceleration_structure_build_range_info = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureBuildRangeInfoKHR>();
     acceleration_structure_build_range_info->primitiveCount = cmd->triangle_buffer_size() / 12;

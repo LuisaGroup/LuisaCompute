@@ -10,15 +10,61 @@ template<typename T>
 T _ReadBdlsBuffer(StructuredBuffer<uint> s,T idx){
 return s[idx*3];
 }
+#ifdef LUISA_SPIRV_TYPED_BINDLESS_INDIRECT
+#define _TYPED_BUFFER_INDEX(arr,idx) arr[(idx)*4]
+#define _TYPED_BUFFER_BIAS(arr,idx) arr[(idx)*4+1]
+#define _TYPED_BUFFER_SIZE(arr,idx) arr[(idx)*4+2]
+#define _TYPED_TEXTURE_INDEX(arr,idx) arr[idx]
+#else
+#define _TYPED_BUFFER_INDEX(arr,idx) (arr[0]+(idx))
+#define _TYPED_BUFFER_BIAS(arr,idx) 0
+#define _TYPED_TEXTURE_INDEX(arr,idx) (arr[0]+(idx))
+#endif
 
+#ifdef LUISA_DEBUG_INFO
+// Debug: range-checked bindless buffer read macros with an explicit capacity.
+#define _READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx) : \
+        (bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
+#define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(idx) : \
+        (bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
+#define _uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx) : \
+        (bf[(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
+#define _uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(idx) : \
+        (bf[(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
+#define _typed_READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,arrIdx))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+size*idx) : \
+        (bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,0))].template Load<type>(_TYPED_BUFFER_BIAS(arr,0)) * 0) - 1)
+#define _typed_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,arrIdx))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+idx) : \
+        (bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,0))].template Load<type>(_TYPED_BUFFER_BIAS(arr,0)) * 0) - 1)
+#define _typed_uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[_TYPED_BUFFER_INDEX(arr,arrIdx)].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+size*idx) : \
+        (bf[_TYPED_BUFFER_INDEX(arr,0)].template Load<type>(_TYPED_BUFFER_BIAS(arr,0)) * 0) - 1)
+#define _typed_uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound) \
+    (((arrIdx) < (bound)) ? \
+        bf[_TYPED_BUFFER_INDEX(arr,arrIdx)].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+idx) : \
+        (bf[_TYPED_BUFFER_INDEX(arr,0)].template Load<type>(_TYPED_BUFFER_BIAS(arr,0)) * 0) - 1)
+#else
 #define _READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx)
 #define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(idx)
 #define _uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx)
 #define _uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(idx)
-#define _typed_READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(arr[0]+arrIdx)].template Load<type>(size*idx)
-#define _typed_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[NonUniformResourceIndex(arr[0]+arrIdx)].template Load<type>(idx)
-#define _typed_uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[(arr[0]+arrIdx)].template Load<type>(size*idx)
-#define _typed_uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[(arr[0]+arrIdx)].template Load<type>(idx)
+#define _typed_READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,arrIdx))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+size*idx)
+#define _typed_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,arrIdx))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+idx)
+#define _typed_uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[_TYPED_BUFFER_INDEX(arr,arrIdx)].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+size*idx)
+#define _typed_uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[_TYPED_BUFFER_INDEX(arr,arrIdx)].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+idx)
+#endif
 template<typename T,typename I,typename J>
 uint _bdlsBfSize(StructuredBuffer<uint> arr,I arrIdx,J size,T bf){
 uint sz;
@@ -33,13 +79,21 @@ return sz/size;
 }
 template<typename T,typename I,typename J>
 uint _typed_bdlsBfSize(StructuredBuffer<uint> arr,I arrIdx,J size,T bf){
+#ifdef LUISA_SPIRV_TYPED_BINDLESS_INDIRECT
+return _TYPED_BUFFER_SIZE(arr,arrIdx)/size;
+#else
 uint sz;
-bf[NonUniformResourceIndex(arr[0]+arrIdx)].GetDimensions(sz);
+bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,arrIdx))].GetDimensions(sz);
 return sz/size;
+#endif
 }
 template<typename T,typename I,typename J>
 uint _typed_uniform_bdlsBfSize(StructuredBuffer<uint> arr,I arrIdx,J size,T bf){
+#ifdef LUISA_SPIRV_TYPED_BINDLESS_INDIRECT
+return _TYPED_BUFFER_SIZE(arr,arrIdx)/size;
+#else
 uint sz;
-bf[(arr[0]+arrIdx)].GetDimensions(sz);
+bf[_TYPED_BUFFER_INDEX(arr,arrIdx)].GetDimensions(sz);
 return sz/size;
+#endif
 }

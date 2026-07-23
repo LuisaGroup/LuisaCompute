@@ -9,6 +9,7 @@ namespace luisa::compute::xir {
 class Function;
 class FunctionDefinition;
 class CallInst;
+class Module;
 
 class LUISA_XIR_API CallGraph {
 

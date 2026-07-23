@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/logging.h>
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/command.h>
@@ -66,7 +67,13 @@ private:
         DeviceInterface *device, const AccelOption &option,
         const VBuffer &vertex_buffer [[maybe_unused]],
         const TBuffer &triangle_buffer [[maybe_unused]]) noexcept {
-        return device->create_mesh(option);
+        auto info = device->create_mesh(option);
+#ifdef LUISA_ENABLE_SAFE_MODE
+        if (!info.valid()) {
+            LUISA_ERROR("Failed to create mesh.");
+        }
+#endif
+        return info;
     }
 
 private:

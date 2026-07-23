@@ -44,9 +44,10 @@ luisa::shared_ptr<const detail::FunctionBuilder> BuiltinKernel::fill_image_uint(
 
         // Create literal value
         auto val = cur.argument(Type::of<uint>());
+        auto texel = cur.call(Type::of<uint4>(), CallOp::MAKE_UINT4, {val});
 
         // Call TEXTURE_WRITE
-        cur.call(CallOp::TEXTURE_WRITE, {img_ref, coord, val});
+        cur.call(CallOp::TEXTURE_WRITE, {img_ref, coord, texel});
 
         // Set block size for 2D dispatch
         cur.set_block_size(uint3{16, 8, 1});
@@ -68,9 +69,10 @@ luisa::shared_ptr<const detail::FunctionBuilder> BuiltinKernel::fill_image_int()
 
         // Create literal value
         auto val = cur.argument(Type::of<int>());
+        auto texel = cur.call(Type::of<int4>(), CallOp::MAKE_INT4, {val});
 
         // Call TEXTURE_WRITE
-        cur.call(CallOp::TEXTURE_WRITE, {img_ref, coord, val});
+        cur.call(CallOp::TEXTURE_WRITE, {img_ref, coord, texel});
 
         // Set block size for 2D dispatch
         cur.set_block_size(uint3{16, 8, 1});
@@ -92,9 +94,10 @@ luisa::shared_ptr<const detail::FunctionBuilder> BuiltinKernel::fill_image_float
 
         // Create literal value
         auto val = cur.argument(Type::of<float>());
+        auto texel = cur.call(Type::of<float4>(), CallOp::MAKE_FLOAT4, {val});
 
         // Call TEXTURE_WRITE
-        cur.call(CallOp::TEXTURE_WRITE, {img_ref, coord, val});
+        cur.call(CallOp::TEXTURE_WRITE, {img_ref, coord, texel});
 
         // Set block size for 2D dispatch
         cur.set_block_size(uint3{16, 8, 1});
@@ -113,9 +116,10 @@ luisa::shared_ptr<const detail::FunctionBuilder> BuiltinKernel::fill_volume_uint
 
         // Create literal value
         auto val = cur.argument(Type::of<uint>());
+        auto texel = cur.call(Type::of<uint4>(), CallOp::MAKE_UINT4, {val});
 
         // Call TEXTURE_WRITE
-        cur.call(CallOp::TEXTURE_WRITE, {vol_ref, coord, val});
+        cur.call(CallOp::TEXTURE_WRITE, {vol_ref, coord, texel});
 
         // Set block size for 3D dispatch
         cur.set_block_size(uint3{8, 8, 8});
@@ -134,9 +138,10 @@ luisa::shared_ptr<const detail::FunctionBuilder> BuiltinKernel::fill_volume_int(
 
         // Create literal value
         auto val = cur.argument(Type::of<int>());
+        auto texel = cur.call(Type::of<int4>(), CallOp::MAKE_INT4, {val});
 
         // Call TEXTURE_WRITE
-        cur.call(CallOp::TEXTURE_WRITE, {vol_ref, coord, val});
+        cur.call(CallOp::TEXTURE_WRITE, {vol_ref, coord, texel});
 
         // Set block size for 3D dispatch
         cur.set_block_size(uint3{8, 8, 8});
@@ -155,9 +160,10 @@ luisa::shared_ptr<const detail::FunctionBuilder> BuiltinKernel::fill_volume_floa
 
         // Create literal value
         auto val = cur.argument(Type::of<float>());
+        auto texel = cur.call(Type::of<float4>(), CallOp::MAKE_FLOAT4, {val});
 
         // Call TEXTURE_WRITE
-        cur.call(CallOp::TEXTURE_WRITE, {vol_ref, coord, val});
+        cur.call(CallOp::TEXTURE_WRITE, {vol_ref, coord, texel});
 
         // Set block size for 3D dispatch
         cur.set_block_size(uint3{8, 8, 8});

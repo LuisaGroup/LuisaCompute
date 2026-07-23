@@ -16,8 +16,13 @@
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
+#if LUISA_RENDERING_USE_XIR_TO_AST
+#include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
+#endif
 #include <stb/stb_image_write.h>
 #include "common/reference_compare.h"
+#include "common/path_tracing_sample_plan.h"
 #include <luisa/gui/window.h>
 #include "cornell_box.h"
 
@@ -27,10 +32,22 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Material {
-    float3 albedo;
-    float3 emission;
-};
+#if LUISA_RENDERING_USE_XIR_TO_AST
+namespace {
+
+[[nodiscard]] auto build_xir_to_ast_kernel(const Function &function) noexcept {
+    auto module = xir::ast_to_xir_translate(function, {});
+    auto config = xir::XIR2ASTConfig{.bound_arguments = function.bound_arguments()};
+    for (auto *f : module->function_list()) {
+        if (f->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
+            return xir::xir_to_ast_translate(*static_cast<xir::FunctionDefinition *>(f), config);
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION("XIR-to-AST translation did not produce a kernel definition.");
+}
+
+}// namespace
+#endif
 
 struct Onb {
     float3 tangent;
@@ -39,8 +56,6 @@ struct Onb {
 };
 
 // clang-format off
-LUISA_STRUCT(Material, albedo, emission) {};
-
 LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
@@ -54,18 +69,13 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--update-reference]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-            force_offline = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
     Device device = context.create_device(argv[1]);
 
@@ -97,7 +107,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
     std::vector<Mesh> meshes;
@@ -127,18 +137,18 @@ int main(int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
-    std::vector<Material> materials;
-    materials.reserve(accel.size());
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// floor
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// ceiling
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall
-    materials.emplace_back(Material{make_float3(0.14f, 0.45f, 0.091f), make_float3(0.0f)});// right wall
-    materials.emplace_back(Material{make_float3(0.63f, 0.065f, 0.05f), make_float3(0.0f)});// left wall
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// short box
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// tall box
-    materials.emplace_back(Material{make_float3(0.0f), make_float3(17.0f, 12.0f, 4.0f)});  // light
-    auto material_buffer = device.create_buffer<Material>(materials.size());
-    stream << material_buffer.copy_from(luisa::span{materials});
+    float3 materials_array[] = {
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.14f, 0.45f, 0.091f),
+        make_float3(0.63f, 0.065f, 0.05f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.0f),
+    };
+    auto materials = device.create_buffer<float3>(8);
+    stream << materials.copy_from(luisa::span{materials_array, std::size(materials_array)});
 
     auto linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -198,18 +208,21 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    static constexpr auto spp_per_dispatch = 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
-        set_block_size(8u, 8u, 1u);
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
+        set_block_size(16u, 16u, 1u);
+        auto &&heap_ref = heap;
+        auto &&vertex_buffer_ref = vertex_buffer;
+        auto &&materials_ref = materials;
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
         auto state = seed_image.read(coord).x;
-        auto rx = lcg(state);
-        auto ry = lcg(state);
-        auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         auto radiance = def(make_float3(0.0f));
-        $for (i, spp_per_dispatch) {
+        $for (i, dispatch_spp) {
+            auto rx = lcg(state);
+            auto ry = lcg(state);
+            auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
             auto ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             auto beta = def(make_float3(1.0f));
             auto pdf_bsdf = def(0.0f);
@@ -223,16 +236,17 @@ int main(int argc, char *argv[]) {
 
                 // trace
                 auto hit = accel.intersect(ray, {});
+                reorder_shader_execution();
                 $if (hit->miss()) { $break; };
-                auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
-                auto p0 = vertex_buffer->read(triangle.i0);
-                auto p1 = vertex_buffer->read(triangle.i1);
-                auto p2 = vertex_buffer->read(triangle.i2);
+                auto triangle = heap_ref->buffer<Triangle>(hit.inst).read(hit.prim);
+                auto p0 = vertex_buffer_ref->read(triangle.i0);
+                auto p1 = vertex_buffer_ref->read(triangle.i1);
+                auto p2 = vertex_buffer_ref->read(triangle.i2);
                 auto p = triangle_interpolate(hit.bary, p0, p1, p2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto cos_wo = dot(-ray->direction(), n);
                 $if (cos_wo < 1e-4f) { $break; };
-                auto material = material_buffer->read(hit.inst);
+                auto albedo = materials_ref->read(hit.inst);
 
                 // hit light
                 $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -263,7 +277,7 @@ int main(int argc, char *argv[]) {
                     auto pdf_light = (d_light * d_light) / (light_area * cos_light);
                     auto pdf_bsdf = cos_wi_light * inv_pi;
                     auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                    auto bsdf = material.albedo * inv_pi * cos_wi_light;
+                    auto bsdf = albedo * inv_pi * cos_wi_light;
                     radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
                 };
 
@@ -276,7 +290,7 @@ int main(int argc, char *argv[]) {
                 Float3 new_direction = onb->to_world(wi_local);
                 ray = make_ray(pp, new_direction);
                 pdf_bsdf = cos_wi * inv_pi;
-                beta *= material.albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
+                beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
                 // rr
                 auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
@@ -287,17 +301,17 @@ int main(int argc, char *argv[]) {
                 beta *= 1.0f / q;
             };
         };
-        radiance /= static_cast<float>(spp_per_dispatch);
+        radiance /= dispatch_spp.cast<float>();
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), dispatch_spp.cast<float>()));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         auto p = dispatch_id().xy();
         auto accum = accum_image.read(p);
-        auto curr = curr_image.read(p).xyz();
-        accum_image.write(p, accum + make_float4(curr, 1.f));
+        auto curr = curr_image.read(p);
+        accum_image.write(p, accum + make_float4(curr.xyz() * curr.w, curr.w));
     };
 
     auto aces_tonemapping = [](Float3 x) noexcept {
@@ -313,27 +327,31 @@ int main(int argc, char *argv[]) {
         image.write(dispatch_id().xy(), make_float4(0.0f));
     };
 
-    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
+    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         //        Shared<float> s1{13u};
         //        Shared<float> s2{1024u};
         //        s2[thread_x()] = 1.f;
         //        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
-        auto ldr = hdr.xyz() / hdr.w * scale;
-        $if (!is_hdr) {
-            ldr = linear_to_srgb(ldr);
-        };
+        auto ldr = linear_to_srgb(clamp(hdr.xyz() / hdr.w * scale, 0.0f, 1.0f));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
     auto clear_shader = device.compile(clear_kernel);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
+#if LUISA_RENDERING_USE_XIR_TO_AST
+    auto raytracing_ast = build_xir_to_ast_kernel(raytracing_kernel.function()->function());
+    auto make_sampler_ast = build_xir_to_ast_kernel(make_sampler_kernel.function()->function());
+    auto raytracing_shader = device.compile(Kernel<2, Image<float>, Image<uint>, Accel, uint2, uint>{raytracing_ast});
+    auto make_sampler_shader = device.compile(Kernel<2, Image<uint>>{make_sampler_ast});
+#else
     auto raytracing_ir = AST2IR::build_kernel(raytracing_kernel.function()->function());
     auto make_sampler_ir = AST2IR::build_kernel(make_sampler_kernel.function()->function());
-    auto raytracing_shader = device.compile<2, Image<float>, Image<uint>, Accel, uint2>(raytracing_ir->get());
+    auto raytracing_shader = device.compile<2, Image<float>, Image<uint>, Accel, uint2, uint>(raytracing_ir->get());
     auto make_sampler_shader = device.compile<2, Image<uint>>(make_sampler_ir->get());
+#endif
 
     static constexpr auto resolution = make_uint2(1024u);
     auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
@@ -346,7 +364,7 @@ int main(int argc, char *argv[]) {
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -360,21 +378,26 @@ int main(int argc, char *argv[]) {
             }));
     }
     auto ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     auto last_time = 0.0;
-    auto frame_count = 0u;
+    uint64_t frame_count = 0u;
     Clock clock;
-    bool infinite_render = !force_offline;
-    uint total_spp = force_offline ? 256u : 0u;
+    bool infinite_render = !opts.offline;
+    auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
+        .total_spp = opts.offline ? (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp) : 0u,
+        .max_spp_per_dispatch = max_spp_per_dispatch,
+        .infinite = infinite_render,
+    };
 
-    while (infinite_render || frame_count < total_spp) {
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
+    while (sample_plan.has_next(frame_count)) {
+        auto dispatch_spp = sample_plan.next_dispatch_spp(frame_count);
+        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution, dispatch_spp)
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
-        if (!force_offline && swap_chain.has_value()) {
-            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain->backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
+        if (!opts.offline && swap_chain.has_value()) {
+            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 2.0f).dispatch(resolution);
             stream << cmd_list.commit()
                    << swap_chain->present(ldr_image);
             if (window->should_close()) { break; }
@@ -384,25 +407,24 @@ int main(int argc, char *argv[]) {
         }
         auto dt = clock.toc() - last_time;
         last_time = clock.toc();
-        frame_count += spp_per_dispatch;
+        frame_count += dispatch_spp;
         LUISA_INFO("time: {} ms", dt);
     }
-    stream << hdr2ldr_shader(accum_image, ldr_image, 1.0f, false).dispatch(resolution)
-           << ldr_image.copy_to(luisa::span{host_image})
-           << synchronize();
+    stream << hdr2ldr_shader(accum_image, ldr_image, 2.0f).dispatch(resolution)
+            << ldr_image.copy_to(luisa::span{host_image})
+            << synchronize();
 
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution.x, resolution.y, 4,
-            "test_path_tracing",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+    if (opts.offline) {
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

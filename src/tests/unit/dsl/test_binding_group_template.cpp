@@ -1,12 +1,19 @@
+// Test for template binding groups.
+// This test covers image/image-view members, uniform members, methods, and
+// nested template binding groups with deterministic device-to-host validation.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
+
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
-#include <luisa/runtime/stream.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
+#include <luisa/runtime/stream.h>
 #include <luisa/dsl/syntax.h>
-#include <stb/stb_image_write.h>
+
+#include <cstddef>
+#include <cstdint>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -53,20 +60,60 @@ using Arguments = TArguments<float>;
 using ArgumentsView = TArgumentsView<float>;
 using NestedArguments = TNestedArguments<float>;
 
-void test_binding_group_template(Device &device) {
+[[nodiscard]] bool validate_image(const luisa::vector<std::byte> &pixels,
+                                  uint2 resolution,
+                                  bool inverted) noexcept {
+    auto expected_size = static_cast<size_t>(resolution.x) * resolution.y * 4u;
+    if (pixels.size() != expected_size) {
+        LUISA_WARNING("Unexpected image size: got {}, expected {}.",
+                      pixels.size(), expected_size);
+        return false;
+    }
+    for (auto y = 0u; y < resolution.y; ++y) {
+        for (auto x = 0u; x < resolution.x; ++x) {
+            auto expected_r = static_cast<uint8_t>(((x + resolution.x) & 1u) * 255u);
+            auto expected_g = static_cast<uint8_t>(((y + resolution.y) & 1u) * 255u);
+            auto expected_b = static_cast<uint8_t>(((x + y + resolution.x + resolution.y) & 1u) * 255u);
+            if (inverted) {
+                expected_r = static_cast<uint8_t>(255u - expected_r);
+                expected_g = static_cast<uint8_t>(255u - expected_g);
+                expected_b = static_cast<uint8_t>(255u - expected_b);
+            }
+            auto offset = (static_cast<size_t>(y) * resolution.x + x) * 4u;
+            auto r = std::to_integer<uint8_t>(pixels[offset + 0u]);
+            auto g = std::to_integer<uint8_t>(pixels[offset + 1u]);
+            auto b = std::to_integer<uint8_t>(pixels[offset + 2u]);
+            auto a = std::to_integer<uint8_t>(pixels[offset + 3u]);
+            if (r != expected_r || g != expected_g || b != expected_b || a != 255u) {
+                LUISA_WARNING(
+                    "Template binding-group image mismatch at ({}, {}): got ({}, {}, {}, {}), "
+                    "expected ({}, {}, {}, 255).",
+                    x, y, r, g, b, a, expected_r, expected_g, expected_b);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] int test_binding_group_template(Device &device) {
 
     log_level_verbose();
 
     auto stream = device.create_stream();
 
     Callable color = [](UInt2 coord, Var<Arguments> args) noexcept {
-        auto uv = (make_float2(coord) + .5f) / make_float2(args.resolution);
-        return make_float4(uv, .5f, 1.f);
+        auto r = cast<float>((coord.x + args.resolution.x) & 1u);
+        auto g = cast<float>((coord.y + args.resolution.y) & 1u);
+        auto b = cast<float>((coord.x + coord.y + args.resolution.x + args.resolution.y) & 1u);
+        return make_float4(r, g, b, 1.f);
     };
 
     Callable color_with_view = [](UInt2 coord, Var<ArgumentsView> args) noexcept {
-        auto uv = (make_float2(coord) + .5f) / make_float2(args.resolution);
-        return make_float4(uv, .5f, 1.f);
+        auto r = cast<float>((coord.x + args.resolution.x) & 1u);
+        auto g = cast<float>((coord.y + args.resolution.y) & 1u);
+        auto b = cast<float>((coord.x + coord.y + args.resolution.x + args.resolution.y) & 1u);
+        return make_float4(1.f - r, 1.f - g, 1.f - b, 1.f);
     };
 
     Kernel2D kernel = [&color](Var<Arguments> args) noexcept {
@@ -87,11 +134,11 @@ void test_binding_group_template(Device &device) {
     auto shader = device.compile(kernel);
     auto shader_with_view = device.compile(kernel_with_view);
     auto shader_with_nested = device.compile(kernel_with_nested);
-    expect(true) << "template binding group shaders compiled";
 
+    constexpr auto resolution = make_uint2(17u, 11u);
     Arguments args{
-        .image = device.create_image<float>(PixelStorage::BYTE4, make_uint2(1024, 1024)),
-        .resolution = make_uint2(1024, 1024)};
+        .image = device.create_image<float>(PixelStorage::BYTE4, resolution),
+        .resolution = resolution};
 
     ArgumentsView args_view{
         .image = args.image.view(),
@@ -99,43 +146,40 @@ void test_binding_group_template(Device &device) {
 
     NestedArguments args_nested{
         .args = args_view,
-        .image = device.create_image<float>(PixelStorage::BYTE4, make_uint2(1024, 1024))};
+        .image = device.create_image<float>(PixelStorage::BYTE4, resolution)};
 
     luisa::vector<std::byte> host_image(args.image.view().size_bytes());
+    auto all_correct = true;
 
     // simple binding group
     stream << shader(args).dispatch(args.resolution)
            << args.image.copy_to(luisa::span{host_image})
            << synchronize();
-    stbi_write_png("test_binding_group.png",
-                   args.resolution.x, args.resolution.y, 4,
-                   host_image.data(), 0);
+    all_correct &= validate_image(host_image, resolution, false);
 
     // binding group with view
     stream << shader_with_view(args_view).dispatch(args_view.resolution)
            << args.image.copy_to(luisa::span{host_image})
            << synchronize();
-    stbi_write_png("test_binding_group_with_view.png",
-                   args.resolution.x, args.resolution.y, 4,
-                   host_image.data(), 0);
+    all_correct &= validate_image(host_image, resolution, true);
 
     // nested binding group
     stream << shader_with_nested(args_nested).dispatch(args_nested.image.view().size())
            << args_nested.image.copy_to(luisa::span{host_image})
            << synchronize();
-    stbi_write_png("test_binding_group_nested.png",
-                   args.resolution.x, args.resolution.y, 4,
-                   host_image.data(), 0);
+    all_correct &= validate_image(host_image, resolution, false);
+
+    expect(all_correct) << "template binding-group image, image-view, and nested bindings must match the host oracle";
+    return all_correct ? 0 : 1;
 }
 
-static inline const auto reg = [] {
-    "dsl_binding_group_template"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        test_binding_group_template(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    return test_binding_group_template(device);
+}

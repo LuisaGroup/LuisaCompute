@@ -38,9 +38,9 @@
 #include <luisa/gui/window.h>
 #endif
 
-#include "../../src/tests/cornell_box.h"
+#include "cornell_box.h"
 #define TINYOBJLOADER_IMPLEMENTATION
-#include "../../src/tests/tiny_obj_loader.h"
+#include "tiny_obj_loader.h"
 
 using namespace luisa;
 using namespace luisa::compute;

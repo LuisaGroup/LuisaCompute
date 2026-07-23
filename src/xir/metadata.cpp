@@ -3,11 +3,11 @@
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/curve_basis.h>
+#include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata.h>
 
-namespace luisa::compute::xir {
-
-namespace detail {
+namespace luisa::compute::xir::detail {
 
 Metadata *luisa_xir_metadata_list_mixin_find_metadata(MetadataList &list, DerivedMetadataTag tag) noexcept {
     for (auto m : list) {
@@ -27,6 +27,8 @@ Metadata *luisa_xir_metadata_list_mixin_create_metadata(MetadataList &list, Deri
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(Location)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(Comment)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(CurveBasis)
+        LUISA_XIR_MAKE_METADATA_CREATE_CASE(SignatureConstraint)
+        LUISA_XIR_MAKE_METADATA_CREATE_CASE(Reg2MemSpill)
 #undef LUISA_XIR_MAKE_METADATA_CREATE_CASE
     }
     LUISA_ERROR_WITH_LOCATION("Unknown derived metadata tag 0x{:x}.",
@@ -61,8 +63,6 @@ luisa::optional<luisa::string_view> luisa_xir_metadata_list_mixin_get_name(const
     LUISA_DEBUG_ASSERT(m == nullptr || m->isa<NameMD>(), "Invalid metadata type.");
     if (m == nullptr) { return luisa::nullopt; }
     return luisa::string_view{static_cast<const NameMD *>(m)->name()};
-}
-
 }
 
 }// namespace luisa::compute::xir::detail

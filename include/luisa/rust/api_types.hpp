@@ -434,6 +434,7 @@ struct BindlessArrayUpdateBuffer {
     BindlessArrayUpdateOperation op;
     Buffer handle;
     size_t offset;
+    size_t size;
 };
 
 struct BindlessArrayUpdateTexture {
@@ -590,6 +591,7 @@ struct ShaderOption {
     bool enable_debug_info;
     bool compile_only;
     bool time_trace;
+    bool enable_extended_accel_limits;
     uint32_t max_registers;
     const char *name;
     const char *native_include;

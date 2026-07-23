@@ -21,7 +21,8 @@ void IndirectDispatchBufferExprProxy::set_kernel(
 
 Expr<IndirectDispatchBuffer>::Expr(const IndirectDispatchBuffer &buffer) noexcept
     : _expression{detail::FunctionBuilder::current()->buffer_binding(
-          Type::of<IndirectDispatchBuffer>(), buffer.handle(), 0u, buffer.size_bytes())} {}
+          Type::of<IndirectDispatchBuffer>(), buffer.handle(), 0u,
+          buffer.capacity())} {}
 
 void Expr<IndirectDispatchBuffer>::set_dispatch_count(Expr<uint> count) const noexcept {
     detail::FunctionBuilder::current()->call(

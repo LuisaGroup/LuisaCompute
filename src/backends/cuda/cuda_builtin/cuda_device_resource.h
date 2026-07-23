@@ -16,7 +16,8 @@ __device__ void lc_assume(bool) noexcept {}
 
 [[noreturn]] void lc_trap() noexcept { asm volatile("trap;"); }
 
-void lc_debug_break() noexcept { /* currently do nothing */ }
+void lc_debug_break() noexcept { /* currently do nothing */
+}
 
 template<typename T = void>
 [[noreturn]] __device__ T lc_unreachable(
@@ -223,7 +224,10 @@ enum struct LCPixelStorage {
 
 struct alignas(16) LCSurface {
     unsigned long long handle;
-    unsigned long long storage;
+    unsigned long long storage;// packed: [0:15]=w, [16:31]=h, [32:47]=d, [48:55]=pixel_storage
+    [[nodiscard]] __device__ auto pixel_storage() const noexcept {
+        return static_cast<LCPixelStorage>((storage >> 48u) & 0xFFu);
+    }
 };
 
 static_assert(sizeof(LCSurface) == 16);
@@ -369,7 +373,7 @@ using lc_vec4_t = typename lc_vec4<T>::type;
 template<typename T>
 [[nodiscard]] __device__ auto lc_surf2d_read(LCSurface surf, lc_uint2 p) noexcept {
     lc_vec4_t<T> result{0, 0, 0, 0};
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int x;
             asm("suld.b.2d.b8.zero %0, [%1, {%2, %3}];"
@@ -532,7 +536,7 @@ template<typename T>
 
 template<typename T, typename V>
 __device__ void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noexcept {
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int v = lc_texel_write_convert<char>(value.x);
             asm volatile("sust.b.2d.b8.zero [%0, {%1, %2}], %3;"
@@ -680,7 +684,7 @@ __device__ void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noexcept {
 template<typename T>
 [[nodiscard]] __device__ auto lc_surf3d_read(LCSurface surf, lc_uint3 p) noexcept {
     lc_vec4_t<T> result{0, 0, 0, 0};
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int x;
             asm("suld.b.3d.b8.zero %0, [%1, {%2, %3, %4, %5}];"
@@ -843,7 +847,7 @@ template<typename T>
 
 template<typename T, typename V>
 __device__ void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noexcept {
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int v = lc_texel_write_convert<char>(value.x);
             asm volatile("sust.b.3d.b8.zero [%0, {%1, %2, %3, %4}], %5;"
@@ -1000,28 +1004,22 @@ struct LCTexture3D {
 
 template<typename T>
 [[nodiscard]] __device__ auto lc_texture_size(LCTexture2D<T> tex) noexcept {
+    // size is packed in the storage field: [0:15]=w, [16:31]=h, [32:47]=d, [48:55]=pixel_storage
+    auto packed = tex.surface.storage;
     lc_uint2 size;
-    asm("suq.width.b32 %0, [%1];"
-        : "=r"(size.x)
-        : "l"(tex.surface.handle));
-    asm("suq.height.b32 %0, [%1];"
-        : "=r"(size.y)
-        : "l"(tex.surface.handle));
+    size.x = static_cast<lc_uint>(packed & 0xFFFFu);
+    size.y = static_cast<lc_uint>((packed >> 16u) & 0xFFFFu);
     return size;
 }
 
 template<typename T>
 [[nodiscard]] __device__ auto lc_texture_size(LCTexture3D<T> tex) noexcept {
+    // size is packed in the storage field: [0:15]=w, [16:31]=h, [32:47]=d, [48:55]=pixel_storage
+    auto packed = tex.surface.storage;
     lc_uint3 size;
-    asm("suq.width.b32 %0, [%1];"
-        : "=r"(size.x)
-        : "l"(tex.surface.handle));
-    asm("suq.height.b32 %0, [%1];"
-        : "=r"(size.y)
-        : "l"(tex.surface.handle));
-    asm("suq.depth.b32 %0, [%1];"
-        : "=r"(size.z)
-        : "l"(tex.surface.handle));
+    size.x = static_cast<lc_uint>(packed & 0xFFFFu);
+    size.y = static_cast<lc_uint>((packed >> 16u) & 0xFFFFu);
+    size.z = static_cast<lc_uint>((packed >> 32u) & 0xFFFFu);
     return size;
 }
 

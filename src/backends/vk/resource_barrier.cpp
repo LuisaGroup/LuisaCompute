@@ -1,6 +1,7 @@
 #include <luisa/core/logging.h>
 
 #include "resource_barrier.h"
+#include "resource_barrier_contract.h"
 #include "bindless_array.h"
 
 namespace lc::vk {
@@ -30,28 +31,27 @@ static constexpr VkPipelineStageFlagBits2 kBarrierSyncMap[] = {
     kRasterStage                                                                               //kRasterUAV
 };
 static constexpr VkAccessFlagBits2 kBarrierAccessMap[] = {
-    VK_ACCESS_2_SHADER_READ_BIT,                     // kComputeRead,
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR, // kComputeAccelRead,
-    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,            // kComputeUAV,
-    VK_ACCESS_2_TRANSFER_READ_BIT,                   // kCopySource,
-    VK_ACCESS_2_TRANSFER_WRITE_BIT,                  // kCopyDest,
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,// kBuildAccel,
-    VK_ACCESS_2_TRANSFER_READ_BIT,                   // kCopyAccelSrc
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,// kCopyAccelDst
-    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,   //kDepthRead
-    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,  //kDepthWrite
-    VK_ACCESS_2_TRANSFER_WRITE_BIT,                  //kDepthClear
-    VK_ACCESS_2_TRANSFER_WRITE_BIT,                  //kRenderTargetClear
-    VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,           // kIndirectArgs
-    VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,           //kVertexRead,
-    VK_ACCESS_2_INDEX_READ_BIT,                      //  kIndexRead,
-    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,          //kRenderTarget
-    VK_ACCESS_2_SHADER_READ_BIT,                     //kAccelInstanceBuffer
-    VK_ACCESS_2_SHADER_READ_BIT,                     // kRasterRead
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR, // kRasterAccelRead,
-    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,            // kRasterUAV,
+    VK_ACCESS_2_SHADER_READ_BIT,                                               // kComputeRead,
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,                           // kComputeAccelRead,
+    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,// kComputeUAV,
+    VK_ACCESS_2_TRANSFER_READ_BIT,                                             // kCopySource,
+    VK_ACCESS_2_TRANSFER_WRITE_BIT,                                            // kCopyDest,
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,                          // kBuildAccel,
+    VK_ACCESS_2_TRANSFER_READ_BIT,                                             // kCopyAccelSrc
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,                          // kCopyAccelDst
+    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,                             //kDepthRead
+    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,                            //kDepthWrite
+    VK_ACCESS_2_TRANSFER_WRITE_BIT,                                            //kDepthClear
+    VK_ACCESS_2_TRANSFER_WRITE_BIT,                                            //kRenderTargetClear
+    VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,                                     // kIndirectArgs
+    VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,                                     //kVertexRead,
+    VK_ACCESS_2_INDEX_READ_BIT,                                                //  kIndexRead,
+    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,                                    //kRenderTarget
+    VK_ACCESS_2_SHADER_READ_BIT,                                               //kAccelInstanceBuffer
+    VK_ACCESS_2_SHADER_READ_BIT,                                               // kRasterRead
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,                           // kRasterAccelRead,
+    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,// kRasterUAV,
 };
-static constexpr VkAccessFlagBits2 kWriteAccess = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 static constexpr VkImageLayout kBarrierLayoutMap[] = {
     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,        // kComputeRead,
     VK_IMAGE_LAYOUT_GENERAL,                         // kComputeAccelRead,
@@ -74,28 +74,6 @@ static constexpr VkImageLayout kBarrierLayoutMap[] = {
     VK_IMAGE_LAYOUT_GENERAL,                         // kRasterAccelRead,
     VK_IMAGE_LAYOUT_GENERAL,                         // kRasterUAV,
 };
-static std::pair<VkAccessFlagBits2, VkImageLayout> combine(
-    std::pair<VkAccessFlagBits2, VkImageLayout> first,
-    std::pair<VkAccessFlagBits2, VkImageLayout> second) {
-    VkAccessFlagBits2 access = 0;
-    VkImageLayout layout = VK_IMAGE_LAYOUT_GENERAL;
-    bool first_is_write = (first.first & detail::kWriteAccess) != 0;
-    bool second_is_write = (second.first & detail::kWriteAccess) != 0;
-    if (first_is_write && second_is_write && (first.first != second.first)) {
-        access = first.first | second.first;
-        // LUISA_ERROR("Shader error, can not be writen in different way in same pass.");
-    } else if (first_is_write) {
-        access = first.first;
-        layout = first.second;
-    } else if (second_is_write) {
-        access = second.first;
-        layout = second.second;
-    } else {
-        access = first.first | second.first;
-    }
-    return {access, layout};
-}
-
 static VkImageLayout filter_layout(VkImageLayout last_layout, VkAccessFlagBits2 access) {
     switch (last_layout) {
         case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -119,14 +97,59 @@ static VkImageLayout filter_layout(VkImageLayout last_layout, VkAccessFlagBits2 
 }
 }// namespace detail
 ResourceBarrier::ResourceBarrier() {}
+
+ResourceBarrier::TextureStates &ResourceBarrier::_texture_state(
+    Texture const *texture) {
+    LUISA_ASSERT(texture != nullptr,
+                 "Vulkan texture barrier received a null wrapper.");
+    auto identity = detail::native_image_identity(texture->vk_image());
+    auto &state = _texture_frame_states.emplace(identity, texture).value();
+    LUISA_ASSERT(
+        state.native_state == texture->native_state(),
+        "Vulkan image 0x{:016x} does not have one canonical native state.",
+        identity);
+    return state;
+}
+
 void ResourceBarrier::record(
     ResourceView const &res,
     Usage usage) {
-    record(
+    _record(
         res,
         detail::kBarrierSyncMap[luisa::to_underlying(usage)],
         detail::kBarrierAccessMap[luisa::to_underlying(usage)],
-        detail::kBarrierLayoutMap[luisa::to_underlying(usage)]);
+        detail::kBarrierLayoutMap[luisa::to_underlying(usage)],
+        detail::TextureLayoutContract::GENERIC_USAGE);
+}
+
+void ResourceBarrier::record_texture_descriptor(
+    Texture const *texture, uint32_t base_level,
+    bool sampled, bool storage,
+    Usage sampled_usage, Usage storage_usage) {
+    LUISA_ASSERT(texture != nullptr,
+                 "Vulkan texture descriptor barrier received a null texture.");
+    LUISA_ASSERT(base_level < texture->mip(),
+                 "Vulkan texture descriptor base mip {} is outside [0, {}).",
+                 base_level, texture->mip());
+    LUISA_ASSERT(sampled || storage,
+                 "Vulkan texture descriptor has no sampled or storage role.");
+    if (sampled) {
+        auto level_count = texture->mip() - base_level;
+        for (auto level = base_level; level < texture->mip(); ++level) {
+            record(TexView{texture, level}, sampled_usage);
+        }
+        auto identity = detail::native_image_identity(texture->vk_image());
+        auto &state = _texture_state(texture);
+        _current_texture_descriptor_views.emplace_back(
+            TextureDescriptorView{
+                .identity = identity,
+                .state = &state,
+                .base_level = base_level,
+                .level_count = level_count});
+    }
+    if (storage) {
+        record(TexView{texture, base_level}, storage_usage);
+    }
 }
 void ResourceBarrier::set_res(
     ResourceView const &res,
@@ -134,310 +157,528 @@ void ResourceBarrier::set_res(
     VkAccessFlagBits2 access,
     VkImageLayout layout) {
     if (res.is_type_of<BufferView>()) {
+        auto &buffer_view = res.get<0>();
         // If the buffer is host-visible, should not be recorded by resource-barrier
-        if (res.get<0>().buffer->flush_host())
-            return;
-    }
-    using SubResource = vstd::variant<
-        BufferAfterRange,
-        uint /*tex level*/>;
-    ResourceStates::Type type;
-    bool allow_simul_access = true;
-    Resource const *vk_res;
-    size_t size;
-    VkImageLayout init_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    auto res_range = res.multi_visit_or(
-        vstd::UndefEval<SubResource>{},
-        [&](BufferView const &buffer_view) -> SubResource {
-            type = ResourceStates::Type::kBuffer;
-            vk_res = buffer_view.buffer;
-            size = buffer_view.buffer->byte_size();
-            return BufferAfterRange{
-                // Range{buffer_view.offset, buffer_view.byteSize},
+        if (buffer_view.buffer->flush_host()) { return; }
+        auto buffer = buffer_view.buffer->vk_buffer();
+        auto identity = detail::native_buffer_identity(buffer);
+        auto &state = _buffer_frame_states.emplace(identity, buffer).value();
+        LUISA_DEBUG_ASSERT(state.buffer == buffer);
+        if (state.before_state_supplied) {
+            state.range.before_stage |= stage;
+            state.range.before_access |= access;
+        } else {
+            state.range = BufferRange{
                 stage,
-                access};
-        },
-        [&](TexView const &tex_view) -> SubResource {
-            // TODO: set init layout
-            type = ResourceStates::Type::kTexture;
-            size = tex_view.tex->mip();
-            vk_res = tex_view.tex;
-            init_layout = static_cast<Texture const *>(vk_res)->layout(tex_view.level);
-            allow_simul_access = tex_view.tex->simultaneous_access();
-            return tex_view.level;
-        });
-    auto ite = _frame_states.emplace(vk_res, type, size);
-    auto &vec = ite.value().layer_states;
+                VK_PIPELINE_STAGE_2_NONE,
+                access,
+                VK_ACCESS_2_NONE};
+            state.before_state_supplied = true;
+        }
+        return;
+    }
 
-    vec.visit(
-        [&]<typename T>(T &vec) {
-            if constexpr (std::is_same_v<T, BufferRange>) {
-                LUISA_DEBUG_ASSERT(res_range.index() == 0);
-                auto &&current_range = res_range.template get<0>();
-                vec = BufferRange{
-                    current_range.stage,
-                    VK_PIPELINE_STAGE_2_NONE,
-                    current_range.access,
-                    VK_ACCESS_2_NONE
-                    // vec.init_access,
-                };
-            } else {
-                LUISA_DEBUG_ASSERT(res_range.index() == 1);
-                auto current_level = res_range.template get<1>();
-                auto &tex_range = vec[current_level];
-                tex_range.before_stage = stage;
-                tex_range.before_access = access;
-                tex_range.before_layout = layout;
-            }
-        });
+    auto &tex_view = res.get<1>();
+    auto tex = tex_view.tex;
+    auto &state = _texture_state(tex);
+    LUISA_ASSERT(tex_view.level < state.native_state->mip_levels,
+                 "Vulkan texture mip {} is outside [0, {}).",
+                 tex_view.level, state.native_state->mip_levels);
+    auto &tex_range = state.ranges[tex_view.level];
+    tex_range.level_inited = true;
+    if (tex_range.before_state_supplied) {
+        LUISA_ASSERT(
+            tex_range.before_layout == layout,
+            "Vulkan before-states for aliases of image 0x{:016x}, mip {} "
+            "declare conflicting layouts ({} and {}).",
+            detail::native_image_identity(tex->vk_image()), tex_view.level,
+            static_cast<uint32_t>(tex_range.before_layout),
+            static_cast<uint32_t>(layout));
+        tex_range.before_stage |= stage;
+        tex_range.before_access |= access;
+    } else {
+        tex_range.before_stage = stage;
+        tex_range.before_access = access;
+        tex_range.before_layout = layout;
+        tex_range.before_state_supplied = true;
+    }
 }
 void ResourceBarrier::record(
     ResourceView const &res,
     VkPipelineStageFlagBits2 stage,
     VkAccessFlagBits2 access,
     VkImageLayout layout) {
-    if (res.is_type_of<BufferView>()) {
-        // If the buffer is host-visible, should not be recorded by resource-barrier
-        if (res.get<0>().buffer->flush_host())
-            return;
-    }
-    using SubResource = vstd::variant<
-        BufferAfterRange,
-        uint /*tex level*/>;
-    ResourceStates::Type type;
-    bool allow_simul_access = true;
-    Resource const *vk_res;
-    size_t size;
-    VkImageLayout init_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    auto res_range = res.multi_visit_or(
-        vstd::UndefEval<SubResource>{},
-        [&](BufferView const &buffer_view) -> SubResource {
-            type = ResourceStates::Type::kBuffer;
-            vk_res = buffer_view.buffer;
-            size = buffer_view.buffer->byte_size();
-            return BufferAfterRange{
-                // Range{buffer_view.offset, buffer_view.byteSize},
-                stage,
-                access};
-        },
-        [&](TexView const &tex_view) -> SubResource {
-            // TODO: set init layout
-            type = ResourceStates::Type::kTexture;
-            size = tex_view.tex->mip();
-            vk_res = tex_view.tex;
-            init_layout = static_cast<Texture const *>(vk_res)->layout(tex_view.level);
-            allow_simul_access = tex_view.tex->simultaneous_access();
-            return tex_view.level;
-        });
-    auto ite = _frame_states.emplace(vk_res, type, size);
-    auto &vec = ite.value().layer_states;
-    if (!ite.value().require_update) {
-        _current_update_states.emplace_back(ite.key(), &ite.value());
-    }
-    ite.value().require_update = true;
+    _record(
+        res, stage, access, layout,
+        detail::TextureLayoutContract::EXPLICIT_NATIVE);
+}
 
-    vec.visit(
-        [&]<typename T>(T &vec) {
-            if constexpr (std::is_same_v<T, BufferRange>) {
-                LUISA_DEBUG_ASSERT(res_range.index() == 0);
-                auto &&current_range = res_range.template get<0>();
-                BufferRange new_range{
-                    VK_PIPELINE_STAGE_2_NONE,
-                    current_range.stage,
-                    VK_ACCESS_2_NONE,
-                    // vec.init_access,
-                    current_range.access};
-                auto result = detail::combine(
-                    {vec.after_access, VK_IMAGE_LAYOUT_GENERAL},
-                    {new_range.after_access, VK_IMAGE_LAYOUT_GENERAL});
-                vec.after_access = result.first;
-                vec.after_stage |= new_range.after_stage;
-            } else {
-                LUISA_DEBUG_ASSERT(res_range.index() == 1);
-                auto current_level = res_range.template get<1>();
-                auto &tex_range = vec[current_level];
-                if (!tex_range.level_inited) {
-                    tex_range.level_inited = true;
-                    tex_range.before_layout = init_layout;
-                }
-                tex_range.level_require_update = true;
-                tex_range.after_stage |= stage;
-                // tex_range.after_access |= access;
-                if ((access & (VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0) {
-                    allow_simul_access = false;
-                }
-                auto result = detail::combine(
-                    {tex_range.after_access, tex_range.after_layout},
-                    {access, allow_simul_access ? VK_IMAGE_LAYOUT_GENERAL : layout});
-                tex_range.after_access = result.first;
-                tex_range.after_layout = result.second;
-            }
-        });
+void ResourceBarrier::_record(
+    ResourceView const &res,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access,
+    VkImageLayout layout,
+    detail::TextureLayoutContract layout_contract) {
+    if (res.is_type_of<BufferView>()) {
+        auto &buffer_view = res.get<0>();
+        // If the buffer is host-visible, should not be recorded by resource-barrier
+        if (buffer_view.buffer->flush_host()) { return; }
+        auto buffer = buffer_view.buffer->vk_buffer();
+        auto identity = detail::native_buffer_identity(buffer);
+        auto &state = _buffer_frame_states.emplace(identity, buffer).value();
+        LUISA_DEBUG_ASSERT(state.buffer == buffer);
+        if (!state.require_update) {
+            _current_buffer_update_states.emplace_back(identity, &state);
+            state.require_update = true;
+        }
+        auto result = detail::combine_texture_access_layout(
+            {state.range.after_access, VK_IMAGE_LAYOUT_GENERAL},
+            {access, VK_IMAGE_LAYOUT_GENERAL});
+        state.range.after_access = result.access;
+        state.range.after_stage |= stage;
+        return;
+    }
+
+    auto &tex_view = res.get<1>();
+    auto tex = tex_view.tex;
+    auto identity = detail::native_image_identity(tex->vk_image());
+    auto &state = _texture_state(tex);
+    LUISA_ASSERT(tex_view.level < state.native_state->mip_levels,
+                 "Vulkan texture mip {} is outside [0, {}).",
+                 tex_view.level, state.native_state->mip_levels);
+    if (!state.require_update) {
+        _current_texture_update_states.emplace_back(identity, &state);
+        state.require_update = true;
+    }
+    auto &tex_range = state.ranges[tex_view.level];
+    if (!tex_range.level_inited) {
+        tex_range.level_inited = true;
+        tex_range.before_layout = tex->layout(tex_view.level);
+    }
+    tex_range.level_require_update = true;
+    tex_range.after_stage |= stage;
+    auto resolved_layout = detail::resolve_texture_barrier_layout(
+        state.native_state->simultaneous_access,
+        access, layout, layout_contract);
+    if (layout_contract ==
+            detail::TextureLayoutContract::EXPLICIT_NATIVE &&
+        tex_range.after_access != 0u) {
+        LUISA_ASSERT(
+            tex_range.after_layout == resolved_layout,
+            "Vulkan native commands in one reorder layer declare "
+            "conflicting layouts ({} and {}) for image 0x{:016x}, mip {}.",
+            static_cast<int32_t>(tex_range.after_layout),
+            static_cast<int32_t>(resolved_layout),
+            identity, tex_view.level);
+    }
+    auto result = detail::combine_texture_access_layout(
+        {tex_range.after_access, tex_range.after_layout},
+        {access, resolved_layout});
+    tex_range.after_access = result.access;
+    tex_range.after_layout = result.layout;
 }
 
 void ResourceBarrier::force_refresh_layout(
     Resource const *res, uint level,
     VkImageLayout before_layout) {
-    auto iter = _frame_states.find(res);
-    if (!(iter && iter.value().layer_states.index() == 1)) return;
-    auto &v = iter.value();
-    auto &ranges = v.layer_states.get<1>();
+    LUISA_ASSERT(res != nullptr && res->tag() == Resource::Tag::kTexture,
+                 "Vulkan image-layout refresh requires a texture.");
+    auto texture = static_cast<Texture const *>(res);
+    auto identity = detail::native_image_identity(texture->vk_image());
+    auto iter = _texture_frame_states.find(identity);
+    if (!iter) return;
+    auto &ranges = iter.value().ranges;
     LUISA_ASSERT(ranges.size() > level);
     ranges[level].before_layout = before_layout;
 }
+
+void ResourceBarrier::remove_resource(Resource const *res) noexcept {
+    if (res->tag() == Resource::Tag::kBuffer) {
+        auto buffer = static_cast<Buffer const *>(res)->vk_buffer();
+        auto identity = detail::native_buffer_identity(buffer);
+        for (auto it = _current_buffer_update_states.begin();
+             it != _current_buffer_update_states.end();) {
+            if (it->first == identity) {
+                it = _current_buffer_update_states.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        _buffer_frame_states.remove(identity);
+        _saved_buffer_restore_states.remove(identity);
+        return;
+    }
+
+    if (res->tag() == Resource::Tag::kTexture) {
+        auto texture = static_cast<Texture const *>(res);
+        auto identity = detail::native_image_identity(texture->vk_image());
+        for (auto it = _current_texture_descriptor_views.begin();
+             it != _current_texture_descriptor_views.end();) {
+            if (it->identity == identity) {
+                it = _current_texture_descriptor_views.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto it = _current_texture_update_states.begin();
+             it != _current_texture_update_states.end();) {
+            if (it->first == identity) {
+                it = _current_texture_update_states.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        _texture_frame_states.remove(identity);
+        _saved_texture_restore_states.remove(identity);
+    }
+}
+
 ResourceBarrier::~ResourceBarrier() {
 }
 
-void ResourceBarrier::_update_state(Resource const *res_ptr, ResourceStates &state) {
-    state.require_update = false;
-    bool is_write = false;
-    if (state.layer_states.index() == 0) {
-        auto &bf = state.layer_states.get<0>();
-        auto &barrier = _buffer_barriers.emplace_back();
-        barrier.srcStageMask = bf.before_stage;
-        barrier.dstStageMask = bf.after_stage;
-        barrier.srcAccessMask = bf.before_access;
-        barrier.dstAccessMask = bf.after_access;
-        barrier.buffer = static_cast<Buffer const *>(res_ptr)->vk_buffer();
-        barrier.offset = 0;
-        barrier.size = std::numeric_limits<uint64_t>::max();
-        is_write |= (barrier.dstAccessMask & detail::kWriteAccess) != 0;
-
-        bf.before_stage = bf.after_stage;
-        bf.after_stage = VK_PIPELINE_STAGE_2_NONE;
-        bf.before_access = bf.after_access;
-        bf.after_access = VK_ACCESS_2_NONE;
-        // bf.after_access = bf.init_access;
-    } else {// Texture
-        auto &vec = state.layer_states.get<1>();
-        auto tex = static_cast<Texture const *>(res_ptr);
-        for (auto idx : vstd::range((int64_t)vec.size())) {
-            auto &i = vec[idx];
-            if (!i.level_require_update) continue;
-            i.level_require_update = false;
-            auto &barrier = _tex_barriers.emplace_back();
-            i.after_layout = detail::filter_layout(i.after_layout, i.after_access);
-            barrier.srcStageMask = i.before_stage;
-            barrier.dstStageMask = i.after_stage;
-            barrier.srcAccessMask = i.before_access;
-            barrier.dstAccessMask = i.after_access;
-            barrier.oldLayout = i.before_layout;
-            barrier.newLayout = i.after_layout;
-            barrier.image = tex->vk_image();
-            barrier.subresourceRange = VkImageSubresourceRange{
-                .aspectMask = tex->get_aspect(),
-                .baseMipLevel = (uint)idx,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1};
-            is_write |= (barrier.dstAccessMask & detail::kWriteAccess) != 0;
-            i.before_stage = i.after_stage;
-            i.after_stage = VK_PIPELINE_STAGE_2_NONE;
-            i.before_access = i.after_access;
-            i.after_access = VK_ACCESS_2_NONE;
-            i.before_layout = i.after_layout;
+void ResourceBarrier::_resolve_texture_descriptor_layouts() {
+    // Overlapping sampled views form layout-equivalence groups. A later view
+    // may promote a shared mip to GENERAL, so iterate until that promotion has
+    // propagated through every transitive overlap. Layouts only move toward
+    // GENERAL, which bounds convergence by the number of tracked mip ranges.
+    auto changed = false;
+    do {
+        changed = false;
+        for (auto &view : _current_texture_descriptor_views) {
+            LUISA_ASSERT(view.state != nullptr && view.level_count != 0u &&
+                             view.base_level < view.state->ranges.size() &&
+                             view.level_count <=
+                                 view.state->ranges.size() - view.base_level,
+                         "Vulkan sampled-image descriptor view for image "
+                         "0x{:016x} has an invalid mip range [{}, {}).",
+                         view.identity, view.base_level,
+                         view.base_level + view.level_count);
+            auto layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            for (auto level = view.base_level;
+                 level < view.base_level + view.level_count; ++level) {
+                auto &range = view.state->ranges[level];
+                LUISA_ASSERT(
+                    range.level_require_update &&
+                        range.after_layout != VK_IMAGE_LAYOUT_UNDEFINED,
+                    "Vulkan sampled-image descriptor view for image "
+                    "0x{:016x}, mip {} has no pending layout.",
+                    view.identity, level);
+                layout = detail::combine_texture_descriptor_view_layout(
+                    layout, range.after_layout);
+            }
+            LUISA_ASSERT(layout != VK_IMAGE_LAYOUT_UNDEFINED);
+            for (auto level = view.base_level;
+                 level < view.base_level + view.level_count; ++level) {
+                auto &range = view.state->ranges[level];
+                if (range.after_layout != layout) {
+                    LUISA_ASSERT(
+                        layout == VK_IMAGE_LAYOUT_GENERAL,
+                        "Vulkan sampled-image descriptor layout resolution "
+                        "attempted a non-conservative promotion.");
+                    range.after_layout = layout;
+                    changed = true;
+                }
+            }
         }
-    }
-    if (is_write) {
-        _write_state_map.emplace(res_ptr, state.size);
-    } else {
-        _write_state_map.remove(res_ptr);
+    } while (changed);
+}
+
+void ResourceBarrier::_update_state(BufferStates &state) {
+    state.require_update = false;
+    auto &range = state.range;
+    auto &barrier = _buffer_barriers.emplace_back();
+    barrier.srcStageMask = range.before_stage;
+    barrier.dstStageMask = range.after_stage;
+    barrier.srcAccessMask = range.before_access;
+    barrier.dstAccessMask = range.after_access;
+    barrier.buffer = state.buffer;
+    barrier.offset = 0;
+    barrier.size = std::numeric_limits<uint64_t>::max();
+
+    range.before_stage = range.after_stage;
+    range.after_stage = VK_PIPELINE_STAGE_2_NONE;
+    range.before_access = range.after_access;
+    range.after_access = VK_ACCESS_2_NONE;
+}
+
+void ResourceBarrier::_update_state(TextureStates &state) {
+    state.require_update = false;
+    for (auto idx : vstd::range((int64_t)state.ranges.size())) {
+        auto &range = state.ranges[idx];
+        if (!range.level_require_update) continue;
+        range.level_require_update = false;
+        auto &barrier = _tex_barriers.emplace_back();
+        range.after_layout = detail::filter_layout(range.after_layout, range.after_access);
+        barrier.srcStageMask = range.before_stage;
+        barrier.dstStageMask = range.after_stage;
+        barrier.srcAccessMask = range.before_access;
+        barrier.dstAccessMask = range.after_access;
+        barrier.oldLayout = range.before_layout;
+        barrier.newLayout = range.after_layout;
+        barrier.image = state.native_state->image;
+        barrier.subresourceRange = VkImageSubresourceRange{
+            .aspectMask = Texture::get_aspect_from_format(
+                state.native_state->format),
+            .baseMipLevel = (uint)idx,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1};
+        barrier_filter(barrier);
+        range.before_stage = barrier.dstStageMask;
+        range.after_stage = VK_PIPELINE_STAGE_2_NONE;
+        range.before_access = barrier.dstAccessMask;
+        range.after_access = VK_ACCESS_2_NONE;
+        range.before_layout = barrier.newLayout;
     }
 }
-namespace detail {
-void filter_access(
-    ResourceBarrier::QueueType type,
-    VkPipelineStageFlagBits2 &sync,
-    VkAccessFlagBits2 &access,
-    VkImageLayout &layout) {
-    switch (type) {
-        case ResourceBarrier::QueueType::kCompute: {
-            sync &= (VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT |
-                     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                     VK_PIPELINE_STAGE_2_COPY_BIT |
-                     VK_PIPELINE_STAGE_2_TRANSFER_BIT |
-                     VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
-                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT |
-                     VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR |
-                     VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT |
-                     VK_PIPELINE_STAGE_2_HOST_BIT);
-            switch (layout) {
-                case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-                    layout = VK_IMAGE_LAYOUT_GENERAL;
-                    break;
-                default: break;
-            }
-        } break;
-        case ResourceBarrier::QueueType::kCopy: {
-            sync &= (VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT |
-                     VK_PIPELINE_STAGE_2_COPY_BIT |
-                     VK_PIPELINE_STAGE_2_TRANSFER_BIT |
-                     VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR |
-                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT |
-                     VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT |
-                     VK_PIPELINE_STAGE_2_HOST_BIT);
-            switch (layout) {
-                case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL:
-                case VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL:
-                case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-                    layout = VK_IMAGE_LAYOUT_GENERAL;
-                    break;
-                default: break;
-            }
-        } break;
-        default: break;
-    }
-    const auto tex_read_sync = VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | kRasterStage;
-    if ((access & (VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0) {
-        sync &= ~tex_read_sync;
-    }
-}
-}// namespace detail
-VkImageLayout ResourceBarrier::get_layout(Resource const *res, uint level) const {
-    auto iter = _frame_states.find(res);
-    LUISA_ASSERT(iter && iter.value().layer_states.index() == 1);
-    auto &v = iter.value();
-    auto &ranges = v.layer_states.get<1>();
+VkImageLayout ResourceBarrier::get_layout(Resource const *res, uint level) {
+    LUISA_ASSERT(res != nullptr && res->tag() == Resource::Tag::kTexture,
+                 "Vulkan image-layout query requires a texture.");
+    auto texture = static_cast<Texture const *>(res);
+    auto identity = detail::native_image_identity(texture->vk_image());
+    auto iter = _texture_frame_states.find(identity);
+    LUISA_ASSERT(iter);
+    auto &ranges = iter.value().ranges;
     LUISA_ASSERT(ranges.size() > level);
     return ranges[level].before_layout;
 }
 
-void ResourceBarrier::process_bindless(BindlessArray const *bdls_arr, Usage dst_usage) {
-    for (auto iter = _write_state_map.begin(); iter != _write_state_map.end(); ++iter) {
-        if (bdls_arr->is_ptr_in_bindless(reinterpret_cast<size_t>(iter->first))) {
-            auto ite = _frame_states.find(iter->first);
-            assert(ite);
-            auto res = ite.key();
-            if (res->tag() == Resource::Tag::kBuffer) {
-                record(
-                    BufferView(static_cast<Buffer const *>(res), 0, static_cast<Buffer const *>(res)->byte_size()),
-                    dst_usage);
-            } else if (res->tag() == Resource::Tag::kTexture) {
-                auto tex = static_cast<Texture const *>(res);
-                for (auto i : vstd::range(tex->mip())) {
-                    record(
-                        TexView(tex, i),
-                        dst_usage);
-                }
+VkImageLayout ResourceBarrier::get_texture_descriptor_layout(
+    Texture const *texture, uint32_t base_level,
+    uint32_t level_count) {
+    LUISA_ASSERT(texture != nullptr && level_count != 0u,
+                 "Vulkan image descriptor layout query requires a nonempty "
+                 "texture view.");
+    auto identity = detail::native_image_identity(texture->vk_image());
+    auto iter = _texture_frame_states.find(identity);
+    LUISA_ASSERT(iter);
+    auto &ranges = iter.value().ranges;
+    LUISA_ASSERT(base_level < ranges.size() &&
+                     level_count <= ranges.size() - base_level,
+                 "Vulkan image descriptor mip range [{}, {}) is outside "
+                 "[0, {}).",
+                 base_level, base_level + level_count, ranges.size());
+    auto layout = ranges[base_level].before_layout;
+    for (auto level = base_level + 1u;
+         level < base_level + level_count; ++level) {
+        LUISA_ASSERT(
+            ranges[level].before_layout == layout,
+            "Vulkan sampled-image descriptor for image 0x{:016x} spans "
+            "mips with different layouts (mip {} is {}, mip {} is {}).",
+            identity, base_level, static_cast<int32_t>(layout), level,
+            static_cast<int32_t>(ranges[level].before_layout));
+    }
+    return layout;
+}
+
+void ResourceBarrier::_apply_state(
+    ResourceView const &view,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access,
+    VkImageLayout layout,
+    detail::TextureLayoutContract layout_contract,
+    BindlessStateOperation operation) {
+    switch (operation) {
+        case BindlessStateOperation::RECORD:
+            _record(view, stage, access, layout, layout_contract);
+            break;
+        case BindlessStateOperation::SET_BEFORE:
+            set_res(view, stage, access, layout);
+            break;
+        case BindlessStateOperation::SET_RESTORE:
+            set_restore_state(view, stage, access, layout);
+            break;
+    }
+}
+
+void ResourceBarrier::_process_bindless_members(
+    BindlessArray const *bdls_arr,
+    VkPipelineStageFlagBits2 buffer_stage,
+    VkAccessFlagBits2 buffer_access,
+    VkPipelineStageFlagBits2 texture_stage,
+    VkAccessFlagBits2 texture_access,
+    VkImageLayout texture_layout,
+    detail::TextureLayoutContract layout_contract,
+    BindlessStateOperation operation) {
+    LUISA_ASSERT(bdls_arr != nullptr,
+                 "Vulkan bindless barrier traversal received a null array.");
+    std::lock_guard lock{bdls_arr->mtx};
+    // A bindless access can name any currently encoded resource. Record every
+    // unique one. The encoded map, rather than the pending host update map, is
+    // the descriptor state observed by this dispatch.
+    bdls_arr->traverse_encoded_resources([&](uint64_t handle) noexcept {
+        auto res = reinterpret_cast<Resource const *>(handle);
+        LUISA_ASSERT(
+            res != nullptr &&
+                (res->tag() == Resource::Tag::kBuffer ||
+                 res->tag() == Resource::Tag::kTexture),
+            "Vulkan bindless barrier snapshot contains an invalid resource.");
+        if (res->tag() == Resource::Tag::kBuffer) {
+            auto buffer = static_cast<Buffer const *>(res);
+            _apply_state(
+                BufferView(buffer, 0u, buffer->byte_size()),
+                buffer_stage, buffer_access,
+                VK_IMAGE_LAYOUT_UNDEFINED, layout_contract, operation);
+        } else if (res->tag() == Resource::Tag::kTexture) {
+            LUISA_ASSERT(
+                texture_layout != VK_IMAGE_LAYOUT_UNDEFINED,
+                "A bindless barrier that reaches textures requires an "
+                "explicit destination layout.");
+            auto tex = static_cast<Texture const *>(res);
+            for (auto level : vstd::range(tex->mip())) {
+                _apply_state(
+                    TexView(tex, level),
+                    texture_stage, texture_access, texture_layout,
+                    layout_contract, operation);
             }
+        }
+    });
+}
+
+void ResourceBarrier::_apply_bindless_state(
+    BindlessArray const *bdls_arr,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access,
+    VkImageLayout texture_layout,
+    BindlessStateOperation operation) {
+    LUISA_ASSERT(bdls_arr != nullptr,
+                 "Vulkan bindless state expansion received a null array.");
+    auto &indices = bdls_arr->indices_buffer();
+    _apply_state(
+        BufferView(&indices, 0u, indices.byte_size()),
+        stage, access, VK_IMAGE_LAYOUT_UNDEFINED,
+        detail::TextureLayoutContract::EXPLICIT_NATIVE, operation);
+    _process_bindless_members(
+        bdls_arr,
+        stage, access,
+        stage, access,
+        texture_layout,
+        detail::TextureLayoutContract::EXPLICIT_NATIVE,
+        operation);
+}
+
+void ResourceBarrier::process_bindless(
+    BindlessArray const *bdls_arr,
+    Usage buffer_dst_usage,
+    Usage texture_dst_usage) {
+    // Bindless textures are sampled-only in the shader ABI. Keep their
+    // barrier usage separate from writable bindless buffers even when both
+    // are reached through the same array argument.
+    _process_bindless_members(
+        bdls_arr,
+        detail::kBarrierSyncMap[luisa::to_underlying(buffer_dst_usage)],
+        detail::kBarrierAccessMap[luisa::to_underlying(buffer_dst_usage)],
+        detail::kBarrierSyncMap[luisa::to_underlying(texture_dst_usage)],
+        detail::kBarrierAccessMap[luisa::to_underlying(texture_dst_usage)],
+        VK_IMAGE_LAYOUT_GENERAL,
+        // The bindless descriptor fixes the image layout to GENERAL, but this
+        // remains backend-owned shader usage. Let it conservatively promote
+        // an overlapping direct sampled descriptor to GENERAL instead of
+        // treating the overlap as two conflicting native command contracts.
+        detail::TextureLayoutContract::GENERIC_USAGE,
+        BindlessStateOperation::RECORD);
+}
+
+void ResourceBarrier::process_bindless(
+    BindlessArray const *bdls_arr,
+    VkPipelineStageFlagBits2 dst_stage,
+    VkAccessFlagBits2 dst_access,
+    VkImageLayout texture_layout) {
+    // A custom command supplies the native Vulkan access contract directly;
+    // apply that exact contract to every member visible through the encoded
+    // descriptor snapshot at this command boundary.
+    _process_bindless_members(
+        bdls_arr,
+        dst_stage, dst_access,
+        dst_stage, dst_access,
+        texture_layout,
+        detail::TextureLayoutContract::EXPLICIT_NATIVE,
+        BindlessStateOperation::RECORD);
+}
+
+void ResourceBarrier::record_bindless(
+    BindlessArray const *bdls_arr,
+    VkPipelineStageFlagBits2 dst_stage,
+    VkAccessFlagBits2 dst_access,
+    VkImageLayout texture_layout) {
+    _apply_bindless_state(
+        bdls_arr, dst_stage, dst_access, texture_layout,
+        BindlessStateOperation::RECORD);
+}
+
+void ResourceBarrier::set_bindless_before_state(
+    BindlessArray const *bdls_arr,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access,
+    VkImageLayout texture_layout) {
+    _apply_bindless_state(
+        bdls_arr, stage, access, texture_layout,
+        BindlessStateOperation::SET_BEFORE);
+}
+
+void ResourceBarrier::set_bindless_restore_state(
+    BindlessArray const *bdls_arr,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access,
+    VkImageLayout texture_layout) {
+    _apply_bindless_state(
+        bdls_arr, stage, access, texture_layout,
+        BindlessStateOperation::SET_RESTORE);
+}
+
+void ResourceBarrier::clear_restore_states() noexcept {
+    _saved_buffer_restore_states.clear();
+    _saved_texture_restore_states.clear();
+}
+
+void ResourceBarrier::set_restore_state(
+    ResourceView const &res,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access,
+    VkImageLayout layout) {
+    auto state = RestoreStates{
+        .after_stage = stage,
+        .after_access = access,
+        .after_layout = layout};
+    if (res.is_type_of<BufferView>()) {
+        auto buffer = res.get<0>().buffer->vk_buffer();
+        auto identity = detail::native_buffer_identity(buffer);
+        if (auto iter = _saved_buffer_restore_states.find(identity)) {
+            iter.value().after_stage |= stage;
+            iter.value().after_access |= access;
+        } else {
+            _saved_buffer_restore_states.emplace(identity, state);
+        }
+    } else {
+        auto &tex_view = res.get<1>();
+        auto &texture_state = _texture_state(tex_view.tex);
+        LUISA_ASSERT(tex_view.level < texture_state.native_state->mip_levels,
+                     "Vulkan texture restore mip {} is outside [0, {}).",
+                     tex_view.level,
+                     texture_state.native_state->mip_levels);
+        auto identity = detail::native_image_identity(
+            texture_state.native_state->image);
+        auto &restore_state = _saved_texture_restore_states.emplace(
+                                                               identity, texture_state.native_state->mip_levels)
+                                  .value();
+        LUISA_ASSERT(
+            restore_state.ranges.size() ==
+            texture_state.native_state->mip_levels);
+        auto &range = restore_state.ranges[tex_view.level];
+        if (range.valid) {
+            LUISA_ASSERT(
+                range.state.after_layout == layout,
+                "Vulkan after-states for aliases of image 0x{:016x}, mip {} "
+                "declare conflicting layouts ({} and {}).",
+                identity, tex_view.level,
+                static_cast<int32_t>(range.state.after_layout),
+                static_cast<int32_t>(layout));
+            range.state.after_stage |= stage;
+            range.state.after_access |= access;
+        } else {
+            range = TextureRestoreRange{
+                .valid = true,
+                .state = state};
         }
     }
 }
@@ -445,16 +686,19 @@ void ResourceBarrier::process_bindless(BindlessArray const *bdls_arr, Usage dst_
 void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
     _buffer_barriers.clear();
     _tex_barriers.clear();
-    for (auto &i : _current_update_states) {
-        _update_state(i.first, *i.second);
+    _resolve_texture_descriptor_layouts();
+    for (auto &i : _current_buffer_update_states) {
+        _update_state(*i.second);
     }
-    _current_update_states.clear();
+    _current_buffer_update_states.clear();
+    for (auto &i : _current_texture_update_states) {
+        _update_state(*i.second);
+    }
+    _current_texture_update_states.clear();
+    _current_texture_descriptor_views.clear();
     VkDependencyInfo info{
         VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     if (!_tex_barriers.empty()) {
-        for (auto &i : _tex_barriers) {
-            barrier_filter(i);
-        }
         info.imageMemoryBarrierCount = _tex_barriers.size();
         info.pImageMemoryBarriers = _tex_barriers.data();
     }
@@ -469,67 +713,67 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
 }
 
 void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
-    _current_update_states.clear();
+    _current_buffer_update_states.clear();
+    _current_texture_update_states.clear();
+    _current_texture_descriptor_views.clear();
     _buffer_barriers.clear();
     _tex_barriers.clear();
-    _write_state_map.clear();
-    for (auto &i : _frame_states) {
-        Resource const *res_ptr = i.first;
-        ResourceStates &state = i.second;
-        if (state.layer_states.index() == 0) {
-            auto &bf = state.layer_states.get<0>();
-            auto &barrier = _buffer_barriers.emplace_back();
+    for (auto &entry : _buffer_frame_states) {
+        auto identity = entry.first;
+        auto &state = entry.second;
+        auto &barrier = _buffer_barriers.emplace_back();
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.srcAccessMask = state.range.before_access;
+        barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+        barrier.buffer = state.buffer;
+        barrier.offset = 0;
+        barrier.size = std::numeric_limits<uint64_t>::max();
+        if (auto iter = _saved_buffer_restore_states.find(identity)) {
+            auto &saved = iter.value();
+            barrier.dstStageMask = saved.after_stage;
+            barrier.dstAccessMask = saved.after_access;
+        }
+    }
+    for (auto &entry : _texture_frame_states) {
+        auto identity = entry.first;
+        auto &state = entry.second;
+        auto init_layout = VK_IMAGE_LAYOUT_GENERAL;
+        auto restore_iter = _saved_texture_restore_states.find(identity);
+        for (auto idx : vstd::range((int64_t)state.ranges.size())) {
+            auto &range = state.ranges[idx];
+            if (!range.level_inited) continue;
+            auto &barrier = _tex_barriers.emplace_back();
             barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-            barrier.srcAccessMask = bf.before_access;
-            barrier.dstAccessMask = VK_ACCESS_2_NONE;
-            barrier.buffer = static_cast<Buffer const *>(res_ptr)->vk_buffer();
-            barrier.offset = 0;
-            barrier.size = std::numeric_limits<uint64_t>::max();
-            auto iter = saved_restore_states.find(i.first);
-            if (iter) {
-                auto &v = iter.value();
-                barrier.dstStageMask = v.after_stage;
-                barrier.dstAccessMask = v.after_access;
-            }
-        } else {// Texture
-            auto &vec = state.layer_states.get<1>();
-            auto init_layout = VK_IMAGE_LAYOUT_GENERAL;
-            auto tex = static_cast<Texture const *>(res_ptr);
-            auto iter = saved_restore_states.find(i.first);
-            for (auto idx : vstd::range((int64_t)vec.size())) {
-                auto &i = vec[idx];
-                if (!i.level_inited) continue;
-                auto &barrier = _tex_barriers.emplace_back();
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-                barrier.srcAccessMask = i.before_access;
-                barrier.dstAccessMask = VK_ACCESS_2_NONE;
-                barrier.oldLayout = i.before_layout;
-                barrier.newLayout = init_layout;
-                tex->set_layout(idx, init_layout);
-                barrier.image = tex->vk_image();
-                barrier.subresourceRange = VkImageSubresourceRange{
-                    .aspectMask = tex->get_aspect(),
-                    .baseMipLevel = (uint)idx,
-                    .levelCount = 1,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1};
-                if (iter) {
-                    auto &v = iter.value();
-                    barrier.dstStageMask = v.after_stage;
-                    barrier.newLayout = v.after_layout;
-                    barrier.dstAccessMask = v.after_access;
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            barrier.srcAccessMask = range.before_access;
+            barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+            barrier.oldLayout = range.before_layout;
+            barrier.newLayout = init_layout;
+            barrier.image = state.native_state->image;
+            barrier.subresourceRange = VkImageSubresourceRange{
+                .aspectMask = Texture::get_aspect_from_format(
+                    state.native_state->format),
+                .baseMipLevel = (uint)idx,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1};
+            if (restore_iter) {
+                auto &saved = restore_iter.value().ranges[idx];
+                if (saved.valid) {
+                    barrier.dstStageMask = saved.state.after_stage;
+                    barrier.newLayout = saved.state.after_layout;
+                    barrier.dstAccessMask = saved.state.after_access;
                 }
             }
+            barrier_filter(barrier);
+            state.native_state->set_layout(
+                static_cast<uint>(idx), barrier.newLayout);
         }
     }
     VkDependencyInfo info{
         VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     if (!_tex_barriers.empty()) {
-        for (auto &i : _tex_barriers) {
-            barrier_filter(i);
-        }
         info.imageMemoryBarrierCount = _tex_barriers.size();
         info.pImageMemoryBarriers = _tex_barriers.data();
     }
@@ -541,30 +785,36 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
         info.pBufferMemoryBarriers = _buffer_barriers.data();
     }
     vkCmdPipelineBarrier2(cmd_buffer, &info);
-    _frame_states.clear();
-}
-ResourceBarrier::ResourceStates::ResourceStates(Type type, size_t size) : size(size) {
-    if (type == Type::kTexture) {
-        layer_states.reset_as<vstd::vector<TextureRange>>(size);
-    } else {
-        layer_states.reset_as<BufferRange>();
-    }
+    _buffer_frame_states.clear();
+    _texture_frame_states.clear();
+    clear_restore_states();
 }
 void ResourceBarrier::barrier_filter(VkBufferMemoryBarrier2 &barrier) const {
-    VkImageLayout layout;
-    detail::filter_access(queue_type, barrier.srcStageMask, barrier.srcAccessMask, layout);
-    detail::filter_access(queue_type, barrier.dstStageMask, barrier.dstAccessMask, layout);
+    auto src = detail::normalize_queue_scope(
+        queue_type, barrier.srcStageMask, barrier.srcAccessMask);
+    auto dst = detail::normalize_queue_scope(
+        queue_type, barrier.dstStageMask, barrier.dstAccessMask);
+    barrier.srcStageMask = src.stages;
+    barrier.srcAccessMask = src.access;
+    barrier.dstStageMask = dst.stages;
+    barrier.dstAccessMask = dst.access;
     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-    barrier.srcQueueFamilyIndex = queue_index;
-    barrier.dstQueueFamilyIndex = queue_index;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.pNext = nullptr;
 }
 void ResourceBarrier::barrier_filter(VkImageMemoryBarrier2 &barrier) const {
-    detail::filter_access(queue_type, barrier.srcStageMask, barrier.srcAccessMask, barrier.oldLayout);
-    detail::filter_access(queue_type, barrier.dstStageMask, barrier.dstAccessMask, barrier.newLayout);
+    auto src = detail::normalize_queue_scope(
+        queue_type, barrier.srcStageMask, barrier.srcAccessMask);
+    auto dst = detail::normalize_queue_scope(
+        queue_type, barrier.dstStageMask, barrier.dstAccessMask);
+    barrier.srcStageMask = src.stages;
+    barrier.srcAccessMask = src.access;
+    barrier.dstStageMask = dst.stages;
+    barrier.dstAccessMask = dst.access;
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcQueueFamilyIndex = queue_index;
-    barrier.dstQueueFamilyIndex = queue_index;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.pNext = nullptr;
 }
 

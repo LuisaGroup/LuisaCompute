@@ -158,28 +158,24 @@ static void cuda_compress_cpu(nvcomp::PimplManager &manager,
                               const std::byte *data, size_t size,
                               DStorageCompressionQuality quality,
                               vector<std::byte> &result) noexcept {
-    try {
-        auto config = manager.configure_compression(size);
-        auto max_output_size = luisa::align(config.max_compressed_buffer_size, 16u);
-        auto temp_buffer = static_cast<CUdeviceptr>(0u);
-        auto temp_buffer_size = max_output_size + size;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, nullptr));
-        auto output_buffer = temp_buffer;
-        auto input_buffer = temp_buffer + max_output_size;
-        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(input_buffer, data, size, nullptr));
-        manager.compress(reinterpret_cast<const uint8_t *>(input_buffer),
-                         reinterpret_cast<uint8_t *>(output_buffer), config);
-        result.resize(max_output_size);
-        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(result.data(), output_buffer, max_output_size, nullptr));
-        LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, nullptr));
-        LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
-        auto compressed_size = manager.get_compressed_output_size(reinterpret_cast<uint8_t *>(result.data()));
-        result.resize(compressed_size);
-    } catch (const std::exception &e) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to compress data using nvCOMP: {}",
-            e.what());
-    }
+    LUISA_ASSERT(data != nullptr || size == 0,
+                 "Input data must not be null when size is non-zero.");
+    auto config = manager.configure_compression(size);
+    auto max_output_size = luisa::align(config.max_compressed_buffer_size, 16u);
+    auto temp_buffer = static_cast<CUdeviceptr>(0u);
+    auto temp_buffer_size = max_output_size + size;
+    LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, nullptr));
+    auto output_buffer = temp_buffer;
+    auto input_buffer = temp_buffer + max_output_size;
+    LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(input_buffer, data, size, nullptr));
+    manager.compress(reinterpret_cast<const uint8_t *>(input_buffer),
+                     reinterpret_cast<uint8_t *>(output_buffer), config);
+    result.resize(max_output_size);
+    LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(result.data(), output_buffer, max_output_size, nullptr));
+    LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, nullptr));
+    LUISA_CHECK_CUDA(cuStreamSynchronize(nullptr));
+    auto compressed_size = manager.get_compressed_output_size(reinterpret_cast<uint8_t *>(result.data()));
+    result.resize(compressed_size);
 }
 #endif
 

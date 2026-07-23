@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/logging.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/stream_event.h>
 #include <luisa/runtime/rhi/tile_modification.h>
@@ -8,8 +9,11 @@
 namespace luisa::compute {
 
 namespace detail {
-LUISA_RUNTIME_API void check_sparse_buffer_map(size_t size_bytes, size_t tile_size, uint start_tile, uint tile_count);
-LUISA_RUNTIME_API void check_sparse_buffer_unmap(size_t size_bytes, size_t tile_size, uint start_tile);
+LUISA_RUNTIME_API void check_sparse_buffer_tile_region(
+    size_t size_bytes,
+    size_t tile_size,
+    uint32_t start_tile,
+    uint32_t tile_count) noexcept;
 }// namespace detail
 
 template<typename T>
@@ -37,8 +41,15 @@ private:
                   if (size == 0) [[unlikely]] {
                       detail::error_buffer_size_is_zero();
                   }
-                  return device->create_sparse_buffer(Type::of<T>(), size);
-              }()} {}
+                  auto info = device->create_sparse_buffer(Type::of<T>(), size);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                  if (!info.valid()) {
+                      LUISA_ERROR("Failed to create sparse buffer.");
+                  }
+#endif
+                  return info;
+              }()} {
+    }
 
 public:
     SparseBuffer() noexcept = default;
@@ -59,7 +70,10 @@ public:
     }
     [[nodiscard]] auto map_tile(uint start_tile, uint tile_count, const SparseBufferHeap &heap) noexcept {
         _check_is_valid();
-        detail::check_sparse_buffer_map(size_bytes(), _tile_size_bytes, start_tile, tile_count);
+        detail::check_sparse_buffer_tile_region(
+            size_bytes(), _tile_size_bytes,
+            start_tile, tile_count);
+        detail::check_sparse_heap_provenance(*this, heap);
         return SparseUpdateTile{
             .handle = handle(),
             .operations = SparseBufferMapOperation{
@@ -69,7 +83,9 @@ public:
     }
     [[nodiscard]] auto unmap_tile(uint start_tile, uint tile_count) noexcept {
         _check_is_valid();
-        detail::check_sparse_buffer_unmap(size_bytes(), _tile_size_bytes, start_tile);
+        detail::check_sparse_buffer_tile_region(
+            size_bytes(), _tile_size_bytes,
+            start_tile, tile_count);
         return SparseUpdateTile{
             .handle = handle(),
             .operations = SparseBufferUnMapOperation{
@@ -94,7 +110,13 @@ public:
     }
     [[nodiscard]] auto tile_size() const noexcept {
         _check_is_valid();
-        return _tile_size_bytes / sizeof(T);
+        LUISA_ASSERT(
+            _element_stride != 0u &&
+                _tile_size_bytes % _element_stride == 0u,
+            "Sparse buffer tile size {} bytes is not an integral number of "
+            "{}-byte elements; use tile_size_bytes() for this resource.",
+            _tile_size_bytes, _element_stride);
+        return _tile_size_bytes / _element_stride;
     }
     [[nodiscard]] auto tile_size_bytes() const noexcept {
         _check_is_valid();

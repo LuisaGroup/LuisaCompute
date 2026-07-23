@@ -59,18 +59,19 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--update-reference]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-            force_offline = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
+    auto executable_name = std::filesystem::path{argv[0]}.filename().string();
+    if (std::string_view{executable_name}.starts_with("test_")) {
+        force_offline = true;
     }
 #if !ENABLE_DISPLAY
     if (!force_offline) {
@@ -171,15 +172,14 @@ int main(int argc, char *argv[]) {
         luisa::vector<uint8_t> host_image(display_width * display_height * 4u);
         stream << display.copy_to(luisa::span{host_image}) << synchronize();
         stbi_write_png("test_game_of_life.png", display_width, display_height, 4, host_image.data(), 0);
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            display_width, display_height, 4,
-            "test_game_of_life",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                display_width, display_height, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     } else {
 #if ENABLE_DISPLAY
         while (!window->should_close()) {

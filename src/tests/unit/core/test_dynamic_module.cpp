@@ -17,16 +17,17 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 using namespace luisa;
 
-static inline const auto _luisa_reg_dynamicmodule_empty_construction = [] {
+void _luisa_reg_dynamicmodule_empty_construction() {
+
     boost::ut::detail::test{"test", "DynamicModule empty construction"} = [] {
         DynamicModule empty_module;
         boost::ut::expect(static_cast<bool>(!empty_module));
         boost::ut::expect(static_cast<bool>(empty_module.handle() == nullptr));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_load_system_library = [] {
+void _luisa_reg_dynamicmodule_load_system_library() {
+
     boost::ut::detail::test{"test", "DynamicModule load system library"} = [] {
         log_level_verbose();
 
@@ -66,10 +67,10 @@ static inline const auto _luisa_reg_dynamicmodule_load_system_library = [] {
             LUISA_WARNING("Could not load C runtime library. Skipping related checks.");
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_move_semantics = [] {
+void _luisa_reg_dynamicmodule_move_semantics() {
+
     boost::ut::detail::test{"test", "DynamicModule move semantics"} = [] {
 #ifdef LUISA_PLATFORM_WINDOWS
         auto source = DynamicModule::load("kernel32");
@@ -107,10 +108,10 @@ static inline const auto _luisa_reg_dynamicmodule_move_semantics = [] {
             LUISA_WARNING("Could not load module for move semantics test.");
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_reset = [] {
+void _luisa_reg_dynamicmodule_reset() {
+
     boost::ut::detail::test{"test", "DynamicModule reset"} = [] {
 #ifdef LUISA_PLATFORM_WINDOWS
         auto module = DynamicModule::load("kernelbase");
@@ -130,10 +131,10 @@ static inline const auto _luisa_reg_dynamicmodule_reset = [] {
             LUISA_WARNING("Could not load module for reset test.");
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_function_template = [] {
+void _luisa_reg_dynamicmodule_function_template() {
+
     boost::ut::detail::test{"test", "DynamicModule function template"} = [] {
 #ifdef LUISA_PLATFORM_WINDOWS
         auto module = DynamicModule::load("kernel32");
@@ -160,10 +161,10 @@ static inline const auto _luisa_reg_dynamicmodule_function_template = [] {
         }
 #endif
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_search_path_management = [] {
+void _luisa_reg_dynamicmodule_search_path_management() {
+
     boost::ut::detail::test{"test", "DynamicModule search path management"} = [] {
         // Get the current executable path as a safe directory
         auto exe_path = current_executable_path();
@@ -200,10 +201,10 @@ static inline const auto _luisa_reg_dynamicmodule_search_path_management = [] {
             LUISA_INFO("Successfully loaded module from specific folder.");
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_load_exact = [] {
+void _luisa_reg_dynamicmodule_load_exact() {
+
     boost::ut::detail::test{"test", "DynamicModule load_exact"} = [] {
         // Try to construct the full path to a system library
         std::filesystem::path lib_path;
@@ -244,10 +245,10 @@ static inline const auto _luisa_reg_dynamicmodule_load_exact = [] {
             LUISA_WARNING("Could not find system library for load_exact test.");
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_non_existent_module = [] {
+void _luisa_reg_dynamicmodule_non_existent_module() {
+
     boost::ut::detail::test{"test", "DynamicModule non-existent module"} = [] {
         auto non_existent = DynamicModule::load("definitely_not_a_real_module_name_12345");
         boost::ut::expect(static_cast<bool>(!non_existent));
@@ -257,10 +258,10 @@ static inline const auto _luisa_reg_dynamicmodule_non_existent_module = [] {
         auto addr = non_existent.address("some_function");
         boost::ut::expect(static_cast<bool>(addr == nullptr));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_dynamicmodule_function_invocation = [] {
+void _luisa_reg_dynamicmodule_function_invocation() {
+
     boost::ut::detail::test{"test", "DynamicModule function invocation"} = [] {
 #ifdef LUISA_PLATFORM_WINDOWS
         auto module = DynamicModule::load("ucrtbase");
@@ -292,7 +293,19 @@ static inline const auto _luisa_reg_dynamicmodule_function_invocation = [] {
         }
 #endif
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    _luisa_reg_dynamicmodule_empty_construction();
+    _luisa_reg_dynamicmodule_load_system_library();
+    _luisa_reg_dynamicmodule_move_semantics();
+    _luisa_reg_dynamicmodule_reset();
+    _luisa_reg_dynamicmodule_function_template();
+    _luisa_reg_dynamicmodule_search_path_management();
+    _luisa_reg_dynamicmodule_load_exact();
+    _luisa_reg_dynamicmodule_non_existent_module();
+    _luisa_reg_dynamicmodule_function_invocation();
+    return 0;
+}

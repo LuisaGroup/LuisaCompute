@@ -1305,7 +1305,7 @@ private:
                            "Unexpected intrinsic operation.");
         auto llvm_cmp = op == xir::ArithmeticOp::ISINF ?
                             b.CreateICmpEQ(llvm_and, llvm_test) :
-                            b.CreateICmpUGE(llvm_and, llvm_test);
+                            b.CreateICmpUGT(llvm_and, llvm_test);
         return _zext_i1_to_i8(b, llvm_cmp);
     }
 
@@ -2272,7 +2272,7 @@ private:
                 // step(edge, x) = x < edge ? 0 : 1 = uitofp(x >= edge)
                 auto llvm_edge = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_x = _lookup_value(current, b, inst->operand(1u));
-                auto llvm_cmp = b.CreateFCmpOGT(llvm_x, llvm_edge);
+                auto llvm_cmp = b.CreateFCmpOGE(llvm_x, llvm_edge);
                 return b.CreateUIToFP(llvm_cmp, llvm_x->getType());
             }
             case xir::ArithmeticOp::ABS: {
@@ -3004,7 +3004,8 @@ private:
                 auto llvm_inst = b.CreateSwitch(llvm_condition, llvm_default_block, switch_inst->case_count());
                 for (auto i = 0u; i < switch_inst->case_count(); i++) {
                     auto case_value = switch_inst->case_value(i);
-                    auto llvm_case_value = b.getInt32(case_value);
+                    auto llvm_case_value = b.getIntN(
+                        llvm_condition->getType()->getIntegerBitWidth(), case_value);
                     auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
                     llvm_inst->addCase(llvm_case_value, llvm_case_block);
                 }
@@ -3046,7 +3047,10 @@ private:
                 llvm_condition = b.CreateICmpNE(llvm_condition, llvm_false);
                 auto llvm_true_block = _find_or_create_basic_block(current, cond_br_inst->true_block());
                 auto llvm_false_block = _find_or_create_basic_block(current, cond_br_inst->false_block());
-                return b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
+                auto llvm_inst = b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
+                _translate_instructions_in_basic_block(current, llvm_true_block, cond_br_inst->true_block());
+                _translate_instructions_in_basic_block(current, llvm_false_block, cond_br_inst->false_block());
+                return llvm_inst;
             }
             case xir::DerivedInstructionTag::UNREACHABLE: {
                 LUISA_ASSERT(inst->type() == nullptr, "Unreachable instruction should not have a type.");
@@ -3057,7 +3061,9 @@ private:
             case xir::DerivedInstructionTag::CONTINUE: {
                 auto br_inst = static_cast<const xir::BranchTerminatorInstruction *>(inst);
                 auto llvm_target_block = _find_or_create_basic_block(current, br_inst->target_block());
-                return b.CreateBr(llvm_target_block);
+                auto llvm_inst = b.CreateBr(llvm_target_block);
+                _translate_instructions_in_basic_block(current, llvm_target_block, br_inst->target_block());
+                return llvm_inst;
             }
             case xir::DerivedInstructionTag::RETURN: {
                 auto return_inst = static_cast<const xir::ReturnInst *>(inst);

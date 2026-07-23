@@ -47,6 +47,8 @@ private:
     void TryReturnIndex(MapIndex &index, uint &originValue);
     void TryReturnIndexTex(MapIndex &index, uint &originValue);
     MapIndex AddIndex(size_t ptr);
+    template<typename T>
+    void _BindTexture(vstd::span<const T> mods);
     mutable vstd::vector<uint> freeQueue;
     mutable bool offset_setted = false;
 
@@ -60,12 +62,21 @@ public:
     bool IsPtrInBindless(size_t ptr) const {
         return ptrMap.find(ptr);
     }
+    // Caller must hold the bindless lock. Bind() updates this map in command
+    // order, so it is the dispatch-time resource snapshot for reordering.
+    template<typename F>
+    void TraversePendingResources(F &&visitor) const noexcept {
+        for (auto iter = ptrMap.begin(); iter != ptrMap.end(); ++iter) {
+            visitor(static_cast<uint64_t>(iter->first));
+        }
+    }
     using Property = vstd::variant<
         BufferView,
         std::pair<TextureBase const *, Sampler>>;
     void Bind(vstd::span<const BindlessArrayUpdateCommand::Modification> mods);
     void Bind(vstd::span<const BindlessArrayUpdateCommand::BufferModification> mods);
     void Bind(vstd::span<const BindlessArrayUpdateCommand::Texture2DModification> mods);
+    void Bind(vstd::span<const BindlessArrayUpdateCommand::Texture3DModification> mods);
     void PreProcessStates(
         CommandBufferBuilder &builder,
         EnhancedBarrierTracker &tracker) const;
@@ -86,8 +97,20 @@ public:
         CommandBufferBuilder &builder,
         EnhancedBarrierTracker &tracker,
         vstd::span<const BindlessArrayUpdateCommand::Texture2DModification> mods) const;
+    void UpdateStates(
+        CommandBufferBuilder &builder,
+        EnhancedBarrierTracker &tracker,
+        vstd::span<const BindlessArrayUpdateCommand::Texture3DModification> mods) const;
 
     DefaultBuffer const *BindlessBuffer() const { return &buffer; }
+    [[nodiscard]] uint size() const {
+        if (auto *v = typed_binded.try_get<vstd::vector<std::pair<BindlessStruct, MapIndicies>>>()) {
+            return static_cast<uint>(v->size());
+        } else if (auto *v = typed_binded.try_get<vstd::vector<MapIndex>>()) {
+            return static_cast<uint>(v->size());
+        }
+        return 0;
+    }
     Tag get_tag() const override { return Tag::BindlessArray; }
     BindlessArray(
         Device *device,

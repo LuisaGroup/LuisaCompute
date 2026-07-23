@@ -13,7 +13,7 @@
 
 #include <numeric>
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 
@@ -37,24 +37,12 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void test_runtime(Device &device_from_ut) {
+void test_runtime(Device &device) {
     luisa::log_level_verbose();
 
-    auto argv = boost::ut::detail::cfg::largv;
-    (void)device_from_ut;
-    Buffer<float> buffer;
     auto opts = luisa::test::ImageTestOptions::parse(
         boost::ut::detail::cfg::largc,
         boost::ut::detail::cfg::largv);
-
-    // Configure device with explicit settings
-    Context context{argv[0]};
-    DeviceConfig device_config{
-        .device_index = 0,
-        .inqueue_buffer_limit = false};
-    // To avoid memory overflows, the backend automatically waits 2 - 3 frames before committing,
-    // set .inqueue_buffer_limit to false when multi-stream interactions are involved
-    Device device = context.create_device(argv[1], &device_config, true /*use validation layer for debug*/);
 
     // Get statistics extension for profiling
     auto stats = device.extension<StatsExt>();
@@ -73,7 +61,6 @@ void test_runtime(Device &device_from_ut) {
     TimelineEvent graphics_event = device.create_timeline_event();
 
     static constexpr uint2 resolution = make_uint2(1024u);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
     if (!opts.offline) {
         Window window{"test runtime", resolution.x, resolution.x};
 
@@ -194,27 +181,40 @@ void test_runtime(Device &device_from_ut) {
             << ldr_image.copy_to(luisa::span{pixels})
             << synchronize();
 
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_runtime", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_runtime: {}", result.message);
-            boost::ut::expect(false) << result.message;
+        auto output_path = std::filesystem::path{opts.output_dir} / "test_runtime.png";
+        auto saved = stbi_write_png(output_path.string().c_str(),
+                                    resolution.x, resolution.y, 4,
+                                    pixels.data(), resolution.x * 4u);
+        boost::ut::expect(static_cast<bool>(saved != 0)) << "Failed to save output image.";
+        if (!saved) { return; }
+
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_runtime]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }
 }
 
-static inline const auto reg = [] {
-    "test_runtime"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_runtime(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    // Multi-stream interactions must not be throttled independently. Create
+    // the fixture device with the required configuration instead of holding
+    // a second live device inside the test body.
+    DeviceConfig device_config{
+        .device_index = 0,
+        .inqueue_buffer_limit = false};
+    auto dc = luisa::test::create_device_from_ut(
+        argc, argv, &device_config, true);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_runtime(device);
+}

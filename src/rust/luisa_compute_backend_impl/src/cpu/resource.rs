@@ -68,8 +68,15 @@ impl BindlessArrayImpl {
                     let view = &mut self.buffers[slot];
                     view.data = buffer.data as *mut u8;
                     view.size = buffer.size;
+                    assert!(m.buffer.offset <= view.size);
                     view.data = view.data.add(m.buffer.offset);
-                    view.size -= m.buffer.offset;
+                    let remaining_size = view.size - m.buffer.offset;
+                    view.size = if m.buffer.size == usize::MAX {
+                        remaining_size
+                    } else {
+                        assert!(m.buffer.size > 0 && m.buffer.size <= remaining_size);
+                        m.buffer.size
+                    };
                     view.ty = buffer.ty;
                     self.buffers[slot] = *view;
                 }

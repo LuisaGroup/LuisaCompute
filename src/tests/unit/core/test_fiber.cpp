@@ -15,17 +15,28 @@ static luisa::fiber::scheduler global_scheduler;
 
 // ---- scheduler ----
 
-static inline const auto reg_scheduler_worker_count = [] {
+// ---- event ----
+
+// ---- counter (WaitGroup) ----
+
+// ---- Future<T> ----
+
+// ---- async (void return) ----
+
+// ---- parallel ----
+
+// ---- async_parallel ----
+
+void reg_scheduler_worker_count() {
+
     "scheduler_worker_count"_test = [] {
         auto count = luisa::fiber::worker_thread_count();
         expect(count > 0u) << "worker_thread_count must be positive";
     };
-    return 0;
-}();
+}
 
-// ---- event ----
+void reg_event_manual() {
 
-static inline const auto reg_event_manual = [] {
     "event_manual_mode"_test = [] {
         luisa::fiber::event evt;
         expect(!evt.test()) << "event should not be signalled initially";
@@ -41,10 +52,10 @@ static inline const auto reg_event_manual = [] {
         evt.clear();
         expect(!evt.is_signalled()) << "event should be cleared after clear()";
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_event_wait = [] {
+void reg_event_wait() {
+
     "event_signal_wait"_test = [] {
         luisa::fiber::event evt;
 
@@ -55,10 +66,10 @@ static inline const auto reg_event_wait = [] {
         evt.wait();
         expect(evt.is_signalled());
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_event_auto_mode = [] {
+void reg_event_auto_mode() {
+
     "event_auto_mode"_test = [] {
         luisa::fiber::event evt{luisa::fiber::event::Mode::Auto, false};
         expect(!evt.test());
@@ -70,12 +81,10 @@ static inline const auto reg_event_auto_mode = [] {
         // After auto-clear, should not be signalled
         expect(!evt.is_signalled());
     };
-    return 0;
-}();
+}
 
-// ---- counter (WaitGroup) ----
+void reg_counter_basic() {
 
-static inline const auto reg_counter_basic = [] {
     "counter_basic"_test = [] {
         luisa::fiber::counter c{3};
 
@@ -89,12 +98,10 @@ static inline const auto reg_counter_basic = [] {
         c.wait();
         expect(completed.load() == 3_i) << "all 3 tasks should have completed";
     };
-    return 0;
-}();
+}
 
-// ---- Future<T> ----
+void reg_future_basic() {
 
-static inline const auto reg_future_basic = [] {
     "future_basic"_test = [] {
         luisa::fiber::Future<int> fut;
         expect(!fut.test()) << "future should not be signalled initially";
@@ -107,10 +114,10 @@ static inline const auto reg_future_basic = [] {
         auto &val = fut.wait();
         expect(val == 42_i);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_future_async = [] {
+void reg_future_async() {
+
     "future_from_async"_test = [] {
         auto fut = luisa::fiber::async([]() -> int {
             return 100;
@@ -118,10 +125,10 @@ static inline const auto reg_future_async = [] {
         auto &result = fut.wait();
         expect(result == 100_i);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_future_clear = [] {
+void reg_future_clear() {
+
     "future_clear"_test = [] {
         luisa::fiber::Future<int> fut;
         fut.signal(10);
@@ -130,10 +137,10 @@ static inline const auto reg_future_clear = [] {
         fut.clear();
         expect(!fut.isSignalled());
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_future_signal_overwrite = [] {
+void reg_future_signal_overwrite() {
+
     "future_signal_overwrite"_test = [] {
         luisa::fiber::Future<int> fut;
         fut.signal(1);
@@ -143,12 +150,10 @@ static inline const auto reg_future_signal_overwrite = [] {
         fut.signal(2);
         expect(fut.wait() == 2_i);
     };
-    return 0;
-}();
+}
 
-// ---- async (void return) ----
+void reg_async_void() {
 
-static inline const auto reg_async_void = [] {
     "async_void_return"_test = [] {
         std::atomic<bool> executed{false};
         auto evt = luisa::fiber::async([&executed]() {
@@ -157,12 +162,10 @@ static inline const auto reg_async_void = [] {
         evt.wait();
         expect(executed.load(std::memory_order_acquire)) << "async void lambda should have executed";
     };
-    return 0;
-}();
+}
 
-// ---- parallel ----
+void reg_parallel_basic() {
 
-static inline const auto reg_parallel_basic = [] {
     "parallel_basic"_test = [] {
         constexpr uint32_t N = 1000;
         std::atomic<uint32_t> sum{0};
@@ -172,10 +175,10 @@ static inline const auto reg_parallel_basic = [] {
         // sum of 0..999 = 999*1000/2 = 499500
         expect(sum.load() == 499500u);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_parallel_single_job = [] {
+void reg_parallel_single_job() {
+
     "parallel_single_job"_test = [] {
         std::atomic<int> called{0};
         luisa::fiber::parallel(1u, [&called](uint32_t) {
@@ -183,10 +186,10 @@ static inline const auto reg_parallel_single_job = [] {
         });
         expect(called.load() == 1_i);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_parallel_zero_jobs = [] {
+void reg_parallel_zero_jobs() {
+
     "parallel_zero_jobs"_test = [] {
         std::atomic<int> called{0};
         luisa::fiber::parallel(0u, [&called](uint32_t) {
@@ -194,10 +197,10 @@ static inline const auto reg_parallel_zero_jobs = [] {
         });
         expect(called.load() == 0_i) << "zero jobs should call lambda zero times";
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_parallel_range = [] {
+void reg_parallel_range() {
+
     "parallel_range_signature"_test = [] {
         // Test the (job_count, lambda(begin, end)) overload
         constexpr uint32_t N = 100;
@@ -207,12 +210,10 @@ static inline const auto reg_parallel_range = [] {
         });
         expect(total_range.load() == N);
     };
-    return 0;
-}();
+}
 
-// ---- async_parallel ----
+void reg_async_parallel() {
 
-static inline const auto reg_async_parallel = [] {
     "async_parallel_basic"_test = [] {
         constexpr uint32_t N = 500;
         std::atomic<uint32_t> sum{0};
@@ -223,10 +224,10 @@ static inline const auto reg_async_parallel = [] {
         // sum of 0..499 = 499*500/2 = 124750
         expect(sum.load() == 124750u);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_async_parallel_with_counter = [] {
+void reg_async_parallel_with_counter() {
+
     "async_parallel_with_external_counter"_test = [] {
         constexpr uint32_t N = 200;
         std::atomic<uint32_t> count{0};
@@ -238,7 +239,26 @@ static inline const auto reg_async_parallel_with_counter = [] {
         c.wait();
         expect(count.load() == N);
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_scheduler_worker_count();
+    reg_event_manual();
+    reg_event_wait();
+    reg_event_auto_mode();
+    reg_counter_basic();
+    reg_future_basic();
+    reg_future_async();
+    reg_future_clear();
+    reg_future_signal_overwrite();
+    reg_async_void();
+    reg_parallel_basic();
+    reg_parallel_single_job();
+    reg_parallel_zero_jobs();
+    reg_parallel_range();
+    reg_async_parallel();
+    reg_async_parallel_with_counter();
+    return 0;
+}

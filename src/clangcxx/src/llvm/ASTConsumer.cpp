@@ -1,5 +1,6 @@
 #include "Utils/Defer.hpp"
 #include "Utils/AttributeHelper.hpp"
+#include "Utils/ClangCompat.hpp"
 #include "ASTConsumer.h"
 
 #include <clang/AST/Stmt.h>
@@ -329,7 +330,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 return fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
             case clang::APValue::ValueKind::Struct: {
                 auto N = APV.getStructNumFields();
-                if (auto lcType = db->FindOrAddType(what->getTypeForDecl()->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
+                if (auto lcType = db->FindOrAddType(luisa::clangcxx::compat::get_type_for_decl(what)->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
                     if (lcType->is_array()) {
                         return TraverseAPArray(APV, lcType);
                     } else if (lcType->is_vector()) {
@@ -1356,13 +1357,13 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
             is_ignore |= (Method->isImplicit() && Method->isMoveAssignmentOperator());
             if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S))
                 is_ignore |= (Ctor->isImplicit() && Ctor->isCopyOrMoveConstructor());
-            is_template |= (thisType->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
+            is_template |= (luisa::clangcxx::compat::get_type_for_decl(thisType)->getTypeClass() == clang::Type::InjectedClassName);
         } else {
             clangcxx_log_error("unfound this type [{}] in method [{}]",
                                Method->getParent()->getNameAsString(), S->getNameAsString());
         }
         is_method = !is_lambda && !is_static;
-        methodThisType = Method->getParent()->getTypeForDecl()->getCanonicalTypeUnqualified();
+        methodThisType = luisa::clangcxx::compat::get_type_for_decl(Method->getParent())->getCanonicalTypeUnqualified();
     }
     for (auto param : params) {
         auto DesugaredParamType = param->getType().getNonReferenceType().getDesugaredType(*astContext);
@@ -1603,7 +1604,7 @@ bool FunctionBuilderBuilder::recursiveVisit(clang::Stmt *currStmt, compute::deta
 
 void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
-        QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
+        QualType Ty = luisa::clangcxx::compat::get_type_for_decl(S)->getCanonicalTypeInternal();
         bool ignore = S->isUnion();
         for (auto Anno : S->specific_attrs<clang::AnnotateAttr>()) {
             ignore |= isIgnore(Anno);

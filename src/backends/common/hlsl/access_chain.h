@@ -26,6 +26,7 @@ public:
         bool is_matrix : 1;
         bool is_covered_class : 1;
         bool is_array : 1;
+        bool is_cooperative_vector : 1;
     };
     struct MemberNode {
         uint member_index;
@@ -39,7 +40,7 @@ private:
     size_t _hash;
     vstd::string _func_name;
     size_t _get_hash() const;
-    static vstd::vector<Node> nodes_from_exprs(luisa::span<Expression const *const> args, bool isSpirv);
+    static std::pair<vstd::vector<Node>, Type const *> nodes_from_exprs(luisa::span<Expression const *const> args, bool isSpirv);
 
 public:
     AccessChain(

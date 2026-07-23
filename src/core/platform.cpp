@@ -19,7 +19,14 @@ static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
 
 #include <windows.h>
 #ifndef NDEBUG
+#pragma comment(lib, "dbghelp.lib")
 #include <DbgHelp.h>
+#include <csignal>
+#include <cstdlib>
+#include <exception>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
 #endif
 
 #ifdef LUISA_DISABLE_WIN_MESSAGE_BOX
@@ -151,7 +158,11 @@ luisa::string demangle(const char *name) noexcept {
 luisa::vector<TraceItem> backtrace() noexcept {
     void *stack[100];
     auto process = GetCurrentProcess();
-    SymInitialize(process, nullptr, true);
+    static bool sym_initialized = false;
+    if (!sym_initialized) {
+        SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+        sym_initialized = SymInitialize(process, nullptr, TRUE);
+    }
     auto frame_count = CaptureStackBackTrace(0, 100, stack, nullptr);
 
     struct Symbol : SYMBOL_INFO {
@@ -185,6 +196,56 @@ luisa::vector<TraceItem> backtrace() noexcept {
     }
     return trace;
 }
+
+namespace platform_detail {
+
+void print_stack_trace() {
+    auto trace = luisa::backtrace();
+    std::cerr << "----- Stack Trace (" << trace.size() << " frames) -----\n";
+    for (size_t i = 0; i < trace.size(); ++i) {
+        std::cerr << "  [" << std::setw(2) << i << "] ";
+        if (!trace[i].symbol.empty()) {
+            std::cerr << trace[i].symbol;
+        } else {
+            std::cerr << "0x" << std::hex << trace[i].address << std::dec;
+        }
+        if (!trace[i].module.empty() && trace[i].module != "???") {
+            std::cerr << "  at " << trace[i].module << "+0x" << std::hex << trace[i].offset << std::dec;
+        }
+        std::cerr << "\n";
+    }
+    std::cerr << "----- End Stack Trace -----\n";
+}
+
+LONG WINAPI UnhandledExceptionFilter(EXCEPTION_POINTERS * /*exc*/) {
+    std::cerr << "!!! Unhandled structured exception !!!\n";
+    print_stack_trace();
+    ExitProcess(1);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void OnTerminate() {
+    std::cerr << "!!! std::terminate called (uncaught exception) !!!\n";
+    print_stack_trace();
+    ExitProcess(1);
+}
+
+void OnSigAbort(int) {
+    std::cerr << "!!! SIGABRT / std::abort() called !!!\n";
+    print_stack_trace();
+    _exit(3);
+}
+
+struct StackTracerInit {
+    StackTracerInit() noexcept {
+        SetUnhandledExceptionFilter(UnhandledExceptionFilter);
+        std::set_terminate(OnTerminate);
+        std::signal(SIGABRT, OnSigAbort);
+    }
+} stack_tracer_init;
+
+}// namespace platform_detail
+
 #else
 luisa::vector<TraceItem> backtrace() noexcept { return {}; }
 #endif

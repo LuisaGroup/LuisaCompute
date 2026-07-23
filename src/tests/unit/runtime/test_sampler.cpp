@@ -1,92 +1,185 @@
+// Deterministic bindless-sampler test.
+//
+// The source texture is analytic and small. Stored sampler state is checked for
+// point and bilinear filtering plus edge, repeat, mirror, and zero addressing.
+// Results are read back and compared with an independent normalized-coordinate
+// host sampler instead of being dumped to an unverified image.
+
 #include "ut/ut.hpp"
 #include "test_device.h"
-#include <stb/stb_image.h>
-#include <stb/stb_image_write.h>
-#include <stb/stb_image_resize2.h>
 
-#include <luisa/core/logging.h>
-#include <luisa/runtime/context.h>
-#include <luisa/runtime/device.h>
-#include <luisa/runtime/stream.h>
-#include <luisa/runtime/event.h>
-#include <luisa/dsl/syntax.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+
+#include <luisa/luisa-compute.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void test_sampler(Device &device) {
+namespace {
 
-    log_level_verbose();
+constexpr auto texture_size = 4u;
 
-    Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return heap.tex2d(0u).sample(uv, mip);
-    };
+enum Output : uint32_t {
+    point_interior,
+    point_edge,
+    point_repeat,
+    point_mirror,
+    point_zero,
+    bilinear_center,
+    bilinear_repeat_edge,
+    size_query,
+    output_count
+};
 
-    Kernel2D fill_image_kernel = [&](BindlessVar heap, ImageVar<float> image) noexcept {
-        Var coord = dispatch_id().xy();
-        Var uv = make_float2(coord) * 2.f / make_float2(dispatch_size().xy());
-        Var r = length(uv - 0.5f);
-        Var t = luisa::compute::log(sin(sqrt(r) * 100.0f - constants::pi_over_two) + 2.0f);
-        image.write(coord, sample(heap, 2.0f * uv - make_float2(0.5f), t * 7.0f));
-    };
-
-    auto fill_image = device.compile(fill_image_kernel);
-
-    BindlessArray heap = device.create_bindless_array();
-    int image_width = 0;
-    int image_height = 0;
-    int image_channels = 0;
-    stbi_uc *image_pixels = stbi_load("test_path_tracing.png", &image_width, &image_height, &image_channels, 4);
-    Image<float> texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 0u);
-    Image<float> device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
-    luisa::vector<uint8_t> host_image(1024u * 1024u * 4u);
-
-    Event event = device.create_event();
-    Stream stream = device.create_stream();
-    luisa::vector<uint8_t> mipmaps(image_width * image_height * 4u * 2);
-    stbi_uc *in_pixels = image_pixels;
-    uint8_t *out_pixels = mipmaps.data();
-
-    // generate mip-maps
-    stream << heap.emplace_on_update(0u, texture, Sampler::linear_linear_mirror()).update()
-           << texture.copy_from(luisa::span{image_pixels, static_cast<size_t>(image_width * image_height * 4)});
-
-    LUISA_INFO("Mip Level: {}", texture.mip_levels());
-
-    for (uint i = 1u; i < texture.mip_levels(); i++) {
-        uint half_w = std::max(image_width / 2, 1);
-        uint half_h = std::max(image_height / 2, 1);
-        stbir_resize(
-            in_pixels, image_width, image_height, 0,
-            out_pixels, half_w, half_h, 0,
-            STBIR_RGBA, STBIR_TYPE_UINT8_SRGB,
-            STBIR_EDGE_REFLECT, STBIR_FILTER_MITCHELL);
-        image_width = half_w;
-        image_height = half_h;
-        // stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
-        stream << texture.view(i).copy_from(luisa::span{out_pixels, static_cast<size_t>(image_width * image_height * 4)});
-        in_pixels = out_pixels;
-        out_pixels += image_width * image_height * 4u;
-    }
-
-    stream << fill_image(heap, device_image).dispatch(make_uint2(1024u))
-           << device_image.copy_to(luisa::span{host_image})
-           << synchronize();
-    expect(true) << "sampler test completed";
-
-    stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
+[[nodiscard]] float4 texel(uint32_t x, uint32_t y) noexcept {
+    return make_float4(
+        static_cast<float>(x + 1u) * (1.0f / 16.0f),
+        static_cast<float>(y + 1u) * (1.0f / 16.0f),
+        static_cast<float>(x + 4u * y) * (1.0f / 32.0f),
+        1.0f);
 }
 
-static inline const auto reg = [] {
-    "sampler"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_sampler(device);
-    };
-    return 0;
-}();
+[[nodiscard]] int positive_mod(int x, int modulus) noexcept {
+    auto value = x % modulus;
+    return value < 0 ? value + modulus : value;
+}
 
-int main() {}
+[[nodiscard]] float4 fetch(int x, int y, Sampler::Address address) noexcept {
+    constexpr auto size = static_cast<int>(texture_size);
+    auto address_one = [address](int value, bool &valid) noexcept {
+        switch (address) {
+            case Sampler::Address::EDGE:
+                return std::clamp(value, 0, size - 1);
+            case Sampler::Address::REPEAT:
+                return positive_mod(value, size);
+            case Sampler::Address::MIRROR: {
+                auto mirrored = positive_mod(value, 2 * size);
+                return mirrored < size ? mirrored : 2 * size - 1 - mirrored;
+            }
+            case Sampler::Address::ZERO:
+                if (value < 0 || value >= size) { valid = false; }
+                return std::clamp(value, 0, size - 1);
+        }
+        valid = false;
+        return 0;
+    };
+    auto valid = true;
+    x = address_one(x, valid);
+    y = address_one(y, valid);
+    return valid ? texel(static_cast<uint32_t>(x), static_cast<uint32_t>(y)) :
+                   make_float4(0.0f);
+}
+
+[[nodiscard]] float4 sample_point(float2 uv, Sampler::Address address) noexcept {
+    auto x = static_cast<int>(std::floor(uv.x * texture_size));
+    auto y = static_cast<int>(std::floor(uv.y * texture_size));
+    return fetch(x, y, address);
+}
+
+[[nodiscard]] float4 sample_linear(float2 uv, Sampler::Address address) noexcept {
+    auto px = uv.x * texture_size - 0.5f;
+    auto py = uv.y * texture_size - 0.5f;
+    auto x0 = static_cast<int>(std::floor(px));
+    auto y0 = static_cast<int>(std::floor(py));
+    auto tx = px - static_cast<float>(x0);
+    auto ty = py - static_cast<float>(y0);
+    auto v00 = fetch(x0, y0, address);
+    auto v10 = fetch(x0 + 1, y0, address);
+    auto v01 = fetch(x0, y0 + 1, address);
+    auto v11 = fetch(x0 + 1, y0 + 1, address);
+    auto vx0 = v00 + (v10 - v00) * tx;
+    auto vx1 = v01 + (v11 - v01) * tx;
+    return vx0 + (vx1 - vx0) * ty;
+}
+
+[[nodiscard]] float max_error(float4 a, float4 b) noexcept {
+    auto d = abs(a - b);
+    return std::max(std::max(d.x, d.y), std::max(d.z, d.w));
+}
+
+}// namespace
+
+void test_sampler(Device &device) {
+    auto texture = device.create_image<float>(
+        PixelStorage::FLOAT4, make_uint2(texture_size));
+    luisa::vector<float4> source(texture_size * texture_size);
+    for (auto y = 0u; y < texture_size; y++) {
+        for (auto x = 0u; x < texture_size; x++) {
+            source[y * texture_size + x] = texel(x, y);
+        }
+    }
+
+    auto heap = device.create_bindless_array(6u);
+    auto output = device.create_buffer<float4>(output_count);
+    std::array<float4, output_count> actual{};
+    auto stream = device.create_stream();
+    stream << texture.copy_from(luisa::span{source})
+           << heap.emplace_on_update(0u, texture, Sampler::point_edge())
+                  .emplace_on_update(1u, texture, Sampler::point_repeat())
+                  .emplace_on_update(2u, texture, Sampler::point_mirror())
+                  .emplace_on_update(3u, texture, Sampler::point_zero())
+                  .emplace_on_update(4u, texture, Sampler::linear_point_edge())
+                  .emplace_on_update(5u, texture, Sampler::linear_point_repeat())
+                  .update();
+
+    constexpr auto interior_uv = make_float2(0.30f, 0.60f);
+    constexpr auto outside_uv = make_float2(-0.40f, 1.40f);
+    constexpr auto center_uv = make_float2(0.50f, 0.50f);
+    constexpr auto repeat_edge_uv = make_float2(0.0f, 0.50f);
+    Kernel1D check_sampler = [&](BindlessVar bindless,
+                                 BufferFloat4 result) noexcept {
+        result.write(static_cast<uint32_t>(point_interior),
+                     bindless.tex2d(0u).sample(interior_uv));
+        result.write(static_cast<uint32_t>(point_edge),
+                     bindless.tex2d(0u).sample(outside_uv));
+        result.write(static_cast<uint32_t>(point_repeat),
+                     bindless.tex2d(1u).sample(outside_uv));
+        result.write(static_cast<uint32_t>(point_mirror),
+                     bindless.tex2d(2u).sample(outside_uv));
+        result.write(static_cast<uint32_t>(point_zero),
+                     bindless.tex2d(3u).sample(outside_uv));
+        result.write(static_cast<uint32_t>(bilinear_center),
+                     bindless.tex2d(4u).sample(center_uv));
+        result.write(static_cast<uint32_t>(bilinear_repeat_edge),
+                     bindless.tex2d(5u).sample(repeat_edge_uv));
+        auto size = bindless.tex2d(0u).size();
+        result.write(static_cast<uint32_t>(size_query),
+                     make_float4(cast<float>(size.x), cast<float>(size.y),
+                                 0.0f, 0.0f));
+    };
+    auto shader = device.compile(check_sampler);
+    stream << shader(heap, output).dispatch(1u)
+           << output.copy_to(luisa::span{actual})
+           << synchronize();
+
+    std::array<float4, output_count> expected{
+        sample_point(interior_uv, Sampler::Address::EDGE),
+        sample_point(outside_uv, Sampler::Address::EDGE),
+        sample_point(outside_uv, Sampler::Address::REPEAT),
+        sample_point(outside_uv, Sampler::Address::MIRROR),
+        sample_point(outside_uv, Sampler::Address::ZERO),
+        sample_linear(center_uv, Sampler::Address::EDGE),
+        sample_linear(repeat_edge_uv, Sampler::Address::REPEAT),
+        make_float4(static_cast<float>(texture_size),
+                    static_cast<float>(texture_size), 0.0f, 0.0f)};
+
+    constexpr auto epsilon = 1.0e-5f;
+    for (auto i = 0u; i < output_count; i++) {
+        auto error = max_error(actual[i], expected[i]);
+        expect(static_cast<bool>(error <= epsilon))
+            << "sampler result " << i << " must match the host oracle; max error " << error;
+    }
+}
+
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    auto &device = dc->device;
+    test_sampler(device);
+}

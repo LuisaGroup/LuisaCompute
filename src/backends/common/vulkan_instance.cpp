@@ -17,20 +17,29 @@ static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEX
                                            VkDebugUtilsMessageTypeFlagsEXT types,
                                            const VkDebugUtilsMessengerCallbackDataEXT *data,
                                            void * /* user data */) noexcept {
+    auto should_suppress = [&]() noexcept {
+        using namespace std::string_view_literals;
+        auto name = luisa::string_view{data->pMessageIdName};
+        if ((types & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) &&
+            name == "UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout"sv) {
+            return true;
+        }
+        // False positive when using host-signaled timeline semaphores for
+        // cross-API synchronization (e.g., HIP/CUDA → Vulkan present).
+        // The validation layer cannot track that the timeline wait in
+        // vkQueueSubmit guarantees the image is in the correct layout.
+        if (name == "VUID-VkPresentInfoKHR-pImageIndices-01430"sv) {
+            return true;
+        }
+        return false;
+    };
+    if (should_suppress()) { return VK_FALSE; }
     if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
         LUISA_WARNING("Vulkan Validation Error (ID = {}): {}",
                       data->pMessageIdName, data->pMessage);
     } else {
-        auto is_image_layout_warning = [&]() noexcept {
-            using namespace std::string_view_literals;
-            constexpr auto name = "UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout"sv;
-            return (types & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) &&
-                   data->pMessageIdName == name;
-        };
-        if (!is_image_layout_warning()) {
-            LUISA_WARNING("Vulkan Validation Message (ID = {}): {}",
-                          data->pMessageIdName, data->pMessage);
-        }
+        LUISA_WARNING("Vulkan Validation Message (ID = {}): {}",
+                      data->pMessageIdName, data->pMessage);
     }
     return VK_FALSE;
 }

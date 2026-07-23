@@ -188,14 +188,16 @@ namespace detail {
     // other types to bool, implemented as src != 0
     if (dst_elem_type->is_bool()) {
         auto zero = llvm::Constant::getNullValue(llvm_src->getType());
-        return b.CreateICmpNE(llvm_src, zero, llvm_src->getName().str() + ".to.bool");
+        return src_elem_type->is_float() ?
+                   b.CreateFCmpUNE(llvm_src, zero, llvm_src->getName().str() + ".to.bool") :
+                   b.CreateICmpNE(llvm_src, zero, llvm_src->getName().str() + ".to.bool");
     }
     // bool to other types, implemented as selection
     if (src_elem_type->is_bool()) {
         auto llvm_zero = llvm::Constant::getNullValue(llvm_dst_type);
-        auto llvm_one = dst_elem_type->is_int() ?
-                            llvm::ConstantInt::get(llvm_dst_type, 1) :
-                            llvm::ConstantFP::get(llvm_dst_type, 1.);
+        auto llvm_one = dst_elem_type->is_float() ?
+                            static_cast<llvm::Constant *>(llvm::ConstantFP::get(llvm_dst_type, 1.)) :
+                            static_cast<llvm::Constant *>(llvm::ConstantInt::get(llvm_dst_type, 1));
         return b.CreateSelect(llvm_src, llvm_one, llvm_zero, llvm_src->getName().str() + ".from.bool");
     }
     struct ScalarTraits {

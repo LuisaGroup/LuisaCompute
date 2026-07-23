@@ -6,11 +6,14 @@
 
 namespace luisa::compute::xir {
 
-// This pass will outline all outline instructions in the module.
-// Information about the outlined functions will be returned.
+// Region outlining is not implemented yet. The pass detects OutlineInst,
+// leaves structured control flow unchanged, and reports an explicit failure
+// instead of silently claiming success.
 
 struct OutlineInfo {
     size_t outlined_func_count{0u};
+    size_t unsupported_outline_count{0u};
+    [[nodiscard]] bool succeeded() const noexcept { return unsupported_outline_count == 0u; }
 };
 
 LUISA_XIR_API OutlineInfo outline_pass_run_on_function(Module *module, Function *function) noexcept;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <volk.h>
+#include "queue_family_contract.h"
 #include "vk_mem_alloc.h"
 #include <luisa/core/basic_types.h>
 #include <luisa/vstl/vector.h>
@@ -31,10 +32,13 @@ struct SparseAllocResult {
 };
 class VkAllocator {
     VmaAllocator _allocator;
+    detail::QueueFamilySharingPlan _queue_family_sharing;
 public:
     auto allocator() const { return _allocator; }
     VkAllocator(Device &device);
     ~VkAllocator();
+    void apply_queue_sharing(VkBufferCreateInfo &info) const noexcept;
+    void apply_queue_sharing(VkImageCreateInfo &info) const noexcept;
     AllocatedBuffer allocate_buffer(size_t byte_size, VkBufferUsageFlagBits usage, AccessType access);
     AllocatedImage allocate_image(
         VkImageType dimension,

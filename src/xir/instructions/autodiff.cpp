@@ -6,8 +6,16 @@
 
 namespace luisa::compute::xir {
 
-AutodiffScopeInst::AutodiffScopeInst(BasicBlock *parent_block) noexcept : Super{parent_block} {
+AutodiffScopeInst::AutodiffScopeInst(BasicBlock *parent_block, bool forward, size_t n_forward_grads) noexcept
+    : Super{parent_block}, _forward{forward}, _n_forward_grads{forward ? n_forward_grads : 0u} {
+    LUISA_ASSERT(!forward || n_forward_grads > 0u, "Forward autodiff scope requires at least one gradient slot.");
     set_operands(std::array{static_cast<Value *>(nullptr)});
+}
+
+void AutodiffScopeInst::set_forward(bool forward, size_t n_forward_grads) noexcept {
+    LUISA_ASSERT(!forward || n_forward_grads > 0u, "Forward autodiff scope requires at least one gradient slot.");
+    _forward = forward;
+    _n_forward_grads = forward ? n_forward_grads : 0u;
 }
 
 void AutodiffScopeInst::set_entry_block(BasicBlock *block) noexcept {
@@ -32,7 +40,7 @@ const BasicBlock *AutodiffScopeInst::entry_block() const noexcept {
 }
 
 AutodiffScopeInst *AutodiffScopeInst::clone(XIRBuilder &b, InstructionCloneValueResolver &resolver) const noexcept {
-    auto cloned = b.autodiff_scope();
+    auto cloned = b.autodiff_scope(is_forward(), n_forward_grads());
     auto resolved_entry_block = resolver.resolve(entry_block());
     LUISA_DEBUG_ASSERT(resolved_entry_block == nullptr || resolved_entry_block->isa<BasicBlock>(), "Invalid entry block.");
     cloned->set_entry_block(static_cast<BasicBlock *>(resolved_entry_block));

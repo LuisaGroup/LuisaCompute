@@ -74,8 +74,14 @@ llvm::Value *HIPCodegenLLVMImpl::_read_warp_size(IB &b, const FunctionContext &)
 
 llvm::Value *HIPCodegenLLVMImpl::_read_warp_lane_id(IB &b, const FunctionContext &) const noexcept {
     auto llvm_i32_type = b.getInt32Ty();
-    auto llvm_result = b.CreateIntrinsic(llvm_i32_type, llvm::Intrinsic::amdgcn_workitem_id_x, {}, {}, "sreg.warp.lane.id");
-    return llvm_result;
+    auto llvm_lane_id_lo = b.CreateIntrinsic(llvm_i32_type, llvm::Intrinsic::amdgcn_mbcnt_lo,
+                                             {b.getInt32(~0u), b.getInt32(0u)}, {},
+                                             _config.wave_size == 32u ? "sreg.warp.lane.id" : "sreg.warp.lane.id.lo");
+    if (_config.wave_size == 64u) {
+        return b.CreateIntrinsic(llvm_i32_type, llvm::Intrinsic::amdgcn_mbcnt_hi,
+                                 {b.getInt32(~0u), llvm_lane_id_lo}, {}, "sreg.warp.lane.id");
+    }
+    return llvm_lane_id_lo;
 }
 
 llvm::Value *HIPCodegenLLVMImpl::_read_kernel_id(IB &, const FunctionContext &func_ctx) noexcept {
