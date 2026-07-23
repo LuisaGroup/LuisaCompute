@@ -212,6 +212,8 @@ luisa_compute_add_test(test_8bit                   unit/dsl/test_8bit.cpp)
 luisa_compute_add_test(test_polymorphic            unit/dsl/test_polymorphic.cpp)
 luisa_compute_add_test(test_dsl_autodiff           unit/dsl/test_autodiff.cpp)
 luisa_compute_add_test(test_async_copy              unit/dsl/test_async_copy.cpp)
+luisa_compute_add_test(test_async_copy_cuda        unit/runtime/test_async_copy_cuda.cpp)
+luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_launch_control.cpp)
 
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_accel_build_modes   unit/runtime/test_accel_build_modes.cpp)

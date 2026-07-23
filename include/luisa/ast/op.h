@@ -515,6 +515,23 @@ enum struct CallOp : uint32_t {
     // Async group copy
     ASYNC_COPY,/// [(uint scope, ref dst, ref src, uint elem_bytes, uint num, uint stride, uint event) -> uint]: async group copy
 
+    // Async copy pipeline control (CUDA LDGSTS, CC 8.0+)
+    PIPELINE_COMMIT,     // (): void — commit pending async copies
+    PIPELINE_WAIT_PRIOR,  // (prior_stages: uint): void — wait for pipeline stages
+
+    // Cluster Launch Control (CUDA Blackwell, SM 10.0+)
+    CLUSTER_LAUNCH_CONTROL_TRY_CANCEL,      // (result: ref<uint4>, bar: ref<uint64>): void — single-block try_cancel
+    CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST, // (result: ref<uint4>, bar: ref<uint64>): void — cluster-wide multicast
+    CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED,    // (result: uint4): bool
+    CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X,     // (result: uint4): int
+    CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y,     // (result: uint4): int
+    CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z,     // (result: uint4): int
+    MBARRIER_INIT,                                // (bar: ref<uint64>, count: uint): void
+    MBARRIER_ARRIVE_EXPECT_TX,                    // (bar: ref<uint64>, tx_bytes: uint): void
+    MBARRIER_TRY_WAIT_PARITY,                     // (bar: ref<uint64>, phase: int): bool
+    FENCE_PROXY_ASYNC_ACQUIRE,                    // (): void — fence.proxy.async with acquire
+    FENCE_PROXY_ASYNC_RELEASE,                    // (): void — fence.proxy.async with release
+
     // Clock
     CLOCK,// (): uint64
 };
@@ -570,6 +587,13 @@ static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
                          CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
             value <= luisa::to_underlying(
                          CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS));
+}
+
+/// Returns whether the operation is a cluster launch control or mbarrier operation.
+[[nodiscard]] constexpr auto uses_cluster_launch_control(CallOp op) noexcept {
+    auto v = to_underlying(op);
+    return v >= to_underlying(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) &&
+           v <= to_underlying(CallOp::FENCE_PROXY_ASYNC_RELEASE);
 }
 class Expression;
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept;
@@ -694,6 +718,19 @@ public:
                test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) ||
                test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD) ||
                test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE);
+    }
+    [[nodiscard]] auto uses_cluster_launch_control() const noexcept {
+        return test(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z) ||
+               test(CallOp::MBARRIER_INIT) ||
+               test(CallOp::MBARRIER_ARRIVE_EXPECT_TX) ||
+               test(CallOp::MBARRIER_TRY_WAIT_PARITY) ||
+               test(CallOp::FENCE_PROXY_ASYNC_ACQUIRE) ||
+               test(CallOp::FENCE_PROXY_ASYNC_RELEASE);
     }
 };
 

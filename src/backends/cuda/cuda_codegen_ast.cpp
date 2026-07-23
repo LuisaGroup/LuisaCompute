@@ -922,6 +922,17 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
         case CallOp::INVERSE: _scratch << "lc_inverse"; break;
         case CallOp::SYNCHRONIZE_BLOCK: _scratch << "lc_synchronize_block"; break;
+        case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL: _scratch << "lc_clc_try_cancel"; break;
+        case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST: _scratch << "lc_clc_try_cancel_multicast"; break;
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED: _scratch << "lc_clc_query_is_canceled"; break;
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X: _scratch << "lc_clc_query_get_ctaid_x"; break;
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y: _scratch << "lc_clc_query_get_ctaid_y"; break;
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z: _scratch << "lc_clc_query_get_ctaid_z"; break;
+        case CallOp::MBARRIER_INIT: _scratch << "lc_mbarrier_init"; break;
+        case CallOp::MBARRIER_ARRIVE_EXPECT_TX: _scratch << "lc_mbarrier_arrive_expect_tx"; break;
+        case CallOp::MBARRIER_TRY_WAIT_PARITY: _scratch << "lc_mbarrier_try_wait_parity"; break;
+        case CallOp::FENCE_PROXY_ASYNC_ACQUIRE: _scratch << "lc_fence_proxy_async_acquire"; break;
+        case CallOp::FENCE_PROXY_ASYNC_RELEASE: _scratch << "lc_fence_proxy_async_release"; break;
         case CallOp::ADDRESS_OF: _scratch << "lc_address_of"; break;
         case CallOp::ATOMIC_EXCHANGE: _scratch << "lc_atomic_exchange"; break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "lc_atomic_compare_exchange"; break;
@@ -1226,7 +1237,29 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::ASYNC_COPY: LUISA_NOT_IMPLEMENTED();
+        case CallOp::ASYNC_COPY: {
+            // Emit: lc_pipeline_memcpy_async(dst, src, num * elem_bytes)
+            // AST args: [scope, dst, src, elem_bytes, num, stride, event]
+            _scratch << "lc_pipeline_memcpy_async(";
+            args[1]->accept(*this);  // dst (shared memory pointer)
+            _scratch << ", ";
+            args[2]->accept(*this);  // src (global memory pointer)
+            _scratch << ", ";
+            // size = num * elem_bytes
+            args[4]->accept(*this);  // num
+            _scratch << " * ";
+            args[3]->accept(*this);  // elem_bytes
+            _scratch << ")";
+            return;
+        }
+        case CallOp::PIPELINE_COMMIT:
+            _scratch << "lc_pipeline_commit()";
+            return;
+        case CallOp::PIPELINE_WAIT_PRIOR:
+            _scratch << "lc_pipeline_wait_prior(";
+            args[0]->accept(*this);
+            _scratch << ")";
+            return;
         case CallOp::CLOCK: _scratch << "clock64"; break;
     }
     _scratch << "(";

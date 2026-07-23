@@ -85,6 +85,24 @@ void CallExpr::_mark() const noexcept {
                     _arguments[i]->mark(Usage::READ);
                 }
                 break;
+            case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL:
+            case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST:
+                _arguments[0]->mark(Usage::WRITE);
+                _arguments[1]->mark(Usage::READ_WRITE);
+                break;
+            case CallOp::MBARRIER_INIT:
+            case CallOp::MBARRIER_ARRIVE_EXPECT_TX:
+                _arguments[0]->mark(Usage::WRITE);
+                for (size_t i = 1; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
+            case CallOp::MBARRIER_TRY_WAIT_PARITY:
+                _arguments[0]->mark(Usage::READ_WRITE);
+                for (size_t i = 1; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
             default:
                 for (auto arg : _arguments) {
                     arg->mark(Usage::READ);

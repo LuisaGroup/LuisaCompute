@@ -24,4 +24,5 @@
 #include <luisa/dsl/rtx/curve.h>
 
 #include <luisa/dsl/dispatch_indirect.h>
+#include <luisa/dsl/cluster_launch_control.h>
 

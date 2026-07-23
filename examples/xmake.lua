@@ -62,6 +62,8 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
+    example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
+    example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)

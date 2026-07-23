@@ -1,6 +1,7 @@
 // Runtime capability probe for CallOp::ASYNC_COPY.
 // Device execution is intentionally skipped until the AST and XIR type
 // systems can represent the event and pointer types required by SPIR-V.
+// CUDA async copy execution is tested in test_async_copy_cuda.cpp.
 
 #include "ut/ut.hpp"
 #include "test_device.h"

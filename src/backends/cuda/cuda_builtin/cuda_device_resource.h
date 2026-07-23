@@ -2437,6 +2437,92 @@ __device__ void lc_synchronize_block() noexcept {
     __syncthreads();
 }
 
+// === Cluster Launch Control (CUDA Blackwell SM 10.0+) ===
+
+// Initialize mbarrier with arrival count
+__device__ inline void lc_mbarrier_init(uint64_t *bar, uint32_t count) noexcept {
+    asm("mbarrier.init.shared.b64 [%0], %1;"
+        :: "l"(bar), "r"(count));
+}
+
+// Arrive on mbarrier with expected transaction count
+__device__ inline void lc_mbarrier_arrive_expect_tx(
+    uint64_t *bar, uint32_t tx_bytes) noexcept {
+    asm("mbarrier.arrive.expect_tx.shared.b64 _, [%0], %1;"
+        :: "l"(bar), "r"(tx_bytes));
+}
+
+// Try-wait on mbarrier with parity
+__device__ inline bool lc_mbarrier_try_wait_parity(
+    uint64_t *bar, uint32_t phase) noexcept {
+    uint32_t result;
+    asm("mbarrier.try_wait.parity.shared.b64 %0, [%1], %2;"
+        : "=r"(result) : "l"(bar), "r"(phase));
+    return result != 0;
+}
+
+// Proxy fence acquire (before cancellation)
+__device__ inline void lc_fence_proxy_async_acquire() noexcept {
+    asm("fence.proxy.async.acquire;");
+}
+
+// Proxy fence release (after reading result)
+__device__ inline void lc_fence_proxy_async_release() noexcept {
+    asm("fence.proxy.async.release;");
+}
+
+// Try cancel — single thread block via invoke_one
+__device__ inline void lc_clc_try_cancel(uint4 *result, uint64_t *bar) noexcept {
+    asm("clusterlaunchcontrol.try_cancel.shared.b64 [%0], [%1];"
+        :: "l"(result), "l"(bar));
+}
+
+// Try cancel — multicast (cluster-wide)
+__device__ inline void lc_clc_try_cancel_multicast(uint4 *result, uint64_t *bar) noexcept {
+    asm("clusterlaunchcontrol.try_cancel.multicast.shared.b64 [%0], [%1];"
+        :: "l"(result), "l"(bar));
+}
+
+// Query — is canceled
+__device__ inline bool lc_clc_query_is_canceled(uint4 result) noexcept {
+    uint32_t r;
+    asm("clusterlaunchcontrol.query_cancel.is_canceled.b32 %0, [%1];"
+        : "=r"(r) : "l"(&result));
+    return r != 0;
+}
+
+// Query — get first ctaid x/y/z
+__device__ inline int lc_clc_query_get_ctaid_x(uint4 result) noexcept {
+    int bx;
+    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_x.s32 %0, [%1];"
+        : "=r"(bx) : "l"(&result));
+    return bx;
+}
+__device__ inline int lc_clc_query_get_ctaid_y(uint4 result) noexcept {
+    int by;
+    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_y.s32 %0, [%1];"
+        : "=r"(by) : "l"(&result));
+    return by;
+}
+__device__ inline int lc_clc_query_get_ctaid_z(uint4 result) noexcept {
+    int bz;
+    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_z.s32 %0, [%1];"
+        : "=r"(bz) : "l"(&result));
+    return bz;
+}
+
+// Async copy wrappers (optional thin wrappers for NVRTC compatibility)
+__device__ inline void lc_pipeline_memcpy_async(
+    void *dst, const void *src, size_t size) noexcept {
+    __pipeline_memcpy_async(dst, src, size);
+}
+__device__ inline void lc_pipeline_commit() noexcept {
+    __pipeline_commit();
+}
+__device__ inline void lc_pipeline_wait_prior(uint32_t n) noexcept {
+    __pipeline_wait_prior(n);
+}
+
 #endif
 
 // autodiff
