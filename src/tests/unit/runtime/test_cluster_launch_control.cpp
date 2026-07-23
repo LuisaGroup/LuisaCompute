@@ -37,7 +37,7 @@ void test_clc_vector_scalar_multiply(Device &device) {
         set_block_size(block_size, 1u, 1u);
 
         Shared<uint4> result{1};
-        Shared<ulong> bar{1};
+        Shared<luisa::ulong> bar{1};
         $int phase = 0;
 
         // Initialize barrier from thread 0

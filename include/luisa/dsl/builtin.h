@@ -1982,11 +1982,11 @@ inline void sync_block() noexcept {
 inline void async_copy(Expr<uint> scope, Expr<uint> dst, Expr<uint> src,
                        Expr<uint> elem_bytes, Expr<uint> num,
                        Expr<uint> stride, Expr<uint> event) noexcept {
-    detail::FunctionBuilder::current()->call(
+    static_cast<void>(detail::FunctionBuilder::current()->call(
         Type::of<uint>(), CallOp::ASYNC_COPY,
         {scope.expression(), dst.expression(), src.expression(),
          elem_bytes.expression(), num.expression(),
-         stride.expression(), event.expression()});
+         stride.expression(), event.expression()}));
 }
 
 /// Commit pending async copies in the pipeline (CUDA).
