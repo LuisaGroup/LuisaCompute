@@ -12,12 +12,13 @@
 namespace lc::spirv {
 
 struct SpirvOptimizerOptions {
-    int level{2};
+    int level{4};
     luisa::string preset;
+    unsigned max_iterations{5};
 };
 
 struct SpirvOptimizerReport {
-    int requested_level{2};
+    int requested_level{4};
     luisa::string requested_preset;
     luisa::string effective_preset;
     luisa::string diagnostics;

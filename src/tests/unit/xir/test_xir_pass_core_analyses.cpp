@@ -8,9 +8,12 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/call_graph.h>
 #include <luisa/xir/passes/uniformity_analysis.h>
+
+#include "../../../../src/xir/passes/natural_loop.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -119,10 +122,115 @@ void reg_uniformity_analysis() {
     };
 }
 
+void reg_natural_loop_discovery() {
+    "natural_loop_discovers_counted_loop_with_bounds"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *def = kernel->definition();
+        auto *entry = kernel->create_body_block();
+        auto *header = def->create_basic_block();
+        auto *latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        auto *one = module.create_constant_one(Type::of<uint>());
+        uint32_t bound_value = 10u;
+        auto *bound = module.create_constant(Type::of<uint>(), &bound_value);
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.br(header);
+        b.set_insertion_point(header);
+        auto *iv = b.phi(Type::of<uint>());
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, bound});
+        b.cond_br(cond, latch, exit);
+        b.set_insertion_point(latch);
+        auto *next = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD, {iv, one});
+        b.br(header);
+        b.set_insertion_point(exit);
+        b.return_void();
+        iv->add_incoming(zero, entry);
+        iv->add_incoming(next, latch);
+
+        auto dom_tree = compute_dom_tree(kernel);
+        auto loops = discover_natural_loops(def, dom_tree);
+        expect(loops.size() == 1u);
+        auto &loop = loops.front();
+        expect(loop.header == header);
+        expect(loop.preheader == entry);
+        expect(loop.latches.size() == 1u && loop.latches.front() == latch);
+        expect(loop.body_blocks.size() == 1u && loop.body_blocks.front() == latch);
+        expect(loop.exit_blocks.size() == 1u && loop.exit_blocks.front() == exit);
+        expect(loop.back_edges.size() == 1u);
+
+        auto bounds = analyze_loop_bounds(loop);
+        expect(bounds.is_valid());
+        expect(bounds.induction_phi == iv);
+        expect(bounds.start_value == zero);
+        expect(bounds.bound_value == bound);
+        expect(bounds.stride_is_constant && bounds.stride == 1);
+        expect(bounds.trip_count_is_constant);
+        expect(bounds.constant_trip_count == 10u);
+    };
+
+    "natural_loop_orders_inner_loops_first"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *def = kernel->definition();
+        auto *entry = kernel->create_body_block();
+        auto *outer_header = def->create_basic_block();
+        auto *inner_header = def->create_basic_block();
+        auto *inner_latch = def->create_basic_block();
+        auto *outer_latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        auto *cond_value = module.create_constant_one(Type::of<bool>());
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.br(outer_header);
+        b.set_insertion_point(outer_header);
+        b.cond_br(cond_value, inner_header, exit);
+        b.set_insertion_point(inner_header);
+        b.cond_br(cond_value, inner_latch, outer_latch);
+        b.set_insertion_point(inner_latch);
+        b.br(inner_header);
+        b.set_insertion_point(outer_latch);
+        b.br(outer_header);
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        auto dom_tree = compute_dom_tree(kernel);
+        auto loops = discover_natural_loops(def, dom_tree);
+        expect(loops.size() == 2u);
+        // inner loop first: its body is a subset of the outer loop body
+        expect(loops[0].header == inner_header);
+        expect(loops[1].header == outer_header);
+        expect(loops[1].contains(inner_header));
+        expect(loops[1].contains(inner_latch));
+        expect(!loops[0].contains(outer_latch));
+        // outer_header also branches to the exit, so the inner loop has no
+        // single-successor preheader until the edge is split
+        expect(loops[0].preheader == nullptr);
+        expect(loops[1].preheader == entry);
+    };
+
+    "natural_loop_reports_no_loop_in_straight_line_cfg"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+        auto dom_tree = compute_dom_tree(kernel);
+        auto loops = discover_natural_loops(kernel->definition(), dom_tree);
+        expect(loops.empty());
+    };
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     reg_call_graph();
     reg_uniformity_analysis();
+    reg_natural_loop_discovery();
     return 0;
 }

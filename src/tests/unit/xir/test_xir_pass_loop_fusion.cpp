@@ -1,6 +1,7 @@
 // Test for the conservative XIR loop-fusion contract.
 
 #include "ut/ut.hpp"
+#include <luisa/core/logging.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/loop.h>
@@ -11,7 +12,10 @@
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/gep.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/passes/loop_fusion.h>
+#include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -174,8 +178,183 @@ void reg_loop_fusion() {
     };
 }
 
+namespace {
+
+struct PlainCountedLoop {
+    BasicBlock *preheader;
+    BasicBlock *header;
+    BasicBlock *latch;
+    BasicBlock *exit;
+    PhiInst *iv;
+};
+
+// Build one counted loop whose body writes a constant to `buffer` at `iv`.
+// Returns the blocks so tests can chain another loop at `exit`.
+// The loop's exit block is created fresh; it becomes the next loop's
+// preheader when chaining loops, or the function exit for the last one.
+[[nodiscard]] PlainCountedLoop build_plain_counted_loop(
+    Module &m, XIRBuilder &b, BasicBlock *preheader,
+    uint32_t bound_value, ResourceArgument *buffer,
+    bool write_constant_body) noexcept {
+    PlainCountedLoop loop;
+    loop.preheader = preheader;
+    auto *defn = preheader->parent_function();
+    loop.header = defn->create_basic_block();
+    loop.latch = defn->create_basic_block();
+    loop.exit = defn->create_basic_block();
+    auto *zero = m.create_constant_zero(Type::of<uint>());
+    auto *one = m.create_constant_one(Type::of<uint>());
+    auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+    auto *one_f = m.create_constant_one(Type::of<float>());
+
+    b.set_insertion_point(preheader);
+    b.br(loop.header);
+    b.set_insertion_point(loop.header);
+    loop.iv = b.phi(Type::of<uint>());
+    auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                        {loop.iv, bound});
+    b.cond_br(cond, loop.latch, loop.exit);
+    b.set_insertion_point(loop.latch);
+    if (write_constant_body) {
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, loop.iv, one_f});
+    }
+    auto *next = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                        {loop.iv, one});
+    b.br(loop.header);
+    loop.iv->add_incoming(zero, preheader);
+    loop.iv->add_incoming(next, loop.latch);
+    return loop;
+}
+
+void expect_module_valid(Module &m) noexcept {
+    auto verification = xir_verify_module(&m);
+    expect(verification.succeeded())
+        << (verification.errors.empty() ? "unknown XIR verification error" :
+                                          verification.errors.front().message.c_str());
+}
+
+[[nodiscard]] size_t count_cond_br(FunctionDefinition *def) noexcept {
+    auto count = 0u;
+    def->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<ConditionalBranchInst>()) { count++; }
+    });
+    return count;
+}
+
+}// namespace
+
+void reg_loop_fusion_plain_cfg() {
+
+    "plain_adjacent_loops_fuse_into_one_loop"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        auto *buf_a = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *buf_b = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        XIRBuilder b;
+        auto loop1 = build_plain_counted_loop(m, b, entry, 8u, buf_a, true);
+        auto loop2 = build_plain_counted_loop(m, b, loop1.exit, 8u, buf_b, true);
+        b.set_insertion_point(loop2.exit);
+        b.return_void();
+
+        auto info = loop_fusion_pass_run_on_function(k);
+        expect(info.fused_loop_count == 1u);
+        // one conditional branch remains (the fused loop's check)
+        expect(count_cond_br(k->definition()) == 1u);
+        // both buffer writes are still present
+        auto write_count = 0u;
+        k->definition()->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ResourceWriteInst>()) { write_count++; }
+        });
+        expect(write_count == 2u);
+        expect_module_valid(m);
+    };
+
+    "plain_loops_with_different_trip_counts_do_not_fuse"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        auto *buf_a = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *buf_b = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        XIRBuilder b;
+        auto loop1 = build_plain_counted_loop(m, b, entry, 8u, buf_a, true);
+        auto loop2 = build_plain_counted_loop(m, b, loop1.exit, 16u, buf_b, true);
+        b.set_insertion_point(loop2.exit);
+        b.return_void();
+
+        auto info = loop_fusion_pass_run_on_function(k);
+        expect(info.fused_loop_count == 0u);
+        expect(count_cond_br(k->definition()) == 2u);
+        expect_module_valid(m);
+    };
+
+    "plain_loops_with_write_read_dependence_do_not_fuse"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        auto *buf_a = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        XIRBuilder b;
+        auto loop1 = build_plain_counted_loop(m, b, entry, 8u, buf_a, true);
+        // second loop READS the buffer the first loop writes
+        auto *def = k->definition();
+        auto *preheader2 = loop1.exit;
+        auto *header2 = def->create_basic_block();
+        auto *latch2 = def->create_basic_block();
+        auto *exit2 = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        uint32_t bound_value = 8u;
+        auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+        b.set_insertion_point(preheader2);
+        b.br(header2);
+        b.set_insertion_point(header2);
+        auto *iv2 = b.phi(Type::of<uint>());
+        auto *cond2 = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv2, bound});
+        b.cond_br(cond2, latch2, exit2);
+        b.set_insertion_point(latch2);
+        auto *read = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ, {buf_a, iv2});
+        static_cast<void>(read);
+        auto *next2 = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD, {iv2, one});
+        b.br(header2);
+        iv2->add_incoming(zero, preheader2);
+        iv2->add_incoming(next2, latch2);
+        b.set_insertion_point(exit2);
+        b.return_void();
+
+        auto info = loop_fusion_pass_run_on_function(k);
+        expect(info.fused_loop_count == 0u);
+        expect_module_valid(m);
+    };
+
+    "plain_three_adjacent_loops_fuse_into_one"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        auto *buf_a = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *buf_b = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *buf_c = k->create_resource_argument(Type::buffer(Type::of<float>()));
+        XIRBuilder b;
+        auto loop1 = build_plain_counted_loop(m, b, entry, 8u, buf_a, true);
+        auto loop2 = build_plain_counted_loop(m, b, loop1.exit, 8u, buf_b, true);
+        auto loop3 = build_plain_counted_loop(m, b, loop2.exit, 8u, buf_c, true);
+        b.set_insertion_point(loop3.exit);
+        b.return_void();
+
+        auto info = loop_fusion_pass_run_on_function(k);
+        expect(info.fused_loop_count == 2u);
+        expect(count_cond_br(k->definition()) == 1u);
+        auto write_count = 0u;
+        k->definition()->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ResourceWriteInst>()) { write_count++; }
+        });
+        expect(write_count == 3u);
+        expect_module_valid(m);
+    };
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_loop_fusion();
+    reg_loop_fusion_plain_cfg();
     return 0;
 }

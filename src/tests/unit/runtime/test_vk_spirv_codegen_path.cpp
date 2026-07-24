@@ -5277,11 +5277,13 @@ OpName %8 "Fma"
             << "bitcast regression should emit exactly one native SPIR-V dump";
         if (dumps.size() == 1u) {
             auto disassembly = read_text_file(dumps.front());
-            // Mandatory XIR scalarization expands the component-wise
-            // uint4-to-float4 cast into four scalar casts. The three
-            // scalar/vector shape-changing casts remain single instructions.
-            expect(count_spirv_opcode(disassembly, "Bitcast") == 7u)
-                << "SPIR-V opt0 must preserve the four scalarized lane casts "
+            // With the scalarizer disabled by default, the component-wise
+            // uint4-to-float4 cast stays a single vector Bitcast; the three
+            // scalar/vector shape-changing casts are also single
+            // instructions. (With LUISA_XIR_ENABLE_SCALARIZER=1 the lane
+            // cast scalarizes into four casts, i.e. seven Bitcasts total.)
+            expect(count_spirv_opcode(disassembly, "Bitcast") == 4u)
+                << "SPIR-V opt0 must preserve the vector lane cast "
                    "and three width-preserving shape casts";
         }
     };
@@ -6492,6 +6494,69 @@ OpName %8 "Fma"
             expect(count_spirv_extended_instruction(disassembly, "FMin") == 0u);
             expect(count_spirv_extended_instruction(disassembly, "FMax") == 0u);
             expect(count_spirv_extended_instruction(disassembly, "FClamp") == 0u);
+        }
+    };
+
+    "vk_user_compute_normalize_length_lower_to_native_spirv"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_native_normalize_length"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input = dc.device.create_buffer<float4>(2u);
+        auto normalized = dc.device.create_buffer<float4>(1u);
+        auto lengths = dc.device.create_buffer<float>(1u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferFloat4 in,
+                             BufferFloat4 out_n,
+                             BufferFloat out_l) noexcept {
+            auto v = in.read(0u);
+            auto w = in.read(1u);
+            out_n.write(0u, normalize(v));
+            out_l.write(0u, length(w));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array input_values{float4{1.0f, 2.0f, 3.0f, 4.0f},
+                                float4{3.0f, 4.0f, 0.0f, 0.0f}};
+        std::array<float4, 1u> normalized_result{};
+        std::array<float, 1u> length_result{};
+        stream << input.copy_from(luisa::span{input_values})
+               << shader(input, normalized, lengths).dispatch(1u)
+               << normalized.copy_to(luisa::span{normalized_result})
+               << lengths.copy_to(luisa::span{length_result})
+               << synchronize();
+        auto expected_len = std::sqrt(1.0f + 4.0f + 9.0f + 16.0f);
+        auto n = normalized_result[0];
+        expect(std::abs(n.x - 1.0f / expected_len) < 1e-5f);
+        expect(std::abs(n.y - 2.0f / expected_len) < 1e-5f);
+        expect(std::abs(n.z - 3.0f / expected_len) < 1e-5f);
+        expect(std::abs(n.w - 4.0f / expected_len) < 1e-5f);
+        expect(std::abs(length_result[0] - 5.0f) < 1e-5f);
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "native normalize/length lowering should emit one SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_extended_instruction(disassembly, "Normalize") == 0u)
+                << "vector normalize must lower to native SPIR-V, not GLSL.std.450";
+            expect(count_spirv_extended_instruction(disassembly, "Length") == 0u)
+                << "vector length must lower to native SPIR-V, not GLSL.std.450";
+            expect(count_spirv_opcode(disassembly, "Dot") == 2u)
+                << "normalize and length must each emit one OpDot";
+            expect(count_spirv_opcode(disassembly, "VectorTimesScalar") == 1u)
+                << "normalize must scale the vector by the reciprocal length";
+            expect(count_spirv_opcode(disassembly, "FDiv") == 1u)
+                << "normalize must emit one scalar reciprocal OpFDiv";
         }
     };
 

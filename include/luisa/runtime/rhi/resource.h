@@ -160,6 +160,16 @@ struct ShaderOption {
     ///   massive instance counts (>2^24) in acceleration structures. Only has
     ///   effect on the Metal backend; other backends ignore this option.
     bool enable_extended_accel_limits{false};
+    /// \brief Whether to enable the XIR scalarizer in the SPIR-V optimization
+    ///   pipeline.
+    /// \details The scalarizer decomposes vector operations into scalar
+    ///   components. It is disabled by default: measurements on the Vulkan
+    ///   backend show that keeping vectors intact preserves GVN/CSE
+    ///   effectiveness and produces ~10% smaller SPIR-V modules. Only has
+    ///   effect on backends compiling through the XIR-to-SPIR-V pipeline.
+    ///   The `LUISA_XIR_ENABLE_SCALARIZER` environment variable, when set,
+    ///   overrides this field.
+    bool enable_scalarizer{false};
     /// \brief A user-defined name for the shader.
     /// \details If provided, the shader will be read from or written to disk
     ///   via the `BinaryIO` object (passed to backends on device creation)

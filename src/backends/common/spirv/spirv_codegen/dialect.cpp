@@ -2610,4 +2610,101 @@ validate_spirv_xir_codegen_dialect(
     return DialectValidator{options}.validate(module);
 }
 
+bool validate_spirv_no_redundant_glsl_ext_inst(
+    const std::vector<uint32_t> &spirv,
+    luisa::string *diagnostic) noexcept {
+    // SPIR-V binary layout constants (stable across spec versions).
+    constexpr auto op_ext_inst_import = 11u;
+    constexpr auto op_ext_inst = 12u;
+    constexpr auto op_type_vector = 23u;
+    // GLSL.std.450 extended instruction numbers with native SPIR-V
+    // equivalents emitted by this codegen.
+    constexpr auto glsl_std450_length = 66u;
+    constexpr auto glsl_std450_normalize = 69u;
+    constexpr auto header_word_count = 5u;
+
+    if (spirv.size() < header_word_count) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "SPIR-V module is smaller than the fixed header";
+        }
+        return false;
+    }
+    uint32_t glsl_import_id = 0u;
+    luisa::unordered_set<uint32_t> vector_type_ids;
+    struct ExtInstUse {
+        uint32_t result_type_id;
+        uint32_t result_id;
+        uint32_t set_id;
+        uint32_t instruction;
+    };
+    luisa::vector<ExtInstUse> ext_inst_uses;
+    auto offset = size_t{header_word_count};
+    while (offset < spirv.size()) {
+        auto first_word = spirv[offset];
+        auto word_count = first_word >> 16u;
+        auto opcode = first_word & 0xffffu;
+        if (word_count == 0u || offset + word_count > spirv.size()) {
+            if (diagnostic != nullptr) {
+                *diagnostic = luisa::format(
+                    "malformed SPIR-V instruction at word {}", offset);
+            }
+            return false;
+        }
+        auto *words = spirv.data() + offset;
+        switch (opcode) {
+            case op_ext_inst_import: {
+                // words: [0] wc|opcode, [1] result id, [2..] literal string
+                if (word_count >= 3u) {
+                    luisa::string name;
+                    for (auto i = 2u; i < word_count; ++i) {
+                        auto w = words[i];
+                        for (auto b = 0u; b < 4u; ++b) {
+                            auto c = static_cast<char>((w >> (b * 8u)) & 0xffu);
+                            if (c == '\0') { break; }
+                            name.push_back(c);
+                        }
+                    }
+                    if (name == "GLSL.std.450") { glsl_import_id = words[1]; }
+                }
+                break;
+            }
+            case op_type_vector: {
+                // words: [0] wc|opcode, [1] result id, ...
+                if (word_count >= 2u) { vector_type_ids.emplace(words[1]); }
+                break;
+            }
+            case op_ext_inst: {
+                // words: [0] wc|opcode, [1] result type, [2] result id,
+                //        [3] set, [4] instruction, [5..] operands
+                if (word_count >= 5u) {
+                    ext_inst_uses.push_back(ExtInstUse{
+                        .result_type_id = words[1],
+                        .result_id = words[2],
+                        .set_id = words[3],
+                        .instruction = words[4]});
+                }
+                break;
+            }
+            default: break;
+        }
+        offset += word_count;
+    }
+    if (glsl_import_id == 0u) { return true; }
+    for (auto use : ext_inst_uses) {
+        if (use.set_id != glsl_import_id) { continue; }
+        if (use.instruction != glsl_std450_length &&
+            use.instruction != glsl_std450_normalize) { continue; }
+        if (!vector_type_ids.contains(use.result_type_id)) { continue; }
+        if (diagnostic != nullptr) {
+            *diagnostic = luisa::format(
+                "redundant GLSL.std.450 {} (result id {}) with vector result "
+                "type survived native SPIR-V lowering",
+                use.instruction == glsl_std450_length ? "Length" : "Normalize",
+                use.result_id);
+        }
+        return false;
+    }
+    return true;
+}
+
 }// namespace lc::spirv

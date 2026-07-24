@@ -834,18 +834,45 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::DOT:
             id = mark_no_contraction(binary(spv::Op::OpDot));
             break;
-        case xir::ArithmeticOp::LENGTH:
-            id = glsl(GLSLstd450Length, operand(0));
+        case xir::ArithmeticOp::LENGTH: {
+            // Lower to native SPIR-V: sqrt(dot(v, v)). The native form lets
+            // downstream optimizers CSE the dot product with sibling
+            // LENGTH_SQUARED/NORMALIZE/DOT emissions, which an opaque
+            // GLSL.std.450 ExtInst would block.
+            auto a = operand(0);
+            if (inst->operand(0)->type()->is_vector()) {
+                auto dot = mark_no_contraction(
+                    _builder.createBinOp(spv::Op::OpDot, type, a, a));
+                id = make_glsl_call(GLSLstd450Sqrt, type, {dot});
+            } else {
+                id = glsl(GLSLstd450Length, a);
+            }
             break;
+        }
         case xir::ArithmeticOp::LENGTH_SQUARED: {
             auto a = operand(0);
             id = mark_no_contraction(
                 _builder.createBinOp(spv::Op::OpDot, type, a, a));
             break;
         }
-        case xir::ArithmeticOp::NORMALIZE:
-            id = glsl(GLSLstd450Normalize, operand(0));
+        case xir::ArithmeticOp::NORMALIZE: {
+            // Lower to native SPIR-V: v * (1 / sqrt(dot(v, v))).
+            auto a = operand(0);
+            if (t->is_vector()) {
+                auto scalar_type = _builder.getScalarTypeId(type);
+                auto dot = mark_no_contraction(
+                    _builder.createBinOp(spv::Op::OpDot, scalar_type, a, a));
+                auto len = make_glsl_call(GLSLstd450Sqrt, scalar_type, {dot});
+                auto one = make_float_scalar_constant(elem, 1.0);
+                auto rcp = _builder.createBinOp(
+                    spv::Op::OpFDiv, scalar_type, one, len);
+                id = _builder.createBinOp(
+                    spv::Op::OpVectorTimesScalar, type, a, rcp);
+            } else {
+                id = glsl(GLSLstd450Normalize, a);
+            }
             break;
+        }
         case xir::ArithmeticOp::FACEFORWARD:
             id = glsl(GLSLstd450FaceForward, operand(0), operand(1), operand(2));
             break;

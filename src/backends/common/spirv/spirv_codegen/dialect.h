@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
@@ -130,5 +131,15 @@ validate_spirv_xir_kernel_abi(
 validate_spirv_xir_codegen_dialect(
     const xir::Module *module,
     SpirvXIRDialectValidationOptions options = {}) noexcept;
+
+// Validates that an emitted SPIR-V module contains no GLSL.std.450 extended
+// instructions for operations the codegen lowers to native SPIR-V (vector
+// Normalize and vector Length). Scalar forms legitimately remain ExtInst
+// uses and are not flagged. Returns true when no redundant ExtInst remains;
+// on failure, `diagnostic` (when non-null) receives a description of the
+// first offending instruction.
+[[nodiscard]] bool validate_spirv_no_redundant_glsl_ext_inst(
+    const std::vector<uint32_t> &spirv,
+    luisa::string *diagnostic = nullptr) noexcept;
 
 }// namespace lc::spirv

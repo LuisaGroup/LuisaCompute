@@ -1,5 +1,6 @@
 #include "entry.h"
 #include "call_graph_validation.h"
+#include "dialect.h"
 #include "ray_query_lifetime.h"
 #include "argument_usage.h"
 #include "instruction_layout.h"
@@ -1597,6 +1598,12 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
 
     std::vector<uint32_t> spirv;
     _builder.dump(spirv);
+    luisa::string ext_inst_diagnostic;
+    LUISA_ASSERT(
+        validate_spirv_no_redundant_glsl_ext_inst(spirv, &ext_inst_diagnostic),
+        "SPIR-V dialect validation failed: {}",
+        ext_inst_diagnostic.empty() ? "unknown redundant GLSL.std.450 ExtInst" :
+                                      luisa::string_view{ext_inst_diagnostic});
     std::ostringstream oss;
     spv::Disassemble(oss, spirv);
     _scratch << oss.str();

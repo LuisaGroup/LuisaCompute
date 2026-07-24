@@ -1719,7 +1719,45 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
                 });
             }
         };
+        // A bottom-checked (e.g. rotated) loop carries a conditional branch
+        // in its latch and post-dominates through it; only then may the
+        // forward collection sweep genuine exit blocks into the body.
+        auto any_conditional_latch = false;
+        for (auto *latch : valid_latches) {
+            if (latch->is_terminated() &&
+                latch->terminator()->isa<ConditionalBranchInst>()) {
+                any_conditional_latch = true;
+                break;
+            }
+        }
         collect_forward_loop_blocks();
+        if (boundary_is_loop_internal && any_conditional_latch) {
+            // Prune blocks that cannot reach the header or a latch; they are
+            // outside the natural loop.
+            luisa::unordered_set<BasicBlock *> reaching;
+            luisa::vector<BasicBlock *> reach_work;
+            reaching.emplace(header);
+            for (auto *latch : valid_latches) {
+                if (reaching.emplace(latch).second) {
+                    reach_work.emplace_back(latch);
+                }
+            }
+            while (!reach_work.empty()) {
+                auto *cur = reach_work.back();
+                reach_work.pop_back();
+                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    if (pred == nullptr || !loop_blocks.contains(pred)) { return; }
+                    if (reaching.emplace(pred).second) {
+                        reach_work.emplace_back(pred);
+                    }
+                });
+            }
+            luisa::vector<BasicBlock *> pruned;
+            for (auto *lb : loop_blocks) {
+                if (!reaching.contains(lb)) { pruned.emplace_back(lb); }
+            }
+            for (auto *lb : pruned) { loop_blocks.erase(lb); }
+        }
         if (!all_latches_in_loop() || loop_has_internal_exit()) {
             collect_natural_loop_blocks();
         }
@@ -1914,10 +1952,39 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
             }
         }
 
-        if (canonical_latch->is_terminated()) {
-            canonical_latch->terminator()->remove_self();
+        // A bottom-checked (rotated) loop carries its only exit condition in
+        // the latch. Preserve it as a conditional break/continue through a
+        // proxy instead of dropping the condition with the forced back-edge.
+        auto latch_keeps_conditional_exit = false;
+        if (canonical_latch->is_terminated() &&
+            canonical_latch->terminator()->isa<ConditionalBranchInst>()) {
+            auto *cb = static_cast<ConditionalBranchInst *>(
+                canonical_latch->terminator());
+            auto *tb = cb->true_block();
+            auto *fb = cb->false_block();
+            auto *exit_arm = tb == header && fb == loop_merge ? fb :
+                             fb == header && tb == loop_merge ? tb :
+                                                                nullptr;
+            if (exit_arm != nullptr) {
+                auto *proxy = def->create_basic_block();
+                {
+                    XIRBuilder pb;
+                    pb.set_insertion_point(proxy);
+                    pb.br(loop_merge);
+                }
+                if (exit_arm == fb) {
+                    cb->set_false_target(proxy);
+                } else {
+                    cb->set_true_target(proxy);
+                }
+                loop_blocks.emplace(proxy);
+                latch_keeps_conditional_exit = true;
+            }
         }
-        {
+        if (!latch_keeps_conditional_exit) {
+            if (canonical_latch->is_terminated()) {
+                canonical_latch->terminator()->remove_self();
+            }
             XIRBuilder b;
             b.set_insertion_point(canonical_latch);
             b.br(header);
