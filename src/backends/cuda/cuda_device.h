@@ -2,6 +2,7 @@
 
 #include <cuda.h>
 
+#include <luisa/core/stl/functional.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 #include "cuda_error.h"
@@ -126,7 +127,7 @@ private:
         luisa::span<const char *const> nvrtc_options,
         const CUDAShaderMetadata &expected_metadata,
         luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
-        luisa::string force_ptx = {}) noexcept;
+        luisa::function<luisa::string()> generate_ptx = {}) noexcept;
 
 public:
     CUDADevice(Context &&ctx, size_t device_id, const BinaryIO *io, bool use_lmdb,

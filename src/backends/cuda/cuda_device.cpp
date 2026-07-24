@@ -771,7 +771,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
                                                        luisa::span<const char *const> nvrtc_options,
                                                        const CUDAShaderMetadata &expected_metadata,
                                                        luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
-                                                       luisa::string force_ptx) noexcept {
+                                                       luisa::function<luisa::string()> generate_ptx) noexcept {
 
     // generate a default name if not specified
     auto uses_user_path = !name.empty();
@@ -783,11 +783,6 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
 
     // try disk cache
     auto ptx = [&] {
-        if (!force_ptx.empty()) {
-            return luisa::vector<std::byte>{
-                reinterpret_cast<std::byte *>(force_ptx.data()),
-                reinterpret_cast<std::byte *>(force_ptx.data()) + force_ptx.size() + 1};
-        }
         luisa::unique_ptr<BinaryStream> ptx_stream;
         luisa::unique_ptr<BinaryStream> metadata_stream;
         if (uses_user_path) {
@@ -801,6 +796,37 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
             metadata_stream.get(), ptx_stream.get(),
             name, false, expected_metadata);
     }();
+
+    const auto write_cache = [&](luisa::span<const std::byte> ptx_data) {
+        auto metadata = luisa::format(
+            "// METADATA: {}\n\n",
+            serialize_cuda_shader_metadata(expected_metadata));
+        luisa::span metadata_data{
+            reinterpret_cast<const std::byte *>(metadata.data()),
+            metadata.size()};
+        if (uses_user_path) {
+            static_cast<void>(_io->write_shader_bytecode(name, ptx_data));
+            static_cast<void>(
+                _io->write_shader_bytecode(metadata_name, metadata_data));
+        } else if (option.enable_cache) {
+            static_cast<void>(_io->write_shader_cache(name, ptx_data));
+            static_cast<void>(
+                _io->write_shader_cache(metadata_name, metadata_data));
+        }
+    };
+
+    // LLVM codegen is deliberately lazy: cached PTX must be checked before
+    // translating AST to XIR and running the LLVM optimization pipeline.
+    if (ptx.empty() && generate_ptx) {
+        luisa::string generated = generate_ptx();
+        if (!generated.empty()) {
+            ptx.assign(
+                reinterpret_cast<const std::byte *>(generated.data()),
+                reinterpret_cast<const std::byte *>(generated.data()) +
+                    generated.size() + 1u);
+            write_cache(luisa::span{ptx.data(), ptx.size()});
+        }
+    }
 
     // compile if not found in cache
     if (ptx.empty()) {
@@ -817,16 +843,9 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
         luisa::string src_filename{src_dump_path.string()};
         ptx = _compiler->compile(source, src_filename, nvrtc_options, &expected_metadata);
         if (!ptx.empty()) {
-            luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
-            auto metadata = luisa::format("// METADATA: {}\n\n", serialize_cuda_shader_metadata(expected_metadata));
-            luisa::span metadata_data{reinterpret_cast<const std::byte *>(metadata.data()), metadata.size()};
-            if (uses_user_path) {
-                static_cast<void>(_io->write_shader_bytecode(name, ptx_data));
-                static_cast<void>(_io->write_shader_bytecode(metadata_name, metadata_data));
-            } else if (option.enable_cache) {
-                static_cast<void>(_io->write_shader_cache(name, ptx_data));
-                static_cast<void>(_io->write_shader_cache(metadata_name, metadata_data));
-            }
+            luisa::span ptx_data{
+                reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
+            write_cache(ptx_data);
         }
     }
 
@@ -872,22 +891,31 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 
     // codegen
     StringScratch scratch;
-    luisa::string ptx_from_llvm;
+    luisa::function<luisa::string()> generate_ptx;
     auto print_formats = [&] {
 #ifdef LUISA_ENABLE_XIR
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
         if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN) {
-            auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option, false);
-            CUDACodegenLLVMConfig config{
-                .source_file = option.name,
-                .bindings = kernel.bound_arguments(),
-                .block_size = {kernel.block_size().x, kernel.block_size().y, kernel.block_size().z},
-                .cuda_arch = _handle.compute_capability(),
-                .enable_fast_math = option.enable_fast_math,
-                .enable_debug_info = option.enable_debug_info,
+            generate_ptx = [this, &kernel, &option] {
+                auto xir_module =
+                    luisa_cuda_backend_translate_ast_to_xir(
+                        kernel, option, false);
+                CUDACodegenLLVMConfig config{
+                    .source_file = option.name,
+                    .bindings = kernel.bound_arguments(),
+                    .block_size = {
+                        kernel.block_size().x,
+                        kernel.block_size().y,
+                        kernel.block_size().z},
+                    .cuda_arch = _handle.compute_capability(),
+                    .enable_fast_math = option.enable_fast_math,
+                    .enable_debug_info = option.enable_debug_info,
+                };
+                return luisa_compute_cuda_codegen_llvm(
+                    *xir_module, config);
             };
-            ptx_from_llvm = luisa_compute_cuda_codegen_llvm(*xir_module, config);
-            return CUDACodegenXIR::PrintFormatVector{};
+            // Keep emitting the canonical NVRTC source below. Its source and
+            // options define the existing CUDA shader cache identity.
         }
 #endif
         if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN) {
@@ -1054,7 +1082,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     return _load_or_compile_shader(option.name, scratch.string(),
                                    option, nvrtc_options,
                                    metadata, std::move(bound_arguments),
-                                   ptx_from_llvm);
+                                   std::move(generate_ptx));
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
