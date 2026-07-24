@@ -102,7 +102,7 @@ xmake f --policies=build.sanitizer.address,build.sanitizer.undefined -c -y
 - `lc_dx_backend` is silently disabled on non-Windows platforms
 - `lc_metal_backend` is silently disabled on non-macOS platforms
 - `lc_cuda_backend` is silently disabled outside Windows/Linux
-- Vulkan compute shader codegen options are mutually exclusive: keep `lc_vk_backend_use_xir_spirv=true` for the default native SPIR-V path, or set it to `false` before enabling `lc_vk_backend_use_ast_llvm_spirv=true`.
+- PCH (precompiled header) error like `has been modified since the precompiled header` / `redefinition of ...` means the target's PCH is stale — use `xmake build -r <target>` to force a clean rebuild of that target.
 
 # Xmake Target Writing Tutorial
 

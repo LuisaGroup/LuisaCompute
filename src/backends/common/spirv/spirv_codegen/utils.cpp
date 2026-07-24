@@ -23,7 +23,6 @@
 #include <luisa/xir/passes/div_rem_pairs.h>
 #include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/fix_self_referential.h>
-#include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/if_conversion.h>
 #include <luisa/xir/passes/indvar_simplify.h>
@@ -31,10 +30,6 @@
 #include <luisa/xir/passes/licm.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/loop_fusion.h>
-#include <luisa/xir/passes/loop_rotation.h>
-#include <luisa/xir/passes/loop_unroll.h>
-#include <luisa/xir/passes/loop_vectorization.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/mem2reg.h>
@@ -48,7 +43,6 @@
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/simplify_libcalls.h>
-#include <luisa/xir/passes/slp_vectorization.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/trace_gep.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
@@ -223,21 +217,6 @@ namespace {
     return true;
 }
 
-// Scalarizer control knob. Measured on test_complex_kernel (49 kernels,
-// value-verified on GPU) and example_path_tracing_nested_callable: skipping
-// the scalarizer keeps GVN/CSE effective and shrinks the emitted SPIR-V
-// (~10% fewer instructions on the path tracing kernels, -45 OpCompositeExtract
-// and -41 OpExtInst), so the scalarizer is disabled by default in the
-// structured optimization pipeline. Set ShaderOption::enable_scalarizer or
-// LUISA_XIR_ENABLE_SCALARIZER=1 to restore the legacy behavior; the
-// environment variable, when set, overrides the shader option.
-[[nodiscard]] bool scalarizer_disabled(const ShaderOption &option) noexcept {
-    if (auto env = std::getenv("LUISA_XIR_ENABLE_SCALARIZER")) {
-        return luisa::string_view{env} != "1";
-    }
-    return !option.enable_scalarizer;
-}
-
 [[nodiscard]] bool has_autodiff_scope(const xir::Module *module) noexcept {
     auto found = false;
     for (auto f : module->function_list()) {
@@ -291,27 +270,10 @@ void verify_xir_or_error(
     // intentionally deferred to the final explicitly destructured interval;
     // otherwise a constant Loop.prepare condition can be rewritten before its
     // owner is lowered.
-    // SLP before scalarizer: it creates vector ops that scalarizer would
-    // otherwise decompose back into scalar components.
-    // SLP before scalarizer: it creates vector ops that scalarizer would
-    // otherwise decompose back into scalar components.
-    pipeline.add("slp-vectorization", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::slp_vectorization_pass_run_on_module(m, &r);
-        return i.vectorized_tree_count > 0u;
+    pipeline.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::scalarizer_pass_run_on_module(m, &r);
+        return i.scalarized_inst_count > 0u;
     });
-    // Coalesce adjacent byte-addressed buffer transactions into wider vector
-    // ones while they are still visible as separate operations.
-    pipeline.add("fuse-consecutive-buffer-reads", [](xir::Module *m,
-                                                     xir::PassReport &r) {
-        auto i = xir::fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
-        return i.fused_group_count > 0u;
-    });
-    if (!scalarizer_disabled(option)) {
-        pipeline.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::scalarizer_pass_run_on_module(m, &r);
-            return i.scalarized_inst_count > 0u;
-        });
-    }
     pipeline.add("trace-gep", [](xir::Module *m, xir::PassReport &) {
         auto i = xir::trace_gep_pass_run_on_module(m);
         return i.traced_gep_count > 0u;
@@ -324,38 +286,28 @@ void verify_xir_or_error(
         auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
         return i.removed_load_count > 0u;
     });
-    // Fixed-point simplify group: algebraic-simplify → const-fold → reassociate
-    // → cvp, iterated up to 3× to catch cascading simplifications. GVN stays
-    // after SROA (below) so it can value-number across decomposed allocas.
-    pipeline.add_fixed_point(
-        "simplify-group",
-        [&]() {
-            xir::PassPipeline sp;
-            sp.add("algebraic-simplify", [algebraic_options](
-                                               xir::Module *m,
-                                               xir::PassReport &r) {
-                auto i = xir::algebraic_simplify_pass_run_on_module(
-                    m, algebraic_options, &r);
-                return i.simplified_inst_count > 0u;
-            });
-            sp.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::const_fold_pass_run_on_module(m, &r);
-                return i.folded_inst_count > 0u;
-            });
-            sp.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::reassociate_pass_run_on_module(m, &r);
-                return i.reassociated_inst_count > 0u;
-            });
-            sp.add("cvp", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::cvp_pass_run_on_module(m, &r);
-                return i.replaced_inst_count > 0u;
-            });
-            return sp;
-        }(),
-        3u);
+    pipeline.add("algebraic-simplify", [algebraic_options](
+                                           xir::Module *m,
+                                           xir::PassReport &r) {
+        auto i = xir::algebraic_simplify_pass_run_on_module(
+            m, algebraic_options, &r);
+        return i.simplified_inst_count > 0u;
+    });
     pipeline.add("simplify-libcalls", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::simplify_libcalls_pass_run_on_module(m, &r);
         return i.simplified_count > 0u;
+    });
+    pipeline.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::reassociate_pass_run_on_module(m, &r);
+        return i.reassociated_inst_count > 0u;
+    });
+    pipeline.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::const_fold_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
+    });
+    pipeline.add("cvp", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::cvp_pass_run_on_module(m, &r);
+        return i.replaced_inst_count > 0u;
     });
     pipeline.add("indvar-simplify", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::indvar_simplify_pass_run_on_module(m, &r);
@@ -378,7 +330,6 @@ void verify_xir_or_error(
         auto i = xir::sroa_pass_run_on_module(m, options, &r);
         return i.decomposed_alloca_count > 0u;
     });
-    // GVN after SROA: value-number across decomposed element loads/stores.
     pipeline.add("gvn", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::gvn_pass_run_on_module(m, &r);
         return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
@@ -611,34 +562,6 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
             auto i = xir::mem2reg_pass_run_on_module(m, &r);
             return i.promoted_alloca_count > 0u;
         });
-        // Extra SROA pass in the legalization pipeline catches nested aggregate
-        // allocas that survived the structured pipeline's SROA.
-        pipeline.add("sroa-legalization", [](xir::Module *m,
-                                               xir::PassReport &r) {
-            auto opts = xir::SROAOptions{
-                .decompose_vectors = true,
-                .decompose_matrices = false,
-                .aggressive = false};
-            auto i = xir::sroa_pass_run_on_module(m, opts, &r);
-            return i.decomposed_alloca_count > 0u;
-        });
-        // Rotate top-checked loops into guarded bottom-checked ones so LICM
-        // can hoist more code and unrolling sees guard-free bodies. Gated
-        // behind LUISA_XIR_ENABLE_LOOP_ROTATION: simple rotated loops
-        // round-trip through restructure_cfg, but some pipeline shapes
-        // (structured ray-query loops, escaping phi uses) are not yet
-        // handled, so the pass is opt-in until those are resolved.
-        if (auto env = std::getenv("LUISA_XIR_ENABLE_LOOP_ROTATION");
-            env != nullptr && luisa::string_view{env} == "1") {
-            pipeline.add("loop-rotation", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::loop_rotation_pass_run_on_module(m, &r);
-                if (!i.succeeded()) {
-                    LUISA_WARNING_WITH_LOCATION(
-                        "SPIR-V loop rotation skipped structured CFG.");
-                }
-                return i.rotated_loop_count > 0u;
-            });
-        }
         pipeline.add("algebraic-simplify", [algebraic_options](
                                                xir::Module *m,
                                                xir::PassReport &r) {
@@ -654,51 +577,6 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
         pipeline.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::reassociate_pass_run_on_module(m, &r);
             return i.reassociated_inst_count > 0u;
-        });
-        // Pack elementwise local-array loops into vector ALU form before
-        // unrolling: the unroll threshold would otherwise consume every
-        // vectorizable constant-trip loop first (classic vectorize-then-
-        // unroll ordering). The later unroll expands the vectorized loop's
-        // remaining iterations, preserving the packed vector operations.
-        pipeline.add("loop-vectorization", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::loop_vectorization_pass_run_on_module(m, &r);
-            if (!i.succeeded()) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "SPIR-V loop vectorization skipped structured CFG.");
-            }
-            return i.vectorized_loop_count > 0u;
-        });
-        // Fully unroll small constant-trip-count loops; cleanup passes below
-        // fold the exposed scalar recurrence chains.
-        pipeline.add("loop-unroll", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::loop_unroll_pass_run_on_module(m);
-            if (!i.succeeded()) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "SPIR-V loop unroll skipped structured CFG.");
-            }
-            r.set("unrolled_loop", i.unrolled_loop_count);
-            r.set("partially_unrolled_loop",
-                  i.partially_unrolled_loop_count);
-            return i.unrolled_loop_count > 0u ||
-                   i.partially_unrolled_loop_count > 0u;
-        });
-        // Strength-reduce scaled induction-variable uses (plain CFG) after
-        // unrolling exposes more of them; dead structured IVs are still
-        // handled by the structured pipeline.
-        pipeline.add("indvar-simplify", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::indvar_simplify_pass_run_on_module(m, &r);
-            return i.simplified_iv_count > 0u ||
-                   i.removed_dead_iv_count > 0u;
-        });
-        // Fuse adjacent loops with matching trip counts once their scaled
-        // indices are strength-reduced.
-        pipeline.add("loop-fusion", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::loop_fusion_pass_run_on_module(m, &r);
-            if (!i.succeeded()) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "SPIR-V loop fusion skipped structured CFG.");
-            }
-            return i.fused_loop_count > 0u;
         });
         pipeline.add("sccp", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::sccp_pass_run_on_module(m, &r);

@@ -181,7 +181,7 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
                 sampled_type = _builder.makeUintType(32);
             }
             spv::Dim dim = (type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
-            bool is_writable = (static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0;
+            bool is_writable = (static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) != 0;
             uint32_t sampled = is_writable ? 2 : 1;
             spv::ImageFormat fmt = spv::ImageFormat::Unknown;
             id = _builder.makeImageType(sampled_type, dim, false, false, false,
