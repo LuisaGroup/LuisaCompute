@@ -834,18 +834,45 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::DOT:
             id = mark_no_contraction(binary(spv::Op::OpDot));
             break;
-        case xir::ArithmeticOp::LENGTH:
-            id = glsl(GLSLstd450Length, operand(0));
+        case xir::ArithmeticOp::LENGTH: {
+            // Lower to native SPIR-V: sqrt(dot(v, v)). The native form lets
+            // downstream optimizers CSE the dot product with sibling
+            // LENGTH_SQUARED/NORMALIZE/DOT emissions, which an opaque
+            // GLSL.std.450 ExtInst would block.
+            auto a = operand(0);
+            if (inst->operand(0)->type()->is_vector()) {
+                auto dot = mark_no_contraction(
+                    _builder.createBinOp(spv::Op::OpDot, type, a, a));
+                id = make_glsl_call(GLSLstd450Sqrt, type, {dot});
+            } else {
+                id = glsl(GLSLstd450Length, a);
+            }
             break;
+        }
         case xir::ArithmeticOp::LENGTH_SQUARED: {
             auto a = operand(0);
             id = mark_no_contraction(
                 _builder.createBinOp(spv::Op::OpDot, type, a, a));
             break;
         }
-        case xir::ArithmeticOp::NORMALIZE:
-            id = glsl(GLSLstd450Normalize, operand(0));
+        case xir::ArithmeticOp::NORMALIZE: {
+            // Lower to native SPIR-V: v * (1 / sqrt(dot(v, v))).
+            auto a = operand(0);
+            if (t->is_vector()) {
+                auto scalar_type = _builder.getScalarTypeId(type);
+                auto dot = mark_no_contraction(
+                    _builder.createBinOp(spv::Op::OpDot, scalar_type, a, a));
+                auto len = make_glsl_call(GLSLstd450Sqrt, scalar_type, {dot});
+                auto one = make_float_scalar_constant(elem, 1.0);
+                auto rcp = _builder.createBinOp(
+                    spv::Op::OpFDiv, scalar_type, one, len);
+                id = _builder.createBinOp(
+                    spv::Op::OpVectorTimesScalar, type, a, rcp);
+            } else {
+                id = glsl(GLSLstd450Normalize, a);
+            }
             break;
+        }
         case xir::ArithmeticOp::FACEFORWARD:
             id = glsl(GLSLstd450FaceForward, operand(0), operand(1), operand(2));
             break;
@@ -935,7 +962,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
-            for (uint i = 0u; i < rows; ++i) {
+            for (uint32_t i = 0u; i < rows; ++i) {
                 auto row = _builder.createCompositeExtract(mat, row_type, i);
                 new_rows.push_back(_builder.createUnaryOp(spv::Op::OpFNegate, row_type, row));
             }
@@ -951,7 +978,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
-            for (uint i = 0u; i < rows; ++i) {
+            for (uint32_t i = 0u; i < rows; ++i) {
                 spv::Id lhs, rhs;
                 if (a_type->is_scalar()) {
                     lhs = _builder.smearScalar(spv::NoPrecision, a, row_type);
@@ -979,7 +1006,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
-            for (uint i = 0u; i < rows; ++i) {
+            for (uint32_t i = 0u; i < rows; ++i) {
                 spv::Id lhs, rhs;
                 if (a_type->is_scalar()) {
                     lhs = _builder.smearScalar(spv::NoPrecision, a, row_type);
@@ -1016,7 +1043,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
                 std::vector<spv::Id> new_rows;
                 new_rows.reserve(rows);
-                for (uint i = 0u; i < rows; ++i) {
+                for (uint32_t i = 0u; i < rows; ++i) {
                     auto row_a = _builder.createCompositeExtract(a, row_type, i);
                     auto row_b = _builder.createCompositeExtract(b, row_type, i);
                     new_rows.push_back(mark_no_contraction(
@@ -1037,7 +1064,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
                 std::vector<spv::Id> new_rows;
                 new_rows.reserve(rows);
-                for (uint i = 0u; i < rows; ++i) {
+                for (uint32_t i = 0u; i < rows; ++i) {
                     auto row = _builder.createCompositeExtract(a, row_type, i);
                     auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
                     new_rows.push_back(_builder.createBinOp(spv::Op::OpFDiv, row_type, row, smeared));
@@ -1048,7 +1075,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
                 std::vector<spv::Id> new_rows;
                 new_rows.reserve(rows);
-                for (uint i = 0u; i < rows; ++i) {
+                for (uint32_t i = 0u; i < rows; ++i) {
                     auto row_a = a_type->is_scalar() ?
                                      _builder.smearScalar(spv::NoPrecision, a, row_type) :
                                      _builder.createCompositeExtract(a, row_type, i);
@@ -1133,8 +1160,8 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             } else {
                 std::vector<spv::Id> comps;
                 comps.reserve(dim);
-                for (auto i = 1u; i <= dim; ++i) {
-                    auto idx = _emit_value(inst->operand(i));
+                for (uint32_t i = 0u; i < dim; ++i) {
+                    auto idx = _emit_value(inst->operand(i + 1u));
                     comps.push_back(_builder.createVectorExtractDynamic(v, _convert_type(t->element(), Usage::READ), idx));
                 }
                 id = _builder.createCompositeConstruct(type, comps);
@@ -2729,7 +2756,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
                 spv::Op::OpIAdd, uint_type, byte_offset,
                 _builder.makeUintConstant(48u));
             auto packed = _emit_buffer_read_impl(
-                instance_buffer, byte_offset, Type::of<uint>(), 4u);
+                instance_buffer, byte_offset, Type::of<uint32_t>(), 4u);
             if (inst->op() == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID) {
                 id = _builder.createBinOp(
                     spv::Op::OpBitwiseAnd, uint_type, packed,
@@ -3710,7 +3737,7 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             LUISA_ASSERT(
                 inst->operand_count() == 2u &&
                     _is_indirect_dispatch_type(inst->operand(0)->type()) &&
-                    inst->operand(1)->type() == Type::of<uint>(),
+                    inst->operand(1)->type() == Type::of<uint32_t>(),
                 "SPIR-V indirect-dispatch count write expects "
                 "(LC_IndirectDispatchBuffer, uint), got {} operands.",
                 inst->operand_count());
@@ -3743,10 +3770,10 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             LUISA_ASSERT(
                 inst->operand_count() == 5u &&
                     _is_indirect_dispatch_type(inst->operand(0)->type()) &&
-                    inst->operand(1)->type() == Type::of<uint>() &&
+                    inst->operand(1)->type() == Type::of<uint32_t>() &&
                     inst->operand(2)->type() == Type::of<uint3>() &&
                     inst->operand(3)->type() == Type::of<uint3>() &&
-                    inst->operand(4)->type() == Type::of<uint>(),
+                    inst->operand(4)->type() == Type::of<uint32_t>(),
                 "SPIR-V indirect-dispatch record write expects "
                 "(LC_IndirectDispatchBuffer, uint, uint3, uint3, uint), "
                 "got {} operands.",

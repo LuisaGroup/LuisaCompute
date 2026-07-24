@@ -254,8 +254,8 @@ void SpirvCodegenEntry::generate_binding(
                                    SRV = 2 };
     // Counter starts after fixed-position items (ConstantValue, SamplerHeap, CBuffer).
     // These items have hardcoded register indices matching HLSL's convention.
-    uint reg_count = _has_argument_buffer ? 1u : 0u;
-    auto next_reg = [&](RegType) -> uint { return reg_count++; };
+    uint32_t reg_count = _has_argument_buffer ? 1u : 0u;
+    auto next_reg = [&](RegType) -> uint32_t { return reg_count++; };
 
     enum class PropertyRole : uint8_t {
         ORDINARY,
@@ -457,14 +457,14 @@ void SpirvCodegenEntry::generate_binding(
     }
 
     // Bindless resources: spaces start at 2 for SPIR-V
-    uint space_idx = 2;
+    uint32_t space_idx = 2;
     if (_use_buffer_bindless) {
         add_property(
             Property{
                 ShaderVariableType::SRVBufferHeap,
                 space_idx++,
                 0u,
-                std::numeric_limits<uint>::max()},
+                std::numeric_limits<uint32_t>::max()},
             nullptr, "bdls");
     }
     if (_use_tex2d_bindless) {
@@ -473,8 +473,8 @@ void SpirvCodegenEntry::generate_binding(
                 ShaderVariableType::SRVTextureHeap,
                 space_idx++,
                 0u,
-                std::numeric_limits<uint>::max()},
-            nullptr, "tex2d_heap",
+                std::numeric_limits<uint32_t>::max()},
+                nullptr, "tex2d_heap",
             PropertyRole::BINDLESS_TEXTURE_2D_HEAP);
     }
     if (_use_tex3d_bindless) {
@@ -483,7 +483,7 @@ void SpirvCodegenEntry::generate_binding(
                 ShaderVariableType::SRVTextureHeap,
                 space_idx++,
                 0u,
-                std::numeric_limits<uint>::max()},
+                std::numeric_limits<uint32_t>::max()},
             nullptr, "tex3d_heap",
             PropertyRole::BINDLESS_TEXTURE_3D_HEAP);
     }
@@ -812,7 +812,7 @@ void SpirvCodegenEntry::generate_binding(
         LUISA_ASSERT(
             is_bindless_texture_heap ==
                 (property.type == ShaderVariableType::SRVTextureHeap &&
-                 property.array_size == std::numeric_limits<uint>::max()),
+                 std::numeric_limits<uint32_t>::max()),
             "SPIR-V unbounded texture property {} is missing its exact 2D/3D "
             "emission role.",
             i);
@@ -1032,7 +1032,7 @@ void SpirvCodegenEntry::generate_binding(
                                       _builder.makeImageType(sampled_type, dim, false, false, false,
                                                              1, spv::ImageFormat::Unknown, "image") :
                                       _convert_type(elem_type, Usage::READ);
-                if (prop.array_size == std::numeric_limits<uint>::max()) {
+                if (prop.array_size == std::numeric_limits<uint32_t>::max()) {
                     _require_target_feature(
                         target_feature::descriptor_indexing,
                         _target_features.descriptor_indexing);
@@ -1063,7 +1063,7 @@ void SpirvCodegenEntry::generate_binding(
                                    spv::Decoration::Binding,
                                    prop.register_index);
                 _builder.addDecoration(var, spv::Decoration::Aliased);
-                if (prop.array_size == std::numeric_limits<uint>::max()) {
+                if (prop.array_size == std::numeric_limits<uint32_t>::max()) {
                     if (emission.role ==
                         PropertyRole::BINDLESS_TEXTURE_2D_HEAP) {
                         _tex2d_heap_id = var;
@@ -1105,7 +1105,7 @@ void SpirvCodegenEntry::generate_binding(
                 bool writable = (prop.type == ShaderVariableType::UAVBufferHeap);
                 auto struct_type = make_buffer_struct_type("_BindlessBuffer");
                 spv::StorageClass storage = spv::StorageClass::StorageBuffer;
-                if (prop.array_size == std::numeric_limits<uint>::max()) {
+                if (prop.array_size == std::numeric_limits<uint32_t>::max()) {
                     LUISA_ASSERT(
                         !writable,
                         "Vulkan native XIR-to-SPIR-V codegen does not produce "

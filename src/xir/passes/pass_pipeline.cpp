@@ -13,6 +13,7 @@
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/phi_cleanup.h>
+#include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/if_conversion.h>
 #include <luisa/xir/passes/licm.h>
 #include <luisa/xir/passes/indvar_simplify.h>
@@ -257,6 +258,16 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
 PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
+    // Inlining exposes new adjacent-store chains; vectorize them before the
+    // scalarizer (running later) decomposes vector ops again.
+    p.add("slp-vectorization", [](Module *m, PassReport &r) {
+        auto i = slp_vectorization_pass_run_on_module(m, &r);
+        return i.vectorized_tree_count > 0u;
+    });
+    p.add("fuse-consecutive-buffer-reads", [](Module *m, PassReport &r) {
+        auto i = fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
+        return i.fused_group_count > 0u;
+    });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
@@ -320,6 +331,10 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     p.add("sccp", [](Module *m, PassReport &r) {
         auto i = sccp_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u || i.removed_branch_count > 0u;
+    });
+    p.add("slp-vectorization", [](Module *m, PassReport &r) {
+        auto i = slp_vectorization_pass_run_on_module(m, &r);
+        return i.vectorized_tree_count > 0u;
     });
     p.add("gvn", [](Module *m, PassReport &r) {
         auto i = gvn_pass_run_on_module(m, &r);

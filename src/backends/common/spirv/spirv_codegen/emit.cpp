@@ -1,5 +1,6 @@
 #include "entry.h"
 #include "call_graph_validation.h"
+#include "dialect.h"
 #include "ray_query_lifetime.h"
 #include "argument_usage.h"
 #include "instruction_layout.h"
@@ -207,8 +208,8 @@ void SpirvCodegenEntry::_analyze_instruction_usage(
                         LUISA_ASSERT(success, "Print info already exists.");
                         luisa::vector<const Type *> arg_types;
                         arg_types.reserve(print->operand_count() + 2u);
-                        arg_types.emplace_back(Type::of<uint>());// arg size
-                        arg_types.emplace_back(Type::of<uint>());// fmt id
+                        arg_types.emplace_back(Type::of<uint32_t>());// arg size
+                        arg_types.emplace_back(Type::of<uint32_t>());// fmt id
                         for (auto op_use : print->operand_uses()) {
                             LUISA_ASSERT(op_use->value() != nullptr, "Print operand use is null.");
                             arg_types.emplace_back(op_use->value()->type());
@@ -365,7 +366,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
             auto elem_stride = elem_type->size();
             std::vector<spv::Id> comps;
             comps.reserve(dim);
-            for (uint i = 0u; i < dim; ++i) {
+            for (uint32_t i = 0u; i < dim; ++i) {
                 auto elem_data = static_cast<const std::byte *>(data) + i * elem_stride;
                 comps.emplace_back(_emit_literal(elem_type, elem_data));
             }
@@ -378,7 +379,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
             auto col_stride = col_type->size();
             std::vector<spv::Id> cols;
             cols.reserve(dim);
-            for (uint i = 0u; i < dim; ++i) {
+            for (uint32_t i = 0u; i < dim; ++i) {
                 auto col_data = static_cast<const std::byte *>(data) + i * col_stride;
                 cols.emplace_back(_emit_literal(col_type, col_data));
             }
@@ -390,7 +391,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
             auto elem_stride = elem_type->size();
             std::vector<spv::Id> elems;
             elems.reserve(dim);
-            for (uint i = 0u; i < dim; ++i) {
+            for (uint32_t i = 0u; i < dim; ++i) {
                 auto elem_data = static_cast<const std::byte *>(data) + i * elem_stride;
                 elems.emplace_back(_emit_literal(elem_type, elem_data));
             }
@@ -1597,6 +1598,12 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
 
     std::vector<uint32_t> spirv;
     _builder.dump(spirv);
+    luisa::string ext_inst_diagnostic;
+    LUISA_ASSERT(
+        validate_spirv_no_redundant_glsl_ext_inst(spirv, &ext_inst_diagnostic),
+        "SPIR-V dialect validation failed: {}",
+        ext_inst_diagnostic.empty() ? "unknown redundant GLSL.std.450 ExtInst" :
+                                      luisa::string_view{ext_inst_diagnostic});
     std::ostringstream oss;
     spv::Disassemble(oss, spirv);
     _scratch << oss.str();

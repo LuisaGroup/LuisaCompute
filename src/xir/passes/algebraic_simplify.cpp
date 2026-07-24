@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <limits>
+#include <bit>
 
 namespace luisa::compute::xir {
 
@@ -100,6 +101,53 @@ namespace detail {
     return lhs.has_value() && rhs.has_value() && *lhs == *rhs;
 }
 
+[[nodiscard]] static bool is_power_of_two(uint64_t v) noexcept {
+    return v != 0u && (v & (v - 1u)) == 0u;
+}
+
+[[nodiscard]] static uint64_t floor_log2(uint64_t v) noexcept {
+    return std::bit_width(v) - 1u;
+}
+
+[[nodiscard]] static bool is_unsigned_integer_type(const Type *type) noexcept {
+    if (type == nullptr) return false;
+    if (type->is_uint32() || type->is_uint64()) return true;
+    if (type->is_vector()) {
+        auto *elem = type->element();
+        return elem != nullptr && (elem->is_uint32() || elem->is_uint64());
+    }
+    return false;
+}
+
+// Create a scalar or vector constant where all elements have the same numeric value.
+// The created constant has the same type as `like_type` (unsigned integer scalar/vector).
+// `value` is a uint32 that is zero-extended or truncated to match the element type size.
+[[nodiscard]] static Constant *create_broadcast_constant(
+    Module *module, const Type *like_type, uint64_t value) noexcept {
+    if (like_type->is_scalar()) {
+        auto elem_size = like_type->size();
+        luisa::vector<std::byte> data(elem_size, std::byte{0});
+        for (size_t i = 0u; i < elem_size; ++i) {
+            data[i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+        }
+        return module->create_constant(like_type, data.data());
+    }
+    if (like_type->is_vector()) {
+        auto dim = like_type->dimension();
+        auto elem_size = like_type->element()->size();
+        luisa::vector<std::byte> elem_data(elem_size, std::byte{0});
+        for (size_t i = 0u; i < elem_size; ++i) {
+            elem_data[i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+        }
+        luisa::vector<std::byte> data(dim * elem_size);
+        for (size_t i = 0u; i < dim; ++i) {
+            std::memcpy(data.data() + i * elem_size, elem_data.data(), elem_size);
+        }
+        return module->create_constant(like_type, data.data());
+    }
+    return nullptr;
+}
+
 [[nodiscard]] static bool indices_provably_different(Value *a, Value *b) noexcept {
     auto lhs = decode_constant_index(a);
     auto rhs = decode_constant_index(b);
@@ -143,6 +191,45 @@ namespace detail {
             if (is_const_one(inst->operand(1))) return inst->operand(0);
             if (!is_float_like(type) && is_const_zero(inst->operand(0))) {
                 return module->create_constant_zero(type);
+            }
+            // Unsigned integer division by power-of-two constant:
+            //   x / pow2 → x >> log2(pow2)
+            if (is_unsigned_integer_type(type)) {
+                uint64_t divisor = 0u;
+                if (try_decode_constant_nonnegative_integer(
+                        inst->operand(1), divisor) &&
+                    divisor > 0u && is_power_of_two(divisor)) {
+                    auto shift = floor_log2(divisor);
+                    builder.set_insertion_point(inst);
+                    auto *shift_const = create_broadcast_constant(
+                        module, inst->operand(0)->type(), shift);
+                    if (shift_const != nullptr) {
+                        return builder.call(
+                            type, ArithmeticOp::BINARY_SHIFT_RIGHT,
+                            {inst->operand(0), shift_const});
+                    }
+                }
+            }
+            break;
+        }
+        case ArithmeticOp::BINARY_MOD: {
+            // Unsigned integer modulo by power-of-two constant:
+            //   x % pow2 → x & (pow2 - 1)
+            if (is_unsigned_integer_type(type)) {
+                uint64_t divisor = 0u;
+                if (try_decode_constant_nonnegative_integer(
+                        inst->operand(1), divisor) &&
+                    divisor > 0u && is_power_of_two(divisor)) {
+                    auto mask = divisor - 1u;
+                    builder.set_insertion_point(inst);
+                    auto *mask_const = create_broadcast_constant(
+                        module, inst->operand(0)->type(), mask);
+                    if (mask_const != nullptr) {
+                        return builder.call(
+                            type, ArithmeticOp::BINARY_BIT_AND,
+                            {inst->operand(0), mask_const});
+                    }
+                }
             }
             break;
         }

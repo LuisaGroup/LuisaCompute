@@ -88,6 +88,10 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
                 }
             }
         } else {
+            // Reject any non-GEP/Load/Store user. The aggressive flag
+            // (reserved for future heuristics) does not relax this check;
+            // non-decomposable uses keep the original alloca alive but
+            // element-allocas and the original can silently diverge.
             return false;
         }
     }
@@ -129,12 +133,14 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
     }
 
     for (auto gep : geps) {
-        LUISA_ASSERT(!gep->index_uses().empty(), "SROA: GEP has no indices.");
+        if (gep->index_uses().empty()) { continue; }
         auto first_idx_val = gep->index_uses()[0]->value();
         uint64_t elem_idx = 0u;
-        LUISA_ASSERT(try_decode_constant_nonnegative_integer(first_idx_val, elem_idx),
-                     "SROA: expected a nonnegative constant integer GEP index.");
-        LUISA_ASSERT(elem_idx < element_allocas.size(), "SROA: GEP index out of bounds.");
+        if (!try_decode_constant_nonnegative_integer(first_idx_val, elem_idx)) {
+            // Non-constant GEP index: keep pointing to the original alloca.
+            continue;
+        }
+        if (elem_idx >= element_allocas.size()) { continue; }
 
         auto target_alloca = element_allocas[elem_idx];
 
@@ -187,7 +193,13 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
         }
     }
 
-    alloca->remove_self();
+    // In aggressive mode, keep the original alloca alive for remaining uses
+    // (dynamic-index GEPs, call references, etc.) that cannot be redirected.
+    // Element allocas stay consistent because all direct Load/Store on the
+    // original are replaced with pack/unpack operations above.
+    if (alloca->use_list().empty()) {
+        alloca->remove_self();
+    }
     info.decomposed_alloca_count++;
 }
 

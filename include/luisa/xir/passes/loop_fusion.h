@@ -13,7 +13,9 @@ struct LoopFusionInfo {
 };
 
 // Unstructured-CFG-only: structured functions are rejected without mutation.
-// Plain CFG is currently accepted unchanged pending canonical-loop support.
+// Adjacent plain-CFG loops with matching constant trip counts, no buffer
+// write/read dependence, and no cross-loop SSA value flow are fused into a
+// single loop whose body is the concatenation of both bodies.
 [[nodiscard]] LUISA_XIR_API LoopFusionInfo loop_fusion_pass_run_on_function(Function *function) noexcept;
 [[nodiscard]] LUISA_XIR_API LoopFusionInfo loop_fusion_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 

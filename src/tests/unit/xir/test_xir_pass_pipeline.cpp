@@ -194,12 +194,16 @@ int main() {
         Module m;
         auto stats = p.run(&m);
         expect(stats.records.size() == p.size());
+        // Structured-CFG-unsafe loop transforms stay opt-in, but
+        // slp-vectorization is block-local and intentionally wired in.
+        auto saw_slp = false;
         for (auto &&record : stats.records) {
             expect(record.name != "loop-fusion");
             expect(record.name != "indvar-simplify");
             expect(record.name != "loop-vectorization");
-            expect(record.name != "slp-vectorization");
+            saw_slp = saw_slp || record.name == "slp-vectorization";
         }
+        expect(saw_slp);
     };
 
     "pass_report_set_overwrites"_test = [] {
