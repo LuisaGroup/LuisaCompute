@@ -7,6 +7,8 @@
 
 namespace luisa::compute::xir {
 
+class PhiInst;
+
 // A natural loop discovered on a plain (destructured) CFG: a header block
 // with one or more back-edges from blocks dominated by the header.
 struct LUISA_XIR_API NaturalLoop {

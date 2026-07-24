@@ -106,6 +106,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/sccp.cpp
         passes/scalarizer.cpp
         passes/inline.cpp
+        passes/natural_loop.cpp
         passes/loop_fusion.cpp
         passes/loop_rotation.cpp
         passes/loop_unroll.cpp

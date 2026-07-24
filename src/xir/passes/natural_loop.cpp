@@ -1,5 +1,7 @@
 #include "natural_loop.h"
 
+#include <limits>
+#include <luisa/ast/type.h>
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/constant.h>
