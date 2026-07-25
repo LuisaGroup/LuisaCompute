@@ -2,6 +2,7 @@
 
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
+#include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -9,6 +10,7 @@
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
@@ -18,6 +20,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -80,6 +83,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto info = destructure_cfg_pass_run_on_function(k);
         expect(info.destructured_if_count == 0u);
+        expect(info.destructured_switch_count == 0u);
         expect(info.destructured_loop_count == 0u);
         expect(info.destructured_simple_loop_count == 0u);
         expect(info.destructured_break_count == 0u);
@@ -94,6 +98,7 @@ void reg_destructure_cfg() {
         b.set_insertion_point(body);
         auto *cond = m.create_constant_one(Type::of<bool>());
         auto *if_inst = b.if_(cond);
+        if_inst->set_name("structured_if");
         auto *t = if_inst->create_true_block();
         auto *f = if_inst->create_false_block();
         auto *merge = if_inst->create_merge_block();
@@ -108,6 +113,10 @@ void reg_destructure_cfg() {
         auto *def = k->definition();
         expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 0u);
         expect(count_isa_cond_branch(def) >= 1u);
+        expect(body->terminator()->name().has_value());
+        if (body->terminator()->name()) {
+            expect(*body->terminator()->name() == "structured_if");
+        }
     };
 
     "destructure_simple_loop_with_break"_test = [] {
@@ -192,7 +201,7 @@ void reg_destructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 0u);
     };
 
-    "destructure_switch_preserved"_test = [] {
+    "destructure_switch_preserves_multiway_edges_as_indexed_branch"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -204,6 +213,7 @@ void reg_destructure_cfg() {
         auto *merge = sw->create_merge_block();
         auto *c0 = sw->create_case_block(0);
         auto *c1 = sw->create_case_block(1);
+        sw->set_name("structured_switch");
         b.set_insertion_point(c0);
         b.br(merge);
         b.set_insertion_point(c1);
@@ -214,8 +224,26 @@ void reg_destructure_cfg() {
         b.return_void();
         auto info = destructure_cfg_pass_run_on_function(k);
         auto *def = k->definition();
-        expect(count_terminator_kind(def, DerivedInstructionTag::SWITCH) == 1u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::SWITCH) == 0u);
+        expect(count_terminator_kind(
+                   def, DerivedInstructionTag::INDEXED_BRANCH) == 1u);
+        expect(info.destructured_switch_count == 1u);
         expect(info.destructured_if_count == 0u);
+        expect(body->terminator()->isa<IndexedBranchInst>());
+        auto *indexed_branch =
+            static_cast<IndexedBranchInst *>(body->terminator());
+        expect(indexed_branch->value() == val);
+        expect(indexed_branch->case_count() == 2u);
+        expect(indexed_branch->case_value(0u) == 0u);
+        expect(indexed_branch->case_block(0u) == c0);
+        expect(indexed_branch->case_value(1u) == 1u);
+        expect(indexed_branch->case_block(1u) == c1);
+        expect(indexed_branch->default_block() == def_block);
+        expect(indexed_branch->name().has_value());
+        if (indexed_branch->name()) {
+            expect(*indexed_branch->name() == "structured_switch");
+        }
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "destructure_ray_query_loop"_test = [] {
@@ -224,12 +252,16 @@ void reg_destructure_cfg() {
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *rq_obj = b.alloca_local(Type::of<int>());
+        auto *rq_obj = b.alloca_local(Type::of<RayQueryAll>());
         auto *rq = b.ray_query_loop();
+        rq->set_name("source_ray_query_loop");
+        rq->add_comment("preserve lowering provenance");
         auto *disp = rq->create_dispatch_block();
         auto *merge = rq->create_merge_block();
         b.set_insertion_point(disp);
         auto *dispatch_inst = b.ray_query_dispatch(rq_obj);
+        dispatch_inst->set_name("source_candidate_dispatch");
+        dispatch_inst->add_comment("preserve dispatch provenance");
         auto *on_surf = dispatch_inst->create_on_surface_candidate_block();
         auto *on_proc = dispatch_inst->create_on_procedural_candidate_block();
         dispatch_inst->set_exit_block(merge);
@@ -245,9 +277,24 @@ void reg_destructure_cfg() {
         expect(lower_info.lowered_ray_query_loop_count == 1u);
         expect(lower_info.error_count == 0u);
         expect(lower_info.succeeded());
+        expect(xir_verify_module(&m).succeeded());
         expect(disp->is_terminated());
         expect(disp->terminator()->isa<UnreachableInst>());
         auto *lowered_loop = static_cast<LoopInst *>(body->terminator());
+        expect(lowered_loop->name().has_value());
+        if (lowered_loop->name()) {
+            expect(*lowered_loop->name() == "source_ray_query_loop");
+        }
+        expect(lowered_loop->metadata_list().count_size() == 2u);
+        auto *candidate_dispatch =
+            lowered_loop->body_block()->terminator();
+        expect(candidate_dispatch->isa<IfInst>());
+        expect(candidate_dispatch->name().has_value());
+        if (candidate_dispatch->name()) {
+            expect(*candidate_dispatch->name() ==
+                   "source_candidate_dispatch");
+        }
+        expect(candidate_dispatch->metadata_list().count_size() == 2u);
         auto *prepare_term = lowered_loop->prepare_block()->terminator();
         expect(prepare_term->isa<ConditionalBranchInst>());
         auto *prepare_branch = static_cast<ConditionalBranchInst *>(prepare_term);
@@ -263,13 +310,83 @@ void reg_destructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) == 0u);
     };
 
+    "ray_query_to_loop_rejects_non_query_lvalue_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *not_a_query = b.alloca_local(Type::of<int>());
+        auto *loop = b.ray_query_loop();
+        auto *dispatch = loop->create_dispatch_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(not_a_query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        auto *surface_exit = b.br(dispatch);
+        b.set_insertion_point(procedural);
+        auto *procedural_exit = b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto block_count = count_owned_blocks(k->definition());
+
+        auto info =
+            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.lowered_ray_query_loop_count == 0u);
+        expect(count_owned_blocks(k->definition()) == block_count);
+        expect(body->terminator() == loop);
+        expect(dispatch->terminator() == dispatch_inst);
+        expect(surface->terminator() == surface_exit);
+        expect(procedural->terminator() == procedural_exit);
+    };
+
+    "ray_query_to_loop_accepts_ray_query_any"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *query = b.alloca_local(Type::of<RayQueryAny>());
+        auto *loop = b.ray_query_loop();
+        auto *dispatch = loop->create_dispatch_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        b.br(dispatch);
+        b.set_insertion_point(procedural);
+        b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto info =
+            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.lowered_ray_query_loop_count == 1u);
+        expect(body->terminator()->isa<LoopInst>());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "ray_query_to_loop_rejects_dispatch_phi_atomically"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *rq_obj = b.alloca_local(Type::of<int>());
+        auto *rq_obj = b.alloca_local(Type::of<RayQueryAll>());
         auto *rq = b.ray_query_loop();
         auto *dispatch = rq->create_dispatch_block();
         auto *merge = rq->create_merge_block();
@@ -306,7 +423,7 @@ void reg_destructure_cfg() {
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *rq_obj = b.alloca_local(Type::of<int>());
+        auto *rq_obj = b.alloca_local(Type::of<RayQueryAll>());
         auto *rq = b.ray_query_loop();
         auto *dispatch = rq->create_dispatch_block();
         auto *merge = rq->create_merge_block();
@@ -340,7 +457,7 @@ void reg_destructure_cfg() {
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *rq_obj = b.alloca_local(Type::of<int>());
+        auto *rq_obj = b.alloca_local(Type::of<RayQueryAll>());
         auto *rq = b.ray_query_loop();
         auto *dispatch = rq->create_dispatch_block();
         auto *merge = rq->create_merge_block();
@@ -375,7 +492,7 @@ void reg_destructure_cfg() {
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *query = b.alloca_local(Type::of<int>());
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop = b.ray_query_loop();
         auto *dispatch = loop->create_dispatch_block();
         auto *merge = loop->create_merge_block();
@@ -406,7 +523,7 @@ void reg_destructure_cfg() {
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *query = b.alloca_local(Type::of<int>());
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop = b.ray_query_loop();
         auto *dispatch = loop->create_dispatch_block();
         auto *merge = loop->create_merge_block();
@@ -433,6 +550,90 @@ void reg_destructure_cfg() {
         expect(static_cast<BranchInst *>(surface->terminator())->target_block() == nullptr);
     };
 
+    "ray_query_to_loop_rejects_external_dispatch_predecessor_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *loop = b.ray_query_loop();
+        auto *dispatch = loop->create_dispatch_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        auto *surface_exit = b.br(dispatch);
+        b.set_insertion_point(procedural);
+        auto *procedural_exit = b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto *external = k->create_basic_block();
+        b.set_insertion_point(external);
+        auto *external_edge = b.br(dispatch);
+        auto block_count = count_owned_blocks(k->definition());
+
+        auto info =
+            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.lowered_ray_query_loop_count == 0u);
+        expect(count_owned_blocks(k->definition()) == block_count);
+        expect(body->terminator() == loop);
+        expect(dispatch->terminator() == dispatch_inst);
+        expect(surface->terminator() == surface_exit);
+        expect(procedural->terminator() == procedural_exit);
+        expect(external->terminator() == external_edge);
+    };
+
+    "ray_query_to_loop_rejects_external_merge_predecessor_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *loop = b.ray_query_loop();
+        auto *dispatch = loop->create_dispatch_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        auto *surface_exit = b.br(dispatch);
+        b.set_insertion_point(procedural);
+        auto *procedural_exit = b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto *external = k->create_basic_block();
+        b.set_insertion_point(external);
+        auto *external_edge = b.br(merge);
+        auto block_count = count_owned_blocks(k->definition());
+
+        auto info =
+            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.lowered_ray_query_loop_count == 0u);
+        expect(count_owned_blocks(k->definition()) == block_count);
+        expect(body->terminator() == loop);
+        expect(dispatch->terminator() == dispatch_inst);
+        expect(surface->terminator() == surface_exit);
+        expect(procedural->terminator() == procedural_exit);
+        expect(external->terminator() == external_edge);
+    };
+
     "ray_query_to_loop_rejects_later_invalid_loop_function_atomically"_test = [] {
         Module m;
         BasicBlock *body;
@@ -440,7 +641,7 @@ void reg_destructure_cfg() {
         XIRBuilder b;
 
         b.set_insertion_point(body);
-        auto *query0 = b.alloca_local(Type::of<int>());
+        auto *query0 = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop0 = b.ray_query_loop();
         auto *dispatch0 = loop0->create_dispatch_block();
         auto *merge0 = loop0->create_merge_block();
@@ -455,7 +656,7 @@ void reg_destructure_cfg() {
         auto *procedural_exit0 = b.br(dispatch0);
 
         b.set_insertion_point(merge0);
-        auto *query1 = b.alloca_local(Type::of<int>());
+        auto *query1 = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop1 = b.ray_query_loop();
         auto *dispatch1 = loop1->create_dispatch_block();
         auto *merge1 = loop1->create_merge_block();
@@ -488,6 +689,80 @@ void reg_destructure_cfg() {
         expect(merge0->terminator() == loop1);
         expect(dispatch1->terminator() == dispatch_inst1);
         expect(dispatch_phi->is_linked());
+    };
+
+    "ray_query_to_loop_module_rejection_is_atomic_across_functions"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        BasicBlock *valid_body;
+        auto *valid_kernel = make_kernel_with_body(m, valid_body);
+        b.set_insertion_point(valid_body);
+        auto *valid_query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *valid_loop = b.ray_query_loop();
+        auto *valid_dispatch = valid_loop->create_dispatch_block();
+        auto *valid_merge = valid_loop->create_merge_block();
+        b.set_insertion_point(valid_dispatch);
+        auto *valid_dispatch_inst = b.ray_query_dispatch(valid_query);
+        valid_dispatch_inst->set_exit_block(valid_merge);
+        auto *valid_surface =
+            valid_dispatch_inst->create_on_surface_candidate_block();
+        auto *valid_procedural =
+            valid_dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(valid_surface);
+        auto *valid_surface_exit = b.br(valid_dispatch);
+        b.set_insertion_point(valid_procedural);
+        auto *valid_procedural_exit = b.br(valid_dispatch);
+        b.set_insertion_point(valid_merge);
+        b.return_void();
+
+        BasicBlock *invalid_body;
+        auto *invalid_kernel = make_kernel_with_body(m, invalid_body);
+        b.set_insertion_point(invalid_body);
+        auto *invalid_query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *invalid_loop = b.ray_query_loop();
+        auto *invalid_dispatch = invalid_loop->create_dispatch_block();
+        auto *invalid_merge = invalid_loop->create_merge_block();
+        b.set_insertion_point(invalid_dispatch);
+        auto *invalid_phi = b.phi(Type::of<int>());
+        invalid_phi->add_incoming(
+            m.create_constant_zero(Type::of<int>()), invalid_body);
+        auto *invalid_dispatch_inst = b.ray_query_dispatch(invalid_query);
+        invalid_dispatch_inst->set_exit_block(invalid_merge);
+        auto *invalid_surface =
+            invalid_dispatch_inst->create_on_surface_candidate_block();
+        auto *invalid_procedural =
+            invalid_dispatch_inst->create_on_procedural_candidate_block();
+        invalid_phi->add_incoming(
+            m.create_constant_one(Type::of<int>()), invalid_surface);
+        invalid_phi->add_incoming(
+            m.create_constant_one(Type::of<int>()), invalid_procedural);
+        b.set_insertion_point(invalid_surface);
+        b.br(invalid_dispatch);
+        b.set_insertion_point(invalid_procedural);
+        b.br(invalid_dispatch);
+        b.set_insertion_point(invalid_merge);
+        b.return_void();
+
+        auto valid_block_count = count_owned_blocks(valid_kernel->definition());
+        auto invalid_block_count =
+            count_owned_blocks(invalid_kernel->definition());
+        auto info =
+            lower_ray_query_loop_to_loop_pass_run_on_module(&m);
+        expect(info.lowered_ray_query_loop_count == 0u);
+        expect(info.error_count == 1u);
+        expect(!info.succeeded());
+        expect(count_owned_blocks(valid_kernel->definition()) ==
+               valid_block_count);
+        expect(count_owned_blocks(invalid_kernel->definition()) ==
+               invalid_block_count);
+        expect(valid_body->terminator() == valid_loop);
+        expect(valid_dispatch->terminator() == valid_dispatch_inst);
+        expect(valid_surface->terminator() == valid_surface_exit);
+        expect(valid_procedural->terminator() == valid_procedural_exit);
+        expect(invalid_body->terminator() == invalid_loop);
+        expect(invalid_dispatch->terminator() == invalid_dispatch_inst);
+        expect(invalid_phi->is_linked());
     };
 
     "destructure_module_runs_all_functions"_test = [] {
@@ -556,19 +831,30 @@ void reg_destructure_cfg() {
         }
     };
 
-    "destructure_patches_disconnected_unterminated_block"_test = [] {
+    "destructure_rejects_disconnected_unterminated_block_atomically"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
+        auto *loop = b.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(loop_body);
+        auto *loop_exit = b.break_(loop_merge);
+        b.set_insertion_point(loop_merge);
         b.return_void();
-        auto *disconnected = k->create_basic_block();
+        auto *unterminated = k->create_basic_block();
 
         auto info = destructure_cfg_pass_run_on_function(k);
         expect(info.leaked_block_count == 1u);
         expect(!info.succeeded());
-        expect(disconnected->terminator()->isa<UnreachableInst>());
+        expect(!info.changed());
+        expect(info.destructured_simple_loop_count == 0u);
+        expect(info.destructured_break_count == 0u);
+        expect(body->terminator() == loop);
+        expect(loop_body->terminator() == loop_exit);
+        expect(!unterminated->is_terminated());
     };
 
     "destructure_malformed_if_is_not_counted_or_retried"_test = [] {
@@ -642,6 +928,94 @@ void reg_destructure_cfg() {
         expect(if_inst->merge_block() == foreign_body);
     };
 
+    "destructure_rejects_non_integer_switch_selector_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *selector = k->create_value_argument(Type::of<float>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *switch_inst = b.switch_(selector);
+        auto *case_block = switch_inst->create_case_block(0u);
+        auto *default_block = switch_inst->create_default_block();
+        auto *merge_block = switch_inst->create_merge_block();
+        b.set_insertion_point(case_block);
+        b.br(merge_block);
+        b.set_insertion_point(default_block);
+        b.br(merge_block);
+        b.set_insertion_point(merge_block);
+        b.return_void();
+        auto block_count = count_owned_blocks(k->definition());
+
+        auto info = destructure_cfg_pass_run_on_function(k);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(!info.changed());
+        expect(count_owned_blocks(k->definition()) == block_count);
+        expect(body->terminator() == switch_inst);
+        if (body->terminator() == switch_inst) {
+            expect(switch_inst->value() == selector);
+            expect(switch_inst->case_block(0u) == case_block);
+            expect(switch_inst->default_block() == default_block);
+            expect(switch_inst->merge_block() == merge_block);
+        }
+    };
+
+    "destructure_duplicate_narrow_cases_reject_module_atomically"_test = [] {
+        Module m;
+        BasicBlock *valid_body;
+        auto *valid_kernel = make_kernel_with_body(m, valid_body);
+        XIRBuilder b;
+        b.set_insertion_point(valid_body);
+        auto *valid_loop = b.simple_loop();
+        auto *valid_loop_body = valid_loop->create_body_block();
+        auto *valid_merge = valid_loop->create_merge_block();
+        b.set_insertion_point(valid_loop_body);
+        auto *valid_break = b.break_(valid_merge);
+        b.set_insertion_point(valid_merge);
+        b.return_void();
+
+        BasicBlock *invalid_body;
+        auto *invalid_kernel = make_kernel_with_body(m, invalid_body);
+        auto *selector =
+            invalid_kernel->create_value_argument(Type::of<uint8_t>());
+        b.set_insertion_point(invalid_body);
+        auto *invalid_switch = b.switch_(selector);
+        auto *case_zero = invalid_switch->create_case_block(0u);
+        auto *case_wrapped =
+            invalid_switch->create_case_block(uint64_t{0x100u});
+        auto *invalid_default = invalid_switch->create_default_block();
+        auto *invalid_merge = invalid_switch->create_merge_block();
+        b.set_insertion_point(case_zero);
+        b.br(invalid_merge);
+        b.set_insertion_point(case_wrapped);
+        b.br(invalid_merge);
+        b.set_insertion_point(invalid_default);
+        b.br(invalid_merge);
+        b.set_insertion_point(invalid_merge);
+        b.return_void();
+
+        auto valid_block_count =
+            count_owned_blocks(valid_kernel->definition());
+        auto invalid_block_count =
+            count_owned_blocks(invalid_kernel->definition());
+        auto info = destructure_cfg_pass_run_on_module(&m);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(!info.changed());
+        expect(count_owned_blocks(valid_kernel->definition()) ==
+               valid_block_count);
+        expect(count_owned_blocks(invalid_kernel->definition()) ==
+               invalid_block_count);
+        expect(valid_body->terminator() == valid_loop);
+        expect(valid_loop_body->terminator() == valid_break);
+        expect(invalid_body->terminator() == invalid_switch);
+        if (invalid_body->terminator() == invalid_switch) {
+            expect(invalid_switch->case_value(0u) == 0u);
+            expect(invalid_switch->case_value(1u) == 0u);
+        }
+    };
+
     "destructure_idempotent"_test = [] {
         Module m;
         BasicBlock *body;
@@ -705,6 +1079,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto info = destructure_cfg_pass_run_on_function(k);
         expect(info.destructured_early_return_count == 0u);
+        expect(!info.changed());
         expect(count_terminator_kind(k->definition(), DerivedInstructionTag::RETURN) == 1u);
     };
 
@@ -727,6 +1102,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto info = destructure_cfg_pass_run_on_function(k);
         expect(info.destructured_early_return_count == 2u);
+        expect(info.changed());
         auto *def = k->definition();
         expect(count_terminator_kind(def, DerivedInstructionTag::RETURN) == 1u);
     };
@@ -752,6 +1128,7 @@ void reg_destructure_cfg() {
         b.return_(v1);
         auto info = destructure_cfg_pass_run_on_function(c);
         expect(info.destructured_early_return_count == 2u);
+        expect(info.changed());
         auto *def = c->definition();
         expect(count_terminator_kind(def, DerivedInstructionTag::RETURN) == 1u);
     };

@@ -18,6 +18,7 @@
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/outline.h>
@@ -543,9 +544,15 @@ template<typename Enum>
         case DerivedInstructionTag::IF:
         case DerivedInstructionTag::CONDITIONAL_BRANCH: return count == 3u;
         case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::INDEXED_BRANCH:
             return count >= 2u &&
-                   count == static_cast<const SwitchInst *>(instruction)->case_count() +
-                                SwitchInst::operand_index_case_block_offset;
+                   count ==
+                       static_cast<
+                           const IndexedBranchTerminatorInstruction *>(
+                           instruction)
+                               ->case_count() +
+                           IndexedBranchTerminatorInstruction::
+                               operand_index_case_block_offset;
         case DerivedInstructionTag::LOOP:
         case DerivedInstructionTag::SIMPLE_LOOP:
         case DerivedInstructionTag::BRANCH:
@@ -1079,7 +1086,9 @@ public:
                     add_successor(ConditionalBranchTerminatorInstruction::operand_index_false_target);
                     break;
                 case DerivedInstructionTag::SWITCH:
-                    for (auto i = SwitchInst::operand_index_default_block;
+                case DerivedInstructionTag::INDEXED_BRANCH:
+                    for (auto i = IndexedBranchTerminatorInstruction::
+                                      operand_index_default_block;
                          i < terminator->operand_count(); i++) {
                         add_successor(i);
                     }
@@ -1246,16 +1255,18 @@ public:
                     _error(function, block, instruction, "PHI instruction is not allowed.");
                 }
                 if (_options.require_no_unstructured_control_flow &&
-                    instruction->derived_instruction_tag() == DerivedInstructionTag::CONDITIONAL_BRANCH) {
+                    (instruction->derived_instruction_tag() ==
+                         DerivedInstructionTag::CONDITIONAL_BRANCH ||
+                     instruction->derived_instruction_tag() ==
+                         DerivedInstructionTag::INDEXED_BRANCH)) {
                     _error(function, block, instruction,
-                           "Unstructured conditional branch is not allowed.");
+                           "Unstructured control flow is not allowed.");
                 }
                 if (!instruction_operand_shape_valid(instruction)) { continue; }
 
                 if (auto *merge = instruction->control_flow_merge()) {
                     auto *merge_block = merge->merge_block();
-                    auto allows_null_merge = instruction->isa<IfInst>() ||
-                                             instruction->isa<SwitchInst>();
+                    auto allows_null_merge = instruction->isa<IfInst>();
                     if ((merge_block == nullptr && !allows_null_merge) ||
                         (merge_block != nullptr &&
                          (!block_set.contains(merge_block) ||
@@ -1333,50 +1344,83 @@ public:
                         _error(function, block, instruction,
                                "Ray-query dispatch operands are invalid.");
                     }
-                } else if (instruction->isa<SwitchInst>()) {
-                    auto *switch_inst = static_cast<const SwitchInst *>(instruction);
-                    auto operand_count = switch_inst->operand_count();
-                    auto expected_operand_count = switch_inst->case_count() +
-                                                  SwitchInst::operand_index_case_block_offset;
-                    auto *selector = operand_count > SwitchInst::operand_index_value ?
-                                         switch_inst->operand(SwitchInst::operand_index_value) :
-                                         nullptr;
+                } else if (
+                    instruction->isa<SwitchInst>() ||
+                    instruction->isa<IndexedBranchInst>()) {
+                    auto *indexed_branch = static_cast<
+                        const IndexedBranchTerminatorInstruction *>(
+                        instruction);
+                    auto is_switch = instruction->isa<SwitchInst>();
+                    auto operand_count = indexed_branch->operand_count();
+                    auto expected_operand_count =
+                        indexed_branch->case_count() +
+                        IndexedBranchTerminatorInstruction::
+                            operand_index_case_block_offset;
+                    auto *selector =
+                        operand_count >
+                                IndexedBranchTerminatorInstruction::
+                                    operand_index_value ?
+                            indexed_branch->operand(
+                                IndexedBranchTerminatorInstruction::
+                                    operand_index_value) :
+                            nullptr;
                     auto *default_block =
-                        operand_count > SwitchInst::operand_index_default_block ?
-                            switch_inst->operand(SwitchInst::operand_index_default_block) :
+                        operand_count >
+                                IndexedBranchTerminatorInstruction::
+                                    operand_index_default_block ?
+                            indexed_branch->operand(
+                                IndexedBranchTerminatorInstruction::
+                                    operand_index_default_block) :
                             nullptr;
                     auto *selector_type = selector == nullptr ? nullptr : selector->type();
                     if (selector == nullptr || !is_owned_block(default_block) ||
                         operand_count != expected_operand_count) {
                         _error(function, block, instruction,
-                               "Switch value or default block is invalid.");
+                               is_switch ?
+                                   "Switch value or default block is invalid." :
+                                   "Indexed branch value or default block is invalid.");
                     } else if (!data_operand_valid(selector) || selector_type == nullptr ||
                                !selector_type->is_scalar() ||
                                (!selector_type->is_bool() &&
                                 !scalar_or_vector_integer(selector_type))) {
                         _error(function, block, instruction,
-                               "Switch selector is not an integer/bool scalar rvalue.");
+                               is_switch ?
+                                   "Switch selector is not an integer/bool scalar rvalue." :
+                                   "Indexed branch selector is not an integer/bool scalar rvalue.");
                     }
-                    luisa::unordered_set<SwitchInst::case_value_type> case_values;
-                    for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                        auto operand_index = SwitchInst::operand_index_case_block_offset + i;
+                    luisa::unordered_set<
+                        IndexedBranchTerminatorInstruction::case_value_type>
+                        case_values;
+                    for (auto i = 0u; i < indexed_branch->case_count(); i++) {
+                        auto operand_index =
+                            IndexedBranchTerminatorInstruction::
+                                operand_index_case_block_offset +
+                            i;
                         auto *case_block = operand_index < operand_count ?
-                                               switch_inst->operand(operand_index) :
+                                               indexed_branch->operand(operand_index) :
                                                nullptr;
                         if (!is_owned_block(case_block)) {
                             _error(function, block, instruction,
-                                   "Switch case block is invalid.");
+                                   is_switch ?
+                                       "Switch case block is invalid." :
+                                       "Indexed branch case block is invalid.");
                         }
-                        auto case_value = switch_inst->case_value(i);
-                        auto canonical_value = SwitchInst::canonicalize_case_value(
-                            selector_type, case_value);
+                        auto case_value = indexed_branch->case_value(i);
+                        auto canonical_value =
+                            IndexedBranchTerminatorInstruction::
+                                canonicalize_case_value(
+                                    selector_type, case_value);
                         if (case_value != canonical_value) {
                             _error(function, block, instruction,
-                                   "Switch case value is outside the selector bit width.");
+                                   is_switch ?
+                                       "Switch case value is outside the selector bit width." :
+                                       "Indexed branch case value is outside the selector bit width.");
                         }
                         if (!case_values.emplace(canonical_value).second) {
                             _error(function, block, instruction,
-                                   "Switch case values alias after selector-width normalization.");
+                                   is_switch ?
+                                       "Switch case values alias after selector-width normalization." :
+                                       "Indexed branch case values alias after selector-width normalization.");
                         }
                     }
                 }

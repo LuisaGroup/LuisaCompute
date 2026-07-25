@@ -967,6 +967,8 @@ instruction_name(DerivedInstructionTag tag) noexcept {
     switch (tag) {
         case DerivedInstructionTag::IF: return "if"sv;
         case DerivedInstructionTag::SWITCH: return "switch"sv;
+        case DerivedInstructionTag::INDEXED_BRANCH:
+            return "indexed_branch"sv;
         case DerivedInstructionTag::LOOP: return "loop"sv;
         case DerivedInstructionTag::SIMPLE_LOOP: return "simple_loop"sv;
         case DerivedInstructionTag::BRANCH: return "branch"sv;
@@ -1013,6 +1015,9 @@ instruction_name(DerivedInstructionTag tag) noexcept {
 parse_instruction_name(luisa::string_view name) noexcept {
     if (name == "if") { return DerivedInstructionTag::IF; }
     if (name == "switch") { return DerivedInstructionTag::SWITCH; }
+    if (name == "indexed_branch") {
+        return DerivedInstructionTag::INDEXED_BRANCH;
+    }
     if (name == "loop") { return DerivedInstructionTag::LOOP; }
     if (name == "simple_loop") { return DerivedInstructionTag::SIMPLE_LOOP; }
     if (name == "branch") { return DerivedInstructionTag::BRANCH; }
@@ -1765,7 +1770,10 @@ constexpr std::array binary_instruction_tags{
     DerivedInstructionTag::DEBUG_BREAK,
     DerivedInstructionTag::ASSERT,
     DerivedInstructionTag::ASSUME,
-    DerivedInstructionTag::OUTLINE};
+    DerivedInstructionTag::OUTLINE,
+    // Appended to preserve the binary tag IDs of the existing interchange
+    // schema.
+    DerivedInstructionTag::INDEXED_BRANCH};
 
 [[nodiscard]] luisa::optional<uint64_t>
 binary_instruction_tag_id(DerivedInstructionTag tag) noexcept {
@@ -2475,6 +2483,10 @@ public:
     switch (tag) {
         case DerivedInstructionTag::IF: return operand_count == 3u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::SWITCH: return operand_count >= 2u && auxiliary_count + 1u == operand_count && payload_count == 0u;
+        case DerivedInstructionTag::INDEXED_BRANCH:
+            return operand_count >= 2u &&
+                   auxiliary_count + 2u == operand_count &&
+                   payload_count == 0u;
         case DerivedInstructionTag::LOOP: return operand_count == 1u && auxiliary_count == 3u && payload_count == 0u;
         case DerivedInstructionTag::SIMPLE_LOOP: return operand_count == 1u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::BRANCH: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
@@ -3727,6 +3739,7 @@ template<typename OperandSpan>
         case DerivedInstructionTag::CONTINUE:
             return type == nullptr && value_is.template operator()<BasicBlock>(operands[0]);
         case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::INDEXED_BRANCH:
             if (type != nullptr || !data_operand_valid(operands[0]) ||
                 !(integer_scalar_type(operands[0]->type()) ||
                   operands[0]->type()->is_bool())) {
@@ -4050,7 +4063,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RAY_QUERY_LOOP:
         case DerivedInstructionTag::OUTLINE: return all_nonnegative();
         case DerivedInstructionTag::SWITCH:
-            return !record.auxiliary.empty() && record.auxiliary.front() >= -1;
+            return !record.auxiliary.empty() &&
+                   record.auxiliary.front() >= 0;
+        case DerivedInstructionTag::INDEXED_BRANCH:
+            return all_nonnegative();
         case DerivedInstructionTag::CORO_SUSPEND:
         case DerivedInstructionTag::CORO_RESUME:
             return record.auxiliary[0u] >= 0 &&
@@ -4080,6 +4096,13 @@ template<typename OperandSpan>
             break;
         case DerivedInstructionTag::SWITCH: {
             auto value = luisa::make_managed<SwitchInst>(block, nullptr);
+            value->set_case_count(record.operands.size() - 2u);
+            instruction = std::move(value);
+            break;
+        }
+        case DerivedInstructionTag::INDEXED_BRANCH: {
+            auto value =
+                luisa::make_managed<IndexedBranchInst>(block, nullptr);
             value->set_case_count(record.operands.size() - 2u);
             instruction = std::move(value);
             break;
@@ -4525,6 +4548,22 @@ template<typename OperandSpan>
                     }
                     break;
                 }
+                case DerivedInstructionTag::INDEXED_BRANCH: {
+                    auto indexed_branch =
+                        static_cast<IndexedBranchInst *>(instruction);
+                    for (auto i = 0u;
+                         i < indexed_branch->case_count(); i++) {
+                        auto case_value = decode_switch_case_value(
+                            indexed_branch->value()->type(),
+                            instruction_record.auxiliary[i]);
+                        if (!case_value) {
+                            fail("XIR indexed-branch case value is outside the selector type range.");
+                            return result;
+                        }
+                        indexed_branch->set_case_value(i, *case_value);
+                    }
+                    break;
+                }
                 case DerivedInstructionTag::LOOP: {
                     auto loop = static_cast<LoopInst *>(instruction);
                     auto body = resolve_block(instruction_record.auxiliary[0u]);
@@ -4843,6 +4882,18 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         for (auto case_value : switch_inst->case_values()) {
                             auxiliary.emplace_back(encode_switch_case_value(
                                 switch_inst->value()->type(), case_value));
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::INDEXED_BRANCH: {
+                        auto indexed_branch = static_cast<
+                            const IndexedBranchInst *>(instruction);
+                        for (auto case_value :
+                             indexed_branch->case_values()) {
+                            auxiliary.emplace_back(
+                                encode_switch_case_value(
+                                    indexed_branch->value()->type(),
+                                    case_value));
                         }
                         break;
                     }

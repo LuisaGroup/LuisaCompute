@@ -1087,6 +1087,15 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *ret
                     }
                     tmp_sb << ';';
                 } break;
+                case CallOp::RINT: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "rint(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "rint(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
                 case CallOp::FMA: {
                     tmp_sb << "return ";
                     if (return_type->is_vector()) {

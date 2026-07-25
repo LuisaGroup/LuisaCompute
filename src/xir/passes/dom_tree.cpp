@@ -76,6 +76,7 @@ bool DomTree::contains(BasicBlock *block) const noexcept {
 }
 
 bool DomTree::dominates(BasicBlock *src, BasicBlock *dst) const noexcept {
+    if (!contains(src) || !contains(dst)) { return false; }
     if (src == dst) { return true; }
     auto src_node = node(src);
     auto dst_node = node(dst);
@@ -99,8 +100,11 @@ auto DomTree::immediate_dominator(BasicBlock *block) const noexcept -> BasicBloc
 
 // Reference: A Simple, Fast Dominance Algorithm [Cooper et al. 2001]
 DomTree compute_dom_tree(Function *function) noexcept {
-    auto definition = function->definition();
-    LUISA_ASSERT(definition != nullptr, "Function has no definition.");
+    auto definition =
+        function == nullptr ? nullptr : function->definition();
+    if (definition == nullptr || definition->body_block() == nullptr) {
+        return {};
+    }
     // compute reverse postorder
     luisa::vector<BasicBlock *> reverse_postorder;
     definition->traverse_basic_blocks(

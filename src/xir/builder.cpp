@@ -29,6 +29,12 @@ SwitchInst *XIRBuilder::switch_(Value *value) noexcept {
     return _create_and_append_instruction<SwitchInst>(_insertion_point->parent_block(), value);
 }
 
+IndexedBranchInst *XIRBuilder::indexed_branch(Value *value) noexcept {
+    LUISA_ASSERT(value != nullptr, "Indexed branch value cannot be null.");
+    return _create_and_append_instruction<IndexedBranchInst>(
+        _insertion_point->parent_block(), value);
+}
+
 LoopInst *XIRBuilder::loop() noexcept {
     return _create_and_append_instruction<LoopInst>(_insertion_point->parent_block());
 }

@@ -6,10 +6,13 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/resource.h>
+#include <luisa/xir/instructions/store.h>
 
 #include "helpers.h"
 #include "natural_loop.h"
@@ -26,6 +29,7 @@ namespace {
         !a->isa<Constant>() || !b->isa<Constant>()) {
         return false;
     }
+    if (a->type() != b->type()) { return false; }
     int64_t va = 0;
     int64_t vb = 0;
     auto decode = [](const Value *v, int64_t &out) noexcept {
@@ -58,35 +62,112 @@ namespace {
 }
 
 struct LoopMemoryFootprint {
-    luisa::unordered_set<const Value *> read_buffers;
-    luisa::unordered_set<const Value *> written_buffers;
-    bool has_calls_or_atomics{false};
+    luisa::unordered_set<const Value *> local_reads;
+    luisa::unordered_set<const Value *> local_writes;
+    bool has_global_read{false};
+    bool has_global_write{false};
+    bool has_unmodeled_effect{false};
 };
 
 [[nodiscard]] LoopMemoryFootprint collect_memory_footprint(const NaturalLoop &loop) noexcept {
     LoopMemoryFootprint footprint;
     auto scan = [&](BasicBlock *block) noexcept {
         block->traverse_instructions([&](Instruction *inst) noexcept {
-            if (inst->isa<CallInst>() || inst->isa<AtomicInst>()) {
-                footprint.has_calls_or_atomics = true;
+            if (inst->is_terminator() || inst->isa<PhiInst>()) { return; }
+            auto memory = get_memory_info(inst);
+            if (memory.is_volatile || inst->isa<CallInst>() ||
+                inst->isa<AtomicInst>()) {
+                footprint.has_unmodeled_effect = true;
+                return;
+            }
+            if (!memory.reads_memory() && !memory.writes_memory()) { return; }
+            if (inst->isa<LoadInst>() || inst->isa<StoreInst>()) {
+                auto *pointer = inst->isa<LoadInst>() ?
+                                    static_cast<LoadInst *>(inst)->variable() :
+                                    static_cast<StoreInst *>(inst)->variable();
+                auto *base = trace_pointer_base_value(pointer);
+                if (base == nullptr || !base->isa<AllocaInst>()) {
+                    footprint.has_unmodeled_effect = true;
+                    return;
+                }
+                if (memory.reads_memory()) {
+                    footprint.local_reads.emplace(base);
+                }
+                if (memory.writes_memory()) {
+                    footprint.local_writes.emplace(base);
+                }
                 return;
             }
             if (inst->isa<ResourceReadInst>()) {
-                auto *read = static_cast<ResourceReadInst *>(inst);
-                if (read->operand_count() != 0u) {
-                    footprint.read_buffers.emplace(read->operand(0u));
-                }
-            } else if (inst->isa<ResourceWriteInst>()) {
-                auto *write = static_cast<ResourceWriteInst *>(inst);
-                if (write->operand_count() != 0u) {
-                    footprint.written_buffers.emplace(write->operand(0u));
-                }
+                footprint.has_global_read = true;
+                return;
             }
+            if (inst->isa<ResourceWriteInst>()) {
+                footprint.has_global_write = true;
+                return;
+            }
+            // Clocks, ray-query state, thread-group operations, and future
+            // memory instructions do not have a proven fusion dependence
+            // model.
+            footprint.has_unmodeled_effect = true;
         });
     };
     scan(loop.header);
     for (auto *block : loop.body_blocks) { scan(block); }
     return footprint;
+}
+
+[[nodiscard]] bool memory_footprints_are_independent(
+    const LoopMemoryFootprint &first,
+    const LoopMemoryFootprint &second) noexcept {
+    if (first.has_unmodeled_effect || second.has_unmodeled_effect) {
+        return false;
+    }
+    // Distinct resource SSA values may still be bound to overlapping runtime
+    // views. Without an explicit no-alias contract, any global write conflicts
+    // with every global access in the other loop.
+    if ((first.has_global_write &&
+         (second.has_global_read || second.has_global_write)) ||
+        (second.has_global_write &&
+         (first.has_global_read || first.has_global_write))) {
+        return false;
+    }
+    for (auto *base : first.local_writes) {
+        if (second.local_reads.contains(base) ||
+            second.local_writes.contains(base)) {
+            return false;
+        }
+    }
+    for (auto *base : second.local_writes) {
+        if (first.local_reads.contains(base) ||
+            first.local_writes.contains(base)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool canonical_header_for_fusion(
+    const LoopBoundsInfo &bounds) noexcept {
+    auto *header = bounds.induction_phi->parent_block();
+    auto *terminator = header->terminator();
+    if (bounds.comparison_inst == nullptr || terminator == nullptr ||
+        !terminator->isa<ConditionalBranchInst>()) {
+        return false;
+    }
+    for (auto *inst : header->instructions()) {
+        if (inst->isa<PhiInst>() || inst == bounds.comparison_inst ||
+            inst == terminator) {
+            continue;
+        }
+        return false;
+    }
+    // The comparison disappears with the second header, so it may only feed
+    // that header's branch.
+    for (auto *use : bounds.comparison_inst->use_list()) {
+        if (use->user() != terminator) { return false; }
+    }
+    return true;
 }
 
 [[nodiscard]] bool has_cross_value_flow(const NaturalLoop &from,
@@ -125,28 +206,57 @@ struct LoopMemoryFootprint {
            static_cast<BranchInst *>(term)->target_block() == target;
 }
 
+[[nodiscard]] bool block_has_only_predecessor(
+    BasicBlock *block, BasicBlock *expected) noexcept {
+    auto saw_expected = false;
+    auto saw_other = false;
+    block->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+        saw_expected |= predecessor == expected;
+        saw_other |= predecessor != expected;
+    });
+    return saw_expected && !saw_other;
+}
+
 [[nodiscard]] bool try_fuse_pair(FunctionDefinition *def,
                                  const NaturalLoop &first,
                                  const NaturalLoop &second) noexcept {
     // Canonical shapes on both sides.
     if (first.preheader == nullptr || second.preheader == nullptr ||
         first.latches.size() != 1u || second.latches.size() != 1u ||
-        first.exit_blocks.size() != 1u || second.exit_blocks.size() != 1u) {
+        first.exit_blocks.size() != 1u || second.exit_blocks.size() != 1u ||
+        first.exit_edges.size() != 1u || second.exit_edges.size() != 1u) {
         return false;
     }
     // Adjacency: the first loop's exit is the second loop's preheader.
     if (first.exit_blocks.front() != second.preheader) { return false; }
     // The shared block must be a trivial branch into the second header.
     if (!block_is_trivial_branch(second.preheader, second.header)) { return false; }
+    // This block is deleted by the transform. NaturalLoop::preheader only
+    // constrains predecessors of the second header, so independently reject
+    // a bypass edge entering the shared preheader itself.
+    if (!block_has_only_predecessor(
+            second.preheader, first.exit_edges.front().first)) {
+        return false;
+    }
 
     auto bounds1 = analyze_loop_bounds(first);
     auto bounds2 = analyze_loop_bounds(second);
     if (!bounds1.is_valid() || !bounds2.is_valid() ||
         !bounds1.stride_is_constant || !bounds2.stride_is_constant ||
+        !bounds1.trip_count_is_constant ||
+        !bounds2.trip_count_is_constant ||
+        bounds1.constant_trip_count != bounds2.constant_trip_count ||
         bounds1.stride != bounds2.stride ||
         bounds1.induction_phi->type() != bounds2.induction_phi->type() ||
+        bounds1.comparison != bounds2.comparison ||
+        bounds1.induction_is_lhs != bounds2.induction_is_lhs ||
+        bounds1.continue_on_true != bounds2.continue_on_true ||
         !same_constant_value(bounds1.start_value, bounds2.start_value) ||
-        !same_constant_value(bounds1.bound_value, bounds2.bound_value)) {
+        !same_constant_value(bounds1.bound_value, bounds2.bound_value) ||
+        bounds1.exit_block != second.preheader ||
+        bounds2.exit_block != second.exit_blocks.front() ||
+        !canonical_header_for_fusion(bounds1) ||
+        !canonical_header_for_fusion(bounds2)) {
         return false;
     }
 
@@ -155,16 +265,7 @@ struct LoopMemoryFootprint {
     // first loop into the second (their per-iteration meaning would change).
     auto mem1 = collect_memory_footprint(first);
     auto mem2 = collect_memory_footprint(second);
-    if (mem1.has_calls_or_atomics || mem2.has_calls_or_atomics) { return false; }
-    for (auto *buffer : mem1.written_buffers) {
-        if (mem2.read_buffers.contains(buffer) ||
-            mem2.written_buffers.contains(buffer)) {
-            return false;
-        }
-    }
-    for (auto *buffer : mem2.written_buffers) {
-        if (mem1.read_buffers.contains(buffer)) { return false; }
-    }
+    if (!memory_footprints_are_independent(mem1, mem2)) { return false; }
     if (has_cross_value_flow(first, second)) { return false; }
 
     auto *header1 = first.header;
@@ -174,6 +275,19 @@ struct LoopMemoryFootprint {
     auto *latch2 = second.latches.front();
     auto *preheader2 = second.preheader;// == first exit
     auto *exit2 = second.exit_blocks.front();
+
+    // These two blocks are deleted by fusion. Movable non-induction Phis
+    // retain their metadata because the instructions themselves are moved,
+    // but block metadata and metadata on the eliminated transition/header
+    // instructions have no unique semantics-preserving destination.
+    if (!preheader2->metadata_list().empty() ||
+        !header2->metadata_list().empty() ||
+        !preheader2->terminator()->metadata_list().empty() ||
+        !bounds2.induction_phi->metadata_list().empty() ||
+        !bounds2.comparison_inst->metadata_list().empty() ||
+        !header2->terminator()->metadata_list().empty()) {
+        return false;
+    }
 
     // The second header's phis must be replaceable: the induction phi maps
     // to the first loop's phi; every other phi moves to the first header
@@ -246,9 +360,7 @@ struct LoopMemoryFootprint {
     auto *latch1_branch = static_cast<BranchInst *>(latch1->terminator());
     // The second header's in-loop successor is the second body entry.
     auto *header2_branch = static_cast<ConditionalBranchInst *>(header2->terminator());
-    auto *body2_entry = header2_branch->true_block() == exit2 ?
-                            header2_branch->false_block() :
-                            header2_branch->true_block();
+    auto *body2_entry = bounds2.body_entry;
     latch1_branch->set_target_block(body2_entry);
     // The second latch closes the fused loop.
     auto *latch2_branch = static_cast<BranchInst *>(latch2->terminator());
@@ -267,6 +379,19 @@ struct LoopMemoryFootprint {
     }
     // Replace the second induction phi with the first.
     bounds2.induction_phi->replace_all_uses_with(bounds1.induction_phi);
+    // The second body entry used to be reached from its header. It is now
+    // reached from the first latch, so edge-indexed Phi inputs must follow
+    // the rewritten predecessor edge before the old header is removed.
+    for (auto *inst : body2_entry->instructions()) {
+        if (!inst->isa<PhiInst>()) { break; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        for (auto i = 0u; i < phi->incoming_count(); ++i) {
+            auto incoming = phi->incoming(i);
+            if (incoming.block == header2) {
+                phi->set_incoming(i, incoming.value, latch1);
+            }
+        }
+    }
     // Move the remaining second-header phis into the first header.
     Instruction *last_phi1 = nullptr;
     for (auto *inst : header1->instructions()) {
@@ -344,6 +469,24 @@ static void run(Function *function, LoopFusionInfo &info) noexcept {
     }
 }
 
+[[nodiscard]] static bool preflight_module(
+    Module *module, LoopFusionInfo &info) noexcept {
+    if (module == nullptr) { return true; }
+    for (auto *function : module->function_list()) {
+        auto *def = function == nullptr ? nullptr : function->definition();
+        if (def != nullptr && contains_structured_control_flow(def)) {
+            ++info.structured_cfg_error_count;
+        }
+    }
+    if (info.structured_cfg_error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Loop fusion rejected a module containing structured CFG; "
+            "run destructure_cfg first. The entire module was left unchanged.");
+        return false;
+    }
+    return true;
+}
+
 }// namespace detail
 
 LoopFusionInfo loop_fusion_pass_run_on_function(Function *function) noexcept {
@@ -355,8 +498,12 @@ LoopFusionInfo loop_fusion_pass_run_on_function(Function *function) noexcept {
 LoopFusionInfo loop_fusion_pass_run_on_module(Module *module,
                                               PassReport *report) noexcept {
     LoopFusionInfo info;
-    for (auto *function : module->function_list()) {
-        detail::run(function, info);
+    if (detail::preflight_module(module, info)) {
+        if (module != nullptr) {
+            for (auto *function : module->function_list()) {
+                detail::run(function, info);
+            }
+        }
     }
     if (report != nullptr) {
         report->set("fused_loop_count", info.fused_loop_count);

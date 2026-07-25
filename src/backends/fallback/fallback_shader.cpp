@@ -202,7 +202,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     xir::PassPipeline pre_cfg;
     pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pre_cfg.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::local_store_forward_pass_run_on_module(m, &r);
@@ -214,7 +214,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     });
     pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     // pre_cfg.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
     //     auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
@@ -228,11 +228,11 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     }
     pre_cfg.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::mem2reg_pass_run_on_module(m, &r);
-        return i.promoted_alloca_count > 0u;
+        return i.changed();
     });
     pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     auto pre_cfg_stats = pre_cfg.run(xir_module.get());
     pre_cfg_stats.log("Fallback backend pre-CFG optimization");
@@ -259,15 +259,11 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
                     "Fallback XIR destructuring failed (errors={}, leaked_blocks={}).",
                     i.error_count, i.leaked_block_count);
             }
-            return i.destructured_if_count > 0u ||
-                   i.destructured_loop_count > 0u ||
-                   i.destructured_simple_loop_count > 0u;
+            return i.changed();
         });
         cfg.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-            return i.folded_constant_cond_br_count > 0u ||
-                   i.threaded_empty_block_count > 0u ||
-                   i.removed_unreachable_block_count > 0u;
+            return i.changed();
         });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
             cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
@@ -278,7 +274,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
                         i.irreducible_region_count, i.unstructured_branch_count,
                         i.invalid_construct_count, i.iteration_limit_count);
                 }
-                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+                return i.changed();
             });
         }
     }

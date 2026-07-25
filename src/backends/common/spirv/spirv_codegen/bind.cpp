@@ -474,7 +474,7 @@ void SpirvCodegenEntry::generate_binding(
                 space_idx++,
                 0u,
                 std::numeric_limits<uint32_t>::max()},
-                nullptr, "tex2d_heap",
+            nullptr, "tex2d_heap",
             PropertyRole::BINDLESS_TEXTURE_2D_HEAP);
     }
     if (_use_tex3d_bindless) {
@@ -812,7 +812,8 @@ void SpirvCodegenEntry::generate_binding(
         LUISA_ASSERT(
             is_bindless_texture_heap ==
                 (property.type == ShaderVariableType::SRVTextureHeap &&
-                 std::numeric_limits<uint32_t>::max()),
+                 property.array_size ==
+                     std::numeric_limits<uint32_t>::max()),
             "SPIR-V unbounded texture property {} is missing its exact 2D/3D "
             "emission role.",
             i);

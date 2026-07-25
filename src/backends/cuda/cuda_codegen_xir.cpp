@@ -638,6 +638,10 @@ void CUDACodegenXIR::_emit_instructions(const xir::InstructionList &inst_list, i
                 });
                 break;
             }
+            case xir::DerivedInstructionTag::INDEXED_BRANCH:
+                LUISA_ERROR_WITH_LOCATION(
+                    "CUDA XIR codegen requires structured control flow; "
+                    "run restructure_cfg before codegen.");
             case xir::DerivedInstructionTag::LOOP: {
                 _with_control_flow(inst, [&] {
                     _emit_loop_inst(static_cast<const xir::LoopInst *>(inst), indent);

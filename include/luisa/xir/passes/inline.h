@@ -14,7 +14,14 @@ struct InlineInfo {
     size_t removed_callable_count{0u};
     size_t skipped_recursive_callable_count{0u};
     size_t skipped_structured_call_count{0u};
+    size_t skipped_constrained_call_count{0u};
+    size_t skipped_metadata_call_count{0u};
+    size_t skipped_declaration_call_count{0u};
     size_t rejected_malformed_call_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return inlined_call_count != 0u ||
+               removed_callable_count != 0u;
+    }
 };
 
 struct InlineOptions {
@@ -25,6 +32,12 @@ struct InlineOptions {
 // their CFG. By default, multi-block inlining is unstructured-CFG-only. The
 // opt-in option permits only a retained caller-side autodiff scope after the
 // caller and callee's ordinary structured CFG has already been destructured.
+// Signature-constrained callees and calls whose metadata cannot be assigned to
+// one replacement owner are rejected without mutation. Bodyless callable
+// declarations are valid references but are never inline candidates. Callee
+// instruction and basic-block metadata is cloned one-to-one;
+// function/argument names are debug declarations and are not materialized into
+// the inline region.
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, PassReport *report = nullptr) noexcept;

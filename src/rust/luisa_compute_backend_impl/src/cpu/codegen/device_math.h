@@ -17,17 +17,22 @@ using lc_ulong = unsigned long long;
     auto u = __float_as_int(x);
     return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
 }
-[[nodiscard]] __device__ inline lc_float powi_impl(lc_float x, lc_int y) noexcept {
-    lc_float r = 1.0f;
-    auto is_y_neg = y < 0;
-    auto y_abs = is_y_neg ? -y : y;
+template<typename T, typename I>
+[[nodiscard]] __device__ inline T powi_impl(T x, I y) noexcept {
+    T r = static_cast<T>(1.0f);
+    auto is_y_neg = y < static_cast<I>(0);
+    // Convert first, then negate in the unsigned domain. This preserves the
+    // magnitude of every signed minimum value and the complete width of every
+    // unsigned exponent.
+    auto y_abs = static_cast<lc_ulong>(y);
+    if (is_y_neg) y_abs = lc_ulong{0} - y_abs;
 
-    while (y_abs) {
-        if (y_abs & 1) r *= x;
+    while (y_abs != 0u) {
+        if ((y_abs & 1u) != 0u) r *= x;
         x *= x;
         y_abs >>= 1;
     }
-    return is_y_neg ? 1.0f / r : r;
+    return is_y_neg ? static_cast<T>(1.0f) / r : r;
 }
 [[nodiscard]] __device__ inline lc_float powf_impl(lc_float x, lc_float y) noexcept {
     auto y_int = static_cast<lc_int>(y);
@@ -3092,14 +3097,228 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_pow(lc_float3 x, lc_float3 a) noexcept { return lc_make_float3(powf_impl(x.x, a.x), powf_impl(x.y, a.y), powf_impl(x.z, a.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_pow(lc_float4 x, lc_float4 a) noexcept { return lc_make_float4(powf_impl(x.x, a.x), powf_impl(x.y, a.y), powf_impl(x.z, a.z), powf_impl(x.w, a.w)); }
 
-[[nodiscard]] __device__ inline lc_half lc_powi(lc_half x, lc_half a) noexcept { return powi_impl(x, a); }
-[[nodiscard]] __device__ inline lc_half2 lc_powi(lc_half2 x, lc_half2 a) noexcept { return lc_make_half2(powi_impl(x.x, a.x), powi_impl(x.y, a.y)); }
-[[nodiscard]] __device__ inline lc_half3 lc_powi(lc_half3 x, lc_half3 a) noexcept { return lc_make_half3(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z)); }
-[[nodiscard]] __device__ inline lc_half4 lc_powi(lc_half4 x, lc_half4 a) noexcept { return lc_make_half4(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z), powi_impl(x.w, a.w)); }
-[[nodiscard]] __device__ inline lc_float lc_powi(lc_float x, lc_float a) noexcept { return powi_impl(x, a); }
-[[nodiscard]] __device__ inline lc_float2 lc_powi(lc_float2 x, lc_float2 a) noexcept { return lc_make_float2(powi_impl(x.x, a.x), powi_impl(x.y, a.y)); }
-[[nodiscard]] __device__ inline lc_float3 lc_powi(lc_float3 x, lc_float3 a) noexcept { return lc_make_float3(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z)); }
-[[nodiscard]] __device__ inline lc_float4 lc_powi(lc_float4 x, lc_float4 a) noexcept { return lc_make_float4(powi_impl(x.x, a.x), powi_impl(x.y, a.y), powi_impl(x.z, a.z), powi_impl(x.w, a.w)); }
+template<typename I>
+struct lc_powi_exponent_traits;
+template<>
+struct lc_powi_exponent_traits<lc_byte> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_byte lane(lc_byte v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_byte2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_byte lane(lc_byte2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_byte3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_byte lane(lc_byte3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_byte4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_byte lane(lc_byte4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ubyte> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_ubyte lane(lc_ubyte v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ubyte2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_ubyte lane(lc_ubyte2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ubyte3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_ubyte lane(lc_ubyte3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ubyte4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_ubyte lane(lc_ubyte4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_short> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_short lane(lc_short v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_short2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_short lane(lc_short2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_short3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_short lane(lc_short3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_short4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_short lane(lc_short4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ushort> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_ushort lane(lc_ushort v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ushort2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_ushort lane(lc_ushort2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ushort3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_ushort lane(lc_ushort3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ushort4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_ushort lane(lc_ushort4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_int> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_int lane(lc_int v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_int2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_int lane(lc_int2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_int3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_int lane(lc_int3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_int4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_int lane(lc_int4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_uint> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_uint lane(lc_uint v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_uint2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_uint lane(lc_uint2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_uint3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_uint lane(lc_uint3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_uint4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_uint lane(lc_uint4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_long> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_long lane(lc_long v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_long2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_long lane(lc_long2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_long3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_long lane(lc_long3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_long4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_long lane(lc_long4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ulong> {
+    static constexpr lc_uint dimension = 1u;
+    [[nodiscard]] __device__ inline static lc_ulong lane(lc_ulong v, lc_uint) noexcept { return v; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ulong2> {
+    static constexpr lc_uint dimension = 2u;
+    [[nodiscard]] __device__ inline static lc_ulong lane(lc_ulong2 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ulong3> {
+    static constexpr lc_uint dimension = 3u;
+    [[nodiscard]] __device__ inline static lc_ulong lane(lc_ulong3 v, lc_uint i) noexcept { return v[i]; }
+};
+template<>
+struct lc_powi_exponent_traits<lc_ulong4> {
+    static constexpr lc_uint dimension = 4u;
+    [[nodiscard]] __device__ inline static lc_ulong lane(lc_ulong4 v, lc_uint i) noexcept { return v[i]; }
+};
+template<typename I>
+[[nodiscard]] __device__ inline lc_half lc_powi(lc_half x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u);
+    return powi_impl(x, E::lane(a, 0u));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_half2 lc_powi(lc_half2 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 2u);
+    return lc_make_half2(powi_impl(x.x, E::lane(a, 0u)),
+                         powi_impl(x.y, E::lane(a, E::dimension == 1u ? 0u : 1u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_half3 lc_powi(lc_half3 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 3u);
+    return lc_make_half3(powi_impl(x.x, E::lane(a, 0u)),
+                         powi_impl(x.y, E::lane(a, E::dimension == 1u ? 0u : 1u)),
+                         powi_impl(x.z, E::lane(a, E::dimension == 1u ? 0u : 2u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_half4 lc_powi(lc_half4 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 4u);
+    return lc_make_half4(powi_impl(x.x, E::lane(a, 0u)),
+                         powi_impl(x.y, E::lane(a, E::dimension == 1u ? 0u : 1u)),
+                         powi_impl(x.z, E::lane(a, E::dimension == 1u ? 0u : 2u)),
+                         powi_impl(x.w, E::lane(a, E::dimension == 1u ? 0u : 3u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float lc_powi(lc_float x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u);
+    return powi_impl(x, E::lane(a, 0u));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float2 lc_powi(lc_float2 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 2u);
+    return lc_make_float2(powi_impl(x.x, E::lane(a, 0u)),
+                          powi_impl(x.y, E::lane(a, E::dimension == 1u ? 0u : 1u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float3 lc_powi(lc_float3 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 3u);
+    return lc_make_float3(powi_impl(x.x, E::lane(a, 0u)),
+                          powi_impl(x.y, E::lane(a, E::dimension == 1u ? 0u : 1u)),
+                          powi_impl(x.z, E::lane(a, E::dimension == 1u ? 0u : 2u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float4 lc_powi(lc_float4 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 4u);
+    return lc_make_float4(powi_impl(x.x, E::lane(a, 0u)),
+                          powi_impl(x.y, E::lane(a, E::dimension == 1u ? 0u : 1u)),
+                          powi_impl(x.z, E::lane(a, E::dimension == 1u ? 0u : 2u)),
+                          powi_impl(x.w, E::lane(a, E::dimension == 1u ? 0u : 3u)));
+}
 
 [[nodiscard]] __device__ inline lc_float lc_sqrt(lc_float x) noexcept { return sqrtf(x); }
 [[nodiscard]] __device__ inline lc_float2 lc_sqrt(lc_float2 x) noexcept { return lc_make_float2(sqrtf(x.x), sqrtf(x.y)); }
@@ -3159,6 +3378,15 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float2 lc_round(lc_float2 x) noexcept { return lc_make_float2(roundf(x.x), roundf(x.y)); }
 [[nodiscard]] __device__ inline lc_float3 lc_round(lc_float3 x) noexcept { return lc_make_float3(roundf(x.x), roundf(x.y), roundf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_round(lc_float4 x) noexcept { return lc_make_float4(roundf(x.x), roundf(x.y), roundf(x.z), roundf(x.w)); }
+
+[[nodiscard]] __device__ inline lc_half lc_rint(lc_half x) noexcept { return rintf(x); }
+[[nodiscard]] __device__ inline lc_half2 lc_rint(lc_half2 x) noexcept { return lc_make_half2(rintf(x.x), rintf(x.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_rint(lc_half3 x) noexcept { return lc_make_half3(rintf(x.x), rintf(x.y), rintf(x.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_rint(lc_half4 x) noexcept { return lc_make_half4(rintf(x.x), rintf(x.y), rintf(x.z), rintf(x.w)); }
+[[nodiscard]] __device__ inline lc_float lc_rint(lc_float x) noexcept { return rintf(x); }
+[[nodiscard]] __device__ inline lc_float2 lc_rint(lc_float2 x) noexcept { return lc_make_float2(rintf(x.x), rintf(x.y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_rint(lc_float3 x) noexcept { return lc_make_float3(rintf(x.x), rintf(x.y), rintf(x.z)); }
+[[nodiscard]] __device__ inline lc_float4 lc_rint(lc_float4 x) noexcept { return lc_make_float4(rintf(x.x), rintf(x.y), rintf(x.z), rintf(x.w)); }
 
 [[nodiscard]] __device__ inline lc_float lc_fma(lc_float x, lc_float y, lc_float z) noexcept { return fmaf(x, y, z); }
 [[nodiscard]] __device__ inline lc_float2 lc_fma(lc_float2 x, lc_float2 y, lc_float2 z) noexcept { return lc_make_float2(fmaf(x.x, y.x, z.x), fmaf(x.y, y.y, z.y)); }

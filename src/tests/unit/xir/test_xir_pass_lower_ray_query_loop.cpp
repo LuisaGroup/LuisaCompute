@@ -76,7 +76,13 @@ void register_tests() {
         auto f = make_fixture(m);
         XIRBuilder b;
         b.set_insertion_point(f.surface);
-        b.br(f.dispatch);
+        auto *surface_exit = b.br(f.dispatch);
+        f.loop->set_name("source_ray_query_loop");
+        f.loop->add_comment("preserve lowering provenance");
+        f.dispatch_inst->set_name("source_candidate_dispatch");
+        f.dispatch_inst->add_comment("preserve dispatch provenance");
+        f.surface->set_name("source_surface_handler");
+        surface_exit->set_name("source_surface_exit");
 
         expect(xir_verify_module(&m).succeeded());
         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
@@ -95,6 +101,31 @@ void register_tests() {
         expect(pipeline->query_object() == f.query);
         expect(pipeline->query_object()->type() == Type::of<RayQueryAll>());
         expect(pipeline->captured_argument_count() == 0u);
+        expect(pipeline->name().has_value());
+        if (pipeline->name()) {
+            expect(*pipeline->name() == "source_ray_query_loop");
+        }
+        expect(pipeline->metadata_list().count_size() == 4u);
+        auto *surface_callback = pipeline->on_surface_function();
+        expect(surface_callback->definition()->body_block()->name().has_value());
+        if (surface_callback->definition()->body_block()->name()) {
+            expect(*surface_callback->definition()->body_block()->name() ==
+                   "source_surface_handler");
+        }
+        expect(surface_callback->definition()
+                   ->body_block()
+                   ->terminator()
+                   ->name()
+                   .has_value());
+        if (surface_callback->definition()
+                ->body_block()
+                ->terminator()
+                ->name()) {
+            expect(*surface_callback->definition()
+                        ->body_block()
+                        ->terminator()
+                        ->name() == "source_surface_exit");
+        }
         for (auto *callback : {pipeline->on_surface_function(),
                                pipeline->on_procedural_function()}) {
             expect(callback != nullptr);
@@ -108,6 +139,194 @@ void register_tests() {
         }
         expect(count_functions(m) == 3u);
         expect(xir_verify_module(&m).succeeded());
+    };
+
+    "non_query_lvalue_is_rejected_atomically"_test = [] {
+        Module m;
+        auto *kernel = m.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *not_a_query = b.alloca_local(Type::of<int>());
+        auto *loop = b.ray_query_loop();
+        auto *dispatch = loop->create_dispatch_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(not_a_query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        auto *surface_exit = b.br(dispatch);
+        b.set_insertion_point(procedural);
+        auto *procedural_exit = b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto function_count = count_functions(m);
+        auto block_count = count_blocks(kernel->definition());
+
+        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.lowered_loop_count == 0u);
+        expect(count_functions(m) == function_count);
+        expect(count_blocks(kernel->definition()) == block_count);
+        expect(body->terminator() == loop);
+        expect(dispatch->terminator() == dispatch_inst);
+        expect(surface->terminator() == surface_exit);
+        expect(procedural->terminator() == procedural_exit);
+    };
+
+    "ray_query_any_is_outlined_with_exact_callback_abi"_test = [] {
+        Module m;
+        auto *kernel = m.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *query = b.alloca_local(Type::of<RayQueryAny>());
+        auto *loop = b.ray_query_loop();
+        auto *dispatch = loop->create_dispatch_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        b.br(dispatch);
+        b.set_insertion_point(procedural);
+        b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.lowered_loop_count == 1u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        expect(pipeline->query_object()->type() == Type::of<RayQueryAny>());
+        for (auto *callback : {pipeline->on_surface_function(),
+                               pipeline->on_procedural_function()}) {
+            expect(callback->arguments().front()->is_reference());
+            expect(callback->arguments().front()->type() ==
+                   Type::of<RayQueryAny>());
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "outlined_handler_diamond_preserves_block_phi_and_exit_metadata"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *condition =
+            f.kernel->create_value_argument(Type::of<bool>());
+        auto *left = f.kernel->create_basic_block();
+        auto *right = f.kernel->create_basic_block();
+        auto *join = f.kernel->create_basic_block();
+        XIRBuilder b;
+        f.surface->set_name("surface_entry");
+        left->set_name("surface_left");
+        right->set_name("surface_right");
+        join->set_name("surface_join");
+        b.set_insertion_point(f.surface);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(join);
+        b.set_insertion_point(right);
+        b.br(join);
+        b.set_insertion_point(join);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(m.create_constant_zero(Type::of<int>()), left);
+        phi->add_incoming(m.create_constant_one(Type::of<int>()), right);
+        phi->set_name("surface_join_value");
+        auto *exit = b.br(f.dispatch);
+        exit->set_name("surface_join_exit");
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        auto *callback = pipeline->on_surface_function();
+        size_t named_block_count = 0u;
+        size_t named_phi_count = 0u;
+        size_t named_return_count = 0u;
+        callback->definition()->traverse_basic_blocks(
+            [&](BasicBlock *block) noexcept {
+                named_block_count += block->name().has_value() ? 1u : 0u;
+                block->traverse_instructions(
+                    [&](Instruction *inst) noexcept {
+                        if (inst->isa<PhiInst>() && inst->name() &&
+                            *inst->name() == "surface_join_value") {
+                            ++named_phi_count;
+                        }
+                        if (inst->isa<ReturnInst>() && inst->name() &&
+                            *inst->name() == "surface_join_exit") {
+                            ++named_return_count;
+                        }
+                    });
+            });
+        expect(named_block_count == 4u);
+        expect(named_phi_count == 1u);
+        expect(named_return_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "module_rejection_is_atomic_across_functions"_test = [] {
+        Module m;
+        auto valid = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(valid.surface);
+        auto *valid_surface_exit = b.br(valid.dispatch);
+
+        auto invalid = make_fixture(m);
+        // The fixture deliberately leaves the surface block unterminated.
+        auto function_count = count_functions(m);
+        auto valid_block_count = count_blocks(valid.kernel->definition());
+        auto invalid_block_count = count_blocks(invalid.kernel->definition());
+
+        auto info = lower_ray_query_loop_pass_run_on_module(&m);
+        expect(info.lowered_loop_count == 0u);
+        expect(info.error_count == 1u);
+        expect(!info.succeeded());
+        expect(count_functions(m) == function_count);
+        expect(count_blocks(valid.kernel->definition()) == valid_block_count);
+        expect(count_blocks(invalid.kernel->definition()) == invalid_block_count);
+        expect(valid.body->terminator() == valid.loop);
+        expect(valid.dispatch->terminator() == valid.dispatch_inst);
+        expect(valid.surface->terminator() == valid_surface_exit);
+        expect(invalid.body->terminator() == invalid.loop);
+        expect(invalid.dispatch->terminator() == invalid.dispatch_inst);
+    };
+
+    "null_module_and_function_are_noops"_test = [] {
+        auto function_info =
+            lower_ray_query_loop_pass_run_on_function(nullptr);
+        auto module_info =
+            lower_ray_query_loop_pass_run_on_module(nullptr);
+        expect(function_info.lowered_loop_count == 0u);
+        expect(function_info.error_count == 0u);
+        expect(module_info.lowered_loop_count == 0u);
+        expect(module_info.error_count == 0u);
     };
 
     "captured_callback_abi_is_exact_and_verifier_valid"_test = [] {
@@ -388,6 +607,31 @@ void register_tests() {
         expect(info.lowered_loop_count == 0u);
         expect(count_functions(m) == function_count);
         expect(count_blocks(f.kernel->definition()) == block_count);
+        expect(f.surface->terminator() == surface_exit);
+        expect(external->terminator() == external_edge);
+    };
+
+    "external_dispatch_predecessor_is_rejected_before_outlining"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.surface);
+        auto *surface_exit = b.br(f.dispatch);
+        auto *external = f.kernel->create_basic_block();
+        b.set_insertion_point(external);
+        auto *external_edge = b.br(f.dispatch);
+        auto function_count = count_functions(m);
+        auto block_count = count_blocks(f.kernel->definition());
+
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.lowered_loop_count == 0u);
+        expect(count_functions(m) == function_count);
+        expect(count_blocks(f.kernel->definition()) == block_count);
+        expect(f.body->terminator() == f.loop);
+        expect(f.dispatch->terminator() == f.dispatch_inst);
         expect(f.surface->terminator() == surface_exit);
         expect(external->terminator() == external_edge);
     };

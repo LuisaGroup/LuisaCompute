@@ -292,7 +292,7 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 | Pipeline B Pass 1 `destructure_cfg` | ✅ done (12 tests, 46 asserts) | `destructure_cfg.{h,cpp}` |
 | Pipeline B Pass 2 `simplify_cfg` | ✅ done (8 tests, 22 asserts) | `simplify_cfg.{h,cpp}` |
 | Pipeline B Pass 3 `restructure_cfg` | ✅ done (unit tests) | `restructure_cfg.{h,cpp}` |
-| `lower_switch` | ✅ done (lowers `SwitchInst` to cascaded `IfInst`) | `lower_switch.{h,cpp}` |
+| Structured switch | ✅ `SwitchInst` is preserved; raw multi-way CFG uses `IndexedBranchInst` and `restructure_cfg` reconstructs the merge | `switch.{h,cpp}`, `indexed_branch.{h,cpp}` |
 | `convergence_region` | ✅ done (region analysis used by `restructure_cfg`) | `convergence_region.{h,cpp}` |
 | `early_cse` | ✅ done (local common subexpression elimination) | `early_cse.{h,cpp}` |
 | `pass_pipeline` | ✅ done (driver + canned pipelines) | `pass_pipeline.{h,cpp}` |
@@ -474,11 +474,11 @@ When debugging or implementing an XIR pass, the LLVM project has similar passes 
 | `loop_fusion` | `llvm/lib/Transforms/Scalar/LoopFuse.cpp` | Fuse adjacent loops with compatible bounds. |
 | `loop_vectorization` | `llvm/lib/Transforms/Vectorize/LoopVectorize.cpp` | Vectorize innermost loops (widening). |
 | `slp_vectorization` | `llvm/lib/Transforms/Vectorize/SLPVectorizer.cpp` | Superword-level parallelism (horizontal SIMD). |
-| `loop_unroll` | `llvm/lib/Transforms/Utils/LoopUnroll.cpp` | Loop unrolling (full / partial / runtime). |
+| Generic loop unroll | `llvm/lib/Transforms/Utils/LoopUnroll.cpp` | No generic XIR pass: it was removed because its structured-CFG correctness contract was not established. Autodiff's private bounded semantic expansion and SPIRV-Tools unrolling are separate mechanisms. |
 | `lower_break_continue` | — | XIR-specific lowering of structured `BreakInst`/`ContinueInst`. |
 | `lower_ray_query_loop` | — | XIR-specific ray-query pipeline lowering. |
 | `lower_ray_query_loop_to_loop` | — | XIR-specific ray-query → structured `LoopInst` lowering. |
-| `lower_switch` | `llvm/lib/Transforms/Utils/LowerSwitch.cpp` | Lower `switch` to cascaded branches / if-else chains. |
+| Generic lower switch | `llvm/lib/Transforms/Utils/LowerSwitch.cpp` | No generic XIR pass: `SwitchInst` is a first-class structured terminator. `destructure_cfg` alone maps it to raw `IndexedBranchInst`, and `restructure_cfg` rebuilds the switch merge. |
 | `mem2reg` | `llvm/lib/Transforms/Utils/Mem2Reg.cpp` | Promote memory to registers (alloca → SSA). Also see `PromoteMemToReg.h`. |
 | `outline` | `llvm/lib/Transforms/IPO/IROutliner.cpp` | Outlining similar instruction sequences. |
 | `pass_pipeline` | — | XIR pass pipeline driver. |

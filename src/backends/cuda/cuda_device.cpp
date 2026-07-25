@@ -115,7 +115,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     xir::PassPipeline pipeline;
     pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::local_store_forward_pass_run_on_module(m, &r);
@@ -127,7 +127,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     });
     pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
@@ -141,11 +141,11 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     }
     pipeline.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::mem2reg_pass_run_on_module(m, &r);
-        return i.promoted_alloca_count > 0u;
+        return i.changed();
     });
     pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     auto pre_cfg_stats = pipeline.run(xir_module.get());
     verify_xir_or_error(xir_module.get(), "pre-CFG optimization");
@@ -168,7 +168,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         });
         cfg.add("reg2mem", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::reg2mem_pass_run_on_module(m, &r);
-            return i.lowered_phi_count > 0u;
+            return i.changed();
         });
     }
     if (LUISA_XIR_NORMALIZE_CFG) {
@@ -179,15 +179,11 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
                     "CUDA XIR destructuring failed (errors={}, leaked_blocks={}).",
                     i.error_count, i.leaked_block_count);
             }
-            return i.destructured_if_count > 0u ||
-                   i.destructured_loop_count > 0u ||
-                   i.destructured_simple_loop_count > 0u;
+            return i.changed();
         });
         cfg.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-            return i.folded_constant_cond_br_count > 0u ||
-                   i.threaded_empty_block_count > 0u ||
-                   i.merged_straight_line_count > 0u;
+            return i.changed();
         });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
             cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
@@ -198,7 +194,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
                         i.irreducible_region_count, i.unstructured_branch_count,
                         i.invalid_construct_count, i.iteration_limit_count);
                 }
-                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+                return i.changed();
             });
         }
     }

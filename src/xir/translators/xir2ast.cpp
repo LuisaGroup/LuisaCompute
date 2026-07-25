@@ -45,8 +45,6 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
-#include <luisa/xir/passes/lower_switch.h>
-#include <luisa/xir/passes/loop_unroll.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/post_dom_tree.h>
@@ -152,8 +150,8 @@ namespace detail {
         case ArithmeticOp::FLOOR: return CallOp::FLOOR;
         case ArithmeticOp::FRACT: return CallOp::FRACT;
         case ArithmeticOp::TRUNC: return CallOp::TRUNC;
-        case ArithmeticOp::ROUND: [[fallthrough]];
-        case ArithmeticOp::RINT: return CallOp::ROUND;
+        case ArithmeticOp::ROUND: return CallOp::ROUND;
+        case ArithmeticOp::RINT: return CallOp::RINT;
         case ArithmeticOp::FMA: return CallOp::FMA;
         case ArithmeticOp::COPYSIGN: return CallOp::COPYSIGN;
         case ArithmeticOp::CROSS: return CallOp::CROSS;
@@ -1201,12 +1199,12 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     // full source-coroutine ownership belongs to compile_coroutine_pipeline.
     auto preserve_generated_coro_continuations = false;
     PassPipeline pipeline;
-    pipeline.add_fixed_point("phase-A", create_basic_optimization_pipeline(), 1u);
+    pipeline.add_sequence("phase-A", create_basic_optimization_pipeline());
     pipeline.add("inline-all", [](Module *m, PassReport &r) {
         auto i = inline_all_pass_run_on_module(m, &r);
-        return i.inlined_call_count > 0u;
+        return i.changed();
     });
-    pipeline.add_fixed_point("post-inline-cleanup", create_post_inline_cleanup_pipeline(), 1u);
+    pipeline.add_sequence("post-inline-cleanup", create_post_inline_cleanup_pipeline());
     pipeline.add("lower-ray-query-loop-to-loop", [](Module *m, PassReport &r) {
         auto i = lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
         if (!i.succeeded()) {
@@ -1217,16 +1215,6 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
         }
         return i.lowered_ray_query_loop_count > 0u;
     });
-    pipeline.add("lower-switch", [](Module *m, PassReport &r) {
-        auto i = lower_switch_pass_run_on_module(m, &r);
-        if (!i.succeeded()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "XIR-to-AST normalization rejected {} structured switch(es); "
-                "the normalization pipeline cannot continue safely.",
-                i.rejected_switch_count);
-        }
-        return i.lowered_switch_count > 0u;
-    });
     pipeline.add("destructure-cfg", [](Module *m, PassReport &r) {
         auto i = destructure_cfg_pass_run_on_module(m, &r);
         if (i.error_count != 0u) {
@@ -1234,9 +1222,7 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                 "XIR-to-AST destructuring failed (errors={}, leaked_blocks={}).",
                 i.error_count, i.leaked_block_count);
         }
-        return i.destructured_if_count > 0u ||
-               i.destructured_loop_count > 0u ||
-               i.destructured_simple_loop_count > 0u;
+        return i.changed();
     });
     // Coroutine pipeline: runs only if module contains CoroSuspendInst.
     // Must run after destructure_cfg (needs destructured CFG) but BEFORE
@@ -1253,6 +1239,15 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                 });
                 if (!has_coro) { continue; }
                 auto cfg = coro_cfg_distill_pass_run_on_function(f);
+                if (!cfg.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "XIR-to-AST coroutine CFG distillation rejected its input "
+                        "(structured={}, invalid_input={}, invalid_cfg={}); "
+                        "the pipeline cannot continue safely.",
+                        cfg.structured_cfg_error_count,
+                        cfg.invalid_input_error_count,
+                        cfg.invalid_cfg_error_count);
+                }
                 auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(m, cfg, nullptr);
                 if (!split.succeeded()) {
                     LUISA_ERROR_WITH_LOCATION(
@@ -1282,9 +1277,9 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     });
     pipeline.add("mem2reg", [](Module *m, PassReport &r) {
         auto i = mem2reg_pass_run_on_module(m, &r);
-        return i.promoted_alloca_count > 0u;
+        return i.changed();
     });
-    pipeline.add_fixed_point("ssa-opt", create_ssa_optimization_pipeline(), 1u);
+    pipeline.add_sequence("ssa-opt", create_ssa_optimization_pipeline());
     pipeline.add("unused-callable-removal", [&preserve_generated_coro_continuations](Module *m, PassReport &r) {
         if (preserve_generated_coro_continuations) {
             r.set("skipped_for_coro_continuations", 1u);
@@ -1295,14 +1290,11 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     });
     pipeline.add("simplify-cfg", [](Module *m, PassReport &r) {
         auto i = simplify_cfg_pass_run_on_module(m, &r);
-        return i.folded_constant_cond_br_count > 0u ||
-               i.threaded_empty_block_count > 0u ||
-               i.merged_straight_line_count > 0u ||
-               i.removed_unreachable_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("reg2mem-pre", [](Module *m, PassReport &r) {
         auto i = reg2mem_pass_run_on_module(m, &r);
-        return i.lowered_phi_count > 0u;
+        return i.changed();
     });
     pipeline.add("restructure-cfg", [](Module *m, PassReport &r) {
         auto i = restructure_cfg_pass_run_on_module(m, &r);
@@ -1312,20 +1304,20 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                 i.irreducible_region_count, i.unstructured_branch_count,
                 i.invalid_construct_count, i.iteration_limit_count);
         }
-        return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+        return i.changed();
     });
     pipeline.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("reg2mem-mid", [](Module *m, PassReport &r) {
         auto i = reg2mem_pass_run_on_module(m, &r);
-        return i.lowered_phi_count > 0u;
+        return i.changed();
     });
-    pipeline.add_fixed_point("post-restructure-cleanup", create_post_restructure_cleanup_pipeline(), 1u);
+    pipeline.add_sequence("post-restructure-cleanup", create_post_restructure_cleanup_pipeline());
     pipeline.add("reg2mem-post", [](Module *m, PassReport &r) {
         auto i = reg2mem_pass_run_on_module(m, &r);
-        return i.lowered_phi_count > 0u;
+        return i.changed();
     });
     pipeline.add("unused-callable-removal-final", [&preserve_generated_coro_continuations](Module *m, PassReport &r) {
         if (preserve_generated_coro_continuations) {

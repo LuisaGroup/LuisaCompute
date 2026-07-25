@@ -103,6 +103,19 @@ int main(int argc, char *argv[]) {
         };
         auto result = roundtrip(kernel.function()->function());
         auto &text = result.text;
+        auto *definition = first_kernel_definition(result.module.get());
+        expect(definition != nullptr);
+        auto if_count = 0u;
+        if (definition != nullptr) {
+            definition->traverse_instructions(
+                [&](Instruction *inst) noexcept {
+                    if_count += inst->isa<IfInst>();
+                });
+        }
+        // Normalization crosses the explicit plain-CFG boundary before
+        // if-conversion. This side-effect-free diamond is therefore expected
+        // to become a select rather than to be reconstructed as an IfInst.
+        expect(that % if_count == 0u);
         expect(text.find("arithmetic select") != string::npos);
         expect(text.find("arithmetic binary_mul") != string::npos);
         expect(text.find("arithmetic unary_minus") != string::npos);
@@ -165,14 +178,16 @@ int main(int argc, char *argv[]) {
                             }
                             return std::pair{add_count, store_count};
                         };
-                        auto [true_adds, true_stores] =
-                            count_adds_and_stores(if_inst->true_block());
+                        auto true_adds =
+                            count_adds_and_stores(
+                                if_inst->true_block())
+                                .first;
                         auto [false_adds, false_stores] =
                             count_adds_and_stores(if_inst->false_block());
                         auto [merge_adds, merge_stores] =
                             count_adds_and_stores(if_inst->merge_block());
                         skipped_body_action_is_guarded |=
-                            true_adds == 0u && true_stores >= 1u &&
+                            true_adds == 0u &&
                             false_adds == 1u && false_stores >= 1u;
                         induction_update_is_common |=
                             merge_adds == 1u && merge_stores >= 1u;

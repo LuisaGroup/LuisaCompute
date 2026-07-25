@@ -6,7 +6,9 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/gep.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/passes/alias_analysis.h>
+#include <luisa/xir/verifier.h>
 
 #include "../../../xir/passes/helpers.h"
 
@@ -174,6 +176,115 @@ int main() {
         expect(alias_analysis_query(load, atomic_other) == AliasResult::NoAlias);
     };
 
+    "resource_query_memory_effects_distinguish_stable_and_mutable_state"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *buffer =
+            k->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *accel = k->create_resource_argument(Type::of<Accel>());
+        auto *body = k->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *instance = uint_constant(m, 0u);
+        auto *new_user_id = uint_constant(m, 1u);
+        auto *size = b.call(Type::of<uint>(), ResourceQueryOp::BUFFER_SIZE,
+                            {buffer});
+        auto *user_id = b.call(
+            Type::of<uint>(), ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID,
+            {accel, instance});
+        auto *write = b.call(
+            ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID,
+            {accel, instance, new_user_id});
+        b.return_void();
+
+        auto stable_info = get_memory_info(size);
+        auto mutable_info = get_memory_info(user_id);
+        expect(stable_info.scope == MemoryScope::GLOBAL);
+        expect(stable_info.effects == MemoryEffects::NONE);
+        expect(stable_info.is_safe_to_value_number());
+        expect(mutable_info.scope == MemoryScope::GLOBAL);
+        expect(mutable_info.effects == MemoryEffects::READ);
+        expect(!mutable_info.is_safe_to_value_number());
+        expect(mutable_info.is_removable_if_unused());
+        expect(alias_analysis_query(user_id, write) == AliasResult::MayAlias);
+    };
+
+    "reference_argument_address_space_is_not_fabricated"_test = [] {
+        Module m;
+        auto *callable = m.create_callable(nullptr);
+        auto *reference =
+            callable->create_reference_argument(Type::of<int>());
+        auto *body = callable->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *load = b.load(Type::of<int>(), reference);
+        auto *atomic = b.atomic_fetch_add(
+            Type::of<int>(), reference, {},
+            m.create_constant_one(Type::of<int>()));
+        b.return_void();
+
+        auto load_info = get_memory_info(load);
+        auto atomic_info = get_memory_info(atomic);
+        expect(load_info.scope == MemoryScope::NONE);
+        expect(load_info.effects == MemoryEffects::READ);
+        expect(atomic_info.scope == MemoryScope::NONE);
+        expect(atomic_info.effects == MemoryEffects::READ_WRITE);
+        // The two operations even have the same base, but without a declared
+        // reference address space the conservative public answer is MayAlias.
+        expect(alias_analysis_query(load, atomic) ==
+               AliasResult::MayAlias);
+    };
+
+    "alias_call_through_local_reference_is_may_alias"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(nullptr);
+        auto *reference =
+            callee->create_reference_argument(Type::of<int>());
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.store(reference, m.create_constant_one(Type::of<int>()));
+        b.return_void();
+
+        auto *kernel = m.create_kernel();
+        auto *body = kernel->create_body_block();
+        b.set_insertion_point(body);
+        auto *local = b.alloca_local(Type::of<int>());
+        auto *load = b.load(Type::of<int>(), local);
+        auto *call = b.call(nullptr, callee, {local});
+        b.return_void();
+
+        expect(alias_analysis_query(load, call) ==
+               AliasResult::MayAlias);
+        expect(alias_analysis_query(call, load) ==
+               AliasResult::MayAlias);
+    };
+
+    "alias_call_through_shared_reference_is_may_alias"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(nullptr);
+        auto *reference =
+            callee->create_reference_argument(Type::of<int>());
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.store(reference, m.create_constant_one(Type::of<int>()));
+        b.return_void();
+
+        auto *kernel = m.create_kernel();
+        auto *body = kernel->create_body_block();
+        b.set_insertion_point(body);
+        auto *shared = b.alloca_shared(Type::of<int>());
+        auto *load = b.load(Type::of<int>(), shared);
+        auto *call = b.call(nullptr, callee, {shared});
+        b.return_void();
+
+        expect(alias_analysis_query(load, call) ==
+               AliasResult::MayAlias);
+        expect(alias_analysis_query(call, load) ==
+               AliasResult::MayAlias);
+    };
+
     "alias_local_indexed_atomics_compare_full_index_paths"_test = [] {
         Module m;
         auto *k = m.create_kernel();
@@ -251,5 +362,43 @@ int main() {
         expect(alias_analysis_query(store, load) == AliasResult::NoAlias);
         p->set_operand(0u, b_local);
         expect(alias_analysis_query(store, load) == AliasResult::MayAlias);
+    };
+
+    "alias_indirect_dispatch_uses_only_record_offset_as_address"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *indirect = k->create_reference_argument(
+            Type::custom("LC_IndirectDispatchBuffer"));
+        auto *body = k->create_body_block();
+        auto *offset0 = uint_constant(m, 0u);
+        auto *offset1 = uint_constant(m, 1u);
+        auto *block_one = m.create_constant_one(Type::of<uint3>());
+        auto *block_zero = m.create_constant_zero(Type::of<uint3>());
+        auto *dispatch_size = m.create_constant_one(Type::of<uint3>());
+        auto *kernel_id = uint_constant(m, 0u);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *same_address_a = b.call(
+            ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL,
+            {indirect, offset0, block_one, dispatch_size, kernel_id});
+        auto *same_address_b = b.call(
+            ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL,
+            {indirect, offset0, block_zero, dispatch_size, kernel_id});
+        auto *different_address = b.call(
+            ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL,
+            {indirect, offset1, block_one, dispatch_size, kernel_id});
+        b.return_void();
+
+        // block_size/dispatch_size/kernel_id are record payloads. A payload
+        // difference cannot prove that two writes target disjoint storage.
+        expect(alias_analysis_query(same_address_a, same_address_b) ==
+               AliasResult::MayAlias);
+        expect(alias_analysis_query(same_address_a, different_address) ==
+               AliasResult::NoAlias);
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
     };
 }

@@ -579,7 +579,7 @@ struct Func {
         CpuCustomOp,
         External,
         ShaderExecutionReorder,
-        Unknown0,
+        Rint,
         Unknown1,
     };
 

@@ -348,7 +348,7 @@ void reg_xir_verifier() {
         expect(!structured.succeeded());
     };
 
-    "xir_verifier_accepts_terminal_null_merge_selections"_test = [] {
+    "xir_verifier_distinguishes_structured_switch_from_indexed_branch"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *condition = kernel->create_value_argument(Type::of<bool>());
@@ -372,7 +372,26 @@ void reg_xir_verifier() {
 
         expect(if_inst->merge_block() == nullptr);
         expect(switch_inst->merge_block() == nullptr);
-        expect(xir_verify_module(&module).succeeded());
+        auto invalid_switch = xir_verify_module(&module);
+        expect(!invalid_switch.succeeded());
+        expect(has_verification_error(
+            invalid_switch, false_block, switch_inst,
+            "Structured control flow has an invalid merge block."));
+
+        switch_inst->remove_self();
+        builder.set_insertion_point(false_block);
+        auto *indexed_branch = builder.indexed_branch(selector);
+        indexed_branch->add_case(1, case_block);
+        indexed_branch->set_default_block(default_block);
+
+        auto valid_raw_cfg = xir_verify_module(&module);
+        expect(valid_raw_cfg.succeeded());
+        auto structured_only = xir_verify_module(
+            &module, {.require_no_unstructured_control_flow = true});
+        expect(!structured_only.succeeded());
+        expect(has_verification_error(
+            structured_only, false_block, indexed_branch,
+            "Unstructured control flow is not allowed."));
     };
 
     "xir_verifier_accepts_nearest_structured_break_continue_targets"_test = [] {

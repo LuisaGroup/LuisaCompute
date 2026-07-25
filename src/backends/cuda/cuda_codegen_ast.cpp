@@ -909,6 +909,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::FRACT: _scratch << "lc_fract"; break;
         case CallOp::TRUNC: _scratch << "lc_trunc"; break;
         case CallOp::ROUND: _scratch << "lc_round"; break;
+        case CallOp::RINT: _scratch << "lc_rint"; break;
         case CallOp::FMA: _scratch << "lc_fma"; break;
         case CallOp::COPYSIGN: _scratch << "lc_copysign"; break;
         case CallOp::CROSS: _scratch << "lc_cross"; break;

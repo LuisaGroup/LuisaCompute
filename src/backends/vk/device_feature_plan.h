@@ -87,6 +87,31 @@ struct RobustBufferAccessSupport {
             support.robust_buffer_access_update_after_bind);
 }
 
+// Formatless storage-image access is optional in Vulkan. Preserve the exact
+// physical-device support bits for backend-owned devices; never fabricate
+// support, and do not advertise physical support as enabled for an imported
+// logical device whose enabled VkPhysicalDeviceFeatures are unknowable.
+struct StorageImageFormatFeatureSupport {
+    bool read_without_format{false};
+    bool write_without_format{false};
+    bool imported_device{false};
+};
+
+struct StorageImageFormatFeaturePlan {
+    bool read_without_format{false};
+    bool write_without_format{false};
+};
+
+[[nodiscard]] constexpr auto plan_storage_image_format_features(
+    StorageImageFormatFeatureSupport support) noexcept {
+    if (support.imported_device) {
+        return StorageImageFormatFeaturePlan{};
+    }
+    return StorageImageFormatFeaturePlan{
+        .read_without_format = support.read_without_format,
+        .write_without_format = support.write_without_format};
+}
+
 // device_feature_settings() may extend the logical-device feature chain, but
 // it must not provide structures whose state is owned by this backend. Besides
 // exact duplicate sTypes, Vulkan forbids mixing a promoted aggregate structure

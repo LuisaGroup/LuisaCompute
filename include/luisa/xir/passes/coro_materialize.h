@@ -38,6 +38,14 @@ struct CoroMaterializeInfo {
     size_t structured_cfg_error_count{0u};
     size_t invalid_input_error_count{0u};
 
+    [[nodiscard]] bool changed() const noexcept {
+        return callable_count != 0u ||
+               load_inserted_count != 0u ||
+               store_inserted_count != 0u ||
+               suspend_lowered_count != 0u ||
+               resume_lowered_count != 0u ||
+               terminal_lowered_count != 0u;
+    }
     [[nodiscard]] bool succeeded() const noexcept {
         return structured_cfg_error_count == 0u && invalid_input_error_count == 0u;
     }
@@ -54,8 +62,8 @@ struct CoroMaterializeInfo {
     luisa::unordered_map<luisa::string, const Type *> name_to_type;
 };
 
-// These entry points require lower_switch followed by destructure_cfg. SWITCH
-// is conservatively rejected even when its merge is null. Rejection is atomic:
+// These entry points require destructure_cfg first. Structured SwitchInst is
+// converted to raw IndexedBranchInst. Rejection is atomic:
 // no matching callable in the module is materialized. The split-aware overload
 // also rejects missing/duplicate/out-of-range scopes, duplicate/null/foreign
 // callables, and a frame argument that is not the callable's own reference

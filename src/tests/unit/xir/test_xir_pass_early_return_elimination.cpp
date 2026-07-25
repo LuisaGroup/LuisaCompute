@@ -8,9 +8,14 @@
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/switch.h>
+#include <luisa/xir/metadata/comment.h>
+#include <luisa/xir/metadata/location.h>
+#include <luisa/xir/metadata/name.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -67,7 +72,10 @@ void reg_early_return_elimination() {
         auto *f = if_inst->create_false_block();
         auto *merge = if_inst->create_merge_block();
         b.set_insertion_point(t);
-        b.return_void();
+        auto *early_return = b.return_void();
+        early_return->set_name("source_early_return");
+        early_return->set_location("early_return.cpp", 41);
+        early_return->add_comment("preserve early-return source metadata");
         b.set_insertion_point(f);
         b.br(merge);
         b.set_insertion_point(merge);
@@ -77,6 +85,19 @@ void reg_early_return_elimination() {
         auto *def = k->definition();
         expect(count_terminator_kind(def, DerivedInstructionTag::RETURN) == 1u);
         expect(count_alloca(def) >= 1u);
+        auto *replacement = t->terminator();
+        expect(replacement->isa<BranchInst>());
+        expect(replacement->name().has_value());
+        if (replacement->name().has_value()) {
+            expect(replacement->name().value() == "source_early_return");
+        }
+        auto *location = replacement->find_metadata<LocationMD>();
+        expect(location != nullptr);
+        if (location != nullptr) {
+            expect(location->file() == luisa::filesystem::path{"early_return.cpp"});
+            expect(location->line() == 41);
+        }
+        expect(replacement->find_metadata<CommentMD>() != nullptr);
     };
 
     "single_early_return_nonvoid_in_if"_test = [] {
@@ -255,6 +276,209 @@ void reg_early_return_elimination() {
         }
         expect(found_skip_incoming);
         expect(merge_phi->incoming_count() == 3u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "early_return_edge_adds_undef_to_target_merge_phi"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *body = k->create_body_block();
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *if_inst = b.if_(cond);
+        auto *early = if_inst->create_true_block();
+        auto *fallthrough = if_inst->create_false_block();
+        auto *merge = if_inst->create_merge_block();
+        b.set_insertion_point(early);
+        b.return_void();
+        b.set_insertion_point(fallthrough);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(
+            m.create_constant_one(Type::of<int>()), fallthrough);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = early_return_elimination_pass_run_on_function(k);
+
+        expect(info.removed_return_count == 1u);
+        auto saw_fallthrough = false;
+        auto saw_early_undef = false;
+        for (auto i = 0u; i < phi->incoming_count(); ++i) {
+            auto incoming = phi->incoming(i);
+            saw_fallthrough |= incoming.block == fallthrough;
+            saw_early_undef |= incoming.block == early &&
+                               incoming.value->isa<Undefined>();
+        }
+        expect(saw_fallthrough);
+        expect(saw_early_undef);
+        expect(phi->incoming_count() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "nonvoid_early_return_repairs_merge_phi_and_return_value"_test = [] {
+        Module m;
+        auto *callable = m.create_callable(Type::of<int>());
+        auto *body = callable->create_body_block();
+        auto *cond = callable->create_value_argument(Type::of<bool>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *if_inst = b.if_(cond);
+        auto *early = if_inst->create_true_block();
+        auto *fallthrough = if_inst->create_false_block();
+        auto *merge = if_inst->create_merge_block();
+        b.set_insertion_point(early);
+        b.return_(zero);
+        b.set_insertion_point(fallthrough);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(one, fallthrough);
+        b.return_(phi);
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info =
+            early_return_elimination_pass_run_on_function(callable);
+
+        expect(info.removed_return_count == 1u);
+        auto saw_early_undef = false;
+        for (auto i = 0u; i < phi->incoming_count(); ++i) {
+            auto incoming = phi->incoming(i);
+            saw_early_undef |= incoming.block == early &&
+                               incoming.value->isa<Undefined>();
+        }
+        expect(saw_early_undef);
+        expect(count_terminator_kind(
+                   callable->definition(),
+                   DerivedInstructionTag::RETURN) == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "early_return_conditionalizes_structured_switch_and_repairs_phis"_test = [] {
+        Module m;
+        auto *kernel = m.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *selector =
+            kernel->create_value_argument(Type::of<int32_t>());
+        auto *zero =
+            m.create_constant_zero(Type::of<int32_t>());
+        auto *one =
+            m.create_constant_one(Type::of<int32_t>());
+        XIRBuilder b;
+
+        // The early return is in the outer selection. Its normal continuation
+        // begins with a SwitchInst, so early-return elimination must move that
+        // structured terminator into the guard's taken wrapper without
+        // confusing the switch merge role with an executable edge.
+        b.set_insertion_point(body);
+        auto *outer = b.if_(condition);
+        auto *early = outer->create_true_block();
+        auto *fallthrough = outer->create_false_block();
+        auto *switch_header = outer->create_merge_block();
+        b.set_insertion_point(early);
+        b.return_void();
+        b.set_insertion_point(fallthrough);
+        b.br(switch_header);
+
+        b.set_insertion_point(switch_header);
+        auto *switch_inst = b.switch_(selector);
+        auto *case_block = switch_inst->create_case_block(7u);
+        auto *default_block = switch_inst->create_default_block();
+        auto *switch_merge = switch_inst->create_merge_block();
+        b.set_insertion_point(case_block);
+        auto *case_phi = b.phi(
+            Type::of<int32_t>(), {{one, switch_header}});
+        b.br(switch_merge);
+        b.set_insertion_point(default_block);
+        auto *default_phi = b.phi(
+            Type::of<int32_t>(), {{zero, switch_header}});
+        b.br(switch_merge);
+        b.set_insertion_point(switch_merge);
+        auto *merge_phi = b.phi(
+            Type::of<int32_t>(),
+            {{case_phi, case_block}, {default_phi, default_block}});
+        static_cast<void>(merge_phi);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info =
+            early_return_elimination_pass_run_on_function(kernel);
+
+        expect(info.removed_return_count == 1u);
+        expect(switch_header->terminator()->isa<IfInst>());
+        auto *guard =
+            static_cast<IfInst *>(switch_header->terminator());
+        auto *taken_wrapper = guard->true_block();
+        auto *skipped_wrapper = guard->false_block();
+        expect(taken_wrapper->terminator() == switch_inst);
+        expect(switch_inst->parent_block() == taken_wrapper);
+        expect(switch_inst->merge_block() == switch_merge);
+        expect(switch_inst->case_block(0u) == case_block);
+        expect(switch_inst->default_block() == default_block);
+        expect(case_phi->incoming(0u).block == taken_wrapper);
+        expect(default_phi->incoming(0u).block == taken_wrapper);
+        auto saw_skipped_undef = false;
+        for (auto i = 0u; i < merge_phi->incoming_count(); ++i) {
+            auto incoming = merge_phi->incoming(i);
+            saw_skipped_undef |=
+                incoming.block == skipped_wrapper &&
+                incoming.value->isa<Undefined>();
+        }
+        expect(saw_skipped_undef);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "cyclic_structured_merge_chain_is_rejected_without_mutation"_test = [] {
+        for (auto two_block_cycle : {false, true}) {
+            Module m;
+            auto *kernel = m.create_kernel();
+            auto *body = kernel->create_body_block();
+            auto *condition = kernel->create_value_argument(Type::of<bool>());
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *outer = b.if_(condition);
+            auto *outer_true = outer->create_true_block();
+            auto *outer_false = outer->create_false_block();
+            b.set_insertion_point(outer_true);
+            b.return_void();
+            b.set_insertion_point(outer_false);
+            b.return_void();
+
+            BasicBlock *second = nullptr;
+            IfInst *inner = nullptr;
+            if (two_block_cycle) {
+                second = kernel->create_basic_block();
+                outer->set_merge_block(second);
+                b.set_insertion_point(second);
+                inner = b.if_(condition);
+                auto *inner_true = inner->create_true_block();
+                auto *inner_false = inner->create_false_block();
+                inner->set_merge_block(body);
+                b.set_insertion_point(inner_true);
+                b.return_void();
+                b.set_insertion_point(inner_false);
+                b.return_void();
+            } else {
+                outer->set_merge_block(body);
+            }
+
+            auto info =
+                early_return_elimination_pass_run_on_function(kernel);
+            expect(info.removed_return_count == 0u);
+            expect(body->terminator() == outer);
+            expect(outer->merge_block() ==
+                   (two_block_cycle ? second : body));
+            if (two_block_cycle) {
+                expect(second->terminator() == inner);
+                expect(inner->merge_block() == body);
+            }
+        }
     };
 }
 

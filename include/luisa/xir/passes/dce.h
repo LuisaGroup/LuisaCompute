@@ -10,6 +10,12 @@ class PassReport;
 struct DCEInfo {
     size_t removed_inst_count{0u};
     size_t removed_block_count{0u};
+    size_t inserted_terminator_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return removed_inst_count != 0u ||
+               removed_block_count != 0u ||
+               inserted_terminator_count != 0u;
+    }
 };
 
 [[nodiscard]] LUISA_XIR_API DCEInfo dce_pass_run_on_function(Function *function) noexcept;

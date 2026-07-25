@@ -534,9 +534,14 @@ enum struct CallOp : uint32_t {
 
     // Clock
     CLOCK,// (): uint64
+
+    // Appended to preserve the numeric values of all existing public ops.
+    // Unlike ROUND (half away from zero), RINT follows the target's
+    // round-to-integral mode (round-to-nearest-even on supported GPU targets).
+    RINT,// (floatN)
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::RINT) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;

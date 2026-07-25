@@ -52,16 +52,22 @@ static void lower_break_continue_worklist(
     for (auto *break_inst : worklist.breaks) {
         auto *block = break_inst->parent_block();
         auto *target = break_inst->target_block();
-        break_inst->remove_self();
+        auto removed = break_inst->remove_self();
         b.set_insertion_point(block);
-        b.br(target);
+        auto *branch = b.br(target);
+        for (auto *metadata : removed->metadata_list()) {
+            branch->metadata_list().push_front(metadata->clone());
+        }
     }
     for (auto *continue_inst : worklist.continues) {
         auto *block = continue_inst->parent_block();
         auto *target = continue_inst->target_block();
-        continue_inst->remove_self();
+        auto removed = continue_inst->remove_self();
         b.set_insertion_point(block);
-        b.br(target);
+        auto *branch = b.br(target);
+        for (auto *metadata : removed->metadata_list()) {
+            branch->metadata_list().push_front(metadata->clone());
+        }
     }
     info.lowered_break_count += worklist.breaks.size();
     info.lowered_continue_count += worklist.continues.size();

@@ -832,14 +832,18 @@ int main(int argc, char *argv[]) {
         using namespace lc::vk::detail;
         auto spirv = assemble_shader_module(
             ShaderArtifactSpirvStage::COMPUTE);
-        std::array properties{sampler_property()};
+        std::array properties{
+            sampler_property(),
+            lc::hlsl::Property{
+                lc::hlsl::ShaderVariableType::SPIRVIndirectDispatch,
+                0u, 0u, 1u}};
         auto bytes = encode_compute_shader_artifact(
             {.properties = properties,
              .shader_md5 = test_md5("codec-malformed-spirv"),
              .type_md5 = test_md5("codec-malformed-types"),
              .block_size = {1u, 1u, 1u},
              .spirv = spirv,
-             .codegen_dialect = ShaderCodegenDialect::HLSL_SPIRV});
+             .codegen_dialect = ShaderCodegenDialect::XIR_SPIRV});
         auto header = compute_header(bytes);
         auto spirv_offset = sizeof(ShaderSerHeader) +
                             header.property_size * sizeof(lc::hlsl::Property) +

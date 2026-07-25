@@ -12,13 +12,47 @@
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/verifier.h>
+
+#include "helpers.h"
 
 namespace luisa::compute::xir {
 
 namespace detail {
+
+// Coroutine scopes are cloned into void continuation callables. Phi nodes need
+// edge-specific values, but suspend/resume transitions are not ordinary CFG
+// predecessors in XIR; treating a Phi as a block-local definition therefore
+// loses the value selected on the continuation edge. Require reg2mem at this
+// boundary instead of silently manufacturing a non-equivalent Phi.
+[[nodiscard]] static bool validate_coroutine_input_language(
+    FunctionDefinition *def) noexcept {
+    if (def == nullptr || def->body_block() == nullptr ||
+        def->type() != nullptr ||
+        def->find_metadata<SignatureConstraintMD>() != nullptr) {
+        return false;
+    }
+    for (auto *block : def->basic_blocks()) {
+        auto resume_count = 0u;
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<PhiInst>()) { return false; }
+            if (inst->isa<CoroResumeInst>()) { ++resume_count; }
+        }
+        // A block has one continuation identity. Two resume tokens in one
+        // block create two roots with the same block set; a resume in the
+        // ordinary entry block aliases scope zero for the same reason.
+        if (resume_count > 1u ||
+            (block == def->body_block() && resume_count != 0u)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 [[nodiscard]] static luisa::optional<uint32_t> resume_token_of_block(BasicBlock *bb) noexcept {
     if (bb == nullptr) { return luisa::nullopt; }
@@ -28,6 +62,39 @@ namespace detail {
         }
     }
     return luisa::nullopt;
+}
+
+[[nodiscard]] static bool validate_coroutine_tokens(
+    FunctionDefinition *def) noexcept {
+    if (def == nullptr) { return false; }
+    luisa::unordered_set<uint32_t> suspend_tokens;
+    luisa::unordered_set<uint32_t> resume_tokens;
+    auto valid = true;
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || block->parent_function() != def ||
+            !block->is_terminated()) {
+            valid = false;
+            continue;
+        }
+        for (auto *inst : block->instructions()) {
+            if (inst->derived_instruction_tag() ==
+                DerivedInstructionTag::CORO_SUSPEND) {
+                auto token = static_cast<CoroSuspendInst *>(inst)->token();
+                valid &= token != 0u && token != TERMINAL_TOKEN &&
+                         suspend_tokens.emplace(token).second;
+            } else if (inst->derived_instruction_tag() ==
+                       DerivedInstructionTag::CORO_RESUME) {
+                auto token = static_cast<CoroResumeInst *>(inst)->token();
+                valid &= token != 0u && token != TERMINAL_TOKEN &&
+                         resume_tokens.emplace(token).second;
+            }
+        }
+    }
+    if (suspend_tokens.size() != resume_tokens.size()) { return false; }
+    for (auto token : suspend_tokens) {
+        if (!resume_tokens.contains(token)) { return false; }
+    }
+    return valid;
 }
 
 [[nodiscard]] static luisa::unordered_set<BasicBlock *> collect_coro_reachable_blocks(
@@ -777,17 +844,44 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
 }// namespace detail
 
 CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept {
+    if (f == nullptr) {
+        CoroCfgDistillResult result;
+        result.invalid_input_error_count = 1u;
+        return result;
+    }
     auto *def = f->definition();
-    if (def == nullptr) { return {}; }
+    if (def == nullptr || def->body_block() == nullptr) {
+        CoroCfgDistillResult result;
+        result.invalid_input_error_count = 1u;
+        return result;
+    }
+    auto verification = xir_verify_function(f);
+    if (!verification.succeeded()) {
+        CoroCfgDistillResult result;
+        result.invalid_cfg_error_count = 1u;
+        return result;
+    }
+    CoroCfgDistillResult result;
+    result.structured_cfg_error_count =
+        contains_structured_control_flow(def) ? 1u : 0u;
+    result.invalid_cfg_error_count =
+        detail::validate_coroutine_input_language(def) &&
+                detail::validate_coroutine_tokens(def) ?
+            0u :
+            1u;
+    if (!result.succeeded()) {
+        return result;
+    }
     return detail::distill_function(def);
 }
 
 size_t coro_cfg_distill_pass_run_on_module(Module *m) noexcept {
+    if (m == nullptr) { return 0u; }
     size_t count = 0u;
     for (auto *f : m->function_list()) {
         if (f->is_definition()) {
-            static_cast<void>(detail::distill_function(static_cast<FunctionDefinition *>(f)));
-            ++count;
+            auto result = coro_cfg_distill_pass_run_on_function(f);
+            count += result.succeeded() ? 1u : 0u;
         }
     }
     return count;

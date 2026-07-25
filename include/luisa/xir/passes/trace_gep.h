@@ -16,13 +16,23 @@ namespace luisa::compute::xir {
 // x = gep(base, i0, i1, i2)
 // y = gep(base, i0, i1, i2, j0, j1)
 // z = gep(base, i0, i1, i2, j0, j1, k0, k1)
+//
+// Flattening preserves the GEP instruction and its metadata. Annotated no-op
+// GEPs are retained because their base is not a unique metadata owner.
 
 class GEPInst;
 
 struct TraceGEPInfo {
     size_t traced_gep_count{0u};
+    size_t removed_noop_gep_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return traced_gep_count != 0u || removed_noop_gep_count != 0u;
+    }
 };
 
+// Flattens nested address chains in place. Annotated internal GEPs are hard
+// boundaries because compressing across them could leave their unique metadata
+// owner dead; annotated no-op GEPs are likewise retained.
 [[nodiscard]] LUISA_XIR_API TraceGEPInfo trace_gep_pass_run_on_function(Function *function) noexcept;
 [[nodiscard]] LUISA_XIR_API TraceGEPInfo trace_gep_pass_run_on_module(Module *module) noexcept;
 

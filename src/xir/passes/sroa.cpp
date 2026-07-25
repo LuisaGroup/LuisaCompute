@@ -16,6 +16,18 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+static void clone_metadata(const MetadataListMixin &source,
+                           MetadataListMixin &target,
+                           bool clone_name = true) noexcept {
+    for (auto *metadata : source.metadata_list()) {
+        if (!clone_name &&
+            metadata->derived_metadata_tag() == DerivedMetadataTag::NAME) {
+            continue;
+        }
+        target.metadata_list().push_front(metadata->clone());
+    }
+}
+
 // Decompose only one level: struct→members, array→elements.
 // Does NOT recurse into nested aggregate members.
 static void collect_elem_types(const Type *type, luisa::vector<const Type *> &elems,
@@ -80,6 +92,15 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
                     element_index >= elem_types.size()) {
                     return false;
                 }
+                // A one-index GEP is replaced directly by an element alloca.
+                // Several source GEPs may select that same element, so there
+                // is no unique instruction-local metadata owner to which an
+                // annotated GEP can be mapped. Multi-index GEPs get a
+                // one-to-one replacement and clone their metadata below.
+                if (gep->index_count() == 1u &&
+                    !gep->metadata_list().empty()) {
+                    return false;
+                }
             }
             for (auto &&gep_use : u->use_list()) {
                 if (auto gep_user = gep_use->user();
@@ -88,10 +109,9 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
                 }
             }
         } else {
-            // Reject any non-GEP/Load/Store user. The aggressive flag
-            // (reserved for future heuristics) does not relax this check;
-            // non-decomposable uses keep the original alloca alive but
-            // element-allocas and the original can silently diverge.
+            // The aggressive flag is reserved for future heuristics. It must
+            // never relax this check: partially decomposing an alloca with an
+            // escaping use would create two independently mutable copies.
             return false;
         }
     }
@@ -111,14 +131,14 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
     builder.set_insertion_point(alloca);
     luisa::vector<AllocaInst *> element_allocas;
     auto original_name = alloca->name();
-    auto spill_metadata = alloca->find_metadata<Reg2MemSpillMD>();
     for (auto et : elem_types) {
         auto sa = builder.alloca_local(et);
+        // Every replacement alloca represents a disjoint component of the
+        // original storage. Clone all storage metadata, including semantic
+        // spill metadata, but derive a unique name for each component.
+        clone_metadata(*alloca, *sa, false);
         if (original_name.has_value()) {
             sa->set_name(luisa::format("{}_{}", original_name.value(), element_allocas.size()));
-        }
-        if (spill_metadata != nullptr) {
-            sa->metadata_list().push_front(spill_metadata->clone());
         }
         element_allocas.push_back(sa);
         info.inserted_alloca_count++;
@@ -133,14 +153,15 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
     }
 
     for (auto gep : geps) {
-        if (gep->index_uses().empty()) { continue; }
+        // is_sroa_candidate proves these conditions before any replacement
+        // alloca is created. Keep the assertions here as an executable
+        // statement of the transform's failure-atomicity invariant.
+        LUISA_ASSERT(!gep->index_uses().empty(), "SROA: GEP has no indices.");
         auto first_idx_val = gep->index_uses()[0]->value();
         uint64_t elem_idx = 0u;
-        if (!try_decode_constant_nonnegative_integer(first_idx_val, elem_idx)) {
-            // Non-constant GEP index: keep pointing to the original alloca.
-            continue;
-        }
-        if (elem_idx >= element_allocas.size()) { continue; }
+        LUISA_ASSERT(try_decode_constant_nonnegative_integer(first_idx_val, elem_idx),
+                     "SROA: expected a nonnegative constant integer GEP index.");
+        LUISA_ASSERT(elem_idx < element_allocas.size(), "SROA: GEP index out of bounds.");
 
         auto target_alloca = element_allocas[elem_idx];
 
@@ -151,8 +172,13 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                 remaining_indices.push_back(gep->index_uses()[i]->value());
             }
             auto new_gep = builder.gep(gep->type(), target_alloca, remaining_indices);
+            clone_metadata(*gep, *new_gep);
             replacement_map[gep] = new_gep;
         } else {
+            // A one-index GEP becomes the replacement alloca itself. There is
+            // no distinct instruction on which instruction-local debug
+            // metadata can remain; semantic storage metadata was already
+            // cloned from the original alloca above.
             replacement_map[gep] = target_alloca;
         }
 
@@ -177,6 +203,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                 elem_values.push_back(builder.load(sa->type(), sa));
             }
             auto replacement = builder.call(type, ArithmeticOp::AGGREGATE, elem_values);
+            clone_metadata(*load, *replacement);
             load->replace_all_uses_with(replacement);
             load->remove_self();
         } else if (user->isa<StoreInst>()) {
@@ -187,25 +214,22 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                 auto idx_val = static_cast<uint32_t>(i);
                 auto idx_const = alloca->parent_module()->create_constant(Type::of<uint32_t>(), &idx_val);
                 auto extract = builder.call(elem_types[i], ArithmeticOp::EXTRACT, {val, idx_const});
-                builder.store(element_allocas[i], extract);
+                auto *replacement_store = builder.store(element_allocas[i], extract);
+                clone_metadata(*store, *replacement_store);
             }
             store->remove_self();
         }
     }
 
-    // In aggressive mode, keep the original alloca alive for remaining uses
-    // (dynamic-index GEPs, call references, etc.) that cannot be redirected.
-    // Element allocas stay consistent because all direct Load/Store on the
-    // original are replaced with pack/unpack operations above.
-    if (alloca->use_list().empty()) {
-        alloca->remove_self();
-    }
+    LUISA_ASSERT(alloca->use_list().empty(),
+                 "SROA: preflight accepted an alloca with an unreplaced use.");
+    alloca->remove_self();
     info.decomposed_alloca_count++;
 }
 
 static void sroa_pass_on_function(Function *function, SROAInfo &info, const SROAOptions &options) noexcept {
-    auto def = function->definition();
-    if (!def) return;
+    auto def = function == nullptr ? nullptr : function->definition();
+    if (def == nullptr || def->body_block() == nullptr) { return; }
 
     luisa::vector<AllocaInst *> candidates;
     def->traverse_instructions([&](Instruction *inst) noexcept {
@@ -236,8 +260,10 @@ SROAInfo sroa_pass_run_on_function(Function *function, SROAOptions options) noex
 
 SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options, PassReport *report) noexcept {
     SROAInfo info;
-    for (auto f : module->function_list()) {
-        detail::sroa_pass_on_function(f, info, options);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            detail::sroa_pass_on_function(f, info, options);
+        }
     }
     if (report != nullptr) {
         report->set("decomposed_alloca", info.decomposed_alloca_count);

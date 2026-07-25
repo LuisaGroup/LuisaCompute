@@ -34,9 +34,9 @@ namespace {
 // Reduction recognition: a single loop-carried accumulator of the form
 // acc = phi(start, acc <op> x) with <op> in {add, mul, min, max} is kept as
 // a scalar phi, while the per-iteration value x is computed vectorially and
-// folded horizontally once per packed iteration (avoiding identity-element
-// materialization; float add/mul reassociation matches the fast-math
-// contract of the surrounding pipeline).
+// folded horizontally once per packed iteration. Reductions are restricted
+// to integer element types: regrouping floating-point operations would need
+// an explicit fast-math contract that this pass API does not currently carry.
 //
 // Remainder handling: when the constant trip count is not a multiple of the
 // vector factor, the loop bound is tightened to the largest multiple of the
@@ -95,6 +95,7 @@ namespace {
 struct AffineIndex {
     Value *base;// the address value (buffer or alloca/GEP base)
     Value *index;
+    GEPInst *address_inst;
     bool from_gep;
 };
 
@@ -107,9 +108,13 @@ struct AffineIndex {
         auto *gep = static_cast<GEPInst *>(address);
         if (gep->index_count() != 1u) { return false; }
         auto *base = gep->base();
-        if (base == nullptr || !base->isa<AllocaInst>()) { return false; }
+        if (base == nullptr || !base->isa<AllocaInst>() ||
+            !static_cast<AllocaInst *>(base)->is_local()) {
+            return false;
+        }
         out.base = base;
         out.index = gep->index(0u);
+        out.address_inst = gep;
         out.from_gep = true;
     } else {
         return false;
@@ -125,7 +130,17 @@ struct AffineIndex {
                     auto *other_block = other->isa<Instruction>() ?
                                             static_cast<Instruction *>(other)->parent_block() :
                                             nullptr;
-                    if (other_block == nullptr || !loop.contains(other_block)) {
+                    auto *index_block = add->parent_block();
+                    // Gather/scatter instructions are currently emitted at
+                    // the beginning of the compute block. A body-defined
+                    // address expression would not dominate those new uses
+                    // and is later erased with the scalar body. Header- or
+                    // preheader-defined affine indices do dominate.
+                    if ((index_block == nullptr ||
+                         !loop.contains(index_block) ||
+                         index_block == loop.header) &&
+                        (other_block == nullptr ||
+                         !loop.contains(other_block))) {
                         return true;
                     }
                 }
@@ -136,10 +151,37 @@ struct AffineIndex {
 }
 
 struct VectorizationPlan {
+    // Scalar address producers whose memory uses are replaced by lane GEPs.
+    luisa::vector<GEPInst *> address_insts;
     luisa::vector<Instruction *> memory_insts; // ordered loads and stores
     luisa::vector<ArithmeticInst *> arith_insts;
     Instruction *recurrence{nullptr};
 };
+
+[[nodiscard]] bool loop_has_external_value_uses(
+    const NaturalLoop &loop) noexcept {
+    auto found = false;
+    auto scan = [&](BasicBlock *block) noexcept {
+        block->traverse_instructions([&](Instruction *inst) noexcept {
+            if (found) { return; }
+            for (auto *use : inst->use_list()) {
+                auto *user = use->user();
+                if (user != nullptr && user->isa<Instruction>()) {
+                    auto *user_block =
+                        static_cast<Instruction *>(user)->parent_block();
+                    if (user_block != nullptr &&
+                        !loop.contains(user_block)) {
+                        found = true;
+                        return;
+                    }
+                }
+            }
+        });
+    };
+    scan(loop.header);
+    for (auto *block : loop.body_blocks) { scan(block); }
+    return found;
+}
 
 // A recognized reduction: acc = phi(preheader: start, latch: acc <op> x)
 // with an associative/commutative <op>. The accumulator stays scalar; the
@@ -245,6 +287,12 @@ public:
                                 PhiInst *iv, Instruction *recurrence,
                                 Instruction *reduction_combine,
                                 VectorizationPlan &plan) noexcept {
+    auto record_address = [&](GEPInst *address) noexcept {
+        for (auto *recorded : plan.address_insts) {
+            if (recorded == address) { return; }
+        }
+        plan.address_insts.emplace_back(address);
+    };
     luisa::unordered_set<Instruction *> body_values;
     for (auto *inst : compute->instructions()) {
         if (inst->is_terminator() || inst == recurrence ||
@@ -266,6 +314,7 @@ public:
         if (inst->isa<LoadInst>()) {
             AffineIndex addr;
             if (!match_unit_stride_address(inst->operand(0u), iv, loop, addr)) { return false; }
+            record_address(addr.address_inst);
             plan.memory_insts.emplace_back(inst);
             body_values.emplace(inst);
             continue;
@@ -274,6 +323,7 @@ public:
             auto *store = static_cast<StoreInst *>(inst);
             AffineIndex addr;
             if (!match_unit_stride_address(store->variable(), iv, loop, addr)) { return false; }
+            record_address(addr.address_inst);
             plan.memory_insts.emplace_back(inst);
             continue;
         }
@@ -311,8 +361,28 @@ public:
             if (user_block != compute && user_block != latch) { return false; }
         }
     }
+    // A loop-defined store value must have a lane-wise mapping. Values
+    // produced in the header, the induction recurrence, or a reduction phi
+    // execute/evolve at packed-loop granularity and cannot be broadcast as
+    // though they were invariant. The induction phi itself is explicitly
+    // mapped to consecutive lanes.
+    for (auto *inst : plan.memory_insts) {
+        if (!inst->isa<StoreInst>()) { continue; }
+        auto *value = static_cast<StoreInst *>(inst)->value();
+        if (value == iv || value == nullptr ||
+            !value->isa<Instruction>()) {
+            continue;
+        }
+        auto *value_inst = static_cast<Instruction *>(value);
+        if (loop.contains(value_inst->parent_block()) &&
+            !body_values.contains(value_inst)) {
+            return false;
+        }
+    }
     // Stores and loads must not alias: every stored base must differ from
-    // every loaded base.
+    // every loaded base. Store groups must also have distinct bases; grouping
+    // stores by instruction across lanes changes their interleaving and is
+    // not legal for overlapping affine ranges.
     for (auto *inst : plan.memory_insts) {
         if (!inst->isa<StoreInst>()) { continue; }
         auto *store = static_cast<StoreInst *>(inst);
@@ -323,6 +393,14 @@ public:
             AffineIndex load_addr;
             static_cast<void>(match_unit_stride_address(other->operand(0u), iv, loop, load_addr));
             if (store_addr.base == load_addr.base) { return false; }
+        }
+        for (auto *other : plan.memory_insts) {
+            if (other == inst || !other->isa<StoreInst>()) { continue; }
+            AffineIndex other_addr;
+            static_cast<void>(match_unit_stride_address(
+                static_cast<StoreInst *>(other)->variable(), iv, loop,
+                other_addr));
+            if (store_addr.base == other_addr.base) { return false; }
         }
     }
     plan.recurrence = recurrence;
@@ -388,6 +466,25 @@ namespace {
         }
     }
     if (recurrence == nullptr) { LUISA_VEC_REJECT("no recurrence in latch"); }
+    // The old recurrence is deleted after the induction phi is rewired.
+    // Therefore its only legal user is that phi incoming. A body computation
+    // (or any other user) would otherwise be left dangling, and broadcasting
+    // the recurrence into vector code would also place a use before its
+    // definition.
+    for (auto *use : recurrence->use_list()) {
+        if (use->user() != bounds.induction_phi) {
+            LUISA_VEC_REJECT("induction recurrence has extra users");
+        }
+    }
+
+    // The header runs once per packed group after vectorization. Any
+    // observable header instruction would therefore execute fewer times.
+    for (auto *inst : loop.header->instructions()) {
+        if (inst->isa<PhiInst>() || inst->is_terminator()) { continue; }
+        if (!get_memory_info(inst).is_pure()) {
+            LUISA_VEC_REJECT("observable header instruction");
+        }
+    }
     // Resolve the compute block: either the single-block form (the body is
     // the latch) or the canonical two-block form (compute -> latch), where
     // the latch holds only the recurrence and the back branch and the
@@ -430,7 +527,7 @@ namespace {
         auto *acc = static_cast<PhiInst *>(inst);
         auto *type = acc->type();
         if (type == nullptr || !type->is_scalar() || !type->is_arithmetic() ||
-            type->is_bool()) {
+            type->is_bool() || type->is_float()) {
             return false;
         }
         Value *start = nullptr;
@@ -501,6 +598,51 @@ namespace {
     if (reduction.phi != nullptr && reduction.phi->type() != elem_type) {
         return false;
     }
+    // The gather/scatter lowering must preserve the pointee and value type of
+    // every scalar access. Mixing equal-width element types is not sufficient.
+    for (auto *inst : plan.memory_insts) {
+        if (inst->isa<LoadInst>()) {
+            if (inst->type() != elem_type) { return false; }
+        } else {
+            auto *store = static_cast<StoreInst *>(inst);
+            if (store->value()->type() != elem_type) { return false; }
+        }
+    }
+    for (auto *arith : plan.arith_insts) {
+        for (auto i = 0u; i < arith->operand_count(); ++i) {
+            auto *operand = arith->operand(i);
+            if (operand == nullptr || operand->type() == nullptr ||
+                Type::vector(operand->type(), vf) == nullptr) {
+                return false;
+            }
+        }
+    }
+
+    // The scalar instructions below are erased or replaced by one-to-many
+    // gather/scatter operations. XIR metadata can carry semantic constraints,
+    // so there is no generally valid owner for an annotation after this
+    // rewrite. Reject before the first CFG or operand mutation.
+    auto has_metadata = [](const Instruction *instruction) noexcept {
+        return instruction != nullptr &&
+               !instruction->metadata_list().empty();
+    };
+    if (has_metadata(recurrence) ||
+        has_metadata(reduction.combine)) {
+        return false;
+    }
+    // Each scalar address producer loses its memory uses and is represented by
+    // multiple lane GEPs. Keeping an annotated but now-dead GEP would neither
+    // preserve the annotation's execution point nor provide a unique
+    // replacement owner.
+    for (auto *instruction : plan.address_insts) {
+        if (has_metadata(instruction)) { return false; }
+    }
+    for (auto *instruction : plan.memory_insts) {
+        if (has_metadata(instruction)) { return false; }
+    }
+    for (auto *instruction : plan.arith_insts) {
+        if (has_metadata(instruction)) { return false; }
+    }
 
     // Remainder handling: when the trip count is not a multiple of the
     // vector factor, tighten the loop bound to the largest multiple and
@@ -511,6 +653,11 @@ namespace {
         // Peeling a reduction's trailing iterations would require threading
         // the accumulator through the peel chain; rejected for now.
         if (reduction.phi != nullptr) { return false; }
+        // Tightening the main-loop bound leaves its header phis at the first
+        // peeled IV. A loop-defined value observed after the loop would then
+        // differ from the scalar loop's value at the original failing check.
+        // Until the peel chain explicitly carries those live-outs, reject.
+        if (loop_has_external_value_uses(loop)) { return false; }
         auto *exit_block = loop.exit_blocks.front();
         // Exit phis may only consume loop-invariant values from the header
         // edge (the peeled clones cannot reproduce loop-defined values on
@@ -544,14 +691,43 @@ namespace {
                 header_scalar_insts.emplace_back(inst);
             }
         }
-        int64_t start_constant = 0;
-        if (!decode_constant_int(bounds.start_value, start_constant)) {
+        // Peeling clones the header computations and each template block.
+        // Block annotations and instruction annotations would be duplicated
+        // onto multiple dynamic iterations without a proven metadata rule.
+        if (!loop.header->metadata_list().empty() ||
+            !compute->metadata_list().empty() ||
+            !latch->metadata_list().empty()) {
             return false;
         }
-        auto main_trip_count = trip_count - remainder;
+        for (auto *instruction : header_scalar_insts) {
+            if (has_metadata(instruction)) { return false; }
+        }
+        auto block_has_metadata =
+            [&](BasicBlock *block) noexcept {
+                for (auto *instruction :
+                     block->instructions()) {
+                    if (has_metadata(instruction)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+        if (block_has_metadata(compute) ||
+            (latch != compute &&
+             block_has_metadata(latch))) {
+            return false;
+        }
+        int64_t bound_constant = 0;
+        if (!decode_constant_int(bounds.bound_value, bound_constant) ||
+            bound_constant <
+                std::numeric_limits<int64_t>::min() +
+                    static_cast<int64_t>(remainder)) {
+            return false;
+        }
+        auto main_bound_constant =
+            bound_constant - static_cast<int64_t>(remainder);
         auto *new_bound = make_int_constant(
-            module, iv->type(),
-            start_constant + static_cast<int64_t>(main_trip_count));
+            module, iv->type(), main_bound_constant);
         if (new_bound == nullptr) { return false; }
         // Tighten the bound in the header comparison.
         {
@@ -592,8 +768,8 @@ namespace {
                 block_map.emplace(tb, clone);
                 resolver.emplace(tb, clone);
             }
-            auto iv_value = start_constant +
-                            static_cast<int64_t>(main_trip_count + k);
+            auto iv_value =
+                main_bound_constant + static_cast<int64_t>(k);
             auto *iv_constant = make_int_constant(module, iv->type(), iv_value);
             if (iv_constant == nullptr) { return false; }
             resolver.emplace(iv, iv_constant);
@@ -665,8 +841,10 @@ namespace {
                 return jt->second;
             }
         }
-        uint32_t k = lane;
-        auto *kc = module->create_constant(index->type(), &k);
+        auto *kc = make_int_constant(
+            module, index->type(), static_cast<int64_t>(lane));
+        LUISA_ASSERT(kc != nullptr,
+                     "Loop vectorization requires an integer index.");
         auto *added = builder.call(index->type(), ArithmeticOp::BINARY_ADD, {index, kc});
         lane_index[index].emplace(lane, added);
         return added;
@@ -784,8 +962,10 @@ namespace {
     }
 
     // New recurrence: iv + VF.
-    auto vf_value = static_cast<uint32_t>(vf);
-    auto *vf_const = module->create_constant(iv->type(), &vf_value);
+    auto *vf_const = make_int_constant(
+        module, iv->type(), static_cast<int64_t>(vf));
+    LUISA_ASSERT(vf_const != nullptr,
+                 "Loop vectorization requires an integer induction variable.");
     auto *new_recurrence = builder.call(iv->type(), ArithmeticOp::BINARY_ADD,
                                         {iv, vf_const});
     for (auto i = 0u; i < iv->incoming_count(); ++i) {
@@ -802,7 +982,10 @@ namespace {
         if (inst->isa<StoreInst>()) { erase_list.emplace_back(inst); }
     }
     if (reduction.combine != nullptr) { erase_list.emplace_back(reduction.combine); }
-    for (auto *arith : plan.arith_insts) { erase_list.emplace_back(arith); }
+    for (auto iter = plan.arith_insts.rbegin();
+         iter != plan.arith_insts.rend(); ++iter) {
+        erase_list.emplace_back(*iter);
+    }
     for (auto *inst : plan.memory_insts) {
         if (inst->isa<LoadInst>()) { erase_list.emplace_back(inst); }
     }
@@ -827,11 +1010,39 @@ static void run(Function *function, LoopVectorizationInfo &info) noexcept {
             "IR was left unchanged.");
         return;
     }
-    auto dom_tree = compute_dom_tree(def);
-    auto loops = discover_natural_loops(def, dom_tree);
-    for (auto &loop : loops) {
-        static_cast<void>(try_vectorize_loop(def, loop, info));
+    // Vectorization can create a peeled remainder CFG and rewrites loop
+    // recurrences. Never carry NaturalLoop/DominatorTree facts across a
+    // successful mutation: rediscover before considering another loop.
+    for (;;) {
+        auto dom_tree = compute_dom_tree(def);
+        auto loops = discover_natural_loops(def, dom_tree);
+        auto vectorized = false;
+        for (auto &loop : loops) {
+            if (try_vectorize_loop(def, loop, info)) {
+                vectorized = true;
+                break;
+            }
+        }
+        if (!vectorized) { break; }
     }
+}
+
+[[nodiscard]] static bool preflight_module(
+    Module *module, LoopVectorizationInfo &info) noexcept {
+    if (module == nullptr) { return true; }
+    for (auto *function : module->function_list()) {
+        auto *def = function == nullptr ? nullptr : function->definition();
+        if (def != nullptr && contains_structured_control_flow(def)) {
+            ++info.structured_cfg_error_count;
+        }
+    }
+    if (info.structured_cfg_error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Loop vectorization rejected a module containing structured CFG; "
+            "run destructure_cfg first. The entire module was left unchanged.");
+        return false;
+    }
+    return true;
 }
 
 }// namespace detail
@@ -845,8 +1056,12 @@ LoopVectorizationInfo loop_vectorization_pass_run_on_function(Function *function
 LoopVectorizationInfo loop_vectorization_pass_run_on_module(Module *module,
                                                             PassReport *report) noexcept {
     LoopVectorizationInfo info;
-    for (auto *function : module->function_list()) {
-        detail::run(function, info);
+    if (detail::preflight_module(module, info)) {
+        if (module != nullptr) {
+            for (auto *function : module->function_list()) {
+                detail::run(function, info);
+            }
+        }
     }
     if (report != nullptr) {
         report->set("vectorized_loop_count", info.vectorized_loop_count);

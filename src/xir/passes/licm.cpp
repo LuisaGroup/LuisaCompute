@@ -7,6 +7,9 @@
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/cast.h>
+#include <luisa/xir/instructions/gep.h>
+#include <luisa/xir/instructions/resource.h>
 
 #include "helpers.h"
 
@@ -30,18 +33,43 @@ namespace {
 }
 
 [[nodiscard]] bool is_safe_to_speculate(Instruction *inst) noexcept {
-    if (!inst->isa<ArithmeticInst>()) { return true; }
+    // A bitwise cast is a total, representation-preserving operation. Numeric
+    // casts are not: in particular, an out-of-range float-to-integer cast can
+    // be undefined in source/LLVM backends. Do not make such a cast execute on
+    // a zero-trip loop path.
+    if (inst->isa<CastInst>()) {
+        return static_cast<CastInst *>(inst)->op() ==
+               CastOp::BITWISE_CAST;
+    }
+    // XIR GEP permits dynamic aggregate indices. Materializing an out-of-range
+    // address can be undefined even if the loop body (and the eventual
+    // dereference) never executes. A future version may hoist a GEP after
+    // proving every index in range.
+    if (inst->isa<GEPInst>()) { return false; }
+    if (inst->isa<ResourceQueryInst>()) {
+        // Only direct-resource metadata queries are total under the XIR
+        // resource-binding contract. Bindless queries can index an invalid
+        // slot, and sampling queries can carry derivative/control-flow
+        // requirements; neither may be speculated onto a zero-trip path merely
+        // because the operation has no memory side effect.
+        switch (static_cast<ResourceQueryInst *>(inst)->op()) {
+            case ResourceQueryOp::BUFFER_SIZE:
+            case ResourceQueryOp::BYTE_BUFFER_SIZE:
+            case ResourceQueryOp::TEXTURE2D_SIZE:
+            case ResourceQueryOp::TEXTURE3D_SIZE:
+            case ResourceQueryOp::BUFFER_DEVICE_ADDRESS:
+                return true;
+            default: return false;
+        }
+    }
+    // Keep the speculative set explicit. A future side-effect-free
+    // instruction is not automatically total on every operand.
+    if (!inst->isa<ArithmeticInst>()) { return false; }
     // LICM moves body instructions before the loop condition, so even a loop
     // with zero iterations will evaluate them. Keep operations with undefined
     // operands in place until the IR has explicit poison/trap semantics.
-    switch (static_cast<ArithmeticInst *>(inst)->op()) {
-        case ArithmeticOp::BINARY_DIV:
-        case ArithmeticOp::BINARY_MOD:
-        case ArithmeticOp::BINARY_SHIFT_LEFT:
-        case ArithmeticOp::BINARY_SHIFT_RIGHT:
-            return false;
-        default: return true;
-    }
+    return is_arithmetic_op_safe_to_speculate(
+        static_cast<ArithmeticInst *>(inst)->op());
 }
 
 void collect_loop_body_blocks(BasicBlock *body, BasicBlock *update,
@@ -169,6 +197,7 @@ void licm_on_loop(LoopInst *loop, LICMInfo &info, DomTree &dom_tree) noexcept {
 namespace detail {
 
 static void licm_pass_on_function_def(FunctionDefinition *def, LICMInfo &info) noexcept {
+    if (def == nullptr || def->body_block() == nullptr) { return; }
     bool changed = true;
     while (changed) {
         changed = false;
@@ -198,8 +227,12 @@ LICMInfo licm_pass_run_on_function(FunctionDefinition *def) noexcept {
 
 LICMInfo licm_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LICMInfo info;
-    for (auto f : module->function_list()) {
-        if (auto def = f->definition()) { detail::licm_pass_on_function_def(def, info); }
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (auto def = f->definition()) {
+                detail::licm_pass_on_function_def(def, info);
+            }
+        }
     }
     if (report != nullptr) { report->set("hoisted", info.hoisted_count); }
     return info;

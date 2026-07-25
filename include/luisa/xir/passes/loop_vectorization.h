@@ -10,6 +10,10 @@ struct LoopVectorizationInfo {
     size_t vectorized_loop_count{0u};
     size_t created_vector_inst_count{0u};
     size_t structured_cfg_error_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return vectorized_loop_count != 0u ||
+               created_vector_inst_count != 0u;
+    }
     [[nodiscard]] bool succeeded() const noexcept { return structured_cfg_error_count == 0u; }
 };
 

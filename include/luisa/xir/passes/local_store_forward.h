@@ -19,6 +19,8 @@ class Module;
 // effectively reduce the number of memory operations produced by the C++ DSL.
 // Note: we do not remove the stores after forwarding them to loads, as the DCE
 // pass should be able to remove them if they are dead.
+// Annotated loads are retained because an existing stored value is not a
+// unique owner for their metadata. Null inputs are no-ops.
 
 struct LocalStoreForwardInfo {
     size_t removed_load_count{0u};

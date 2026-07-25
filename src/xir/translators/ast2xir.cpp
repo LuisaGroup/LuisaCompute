@@ -543,6 +543,7 @@ private:
             case CallOp::FRACT: return alu_call(ArithmeticOp::FRACT);
             case CallOp::TRUNC: return alu_call(ArithmeticOp::TRUNC);
             case CallOp::ROUND: return alu_call(ArithmeticOp::ROUND);
+            case CallOp::RINT: return alu_call(ArithmeticOp::RINT);
             case CallOp::FMA: return alu_call(ArithmeticOp::FMA);
             case CallOp::COPYSIGN: return alu_call(ArithmeticOp::COPYSIGN);
             case CallOp::CROSS: return alu_call(ArithmeticOp::CROSS);

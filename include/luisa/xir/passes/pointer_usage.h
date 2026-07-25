@@ -68,6 +68,9 @@ public:
     [[nodiscard]] const PointerUsage *out_usage(BasicBlock *block, Value *pointer) const noexcept;
 };
 
+// Null inputs and malformed bodyless kernels fail with
+// invalid_function_count. A bodyless callable is an external declaration and
+// produces a successful empty analysis.
 [[nodiscard]] LUISA_XIR_API PointerUsageAnalysisInfo pointer_usage_pass_run_on_function(
     FunctionDefinition *function, PointerUsageAnalysis *analysis = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API PointerUsageAnalysisInfo pointer_usage_pass_run_on_module(

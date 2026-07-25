@@ -11,7 +11,6 @@ namespace lc::spirv {
 enum class SpirvPointerLegalizationStatus : uint8_t {
     SUCCESS,
     UNSUPPORTED_STRUCTURED_CONTROL_FLOW,
-    SWITCH_LOWERING_FAILED,
     DESTRUCTURE_FAILED,
     INLINE_RETRY_FAILED,
 };
@@ -42,8 +41,8 @@ struct SpirvPointerLegalizationInfo {
         SpirvPointerLegalizationStatus::SUCCESS};
     size_t planned_pointer_call_count{0u};
     size_t blocking_function_count{0u};
-    size_t lowered_blocking_function_count{0u};
-    size_t lowered_switch_count{0u};
+    size_t destructured_blocking_function_count{0u};
+    size_t destructured_switch_count{0u};
     size_t remaining_pointer_call_count{0u};
     luisa::compute::xir::InlineInfo inline_info;
     luisa::string diagnostic;

@@ -10,6 +10,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/scalar_evolution.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -145,6 +146,9 @@ int main() {
         auto *inner_condition = builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {inner_phi, bound});
         builder.cond_br(inner_condition, inner_body, inner_merge);
         builder.set_insertion_point(inner_body);
+        auto *mixed = builder.call(
+            Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+            {inner_phi, outer_phi});
         builder.br(inner_update);
         builder.set_insertion_point(inner_update);
         auto *inner_increment = builder.call(Type::of<int32_t>(), ArithmeticOp::BINARY_ADD, {inner_phi, one});
@@ -161,19 +165,36 @@ int main() {
         builder.return_void();
 
         SCEVAnalysis analysis;
+        // Establish the normal storage order first, then deliberately move the
+        // block containing the inner LoopInst before the entry block. Nested
+        // SCEV ownership is a CFG property and must not depend on this
+        // intrusive-list implementation detail.
+        auto initial_info = analysis.analyze(function);
+        expect(initial_info.succeeded());
+        expect(initial_info.analyzed_loop_count == 2u);
+        expect(analysis.get(outer_phi)->kind() == SCEV::Kind::ADD_REC);
+        expect(analysis.get(inner_phi)->kind() == SCEV::Kind::ADD_REC);
+        auto outer_body_owner = outer_body->remove_self();
+        expect(outer_body_owner != nullptr);
+        function->basic_blocks().push_front(std::move(outer_body_owner));
+        expect(!analysis.is_current());
         for (auto iteration = 0u; iteration < 4u; ++iteration) {
             auto info = analysis.analyze(function);
             expect(info.succeeded());
             expect(info.analyzed_loop_count == 2u);
             auto *outer_scev = analysis.get(outer_phi);
             auto *inner_scev = analysis.get(inner_phi);
+            auto *mixed_scev = analysis.get(mixed);
             expect(outer_scev != nullptr);
             expect(inner_scev != nullptr);
+            expect(mixed_scev != nullptr);
             expect(outer_scev->kind() == SCEV::Kind::ADD_REC);
             expect(inner_scev->kind() == SCEV::Kind::ADD_REC);
+            expect(mixed_scev->kind() == SCEV::Kind::ADD);
             expect(static_cast<const SCEVAddRec *>(outer_scev)->loop() == outer);
             expect(static_cast<const SCEVAddRec *>(inner_scev)->loop() == inner);
         }
+        expect(xir_verify_module(&module).succeeded());
     };
 
     "scev_legacy_cache_is_cleared_with_function_lifetime"_test = [] {
@@ -238,6 +259,53 @@ int main() {
         expect(!info.succeeded());
         expect(info.rejected_loop_count == 1u);
         expect(analysis.get(phi) == nullptr);
+    };
+
+    "scev_keeps_strict_float_recurrences_unknown"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        auto *entry = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        float zero_value = 0.0f;
+        float one_value = 1.0f;
+        float bound_value = 4.0f;
+        auto *zero = module.create_constant(Type::of<float>(), &zero_value);
+        auto *one = module.create_constant(Type::of<float>(), &one_value);
+        auto *bound = module.create_constant(Type::of<float>(), &bound_value);
+
+        builder.set_insertion_point(prepare);
+        auto *phi = builder.phi(Type::of<float>(), {{zero, entry}});
+        auto *condition = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS, {phi, bound});
+        builder.cond_br(condition, body, merge);
+        builder.set_insertion_point(body);
+        builder.br(update);
+        builder.set_insertion_point(update);
+        auto *increment = builder.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD, {phi, one});
+        phi->add_incoming(increment, update);
+        builder.br(prepare);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        SCEVAnalysis analysis;
+        auto info = analysis.analyze(function);
+        expect(info.succeeded());
+        expect(info.analyzed_loop_count == 1u);
+        auto *phi_scev = analysis.get(phi);
+        auto *increment_scev = analysis.get(increment);
+        expect(phi_scev != nullptr);
+        expect(increment_scev != nullptr);
+        expect(phi_scev->kind() == SCEV::Kind::UNKNOWN);
+        expect(increment_scev->kind() == SCEV::Kind::UNKNOWN);
+        expect(xir_verify_module(&module).succeeded());
     };
 
     return 0;

@@ -319,8 +319,10 @@ private:
         _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
-    void _emit_switch_inst(const SwitchInst *inst, int indent) noexcept {
-        _main << "switch " << _value_ident(inst->value()) << ", ";
+    void _emit_indexed_branch_edges(
+        const IndexedBranchTerminatorInstruction *inst,
+        int indent) noexcept {
+        _main << _value_ident(inst->value()) << ", ";
         for (auto i = 0u; i < inst->case_count(); i++) {
             auto value = inst->case_value(i);
             _main << "case ";
@@ -352,8 +354,19 @@ private:
         }
         _main << "default ";
         _flat_blocks ? _emit_basic_block_ref(inst->default_block()) : _emit_basic_block(inst->default_block(), indent);
+    }
+
+    void _emit_switch_inst(const SwitchInst *inst, int indent) noexcept {
+        _main << "switch ";
+        _emit_indexed_branch_edges(inst, indent);
         _main << ", merge ";
         _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
+    }
+
+    void _emit_indexed_branch_inst(
+        const IndexedBranchInst *inst, int indent) noexcept {
+        _main << "indexed_branch ";
+        _emit_indexed_branch_edges(inst, indent);
     }
 
     void _emit_loop_inst(const LoopInst *inst, int indent) noexcept {
@@ -558,6 +571,10 @@ private:
                 break;
             case DerivedInstructionTag::SWITCH:
                 _emit_switch_inst(static_cast<const SwitchInst *>(inst), indent);
+                break;
+            case DerivedInstructionTag::INDEXED_BRANCH:
+                _emit_indexed_branch_inst(
+                    static_cast<const IndexedBranchInst *>(inst), indent);
                 break;
             case DerivedInstructionTag::LOOP:
                 _emit_loop_inst(static_cast<const LoopInst *>(inst), indent);

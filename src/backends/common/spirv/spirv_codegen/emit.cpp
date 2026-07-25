@@ -1047,6 +1047,20 @@ bool SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
     auto *saved_xir_block = _current_xir_block;
     _current_xir_block = bb;
     _builder.setBuildPoint(tail);
+    if (_control_flow_plan->block(bb).physically_pruned) {
+        auto first = bb->instructions().begin();
+        LUISA_ASSERT(
+            first != bb->instructions().end() &&
+                *first == bb->terminator() &&
+                (bb->terminator()->isa<xir::BranchInst>() ||
+                 bb->terminator()->isa<xir::BreakInst>() ||
+                 bb->terminator()->isa<xir::ContinueInst>()),
+            "SPIR-V physically pruned block is not an empty loop-boundary "
+            "proxy.");
+        _builder.createNoResultOp(spv::Op::OpUnreachable);
+        _current_xir_block = saved_xir_block;
+        return true;
+    }
     for (auto *inst : bb->instructions()) {
         LUISA_ASSERT(_builder.getBuildPoint() != nullptr && !_builder.getBuildPoint()->isTerminated(),
                      "SPIR-V attempted to emit instruction {} after a physical block terminator.",

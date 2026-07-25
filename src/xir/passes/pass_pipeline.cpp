@@ -68,6 +68,7 @@ PassPipeline &PassPipeline::add(luisa::string name,
         .run = std::move(pass),
         .max_iterations = 1u,
         .is_group = false,
+        .requires_convergence = false,
         .children = {},
     });
     return *this;
@@ -81,6 +82,20 @@ PassPipeline &PassPipeline::add_fixed_point(luisa::string name,
         .run = {},
         .max_iterations = max_iterations,
         .is_group = true,
+        .requires_convergence = true,
+        .children = std::move(sub._entries),
+    });
+    return *this;
+}
+
+PassPipeline &PassPipeline::add_sequence(
+    luisa::string name, PassPipeline sub) noexcept {
+    _entries.emplace_back(Entry{
+        .name = std::move(name),
+        .run = {},
+        .max_iterations = 1u,
+        .is_group = true,
+        .requires_convergence = false,
         .children = std::move(sub._entries),
     });
     return *this;
@@ -94,6 +109,9 @@ void PassPipeline::_merge_record(Stats::Record &record,
     record.invocations += other.invocations;
     record.elapsed_ms += other.elapsed_ms;
     record.changed |= other.changed;
+    record.converged &= other.converged;
+    record.iteration_limit_reached |=
+        other.iteration_limit_reached;
     record.report.merge_sum(other.report);
     for (size_t i = 0u; i < other.children.size(); ++i) {
         _merge_record(record.children[i], other.children[i]);
@@ -111,6 +129,8 @@ PassPipeline::Stats::Record PassPipeline::_run_entry(const Entry &entry,
             .invocations = 1u,
             .elapsed_ms = clock.toc(),
             .changed = changed,
+            .converged = true,
+            .iteration_limit_reached = false,
             .report = std::move(report),
             .children = {},
         };
@@ -120,6 +140,8 @@ PassPipeline::Stats::Record PassPipeline::_run_entry(const Entry &entry,
         .invocations = 0u,
         .elapsed_ms = 0.0,
         .changed = false,
+        .converged = false,
+        .iteration_limit_reached = false,
         .report = {},
         .children = {},
     };
@@ -137,9 +159,20 @@ PassPipeline::Stats::Record PassPipeline::_run_entry(const Entry &entry,
             }
         }
         record.invocations++;
-        if (!any_changed) { break; }
-        record.changed = true;
+        // A group represents the union of the changes made by its children,
+        // irrespective of whether it is a one-shot sequence or a fixed point.
+        record.changed |= any_changed;
+        if (!entry.requires_convergence) {
+            record.converged = true;
+            break;
+        }
+        if (!any_changed) {
+            record.converged = true;
+            break;
+        }
     }
+    record.iteration_limit_reached =
+        entry.requires_convergence && !record.converged;
     record.elapsed_ms = clock.toc();
     return record;
 }
@@ -174,7 +207,9 @@ static void log_records(luisa::span<const PassPipeline::Stats::Record> records,
             LUISA_VERBOSE("{}[{:6.2f} ms] {} (x{}) {}",
                           indent, rec.elapsed_ms, rec.name,
                           rec.invocations,
-                          rec.changed ? "(changed)" : "(converged)");
+                          rec.iteration_limit_reached ?
+                              "(iteration limit reached)" :
+                              "(converged)");
         }
         for (auto &e : rec.report.entries()) {
             if (e.value > 0u) {
@@ -210,7 +245,7 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("local-store-forward", [](Module *m, PassReport &r) {
         auto i = local_store_forward_pass_run_on_module(m, &r);
@@ -222,7 +257,7 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
         auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
@@ -234,7 +269,7 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("promote-ref-arg", [](Module *m, PassReport &r) {
         auto i = promote_ref_arg_pass_run_on_module(m, &r);
@@ -242,7 +277,7 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
     });
     p.add("sroa", [](Module *m, PassReport &r) {
         auto i = sroa_pass_run_on_module(m, {}, &r);
-        return i.decomposed_alloca_count > 0u;
+        return i.changed();
     });
     p.add("dead-store-elimination", [](Module *m, PassReport &r) {
         auto i = dead_store_elimination_pass_run_on_module(m, &r);
@@ -250,7 +285,7 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     return p;
 }
@@ -262,15 +297,15 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
     // scalarizer (running later) decomposes vector ops again.
     p.add("slp-vectorization", [](Module *m, PassReport &r) {
         auto i = slp_vectorization_pass_run_on_module(m, &r);
-        return i.vectorized_tree_count > 0u;
+        return i.changed();
     });
     p.add("fuse-consecutive-buffer-reads", [](Module *m, PassReport &r) {
         auto i = fuse_consecutive_buffer_reads_pass_run_on_module(m, &r);
-        return i.fused_group_count > 0u;
+        return i.changed();
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("local-store-forward", [](Module *m, PassReport &r) {
         auto i = local_store_forward_pass_run_on_module(m, &r);
@@ -282,7 +317,7 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
         auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
@@ -294,11 +329,11 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("sroa", [](Module *m, PassReport &r) {
         auto i = sroa_pass_run_on_module(m, {}, &r);
-        return i.decomposed_alloca_count > 0u;
+        return i.changed();
     });
     p.add("dead-store-elimination", [](Module *m, PassReport &r) {
         auto i = dead_store_elimination_pass_run_on_module(m, &r);
@@ -306,7 +341,7 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     return p;
 }
@@ -330,19 +365,19 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     });
     p.add("sccp", [](Module *m, PassReport &r) {
         auto i = sccp_pass_run_on_module(m, &r);
-        return i.folded_inst_count > 0u || i.removed_branch_count > 0u;
+        return i.changed();
     });
     p.add("slp-vectorization", [](Module *m, PassReport &r) {
         auto i = slp_vectorization_pass_run_on_module(m, &r);
-        return i.vectorized_tree_count > 0u;
+        return i.changed();
     });
     p.add("gvn", [](Module *m, PassReport &r) {
         auto i = gvn_pass_run_on_module(m, &r);
-        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+        return i.changed();
     });
     p.add("if-conversion", [](Module *m, PassReport &r) {
         auto i = if_conversion_pass_run_on_module(m, &r);
-        return i.converted_diamond_count > 0u;
+        return i.changed();
     });
     p.add("phi-cleanup", [](Module *m, PassReport &r) {
         auto i = phi_cleanup_pass_run_on_module(m, &r);
@@ -350,7 +385,7 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("local-store-forward", [](Module *m, PassReport &r) {
         auto i = local_store_forward_pass_run_on_module(m, &r);
@@ -366,7 +401,7 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     return p;
 }
@@ -384,7 +419,7 @@ PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOption
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     p.add("early-cse", [](Module *m, PassReport &r) {
         auto i = early_cse_pass_run_on_module(m, &r);
@@ -404,11 +439,11 @@ PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOption
     });
     p.add("gvn", [](Module *m, PassReport &r) {
         auto i = gvn_pass_run_on_module(m, &r);
-        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+        return i.changed();
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     return p;
 }

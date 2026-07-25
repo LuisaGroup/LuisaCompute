@@ -890,15 +890,11 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                     "HIP XIR destructuring failed (errors={}, leaked_blocks={}).",
                     i.error_count, i.leaked_block_count);
             }
-            return i.destructured_if_count > 0u ||
-                   i.destructured_loop_count > 0u ||
-                   i.destructured_simple_loop_count > 0u;
+            return i.changed();
         });
         cfg_pipeline.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-            return i.folded_constant_cond_br_count > 0u ||
-                   i.threaded_empty_block_count > 0u ||
-                   i.removed_unreachable_block_count > 0u;
+            return i.changed();
         });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
             cfg_pipeline.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
@@ -909,7 +905,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                         i.irreducible_region_count, i.unstructured_branch_count,
                         i.invalid_construct_count, i.iteration_limit_count);
                 }
-                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+                return i.changed();
             });
         }
         auto stats = cfg_pipeline.run(xir_module.get());

@@ -406,7 +406,7 @@ impl Validator {
                     Func::Floor => check_float_func1!(),
                     Func::Fract => check_float_func1!(),
                     Func::Trunc => check_float_func1!(),
-                    Func::Round => check_float_func1!(),
+                    Func::Round | Func::Rint => check_float_func1!(),
                     Func::Fma => todo!(),
                     Func::Copysign => todo!(),
                     Func::Cross => todo!(),

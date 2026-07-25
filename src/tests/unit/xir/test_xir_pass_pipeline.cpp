@@ -75,6 +75,9 @@ int main() {
         expect(stats.records[0].name == "converge");
         expect(stats.records[0].invocations == 3u);
         expect(stats.records[0].changed);
+        expect(stats.records[0].converged);
+        expect(!stats.records[0].iteration_limit_reached);
+        expect(stats.succeeded());
         expect(stats.records[0].children.size() == 1u);
         expect(stats.records[0].children[0].name == "countdown");
         expect(stats.records[0].children[0].invocations == 3u);
@@ -94,6 +97,48 @@ int main() {
         expect(counter == 5);
         expect(stats.records.size() == 1u);
         expect(stats.records[0].invocations == 5u);
+        expect(!stats.records[0].converged);
+        expect(stats.records[0].iteration_limit_reached);
+        expect(!stats.records[0].succeeded());
+        expect(!stats.succeeded());
+    };
+
+    "fixed_point_zero_budget_is_reported_not_silently_converged"_test = [] {
+        auto invoked = false;
+        PassPipeline sub;
+        sub.add("unreachable", [&](Module *, PassReport &) {
+            invoked = true;
+            return false;
+        });
+        PassPipeline p;
+        p.add_fixed_point("zero-budget", std::move(sub), 0u);
+        Module m;
+        auto stats = p.run(&m);
+        expect(!invoked);
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].invocations == 0u);
+        expect(!stats.records[0].converged);
+        expect(stats.records[0].iteration_limit_reached);
+        expect(!stats.succeeded());
+    };
+
+    "one_shot_sequence_can_change_without_false_nonconvergence"_test = [] {
+        auto invocations = 0u;
+        PassPipeline sub;
+        sub.add("change-once", [&](Module *, PassReport &) {
+            ++invocations;
+            return true;
+        });
+        PassPipeline p;
+        p.add_sequence("one-shot", std::move(sub));
+        Module m;
+        auto stats = p.run(&m);
+        expect(invocations == 1u);
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].changed);
+        expect(stats.records[0].converged);
+        expect(!stats.records[0].iteration_limit_reached);
+        expect(stats.succeeded());
     };
 
     "real_dce_pass_wrapper"_test = [] {

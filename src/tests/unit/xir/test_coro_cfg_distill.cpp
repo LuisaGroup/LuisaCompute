@@ -8,8 +8,15 @@
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/passes/coro_reg2mem.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -633,7 +640,8 @@ void reg_coro_cfg_distill() {
         auto *a = b.load(Type::of<int>(), state);
         auto *c = b.load(Type::of<int>(), late);
         auto *sum = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {a, c});
-        b.return_(sum);
+        static_cast<void>(sum);
+        b.return_void();
 
         auto result = coro_cfg_distill_pass_run_on_function(k);
         const CoroCfgDistillResult::Edge *suspend_edge = nullptr;
@@ -687,7 +695,8 @@ void reg_coro_cfg_distill() {
 
         b.set_insertion_point(merge_bb);
         auto *loaded = b.load(Type::of<int>(), state);
-        b.return_(loaded);
+        static_cast<void>(loaded);
+        b.return_void();
 
         auto result = coro_cfg_distill_pass_run_on_function(k);
         bool found_branch_edge = false;
@@ -747,7 +756,8 @@ void reg_coro_cfg_distill() {
         auto *large_i = b.static_cast_(Type::of<int>(), loaded_large_x);
         auto *sum0 = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {loaded_small, medium_i});
         auto *sum1 = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {sum0, large_i});
-        b.return_(sum1);
+        static_cast<void>(sum1);
+        b.return_void();
 
         auto result = coro_cfg_distill_pass_run_on_function(k);
         expect(result.frame_values.size() == 3u);
@@ -784,7 +794,8 @@ void reg_coro_cfg_distill() {
         auto *second = m.create_constant(Type::of<uint32_t>(), &second_index);
         auto *second_ptr = b.gep(Type::of<float>(), state, {second});
         auto *value = b.load(Type::of<float>(), second_ptr);
-        b.return_(value);
+        static_cast<void>(value);
+        b.return_void();
 
         auto result = coro_cfg_distill_pass_run_on_function(k);
         expect(result.scopes.size() == 3u);
@@ -820,11 +831,256 @@ void reg_coro_cfg_distill() {
         b.coro_resume(1u, nullptr);
         auto *lhs_value = b.load(Type::of<float>(), lhs);
         auto *rhs_value = b.load(Type::of<float>(), rhs);
-        b.return_(b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {lhs_value, rhs_value}));
+        auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD,
+                           {lhs_value, rhs_value});
+        static_cast<void>(sum);
+        b.return_void();
 
         auto result = coro_cfg_distill_pass_run_on_function(k);
         expect(result.frame_values.size() == 2u);
         expect(result.frame_values[0u].name != result.frame_values[1u].name);
+    };
+
+    "structured_switch_is_rejected_until_destructured"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *selector = k->create_value_argument(Type::of<uint32_t>());
+        auto *entry = k->create_body_block();
+        auto *case_block = k->create_basic_block();
+        auto *default_block = k->create_basic_block();
+        auto *merge = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *switch_inst = b.switch_(selector);
+        switch_inst->set_default_block(default_block);
+        switch_inst->add_case(7u, case_block);
+        switch_inst->set_merge_block(merge);
+        b.set_insertion_point(case_block);
+        b.br(merge);
+        b.set_insertion_point(default_block);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto before = xir_to_text_translate(&m, true);
+        auto rejected = coro_cfg_distill_pass_run_on_function(k);
+        expect(!rejected.succeeded());
+        expect(rejected.structured_cfg_error_count == 1u);
+        expect(rejected.invalid_input_error_count == 0u);
+        expect(rejected.invalid_cfg_error_count == 0u);
+        expect(rejected.scopes.empty());
+        expect(xir_to_text_translate(&m, true) == before);
+        expect(xir_verify_module(&m).succeeded());
+
+        auto destructured = destructure_cfg_pass_run_on_function(k);
+        expect(destructured.succeeded());
+        expect(destructured.destructured_switch_count == 1u);
+        expect(entry->terminator()->isa<IndexedBranchInst>());
+        auto accepted = coro_cfg_distill_pass_run_on_function(k);
+        expect(accepted.succeeded());
+        expect(accepted.scopes.size() == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "null_and_declaration_inputs_fail_closed"_test = [] {
+        Module m;
+        auto *external = m.create_external_function(nullptr);
+        auto null_result =
+            coro_cfg_distill_pass_run_on_function(nullptr);
+        auto external_result =
+            coro_cfg_distill_pass_run_on_function(external);
+        expect(!null_result.succeeded());
+        expect(null_result.invalid_input_error_count == 1u);
+        expect(null_result.scopes.empty());
+        expect(!external_result.succeeded());
+        expect(external_result.invalid_input_error_count == 1u);
+        expect(external_result.scopes.empty());
+        expect(coro_cfg_distill_pass_run_on_module(nullptr) == 0u);
+    };
+
+    "missing_and_duplicate_coroutine_tokens_fail_closed"_test = [] {
+        {
+            Module m;
+            auto *k = m.create_kernel();
+            auto *body = k->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            b.coro_suspend(7u, "missing_resume", nullptr);
+
+            expect(xir_verify_module(&m).succeeded());
+            auto *before = body->terminator();
+            auto result = coro_cfg_distill_pass_run_on_function(k);
+            expect(!result.succeeded());
+            expect(result.invalid_cfg_error_count == 1u);
+            expect(result.scopes.empty());
+            expect(body->terminator() == before);
+            expect(xir_verify_module(&m).succeeded());
+        }
+        {
+            Module m;
+            auto *k = m.create_kernel();
+            auto *body = k->create_body_block();
+            auto *resume0 = k->create_basic_block();
+            auto *resume1 = k->create_basic_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            b.coro_suspend(9u, "duplicate_resume", nullptr);
+            b.set_insertion_point(resume0);
+            b.coro_resume(9u, nullptr);
+            b.return_void();
+            b.set_insertion_point(resume1);
+            b.coro_resume(9u, nullptr);
+            b.return_void();
+
+            expect(xir_verify_module(&m).succeeded());
+            auto *before_suspend = body->terminator();
+            auto *before_resume0 = resume0->terminator();
+            auto *before_resume1 = resume1->terminator();
+            auto result = coro_cfg_distill_pass_run_on_function(k);
+            expect(!result.succeeded());
+            expect(result.invalid_cfg_error_count == 1u);
+            expect(result.scopes.empty());
+            expect(body->terminator() == before_suspend);
+            expect(resume0->terminator() == before_resume0);
+            expect(resume1->terminator() == before_resume1);
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "phi_cfg_is_rejected_until_reg2mem_makes_edges_explicit"_test = [] {
+        Module m;
+        auto *callable = m.create_callable(nullptr);
+        auto *condition =
+            callable->create_value_argument(Type::of<bool>());
+        auto *entry = callable->create_body_block();
+        auto *left = callable->create_basic_block();
+        auto *right = callable->create_basic_block();
+        auto *join = callable->create_basic_block();
+        auto *resume = callable->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(join);
+        b.set_insertion_point(right);
+        b.br(join);
+        b.set_insertion_point(join);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(
+            m.create_constant_zero(Type::of<int>()), left);
+        phi->add_incoming(
+            m.create_constant_one(Type::of<int>()), right);
+        phi->set_name("edge_selected_value");
+        auto *sum = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {phi, m.create_constant_one(Type::of<int>())});
+        static_cast<void>(sum);
+        b.coro_suspend(17u, "phi", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(17u, nullptr);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto rejected =
+            coro_cfg_distill_pass_run_on_function(callable);
+        expect(!rejected.succeeded());
+        expect(rejected.invalid_cfg_error_count == 1u);
+        expect(rejected.scopes.empty());
+        expect(phi->is_linked());
+
+        auto lowered = coro_reg2mem_pass_run_on_module(&m);
+        expect(lowered.lowered_phi_count == 1u);
+        expect(!phi->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+        auto accepted =
+            coro_cfg_distill_pass_run_on_function(callable);
+        expect(accepted.succeeded());
+        expect(accepted.scopes.size() == 2u);
+    };
+
+    "two_resume_identities_cannot_share_one_block"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *left_suspend = kernel->create_basic_block();
+        auto *right_suspend = kernel->create_basic_block();
+        auto *shared_resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.cond_br(
+            kernel->create_value_argument(Type::of<bool>()),
+            left_suspend, right_suspend);
+        b.set_insertion_point(left_suspend);
+        b.coro_suspend(21u, "left", nullptr);
+        b.set_insertion_point(right_suspend);
+        b.coro_suspend(22u, "right", nullptr);
+        b.set_insertion_point(shared_resume);
+        auto *first = b.coro_resume(21u, nullptr);
+        auto *second = b.coro_resume(22u, nullptr);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+        expect(!result.succeeded());
+        expect(result.invalid_cfg_error_count == 1u);
+        expect(result.scopes.empty());
+        expect(first->is_linked());
+        expect(second->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "entry_block_cannot_alias_a_resume_root"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *suspend = kernel->create_basic_block();
+        auto *exit = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *resume = b.coro_resume(27u, nullptr);
+        b.cond_br(
+            kernel->create_value_argument(Type::of<bool>()),
+            suspend, exit);
+        b.set_insertion_point(suspend);
+        auto *suspend_inst =
+            b.coro_suspend(27u, "entry-alias", nullptr);
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+        expect(!result.succeeded());
+        expect(result.invalid_cfg_error_count == 1u);
+        expect(result.scopes.empty());
+        expect(resume->is_linked());
+        expect(suspend->terminator() == suspend_inst);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "non_void_coroutine_is_rejected_before_continuation_abi_change"_test = [] {
+        Module m;
+        auto *callable = m.create_callable(Type::of<int>());
+        auto *entry = callable->create_body_block();
+        auto *resume = callable->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *suspend =
+            b.coro_suspend(31u, "non-void", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(31u, nullptr);
+        b.return_(m.create_constant_one(Type::of<int>()));
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result =
+            coro_cfg_distill_pass_run_on_function(callable);
+        expect(!result.succeeded());
+        expect(result.invalid_cfg_error_count == 1u);
+        expect(result.scopes.empty());
+        expect(entry->terminator() == suspend);
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 

@@ -303,7 +303,9 @@ struct SCEVAnalysis::Impl {
 
     [[nodiscard]] const SCEV *build_phi_scev(PhiInst *phi) noexcept {
         if (current_loop == nullptr || phi->parent_block() != current_loop->prepare_block() ||
-            phi->incoming_count() != 2u || phi->type() == nullptr) {
+            phi->incoming_count() != 2u || phi->type() == nullptr ||
+            !(phi->type()->is_int_or_int_vector() ||
+              phi->type()->is_uint_or_uint_vector())) {
             return make_unknown(phi);
         }
         auto *preheader = current_loop->parent_block();
@@ -364,7 +366,13 @@ struct SCEVAnalysis::Impl {
     [[nodiscard]] const SCEV *build_arithmetic_scev(ArithmeticInst *inst) noexcept {
         auto op = inst->op();
         if ((op != ArithmeticOp::BINARY_ADD && op != ArithmeticOp::BINARY_MUL) ||
-            inst->operand_count() != 2u || inst->type() == nullptr) {
+            inst->operand_count() != 2u || inst->type() == nullptr ||
+            !(inst->type()->is_int_or_int_vector() ||
+              inst->type()->is_uint_or_uint_vector())) {
+            // SCEV expressions are freely flattened and use identities such as
+            // x * 0 == 0. Those are valid for modular integer arithmetic, but
+            // not for strict floating point (NaN, infinity, signed zero, and
+            // reassociation). Keep unsupported domains explicitly unknown.
             return make_unknown(inst);
         }
         luisa::vector<const SCEV *> operands;
@@ -519,7 +527,16 @@ struct SCEVAnalysis::Impl {
         }
         for (auto &&[value, scev] : cache) {
             if (value->isa<Instruction>()) {
-                results[static_cast<Instruction *>(value)] = scev;
+                auto *inst = static_cast<Instruction *>(value);
+                // An inner loop can use an outer induction variable as a
+                // loop-invariant operand. In the inner context that outer Phi
+                // is intentionally Unknown; publishing it would overwrite the
+                // AddRec previously derived in its owning outer loop. Cache
+                // dependencies locally, but publish only expressions whose
+                // defining instruction belongs to this loop region.
+                if (loop_blocks.contains(inst->parent_block())) {
+                    results[inst] = scev;
+                }
             }
         }
         current_loop = nullptr;
@@ -528,15 +545,35 @@ struct SCEVAnalysis::Impl {
 
     [[nodiscard]] SCEVInfo run(FunctionDefinition *function) noexcept {
         clear();
+        if (function != nullptr && function->body_block() == nullptr &&
+            function->derived_function_tag() ==
+                DerivedFunctionTag::CALLABLE) {
+            // A callable declaration owns no loops. Publish an empty, current
+            // analysis instead of classifying the declaration as malformed.
+            def = function;
+            capture_snapshot();
+            return info;
+        }
         if (!initialize_function(function)) {
             info.invalid_function_count = 1u;
             return info;
         }
-        for (auto *block : ordered_blocks) {
-            if (!reachable_blocks.contains(block) || !block->is_terminated()) { continue; }
-            auto *terminator = block->terminator();
-            if (!terminator->isa<LoopInst>()) { continue; }
-            if (analyze_loop(static_cast<LoopInst *>(terminator))) {
+        // Analyze structured loops in CFG pre-order, not in the intrusive
+        // basic-block storage order. A nested loop is semantically owned by
+        // the surrounding loop regardless of how blocks happen to be linked
+        // in Function::_basic_blocks. The outer analysis intentionally sees
+        // nested-loop values as expressions in the outer context, and the
+        // subsequent inner analysis must overwrite those provisional results
+        // with expressions in the innermost context. Reversing this order
+        // makes an outer-loop Unknown overwrite a valid inner AddRec.
+        luisa::vector<LoopInst *> loops;
+        def->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<LoopInst>()) {
+                loops.emplace_back(static_cast<LoopInst *>(inst));
+            }
+        });
+        for (auto *loop : loops) {
+            if (analyze_loop(loop)) {
                 ++info.analyzed_loop_count;
             } else {
                 ++info.rejected_loop_count;

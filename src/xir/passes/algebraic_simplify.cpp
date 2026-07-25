@@ -10,10 +10,18 @@
 #include <cmath>
 #include <limits>
 #include <bit>
+#include <cstring>
 
 namespace luisa::compute::xir {
 
 namespace detail {
+
+template<typename T>
+[[nodiscard]] static T load_constant_scalar(const void *data) noexcept {
+    T value;
+    std::memcpy(&value, data, sizeof(T));
+    return value;
+}
 
 // Check if a Constant has a specific value
 [[nodiscard]] static bool is_const_value(const Value *v, int32_t expected) noexcept {
@@ -21,9 +29,17 @@ namespace detail {
     auto c = static_cast<const Constant *>(v);
     auto t = c->type();
     auto check_scalar = [expected](const Type *st, const void *data) noexcept {
-        if (st->is_int32()) return *static_cast<const int32_t *>(data) == expected;
-        if (st->is_uint32()) return static_cast<int32_t>(*static_cast<const uint32_t *>(data)) == expected;
-        if (st->is_float32()) return *static_cast<const float *>(data) == static_cast<float>(expected);
+        if (st->is_int32()) {
+            return load_constant_scalar<int32_t>(data) == expected;
+        }
+        if (st->is_uint32()) {
+            return static_cast<int32_t>(
+                       load_constant_scalar<uint32_t>(data)) == expected;
+        }
+        if (st->is_float32()) {
+            return load_constant_scalar<float>(data) ==
+                   static_cast<float>(expected);
+        }
         return false;
     };
     if (t->is_scalar()) return check_scalar(t, c->data());
@@ -50,11 +66,11 @@ namespace detail {
     auto t = c->type();
     auto check_scalar = [](const Type *st, const void *data) noexcept {
         if (st->is_float32()) {
-            auto x = *static_cast<const float *>(data);
+            auto x = load_constant_scalar<float>(data);
             return x == 0.0f && !std::signbit(x);
         }
         if (st->is_float64()) {
-            auto x = *static_cast<const double *>(data);
+            auto x = load_constant_scalar<double>(data);
             return x == 0.0 && !std::signbit(x);
         }
         return false;
@@ -119,25 +135,98 @@ namespace detail {
     return false;
 }
 
+[[nodiscard]] static bool decode_uniform_unsigned_constant(
+    const Value *value, uint64_t &result) noexcept {
+    if (value == nullptr || !value->isa<Constant>() ||
+        !is_unsigned_integer_type(value->type())) {
+        return false;
+    }
+    auto *constant = static_cast<const Constant *>(value);
+    auto *type = value->type();
+    auto decode_lane = [](const Type *lane_type,
+                          const std::byte *data) noexcept -> uint64_t {
+        if (lane_type->is_uint32()) {
+            uint32_t lane = 0u;
+            std::memcpy(&lane, data, sizeof(lane));
+            return lane;
+        }
+        uint64_t lane = 0u;
+        std::memcpy(&lane, data, sizeof(lane));
+        return lane;
+    };
+    if (type->is_scalar()) {
+        result = decode_lane(
+            type, static_cast<const std::byte *>(constant->data()));
+        return true;
+    }
+    auto *element = type->element();
+    auto *bytes = static_cast<const std::byte *>(constant->data());
+    auto first = decode_lane(element, bytes);
+    for (auto lane = 1u; lane < type->dimension(); ++lane) {
+        if (decode_lane(element, bytes + lane * element->size()) != first) {
+            return false;
+        }
+    }
+    result = first;
+    return true;
+}
+
+[[nodiscard]] static bool is_proven_nonzero_integer_constant(
+    const Value *value) noexcept {
+    if (value == nullptr || !value->isa<Constant>() ||
+        value->type() == nullptr) {
+        return false;
+    }
+    auto *type = value->type();
+    auto *element = type->is_vector() ? type->element() : type;
+    if (element == nullptr ||
+        !(element->is_int() || element->is_uint())) {
+        return false;
+    }
+    auto lane_count = type->is_vector() ? type->dimension() : 1u;
+    auto lane_size = element->size();
+    auto *bytes = static_cast<const std::byte *>(
+        static_cast<const Constant *>(value)->data());
+    for (auto lane = 0u; lane < lane_count; ++lane) {
+        auto nonzero = false;
+        for (auto byte = 0u; byte < lane_size; ++byte) {
+            nonzero |= bytes[lane * lane_size + byte] != std::byte{0};
+        }
+        if (!nonzero) { return false; }
+    }
+    return true;
+}
+
 // Create a scalar or vector constant where all elements have the same numeric value.
-// The created constant has the same type as `like_type` (unsigned integer scalar/vector).
-// `value` is a uint32 that is zero-extended or truncated to match the element type size.
+// The created constant has the same type as `like_type` (unsigned integer
+// scalar/vector). Typed host values, rather than hand-written little-endian
+// bytes, preserve the Constant ABI on every supported host byte order.
 [[nodiscard]] static Constant *create_broadcast_constant(
     Module *module, const Type *like_type, uint64_t value) noexcept {
     if (like_type->is_scalar()) {
-        auto elem_size = like_type->size();
-        luisa::vector<std::byte> data(elem_size, std::byte{0});
-        for (size_t i = 0u; i < elem_size; ++i) {
-            data[i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+        if (like_type->is_uint32()) {
+            auto lane = static_cast<uint32_t>(value);
+            return module->create_constant(like_type, &lane);
         }
-        return module->create_constant(like_type, data.data());
+        if (like_type->is_uint64()) {
+            return module->create_constant(like_type, &value);
+        }
+        return nullptr;
     }
     if (like_type->is_vector()) {
         auto dim = like_type->dimension();
-        auto elem_size = like_type->element()->size();
+        auto *element = like_type->element();
+        if (element == nullptr ||
+            !(element->is_uint32() || element->is_uint64())) {
+            return nullptr;
+        }
+        auto elem_size = element->size();
         luisa::vector<std::byte> elem_data(elem_size, std::byte{0});
-        for (size_t i = 0u; i < elem_size; ++i) {
-            elem_data[i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+        if (element->is_uint32()) {
+            auto lane = static_cast<uint32_t>(value);
+            std::memcpy(elem_data.data(), &lane, sizeof(lane));
+        } else {
+            std::memcpy(elem_data.data(), &value, sizeof(value));
         }
         luisa::vector<std::byte> data(dim * elem_size);
         for (size_t i = 0u; i < dim; ++i) {
@@ -154,8 +243,10 @@ namespace detail {
     return lhs.has_value() && rhs.has_value() && *lhs != *rhs;
 }
 
-[[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, Module *module, XIRBuilder &builder,
-                                         AlgebraicSimplifyOptions options) noexcept {
+[[nodiscard]] static Value *try_simplify(
+    ArithmeticInst *inst, Module *module, XIRBuilder &builder,
+    AlgebraicSimplifyOptions options, bool &changed_in_place) noexcept {
+    changed_in_place = false;
     auto op = inst->op();
     auto type = inst->type();
     if (type == nullptr) return nullptr;
@@ -190,13 +281,16 @@ namespace detail {
         case ArithmeticOp::BINARY_DIV: {
             if (is_const_one(inst->operand(1))) return inst->operand(0);
             if (!is_float_like(type) && is_const_zero(inst->operand(0))) {
-                return module->create_constant_zero(type);
+                if (is_proven_nonzero_integer_constant(
+                        inst->operand(1))) {
+                    return module->create_constant_zero(type);
+                }
             }
             // Unsigned integer division by power-of-two constant:
             //   x / pow2 → x >> log2(pow2)
             if (is_unsigned_integer_type(type)) {
                 uint64_t divisor = 0u;
-                if (try_decode_constant_nonnegative_integer(
+                if (decode_uniform_unsigned_constant(
                         inst->operand(1), divisor) &&
                     divisor > 0u && is_power_of_two(divisor)) {
                     auto shift = floor_log2(divisor);
@@ -217,7 +311,7 @@ namespace detail {
             //   x % pow2 → x & (pow2 - 1)
             if (is_unsigned_integer_type(type)) {
                 uint64_t divisor = 0u;
-                if (try_decode_constant_nonnegative_integer(
+                if (decode_uniform_unsigned_constant(
                         inst->operand(1), divisor) &&
                     divisor > 0u && is_power_of_two(divisor)) {
                     auto mask = divisor - 1u;
@@ -297,6 +391,7 @@ namespace detail {
             }
             if (src != inst->operand(0)) {
                 inst->set_operand(0, src);
+                changed_in_place = true;
             }
             break;
         }
@@ -402,6 +497,7 @@ namespace detail {
                         }
                         if (all_indices_match) {
                             inst->set_operand(0, base_arith->operand(0));
+                            changed_in_place = true;
                             return nullptr;
                         }
                     }
@@ -410,7 +506,12 @@ namespace detail {
             if (inst->operand_count() == 3u && inst->type() != nullptr &&
                 (inst->type()->is_vector() || inst->type()->is_array())) {
                 auto dim = inst->type()->dimension();
-                if (*idx_val == dim - 1u) {
+                // Zero-sized arrays are valid XIR types but have no valid
+                // INSERT index. Guard the subtraction and element access even
+                // for malformed input so the pass remains a conservative
+                // no-op instead of indexing an empty reconstruction vector.
+                if (dim != 0u && *idx_val < dim &&
+                    *idx_val == dim - 1u) {
                     luisa::vector<Value *> elems(dim, nullptr);
                     elems[*idx_val] = val;
                     auto cur = base;
@@ -467,8 +568,9 @@ namespace detail {
 }
 
 static void algebraic_simplify_on_function(Function *function, AlgebraicSimplifyInfo &info, AlgebraicSimplifyOptions options) noexcept {
+    if (function == nullptr) { return; }
     auto def = function->definition();
-    if (!def) return;
+    if (def == nullptr || def->body_block() == nullptr) { return; }
     auto module = function->parent_module();
     XIRBuilder builder;
 
@@ -480,10 +582,18 @@ static void algebraic_simplify_on_function(Function *function, AlgebraicSimplify
     });
 
     for (auto inst : to_simplify) {
-        auto replacement = try_simplify(inst, module, builder, options);
+        // try_simplify may either return a shared operand/pooled constant or
+        // create a new instruction. Without a uniform unique replacement
+        // owner, preserve annotated instructions conservatively in place.
+        if (!inst->metadata_list().empty()) { continue; }
+        auto changed_in_place = false;
+        auto replacement = try_simplify(
+            inst, module, builder, options, changed_in_place);
         if (replacement != nullptr) {
             inst->replace_all_uses_with(replacement);
             inst->remove_self();
+            info.simplified_inst_count++;
+        } else if (changed_in_place) {
             info.simplified_inst_count++;
         }
     }
@@ -499,6 +609,10 @@ AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_function(Function *function
 
 AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_module(Module *module, AlgebraicSimplifyOptions options, PassReport *report) noexcept {
     AlgebraicSimplifyInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("simplified_inst", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::algebraic_simplify_on_function(f, info, options);
     }

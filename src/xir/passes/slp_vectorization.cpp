@@ -9,7 +9,6 @@
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <limits>
-#include "helpers.h"
 
 namespace luisa::compute::xir {
 
@@ -84,8 +83,17 @@ namespace detail {
                     if (ptr != nullptr && ptr->isa<GEPInst>()) { gep = static_cast<GEPInst *>(ptr); }
                     int64_t offset = 0;
                     if (gep != nullptr && get_gep_constant_offset(gep, offset)) {
-                        auto *base_alloca = trace_pointer_base_local_alloca_inst(gep);
-                        if (base_alloca != nullptr) {
+                        // The immediate GEP index is only a complete address
+                        // coordinate when the GEP projects directly from the
+                        // allocation. For a nested GEP, equal root allocations
+                        // and consecutive inner indices do not imply adjacent
+                        // addresses: e.g. a[0][0] and a[1][1].
+                        auto *base = gep->base();
+                        auto *base_alloca =
+                            base != nullptr && base->isa<AllocaInst>() ?
+                                static_cast<AllocaInst *>(base) :
+                                nullptr;
+                        if (base_alloca != nullptr && base_alloca->is_local()) {
                             bool can_extend = !run.empty() &&
                                               base_alloca == current_alloca &&
                                               value_type == current_elem_type &&
@@ -291,6 +299,12 @@ namespace detail {
         auto *index = module->create_constant(Type::of<uint32_t>(), &lane_index);
         auto *extract = builder.call(
             first->type(), ArithmeticOp::EXTRACT, {vectorized, index});
+        // The extract is the semantic replacement of this lane's scalar
+        // producer. Preserve lane-local source and transformation metadata
+        // there instead of collapsing all metadata onto the vector operation.
+        for (auto *metadata : roots[lane]->metadata_list()) {
+            extract->metadata_list().push_front(metadata->clone());
+        }
         stores[lane]->set_value(extract);
     }
     for (auto *root : roots) {
@@ -302,7 +316,7 @@ namespace detail {
 }// namespace detail
 
 SLPVectorizationInfo slp_vectorization_pass_run_on_function(Function *function) noexcept {
-    auto def = function->definition();
+    auto def = function == nullptr ? nullptr : function->definition();
     if (!def) return {};
     SLPVectorizationInfo info;
     auto seeds = detail::collect_store_seeds(def);
@@ -319,11 +333,14 @@ SLPVectorizationInfo slp_vectorization_pass_run_on_function(Function *function) 
 
 SLPVectorizationInfo slp_vectorization_pass_run_on_module(Module *module, PassReport *report) noexcept {
     SLPVectorizationInfo info;
-    for (auto *f : module->function_list()) {
-        auto func_info = slp_vectorization_pass_run_on_function(f);
-        info.vectorized_tree_count += func_info.vectorized_tree_count;
-        info.vectorized_inst_count += func_info.vectorized_inst_count;
-        info.rejected_candidate_count += func_info.rejected_candidate_count;
+    if (module != nullptr) {
+        for (auto *f : module->function_list()) {
+            auto func_info = slp_vectorization_pass_run_on_function(f);
+            info.vectorized_tree_count += func_info.vectorized_tree_count;
+            info.vectorized_inst_count += func_info.vectorized_inst_count;
+            info.rejected_candidate_count +=
+                func_info.rejected_candidate_count;
+        }
     }
     if (report) {
         report->set("vectorized_tree_count", info.vectorized_tree_count);

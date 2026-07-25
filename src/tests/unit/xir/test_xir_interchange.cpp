@@ -21,7 +21,6 @@
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
-#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
 
@@ -1396,10 +1395,6 @@ void reg_instruction_type_validation() {
             auto decoded_text = xir_from_interchange_text(text.text);
             expect(decoded_text.succeeded());
             if (decoded_text.succeeded()) {
-                auto lowered = lower_switch_pass_run_on_module(
-                    decoded_text.module.get());
-                expect(lowered.succeeded());
-                expect(lowered.lowered_switch_count == 1u);
                 expect(xir_verify_module(decoded_text.module.get()).succeeded());
                 expect(xir_to_interchange_text(
                            decoded_text.module.get())
@@ -1541,7 +1536,7 @@ void reg_instruction_type_validation() {
         }
     };
 
-    "xir_interchange_terminal_null_merge_selections_round_trip"_test = [] {
+    "xir_interchange_terminal_if_and_indexed_branch_round_trip"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *condition = kernel->create_value_argument(Type::of<bool>());
@@ -1555,9 +1550,10 @@ void reg_instruction_type_validation() {
         builder.set_insertion_point(true_block);
         builder.return_void();
         builder.set_insertion_point(false_block);
-        auto *switch_inst = builder.switch_(selector);
-        auto *case_block = switch_inst->create_case_block(1);
-        auto *default_block = switch_inst->create_default_block();
+        auto *indexed_branch = builder.indexed_branch(selector);
+        auto *case_block = indexed_branch->create_case_block(1);
+        auto *default_block =
+            indexed_branch->create_default_block();
         builder.set_insertion_point(case_block);
         builder.return_void();
         builder.set_insertion_point(default_block);
@@ -1565,21 +1561,22 @@ void reg_instruction_type_validation() {
 
         auto check_decoded = [](const Module *decoded) noexcept {
             size_t null_if_count = 0u;
-            size_t null_switch_count = 0u;
+            size_t indexed_branch_count = 0u;
             for (auto *function : decoded->function_list()) {
                 for (auto *block : function->basic_blocks()) {
                     for (auto *instruction : block->instructions()) {
                         if (instruction->isa<IfInst>()) {
                             null_if_count += static_cast<const IfInst *>(instruction)->merge_block() == nullptr ? 1u : 0u;
                         }
-                        if (instruction->isa<SwitchInst>()) {
-                            null_switch_count += static_cast<const SwitchInst *>(instruction)->merge_block() == nullptr ? 1u : 0u;
-                        }
+                        indexed_branch_count +=
+                            instruction->isa<IndexedBranchInst>() ?
+                                1u :
+                                0u;
                     }
                 }
             }
             expect(null_if_count == 1u);
-            expect(null_switch_count == 1u);
+            expect(indexed_branch_count == 1u);
         };
 
         auto text = xir_to_interchange_text(&module);

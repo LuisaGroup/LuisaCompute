@@ -5,8 +5,11 @@
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/core/stl/hash.h>
+#include <luisa/core/stl/optional.h>
 
 #include "helpers.h"
 
@@ -61,6 +64,30 @@ struct EdgeEqual {
         return a.first == b.first && a.second == b.second;
     }
 };
+
+[[nodiscard]] luisa::optional<
+    IndexedBranchTerminatorInstruction::case_value_type>
+decode_indexed_branch_constant(const Constant *constant) noexcept {
+    if (constant == nullptr || constant->type() == nullptr) {
+        return luisa::nullopt;
+    }
+    switch (constant->type()->tag()) {
+        case Type::Tag::BOOL: return constant->as<bool>();
+        case Type::Tag::INT8:
+            return luisa::bit_cast<uint8_t>(constant->as<int8_t>());
+        case Type::Tag::UINT8: return constant->as<uint8_t>();
+        case Type::Tag::INT16:
+            return luisa::bit_cast<uint16_t>(constant->as<int16_t>());
+        case Type::Tag::UINT16: return constant->as<uint16_t>();
+        case Type::Tag::INT32:
+            return luisa::bit_cast<uint32_t>(constant->as<int32_t>());
+        case Type::Tag::UINT32: return constant->as<uint32_t>();
+        case Type::Tag::INT64:
+            return luisa::bit_cast<uint64_t>(constant->as<int64_t>());
+        case Type::Tag::UINT64: return constant->as<uint64_t>();
+        default: return luisa::nullopt;
+    }
+}
 
 struct SCCPSolver {
 
@@ -226,6 +253,43 @@ struct SCCPSolver {
                 if (auto fb = cond_br->false_block()) mark_edge_executable(block, fb);
                 break;
             }
+            case DerivedInstructionTag::INDEXED_BRANCH: {
+                auto *indexed_branch =
+                    static_cast<IndexedBranchInst *>(term);
+                auto selector = get_lattice(indexed_branch->value());
+                if (selector.is_constant()) {
+                    if (auto case_value =
+                            decode_indexed_branch_constant(
+                                selector.constant)) {
+                        auto *target = indexed_branch->default_block();
+                        for (auto i = 0u;
+                             i < indexed_branch->case_count(); i++) {
+                            if (indexed_branch->case_value(i) ==
+                                *case_value) {
+                                target =
+                                    indexed_branch->case_block(i);
+                                break;
+                            }
+                        }
+                        if (target != nullptr) {
+                            mark_edge_executable(block, target);
+                        }
+                        break;
+                    }
+                }
+                if (auto *target =
+                        indexed_branch->default_block()) {
+                    mark_edge_executable(block, target);
+                }
+                for (auto i = 0u;
+                     i < indexed_branch->case_count(); i++) {
+                    if (auto *target =
+                            indexed_branch->case_block(i)) {
+                        mark_edge_executable(block, target);
+                    }
+                }
+                break;
+            }
             default: {
                 block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
                     mark_edge_executable(block, succ);
@@ -277,6 +341,17 @@ struct SCCPSolver {
     SCCPInfo rewrite(FunctionDefinition *def) noexcept {
         SCCPInfo info;
         luisa::vector<Instruction *> to_replace;
+        luisa::unordered_map<BasicBlock *, LoopInst *> loop_prepares;
+        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (block != nullptr && block->is_terminated() &&
+                block->terminator()->isa<LoopInst>()) {
+                auto *loop = static_cast<LoopInst *>(
+                    block->terminator());
+                if (loop->prepare_block() != nullptr) {
+                    loop_prepares.emplace(loop->prepare_block(), loop);
+                }
+            }
+        });
 
         def->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->is_terminator()) return;
@@ -289,6 +364,9 @@ struct SCCPSolver {
         });
 
         for (auto inst : to_replace) {
+            // SCCP constants are module-uniqued and cannot be the unique owner
+            // of metadata from one source instruction.
+            if (!inst->metadata_list().empty()) { continue; }
             auto lat = get_lattice(inst);
             inst->replace_all_uses_with(lat.constant);
             inst->remove_self();
@@ -310,6 +388,19 @@ struct SCCPSolver {
             auto kept = val ? cond_br->true_block() : cond_br->false_block();
             auto dropped = val ? cond_br->false_block() : cond_br->true_block();
             if (kept == nullptr) return;
+            if (!val) {
+                auto prepare = loop_prepares.find(block);
+                if (prepare != loop_prepares.end() &&
+                    cond_br->true_block() ==
+                        prepare->second->body_block() &&
+                    cond_br->false_block() ==
+                        prepare->second->merge_block()) {
+                    // Keep the canonical zero-trip structured-loop prepare.
+                    // Replacing it with Branch(merge) while retaining the
+                    // owning LoopInst breaks the role contract.
+                    return;
+                }
+            }
             // The block is no longer a predecessor of `dropped`. Strip stale phi
             // incomings now so downstream passes don't observe dangling references.
             // Skipped if both edges go to the same block (dropping would also strip
@@ -325,10 +416,68 @@ struct SCCPSolver {
                     }
                 }
             }
-            term->remove_self();
+            auto removed = term->remove_self();
             XIRBuilder builder;
             builder.set_insertion_point(block);
-            builder.br(kept);
+            auto *branch = builder.br(kept);
+            for (auto *metadata : removed->metadata_list()) {
+                branch->metadata_list().push_front(metadata->clone());
+            }
+            info.removed_branch_count++;
+        });
+
+        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (!executable_blocks.contains(block)) { return; }
+            auto *term = block->terminator();
+            if (!term->isa<IndexedBranchInst>()) { return; }
+            auto *indexed_branch =
+                static_cast<IndexedBranchInst *>(term);
+            auto selector = get_lattice(indexed_branch->value());
+            if (!selector.is_constant()) { return; }
+            auto case_value =
+                decode_indexed_branch_constant(selector.constant);
+            if (!case_value) { return; }
+            auto *kept = indexed_branch->default_block();
+            for (auto i = 0u;
+                 i < indexed_branch->case_count(); i++) {
+                if (indexed_branch->case_value(i) == *case_value) {
+                    kept = indexed_branch->case_block(i);
+                    break;
+                }
+            }
+            if (kept == nullptr) { return; }
+            luisa::unordered_set<BasicBlock *> dropped;
+            if (auto *target = indexed_branch->default_block();
+                target != nullptr && target != kept) {
+                dropped.emplace(target);
+            }
+            for (auto i = 0u;
+                 i < indexed_branch->case_count(); i++) {
+                if (auto *target =
+                        indexed_branch->case_block(i);
+                    target != nullptr && target != kept) {
+                    dropped.emplace(target);
+                }
+            }
+            for (auto *target : dropped) {
+                for (auto *inst : target->instructions()) {
+                    if (!inst->isa<PhiInst>()) { continue; }
+                    auto *phi = static_cast<PhiInst *>(inst);
+                    for (auto i = phi->incoming_count();
+                         i-- > 0u;) {
+                        if (phi->incoming(i).block == block) {
+                            phi->remove_incoming(i);
+                        }
+                    }
+                }
+            }
+            auto removed = term->remove_self();
+            XIRBuilder builder;
+            builder.set_insertion_point(block);
+            auto *branch = builder.br(kept);
+            for (auto *metadata : removed->metadata_list()) {
+                branch->metadata_list().push_front(metadata->clone());
+            }
             info.removed_branch_count++;
         });
 
@@ -389,12 +538,17 @@ Constant *try_fold_arithmetic_for_sccp(Module *module, ArithmeticOp op,
                       type, operands[1]->type(), result_data.data(),
                       get_data(0), get_data(1)) :
                   eval_scalar_op(type, op, result_data.data(),
-                                 get_data(0), get_data(1), get_data(2));
+                                 get_data(0),
+                                 operands.size() > 1u ?
+                                     operands[1u]->type() :
+                                     nullptr,
+                                 get_data(1), get_data(2));
     if (!ok) return nullptr;
     return module->create_constant(type, result_data.data());
 }
 
 static void run_sccp_on_function(Function *function, SCCPInfo &info) noexcept {
+    if (function == nullptr) { return; }
     auto def = function->definition();
     if (def == nullptr || def->body_block() == nullptr) return;
     SCCPSolver solver;
@@ -415,6 +569,13 @@ SCCPInfo sccp_pass_run_on_function(Function *function) noexcept {
 
 SCCPInfo sccp_pass_run_on_module(Module *module, PassReport *report) noexcept {
     SCCPInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) {
+            report->set("folded_inst", 0u);
+            report->set("removed_branch", 0u);
+        }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::run_sccp_on_function(f, info);
     }

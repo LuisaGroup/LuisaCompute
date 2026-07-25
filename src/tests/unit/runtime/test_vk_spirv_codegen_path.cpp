@@ -2385,13 +2385,21 @@ OpName %8 "Fma"
                 std::filesystem::exists(normalized_xir_path)) {
                 auto disassembly = read_text_file(dumps.front());
                 auto normalized_xir = read_text_file(normalized_xir_path);
-                expect(count_spirv_opcode(disassembly, "Phi") >= 2u)
-                    << "opt0 must preserve at least the two source "
-                       "loop-carried Phis; backend-owned control metadata "
-                       "may add more";
-                expect(count_substring(normalized_xir, " = phi") == 2u)
-                    << "final XIR should contain exactly the two "
-                       "loop-carried SSA Phi nodes";
+                auto spirv_phi_count =
+                    count_spirv_opcode(disassembly, "Phi");
+                auto xir_phi_count =
+                    count_substring(normalized_xir, " = phi");
+                expect(spirv_phi_count >= 2u)
+                    << luisa::format(
+                           "opt0 must preserve at least the two source "
+                           "loop-carried Phis; found {} (backend-owned "
+                           "control metadata may add more)",
+                           spirv_phi_count);
+                expect(xir_phi_count == 2u)
+                    << luisa::format(
+                           "final XIR should contain exactly the two "
+                           "loop-carried SSA Phi nodes; found {}",
+                           xir_phi_count);
                 expect(normalized_xir.find("reg2mem_spill") ==
                        std::string::npos)
                     << "final XIR must not retain typed reg2mem spill "
@@ -5205,6 +5213,8 @@ OpName %8 "Fma"
     };
 
     "vk_user_compute_width_preserving_bitcasts_are_exact"_test = [&] {
+        ScopedEnvironmentVariable use_default_scalarizer{
+            "LUISA_XIR_ENABLE_SCALARIZER", nullptr};
         ScopedEnvironmentVariable disable_spirv_optimization{
             "LUISA_SPIRV_OPT_LEVEL", "0"};
         ScopedEnvironmentVariable clear_spirv_pass_override{
@@ -5282,10 +5292,93 @@ OpName %8 "Fma"
             // scalar/vector shape-changing casts are also single
             // instructions. (With LUISA_XIR_ENABLE_SCALARIZER=1 the lane
             // cast scalarizes into four casts, i.e. seven Bitcasts total.)
-            expect(count_spirv_opcode(disassembly, "Bitcast") == 4u)
-                << "SPIR-V opt0 must preserve the vector lane cast "
-                   "and three width-preserving shape casts";
+            auto bitcast_count =
+                count_spirv_opcode(disassembly, "Bitcast");
+            expect(bitcast_count == 4u)
+                << luisa::format(
+                       "SPIR-V opt0 must preserve the vector lane cast "
+                       "and three width-preserving shape casts; found {}",
+                       bitcast_count);
         }
+    };
+
+    "vk_user_compute_scalarizer_option_and_environment_precedence"_test = [&] {
+        auto run_case = [&](const char *environment,
+                            bool option_enabled,
+                            size_t expected_bitcasts,
+                            luisa::string_view label) {
+            ScopedEnvironmentVariable scalarizer_environment{
+                "LUISA_XIR_ENABLE_SCALARIZER", environment};
+            ScopedEnvironmentVariable disable_spirv_optimization{
+                "LUISA_SPIRV_OPT_LEVEL", "0"};
+            ScopedEnvironmentVariable clear_spirv_pass_override{
+                "LUISA_SPIRV_OPT_PASSES", nullptr};
+            ScopedTemporaryCurrentPath work_dir{luisa::format(
+                "luisa_vk_spirv_scalarizer_{}", label)};
+            ScopedSourceDump source_dump;
+
+            auto dc = luisa::test::create_device(argc, argv);
+            auto input = dc.device.create_buffer<uint4>(1u);
+            auto output = dc.device.create_buffer<float4>(1u);
+            auto stream = dc.device.create_stream();
+            Kernel1D kernel = [](BufferUInt4 in,
+                                 BufferFloat4 out) noexcept {
+                out.write(
+                    0u, in.read(0u).bitcast<float4>());
+            };
+            auto shader = dc.device.compile(
+                kernel,
+                ShaderOption{
+                    .enable_cache = false,
+                    .enable_fast_math = false,
+                    .enable_scalarizer =
+                        option_enabled});
+
+            constexpr uint4 source{
+                0x3f800000u, 0xc0000000u,
+                0x7f800000u, 0x80000000u};
+            constexpr std::array source_data{source};
+            std::array<float4, 1u> result{};
+            stream << input.copy_from(
+                          luisa::span{source_data})
+                   << shader(input, output).dispatch(1u)
+                   << output.copy_to(luisa::span{result})
+                   << synchronize();
+            for (auto i = 0u; i < 4u; ++i) {
+                expect(std::bit_cast<uint32_t>(
+                           result[0][i]) == source[i])
+                    << luisa::format(
+                           "scalarizer configuration '{}' "
+                           "changed lane {}",
+                           label, i);
+            }
+
+            auto dumps = find_spirv_dumps();
+            expect(dumps.size() == 1u)
+                << luisa::format(
+                       "scalarizer configuration '{}' "
+                       "should emit one SPIR-V module",
+                       label);
+            if (dumps.size() == 1u) {
+                auto disassembly =
+                    read_text_file(dumps.front());
+                auto bitcast_count =
+                    count_spirv_opcode(
+                        disassembly, "Bitcast");
+                expect(bitcast_count ==
+                       expected_bitcasts)
+                    << luisa::format(
+                           "scalarizer configuration '{}' "
+                           "expected {} Bitcast(s), found {}",
+                           label, expected_bitcasts,
+                           bitcast_count);
+            }
+        };
+
+        run_case(nullptr, false, 1u, "default");
+        run_case(nullptr, true, 4u, "option");
+        run_case("0", true, 1u, "environment_off");
+        run_case("1", false, 4u, "environment_on");
     };
 
     "vk_user_compute_wide_integer_boolean_casts_are_exact"_test = [&] {

@@ -7,11 +7,14 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/switch.h>
+#include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
@@ -23,7 +26,6 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
-#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -33,6 +35,9 @@
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/verifier.h>
+
+#include <array>
+#include <limits>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -121,6 +126,12 @@ namespace {
     return n;
 }
 
+[[nodiscard]] size_t count_owned_blocks(FunctionDefinition *def) noexcept {
+    size_t n = 0u;
+    for ([[maybe_unused]] auto *block : def->basic_blocks()) { ++n; }
+    return n;
+}
+
 [[nodiscard]] bool branch_chain_reaches(BasicBlock *from, BasicBlock *to) noexcept {
     luisa::unordered_set<BasicBlock *> visited;
     auto *cur = from;
@@ -135,7 +146,6 @@ namespace {
 void run_spirv_normalize_before_restructure(Module *m) noexcept {
     auto algebraic_options = AlgebraicSimplifyOptions{};
     (void)lower_ray_query_loop_to_loop_pass_run_on_module(m);
-    (void)lower_switch_pass_run_on_module(m);
     (void)destructure_cfg_pass_run_on_module(m);
     (void)mem2reg_pass_run_on_module(m);
     (void)algebraic_simplify_pass_run_on_module(m, algebraic_options);
@@ -218,7 +228,13 @@ void reg_restructure_cfg() {
         // Dominance and post-dominance traversal must accept multiple switch
         // operands that represent the same CFG successor. The restructurer then
         // gives each switch label a unique proxy as required by code generation.
-        (void)restructure_cfg_pass_run_on_function(kernel);
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.restructured_if_count == 0u);
+        expect(info.restructured_loop_count == 0u);
+        expect(info.restructured_switch_count == 0u);
+        expect(info.canonicalized_cfg_count >= 1u);
+        expect(info.changed());
+        expect(info.succeeded());
         expect(body->terminator()->isa<SwitchInst>());
         auto *normalized = static_cast<SwitchInst *>(body->terminator());
         expect(normalized->case_count() == 2u);
@@ -231,6 +247,57 @@ void reg_restructure_cfg() {
         expect(branch_chain_reaches(default_target, merge));
         expect(branch_chain_reaches(case_0_target, merge));
         expect(branch_chain_reaches(case_1_target, merge));
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto idempotent =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(!idempotent.changed());
+        expect(idempotent.succeeded());
+    };
+
+    "restructure_switch_merge_is_not_retargeted_as_executable_edge"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *selector = kernel->create_value_argument(Type::of<int>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        b.set_insertion_point(loop_body);
+        auto *switch_inst = b.switch_(selector);
+        auto *case_block = switch_inst->create_case_block(1u);
+        auto *switch_merge = switch_inst->create_merge_block();
+        // The direct default edge and the case edge share a forwarding block
+        // that is also the declarative Switch merge. Splitting the shared
+        // continue must rewrite only executable case/default edges; the merge
+        // declaration is not a CFG successor to retarget.
+        switch_inst->set_default_block(switch_merge);
+        b.set_insertion_point(case_block);
+        b.br(switch_merge);
+        b.set_insertion_point(switch_merge);
+        b.continue_(loop_body);
+
+        b.set_insertion_point(loop_merge);
+        b.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(switch_inst->merge_block() == switch_merge);
+        expect(switch_inst->default_block() != switch_merge);
+        expect(switch_inst->default_block()->terminator()->isa<ContinueInst>());
+        expect(static_cast<ContinueInst *>(
+                   switch_inst->default_block()->terminator())
+                   ->target_block() == loop_body);
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
     };
 
     "restructure_irreducible_scc_rejected_atomically"_test = [] {
@@ -269,6 +336,225 @@ void reg_restructure_cfg() {
         expect(entry_branch->false_block() == right);
         expect(right_branch->true_block() == left);
         expect(right_branch->false_block() == exit);
+    };
+
+    "restructure_phi_input_is_rejected_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *left = definition->create_basic_block();
+        auto *right = definition->create_basic_block();
+        auto *merge = definition->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *entry = b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        auto *left_exit = b.br(merge);
+        b.set_insertion_point(right);
+        auto *right_exit = b.br(merge);
+        b.set_insertion_point(merge);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(m.create_constant_zero(Type::of<int>()), left);
+        phi->add_incoming(m.create_constant_one(Type::of<int>()), right);
+        auto *ret = b.return_void();
+        auto block_count = definition->basic_blocks().count_size();
+
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(!info.succeeded());
+        expect(info.invalid_construct_count == 1u);
+        expect(!info.changed());
+        expect(definition->basic_blocks().count_size() == block_count);
+        expect(body->terminator() == entry);
+        expect(left->terminator() == left_exit);
+        expect(right->terminator() == right_exit);
+        expect(merge->terminator() == ret);
+        expect(phi->is_linked());
+    };
+
+    "restructure_module_rejection_is_atomic_across_functions"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        BasicBlock *valid_body;
+        auto *valid = make_kernel_with_body(m, valid_body);
+        auto *valid_condition =
+            valid->create_value_argument(Type::of<bool>());
+        auto *valid_left = valid->create_basic_block();
+        auto *valid_right = valid->create_basic_block();
+        auto *valid_merge = valid->create_basic_block();
+        b.set_insertion_point(valid_body);
+        auto *valid_entry =
+            b.cond_br(valid_condition, valid_left, valid_right);
+        b.set_insertion_point(valid_left);
+        auto *valid_left_exit = b.br(valid_merge);
+        b.set_insertion_point(valid_right);
+        auto *valid_right_exit = b.br(valid_merge);
+        b.set_insertion_point(valid_merge);
+        b.return_void();
+
+        BasicBlock *invalid_body;
+        auto *invalid = make_kernel_with_body(m, invalid_body);
+        auto *invalid_condition0 =
+            invalid->create_value_argument(Type::of<bool>());
+        auto *invalid_condition1 =
+            invalid->create_value_argument(Type::of<bool>());
+        auto *invalid_left = invalid->create_basic_block();
+        auto *invalid_right = invalid->create_basic_block();
+        auto *invalid_exit = invalid->create_basic_block();
+        b.set_insertion_point(invalid_body);
+        auto *invalid_entry = b.cond_br(
+            invalid_condition0, invalid_left, invalid_right);
+        b.set_insertion_point(invalid_left);
+        b.br(invalid_right);
+        b.set_insertion_point(invalid_right);
+        b.cond_br(invalid_condition1, invalid_left, invalid_exit);
+        b.set_insertion_point(invalid_exit);
+        b.return_void();
+
+        auto valid_block_count =
+            valid->definition()->basic_blocks().count_size();
+        auto invalid_block_count =
+            invalid->definition()->basic_blocks().count_size();
+        auto info = restructure_cfg_pass_run_on_module(&m);
+        expect(!info.succeeded());
+        expect(info.irreducible_region_count == 1u);
+        expect(!info.changed());
+        expect(valid->definition()->basic_blocks().count_size() ==
+               valid_block_count);
+        expect(invalid->definition()->basic_blocks().count_size() ==
+               invalid_block_count);
+        expect(valid_body->terminator() == valid_entry);
+        expect(valid_left->terminator() == valid_left_exit);
+        expect(valid_right->terminator() == valid_right_exit);
+        expect(invalid_body->terminator() == invalid_entry);
+    };
+
+    "restructure_iteration_exhaustion_rolls_back_shadow_cfg"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *continue_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *header = kernel->create_basic_block();
+        auto *loop_body = kernel->create_basic_block();
+        auto *header_exit = kernel->create_basic_block();
+        auto *latch_exit = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.br(header);
+        b.set_insertion_point(header);
+        auto *header_branch =
+            b.cond_br(condition, loop_body, header_exit);
+        b.set_insertion_point(loop_body);
+        auto *back_edge =
+            b.cond_br(continue_condition, header, latch_exit);
+        b.set_insertion_point(header_exit);
+        b.return_void();
+        b.set_insertion_point(latch_exit);
+        b.return_void();
+
+        auto block_count_before = count_owned_blocks(kernel);
+        auto function_count_before =
+            m.function_list().count_size();
+        auto constant_count_before =
+            m.constant_list().count_size();
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 1u,
+             .post_iteration_limit = 64u});
+
+        expect(!info.succeeded());
+        expect(!info.changed());
+        expect(info.iteration_limit_count == 1u);
+        expect(kernel->body_block() == entry);
+        expect(entry->terminator()->isa<BranchInst>());
+        expect(header->terminator() == header_branch);
+        expect(loop_body->terminator() == back_edge);
+        expect(count_owned_blocks(kernel) == block_count_before);
+        expect(m.function_list().count_size() ==
+               function_count_before);
+        expect(m.constant_list().count_size() ==
+               constant_count_before);
+        expect(xir_verify_module(&m).succeeded());
+        // The failed dry run created exit-selector constants. Rollback must
+        // remove both list nodes and hash-bucket entries so reinterning works.
+        auto *probe =
+            m.create_constant_zero(Type::of<uint32_t>());
+        expect(m.constant_list().count_size() ==
+               constant_count_before + 1u);
+        expect(m.remove_constant_if_unused(probe));
+        expect(m.constant_list().count_size() ==
+               constant_count_before);
+    };
+
+    "restructure_module_late_failure_is_atomic_across_functions"_test = [] {
+        Module m;
+        BasicBlock *first_entry;
+        auto *first = make_kernel_with_body(m, first_entry);
+        auto *first_condition =
+            first->create_value_argument(Type::of<bool>());
+        auto *first_true = first->create_basic_block();
+        auto *first_false = first->create_basic_block();
+        auto *first_merge = first->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(first_entry);
+        auto *first_branch =
+            b.cond_br(first_condition, first_true, first_false);
+        b.set_insertion_point(first_true);
+        b.br(first_merge);
+        b.set_insertion_point(first_false);
+        b.br(first_merge);
+        b.set_insertion_point(first_merge);
+        b.return_void();
+
+        BasicBlock *second_entry;
+        auto *second = make_kernel_with_body(m, second_entry);
+        auto *second_condition =
+            second->create_value_argument(Type::of<bool>());
+        auto *second_header = second->create_basic_block();
+        auto *second_body = second->create_basic_block();
+        auto *second_exit = second->create_basic_block();
+        b.set_insertion_point(second_entry);
+        b.br(second_header);
+        b.set_insertion_point(second_header);
+        auto *second_branch =
+            b.cond_br(second_condition, second_body, second_exit);
+        b.set_insertion_point(second_body);
+        b.br(second_header);
+        b.set_insertion_point(second_exit);
+        b.return_void();
+
+        auto first_block_count = count_owned_blocks(first);
+        auto second_block_count = count_owned_blocks(second);
+        auto function_count = m.function_list().count_size();
+        auto constant_count = m.constant_list().count_size();
+        auto info = restructure_cfg_pass_run_on_module(
+            &m, nullptr,
+            {.main_iteration_limit = 1u,
+             .post_iteration_limit = 64u});
+
+        expect(!info.succeeded());
+        expect(!info.changed());
+        expect(info.iteration_limit_count == 1u);
+        expect(first->body_block() == first_entry);
+        expect(first_entry->terminator() == first_branch);
+        expect(second->body_block() == second_entry);
+        expect(second_header->terminator() == second_branch);
+        expect(count_owned_blocks(first) == first_block_count);
+        expect(count_owned_blocks(second) == second_block_count);
+        expect(m.function_list().count_size() == function_count);
+        expect(m.constant_list().count_size() == constant_count);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "restructure_null_module_is_a_noop"_test = [] {
+        auto info = restructure_cfg_pass_run_on_module(nullptr);
+        expect(info.succeeded());
+        expect(!info.changed());
     };
 
     "restructure_if_from_destructured"_test = [] {
@@ -632,6 +918,80 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::SWITCH) == 0u);
         expect(count_non_canonical_loop_prepare(def) == 0u);
         expect(count_non_canonical_loop_update(def) == 0u);
+    };
+
+    "restructure_nested_loop_shared_outer_continue_collapses_exit_dispatch"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *outer_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *inner_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *continue_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *break_condition =
+            k->create_value_argument(Type::of<bool>());
+
+        auto *outer_header = def->create_basic_block();
+        auto *outer_body = def->create_basic_block();
+        auto *inner_header = def->create_basic_block();
+        auto *inner_body = def->create_basic_block();
+        auto *inner_work = def->create_basic_block();
+        auto *inner_update = def->create_basic_block();
+        auto *outer_update = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.br(outer_header);
+        b.set_insertion_point(outer_header);
+        b.cond_br(outer_condition, outer_body, exit);
+        b.set_insertion_point(outer_body);
+        b.br(inner_header);
+        b.set_insertion_point(inner_header);
+        // Normal inner-loop exit is the outer loop's continue path.
+        b.cond_br(inner_condition, inner_body, outer_update);
+        b.set_insertion_point(inner_body);
+        // One arm continues the inner loop; the other may break it.
+        b.cond_br(
+            continue_condition, inner_update, inner_work);
+        b.set_insertion_point(inner_work);
+        b.cond_br(
+            break_condition, outer_update, inner_update);
+        b.set_insertion_point(inner_update);
+        b.br(inner_header);
+        b.set_insertion_point(outer_update);
+        b.br(outer_header);
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.restructured_loop_count == 2u);
+        expect(count_terminator_kind(
+                   def, DerivedInstructionTag::LOOP) ==
+               2u);
+        expect(count_terminator_kind(
+                   def,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               2u);
+        expect(count_non_canonical_loop_prepare(def) == 0u);
+        expect(count_non_canonical_loop_update(def) == 0u);
+        // LoopInst deliberately retains one raw ConditionalBranchInst in
+        // each prepare block. The pass success contract above proves those
+        // are canonical loop conditions, so the verifier must not request
+        // the stronger "no raw branch instructions at all" policy here.
+        auto verification = xir_verify_module(
+            &m,
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets =
+                 true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
     };
 
     "restructure_outer_update_path_with_inner_loop"_test = [] {
@@ -1255,7 +1615,7 @@ void reg_restructure_cfg() {
         expect(verification.succeeded());
     };
 
-    "spirv_normalization_lowers_switch_before_if_conversion"_test = [] {
+    "restructure_rebuilds_switch_from_indexed_branch"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -1273,16 +1633,349 @@ void reg_restructure_cfg() {
         b.set_insertion_point(merge);
         b.return_void();
 
-        auto lower_info = lower_switch_pass_run_on_module(&m);
         auto destructure_info = destructure_cfg_pass_run_on_module(&m);
         auto if_conversion_info = if_conversion_pass_run_on_module(&m);
-        expect(lower_info.succeeded());
-        expect(lower_info.lowered_switch_count == 1u);
         expect(destructure_info.succeeded());
+        expect(destructure_info.destructured_switch_count == 1u);
+        expect(body->terminator()->isa<IndexedBranchInst>());
         expect(if_conversion_info.succeeded());
-        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::SWITCH) == 0u);
-        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::IF) == 0u);
-        expect(xir_verify_module(&m).succeeded());
+        auto restructure_info = restructure_cfg_pass_run_on_module(&m);
+        expect(restructure_info.succeeded());
+        expect(restructure_info.restructured_switch_count == 1u);
+        expect(count_terminator_kind(
+                   k->definition(), DerivedInstructionTag::INDEXED_BRANCH) ==
+               0u);
+        expect(count_terminator_kind(
+                   k->definition(), DerivedInstructionTag::SWITCH) == 1u);
+        expect(body->terminator()->isa<SwitchInst>());
+        auto *rebuilt = static_cast<SwitchInst *>(body->terminator());
+        expect(rebuilt->value() == selector);
+        expect(rebuilt->case_count() == 1u);
+        expect(rebuilt->case_value(0u) == 1u);
+        expect(rebuilt->case_block(0u) == case_block);
+        expect(rebuilt->default_block() == default_block);
+        expect(rebuilt->merge_block() != nullptr);
+        expect(xir_verify_module(
+                   &m, {.require_no_unstructured_control_flow = true,
+                        .require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_switch_roundtrip_preserves_selector_widths_aliases_and_adjacent_passes"_test = [] {
+        struct SelectorCase {
+            const Type *type;
+            std::array<uint64_t, 2u> literals;
+        };
+        const std::array selector_cases{
+            SelectorCase{Type::of<bool>(), {0u, 1u}},
+            SelectorCase{Type::of<int8_t>(), {0xffu, 0x80u}},
+            SelectorCase{Type::of<uint8_t>(), {0xffu, 0x80u}},
+            SelectorCase{Type::of<int16_t>(), {0xffffu, 0x8000u}},
+            SelectorCase{Type::of<uint16_t>(), {0xffffu, 0x8000u}},
+            SelectorCase{
+                Type::of<int32_t>(), {0xffffffffu, 0x80000000u}},
+            SelectorCase{
+                Type::of<uint32_t>(), {0xffffffffu, 0x80000000u}},
+            SelectorCase{
+                Type::of<int64_t>(),
+                {std::numeric_limits<uint64_t>::max(),
+                 uint64_t{1u} << 63u}},
+            SelectorCase{
+                Type::of<uint64_t>(),
+                {std::numeric_limits<uint64_t>::max(),
+                 uint64_t{1u} << 63u}},
+        };
+
+        for (auto &&selector_case : selector_cases) {
+            Module module;
+            BasicBlock *body;
+            auto *kernel = make_kernel_with_body(module, body);
+            auto *selector =
+                kernel->create_value_argument(selector_case.type);
+            auto *shared_default_and_case =
+                kernel->create_basic_block();
+            auto *second_case = kernel->create_basic_block();
+            auto *exit = kernel->create_basic_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *indexed = builder.indexed_branch(selector);
+            indexed->set_default_block(shared_default_and_case);
+            indexed->add_case(
+                selector_case.literals[0u],
+                shared_default_and_case);
+            indexed->add_case(
+                selector_case.literals[1u], second_case);
+            builder.set_insertion_point(shared_default_and_case);
+            builder.br(exit);
+            builder.set_insertion_point(second_case);
+            builder.br(exit);
+            builder.set_insertion_point(exit);
+            builder.return_void();
+
+            expect(xir_verify_module(&module).succeeded());
+            auto check_structured_switch = [&]() noexcept {
+                expect(body->terminator()->isa<SwitchInst>());
+                if (!body->terminator()->isa<SwitchInst>()) { return; }
+                auto *switch_inst =
+                    static_cast<SwitchInst *>(body->terminator());
+                expect(switch_inst->value() == selector);
+                expect(switch_inst->case_count() == 2u);
+                expect(switch_inst->case_value(0u) ==
+                       selector_case.literals[0u]);
+                expect(switch_inst->case_value(1u) ==
+                       selector_case.literals[1u]);
+                expect(branch_chain_reaches(
+                    switch_inst->default_block(), exit));
+                expect(branch_chain_reaches(
+                    switch_inst->case_block(0u), exit));
+                expect(branch_chain_reaches(
+                    switch_inst->case_block(1u), exit));
+                expect(xir_verify_module(
+                           &module,
+                           {.require_no_unstructured_control_flow = true,
+                            .require_unique_merge_blocks = true})
+                           .succeeded());
+            };
+
+            auto first =
+                restructure_cfg_pass_run_on_function(kernel);
+            expect(first.succeeded());
+            expect(first.restructured_switch_count == 1u);
+            expect(first.iteration_limit_count == 0u);
+            check_structured_switch();
+
+            auto destructured =
+                destructure_cfg_pass_run_on_function(kernel);
+            expect(destructured.succeeded());
+            expect(destructured.destructured_switch_count == 1u);
+            expect(body->terminator()->isa<IndexedBranchInst>());
+            // Adjacent raw-CFG passes are required to preserve a dynamic
+            // selector, canonical case literals, and default/case aliases.
+            (void)simplify_cfg_pass_run_on_function(kernel);
+            (void)sccp_pass_run_on_function(kernel);
+            expect(xir_verify_module(&module).succeeded());
+            expect(body->terminator()->isa<IndexedBranchInst>());
+            if (body->terminator()->isa<IndexedBranchInst>()) {
+                auto *raw =
+                    static_cast<IndexedBranchInst *>(
+                        body->terminator());
+                expect(raw->case_count() == 2u);
+                expect(raw->case_value(0u) ==
+                       selector_case.literals[0u]);
+                expect(raw->case_value(1u) ==
+                       selector_case.literals[1u]);
+            }
+
+            auto second =
+                restructure_cfg_pass_run_on_function(kernel);
+            expect(second.succeeded());
+            expect(second.restructured_switch_count == 1u);
+            expect(second.iteration_limit_count == 0u);
+            check_structured_switch();
+        }
+    };
+
+    "restructure_rebuilds_zero_case_indexed_branch"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<int8_t>());
+        auto *definition = kernel->definition();
+        auto *default_block = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *indexed_branch = builder.indexed_branch(selector);
+        indexed_branch->set_default_block(default_block);
+        builder.set_insertion_point(default_block);
+        builder.br(exit);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_switch_count == 1u);
+        expect(body->terminator()->isa<SwitchInst>());
+        auto *switch_inst =
+            static_cast<SwitchInst *>(body->terminator());
+        expect(switch_inst->case_count() == 0u);
+        expect(switch_inst->merge_block() != nullptr);
+        expect(branch_chain_reaches(
+            switch_inst->merge_block(), default_block));
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_rebuilds_terminal_indexed_branch_without_postdominator"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<int8_t>());
+        auto *definition = kernel->definition();
+        auto *case_block = definition->create_basic_block();
+        auto *default_block = definition->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *indexed_branch = builder.indexed_branch(selector);
+        indexed_branch->add_case(
+            std::numeric_limits<uint64_t>::max(), case_block);
+        indexed_branch->set_default_block(default_block);
+        builder.set_insertion_point(case_block);
+        builder.return_void();
+        builder.set_insertion_point(default_block);
+        builder.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_switch_count == 1u);
+        expect(body->terminator()->isa<SwitchInst>());
+        auto *switch_inst =
+            static_cast<SwitchInst *>(body->terminator());
+        expect(switch_inst->case_count() == 1u);
+        expect(switch_inst->case_value(0u) == uint64_t{0xffu});
+        expect(switch_inst->case_block(0u) == case_block);
+        expect(switch_inst->default_block() == default_block);
+        expect(switch_inst->merge_block()->terminator()->isa<UnreachableInst>());
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_roundtrips_loop_switch_nested_break_continue"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *selector =
+            k->create_value_argument(Type::of<uint32_t>());
+        auto *a = k->create_value_argument(Type::of<bool>());
+        auto *b_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *c = k->create_value_argument(Type::of<bool>());
+        auto *d = k->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *loop = builder.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(loop_body);
+        auto *outer = builder.if_(a);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_merge = outer->create_merge_block();
+        outer->set_false_target(outer_merge);
+
+        builder.set_insertion_point(outer_true);
+        auto *break_guard = builder.if_(b_condition);
+        auto *break_arm = break_guard->create_true_block();
+        auto *continue_guard =
+            break_guard->create_false_block();
+        auto *break_guard_merge =
+            break_guard->create_merge_block();
+
+        builder.set_insertion_point(break_arm);
+        builder.break_(loop_merge);
+        builder.set_insertion_point(continue_guard);
+        auto *nested_continue = builder.if_(c);
+        auto *continue_arm =
+            nested_continue->create_true_block();
+        auto *continue_fallthrough =
+            nested_continue->create_false_block();
+        auto *continue_merge =
+            nested_continue->create_merge_block();
+        builder.set_insertion_point(continue_arm);
+        builder.continue_(loop_body);
+        builder.set_insertion_point(continue_fallthrough);
+        builder.br(continue_merge);
+        builder.set_insertion_point(continue_merge);
+        builder.br(break_guard_merge);
+        builder.set_insertion_point(break_guard_merge);
+        builder.br(outer_merge);
+
+        builder.set_insertion_point(outer_merge);
+        auto *switch_inst = builder.switch_(selector);
+        auto *case_zero = switch_inst->create_case_block(0u);
+        auto *case_one = switch_inst->create_case_block(1u);
+        auto *default_block =
+            switch_inst->create_default_block();
+        auto *switch_merge = switch_inst->create_merge_block();
+        builder.set_insertion_point(case_zero);
+        builder.br(switch_merge);
+        builder.set_insertion_point(case_one);
+        auto *case_guard = builder.if_(d);
+        auto *case_continue = case_guard->create_true_block();
+        auto *case_fallthrough =
+            case_guard->create_false_block();
+        auto *case_merge = case_guard->create_merge_block();
+        builder.set_insertion_point(case_continue);
+        builder.continue_(loop_body);
+        builder.set_insertion_point(case_fallthrough);
+        builder.br(case_merge);
+        builder.set_insertion_point(case_merge);
+        builder.br(switch_merge);
+        builder.set_insertion_point(default_block);
+        builder.br(switch_merge);
+        builder.set_insertion_point(switch_merge);
+        builder.break_(loop_merge);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        auto destructured =
+            destructure_cfg_pass_run_on_function(k);
+        expect(destructured.succeeded());
+        expect(destructured.destructured_switch_count == 1u);
+        expect(count_terminator_kind(
+                   k->definition(),
+                   DerivedInstructionTag::INDEXED_BRANCH) == 1u);
+
+        auto restructured =
+            restructure_cfg_pass_run_on_function(k);
+        expect(restructured.succeeded());
+        expect(restructured.iteration_limit_count == 0u);
+        expect(restructured.restructured_switch_count == 1u);
+        expect(count_terminator_kind(
+                   k->definition(),
+                   DerivedInstructionTag::INDEXED_BRANCH) == 0u);
+        expect(count_terminator_kind(
+                   k->definition(),
+                   DerivedInstructionTag::SWITCH) == 1u);
+        expect(count_terminator_kind(
+                   k->definition(),
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        auto block_count = size_t{0u};
+        k->definition()->traverse_basic_blocks(
+            [&](BasicBlock *) noexcept { ++block_count; });
+        expect(block_count < 64u)
+            << "restructuring must keep recovered selection subgraphs "
+               "linear in size (actual block count: "
+            << block_count << ")";
+        auto rerun =
+            restructure_cfg_pass_run_on_function(k);
+        expect(rerun.succeeded());
+        auto rerun_block_count = size_t{0u};
+        k->definition()->traverse_basic_blocks(
+            [&](BasicBlock *) noexcept {
+                ++rerun_block_count;
+            });
+        expect(rerun_block_count == block_count)
+            << "restructure_cfg must be idempotent after rebuilding a "
+               "nested Switch (before: "
+            << block_count << ", after: "
+            << rerun_block_count << ")";
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets =
+                        true})
+                   .succeeded());
     };
 
     "restructure_reports_unhandled_raw_conditional"_test = [] {
@@ -1302,6 +1995,121 @@ void reg_restructure_cfg() {
         expect(info.unstructured_branch_count == 1u);
         expect(info.invalid_construct_count >= 1u);
         expect(body->terminator() == branch);
+    };
+
+    "restructure_rebuilds_indexed_branch_in_unreachable_owned_shell"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *selector =
+            k->create_value_argument(Type::of<uint32_t>());
+        auto *dead_header = k->create_basic_block();
+        auto *dead_default = k->create_basic_block();
+        auto *dead_case = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+        b.set_insertion_point(dead_header);
+        auto *indexed = b.indexed_branch(selector);
+        indexed->set_default_block(dead_default);
+        indexed->add_case(7u, dead_case);
+        b.set_insertion_point(dead_default);
+        b.return_void();
+        b.set_insertion_point(dead_case);
+        b.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.restructured_switch_count == 1u);
+        expect(dead_header->terminator()->isa<SwitchInst>());
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_rejects_non_integer_indexed_selector_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<float>());
+        auto *default_block = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *indexed = builder.indexed_branch(selector);
+        indexed->set_default_block(default_block);
+        builder.set_insertion_point(default_block);
+        builder.return_void();
+        auto block_count = count_owned_blocks(kernel->definition());
+
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(!info.succeeded());
+        expect(info.invalid_construct_count == 1u);
+        expect(!info.changed());
+        expect(count_owned_blocks(kernel->definition()) == block_count);
+        expect(body->terminator() == indexed);
+        if (body->terminator() == indexed) {
+            expect(indexed->value() == selector);
+            expect(indexed->default_block() == default_block);
+        }
+    };
+
+    "restructure_duplicate_narrow_cases_reject_module_atomically"_test = [] {
+        Module m;
+        BasicBlock *valid_body;
+        auto *valid_kernel = make_kernel_with_body(m, valid_body);
+        auto *condition =
+            valid_kernel->create_value_argument(Type::of<bool>());
+        auto *valid_true = valid_kernel->create_basic_block();
+        auto *valid_false = valid_kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(valid_body);
+        auto *valid_branch =
+            builder.cond_br(condition, valid_true, valid_false);
+        builder.set_insertion_point(valid_true);
+        builder.return_void();
+        builder.set_insertion_point(valid_false);
+        builder.return_void();
+
+        BasicBlock *invalid_body;
+        auto *invalid_kernel = make_kernel_with_body(m, invalid_body);
+        auto *selector =
+            invalid_kernel->create_value_argument(Type::of<int8_t>());
+        auto *case_zero = invalid_kernel->create_basic_block();
+        auto *case_wrapped = invalid_kernel->create_basic_block();
+        auto *default_block = invalid_kernel->create_basic_block();
+        builder.set_insertion_point(invalid_body);
+        auto *invalid_indexed = builder.indexed_branch(selector);
+        invalid_indexed->add_case(0u, case_zero);
+        invalid_indexed->add_case(uint64_t{0x100u}, case_wrapped);
+        invalid_indexed->set_default_block(default_block);
+        builder.set_insertion_point(case_zero);
+        builder.return_void();
+        builder.set_insertion_point(case_wrapped);
+        builder.return_void();
+        builder.set_insertion_point(default_block);
+        builder.return_void();
+
+        auto valid_block_count =
+            count_owned_blocks(valid_kernel->definition());
+        auto invalid_block_count =
+            count_owned_blocks(invalid_kernel->definition());
+        auto info = restructure_cfg_pass_run_on_module(&m);
+        expect(!info.succeeded());
+        expect(info.invalid_construct_count == 1u);
+        expect(!info.changed());
+        expect(count_owned_blocks(valid_kernel->definition()) ==
+               valid_block_count);
+        expect(count_owned_blocks(invalid_kernel->definition()) ==
+               invalid_block_count);
+        expect(valid_body->terminator() == valid_branch);
+        expect(invalid_body->terminator() == invalid_indexed);
+        if (invalid_body->terminator() == invalid_indexed) {
+            expect(invalid_indexed->case_value(0u) == 0u);
+            expect(invalid_indexed->case_value(1u) == 0u);
+        }
     };
 }
 

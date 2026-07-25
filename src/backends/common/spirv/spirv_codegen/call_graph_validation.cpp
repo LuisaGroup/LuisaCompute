@@ -62,6 +62,9 @@ validate_spirv_reachable_call_graph(
                                         return "If";
                                     case xir::DerivedInstructionTag::SWITCH:
                                         return "Switch";
+                                    case xir::DerivedInstructionTag::
+                                        INDEXED_BRANCH:
+                                        return "IndexedBranch";
                                     case xir::DerivedInstructionTag::LOOP:
                                         return "Loop";
                                     case xir::DerivedInstructionTag::SIMPLE_LOOP:

@@ -305,6 +305,73 @@ void reg_xir_pass_mutation_safety() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "if_conversion_rejects_speculative_numeric_cast"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *floating = kernel->create_value_argument(Type::of<float>());
+        auto *one = module.create_constant_one(Type::of<int>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *converted = builder.static_cast_(Type::of<int>(), floating);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.phi(Type::of<int>(),
+                    {{converted, true_block}, {one, false_block}});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = if_conversion_pass_run_on_function(kernel);
+        expect(info.converted_diamond_count == 0u);
+        expect(converted->parent_block() == true_block);
+        expect(body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::CONDITIONAL_BRANCH);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "if_conversion_rejects_speculative_dynamic_extract"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *aggregate = kernel->create_value_argument(Type::of<int4>());
+        auto *index = kernel->create_value_argument(Type::of<uint>());
+        auto *one = module.create_constant_one(Type::of<int>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *extracted = builder.call(
+            Type::of<int>(), ArithmeticOp::EXTRACT,
+            {aggregate, index});
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.phi(Type::of<int>(),
+                    {{extracted, true_block}, {one, false_block}});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = if_conversion_pass_run_on_function(kernel);
+        expect(info.converted_diamond_count == 0u);
+        expect(extracted->parent_block() == true_block);
+        expect(body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::CONDITIONAL_BRANCH);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "if_conversion_rejects_incomplete_phi_atomically"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -416,6 +483,157 @@ void reg_xir_pass_mutation_safety() {
         expect(count_instructions(kernel, DerivedInstructionTag::LOAD) == 0u);
     };
 
+    "fix_self_referential_rejects_non_aggregate_insert_self_operands"_test = [] {
+        for (auto self_operand : {1u, 2u}) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *body = kernel->create_body_block();
+            auto *index = module.create_constant_zero(Type::of<uint>());
+            auto *scalar = module.create_constant_one(Type::of<float>());
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *storage = builder.alloca_local(Type::of<float2>());
+            auto *insert = builder.call(
+                Type::of<float2>(), ArithmeticOp::INSERT,
+                {module.create_undefined(Type::of<float2>()), scalar, index});
+            insert->set_operand(self_operand, insert);
+            builder.store(storage, insert);
+            builder.return_void();
+            auto instruction_count = body->instructions().count_size();
+
+            auto info = fix_self_referential_pass_run_on_function(kernel);
+
+            expect(info.fixed_count == 0u);
+            expect(info.unresolved_count == 1u);
+            expect(!info.succeeded());
+            expect(insert->operand(self_operand) == insert);
+            expect(body->instructions().count_size() == instruction_count);
+            expect(count_instructions(kernel, DerivedInstructionTag::LOAD) == 0u);
+        }
+    };
+
+    "fix_self_referential_rejects_mixed_insert_self_operands_atomically"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *index = module.create_constant_zero(Type::of<uint>());
+        auto *scalar = module.create_constant_one(Type::of<float>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *storage = builder.alloca_local(Type::of<float2>());
+        auto *insert = builder.call(
+            Type::of<float2>(), ArithmeticOp::INSERT,
+            {module.create_undefined(Type::of<float2>()), scalar, index});
+        insert->set_operand(0u, insert);
+        insert->set_operand(1u, insert);
+        builder.store(storage, insert);
+        builder.return_void();
+        auto instruction_count = body->instructions().count_size();
+
+        auto info = fix_self_referential_pass_run_on_function(kernel);
+
+        expect(info.fixed_count == 0u);
+        expect(info.unresolved_count == 2u);
+        expect(!info.succeeded());
+        expect(insert->operand(0u) == insert);
+        expect(insert->operand(1u) == insert);
+        expect(body->instructions().count_size() == instruction_count);
+        expect(count_instructions(kernel, DerivedInstructionTag::LOAD) == 0u);
+    };
+
+    "fix_self_referential_function_late_failure_rolls_back_all_candidates"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *index = module.create_constant_zero(Type::of<uint>());
+        auto *scalar = module.create_constant_one(Type::of<float>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *valid_storage =
+            builder.alloca_local(Type::of<float2>());
+        auto *valid = builder.call(
+            Type::of<float2>(), ArithmeticOp::INSERT,
+            {module.create_undefined(Type::of<float2>()),
+             scalar, index});
+        valid->set_operand(0u, valid);
+        builder.store(valid_storage, valid);
+        auto *invalid_storage =
+            builder.alloca_local(Type::of<float2>());
+        auto *invalid = builder.call(
+            Type::of<float2>(), ArithmeticOp::INSERT,
+            {module.create_undefined(Type::of<float2>()),
+             scalar, index});
+        invalid->set_operand(1u, invalid);
+        builder.store(invalid_storage, invalid);
+        builder.return_void();
+        auto instruction_count =
+            body->instructions().count_size();
+
+        auto info =
+            fix_self_referential_pass_run_on_function(kernel);
+
+        expect(!info.succeeded());
+        expect(info.fixed_count == 0u);
+        expect(info.unresolved_count == 1u);
+        expect(valid->operand(0u) == valid);
+        expect(invalid->operand(1u) == invalid);
+        expect(body->instructions().count_size() ==
+               instruction_count);
+        expect(count_instructions(
+                   kernel, DerivedInstructionTag::LOAD) == 0u);
+    };
+
+    "fix_self_referential_module_late_failure_is_atomic"_test = [] {
+        Module module;
+        auto *index =
+            module.create_constant_zero(Type::of<uint>());
+        auto *scalar =
+            module.create_constant_one(Type::of<float>());
+        auto make_candidate =
+            [&](bool valid_candidate) noexcept {
+                auto *kernel = module.create_kernel();
+                auto *body = kernel->create_body_block();
+                XIRBuilder builder;
+                builder.set_insertion_point(body);
+                auto *storage =
+                    builder.alloca_local(Type::of<float2>());
+                auto *insert = builder.call(
+                    Type::of<float2>(), ArithmeticOp::INSERT,
+                    {module.create_undefined(Type::of<float2>()),
+                     scalar, index});
+                insert->set_operand(
+                    valid_candidate ? 0u : 2u, insert);
+                builder.store(storage, insert);
+                builder.return_void();
+                return std::pair{kernel, insert};
+            };
+        auto [valid_kernel, valid] = make_candidate(true);
+        auto [invalid_kernel, invalid] = make_candidate(false);
+        auto valid_count =
+            valid_kernel->body_block()->instructions().count_size();
+        auto invalid_count =
+            invalid_kernel->body_block()->instructions().count_size();
+
+        auto info =
+            fix_self_referential_pass_run_on_module(&module);
+
+        expect(!info.succeeded());
+        expect(info.fixed_count == 0u);
+        expect(info.unresolved_count == 1u);
+        expect(valid->operand(0u) == valid);
+        expect(invalid->operand(2u) == invalid);
+        expect(valid_kernel->body_block()
+                   ->instructions().count_size() == valid_count);
+        expect(invalid_kernel->body_block()
+                   ->instructions().count_size() == invalid_count);
+        expect(count_instructions(
+                   valid_kernel,
+                   DerivedInstructionTag::LOAD) == 0u);
+        expect(count_instructions(
+                   invalid_kernel,
+                   DerivedInstructionTag::LOAD) == 0u);
+    };
+
     "fix_self_referential_preserves_legal_loop_phi_self_reference"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -518,6 +736,19 @@ void reg_xir_pass_mutation_safety() {
         builder.return_void();
         auto info = lex_scope_analysis_pass_run_on_function(kernel, {});
         expect(info.lexical_scope_breakers.empty());
+    };
+
+    "lex_scope_null_and_declaration_inputs_are_empty"_test = [] {
+        Module module;
+        auto *declaration = module.create_external_function(nullptr);
+        auto null_info =
+            lex_scope_analysis_pass_run_on_function(nullptr, {});
+        auto declaration_info =
+            lex_scope_analysis_pass_run_on_function(declaration, {});
+        expect(null_info.lexical_scope_breakers.empty());
+        expect(null_info.lexical_scope_breaks_ordered.empty());
+        expect(declaration_info.lexical_scope_breakers.empty());
+        expect(declaration_info.lexical_scope_breaks_ordered.empty());
     };
 }
 

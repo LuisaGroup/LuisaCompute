@@ -485,6 +485,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::ROUND:
             str << "_round"sv;
             break;
+        case CallOp::RINT:
+            // HLSL round is the round-to-nearest-even intrinsic. ROUND uses
+            // the separate _round helper to implement half-away-from-zero.
+            str << "round"sv;
+            break;
         case CallOp::FMA:
             str << "_fma"sv;
             break;

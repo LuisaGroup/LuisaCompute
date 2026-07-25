@@ -11,6 +11,8 @@
 #include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
+#include "helpers.h"
+
 namespace luisa::compute::xir {
 
 namespace {
@@ -45,12 +47,13 @@ struct InstKeyHash {
     }
 };
 
-[[nodiscard]] bool is_side_effect_free(const Instruction *inst) noexcept {
+[[nodiscard]] bool can_eliminate_as_duplicate(Instruction *inst) noexcept {
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::ARITHMETIC:
         case DerivedInstructionTag::CAST:
-        case DerivedInstructionTag::GEP:
-        case DerivedInstructionTag::RESOURCE_QUERY: return true;
+        case DerivedInstructionTag::GEP: return true;
+        case DerivedInstructionTag::RESOURCE_QUERY:
+            return get_memory_info(inst).is_safe_to_value_number();
         default: return false;
     }
 }
@@ -76,18 +79,27 @@ struct InstKeyHash {
 
 [[nodiscard]] EarlyCSEInfo early_cse_on_definition(FunctionDefinition *def) noexcept {
     EarlyCSEInfo info{};
+    if (def == nullptr || def->body_block() == nullptr) { return info; }
     luisa::unordered_map<InstKey, Instruction *, InstKeyHash> seen;
     luisa::vector<Instruction *> to_remove;
 
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         seen.clear();
         for (auto *inst : bb->instructions()) {
-            if (!is_side_effect_free(inst)) { continue; }
+            if (!can_eliminate_as_duplicate(inst)) { continue; }
             auto key = make_key(inst);
             auto it = seen.find(key);
             if (it != seen.end()) {
-                inst->replace_all_uses_with(it->second);
-                to_remove.push_back(inst);
+                // Replacing with a shared earlier instruction cannot preserve
+                // metadata ownership unambiguously. This applies in both
+                // directions: an annotated duplicate must retain its own
+                // identity, and an annotated leader must not acquire the uses
+                // (and source identity) of an otherwise unannotated duplicate.
+                if (inst->metadata_list().empty() &&
+                    it->second->metadata_list().empty()) {
+                    inst->replace_all_uses_with(it->second);
+                    to_remove.push_back(inst);
+                }
             } else {
                 seen.emplace(std::move(key), inst);
             }
@@ -111,10 +123,11 @@ EarlyCSEInfo early_cse_pass_run_on_function(Function *function) noexcept {
 
 EarlyCSEInfo early_cse_pass_run_on_module(Module *module, PassReport *report) noexcept {
     EarlyCSEInfo total{};
-    if (module == nullptr) { return total; }
-    for (auto *f : module->function_list()) {
-        auto info = early_cse_pass_run_on_function(f);
-        total.eliminated_inst_count += info.eliminated_inst_count;
+    if (module != nullptr) {
+        for (auto *f : module->function_list()) {
+            auto info = early_cse_pass_run_on_function(f);
+            total.eliminated_inst_count += info.eliminated_inst_count;
+        }
     }
     if (report != nullptr) {
         report->set("early_cse_eliminated", total.eliminated_inst_count);

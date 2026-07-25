@@ -9,8 +9,10 @@
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_break_continue.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -248,6 +250,60 @@ void reg_lower_break_continue() {
         expect(count_branches_to(def, outer.merge) >= 1u);
     };
 
+    "lower_bc_nested_switch_break_and_loop_continue_keep_ownership"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<int32_t>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto loop = make_loop_skeleton(b);
+        b.set_insertion_point(loop.prepare);
+        b.br(loop.body);
+
+        b.set_insertion_point(loop.body);
+        auto *switch_inst = b.switch_(selector);
+        auto *case_block = switch_inst->create_case_block(0u);
+        auto *default_block = switch_inst->create_default_block();
+        auto *switch_merge = switch_inst->create_merge_block();
+        b.set_insertion_point(case_block);
+        b.break_(switch_merge);
+        b.set_insertion_point(default_block);
+        b.continue_(loop.update);
+        b.set_insertion_point(switch_merge);
+        b.break_(loop.merge);
+        b.set_insertion_point(loop.update);
+        b.br(loop.prepare);
+        b.set_insertion_point(loop.merge);
+        b.return_void();
+        expect(xir_verify_module(
+                   &m,
+                   {.require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        auto info =
+            lower_break_continue_pass_run_on_function(kernel);
+
+        expect(info.lowered_break_count == 2u);
+        expect(info.lowered_continue_count == 1u);
+        expect(loop.body->terminator() == switch_inst);
+        expect(switch_inst->merge_block() == switch_merge);
+        expect(case_block->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(
+                   case_block->terminator())
+                   ->target_block() == switch_merge);
+        expect(default_block->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(
+                   default_block->terminator())
+                   ->target_block() == loop.update);
+        expect(switch_merge->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(
+                   switch_merge->terminator())
+                   ->target_block() == loop.merge);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "lower_bc_module_runs_all_functions"_test = [] {
         Module m;
         constexpr size_t kFns = 3u;
@@ -332,6 +388,40 @@ void reg_lower_break_continue() {
         auto *br = static_cast<BranchInst *>(new_term);
         expect(br->target_block() == s.merge);
         expect(br->is_terminator() == true);
+    };
+
+    "lower_bc_preserves_terminator_metadata"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto s = make_loop_skeleton(b);
+        b.set_insertion_point(s.prepare);
+        b.br(s.body);
+        b.set_insertion_point(s.body);
+        auto *break_inst = b.break_(s.merge);
+        break_inst->set_name("named_break");
+        b.set_insertion_point(s.update);
+        auto *continue_inst = b.continue_(s.prepare);
+        continue_inst->set_name("named_continue");
+        b.set_insertion_point(s.merge);
+        b.return_void();
+
+        auto info = lower_break_continue_pass_run_on_function(k);
+
+        expect(info.lowered_break_count == 1u);
+        expect(info.lowered_continue_count == 1u);
+        expect(s.body->terminator()->isa<BranchInst>());
+        expect(s.update->terminator()->isa<BranchInst>());
+        expect(s.body->terminator()->name().has_value());
+        expect(s.update->terminator()->name().has_value());
+        if (s.body->terminator()->name()) {
+            expect(*s.body->terminator()->name() == "named_break");
+        }
+        if (s.update->terminator()->name()) {
+            expect(*s.update->terminator()->name() == "named_continue");
+        }
     };
 
     "lower_bc_does_not_touch_plain_branch"_test = [] {

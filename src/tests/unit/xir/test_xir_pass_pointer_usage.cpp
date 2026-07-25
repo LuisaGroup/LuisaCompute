@@ -278,5 +278,57 @@ int main() {
         expect(analysis.out_usage(expired_block, expired_pointer) == nullptr);
     };
 
+    "pointer_usage_rejects_pointer_passed_to_value_formal_fail_closed"_test = [] {
+        Module module;
+        auto *callee = module.create_callable(nullptr);
+        callee->create_value_argument(Type::of<int32_t>());
+        auto *callee_body = callee->create_body_block();
+        auto *function = module.create_kernel();
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(callee_body);
+        builder.return_void();
+        builder.set_insertion_point(body);
+        auto *root = builder.alloca_local(Type::of<int32_t>());
+        // Deliberately verifier-invalid: lvalues may only bind reference
+        // formals. The analysis must reject this and model an opaque escape.
+        builder.call(nullptr, callee, {root});
+        builder.return_void();
+
+        PointerUsageAnalysis analysis;
+        auto info = analysis.analyze(function);
+        expect(!info.succeeded());
+        expect(info.invalid_access_count >= 1u);
+        expect(info.conservative_access_count >= 1u);
+        auto *usage = analysis.out_usage(body, root);
+        expect(usage != nullptr);
+        expect(usage->touch.access().all());
+        expect(usage->kill.access().none());
+        expect(analysis.in_usage(body, root)->live.access().all());
+    };
+
+    "pointer_usage_unknown_callee_pointer_escape_is_read_write"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *root = builder.alloca_local(
+            Type::array(Type::of<int32_t>(), 2u));
+        builder.call(nullptr, static_cast<Function *>(nullptr), {root});
+        builder.return_void();
+
+        PointerUsageAnalysis analysis;
+        auto info = analysis.analyze(function);
+        expect(!info.succeeded());
+        expect(info.invalid_access_count >= 1u);
+        expect(info.conservative_access_count >= 1u);
+        auto *usage = analysis.out_usage(body, root);
+        expect(usage != nullptr);
+        expect(usage->touch.access().all());
+        expect(usage->kill.access().none());
+        expect(analysis.in_usage(body, root)->live.access().all());
+    };
+
     return 0;
 }

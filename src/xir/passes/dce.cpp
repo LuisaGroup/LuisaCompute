@@ -50,8 +50,14 @@ static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) n
             });
             if (dead.size() == prev_size) { break; }
         }
-        for (auto inst : dead) {
-            inst->remove_self();
+        // Keep every unlinked instruction alive until the whole dead
+        // subgraph is detached. The hash-set iteration order is arbitrary:
+        // destroying a definition before a still-linked dead user would
+        // leave that user's operand Use pointing into freed storage.
+        luisa::vector<ManagedPtr<Instruction>> removed;
+        removed.reserve(dead.size());
+        for (auto *inst : dead) {
+            removed.emplace_back(inst->remove_self());
             info.removed_inst_count++;
         }
     }
@@ -101,8 +107,12 @@ static void eliminate_dead_alloca_in_function(Function *function, DCEInfo &info)
                 collect_inst_and_users_recursive(inst, dead);
             }
         });
-        for (auto &&inst : dead) {
-            inst->remove_self();
+        // See eliminate_dead_code_in_function: write-only pointer subgraphs
+        // have the same user-before-definition lifetime requirement.
+        luisa::vector<ManagedPtr<Instruction>> removed;
+        removed.reserve(dead.size());
+        for (auto *inst : dead) {
+            removed.emplace_back(inst->remove_self());
             info.removed_inst_count++;
         }
     }
@@ -157,7 +167,9 @@ void remove_phi_incomings_from_blocks(FunctionDefinition *definition,
     return static_cond->as<bool>();
 }
 
-[[nodiscard]] static luisa::optional<SwitchInst::case_value_type> try_evaluate_static_switch_condition(Value *cond) noexcept {
+[[nodiscard]] static luisa::optional<
+    IndexedBranchTerminatorInstruction::case_value_type>
+try_evaluate_static_switch_condition(Value *cond) noexcept {
     LUISA_DEBUG_ASSERT(cond != nullptr, "Switch condition must not be null.");
     if (!cond->isa<Constant>()) { return luisa::nullopt; }
     auto static_cond = static_cast<Constant *>(cond);
@@ -239,21 +251,27 @@ void traverse_executable_successors(BasicBlock *block, Visit &&visit) noexcept {
             }
             break;
         }
-        case DerivedInstructionTag::SWITCH: {
-            auto switch_inst = static_cast<SwitchInst *>(terminator);
-            if (auto static_cond = try_evaluate_static_switch_condition(switch_inst->value())) {
-                auto taken = switch_inst->default_block();
-                for (size_t i = 0u; i < switch_inst->case_count(); i++) {
-                    if (switch_inst->case_value(i) == *static_cond) {
-                        taken = switch_inst->case_block(i);
+        case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::INDEXED_BRANCH: {
+            auto indexed_branch = static_cast<
+                IndexedBranchTerminatorInstruction *>(terminator);
+            if (auto static_cond =
+                    try_evaluate_static_switch_condition(
+                        indexed_branch->value())) {
+                auto taken = indexed_branch->default_block();
+                for (size_t i = 0u;
+                     i < indexed_branch->case_count(); i++) {
+                    if (indexed_branch->case_value(i) == *static_cond) {
+                        taken = indexed_branch->case_block(i);
                         break;
                     }
                 }
                 visit(taken);
             } else {
-                visit(switch_inst->default_block());
-                for (size_t i = 0u; i < switch_inst->case_count(); i++) {
-                    visit(switch_inst->case_block(i));
+                visit(indexed_branch->default_block());
+                for (size_t i = 0u;
+                     i < indexed_branch->case_count(); i++) {
+                    visit(indexed_branch->case_block(i));
                 }
             }
             break;
@@ -373,12 +391,18 @@ static void eliminate_redundant_phi_nodes(luisa::vector<PhiInst *> &phi_nodes, D
 }
 
 void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
+    if (function == nullptr) { return; }
+    if (auto *definition = function->definition();
+        definition != nullptr && definition->body_block() == nullptr) {
+        return;
+    }
     if (auto definition = function->definition()) {
         for (auto block : definition->basic_blocks()) {
             if (!block->is_terminated()) {
                 XIRBuilder builder;
                 builder.set_insertion_point(block);
                 builder.unreachable_();
+                ++info.inserted_terminator_count;
             }
         }
     }
@@ -411,12 +435,23 @@ DCEInfo dce_pass_run_on_function(Function *function) noexcept {
 
 DCEInfo dce_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DCEInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) {
+            report->set("removed_inst", 0u);
+            report->set("removed_block", 0u);
+            report->set("inserted_terminator", 0u);
+        }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::run_dce_pass_on_function(f, info);
     }
     if (report != nullptr) {
         report->set("removed_inst", info.removed_inst_count);
         report->set("removed_block", info.removed_block_count);
+        report->set(
+            "inserted_terminator",
+            info.inserted_terminator_count);
     }
     return info;
 }

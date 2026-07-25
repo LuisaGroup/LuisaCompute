@@ -862,13 +862,23 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     auto supported_ext = detail::supported_exts(physical_device);
     VkPhysicalDeviceFeatures device_features{};
     vkGetPhysicalDeviceFeatures(physical_device, &device_features);
-    // Enable storage image read/write without format (required for
-    // -fspv-use-unknown-image-format in DXC SPIR-V compilation).
-    // These allow RWTexture/RWBuffer with Unknown image format to
-    // bind to image views of different formats without validation
-    // warnings and undefined behavior.
-    device_features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-    device_features.shaderStorageImageReadWithoutFormat = VK_TRUE;
+    auto storage_image_format_features =
+        detail::plan_storage_image_format_features({
+            .read_without_format =
+                device_features.shaderStorageImageReadWithoutFormat ==
+                VK_TRUE,
+            .write_without_format =
+                device_features.shaderStorageImageWriteWithoutFormat ==
+                VK_TRUE,
+            .imported_device = external_device != VK_NULL_HANDLE});
+    device_features.shaderStorageImageReadWithoutFormat =
+        storage_image_format_features.read_without_format ?
+            VK_TRUE :
+            VK_FALSE;
+    device_features.shaderStorageImageWriteWithoutFormat =
+        storage_image_format_features.write_without_format ?
+            VK_TRUE :
+            VK_FALSE;
     // Derived examples can override this to set actual features (based on above readings) to enable for logical device creation
 
     // Vulkan device creation
@@ -2629,6 +2639,7 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
     };
     return luisa::hash_combine({
         hash_env("LUISA_XIR_DISABLE_OPTIMIZATION"),
+        hash_env("LUISA_XIR_ENABLE_SCALARIZER"),
         hash_env("LUISA_SPIRV_OPT_LEVEL"),
         hash_env("LUISA_SPIRV_OPT_PASSES"),
     });
@@ -2641,10 +2652,11 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
     auto option_flags =
         (static_cast<uint64_t>(option.enable_fast_math) << 0u) |
         (static_cast<uint64_t>(option.enable_debug_info) << 1u) |
-        (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u);
+        (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u) |
+        (static_cast<uint64_t>(option.enable_scalarizer) << 3u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v12"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v13"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),

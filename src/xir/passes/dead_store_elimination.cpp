@@ -43,7 +43,13 @@ static luisa::vector<StoreInst *> process_block_dse(
                 if (!trace_pointer_base_local_alloca_inst(ptr)) break;
 
                 auto it = last_store.find(ptr);
-                if (it != last_store.end()) {
+                // The newer store proves the previous value dead, but it is
+                // not a unique replacement owner for instruction-local
+                // metadata: several annotated stores may be overwritten by
+                // the same write, and merging their metadata can itself be
+                // verifier-invalid. Retain annotated stores conservatively.
+                if (it != last_store.end() &&
+                    it->second->metadata_list().empty()) {
                     dead_stores.push_back(it->second);
                 }
                 last_store[ptr] = store;
@@ -123,7 +129,9 @@ static size_t run_straight_line_dse(FunctionDefinition *function) noexcept {
 // Run dead store elimination on a function.
 static void run_dead_store_elimination_on_function(Function *function,
                                                    DeadStoreEliminationInfo &info) noexcept {
+    if (function == nullptr) { return; }
     if (auto def = function->definition()) {
+        if (def->body_block() == nullptr) { return; }
         info.eliminated_store_count += run_intra_block_dse(def);
         info.eliminated_store_count += run_straight_line_dse(def);
     }
@@ -139,6 +147,10 @@ DeadStoreEliminationInfo dead_store_elimination_pass_run_on_function(Function *f
 
 DeadStoreEliminationInfo dead_store_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DeadStoreEliminationInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("eliminated_store", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::run_dead_store_elimination_on_function(f, info);
     }

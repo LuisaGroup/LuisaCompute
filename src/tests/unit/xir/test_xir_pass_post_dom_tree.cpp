@@ -92,6 +92,24 @@ void register_post_dom_tree_tests() {
         expect(!tree.post_dominates(return_block, body));
     };
 
+    "dom_tree_queries_reject_blocks_outside_the_analysis"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+
+        auto dom_tree = compute_dom_tree(kernel);
+        auto post_dom_tree = compute_post_dom_tree(kernel);
+        auto *foreign = reinterpret_cast<BasicBlock *>(uintptr_t{0xdead});
+        expect(!dom_tree.dominates(foreign, foreign));
+        expect(!dom_tree.strictly_dominates(foreign, foreign));
+        expect(!post_dom_tree.post_dominates(foreign, foreign));
+        expect(!post_dom_tree.strictly_post_dominates(foreign, foreign));
+        expect(!post_dom_tree.post_dominates(nullptr, foreign));
+    };
+
     "dom_tree_entry_backedges_compute_root_frontier"_test = [] {
         Module m;
         BasicBlock *body;

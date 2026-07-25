@@ -2547,6 +2547,10 @@ spirv_xir_dialect_support(xir::DerivedInstructionTag tag) noexcept {
         case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
         case xir::DerivedInstructionTag::CALL:
         case xir::DerivedInstructionTag::CAST: return supported();
+        case xir::DerivedInstructionTag::INDEXED_BRANCH:
+            return unsupported(
+                "raw indexed branches must be restructured into SwitchInst "
+                "before the native codegen handoff");
         case xir::DerivedInstructionTag::RAY_QUERY_LOOP:
         case xir::DerivedInstructionTag::RAY_QUERY_DISPATCH:
             return unsupported(

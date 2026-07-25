@@ -22,16 +22,21 @@ struct InstructionCloneValueResolver;
 [[nodiscard]] LUISA_XIR_API Value *trace_pointer_base_value(Value *pointer) noexcept;
 [[nodiscard]] LUISA_XIR_API AllocaInst *trace_pointer_base_local_alloca_inst(Value *pointer) noexcept;
 // Returns true if the function still contains structured control-flow
-// instructions. CFG-only transforms use this as a hard mutation boundary.
+// instructions that are not native raw-CFG terminators. IndexedBranchInst is
+// the raw multi-way branch; SwitchInst is always structured.
 [[nodiscard]] LUISA_XIR_API bool contains_structured_control_flow(FunctionDefinition *function) noexcept;
 [[nodiscard]] LUISA_XIR_API bool remove_redundant_phi_instruction(PhiInst *phi) noexcept;
+// Live annotated Phis are not folded into shared values because there would be
+// no unique replacement metadata owner. Null inputs are no-ops.
 [[nodiscard]] LUISA_XIR_API bool simplify_phi_instruction(PhiInst *phi, const DomTree *dom_tree = nullptr) noexcept;
+// When lowering is required, Phi metadata is cloned onto the generated load.
 LUISA_XIR_API void lower_phi_node_to_local_variable(PhiInst *phi) noexcept;
 LUISA_XIR_API void hoist_alloca_instructions_to_entry_block(FunctionDefinition *f) noexcept;
 
 [[nodiscard]] bool eval_scalar_op(const Type *type, ArithmeticOp op,
                                   void *data,
                                   const void *op0_data,
+                                  const Type *op1_type,
                                   const void *op1_data,
                                   const void *op2_data) noexcept;
 [[nodiscard]] bool eval_pow_int_op(const Type *result_type,
@@ -87,5 +92,12 @@ struct InstructionMemoryInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API InstructionMemoryInfo get_memory_info(Instruction *inst) noexcept;
+
+// Returns whether evaluating an arithmetic operation is total for every
+// verifier-accepted operand bit pattern and has no implicit control/resource
+// effect. The implementation is an explicit whitelist: newly added operations
+// fail closed until their speculation contract is audited.
+[[nodiscard]] LUISA_XIR_API bool is_arithmetic_op_safe_to_speculate(
+    ArithmeticOp op) noexcept;
 
 }// namespace luisa::compute::xir

@@ -11,12 +11,15 @@
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 
+#include "helpers.h"
+
 namespace luisa::compute::xir {
 
 namespace detail {
 
 // checks if a function is a promotable callable, i.e., it is a callable function and all of its uses are call instructions
 [[nodiscard]] static auto is_promotable_callable(FunctionDefinition *f) noexcept {
+    if (f == nullptr || f->body_block() == nullptr) { return false; }
     // we may not process non-callable functions as their signatures might be imported/exported
     if (!f->isa<CallableFunction>()) { return false; }
     // if the function has a signature constraint, we cannot modify its signature
@@ -24,7 +27,13 @@ namespace detail {
     // otherwise, we check if all users of the callable are CallInst (non-call instructions
     // such as RayQueryPipelineInst may not allow changes to callee functions' signatures)
     for (auto &&use : f->use_list()) {
-        if (auto user = use->user(); user != nullptr && !user->isa<CallInst>()) {
+        auto *user = use->user();
+        if (user == nullptr || !user->isa<CallInst>()) {
+            return false;
+        }
+        auto *call = static_cast<CallInst *>(user);
+        if (call->callee() != f ||
+            use != call->operand_use(CallInst::operand_index_callee)) {
             return false;
         }
     }
@@ -76,6 +85,11 @@ static void traverse_call_graph_post_order(Function *f, const CallGraph &call_gr
 [[nodiscard]] static Argument *promote_ref_arg(CallableFunction *f, Argument *arg) noexcept {
     // create a new value argument
     auto new_arg = arg->insert_after_self(f->create_value_argument(arg->type())->remove_self());
+    // The new value argument is the unique signature-level replacement for
+    // the old reference argument, so it inherits the old argument metadata.
+    for (auto *metadata : arg->metadata_list()) {
+        new_arg->metadata_list().push_front(metadata->clone());
+    }
     new_arg->add_comment("promoted reference argument");
     // we need to create a local variable to hold the value of the reference argument
     {
@@ -94,6 +108,31 @@ struct PromotedArg {
     Argument *arg;
     size_t index;
 };
+
+[[nodiscard]] static bool all_call_sites_are_thread_local(
+    CallableFunction *f,
+    luisa::span<const PromotedArg> promoted_args) noexcept {
+    for (auto &&use : f->use_list()) {
+        auto *user = use->user();
+        if (user == nullptr || !user->isa<CallInst>()) {
+            return false;
+        }
+        auto *call = static_cast<CallInst *>(user);
+        if (call->callee() != f ||
+            use != call->operand_use(CallInst::operand_index_callee) ||
+            call->argument_count() != f->arguments().count_size()) {
+            return false;
+        }
+        for (auto promoted : promoted_args) {
+            if (promoted.index >= call->argument_count() ||
+                trace_pointer_base_local_alloca_inst(
+                    call->argument(promoted.index)) == nullptr) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo &info) {
     // A reference that is only read through its own SSA value is not
@@ -121,6 +160,15 @@ static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo 
             index++;
         }
     }
+    if (promoted_args.empty()) { return; }
+    // Promotion snapshots a reference once at the call site. This is only
+    // equivalent for thread-local storage: a shared/reference actual may be
+    // changed by another invocation across a barrier while the callee is
+    // executing, even when this callee itself is read-only. Preflight every
+    // call before changing either the signature or any call instruction.
+    if (!all_call_sites_are_thread_local(f, promoted_args)) {
+        return;
+    }
     // record the number of promoted reference arguments
     info.promoted_ref_arg_count += promoted_args.size();
     // promote the reference arguments
@@ -129,6 +177,10 @@ static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo 
     for (auto use : f->use_list()) {
         if (auto user = use->user(); user != nullptr && user->isa<CallInst>()) {
             auto call = static_cast<CallInst *>(user);
+            LUISA_DEBUG_ASSERT(
+                call->callee() == f &&
+                    use == call->operand_use(CallInst::operand_index_callee),
+                "PromoteRefArg preflight accepted a non-callee function use.");
             XIRBuilder b;
             b.set_insertion_point(call->prev());
             for (auto p : promoted_args) {
@@ -140,6 +192,7 @@ static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo 
 }
 
 static void promote_ref_args_in_module(Module *m, PromoteRefArgInfo &info) noexcept {
+    if (m == nullptr) { return; }
     // we compute the call graph and collect the functions in post-order (i.e., leaves first)
     // so that we can process the callees before the callers to avoid reprocessing the same
     // function multiple times
@@ -161,7 +214,9 @@ static void promote_ref_args_in_module(Module *m, PromoteRefArgInfo &info) noexc
 
 PromoteRefArgInfo promote_ref_arg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     PromoteRefArgInfo info;
-    detail::promote_ref_args_in_module(module, info);
+    if (module != nullptr) {
+        detail::promote_ref_args_in_module(module, info);
+    }
     if (report != nullptr) {
         report->set("promoted_ref_arg", info.promoted_ref_arg_count);
     }

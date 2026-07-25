@@ -42,6 +42,7 @@ luisa_compute_add_test(test_pool               unit/core/test_pool.cpp          
 luisa_compute_add_test(test_type               unit/core/test_type.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_stl_containers     unit/core/test_stl_containers.cpp     LABELS "unit;unit_core")
 luisa_compute_add_test(test_hash               unit/core/test_hash.cpp               LABELS "unit;unit_core")
+luisa_compute_add_test(test_integer_power_contract unit/core/test_integer_power_contract.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_spin_mutex         unit/core/test_spin_mutex.cpp         LABELS "unit;unit_core")
 luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp              LABELS "unit;unit_core")
 luisa_compute_add_test(test_platform_utils     unit/core/test_platform.cpp           LABELS "unit;unit_core")
@@ -278,6 +279,15 @@ luisa_compute_add_test(test_hip_ray_query_pipeline unit/runtime/test_hip_ray_que
 luisa_compute_add_test(test_hip_signed_texture_io unit/runtime/test_hip_signed_texture_io.cpp)
 luisa_compute_add_test(test_shared_mem          unit/runtime/test_shared_mem.cpp)
 
+# XIR optimization integration executables. These require an explicit backend
+# argument (and the native XIR -> SPIR-V path for the Vulkan-specific coverage),
+# so build them in every configured test build but keep them out of unattended
+# CTest runs.
+luisa_compute_add_test(test_dsl_fuse_buffer_reads unit/runtime/test_dsl_fuse_buffer_reads.cpp)
+luisa_compute_add_test(test_dsl_indvar_strength_reduce unit/runtime/test_dsl_indvar_strength_reduce.cpp)
+luisa_compute_add_test(test_dsl_slp_vectorization unit/runtime/test_dsl_slp_vectorization.cpp)
+luisa_compute_add_test(test_dsl_xir_optimize_vk unit/runtime/test_dsl_xir_optimize_vk.cpp)
+
 # --- unit/xir: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_module      unit/xir/test_xir_module.cpp      LABELS "unit;unit_xir")
@@ -327,7 +337,6 @@ luisa_compute_add_test(test_coro_pipeline_3suspend unit/coro/test_coro_pipeline_
 luisa_compute_add_test(test_xir_pass_destructure_cfg unit/xir/test_xir_pass_destructure_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_simplify_cfg unit/xir/test_xir_pass_simplify_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_early_cse unit/xir/test_xir_pass_early_cse.cpp LABELS "unit;unit_xir")
-luisa_compute_add_test(test_xir_pass_lower_switch unit/xir/test_xir_pass_lower_switch.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_ray_query_loop unit/xir/test_xir_pass_lower_ray_query_loop.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_fuse_consecutive_buffer_reads unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_restructure_cfg.cpp LABELS "unit;unit_xir")
@@ -336,6 +345,7 @@ luisa_compute_add_test(test_xir_pass_post_dom_tree unit/xir/test_xir_pass_post_d
 luisa_compute_add_test(test_xir_pass_autodiff_cfg unit/xir/test_xir_pass_autodiff_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_early_return_elimination unit/xir/test_xir_pass_early_return_elimination.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_indvar_simplify unit/xir/test_xir_pass_indvar_simplify.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_loop_rotation unit/xir/test_xir_pass_loop_rotation.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_loop_fusion unit/xir/test_xir_pass_loop_fusion.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_loop_vectorization unit/xir/test_xir_pass_loop_vectorization.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_sccp unit/xir/test_xir_pass_sccp.cpp LABELS "unit;unit_xir")

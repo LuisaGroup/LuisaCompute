@@ -121,8 +121,9 @@ struct GVNState {
         case DerivedInstructionTag::ARITHMETIC:
         case DerivedInstructionTag::CAST:
         case DerivedInstructionTag::GEP:
-        case DerivedInstructionTag::RESOURCE_QUERY:
             return true;
+        case DerivedInstructionTag::RESOURCE_QUERY:
+            return get_memory_info(inst).is_safe_to_value_number();
         case DerivedInstructionTag::CALL: {
             // Only value-number calls that are guaranteed pure.
             // Without function attribute analysis, conservatively
@@ -250,9 +251,16 @@ static void process_instruction_for_gvn(Instruction *inst, BasicBlock *block, GV
     if (!can_value_number(inst)) return;
     auto hash = compute_instruction_hash(inst, state);
     if (auto leader = state.find_leader(hash, block, inst)) {
-        inst->replace_all_uses_with(leader);
+        // A shared instruction is not a unique metadata owner. Keep either
+        // instruction distinct when the duplicate or the leader is annotated:
+        // otherwise the leader's source identity would also be assigned to an
+        // occurrence that originally had no such metadata.
+        if (inst->metadata_list().empty() &&
+            leader->metadata_list().empty()) {
+            inst->replace_all_uses_with(leader);
+            ++info.replaced_inst_count;
+        }
         state.value_to_vn[inst] = state.value_to_vn[leader];
-        ++info.replaced_inst_count;
     } else {
         auto vn = state.next_vn++;
         state.record_leader(hash, vn, inst, block);
@@ -325,11 +333,12 @@ GVNInfo gvn_pass_run_on_function(Function *function) noexcept {
 
 GVNInfo gvn_pass_run_on_module(Module *module, PassReport *report) noexcept {
     GVNInfo info;
-    if (module == nullptr) return info;
-    for (auto f : module->function_list()) {
-        auto sub = gvn_pass_run_on_function(f);
-        info.replaced_inst_count += sub.replaced_inst_count;
-        info.removed_inst_count += sub.removed_inst_count;
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            auto sub = gvn_pass_run_on_function(f);
+            info.replaced_inst_count += sub.replaced_inst_count;
+            info.removed_inst_count += sub.removed_inst_count;
+        }
     }
     if (report != nullptr) {
         report->set("replaced_inst", info.replaced_inst_count);

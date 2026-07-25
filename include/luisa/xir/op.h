@@ -55,8 +55,8 @@ enum class ArithmeticOp {
     SATURATE,// (vecN)
     LERP,    // (vecN, vecN, vecN)
 
-    SMOOTHSTEP,// (vecN, vecN, vecN)
-    STEP,      // (x, y): (x >= y) ? 1 : 0
+    SMOOTHSTEP,// (edge0, edge1, x)
+    STEP,      // (edge, x): (x >= edge) ? 1 : 0
 
     ABS,// (vecN)
     MIN,// (vecN)
@@ -127,7 +127,7 @@ enum class ArithmeticOp {
     MATRIX_COMP_SUB,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
     MATRIX_COMP_MUL,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
     MATRIX_COMP_DIV,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
-    MATRIX_LINALG_MUL, // (floatNxN, floatNxN) -> floatNxN | (floatNxN, floatN) -> floatN
+    MATRIX_LINALG_MUL, // (floatNxN, floatNxN) -> floatNxN | (floatNxN, floatN) -> floatN | (floatN, floatNxN) -> floatN
     MATRIX_DETERMINANT,// (floatNxN) -> float
     MATRIX_TRANSPOSE,  // (floatNxN) -> floatNxN
     MATRIX_INVERSE,    // (floatNxN) -> floatNxN

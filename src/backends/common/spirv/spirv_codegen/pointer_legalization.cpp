@@ -18,7 +18,6 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/passes/destructure_cfg.h>
-#include <luisa/xir/passes/lower_switch.h>
 
 namespace lc::spirv {
 
@@ -165,13 +164,6 @@ struct StructuredInventory {
         }
     }
     return inventory;
-}
-
-[[nodiscard]] bool switches_are_lowerable(
-    xir::Function *function) noexcept {
-    return function != nullptr && function->definition() != nullptr &&
-           xir::lower_switch_pass_preflight_function(function)
-               .succeeded();
 }
 
 [[nodiscard]] bool destructure_boundary_is_valid(
@@ -397,7 +389,6 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
 
         luisa::vector<xir::Function *> blocking_functions;
         auto unsupported_count = size_t{0u};
-        auto rejected_switch_count = size_t{0u};
         auto rejected_destructure_count = size_t{0u};
         for (auto *function : module->function_list()) {
             if (!blocking_set.contains(function)) { continue; }
@@ -406,8 +397,6 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             auto inventory =
                 inspect_structured_control_flow(function->definition());
             unsupported_count += inventory.unsupported_count;
-            rejected_switch_count +=
-                switches_are_lowerable(function) ? 0u : 1u;
             rejected_destructure_count +=
                 destructure_boundary_is_valid(function) ? 0u : 1u;
         }
@@ -423,17 +412,6 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
                 unsupported_count, blocking_functions.size());
             return result;
         }
-        if (rejected_switch_count != 0u) {
-            result.status =
-                SpirvPointerLegalizationStatus::SWITCH_LOWERING_FAILED;
-            result.remaining_pointer_call_count = pointer_calls.size();
-            result.diagnostic = luisa::format(
-                "SPIR-V pointer-argument fallback rejected {} blocking "
-                "function(s) during atomic switch preflight; the module was "
-                "left unchanged.",
-                rejected_switch_count);
-            return result;
-        }
         if (rejected_destructure_count != 0u) {
             result.status =
                 SpirvPointerLegalizationStatus::DESTRUCTURE_FAILED;
@@ -447,13 +425,10 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
         }
 
         for (auto *function : blocking_functions) {
-            auto lowered =
-                xir::lower_switch_pass_run_on_function(function);
-            result.lowered_switch_count += lowered.lowered_switch_count;
-            LUISA_ASSERT(lowered.succeeded(),
-                         "Switch lowering failed after successful preflight.");
             auto destructured =
                 xir::destructure_cfg_pass_run_on_function(function);
+            result.destructured_switch_count +=
+                destructured.destructured_switch_count;
             if (!destructured.succeeded()) {
                 result.status =
                     SpirvPointerLegalizationStatus::DESTRUCTURE_FAILED;
@@ -464,12 +439,12 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
                         .size();
                 result.diagnostic = luisa::format(
                     "SPIR-V pointer-argument fallback could not destructure a "
-                    "switch-lowered function (errors={}, leaked_blocks={}).",
+                    "blocking function (errors={}, leaked_blocks={}).",
                     destructured.error_count,
                     destructured.leaked_block_count);
                 return result;
             }
-            result.lowered_blocking_function_count++;
+            result.destructured_blocking_function_count++;
         }
 
         luisa::vector<xir::CallInst *> call_sites;

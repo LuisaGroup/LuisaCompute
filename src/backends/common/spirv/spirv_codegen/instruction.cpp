@@ -4670,6 +4670,10 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::LOOP: _emit_loop_inst(static_cast<const xir::LoopInst *>(inst)); break;
         case xir::DerivedInstructionTag::SIMPLE_LOOP: _emit_simple_loop_inst(static_cast<const xir::SimpleLoopInst *>(inst)); break;
         case xir::DerivedInstructionTag::SWITCH: _emit_switch_inst(static_cast<const xir::SwitchInst *>(inst)); break;
+        case xir::DerivedInstructionTag::INDEXED_BRANCH:
+            LUISA_ERROR_WITH_LOCATION(
+                "SPIR-V codegen received raw IndexedBranchInst after dialect "
+                "validation; run restructure_cfg before codegen.");
         case xir::DerivedInstructionTag::BRANCH: _emit_branch_inst(static_cast<const xir::BranchInst *>(inst)); break;
         case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: _emit_conditional_branch_inst(static_cast<const xir::ConditionalBranchInst *>(inst)); break;
         case xir::DerivedInstructionTag::BREAK: {

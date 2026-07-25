@@ -228,6 +228,7 @@ impl EvaluatorImpl {
             | Func::Floor
             | Func::Ceil
             | Func::Round
+            | Func::Rint
             | Func::Trunc
             | Func::Fract => true,
             _ => false,

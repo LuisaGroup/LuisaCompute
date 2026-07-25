@@ -591,6 +591,58 @@ void reg_xir2ast_direct() {
         expect(found);
     };
 
+    "xir_to_ast_roundtrip_preserves_rint_semantics"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<float>()));
+        auto *vector_buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<float4>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        auto *input = builder.call(
+            Type::of<float>(), ResourceReadOp::BUFFER_READ,
+            {buffer, zero});
+        auto *rounded = builder.call(
+            Type::of<float>(), ArithmeticOp::RINT, {input});
+        builder.call(
+            ResourceWriteOp::BUFFER_WRITE,
+            {buffer, zero, rounded});
+        auto *vector_input = builder.call(
+            Type::of<float4>(), ResourceReadOp::BUFFER_READ,
+            {vector_buffer, zero});
+        auto *vector_rounded = builder.call(
+            Type::of<float4>(), ArithmeticOp::RINT, {vector_input});
+        builder.call(
+            ResourceWriteOp::BUFFER_WRITE,
+            {vector_buffer, zero, vector_rounded});
+        builder.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        if (ast == nullptr) { return; }
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+        auto *definition = first_kernel_definition(roundtrip.get());
+        expect(definition != nullptr);
+        if (definition == nullptr) { return; }
+        auto rint_count = 0u;
+        auto round_count = 0u;
+        definition->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (!instruction->isa<ArithmeticInst>()) { return; }
+                auto op =
+                    static_cast<ArithmeticInst *>(instruction)->op();
+                rint_count += op == ArithmeticOp::RINT;
+                round_count += op == ArithmeticOp::ROUND;
+            });
+        expect(rint_count == 2u);
+        expect(round_count == 0u);
+    };
+
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
     "xir_to_ast_direct_rejects_break_without_structured_scope"_test = [] {
         Module module;
@@ -674,10 +726,13 @@ void reg_xir2ast_direct() {
         auto *switch_inst = b.switch_(selector);
         auto *case_block = switch_inst->create_case_block(1);
         auto *default_block = switch_inst->create_default_block();
+        auto *switch_merge = switch_inst->create_merge_block();
         b.set_insertion_point(case_block);
         b.return_void();
         b.set_insertion_point(default_block);
         b.return_void();
+        b.set_insertion_point(switch_merge);
+        b.unreachable_();
 
         auto ast = xir_to_ast_translate(*kernel, {});
         expect(ast != nullptr);

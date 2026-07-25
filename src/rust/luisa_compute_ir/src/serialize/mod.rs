@@ -465,6 +465,8 @@ pub enum SerializedFunc {
     Callable(SerializedCallableModuleRef),
 
     ShaderExecutionReorder, // (uint hint, uint hint_bits): void
+
+    Rint,
 }
 pub fn serialize_kernel_module_to_json(m: &KernelModule) -> serde_json::Value {
     let v = convert::serialize_kernel_module(m);

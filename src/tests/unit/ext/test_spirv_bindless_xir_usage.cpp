@@ -328,6 +328,62 @@ int main(int argc, char *argv[]) {
             result.spv_bin.data(), result.spv_bin.size()));
     };
 
+    "spirv_direct_texture_properties_are_not_unbounded_bindless_heaps"_test = [] {
+        auto check = [](luisa::compute::Function ast_function,
+                        uint32_t dimension) noexcept {
+            Module module;
+            auto *xir_kernel = module.create_kernel();
+            xir_kernel->set_block_size(ast_function.block_size());
+            static_cast<void>(xir_kernel->create_resource_argument(
+                Type::texture(Type::of<float>(), dimension)));
+            XIRBuilder builder;
+            builder.set_insertion_point(
+                xir_kernel->create_body_block());
+            builder.return_void();
+
+            expect(xir_verify_module(&module).succeeded());
+            ScopedEnvironmentVariable disable_spirv_optimization{
+                "LUISA_SPIRV_OPT_LEVEL", "0"};
+            ScopedEnvironmentVariable clear_spirv_pass_override{
+                "LUISA_SPIRV_OPT_PASSES", nullptr};
+            auto result =
+                lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+                    ast_function, &module,
+                    ShaderOption{.enable_cache = false}, {});
+
+            constexpr auto unbounded =
+                std::numeric_limits<uint32_t>::max();
+            auto properties = luisa::span{
+                result.properties.data(),
+                result.properties.size()};
+            expect(eq(count_properties(
+                          properties,
+                          lc::spirv::ShaderVariableType::
+                              SRVTextureHeap,
+                          1u),
+                      1u));
+            expect(eq(count_properties(
+                          properties,
+                          lc::spirv::ShaderVariableType::
+                              SRVTextureHeap,
+                          unbounded),
+                      0u));
+            expect(!result.useTex2DBindless);
+            expect(!result.useTex3DBindless);
+
+            spvtools::SpirvTools tools{
+                SPV_ENV_VULKAN_1_2};
+            expect(tools.Validate(
+                result.spv_bin.data(),
+                result.spv_bin.size()));
+        };
+
+        Kernel1D image_kernel = [](ImageFloat) noexcept {};
+        check(image_kernel.function()->function(), 2u);
+        Kernel1D volume_kernel = [](VolumeFloat) noexcept {};
+        check(volume_kernel.function()->function(), 3u);
+    };
+
     "spirv_bindless_exact_xir_usage_drives_descriptor_abi"_test = [] {
         Kernel1D ast_kernel = [](BindlessVar) noexcept {};
         auto ast_function = ast_kernel.function()->function();

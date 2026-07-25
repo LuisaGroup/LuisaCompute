@@ -586,6 +586,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::Fract => Some("lc_fract"),
             Func::Trunc => Some("lc_trunc"),
             Func::Round => Some("lc_round"),
+            Func::Rint => Some("lc_rint"),
 
             Func::Fma => Some("lc_fma"),
             Func::Copysign => Some("lc_copysign"),

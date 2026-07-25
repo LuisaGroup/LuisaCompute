@@ -944,7 +944,9 @@ pub enum Func {
 
     ShaderExecutionReorder, // (uint hint, uint hint_bits): void
 
-    Unknown0,
+    // Consumes the first reserved discriminant so all existing Func ABI
+    // values remain stable.
+    Rint,
     Unknown1,
 }
 impl Func {

@@ -21,7 +21,6 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -60,11 +59,12 @@ void verify_coro_xir_or_error(
     p.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::trace_gep_pass_run_on_module(m);
         r.set("traced_gep", i.traced_gep_count);
-        return i.traced_gep_count > 0u;
+        r.set("removed_noop_gep", i.removed_noop_gep_count);
+        return i.changed();
     });
     p.add("sroa", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::sroa_pass_run_on_module(m, {.decompose_vectors = true}, &r);
-        return i.decomposed_alloca_count > 0u;
+        return i.changed();
     });
     return p;
 }
@@ -100,14 +100,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(coro_func != nullptr,
                  "Coroutine compilation failed: no coroutine function found in XIR module");
 
-    // Coro cfg distill/split/materialize intentionally accept only plain CFG.
-    // Destructure preserves SwitchInst, so lower switches explicitly first.
-    auto lower_switch_info = xir::lower_switch_pass_run_on_module(module.get());
-    if (!lower_switch_info.succeeded()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Coroutine normalization rejected {} unsupported structured switch(es).",
-            lower_switch_info.rejected_switch_count);
-    }
+    // Coro cfg distill/split/materialize intentionally accept only raw CFG.
+    // Destructure converts structured SwitchInst nodes to IndexedBranchInst.
     auto destructure_info = xir::destructure_cfg_pass_run_on_module(module.get());
     if (!destructure_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
@@ -136,6 +130,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(coro_func != nullptr, "coro_func lost after destructure_cfg");
 
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
+    LUISA_ASSERT(
+        cfg.succeeded(),
+        "coro-cfg-distill rejected its input (structured={}, invalid_input={}, invalid_cfg={})",
+        cfg.structured_cfg_error_count, cfg.invalid_input_error_count,
+        cfg.invalid_cfg_error_count);
     LUISA_ASSERT(!cfg.scopes.empty(), "coro-cfg-distill found no scopes");
     luisa::vector<const Type *> frame_fields;
     auto frame_alignment = Type::of<uint>()->alignment();

@@ -41,6 +41,10 @@ PhiCleanupInfo phi_cleanup_pass_run_on_function(Function *function) noexcept {
 
 PhiCleanupInfo phi_cleanup_pass_run_on_module(Module *module, PassReport *report) noexcept {
     PhiCleanupInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("removed_phi", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::run_phi_cleanup_on_function(f, info);
     }

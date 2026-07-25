@@ -20,6 +20,9 @@ class PassReport;
 
 struct CVPInfo {
     size_t replaced_inst_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return replaced_inst_count != 0u;
+    }
 };
 
 [[nodiscard]] LUISA_XIR_API CVPInfo cvp_pass_run_on_function(FunctionDefinition *def) noexcept;

@@ -985,6 +985,35 @@ int main(int argc, char *argv[]) {
                                            .robust_buffer_access_update_after_bind = true}));
     };
 
+    "vk_storage_image_format_features_are_never_fabricated"_test = [] {
+        using namespace lc::vk::detail;
+        constexpr auto unsupported =
+            plan_storage_image_format_features({});
+        static_assert(!unsupported.read_without_format);
+        static_assert(!unsupported.write_without_format);
+
+        constexpr auto asymmetric =
+            plan_storage_image_format_features({
+                .write_without_format = true});
+        static_assert(!asymmetric.read_without_format);
+        static_assert(asymmetric.write_without_format);
+
+        constexpr auto supported =
+            plan_storage_image_format_features({
+                .read_without_format = true,
+                .write_without_format = true});
+        static_assert(supported.read_without_format);
+        static_assert(supported.write_without_format);
+
+        constexpr auto imported =
+            plan_storage_image_format_features({
+                .read_without_format = true,
+                .write_without_format = true,
+                .imported_device = true});
+        static_assert(!imported.read_without_format);
+        static_assert(!imported.write_without_format);
+    };
+
     "vk_custom_device_feature_chain_allows_unowned_structures"_test = [] {
         using namespace lc::vk::detail;
         VkBaseInStructure tail{

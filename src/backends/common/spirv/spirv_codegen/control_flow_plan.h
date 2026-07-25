@@ -143,6 +143,12 @@ public:
         const luisa::compute::xir::BasicBlock *block{nullptr};
         uint32_t roles{0u};
         size_t schedule_index{0u};
+        // A loop-boundary guard may bypass an exclusive chain of empty
+        // Branch/Break/Continue proxy blocks. Keep those logical blocks in
+        // the frozen XIR schedule for analysis, but terminate their unreachable
+        // physical counterparts with OpUnreachable so they cannot introduce
+        // stale predecessors into the structured SPIR-V graph.
+        bool physically_pruned{false};
 
         [[nodiscard]] bool has_role(BlockRole role) const noexcept {
             return (roles & static_cast<uint32_t>(role)) != 0u;
@@ -162,6 +168,13 @@ public:
         Target true_target{};
         Target false_target{};
         Target merge_target{};
+        bool emit_selection_merge{true};
+        const luisa::compute::xir::BasicBlock *
+            loop_boundary_exit_target{nullptr};
+        // Last logical proxy block on the bypassed exit path. A Phi incoming
+        // attributed to this block is physically produced by the If header.
+        const luisa::compute::xir::BasicBlock *
+            loop_boundary_exit_predecessor{nullptr};
     };
 
     struct LoopRegion {
@@ -239,10 +252,11 @@ public:
     };
 
     // Normalized XIR may represent a nested selection exit as
-    // outer-merge -> inner-merge, with the outer merge also serving as a
-    // direct arm of the inner selection. SPIR-V must nest those physical merge
-    // roles in the opposite order. The logical blocks keep their payloads and
-    // edge order; only the two declarations/entry edges exchange roles.
+    // outer-merge -> inner-merge, with an inner arm reaching the outer merge
+    // either directly or through a chain of one-way forwarding blocks. SPIR-V
+    // must nest those physical merge roles in the opposite order. The logical
+    // blocks keep their payloads and edge order; only the two declarations and
+    // final entry edges exchange roles.
     struct NestedSelectionMergeRotation {
         const luisa::compute::xir::Instruction *outer_instruction{nullptr};
         const luisa::compute::xir::Instruction *inner_instruction{nullptr};
@@ -285,6 +299,8 @@ private:
     luisa::unordered_map<const luisa::compute::xir::Instruction *, Target> _edge_targets;
     luisa::unordered_map<const luisa::compute::xir::Instruction *, size_t>
         _nested_selection_rotation_inner_indices;
+    luisa::unordered_map<const luisa::compute::xir::Instruction *, Target>
+        _nested_selection_rotation_entry_edge_targets;
     luisa::unordered_map<
         const luisa::compute::xir::BasicBlock *,
         const luisa::compute::xir::BasicBlock *>

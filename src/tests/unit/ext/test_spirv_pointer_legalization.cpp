@@ -222,7 +222,9 @@ void restore_structured_codegen_boundary(Module *module) {
     static_cast<void>(reg2mem_pass_run_on_module(module));
     auto restructured = restructure_cfg_pass_run_on_module(module);
     expect(restructured.succeeded());
-    expect(restructured.restructured_if_count > 0u)
+    expect(restructured.restructured_if_count +
+               restructured.restructured_switch_count >
+           0u)
         << "pointer fallback raw CFG must be recovered as structured control flow";
     auto post_restructure =
         luisa::compute::spirv::create_spirv_codegen_post_restructure_pipeline();
@@ -251,9 +253,9 @@ int main(int argc, char *argv[]) {
             lc::spirv::legalize_spirv_pointer_arguments(module.get());
         expect(legalized.succeeded()) << legalized.diagnostic;
         expect(eq(legalized.planned_pointer_call_count, 1u));
-        expect(eq(legalized.blocking_function_count, 1u));
-        expect(eq(legalized.lowered_blocking_function_count, 1u));
-        expect(eq(legalized.lowered_switch_count, 1u));
+        expect(eq(legalized.blocking_function_count, 0u));
+        expect(eq(legalized.destructured_blocking_function_count, 0u));
+        expect(eq(legalized.destructured_switch_count, 0u));
         expect(eq(legalized.inline_info.inlined_call_count, 1u));
         expect(eq(legalized.remaining_pointer_call_count, 0u));
         expect(xir_verify_module(module.get()).succeeded());
@@ -263,8 +265,8 @@ int main(int argc, char *argv[]) {
             << "switch fallback intentionally produces raw CFG before the "
                "mandatory restructure boundary";
         expect(has_diagnostic(
-            intermediate_dialect, "raw ConditionalBranch"));
-        expect(has_diagnostic(intermediate_dialect, "restructure_cfg"));
+            intermediate_dialect, "raw indexed branches"));
+        expect(has_diagnostic(intermediate_dialect, "SwitchInst"));
         restore_structured_codegen_boundary(module.get());
         auto compiled = compile_exact_xir(
             kernel.function()->function(), module.get());
@@ -275,8 +277,8 @@ int main(int argc, char *argv[]) {
             << "the ABI-sensitive callable must be specialized away";
         expect(eq(count_opcode(luisa::span{compiled.spv_bin},
                                spv::Op::OpSwitch),
-                  0u))
-            << "only the switch blocking pointer specialization is lowered";
+                  1u))
+            << "pointer specialization must preserve native switch selection";
     };
 
     "spirv_pointer_legalization_preserves_unblocked_native_switch"_test = [] {
@@ -296,6 +298,7 @@ int main(int argc, char *argv[]) {
             lc::spirv::legalize_spirv_pointer_arguments(module.get());
         expect(legalized.succeeded()) << legalized.diagnostic;
         expect(eq(legalized.planned_pointer_call_count, 0u));
+        restore_structured_codegen_boundary(module.get());
         auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
             kernel.function()->function(), module.get(),
             ShaderOption{.enable_cache = false});
@@ -657,7 +660,7 @@ int main(int argc, char *argv[]) {
                lc::spirv::SpirvPointerLegalizationStatus::
                    INLINE_RETRY_FAILED);
         expect(eq(result.planned_pointer_call_count, 2u));
-        expect(eq(result.lowered_switch_count, 0u))
+        expect(eq(result.destructured_switch_count, 0u))
             << "recursive-call preflight must reject the complete plan before mutation";
         expect(eq(result.inline_info.skipped_recursive_callable_count,
                   1u));
@@ -695,8 +698,8 @@ int main(int argc, char *argv[]) {
                    DESTRUCTURE_FAILED);
         expect(eq(result.planned_pointer_call_count, 1u));
         expect(eq(result.blocking_function_count, 1u));
-        expect(eq(result.lowered_blocking_function_count, 0u));
-        expect(eq(result.lowered_switch_count, 0u));
+        expect(eq(result.destructured_blocking_function_count, 0u));
+        expect(eq(result.destructured_switch_count, 0u));
         expect(eq(result.remaining_pointer_call_count, 1u));
         expect(result.diagnostic ==
                "SPIR-V pointer-argument fallback rejected 1 blocking "
@@ -738,8 +741,8 @@ int main(int argc, char *argv[]) {
                    DESTRUCTURE_FAILED);
         expect(eq(result.planned_pointer_call_count, 2u));
         expect(eq(result.blocking_function_count, 2u));
-        expect(eq(result.lowered_blocking_function_count, 0u));
-        expect(eq(result.lowered_switch_count, 0u));
+        expect(eq(result.destructured_blocking_function_count, 0u));
+        expect(eq(result.destructured_switch_count, 0u));
         expect(eq(result.remaining_pointer_call_count, 2u));
         expect(first.entry->terminator() ==
                first.reachable_switch);
@@ -771,16 +774,16 @@ int main(int argc, char *argv[]) {
             lc::spirv::legalize_spirv_pointer_arguments(&module);
         expect(result.status ==
                lc::spirv::SpirvPointerLegalizationStatus::
-                   SWITCH_LOWERING_FAILED);
+                   DESTRUCTURE_FAILED);
         expect(eq(result.planned_pointer_call_count, 1u));
         expect(eq(result.blocking_function_count, 1u));
-        expect(eq(result.lowered_blocking_function_count, 0u));
-        expect(eq(result.lowered_switch_count, 0u));
+        expect(eq(result.destructured_blocking_function_count, 0u));
+        expect(eq(result.destructured_switch_count, 0u));
         expect(eq(result.remaining_pointer_call_count, 1u));
         expect(result.diagnostic ==
                "SPIR-V pointer-argument fallback rejected 1 blocking "
-               "function(s) during atomic switch preflight; the module was "
-               "left unchanged.");
+               "function(s) during atomic destructure preflight; the module "
+               "was left unchanged.");
         expect(fixture.entry->terminator() ==
                fixture.reachable_switch);
         expect(fixture.orphan->terminator() ==
@@ -815,11 +818,11 @@ int main(int argc, char *argv[]) {
             lc::spirv::legalize_spirv_pointer_arguments(&module);
         expect(result.status ==
                lc::spirv::SpirvPointerLegalizationStatus::
-                   SWITCH_LOWERING_FAILED);
+                   DESTRUCTURE_FAILED);
         expect(eq(result.planned_pointer_call_count, 2u));
         expect(eq(result.blocking_function_count, 2u));
-        expect(eq(result.lowered_blocking_function_count, 0u));
-        expect(eq(result.lowered_switch_count, 0u));
+        expect(eq(result.destructured_blocking_function_count, 0u));
+        expect(eq(result.destructured_switch_count, 0u));
         expect(eq(result.remaining_pointer_call_count, 2u));
         expect(first.entry->terminator() ==
                first.reachable_switch);

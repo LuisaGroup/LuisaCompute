@@ -17,6 +17,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
@@ -407,6 +408,41 @@ int main(int argc, char *argv[]) {
             lc::spirv::ControlFlowPlan::create(orphan_function);
         expect(orphan_plan.blocks().size() == 1u);
         expect(orphan_plan.blocks().front().block == orphan_entry);
+    };
+
+    "spirv_structural_closure_follows_raw_indexed_branch_edges"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        auto *selector =
+            function->create_value_argument(Type::of<uint32_t>());
+        auto *entry = function->create_body_block();
+        auto *default_block = function->create_basic_block();
+        auto *case_block = function->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *indexed = builder.indexed_branch(selector);
+        indexed->set_default_block(default_block);
+        indexed->add_case(7u, case_block);
+        builder.set_insertion_point(default_block);
+        builder.return_void();
+        builder.set_insertion_point(case_block);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto closure =
+            lc::spirv::plan_spirv_codegen_structural_closure(function);
+        expect(closure.succeeded());
+        expect(closure.ordinary_block_count == 3u);
+        for (auto *block : {entry, default_block, case_block}) {
+            expect(std::find(closure.blocks.begin(), closure.blocks.end(),
+                             block) != closure.blocks.end());
+        }
+
+        // IndexedBranch is deliberately a raw-CFG instruction. Planning must
+        // see its executable edges, while the final native SPIR-V boundary
+        // remains fail-closed until restructure_cfg rebuilds a Switch merge.
+        expect(!lc::spirv::validate_spirv_xir_codegen_dialect(&module)
+                    .succeeded());
     };
 
     "spirv_plan_physical_loop_boundary_rejects_post_merge_backedge"_test = [] {
@@ -864,6 +900,319 @@ int main(int argc, char *argv[]) {
         expect(validates(words));
         expect(count_opcode(words, spv::Op::OpUnreachable) == 0u)
             << "both nested merges are reachable on the inner true path";
+    };
+
+    "spirv_nested_exit_through_arm_block_stays_reachable"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *inner_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+
+        // restructure_cfg may preserve a one-way inner arm block before the
+        // enclosing selection's merge. This is the normalized shape produced
+        // by a nested break in the AST regression below.
+        builder.set_insertion_point(entry);
+        auto *outer = builder.if_(outer_condition);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+        builder.set_insertion_point(outer_true);
+        builder.return_void();
+        builder.set_insertion_point(outer_false);
+        auto *inner = builder.if_(inner_condition);
+        auto *inner_true = inner->create_true_block();
+        auto *inner_false = inner->create_false_block();
+        auto *inner_merge = inner->create_merge_block();
+        builder.set_insertion_point(inner_true);
+        auto *inner_true_exit = builder.br(outer_merge);
+        builder.set_insertion_point(inner_false);
+        builder.return_void();
+        builder.set_insertion_point(outer_merge);
+        builder.br(inner_merge);
+        builder.set_insertion_point(inner_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module, {.require_unique_merge_blocks = true})
+                   .succeeded());
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(&module)
+                   .succeeded());
+        auto plan = lc::spirv::ControlFlowPlan::create(kernel);
+        expect(plan.nested_selection_merge_rotations().size() == 1u);
+        expect(plan.if_region(outer).merge_target ==
+               lc::spirv::ControlFlowPlan::Target::xir(inner_merge));
+        expect(plan.if_region(inner).merge_target ==
+               lc::spirv::ControlFlowPlan::Target::xir(outer_merge));
+        expect(plan.edge_target(inner_true_exit) ==
+               lc::spirv::ControlFlowPlan::Target::xir(outer_merge))
+            << "the forwarding arm must enter the inner physical merge";
+
+        Kernel1D ast_kernel = [](Bool, Bool) noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        auto compiled = compile_exact_xir(
+            ast_kernel.function()->function(), &module);
+        auto words = luisa::span{compiled.spv_bin};
+        expect(validates(words));
+        expect(count_opcode(words, spv::Op::OpUnreachable) == 0u)
+            << "both nested merges are reachable through the forwarding arm";
+    };
+
+    "spirv_nested_switch_exit_through_arm_chain_preserves_phi"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        auto *zero =
+            module.create_constant_zero(Type::of<uint32_t>());
+        auto *one =
+            module.create_constant_one(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *outer = builder.if_(outer_condition);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+        builder.set_insertion_point(outer_true);
+        builder.return_void();
+        builder.set_insertion_point(outer_false);
+        auto *inner = builder.switch_(selector);
+        auto *case_block = inner->create_case_block(0u);
+        auto *default_block = inner->create_default_block();
+        auto *inner_merge = inner->create_merge_block();
+        auto *forward = kernel->create_basic_block();
+        builder.set_insertion_point(case_block);
+        auto *case_exit = builder.br(forward);
+        builder.set_insertion_point(forward);
+        auto *forward_exit = builder.br(outer_merge);
+        builder.set_insertion_point(default_block);
+        builder.return_void();
+        builder.set_insertion_point(outer_merge);
+        auto *outer_phi = builder.phi(
+            Type::of<uint32_t>(), {{one, forward}});
+        builder.br(inner_merge);
+        builder.set_insertion_point(inner_merge);
+        auto *inner_phi = builder.phi(
+            Type::of<uint32_t>(), {{outer_phi, outer_merge}});
+        builder.call(
+            ResourceWriteOp::BUFFER_WRITE,
+            {buffer, zero, inner_phi});
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module, {.require_unique_merge_blocks = true})
+                   .succeeded());
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(&module)
+                   .succeeded());
+        auto plan = lc::spirv::ControlFlowPlan::create(kernel);
+        expect(plan.nested_selection_merge_rotations().size() == 1u);
+        expect(plan.if_region(outer).merge_target ==
+               lc::spirv::ControlFlowPlan::Target::xir(inner_merge));
+        expect(plan.switch_region(inner).merge_target ==
+               lc::spirv::ControlFlowPlan::Target::xir(outer_merge));
+        expect(plan.edge_target(case_exit) ==
+               lc::spirv::ControlFlowPlan::Target::xir(forward));
+        expect(plan.edge_target(forward_exit) ==
+               lc::spirv::ControlFlowPlan::Target::xir(outer_merge))
+            << "the final arm-chain edge must enter the inner physical merge";
+
+        Kernel1D ast_kernel = [](
+                                  BufferUInt, Bool,
+                                  UInt) noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        auto compiled = compile_exact_xir(
+            ast_kernel.function()->function(), &module);
+        auto words = luisa::span{compiled.spv_bin};
+        expect(validates(words));
+        expect(count_opcode(words, spv::Op::OpPhi) == 3u)
+            << "both live merge payloads plus the dispatch-metadata Phi "
+               "must be present";
+        expect(count_opcode(words, spv::Op::OpUnreachable) == 0u);
+    };
+
+    "spirv_nested_exit_multiple_arm_predecessors_are_rejected"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *inner_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *outer = builder.if_(outer_condition);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+        builder.set_insertion_point(outer_true);
+        builder.return_void();
+        builder.set_insertion_point(outer_false);
+        auto *inner = builder.if_(inner_condition);
+        auto *inner_true = inner->create_true_block();
+        auto *inner_false = inner->create_false_block();
+        auto *inner_merge = inner->create_merge_block();
+        builder.set_insertion_point(inner_true);
+        builder.br(outer_merge);
+        builder.set_insertion_point(inner_false);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.br(inner_merge);
+        builder.set_insertion_point(inner_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module, {.require_unique_merge_blocks = true})
+                   .succeeded());
+        auto validation = lc::spirv::ControlFlowPlan::
+            validate_function_physical_loop_boundaries(kernel);
+        expect(!validation.planning_succeeded());
+        expect(validation.planning_diagnostic.find(
+                   "additional logical predecessors") !=
+               luisa::string::npos);
+    };
+
+    "spirv_loop_multiple_breaks_nested_if_and_continue_validates"_test = [] {
+        Kernel1D kernel = [](BufferUInt output,
+                             Bool a, Bool b, Bool c, Bool d) noexcept {
+            $loop {
+                $if (a) {
+                    $break;
+                };
+                $if (b) {
+                    $if (c) {
+                        $break;
+                    };
+                };
+                $if (d) {
+                    $continue;
+                };
+            };
+            output.write(0u, 1u);
+        };
+
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv(
+            kernel.function()->function(),
+            ShaderOption{.enable_cache = false});
+        auto words = luisa::span{compiled.spv_bin};
+        expect(validates(words))
+            << "multiple loop breaks, a nested selection, and a continue must "
+               "produce valid Vulkan 1.2 structured control flow";
+        expect(count_opcode(words, spv::Op::OpUnreachable) == 0u)
+            << "the nested break merge path must remain reachable";
+    };
+
+    "spirv_loop_switch_nested_exits_preserve_phi"_test = [] {
+        Kernel1D kernel = [](BufferUInt output, UInt selector,
+                             UInt seed, Bool a, Bool b,
+                             Bool c, Bool d) noexcept {
+            UInt value = seed;
+            $loop {
+                value += 1u;
+                $if (a) {
+                    $if (b) {
+                        value += 2u;
+                        $break;
+                    }
+                    $else {
+                        $if (c) {
+                            value += 3u;
+                            $continue;
+                        };
+                    };
+                };
+                $switch (selector) {
+                    $case (0u) {
+                        value += 4u;
+                    };
+                    $case (1u) {
+                        $if (d) {
+                            value += 5u;
+                            $continue;
+                        };
+                    };
+                    $default {
+                        value += 6u;
+                    };
+                };
+                value += 7u;
+                $break;
+            };
+            output.write(0u, value);
+        };
+
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv(
+            kernel.function()->function(),
+            ShaderOption{.enable_cache = false});
+        auto words = luisa::span{compiled.spv_bin};
+        expect(validates(words));
+        expect(count_opcode(words, spv::Op::OpLoopMerge) == 1u);
+        expect(count_opcode(words, spv::Op::OpSwitch) == 1u);
+        expect(count_opcode(words, spv::Op::OpPhi) >= 1u)
+            << "the value crossing break, continue, and switch exits must "
+               "remain SSA after CFG restructuring";
+    };
+
+    "spirv_nested_loops_alternating_break_continue_preserve_phi"_test = [] {
+        Kernel1D kernel = [](BufferUInt output, UInt seed,
+                             Bool outer_break, Bool inner_break,
+                             Bool inner_continue,
+                             Bool outer_continue) noexcept {
+            UInt value = seed;
+            $loop {
+                value += 1u;
+                $if (outer_break) {
+                    $break;
+                };
+                $loop {
+                    value += 2u;
+                    $if (inner_break) {
+                        $break;
+                    };
+                    $if (inner_continue) {
+                        value += 3u;
+                        $continue;
+                    };
+                    value += 4u;
+                    $break;
+                };
+                $if (outer_continue) {
+                    value += 5u;
+                    $continue;
+                };
+                value += 6u;
+                $break;
+            };
+            output.write(0u, value);
+        };
+
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv(
+            kernel.function()->function(),
+            ShaderOption{.enable_cache = false});
+        auto words = luisa::span{compiled.spv_bin};
+        expect(validates(words));
+        expect(count_opcode(words, spv::Op::OpLoopMerge) == 2u);
+        expect(count_opcode(words, spv::Op::OpPhi) >= 1u)
+            << "values crossing both loop continue constructs must remain SSA";
     };
 
     "spirv_plan_separates_selection_merge_from_simple_loop_body"_test = [] {
