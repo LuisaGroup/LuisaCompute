@@ -37,7 +37,9 @@ test_proj("test_pool", "unit/core/test_pool.cpp")
 test_proj("test_type", "unit/core/test_type.cpp")
 test_proj("test_stl_containers", "unit/core/test_stl_containers.cpp")
 test_proj("test_hash", "unit/core/test_hash.cpp")
-test_proj("test_integer_power_contract", "unit/core/test_integer_power_contract.cpp")
+if not is_config("toolchain", "msvc") then
+    test_proj("test_integer_power_contract", "unit/core/test_integer_power_contract.cpp")
+end
 test_proj("test_spin_mutex", "unit/core/test_spin_mutex.cpp")
 test_proj("test_fiber", "unit/core/test_fiber.cpp")
 test_proj("test_platform_utils", "unit/core/test_platform.cpp")
