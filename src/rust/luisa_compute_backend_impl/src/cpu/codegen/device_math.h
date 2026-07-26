@@ -17,23 +17,6 @@ using lc_ulong = unsigned long long;
     auto u = __float_as_int(x);
     return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
 }
-template<typename T, typename I>
-[[nodiscard]] __device__ inline T powi_impl(T x, I y) noexcept {
-    T r = static_cast<T>(1.0f);
-    auto is_y_neg = y < static_cast<I>(0);
-    // Convert first, then negate in the unsigned domain. This preserves the
-    // magnitude of every signed minimum value and the complete width of every
-    // unsigned exponent.
-    auto y_abs = static_cast<lc_ulong>(y);
-    if (is_y_neg) y_abs = lc_ulong{0} - y_abs;
-
-    while (y_abs != 0u) {
-        if ((y_abs & 1u) != 0u) r *= x;
-        x *= x;
-        y_abs >>= 1;
-    }
-    return is_y_neg ? static_cast<T>(1.0f) / r : r;
-}
 [[nodiscard]] __device__ inline lc_float powf_impl(lc_float x, lc_float y) noexcept {
     auto y_int = static_cast<lc_int>(y);
     return y_int == y ? powi_impl(x, y_int) : powf(x, y);

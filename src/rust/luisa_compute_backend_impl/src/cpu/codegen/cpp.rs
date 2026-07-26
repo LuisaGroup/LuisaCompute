@@ -2066,11 +2066,12 @@ struct Accel;"#;
         let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
         Generated {
             source: format!(
-                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                 defs,
                 CPU_LIBM_DEF,
                 CPU_KERNEL_DEFS,
                 CPU_PRELUDE,
+                DEVICE_MATH_POWI_SRC,
                 DEVICE_MATH_SRC,
                 CPU_RESOURCE,
                 CPU_TEXTURE,
@@ -2089,6 +2090,7 @@ struct Accel;"#;
 
 pub const CPU_PRELUDE: &str = include_str!("cpu_prelude.h");
 pub const CPU_RESOURCE: &str = include_str!("cpu_resource.h");
+pub const DEVICE_MATH_POWI_SRC: &str = include_str!("device_math_powi.h");
 pub const DEVICE_MATH_SRC: &str = include_str!("device_math.h");
 pub const CPU_LIBM_DEF: &str = include_str!("cpu_libm_def.h");
 pub const CPU_KERNEL_DEFS: &str =
