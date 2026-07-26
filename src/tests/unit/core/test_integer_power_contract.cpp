@@ -27,6 +27,8 @@ using __fp16 = _Float16;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+static_assert(std::is_signed_v<lc_byte>);
+
 int main() {
 
     "pow_int_preserves_unsigned_64_bit_parity"_test = [] {

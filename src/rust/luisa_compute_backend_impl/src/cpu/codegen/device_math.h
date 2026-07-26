@@ -1,4 +1,4 @@
-using lc_byte = char;
+using lc_byte = signed char;
 using lc_ubyte = unsigned char;
 using lc_short = short;
 using lc_ushort = unsigned short;

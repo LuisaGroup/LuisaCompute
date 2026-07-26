@@ -42,7 +42,12 @@ luisa_compute_add_test(test_pool               unit/core/test_pool.cpp          
 luisa_compute_add_test(test_type               unit/core/test_type.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_stl_containers     unit/core/test_stl_containers.cpp     LABELS "unit;unit_core")
 luisa_compute_add_test(test_hash               unit/core/test_hash.cpp               LABELS "unit;unit_core")
-luisa_compute_add_test(test_integer_power_contract unit/core/test_integer_power_contract.cpp LABELS "unit;unit_core")
+# Generated CPU device code is compiled by Clang at runtime and intentionally
+# uses Clang extensions such as __fp16 and __builtin_*. Keep its source-level
+# contract test on the host compilers that accept the same dialect.
+if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    luisa_compute_add_test(test_integer_power_contract unit/core/test_integer_power_contract.cpp LABELS "unit;unit_core")
+endif ()
 luisa_compute_add_test(test_spin_mutex         unit/core/test_spin_mutex.cpp         LABELS "unit;unit_core")
 luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp              LABELS "unit;unit_core")
 luisa_compute_add_test(test_platform_utils     unit/core/test_platform.cpp           LABELS "unit;unit_core")
