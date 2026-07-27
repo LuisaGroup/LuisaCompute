@@ -5,7 +5,7 @@
 
 namespace luisa::compute {
 
-class WorkGraphDispatchCommand final : public CustomCommand {
+class WorkGraphDispatchCommand final : public ShaderDispatchCommandBase, public CustomCommand {
 public:
     struct NodeCPUInput {
         size_t _record_count;
@@ -28,18 +28,19 @@ public:
                              size_t record_count,
                              size_t record_stride,
                              void* records) noexcept
-        : _handle(handle), _records(NodeCPUInput(record_count, record_stride, records)) {}
+        : ShaderDispatchCommandBase { handle, {}, 0 }, 
+          _records(NodeCPUInput(record_count, record_stride, records)) {}
 
     WorkGraphDispatchCommand(uint64_t handle,
                              uint64_t gpu_input) noexcept
-        : _handle(handle), _records(NodeGPUInput(gpu_input)) {}
+        : ShaderDispatchCommandBase { handle, {}, 0 },
+          _records(NodeGPUInput(gpu_input)) {}
 
     WorkGraphDispatchCommand(WorkGraphDispatchCommand const &) noexcept = delete;
     WorkGraphDispatchCommand(WorkGraphDispatchCommand &&) noexcept = default;
     ~WorkGraphDispatchCommand() noexcept override = default;
     uint64_t custom_cmd_uuid() const noexcept override { return to_underlying(CustomCommandUUID::WORK_GRAPH_DISPATCH); }
 
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto records() const noexcept { return _records; }
 
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)

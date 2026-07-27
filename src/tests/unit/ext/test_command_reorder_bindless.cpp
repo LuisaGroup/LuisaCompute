@@ -170,6 +170,12 @@ public:
         }
         return {};
     }
+
+    // todo: add work graph to this test
+    [[nodiscard]] luisa::span<const Argument>
+    work_graph_bindings(uint64_t shader_handle) const noexcept {
+        return {}; 
+    }
 };
 
 struct IncompleteBindlessUpdateFuncTable : FakeReorderFuncTable {
