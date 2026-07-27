@@ -22,8 +22,8 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static void clone_metadata(const MetadataListMixin &source,
-                           MetadataListMixin &target) noexcept {
+static void clone_metadata_impl(const MetadataListMixin &source,
+                                       MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
         target.metadata_list().push_front(metadata->clone());
     }
@@ -136,7 +136,7 @@ struct RetargetableHandlerRegion {
     return false;
 }
 
-[[nodiscard]] static bool is_ray_query_object(
+[[nodiscard]] static bool is_ray_query_object_impl(
     const Value *value) noexcept {
     if (value == nullptr || !value->is_lvalue()) { return false; }
     auto *type = value->type();
@@ -180,7 +180,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     auto query_object = dispatch_inst->query_object();
     auto on_surface_block = dispatch_inst->on_surface_candidate_block();
     auto on_procedural_block = dispatch_inst->on_procedural_candidate_block();
-    if (!is_ray_query_object(query_object) ||
+    if (!is_ray_query_object_impl(query_object) ||
         on_surface_block == nullptr || on_procedural_block == nullptr) {
         return reject(
             "RayQueryDispatchInst requires an lvalue LC_RayQueryAll/"
@@ -260,7 +260,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     auto removed_loop = rq_loop->remove_self();
     b.set_insertion_point(parent_block);
     auto loop_inst = b.loop();
-    clone_metadata(*removed_loop, *loop_inst);
+    clone_metadata_impl(*removed_loop, *loop_inst);
     loop_inst->set_merge_block(merge_block);
     auto prepare_block = loop_inst->create_prepare_block();
     auto body_block = loop_inst->create_body_block();
@@ -309,7 +309,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     auto removed_dispatch = dispatch_inst->remove_self();
     // The outer triangle test is the unique replacement for candidate
     // dispatch. The nested procedural test only refines its false arm.
-    clone_metadata(*removed_dispatch, *tri_if);
+    clone_metadata_impl(*removed_dispatch, *tri_if);
     b.set_insertion_point(dispatch_block);
     b.unreachable_();
     auto retarget_handler_branches = [&](BasicBlock *handler_entry, BasicBlock *target) noexcept {
@@ -344,7 +344,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
 }
 
 [[nodiscard]] static luisa::vector<RayQueryLoopInst *>
-collect_ray_query_loops(Function *function) noexcept {
+collect_ray_query_loops_impl(Function *function) noexcept {
     luisa::vector<RayQueryLoopInst *> rq_loops;
     if (function != nullptr) {
         if (auto *def = function->definition()) {
@@ -383,7 +383,7 @@ static void lower_preflighted_ray_query_loops(
 
 static void lower_in_function(
     Function *function, LowerRayQueryLoopToLoopInfo &info) noexcept {
-    auto rq_loops = collect_ray_query_loops(function);
+    auto rq_loops = collect_ray_query_loops_impl(function);
     XIRBuilder b;
     if (!preflight_ray_query_loops(
             luisa::span{rq_loops}, b, info)) {
@@ -413,7 +413,7 @@ LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Modu
         for (auto *function : module->function_list()) {
             work.emplace_back(FunctionWork{
                 .function = function,
-                .loops = detail::collect_ray_query_loops(function)});
+                .loops = detail::collect_ray_query_loops_impl(function)});
         }
         XIRBuilder b;
         auto accepted = true;
