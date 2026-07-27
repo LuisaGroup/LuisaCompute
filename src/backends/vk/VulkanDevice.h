@@ -45,6 +45,7 @@ struct VulkanDevice {
         uint32_t graphics;
         uint32_t compute;
         uint32_t transfer;
+        uint32_t sparse{VK_QUEUE_FAMILY_IGNORED};
     } queue_family_indices;
     operator VkDevice() const {
         return logical_device;
@@ -57,6 +58,5 @@ struct VulkanDevice {
     bool extension_supported(vstd::string_view extension);
     VkFormat get_supported_depth_format(bool check_sampling_support);
     static void init_volk(luisa::filesystem::path const &custom_path, luisa::string_view lib_name);
-    static void force_free_volk();
 };
 }// namespace vks

@@ -28,6 +28,7 @@ private:
     AccelOption _option;
     const Buffer *_scratch_buffer{nullptr};
     uint64_t _scratch_buffer_offset{0};
+    uint32_t _last_primitive_count{0u};
     vstd::fixed_vector<MeshHandle *, 2> _handles;
 
     MeshHandle *_add_accel_ref(Tlas *accel, uint index);

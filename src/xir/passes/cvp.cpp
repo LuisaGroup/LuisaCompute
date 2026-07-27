@@ -10,8 +10,36 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+// A block-dominance query alone is not an edge-dominance proof: every block
+// dominates itself, including an If merge that is also selected as one arm,
+// and a sibling arm may cross-enter the selected arm. The equality fact is
+// valid throughout `entry` only when the selected condition edge is its sole
+// external entry. Predecessors dominated by `entry` are internal back-edges
+// and therefore preserve the immutable SSA fact.
+[[nodiscard]] static bool condition_edge_is_exclusive_entry(
+    IfInst *if_inst, BasicBlock *entry, const DomTree &dom_tree) noexcept {
+    if (if_inst == nullptr || entry == nullptr) { return false; }
+    auto *header = if_inst->parent_block();
+    if (header == nullptr || entry == header ||
+        entry == if_inst->merge_block() ||
+        if_inst->true_block() == if_inst->false_block() ||
+        !dom_tree.contains(entry)) {
+        return false;
+    }
+    auto exclusive = true;
+    entry->traverse_predecessors(
+        false, [&](BasicBlock *predecessor) noexcept {
+            if (predecessor != header &&
+                (!dom_tree.contains(predecessor) ||
+                 !dom_tree.dominates(entry, predecessor))) {
+                exclusive = false;
+            }
+        });
+    return exclusive;
+}
+
 static void cvp_pass_on_function(FunctionDefinition *def, CVPInfo &info) noexcept {
-    if (def->body_block() == nullptr) { return; }
+    if (def == nullptr || def->body_block() == nullptr) { return; }
 
     auto dom_tree = compute_dom_tree(def);
 
@@ -72,7 +100,10 @@ static void cvp_pass_on_function(FunctionDefinition *def, CVPInfo &info) noexcep
             target_block = if_inst->false_block();
         }
 
-        if (target_block == nullptr) { continue; }
+        if (!condition_edge_is_exclusive_entry(
+                if_inst, target_block, dom_tree)) {
+            continue;
+        }
 
         // Collect uses of var that are in blocks dominated by target_block.
         luisa::vector<Use *> uses_to_replace;
@@ -80,7 +111,13 @@ static void cvp_pass_on_function(FunctionDefinition *def, CVPInfo &info) noexcep
             auto user = use->user();
             if (user == nullptr || !user->isa<Instruction>()) { continue; }
             auto user_block = static_cast<Instruction *>(user)->parent_block();
-            if (dom_tree.dominates(target_block, user_block)) {
+            // Value use lists include instructions in disconnected blocks,
+            // while the dominator tree is intentionally limited to the CFG
+            // reachable from the function body. No edge fact has been proved
+            // for a use outside that analysis domain.
+            if (user_block != nullptr &&
+                dom_tree.contains(user_block) &&
+                dom_tree.dominates(target_block, user_block)) {
                 // Don't replace the condition itself — it's in the IfInst's
                 // parent block which is not dominated by target_block anyway.
                 uses_to_replace.push_back(use);
@@ -107,9 +144,11 @@ CVPInfo cvp_pass_run_on_function(FunctionDefinition *def) noexcept {
 
 CVPInfo cvp_pass_run_on_module(Module *module, PassReport *report) noexcept {
     CVPInfo info;
-    for (auto f : module->function_list()) {
-        if (auto def = f->definition()) {
-            detail::cvp_pass_on_function(def, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (auto def = f->definition()) {
+                detail::cvp_pass_on_function(def, info);
+            }
         }
     }
     if (report != nullptr) {

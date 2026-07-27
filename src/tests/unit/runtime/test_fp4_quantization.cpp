@@ -15,6 +15,7 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/dsl/sugar.h>
+#include <algorithm>
 #include <random>
 #include <cmath>
 #include <limits>
@@ -48,11 +49,15 @@ float compute_fp4_scale(luisa::span<const float> data) {
     return std::max(scale, std::numeric_limits<float>::min());
 }
 
-void quantize_to_fp4_bits(luisa::span<const float> src, std::vector<uint8_t> &dst, float scale) {
+void quantize_to_fp4_bits(luisa::span<const float> src, std::vector<uint8_t> &dst,
+                          float scale, bool round_input_to_half = false) {
     size_t packed_size = (src.size() + 1) / 2;
     dst.resize(packed_size);
     for (size_t i = 0; i < src.size(); ++i) {
         float q = std::clamp(src[i] / scale, -kFp4E2M1Max, kFp4E2M1Max);
+        if (round_input_to_half) {
+            q = static_cast<float>(half{q});
+        }
         uint8_t nibble = FP4E2M1::from_float(q);
         size_t byte_idx = i / 2;
         if (i % 2 == 0) {
@@ -98,6 +103,7 @@ void mlp_cpu_fp32(luisa::span<const float> input,
 void mlp_cpu_fp4_simulated(luisa::span<const float> input,
                            luisa::span<const float> w1, luisa::span<const float> b1,
                            luisa::span<const float> w2, luisa::span<const float> b2,
+                           luisa::span<float> hidden_output,
                            luisa::span<float> output) {
     // Per-tensor FP4 E2M1 weight quantization
     std::vector<uint8_t> w1_q((w1.size() + 1) / 2);
@@ -111,7 +117,7 @@ void mlp_cpu_fp4_simulated(luisa::span<const float> input,
     // layer 1: dynamic activation quantization
     float x_scale = compute_fp4_scale(input);
     std::vector<uint8_t> x_q((input.size() + 1) / 2);
-    quantize_to_fp4_bits(input, x_q, x_scale);
+    quantize_to_fp4_bits(input, x_q, x_scale, true);
 
     for (uint m = 0; m < kBatch; ++m) {
         for (uint n = 0; n < kHiddenDim; ++n) {
@@ -124,11 +130,12 @@ void mlp_cpu_fp4_simulated(luisa::span<const float> input,
             hidden[m * kHiddenDim + n] = std::max(acc, 0.0f);
         }
     }
+    std::copy(hidden.cbegin(), hidden.cend(), hidden_output.begin());
 
     // layer 2: dynamic activation quantization
     float h_scale = compute_fp4_scale(hidden);
     std::vector<uint8_t> h_q((hidden.size() + 1) / 2);
-    quantize_to_fp4_bits(hidden, h_q, h_scale);
+    quantize_to_fp4_bits(hidden, h_q, h_scale, true);
 
     for (uint m = 0; m < kBatch; ++m) {
         for (uint n = 0; n < kOutDim; ++n) {
@@ -175,13 +182,14 @@ int main(int argc, char *argv[]) {
 
     // CPU references
     luisa::vector<float> cpu_fp32_out(kBatch * kOutDim);
+    luisa::vector<float> cpu_fp4_hidden(kBatch * kHiddenDim);
     luisa::vector<float> cpu_fp4_out(kBatch * kOutDim);
 
     Clock cpu_clock;
     mlp_cpu_fp32(input, w1, b1, w2, b2, cpu_fp32_out);
     auto cpu_fp32_ms = cpu_clock.toc();
     cpu_clock.tic();
-    mlp_cpu_fp4_simulated(input, w1, b1, w2, b2, cpu_fp4_out);
+    mlp_cpu_fp4_simulated(input, w1, b1, w2, b2, cpu_fp4_hidden, cpu_fp4_out);
     auto cpu_fp4_ms = cpu_clock.toc();
 
     // Pre-quantize weights for GPU (packed nibbles, transposed to [N, K])
@@ -293,7 +301,10 @@ int main(int argc, char *argv[]) {
     luisa::vector<float> hidden_host(kBatch * kHiddenDim);
     stream << hidden_buffer.copy_to(luisa::span{hidden_host})
            << synchronize();
-    float h_scale = compute_fp4_scale(hidden_host);
+    // Use the independent CPU reference scale. Deriving the scale from the GPU
+    // output would let a broken first layer influence (and partially mask) the
+    // second-layer check.
+    float h_scale = compute_fp4_scale(cpu_fp4_hidden);
 
     stream << matmul_shader(hidden_buffer, w2_buffer, b2_buffer, output_buffer,
                             kBatch, kOutDim, kHiddenDim, h_scale, w_scales[1])
@@ -304,11 +315,25 @@ int main(int argc, char *argv[]) {
     stream << output_buffer.copy_to(luisa::span{gpu_out})
            << synchronize();
 
-    // Validation: max absolute error and MSE
+    // Quantization quality is informational; backend correctness is checked
+    // directly against the independently simulated FP4 algorithm.
     float max_diff_fp4 = 0.0f;
     float mse_fp4 = 0.0f;
     float max_diff_gpu = 0.0f;
     float mse_gpu = 0.0f;
+    float max_diff_hidden_oracle = 0.0f;
+    float max_diff_output_oracle = 0.0f;
+    auto oracle_ok = true;
+    constexpr auto abs_tolerance = 2e-3f;
+    constexpr auto rel_tolerance = 2e-3f;
+    for (uint i = 0; i < kBatch * kHiddenDim; ++i) {
+        auto actual = hidden_host[i];
+        auto expected = cpu_fp4_hidden[i];
+        auto diff = std::abs(actual - expected);
+        max_diff_hidden_oracle = std::max(max_diff_hidden_oracle, diff);
+        oracle_ok &= std::isfinite(actual) &&
+                     diff <= abs_tolerance + rel_tolerance * std::abs(expected);
+    }
     for (uint i = 0; i < kBatch * kOutDim; ++i) {
         float diff_fp4 = cpu_fp32_out[i] - cpu_fp4_out[i];
         float diff_gpu = cpu_fp32_out[i] - gpu_out[i];
@@ -316,6 +341,10 @@ int main(int argc, char *argv[]) {
         mse_fp4 += diff_fp4 * diff_fp4;
         max_diff_gpu = std::max(max_diff_gpu, std::abs(diff_gpu));
         mse_gpu += diff_gpu * diff_gpu;
+        auto oracle_diff = std::abs(gpu_out[i] - cpu_fp4_out[i]);
+        max_diff_output_oracle = std::max(max_diff_output_oracle, oracle_diff);
+        oracle_ok &= std::isfinite(gpu_out[i]) &&
+                     oracle_diff <= abs_tolerance + rel_tolerance * std::abs(cpu_fp4_out[i]);
     }
     mse_fp4 /= static_cast<float>(kBatch * kOutDim);
     mse_gpu /= static_cast<float>(kBatch * kOutDim);
@@ -325,10 +354,12 @@ int main(int argc, char *argv[]) {
     size_t fp4_weight_bytes = w1_q_bits.size() + w2_q_bits.size();
     float compression_ratio = static_cast<float>(fp32_weight_bytes) / static_cast<float>(fp4_weight_bytes);
 
-    // GPU Warmup (10 iterations)
+    // Keep this correctness test quick; performance belongs in a benchmark.
     Clock warmup_clock;
     auto cmdlist = CommandList::create();
-    for (int iter = 0; iter < 10; ++iter) {
+    constexpr auto warmup_iterations = 2;
+    constexpr auto timed_iterations = 8;
+    for (int iter = 0; iter < warmup_iterations; ++iter) {
         cmdlist << matmul_shader(input_buffer, w1_buffer, b1_buffer, hidden_buffer,
                                 kBatch, kHiddenDim, kInDim, x_scale, w_scales[0])
                           .dispatch(kHiddenDim * warp_size, kBatch)
@@ -340,9 +371,8 @@ int main(int argc, char *argv[]) {
     stream << cmdlist.commit() << synchronize();
     auto warmup_ms = warmup_clock.toc();
 
-    // GPU Timed dispatch (128 iterations, batched via CommandList)
     Clock timed_clock;
-    for (int iter = 0; iter < 128; ++iter) {
+    for (int iter = 0; iter < timed_iterations; ++iter) {
         cmdlist << matmul_shader(input_buffer, w1_buffer, b1_buffer, hidden_buffer,
                                  kBatch, kHiddenDim, kInDim, x_scale, w_scales[0])
                            .dispatch(kHiddenDim * warp_size, kBatch)
@@ -358,15 +388,19 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("CPU FP32 time: {:.4f} ms", cpu_fp32_ms);
     LUISA_INFO("CPU FP4  time: {:.4f} ms", cpu_fp4_ms);
 
-    LUISA_INFO("GPU warmup time (10 iters): {:.4f} ms", warmup_ms);
-    LUISA_INFO("GPU timed time (128 iters): {:.4f} ms", timed_ms);
-    LUISA_INFO("GPU timed per-iter: {:.4f} ms", timed_ms / 128.0);
+    LUISA_INFO("GPU warmup time ({} iters): {:.4f} ms", warmup_iterations, warmup_ms);
+    LUISA_INFO("GPU timed time ({} iters): {:.4f} ms", timed_iterations, timed_ms);
+    LUISA_INFO("GPU timed per-iter: {:.4f} ms", timed_ms / timed_iterations);
     LUISA_INFO("CPU FP4 vs FP32: max_diff={:.6f}, mse={:.6f}", max_diff_fp4, mse_fp4);
     LUISA_INFO("GPU vs CPU FP32: max_diff={:.6f}, mse={:.6f}", max_diff_gpu, mse_gpu);
+    LUISA_INFO("GPU vs FP4 oracle: hidden max_diff={:.6f}, output max_diff={:.6f}",
+               max_diff_hidden_oracle, max_diff_output_oracle);
     LUISA_INFO("Weight compression ratio (FP32/FP4): {:.2f}x", compression_ratio);
 
-    float threshold = 2.0f;
-    if (max_diff_gpu > threshold) {
-        LUISA_ERROR("GPU result deviation too large: {}", max_diff_gpu);
+    if (!oracle_ok) {
+        LUISA_ERROR("GPU result does not match the FP4 CPU oracle (hidden {}, output {}).",
+                    max_diff_hidden_oracle, max_diff_output_oracle);
+        return 1;
     }
+    return 0;
 }

@@ -954,7 +954,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                 arg_usage);
             return fb->call(type, callable, luisa::span{converted_args});
         }
-        case ir::Func::Tag::Unknown0: [[fallthrough]];
+        case ir::Func::Tag::Rint: return builtin_func(1, CallOp::RINT);
         case ir::Func::Tag::Unknown1: LUISA_NOT_IMPLEMENTED();
         case ir::Func::Tag::ShaderExecutionReorder: return builtin_func(2, CallOp::SHADER_EXECUTION_REORDER);
 

@@ -57,9 +57,8 @@ void reg_coro_frame_static() {
 }
 
 void reg_coro_frame_runtime(Device &device) {
-    Stream stream = device.create_stream();
-
-    "coro_frame_coro_id_assign_and_read"_test = [&] {
+    "coro_frame_coro_id_assign_and_read"_test = [&device] {
+        Stream stream = device.create_stream();
         // coro_id is a UInt3 Var member - can assign and read back
         CoroFrameDesc desc;
         desc.add_field("val", Type::of<float>());
@@ -84,7 +83,8 @@ void reg_coro_frame_runtime(Device &device) {
         expect(host[2] == 30u);
     };
 
-    "coro_frame_target_token_assign_and_read"_test = [&] {
+    "coro_frame_target_token_assign_and_read"_test = [&device] {
+        Stream stream = device.create_stream();
         // target_token is a UInt Var member - can assign and read back
         CoroFrameDesc desc;
         desc.add_field("val", Type::of<float>());
@@ -105,7 +105,8 @@ void reg_coro_frame_runtime(Device &device) {
         expect(host[0] == 42u);
     };
 
-    "coro_frame_get_by_index_type_check"_test = [&] {
+    "coro_frame_get_by_index_type_check"_test = [&device] {
+        Stream stream = device.create_stream();
         // get<T>(index) returns Var<T> - verify by writing to typed buffer
         CoroFrameDesc desc;
         desc.add_field("fval", Type::of<float>());
@@ -117,10 +118,12 @@ void reg_coro_frame_runtime(Device &device) {
         auto uint_buf = device.create_buffer<uint>(1u);
         Kernel1D k = [&desc, &float_buf, &int_buf, &uint_buf]() noexcept {
             auto frame = CoroFrame::create(&desc);
-            // get<T>(index) compiles and returns correct types
             auto fv = frame.get<float>(0u);
             auto iv = frame.get<int>(1u);
             auto uv = frame.get<uint>(2u);
+            fv = 1.25f;
+            iv = -17;
+            uv = 42u;
             float_buf->write(0u, fv);
             int_buf->write(0u, iv);
             uint_buf->write(0u, uv);
@@ -135,13 +138,13 @@ void reg_coro_frame_runtime(Device &device) {
         stream << float_buf.copy_to(luisa::span{fhost}) << synchronize();
         stream << int_buf.copy_to(luisa::span{ihost}) << synchronize();
         stream << uint_buf.copy_to(luisa::span{uhost}) << synchronize();
-        // Just verify buffers were written (values depend on init, not checked)
-        expect(fhost.size() == 1u);
-        expect(ihost.size() == 1u);
-        expect(uhost.size() == 1u);
+        expect(fhost[0] == 1.25f);
+        expect(ihost[0] == -17);
+        expect(uhost[0] == 42u);
     };
 
-    "coro_frame_get_by_name_type_check"_test = [&] {
+    "coro_frame_get_by_name_type_check"_test = [&device] {
+        Stream stream = device.create_stream();
         // get<T>(name) looks up field and returns Var<T>
         CoroFrameDesc desc;
         desc.add_field("alpha", Type::of<float>());
@@ -151,8 +154,12 @@ void reg_coro_frame_runtime(Device &device) {
         auto beta_buf = device.create_buffer<uint>(1u);
         Kernel1D k = [&desc, &alpha_buf, &beta_buf]() noexcept {
             auto frame = CoroFrame::create(&desc);
-            alpha_buf->write(0u, frame.get<float>("alpha"));
-            beta_buf->write(0u, frame.get<uint>("beta"));
+            auto alpha = frame.get<float>("alpha");
+            auto beta = frame.get<uint>("beta");
+            alpha = -3.5f;
+            beta = 99u;
+            alpha_buf->write(0u, alpha);
+            beta_buf->write(0u, beta);
         };
 
         auto shader = device.compile(k);
@@ -162,11 +169,12 @@ void reg_coro_frame_runtime(Device &device) {
         luisa::vector<uint> bhost(1u);
         stream << alpha_buf.copy_to(luisa::span{ahost}) << synchronize();
         stream << beta_buf.copy_to(luisa::span{bhost}) << synchronize();
-        expect(ahost.size() == 1u);
-        expect(bhost.size() == 1u);
+        expect(ahost[0] == -3.5f);
+        expect(bhost[0] == 99u);
     };
 
-    "coro_frame_is_terminated_false"_test = [&] {
+    "coro_frame_is_terminated_false"_test = [&device] {
+        Stream stream = device.create_stream();
         // target_token = 0, so is_terminated() should be false
         CoroFrameDesc desc;
         desc.add_field("val", Type::of<float>());
@@ -191,7 +199,8 @@ void reg_coro_frame_runtime(Device &device) {
         expect(host[0] == 0);
     };
 
-    "coro_frame_is_terminated_true"_test = [&] {
+    "coro_frame_is_terminated_true"_test = [&device] {
+        Stream stream = device.create_stream();
         // Set target_token = TERMINAL_TOKEN, is_terminated() should be true
         CoroFrameDesc desc;
         desc.add_field("val", Type::of<float>());
@@ -216,7 +225,8 @@ void reg_coro_frame_runtime(Device &device) {
         expect(host[0] == 1);
     };
 
-    "coro_frame_is_terminated_transition"_test = [&] {
+    "coro_frame_is_terminated_transition"_test = [&device] {
+        Stream stream = device.create_stream();
         // Verify terminal detection works when target_token changes
         CoroFrameDesc desc;
         desc.add_field("val", Type::of<float>());
@@ -254,7 +264,8 @@ void reg_coro_frame_runtime(Device &device) {
         expect(host[1] == 1);// terminated
     };
 
-    "coro_frame_desc_accessor"_test = [&] {
+    "coro_frame_desc_accessor"_test = [&device] {
+        Stream stream = device.create_stream();
         // desc() returns the descriptor pointer
         CoroFrameDesc desc;
         desc.add_field("val", Type::of<float>());
@@ -274,8 +285,9 @@ void reg_coro_frame_runtime(Device &device) {
         expect(host[0] == 1u);
     };
 
-    "coro_frame_create_factory"_test = [&] {
-        // create() factory works same as explicit constructor
+    "coro_frame_create_factory_storage"_test = [&device] {
+        Stream stream = device.create_stream();
+        // create() exposes writable payload storage
         CoroFrameDesc desc;
         desc.add_field("x", Type::of<float>());
         desc.add_field("y", Type::of<int>());
@@ -284,8 +296,12 @@ void reg_coro_frame_runtime(Device &device) {
         auto y_buf = device.create_buffer<int>(1u);
         Kernel1D k = [&desc, &x_buf, &y_buf]() noexcept {
             auto frame = CoroFrame::create(&desc);
-            x_buf->write(0u, frame.get<float>("x"));
-            y_buf->write(0u, frame.get<int>("y"));
+            auto x = frame.get<float>("x");
+            auto y = frame.get<int>("y");
+            x = 6.25f;
+            y = -31;
+            x_buf->write(0u, x);
+            y_buf->write(0u, y);
         };
 
         auto shader = device.compile(k);
@@ -295,11 +311,12 @@ void reg_coro_frame_runtime(Device &device) {
         luisa::vector<int> yhost(1u);
         stream << x_buf.copy_to(luisa::span{xhost}) << synchronize();
         stream << y_buf.copy_to(luisa::span{yhost}) << synchronize();
-        expect(xhost.size() == 1u);
-        expect(yhost.size() == 1u);
+        expect(xhost[0] == 6.25f);
+        expect(yhost[0] == -31);
     };
 
-    "coro_frame_multiple_fields"_test = [&] {
+    "coro_frame_multiple_fields"_test = [&device] {
+        Stream stream = device.create_stream();
         // Multiple fields of different types accessible through frame
         CoroFrameDesc desc;
         desc.add_field("position", Type::of<float3>());
@@ -313,6 +330,9 @@ void reg_coro_frame_runtime(Device &device) {
             auto pos = frame.get<float3>("position");
             auto col = frame.get<float4>("color");
             auto flg = frame.get<uint>("flags");
+            pos = make_float3(1.0f, 2.0f, 3.0f);
+            col = make_float4(4.0f, 5.0f, 6.0f, 7.0f);
+            flg = 0x12345678u;
             fbuf->write(0u, pos.x);
             fbuf->write(1u, pos.y);
             fbuf->write(2u, pos.z);
@@ -330,8 +350,10 @@ void reg_coro_frame_runtime(Device &device) {
         luisa::vector<uint> uhost(1u);
         stream << fbuf.copy_to(luisa::span{fhost}) << synchronize();
         stream << ubuf.copy_to(luisa::span{uhost}) << synchronize();
-        expect(fhost.size() == 7u);
-        expect(uhost.size() == 1u);
+        for (auto i = 0u; i < fhost.size(); i++) {
+            expect(fhost[i] == static_cast<float>(i + 1u));
+        }
+        expect(uhost[0] == 0x12345678u);
     };
 }
 
@@ -353,20 +375,12 @@ void reg_coro_frame_type_checks() {
     };
 
     "get_by_index_returns_var_type"_test = [] {
-        CoroFrameDesc desc;
-        desc.add_field("fval", Type::of<float>());
-        desc.add_field("ival", Type::of<int>());
-        expect(desc.field_count() == 2u);
-        expect(desc.field(0u).type == Type::of<float>());
-        expect(desc.field(1u).type == Type::of<int>());
+        expect(std::is_same_v<decltype(std::declval<const CoroFrame &>().get<float>(0u)), Var<float>>);
+        expect(std::is_same_v<decltype(std::declval<const CoroFrame &>().get<int>(1u)), Var<int>>);
     };
 
     "get_by_name_returns_var_type"_test = [] {
-        CoroFrameDesc desc;
-        desc.add_field("alpha", Type::of<float>());
-        auto *field = desc.field("alpha");
-        expect(field != nullptr);
-        expect(field->type == Type::of<float>());
+        expect(std::is_same_v<decltype(std::declval<const CoroFrame &>().get<float>(luisa::string_view{})), Var<float>>);
     };
 
     "is_terminated_returns_bool"_test = [] {
@@ -378,15 +392,14 @@ void reg_coro_frame_type_checks() {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto options = luisa::test::coro_test::parse_options(argc, argv);
 
     // Type checks run without a device
     reg_coro_frame_static();
     reg_coro_frame_type_checks();
 
-    auto options = luisa::test::coro_test::parse_options(argc, argv);
     auto dc = luisa::test::coro_test::create_device(options);
     reg_coro_frame_runtime(dc.device);
 
-    return 0;
+    return luisa::test::coro_test::run_tests(argc, argv);
 }

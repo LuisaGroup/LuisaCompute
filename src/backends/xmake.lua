@@ -2,18 +2,18 @@ includes("common")
 target("lc_backend_sdk")
 do
     set_kind("phony")
-    local libnames = {}
-    if os.host() == "windows" and (has_config("lc_dx_backend") or has_config("lc_vk_backend")) then
-        table.insert(libnames, 'dx_sdk')
-    end
-    if os.host() == "linux" and os.arch() == "x86_64" and has_config("lc_vk_backend") then
-        table.insert(libnames, 'vk_sdk')
-    end
-    if #libnames > 0 then
-        add_rules('lc_install_sdk', {
-            libnames = libnames
-        })
-    end
+    -- local libnames = {}
+    -- if os.host() == "windows" and (has_config("lc_dx_backend") or has_config("lc_vk_backend")) then
+    --     table.insert(libnames, 'dx_sdk')
+    -- end
+    -- if os.host() == "linux" and os.arch() == "x86_64" and has_config("lc_vk_backend") then
+    --     table.insert(libnames, 'vk_sdk')
+    -- end
+    -- if #libnames > 0 then
+    --     add_rules('lc_install_sdk', {
+    --         libnames = libnames
+    --     })
+    -- end
 end
 target_end()
 

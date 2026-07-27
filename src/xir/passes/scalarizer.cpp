@@ -40,6 +40,9 @@ compute_scalarizable_set(FunctionDefinition *def) noexcept {
     def->traverse_instructions([&](Instruction *inst) noexcept {
         auto ty = inst->type();
         if (ty == nullptr || !ty->is_vector()) return;
+        // Scalarization has several lane values and sometimes no aggregate
+        // reconstruction, so there is no single replacement metadata owner.
+        if (!inst->metadata_list().empty()) return;
         if (inst->isa<ArithmeticInst>()) {
             auto arith = static_cast<ArithmeticInst *>(inst);
             if (is_per_component_op(arith->op())) {
@@ -79,7 +82,6 @@ compute_scalarizable_set(FunctionDefinition *def) noexcept {
     auto idx_const = make_index_constant(module, component);
     auto extract = builder.call(elem_type, ArithmeticOp::EXTRACT,
                                 {vector_val, idx_const});
-    scalar_map[key] = extract;
     return extract;
 }
 
@@ -105,6 +107,7 @@ build_scalar_operands(Instruction *inst, uint32_t component,
 }
 
 static void scalarize_on_function(FunctionDefinition *def, ScalarizerInfo &info) noexcept {
+    if (def == nullptr || def->body_block() == nullptr) { return; }
     auto module = def->parent_module();
     if (module == nullptr) return;
     auto scalarizable = compute_scalarizable_set(def);
@@ -114,11 +117,13 @@ static void scalarize_on_function(FunctionDefinition *def, ScalarizerInfo &info)
     luisa::unordered_map<ScalarKey, Value *, ScalarKeyHash> scalar_map;
 
     luisa::vector<Instruction *> worklist;
+    luisa::vector<Instruction *> transformed;
     def->traverse_instructions([&](Instruction *inst) noexcept {
         if (scalarizable.count(inst)) {
             worklist.push_back(inst);
         }
     });
+    transformed.reserve(worklist.size());
 
     for (auto inst : worklist) {
         auto vec_type = inst->type();
@@ -147,9 +152,13 @@ static void scalarize_on_function(FunctionDefinition *def, ScalarizerInfo &info)
             scalar_map[key] = scalar_result;
         }
         info.scalarized_inst_count++;
+        transformed.emplace_back(inst);
     }
 
-    for (auto inst : worklist) {
+    // Only erase instructions for which scalar replacements were actually
+    // built. Dead candidates are deliberately left to DCE; erasing them here
+    // would mutate the IR while reporting scalarized_inst_count == 0.
+    for (auto inst : transformed) {
         auto vec_type = inst->type();
         auto dim = vec_type->dimension();
         auto replacement = [&]() noexcept -> Value * {
@@ -183,6 +192,10 @@ ScalarizerInfo scalarizer_pass_run_on_function(FunctionDefinition *def) noexcept
 
 ScalarizerInfo scalarizer_pass_run_on_module(Module *module, PassReport *report) noexcept {
     ScalarizerInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("scalarized_inst", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         if (auto def = f->definition()) {
             detail::scalarize_on_function(def, info);

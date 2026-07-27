@@ -230,3 +230,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN AND
         (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV OR LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV))
     add_subdirectory(spirv)
 endif ()
+if (LUISA_COMPUTE_ENABLE_VULKAN AND
+        LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+    add_subdirectory(spirv_llvm)
+endif ()

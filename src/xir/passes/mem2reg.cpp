@@ -6,6 +6,8 @@
 #include <luisa/xir/passes/transpose_gep.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/name.h>
 
 #include "helpers.h"
 
@@ -17,6 +19,21 @@ namespace detail {
     AllocaInst *inst,
     const luisa::unordered_set<BasicBlock *> &reachable_blocks) noexcept {
     if (inst->op() != AllocaOp::LOCAL) { return false; }
+    // A reg2mem spill slot carries synthetic provenance metadata that mem2reg
+    // is specifically responsible for consuming. Other annotated allocas need
+    // a distinct storage owner and are therefore not promotable.
+    auto is_reg2mem_spill =
+        inst->find_metadata<Reg2MemSpillMD>() != nullptr;
+    const NameMD *spill_reload_name = nullptr;
+    if (!is_reg2mem_spill) {
+        for (auto *metadata : inst->metadata_list()) {
+            // AST locals carry a debug name by default. A name describes the
+            // logical variable rather than the storage operation, so it can
+            // be copied to every Phi created for that variable. Other alloca
+            // metadata has no unique SSA owner and remains a hard boundary.
+            if (!metadata->isa<NameMD>()) { return false; }
+        }
+    }
     for (auto &&use : inst->use_list()) {
         LUISA_DEBUG_ASSERT(use->user() != nullptr && use->user()->isa<Instruction>(), "Invalid user.");
         auto user_inst = static_cast<Instruction *>(use->user());
@@ -28,8 +45,32 @@ namespace detail {
             parent == nullptr || !reachable_blocks.contains(parent)) {
             return false;
         }
-        if (user_inst->isa<LoadInst>()) { continue; }
+        if (user_inst->isa<LoadInst>()) {
+            // Replacing an annotated load with a shared SSA value has no
+            // unique metadata owner. The one exception is a variable name on
+            // a synthetic reg2mem reload: it came from the lowered Phi and is
+            // copied back to every Phi reconstructed for the spill slot.
+            if (!user_inst->metadata_list().empty()) {
+                if (!is_reg2mem_spill) { return false; }
+                for (auto *metadata :
+                     user_inst->metadata_list()) {
+                    if (!metadata->isa<NameMD>()) {
+                        return false;
+                    }
+                    auto *name =
+                        static_cast<const NameMD *>(metadata);
+                    if (spill_reload_name != nullptr &&
+                        spill_reload_name->name() !=
+                            name->name()) {
+                        return false;
+                    }
+                    spill_reload_name = name;
+                }
+            }
+            continue;
+        }
         if (!user_inst->isa<StoreInst>()) { return false; }
+        if (!user_inst->metadata_list().empty()) { return false; }
         // Reject allocas whose pointer value escapes via being stored.
         if (static_cast<StoreInst *>(user_inst)->value() == inst) { return false; }
     }
@@ -155,6 +196,22 @@ struct PhiInsertionAndRenaming {
         // insert new phi nodes by traversing the closure of dominance frontiers of the def blocks
         block_to_phi.clear();
         auto type = inst->type();
+        const NameMD *logical_name = nullptr;
+        if (inst->find_metadata<Reg2MemSpillMD>() ==
+            nullptr) {
+            logical_name = inst->find_metadata<NameMD>();
+        } else {
+            for (auto &[_, loads] : analysis.use_blocks) {
+                for (auto *load : loads) {
+                    if (auto *name =
+                            load->find_metadata<NameMD>()) {
+                        logical_name = name;
+                        break;
+                    }
+                }
+                if (logical_name != nullptr) { break; }
+            }
+        }
         {
             luisa::fixed_vector<BasicBlock *, 64> work_list;
             work_list.reserve(analysis.def_blocks.size());
@@ -173,6 +230,10 @@ struct PhiInsertionAndRenaming {
                             XIRBuilder b;
                             b.set_insertion_point(fb->instructions().head_sentinel());
                             auto phi = b.phi(type);
+                            if (logical_name != nullptr) {
+                                phi->metadata_list().push_front(
+                                    logical_name->clone());
+                            }
                             iter->second = phi;
                             inserted.emplace_back(phi);
                             // add the block to the work list to compute the closure
@@ -269,12 +330,6 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
         std::sort(instructions.begin(), instructions.end(), [&](Instruction *lhs, Instruction *rhs) noexcept {
             return inst_indices.at(lhs) < inst_indices.at(rhs);
         });
-        // For aggregate allocas, stores may write to different fields/elements
-        // (e.g., after transpose_gep_pass converts GEP stores to insert-based stores).
-        // Removing earlier stores or forwarding their values is unsafe because
-        // later stores only overwrite part of the aggregate.
-        auto alloca_type = inst->type();
-        bool is_aggregate = !alloca_type->is_scalar();
         // eliminate redundant loads and overwritten stores
         auto last_store = static_cast<StoreInst *>(nullptr);
         auto last_value = static_cast<Value *>(nullptr);
@@ -289,20 +344,17 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
                     break;
                 }
                 case DerivedInstructionTag::STORE: {
-                    if (!is_aggregate) {
-                        // we have overwritten the last store so remove it if any
-                        if (last_store != nullptr) {
-                            remove_store(last_store, ctx, info);
-                        }
-                        // record the value from this store for forwarding to subsequent loads
-                        last_value = static_cast<StoreInst *>(store_or_load)->value();
-                        LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
-                    } else {
-                        // For aggregates, a store writes to only part of the alloca,
-                        // so we cannot forward store values to loads. But we must
-                        // invalidate any cached load value since the alloca changed.
-                        last_value = nullptr;
+                    // A direct StoreInst to this alloca always replaces the whole
+                    // object, independently of whether its value is scalar or an
+                    // aggregate. Partial field/element stores use a GEP pointer and
+                    // make the alloca non-promotable unless transpose_gep first turns
+                    // them into an explicit load/insert/full-store sequence. In both
+                    // cases, forwarding the direct store value is exact.
+                    if (last_store != nullptr) {
+                        remove_store(last_store, ctx, info);
                     }
+                    last_value = static_cast<StoreInst *>(store_or_load)->value();
+                    LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
                     // record this store
                     last_store = static_cast<StoreInst *>(store_or_load);
                     break;
@@ -330,8 +382,10 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
 }
 
 static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &info) noexcept {
+    if (f == nullptr) { return; }
     if (auto def = f->definition()) {
-        
+        if (def->body_block() == nullptr) { return; }
+
         // run the transpose GEP pass first so we can possibly handle more aggregates (EDIT: disabled for better performance on CUDA)
         // if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
         //     transpose_gep_info.transposed_load_count != 0 ||
@@ -393,11 +447,9 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                                     .reachable_blocks = reachable_blocks};
             PhiInsertionAndRenaming insertion{.ctx = ctx};
             for (auto inst : promotable) {
-                // Skip allocas with multiple direct stores in the same block.
-                // For non-scalar allocas (e.g., aggregates), simplify_single_block_store_load
-                // does not collapse stores, so multiple stores per block can remain after
-                // transpose_gep converts GEP stores to insert-based stores. The classic
-                // mem2reg algorithm assumes at most one store per block.
+                // The local simplifier above must leave at most one direct store
+                // per block. Keep this defensive boundary check: the SSA rewrite's
+                // per-block definition map cannot represent more than one.
                 luisa::unordered_map<BasicBlock *, uint32_t> block_store_count;
                 bool has_multiple_stores = false;
                 for (auto &&use : inst->use_list()) {
@@ -426,14 +478,18 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
 
 Mem2RegInfo mem2reg_pass_run_on_function(Function *function) noexcept {
     Mem2RegInfo info;
-    detail::promote_alloca_instructions_in_function(function, info);
+    if (function != nullptr) {
+        detail::promote_alloca_instructions_in_function(function, info);
+    }
     return info;
 }
 
 Mem2RegInfo mem2reg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     Mem2RegInfo info;
-    for (auto f : module->function_list()) {
-        detail::promote_alloca_instructions_in_function(f, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            detail::promote_alloca_instructions_in_function(f, info);
+        }
     }
     if (report != nullptr) {
         report->set("promoted_alloca", info.promoted_alloca_count);

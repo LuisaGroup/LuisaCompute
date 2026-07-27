@@ -193,6 +193,10 @@ public:
     [[nodiscard]] uint64_t custom_cmd_uuid() const noexcept override {
         return static_cast<uint32_t>(CustomCommandUUID::CUSTOM_DISPATCH);
     }
+    [[nodiscard]] bool
+    requires_resource_state_isolation() const noexcept final {
+        return true;
+    }
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
         auto usages = const_cast<VKCustomCmd *>(this)->get_resource_usages();
         for (auto &&[handle, stage, access, layout] : usages) {

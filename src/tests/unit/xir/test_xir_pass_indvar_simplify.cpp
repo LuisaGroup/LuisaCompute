@@ -1,4 +1,5 @@
 #include "ut/ut.hpp"
+#include <luisa/core/logging.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/loop.h>
@@ -6,8 +7,11 @@
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/passes/indvar_simplify.h>
+#include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -89,6 +93,50 @@ void reg_indvar_simplify() {
         });
         expect(phi_count == 0u);
         expect(add_count == 0u);
+    };
+
+    "indvar_annotated_dead_recurrence_is_preserved"_test = [] {
+        auto run = [](bool annotate_phi) noexcept {
+            LoopFixture fix;
+            auto &m = fix.m;
+            auto &b = fix.b;
+            b.set_insertion_point(fix.prep);
+            auto *zero =
+                m.create_constant_zero(Type::of<int>());
+            auto *one =
+                m.create_constant_one(Type::of<int>());
+            auto *iv = b.phi(
+                Type::of<int>(), {{zero, fix.body}});
+            b.cond_br(
+                m.create_constant_one(Type::of<bool>()),
+                fix.lbody, fix.merge);
+            b.set_insertion_point(fix.lbody);
+            b.br(fix.upd);
+            b.set_insertion_point(fix.upd);
+            auto *increment = b.call(
+                Type::of<int>(),
+                ArithmeticOp::BINARY_ADD, {iv, one});
+            iv->add_incoming(increment, fix.upd);
+            b.cond_br(
+                m.create_constant_one(Type::of<bool>()),
+                fix.prep, fix.merge);
+            b.set_insertion_point(fix.merge);
+            b.return_void();
+            (annotate_phi ?
+                 static_cast<Instruction *>(iv) :
+                 static_cast<Instruction *>(increment))
+                ->add_comment("preserve dead recurrence owner");
+
+            auto before = xir_to_text_translate(&m, true);
+            auto info =
+                indvar_simplify_pass_run_on_function(fix.k);
+            auto after = xir_to_text_translate(&m, true);
+            expect(info.removed_dead_iv_count == 0u);
+            expect(before == after);
+            expect(xir_verify_module(&m).succeeded());
+        };
+        run(true);
+        run(false);
     };
 
     "indvar_increment_with_external_user_is_kept"_test = [] {
@@ -211,6 +259,11 @@ void reg_indvar_simplify() {
         expect(info.removed_dead_iv_count == 0u);
     };
 
+    "indvar_null_inputs_are_noops"_test = [] {
+        expect(!indvar_simplify_pass_run_on_function(nullptr).changed());
+        expect(!indvar_simplify_pass_run_on_module(nullptr).changed());
+    };
+
     "indvar_no_loop"_test = [] {
         Module m;
         BasicBlock *body;
@@ -291,8 +344,411 @@ void reg_indvar_simplify() {
     };
 }
 
+namespace {
+
+struct PlainCountedLoop {
+    KernelFunction *kernel;
+    ResourceArgument *buffer;
+    BasicBlock *entry;
+    BasicBlock *header;
+    BasicBlock *latch;
+    BasicBlock *exit;
+    PhiInst *iv;
+};
+
+// entry -> header { iv = phi(entry: 0, latch: next); cond = iv < bound;
+//                   cond_br(cond, latch, exit) }
+// latch { ...custom body...; next = iv + 1; br header }
+template<typename T>
+[[nodiscard]] PlainCountedLoop make_plain_counted_loop_t(
+    Module &m, T bound_value) noexcept {
+    PlainCountedLoop loop;
+    loop.kernel = m.create_kernel();
+    loop.buffer = loop.kernel->create_resource_argument(Type::buffer(Type::of<float>()));
+    auto *def = loop.kernel->definition();
+    loop.entry = loop.kernel->create_body_block();
+    loop.header = def->create_basic_block();
+    loop.latch = def->create_basic_block();
+    loop.exit = def->create_basic_block();
+    auto *bound = m.create_constant(Type::of<T>(), &bound_value);
+    XIRBuilder b;
+    b.set_insertion_point(loop.entry);
+    b.br(loop.header);
+    b.set_insertion_point(loop.header);
+    loop.iv = b.phi(Type::of<T>());
+    auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                        {loop.iv, bound});
+    b.cond_br(cond, loop.latch, loop.exit);
+    b.set_insertion_point(loop.latch);
+    return loop;
+}
+
+[[nodiscard]] PlainCountedLoop make_plain_counted_loop(
+    Module &m, uint32_t bound_value) noexcept {
+    return make_plain_counted_loop_t(m, bound_value);
+}
+
+void finish_plain_counted_loop(Module &m, PlainCountedLoop &loop,
+                               XIRBuilder &b, Value *stride_value) noexcept {
+    auto *iv_type = loop.iv->type();
+    auto *zero = m.create_constant_zero(iv_type);
+    auto *next = b.call(iv_type, ArithmeticOp::BINARY_ADD,
+                        {loop.iv, stride_value});
+    b.br(loop.header);
+    b.set_insertion_point(loop.exit);
+    b.return_void();
+    loop.iv->add_incoming(zero, loop.entry);
+    loop.iv->add_incoming(next, loop.latch);
+}
+
+void expect_module_valid(Module &m) noexcept {
+    auto verification = xir_verify_module(&m);
+    expect(verification.succeeded())
+        << (verification.errors.empty() ? "unknown XIR verification error" :
+                                          verification.errors.front().message.c_str());
+}
+
+[[nodiscard]] size_t count_phis(BasicBlock *block) noexcept {
+    auto count = 0u;
+    block->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<PhiInst>()) { count++; }
+    });
+    return count;
+}
+
+}// namespace
+
+void reg_indvar_strength_reduction() {
+
+    "scaled_iv_buffer_index_is_strength_reduced"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop(m, 16u);
+        auto *c1 = m.create_constant_one(Type::of<uint>());
+        uint32_t four_value = 4u;
+        auto *c4 = m.create_constant(Type::of<uint>(), &four_value);
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled = b.call(Type::of<uint>(), ArithmeticOp::BINARY_MUL,
+                              {loop.iv, c4});
+        auto *read = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                            {loop.buffer, scaled});
+        static_cast<void>(read);
+        finish_plain_counted_loop(m, loop, b, c1);
+
+        auto info = indvar_simplify_pass_run_on_function(loop.kernel->definition());
+        expect(info.simplified_iv_count == 1u);
+        // a new accumulator phi appears next to the induction phi
+        expect(count_phis(loop.header) == 2u);
+        // the buffer read now uses the accumulator, not the multiply
+        expect(read->operand(1u) != scaled);
+        PhiInst *acc = nullptr;
+        loop.header->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<PhiInst>() && inst != loop.iv) {
+                acc = static_cast<PhiInst *>(inst);
+            }
+        });
+        expect(acc != nullptr);
+        expect(read->operand(1u) == acc);
+        expect(acc->incoming_count() == 2u);
+        expect_module_valid(m);
+    };
+
+    "annotated_scaled_iv_is_not_split_across_metadata_owners"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop(m, 16u);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        uint32_t scale_value = 4u;
+        auto *scale = m.create_constant(
+            Type::of<uint>(), &scale_value);
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_MUL,
+            {loop.iv, scale});
+        scaled->set_location("indvar_metadata.cpp", 17);
+        auto *read = b.call(
+            Type::of<float>(), ResourceReadOp::BUFFER_READ,
+            {loop.buffer, scaled});
+        finish_plain_counted_loop(m, loop, b, one);
+
+        auto info = indvar_simplify_pass_run_on_function(
+            loop.kernel->definition());
+        expect(info.simplified_iv_count == 0u);
+        expect(read->operand(1u) == scaled);
+        expect(scaled->is_linked());
+        expect(!scaled->metadata_list().empty());
+        expect(count_phis(loop.header) == 1u);
+        expect_module_valid(m);
+    };
+
+    "scaled_iv_plus_base_is_strength_reduced_together"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop(m, 16u);
+        auto *c1 = m.create_constant_one(Type::of<uint>());
+        uint32_t four_value = 4u;
+        auto *c4 = m.create_constant(Type::of<uint>(), &four_value);
+        auto *base = loop.kernel->create_value_argument(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled = b.call(Type::of<uint>(), ArithmeticOp::BINARY_MUL,
+                              {loop.iv, c4});
+        auto *offset = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                              {scaled, base});
+        auto *read = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                            {loop.buffer, offset});
+        static_cast<void>(read);
+        finish_plain_counted_loop(m, loop, b, c1);
+
+        auto info = indvar_simplify_pass_run_on_function(loop.kernel->definition());
+        expect(info.simplified_iv_count == 1u);
+        // the whole add chain collapses into the accumulator
+        expect(read->operand(1u) != offset);
+        expect(read->operand(1u)->isa<PhiInst>());
+        expect_module_valid(m);
+    };
+
+    "non_constant_stride_is_not_strength_reduced"_test = [] {
+        Module m2;
+        auto loop = make_plain_counted_loop(m2, 16u);
+        auto *stride_arg = loop.kernel->create_value_argument(Type::of<uint>());
+        uint32_t four_value = 4u;
+        auto *c4 = m2.create_constant(Type::of<uint>(), &four_value);
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled = b.call(Type::of<uint>(), ArithmeticOp::BINARY_MUL,
+                              {loop.iv, c4});
+        auto *read = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                            {loop.buffer, scaled});
+        static_cast<void>(read);
+        finish_plain_counted_loop(m2, loop, b, stride_arg);
+
+        auto info = indvar_simplify_pass_run_on_function(loop.kernel->definition());
+        expect(info.simplified_iv_count == 0u);
+        expect(read->operand(1u) == scaled);
+        expect_module_valid(m2);
+    };
+
+    "multiple_scaled_uses_get_independent_accumulators"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop(m, 16u);
+        auto *c1 = m.create_constant_one(Type::of<uint>());
+        uint32_t two_value = 2u;
+        uint32_t four_value = 4u;
+        auto *c2 = m.create_constant(Type::of<uint>(), &two_value);
+        auto *c4 = m.create_constant(Type::of<uint>(), &four_value);
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled2 = b.call(Type::of<uint>(), ArithmeticOp::BINARY_MUL,
+                               {loop.iv, c2});
+        auto *scaled4 = b.call(Type::of<uint>(), ArithmeticOp::BINARY_MUL,
+                               {loop.iv, c4});
+        auto *read2 = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                             {loop.buffer, scaled2});
+        auto *read4 = b.call(Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                             {loop.buffer, scaled4});
+        static_cast<void>(read2);
+        static_cast<void>(read4);
+        finish_plain_counted_loop(m, loop, b, c1);
+
+        auto info = indvar_simplify_pass_run_on_function(loop.kernel->definition());
+        expect(info.simplified_iv_count == 2u);
+        expect(count_phis(loop.header) == 3u);
+        expect(read2->operand(1u) != scaled2);
+        expect(read4->operand(1u) != scaled4);
+        expect_module_valid(m);
+    };
+
+    "strength_reduction_preserves_integer_width_and_modular_increment"_test = [] {
+        auto run = []<typename T>(T stride_value, T scale_value,
+                                  T expected_increment) noexcept {
+            Module m;
+            auto loop = make_plain_counted_loop_t<T>(
+                m, static_cast<T>(16u));
+            auto *stride = m.create_constant(
+                Type::of<T>(), &stride_value);
+            auto *scale = m.create_constant(
+                Type::of<T>(), &scale_value);
+            XIRBuilder b;
+            b.set_insertion_point(loop.latch);
+            auto *scaled = b.call(
+                Type::of<T>(), ArithmeticOp::BINARY_MUL,
+                {loop.iv, scale});
+            auto *read = b.call(
+                Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                {loop.buffer, scaled});
+            finish_plain_counted_loop(m, loop, b, stride);
+
+            auto info = indvar_simplify_pass_run_on_function(
+                loop.kernel->definition());
+            expect(info.simplified_iv_count == 1u);
+            expect(read->operand(1u)->template isa<PhiInst>());
+            auto *acc = static_cast<PhiInst *>(read->operand(1u));
+            expect(acc->type() == Type::of<T>());
+            auto found_typed_increment = false;
+            for (auto i = 0u; i < acc->incoming_count(); ++i) {
+                auto incoming = acc->incoming(i);
+                if (incoming.block != loop.latch ||
+                    !incoming.value->isa<ArithmeticInst>()) {
+                    continue;
+                }
+                auto *add = static_cast<ArithmeticInst *>(incoming.value);
+                for (auto j = 0u; j < add->operand_count(); ++j) {
+                    auto *operand = add->operand(j);
+                    if (operand->isa<Constant>() &&
+                        operand->type() == Type::of<T>() &&
+                        static_cast<Constant *>(operand)->as<T>() ==
+                            expected_increment) {
+                        found_typed_increment = true;
+                    }
+                }
+            }
+            expect(found_typed_increment);
+            expect_module_valid(m);
+        };
+
+        // 250 * 4 == 232 modulo 2^8. This is also a regression for
+        // constructing narrow constants from an int64_t backing pointer.
+        run(uint8_t{250u}, uint8_t{4u}, uint8_t{232u});
+        run(uint16_t{3u}, uint16_t{7u}, uint16_t{21u});
+        run(uint64_t{3u}, uint64_t{7u}, uint64_t{21u});
+    };
+
+    "unsigned_shift_strength_reduction_respects_bit_width"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop(m, 16u);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        uint32_t shift_value = 31u;
+        auto *shift = m.create_constant(
+            Type::of<uint>(), &shift_value);
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_SHIFT_LEFT,
+            {loop.iv, shift});
+        auto *read = b.call(
+            Type::of<float>(), ResourceReadOp::BUFFER_READ,
+            {loop.buffer, scaled});
+        finish_plain_counted_loop(m, loop, b, one);
+
+        auto info = indvar_simplify_pass_run_on_function(
+            loop.kernel->definition());
+        expect(info.simplified_iv_count == 1u);
+        expect(read->operand(1u)->isa<PhiInst>());
+        auto *acc = static_cast<PhiInst *>(read->operand(1u));
+        auto found_high_bit_increment = false;
+        for (auto i = 0u; i < acc->incoming_count(); ++i) {
+            auto incoming = acc->incoming(i);
+            if (incoming.block != loop.latch ||
+                !incoming.value->isa<ArithmeticInst>()) {
+                continue;
+            }
+            auto *add = static_cast<ArithmeticInst *>(incoming.value);
+            for (auto j = 0u; j < add->operand_count(); ++j) {
+                auto *operand = add->operand(j);
+                if (operand->isa<Constant>() &&
+                    operand->type() == Type::of<uint>() &&
+                    static_cast<Constant *>(operand)->as<uint32_t>() ==
+                        0x80000000u) {
+                    found_high_bit_increment = true;
+                }
+            }
+        }
+        expect(found_high_bit_increment);
+        expect_module_valid(m);
+    };
+
+    "shift_count_equal_to_width_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop(m, 16u);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        uint32_t shift_value = 32u;
+        auto *shift = m.create_constant(
+            Type::of<uint>(), &shift_value);
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_SHIFT_LEFT,
+            {loop.iv, shift});
+        static_cast<void>(b.call(
+            Type::of<float>(), ResourceReadOp::BUFFER_READ,
+            {loop.buffer, scaled}));
+        finish_plain_counted_loop(m, loop, b, one);
+        auto before = xir_to_text_translate(&m, true);
+
+        auto info = indvar_simplify_pass_run_on_function(
+            loop.kernel->definition());
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.simplified_iv_count == 0u);
+        expect(before == after);
+        expect(count_phis(loop.header) == 1u);
+        expect_module_valid(m);
+    };
+
+    "signed_shift_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop_t<int32_t>(m, 16);
+        auto *one = m.create_constant_one(Type::of<int32_t>());
+        int32_t shift_value = 2;
+        auto *shift = m.create_constant(
+            Type::of<int32_t>(), &shift_value);
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        auto *scaled = b.call(
+            Type::of<int32_t>(), ArithmeticOp::BINARY_SHIFT_LEFT,
+            {loop.iv, shift});
+        static_cast<void>(b.call(
+            Type::of<float>(), ResourceReadOp::BUFFER_READ,
+            {loop.buffer, scaled}));
+        finish_plain_counted_loop(m, loop, b, one);
+        auto before = xir_to_text_translate(&m, true);
+
+        auto info = indvar_simplify_pass_run_on_function(
+            loop.kernel->definition());
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.simplified_iv_count == 0u);
+        expect(before == after);
+        expect(count_phis(loop.header) == 1u);
+        expect_module_valid(m);
+    };
+
+    "scaled_value_with_only_exit_use_creates_no_dead_accumulator"_test = [] {
+        Module m;
+        auto loop = make_plain_counted_loop(m, 16u);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(loop.latch);
+        finish_plain_counted_loop(m, loop, b, one);
+
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *condition = static_cast<Instruction *>(branch->condition());
+        uint32_t scale_value = 4u;
+        auto *scale = m.create_constant(
+            Type::of<uint>(), &scale_value);
+        b.set_insertion_point(condition->prev());
+        auto *scaled = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_MUL,
+            {loop.iv, scale});
+        b.set_insertion_point(
+            loop.exit->instructions().head_sentinel());
+        auto *exit_value = b.phi(
+            Type::of<uint>(), {{scaled, loop.header}});
+        static_cast<void>(exit_value);
+        auto before = xir_to_text_translate(&m, true);
+
+        auto info = indvar_simplify_pass_run_on_function(
+            loop.kernel->definition());
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.simplified_iv_count == 0u);
+        expect(before == after);
+        expect(count_phis(loop.header) == 1u);
+        expect_module_valid(m);
+    };
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_indvar_simplify();
+    reg_indvar_strength_reduction();
     return 0;
 }

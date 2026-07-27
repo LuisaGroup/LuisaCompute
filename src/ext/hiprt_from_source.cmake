@@ -130,10 +130,21 @@ if(NOT _LIBCXX_INCLUDE_DIR)
 endif()
 
 set(_hiprt_common_flags -O3 -std=c++17 -ffast-math -parallel-jobs=15
+    -DHIPRT_MATRIX_FRAME=1
     "-I${hip_INCLUDE_DIRS}")
 if(_LIBCXX_INCLUDE_DIR)
     list(APPEND _hiprt_common_flags -stdlib=libc++ "-isystem${_LIBCXX_INCLUDE_DIR}")
 endif()
+
+# hipcc does not emit a depfile for these header-as-translation-unit commands.
+# Track the transitive source trees explicitly so edits to included HIPRT/Orochi
+# kernels cannot leave the precompiled runtime artifacts stale.
+file(GLOB_RECURSE _hiprt_kernel_dependencies CONFIGURE_DEPENDS
+    "${HIPRT_SOURCE_DIR}/hiprt/*.h"
+    "${HIPRT_SOURCE_DIR}/hiprt/*.inl")
+file(GLOB_RECURSE _orochi_kernel_dependencies CONFIGURE_DEPENDS
+    "${HIPRT_SOURCE_DIR}/contrib/Orochi/Orochi/*.h"
+    "${HIPRT_SOURCE_DIR}/contrib/Orochi/ParallelPrimitives/*.h")
 
 # 5a. Bitcode bundle (.bc) - for hiprtBuildTraceKernelsFromBitcode
 add_custom_command(
@@ -147,10 +158,8 @@ add_custom_command(
         "-I${HIPRT_SOURCE_DIR}"
         -DHIPRT_BITCODE_LINKING -DHIPCC_OS_LINUX
         -o "${_hiprt_bc_file}"
-    DEPENDS "${HIPRT_SOURCE_DIR}/hiprt/impl/hiprt_kernels_bitcode.h"
-            "${HIPRT_SOURCE_DIR}/hiprt/impl/hiprt_device_impl.h"
-            "${HIPRT_SOURCE_DIR}/hiprt/hiprt_device.h"
-            "${HIPRT_SOURCE_DIR}/hiprt/hiprt_common.h"
+    DEPENDS ${_hiprt_kernel_dependencies}
+            ${_orochi_kernel_dependencies}
     WORKING_DIRECTORY "${HIPRT_SOURCE_DIR}"
     COMMENT "[HIPRT] Compiling bitcode bundle: ${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_linux.bc"
     VERBATIM)
@@ -168,7 +177,7 @@ add_custom_command(
         "-I${HIPRT_SOURCE_DIR}"
         -DHIPRT_BITCODE_LINKING -DHIPCC_OS_LINUX
         -o "${_hiprt_hipfb_file}"
-    DEPENDS "${HIPRT_SOURCE_DIR}/hiprt/impl/hiprt_kernels.h"
+    DEPENDS ${_hiprt_kernel_dependencies}
     WORKING_DIRECTORY "${HIPRT_SOURCE_DIR}"
     COMMENT "[HIPRT] Compiling fat binary: ${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd.hipfb"
     VERBATIM)
@@ -185,7 +194,7 @@ add_custom_command(
         -include hip/hip_runtime.h
         -DHIPRT_BITCODE_LINKING -DHIPCC_OS_LINUX
         -o "${_hiprt_oro_hipfb_file}"
-    DEPENDS "${HIPRT_SOURCE_DIR}/contrib/Orochi/ParallelPrimitives/RadixSortKernels.h"
+    DEPENDS ${_orochi_kernel_dependencies}
     WORKING_DIRECTORY "${HIPRT_SOURCE_DIR}"
     COMMENT "[HIPRT] Compiling Orochi radix sort kernels: oro_compiled_kernels.hipfb"
     VERBATIM)
@@ -245,6 +254,7 @@ target_compile_definitions(hiprt_from_source PRIVATE
     __USE_HIP__
     HIPRT_PUBLIC_REPO
     HIPRT_BITCODE_LINKING
+    HIPRT_MATRIX_FRAME=1
     ORO_PRECOMPILED)
 
 if(UNIX)

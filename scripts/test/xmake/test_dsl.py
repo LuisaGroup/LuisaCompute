@@ -1,5 +1,5 @@
 import sys
-from common import run_cmd, get_targets, get_backends
+from common import run_cmd, get_targets, get_backends, format_backends
 
 DSL_TARGETS = [
     "test_binding_group",
@@ -22,7 +22,7 @@ DSL_TARGETS = [
 ]
 
 def main():
-    backends = get_backends(["dx", "vk", "cuda", "metal"])
+    backends = get_backends(["dx", "vk", "cuda", "hip", "metal"])
     available = set(get_targets())
     targets = [t for t in DSL_TARGETS if t in available]
 
@@ -43,7 +43,7 @@ def main():
             print(f"  {f}")
         sys.exit(1)
     else:
-        print("\nAll dsl tests passed.")
+        print(f"\nAll dsl tests passed for backends: {format_backends(backends)}.")
         sys.exit(0)
 
 

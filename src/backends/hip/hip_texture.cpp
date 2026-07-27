@@ -10,6 +10,9 @@ namespace luisa::compute::hip {
 HIPTexture::HIPTexture() noexcept = default;
 
 HIPTexture::~HIPTexture() noexcept {
+    if (_direct_descriptor) {
+        LUISA_CHECK_HIP(hipFree(_direct_descriptor));
+    }
     for (auto i = 0u; i < _levels; i++) {
         if (_mip_surfaces[i]) { LUISA_CHECK_HIP(hipDestroySurfaceObject(_mip_surfaces[i])); }
         LUISA_CHECK_HIP(hipArrayDestroy(_mip_arrays[i]));
@@ -29,7 +32,24 @@ HIPSurface HIPTexture::surface(uint32_t level) const noexcept {
                  level, _levels);
     LUISA_ASSERT(!is_block_compressed(format()),
                  "Block compressed textures cannot be used as HIP surfaces.");
-    return HIPSurface{_mip_surfaces[level], to_underlying(storage())};
+    return binding(level);
+}
+
+HIPSurface HIPTexture::binding(uint32_t level) const noexcept {
+    LUISA_ASSERT(level < _levels,
+                 "Invalid level {} for texture with {} level(s).",
+                 level, _levels);
+    LUISA_ASSERT(!is_block_compressed(format()),
+                 "HIP block-compressed textures currently support copy operations only; "
+                 "ROCm rejected creation of a block-compressed texture resource view.");
+    LUISA_ASSERT(_direct_descriptor != nullptr,
+                 "HIP direct texture descriptor is not initialized.");
+    auto descriptor = reinterpret_cast<uint64_t>(_direct_descriptor);
+    LUISA_ASSERT((descriptor & direct_descriptor_mip_tag_mask) == 0u,
+                 "HIP direct texture descriptor address 0x{:016x} is not {}-byte aligned.",
+                 descriptor, 1u << direct_descriptor_mip_tag_bits);
+    descriptor |= static_cast<uint64_t>(level);
+    return HIPSurface{_mip_surfaces[level], descriptor};
 }
 
 namespace {
@@ -66,6 +86,11 @@ namespace {
         case PixelFormat::R32F: [[fallthrough]];
         case PixelFormat::RG32F: [[fallthrough]];
         case PixelFormat::RGBA32F: return HIP_AD_FORMAT_FLOAT;
+        // HIP does not expose a native 10/10/10/2 array descriptor. Keep the
+        // resource packed as one 32-bit channel; image read/write and sampling
+        // unpack the word in the LLVM backend.
+        case PixelFormat::R10G10B10A2UInt: [[fallthrough]];
+        case PixelFormat::R10G10B10A2UNorm: return HIP_AD_FORMAT_UNSIGNED_INT32;
         case PixelFormat::BC1UNorm: [[fallthrough]];
         case PixelFormat::BC4UNorm: [[fallthrough]];
         case PixelFormat::BC2UNorm: [[fallthrough]];
@@ -91,11 +116,11 @@ namespace {
         case PixelFormat::BC7UNorm: [[fallthrough]];
         case PixelFormat::BC7SRGB: return 4u;
         case PixelFormat::R10G10B10A2UInt: [[fallthrough]];
-        case PixelFormat::R10G10B10A2UNorm: [[fallthrough]];
+        case PixelFormat::R10G10B10A2UNorm: return 1u;
         case PixelFormat::R11G11B10F: [[fallthrough]];
         case PixelFormat::RGBA8SRGB: LUISA_ERROR_WITH_LOCATION(
             "HIPTexture does not support special formats "
-            "R10G10B10A2, R11G11B10F, and sRGB RGBA8 as array formats.");
+            "R11G11B10F and sRGB RGBA8 as array formats.");
         default: break;
     }
     return pixel_format_channel_count(format);
@@ -215,7 +240,7 @@ namespace {
            format == PixelFormat::R16F ||
            format == PixelFormat::RG16F ||
            format == PixelFormat::RGBA16F ||
-           is_block_compressed(format);
+           format == PixelFormat::R10G10B10A2UNorm;
 }
 
 [[nodiscard]] auto mip_size(uint3 size, uint32_t level) noexcept {
@@ -228,45 +253,126 @@ namespace {
 
 }// namespace
 
+namespace {
+
+[[nodiscard]] hipTextureObject_t create_texture_object(
+    hipArray_t array, PixelFormat format, uint dimension,
+    uint3 level_size, Sampler sampler) noexcept {
+    HIP_RESOURCE_DESC res_desc{};
+    res_desc.resType = HIP_RESOURCE_TYPE_ARRAY;
+    res_desc.res.array.hArray = array;
+    HIP_TEXTURE_DESC tex_desc{};
+    auto address_mode = hip_texture_address_mode(sampler.address());
+    tex_desc.addressMode[0] = address_mode;
+    tex_desc.addressMode[1] = address_mode;
+    tex_desc.addressMode[2] = address_mode;
+    tex_desc.filterMode = hip_texture_filter_mode(sampler.filter());
+    // Luisa's HIP backend stores every mip as an independent array. Mip
+    // selection/filtering is therefore implemented in LLVM codegen; the
+    // native sampler is only responsible for spatial filtering.
+    tex_desc.mipmapFilterMode = HIP_TR_FILTER_MODE_POINT;
+    tex_desc.maxAnisotropy = 0u;
+    tex_desc.maxMipmapLevelClamp = 0.0f;
+    tex_desc.flags = HIP_TRSF_NORMALIZED_COORDINATES;
+    if (is_srgb(format)) { tex_desc.flags |= HIP_TRSF_SRGB; }
+    hipTextureObject_t object{};
+    if (is_block_compressed(format)) {
+        HIP_RESOURCE_VIEW_DESC view_desc{};
+        view_desc.format = hip_resource_view_format(format);
+        view_desc.width = level_size.x;
+        view_desc.height = level_size.y;
+        view_desc.depth = dimension == 2u ? 0u : level_size.z;
+        view_desc.firstMipmapLevel = 0u;
+        view_desc.lastMipmapLevel = 0u;
+        view_desc.firstLayer = 0u;
+        view_desc.lastLayer = 0u;
+        LUISA_CHECK_HIP(hipTexObjectCreate(&object, &res_desc, &tex_desc, &view_desc));
+    } else {
+        LUISA_CHECK_HIP(hipTexObjectCreate(&object, &res_desc, &tex_desc, nullptr));
+    }
+    return object;
+}
+
+}// namespace
+
 void HIPTexture::create_texture_objects(std::span<hipTextureObject_t> objects, Sampler s) const noexcept {
     LUISA_ASSERT(hip_texture_is_samplable(format()),
-                  "Pixel format {} cannot be used for texture sampling.",
-                  luisa::to_underlying(format()));
+                 "Pixel format {} cannot be used for texture sampling.",
+                 luisa::to_underlying(format()));
     LUISA_ASSERT(objects.size() >= _levels,
                  "Texture object span size {} is smaller than texture level count {}.",
                  objects.size(), _levels);
     auto base_size = size();
     for (auto level = 0u; level < _levels; level++) {
-        HIP_RESOURCE_DESC res_desc{};
-        res_desc.resType = HIP_RESOURCE_TYPE_ARRAY;
-        res_desc.res.array.hArray = _mip_arrays[level];
-        HIP_TEXTURE_DESC tex_desc{};
-        auto address_mode = hip_texture_address_mode(s.address());
-        tex_desc.addressMode[0] = address_mode;
-        tex_desc.addressMode[1] = address_mode;
-        tex_desc.addressMode[2] = address_mode;
-        tex_desc.filterMode = hip_texture_filter_mode(s.filter());
-        tex_desc.mipmapFilterMode = hip_texture_mipmap_filter_mode(s.filter(), false);
-        tex_desc.maxAnisotropy = hip_texture_max_anisotropy(s.filter(), false);
-        tex_desc.maxMipmapLevelClamp = hip_texture_mip_level_clamp(s.filter(), false);
-        tex_desc.flags = HIP_TRSF_NORMALIZED_COORDINATES;
-        if (is_srgb(format())) { tex_desc.flags |= HIP_TRSF_SRGB; }
-        if (is_block_compressed(format())) {
-            auto level_size = mip_size(base_size, level);
-            HIP_RESOURCE_VIEW_DESC view_desc{};
-            view_desc.format = hip_resource_view_format(format());
-            view_desc.width = level_size.x;
-            view_desc.height = level_size.y;
-            view_desc.depth = _dimension == 2u ? 0u : level_size.z;
-            view_desc.firstMipmapLevel = 0u;
-            view_desc.lastMipmapLevel = 0u;
-            view_desc.firstLayer = 0u;
-            view_desc.lastLayer = 0u;
-            LUISA_CHECK_HIP(hipTexObjectCreate(&objects[level], &res_desc, &tex_desc, &view_desc));
-        } else {
-            LUISA_CHECK_HIP(hipTexObjectCreate(&objects[level], &res_desc, &tex_desc, nullptr));
-        }
+        objects[level] = create_texture_object(
+            _mip_arrays[level], format(), _dimension,
+            mip_size(base_size, level), s);
     }
+}
+
+void HIPTexture::copy_image_descriptors(std::span<HIPImageDescriptor> descriptors) const noexcept {
+    LUISA_ASSERT(hip_texture_is_samplable(format()),
+                 "Pixel format {} cannot be used for texture sampling.",
+                 luisa::to_underlying(format()));
+    LUISA_ASSERT(descriptors.size() >= _levels,
+                 "Image descriptor span size {} is smaller than texture level count {}.",
+                 descriptors.size(), _levels);
+    auto base_size = size();
+    for (auto level = 0u; level < _levels; level++) {
+        auto object = create_texture_object(
+            _mip_arrays[level], format(), _dimension,
+            mip_size(base_size, level), Sampler::point_edge());
+        auto address = reinterpret_cast<hipDeviceptr_t>(object);
+        LUISA_CHECK_HIP(hipMemcpyDtoH(&descriptors[level], address,
+                                      sizeof(HIPImageDescriptor)));
+        LUISA_CHECK_HIP(hipTexObjectDestroy(object));
+    }
+}
+
+void HIPTexture::copy_sampler_descriptors(std::span<HIPSamplerDescriptor> descriptors) const noexcept {
+    static constexpr auto sampler_count = 16u;
+    LUISA_ASSERT(hip_texture_is_samplable(format()),
+                 "Pixel format {} cannot be used for texture sampling.",
+                 luisa::to_underlying(format()));
+    LUISA_ASSERT(descriptors.size() >= sampler_count,
+                 "Sampler descriptor span size {} is smaller than {}.",
+                 descriptors.size(), sampler_count);
+    for (auto code = 0u; code < sampler_count; code++) {
+        auto object = create_texture_object(
+            _mip_arrays[0], format(), _dimension,
+            size(), Sampler::decode(code));
+        auto address = reinterpret_cast<hipDeviceptr_t>(
+            reinterpret_cast<std::byte *>(object) +
+            HIP_SAMPLER_OBJECT_OFFSET_DWORD * sizeof(uint32_t));
+        LUISA_CHECK_HIP(hipMemcpyDtoH(&descriptors[code], address,
+                                      sizeof(HIPSamplerDescriptor)));
+        LUISA_CHECK_HIP(hipTexObjectDestroy(object));
+    }
+}
+
+void HIPTexture::_initialize_direct_descriptor() noexcept {
+    LUISA_ASSERT(_direct_descriptor == nullptr,
+                 "HIP direct texture descriptor is already initialized.");
+    HIPDirectTextureDescriptor host_descriptor{};
+    host_descriptor.level_count = _levels;
+    host_descriptor.storage = to_underlying(storage());
+    auto texture_size = size();
+    host_descriptor.size_xy = static_cast<uint64_t>(texture_size.x) |
+                              (static_cast<uint64_t>(texture_size.y) << 32u);
+    host_descriptor.size_z = texture_size.z;
+    if (hip_texture_is_samplable(format())) {
+        copy_image_descriptors(
+            std::span{host_descriptor.images, static_cast<size_t>(_levels)});
+        copy_sampler_descriptors(std::span{host_descriptor.samplers});
+    }
+    LUISA_CHECK_HIP(hipMalloc(&_direct_descriptor, sizeof(host_descriptor)));
+    auto descriptor = reinterpret_cast<uint64_t>(_direct_descriptor);
+    LUISA_ASSERT((descriptor & direct_descriptor_mip_tag_mask) == 0u,
+                 "hipMalloc returned a direct texture descriptor address "
+                 "0x{:016x} that cannot carry the {}-bit mip tag.",
+                 descriptor, direct_descriptor_mip_tag_bits);
+    LUISA_CHECK_HIP(hipMemcpyHtoD(
+        _direct_descriptor, &host_descriptor, sizeof(host_descriptor)));
 }
 
 HIPTexture *HIPTexture::create_device_texture(PixelFormat format, uint dim, uint3 size, uint32_t mip_levels) noexcept {
@@ -304,6 +410,7 @@ HIPTexture *HIPTexture::create_device_texture(PixelFormat format, uint dim, uint
             LUISA_CHECK_HIP(hipCreateSurfaceObject(&t->_mip_surfaces[i], &res_desc));
         }
     }
+    t->_initialize_direct_descriptor();
     return t;
 }
 

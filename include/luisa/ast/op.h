@@ -519,11 +519,33 @@ enum struct CallOp : uint32_t {
     // Async group copy
     ASYNC_COPY,/// [(uint scope, ref dst, ref src, uint elem_bytes, uint num, uint stride, uint event) -> uint]: async group copy
 
+    // Async copy pipeline control (CUDA LDGSTS, CC 8.0+)
+    PIPELINE_COMMIT,     // (): void — commit pending async copies
+    PIPELINE_WAIT_PRIOR,  // (prior_stages: uint): void — wait for pipeline stages
+
+    // Cluster Launch Control (CUDA Blackwell, SM 10.0+)
+    CLUSTER_LAUNCH_CONTROL_TRY_CANCEL,      // (result: ref<uint4>, bar: ref<uint64>): void — single-block try_cancel
+    CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST, // (result: ref<uint4>, bar: ref<uint64>): void — cluster-wide multicast
+    CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED,    // (result: uint4): bool
+    CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X,     // (result: uint4): int
+    CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y,     // (result: uint4): int
+    CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z,     // (result: uint4): int
+    MBARRIER_INIT,                                // (bar: ref<uint64>, count: uint): void
+    MBARRIER_ARRIVE_EXPECT_TX,                    // (bar: ref<uint64>, tx_bytes: uint): void
+    MBARRIER_TRY_WAIT_PARITY,                     // (bar: ref<uint64>, phase: int): bool
+    FENCE_PROXY_ASYNC_ACQUIRE,                    // (): void — fence.proxy.async with acquire
+    FENCE_PROXY_ASYNC_RELEASE,                    // (): void — fence.proxy.async with release
+
     // Clock
     CLOCK,// (): uint64
+
+    // Appended to preserve the numeric values of all existing public ops.
+    // Unlike ROUND (half away from zero), RINT follows the target's
+    // round-to-integral mode (round-to-nearest-even on supported GPU targets).
+    RINT,// (floatN)
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::RINT) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -549,6 +571,39 @@ static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
+
+/// Returns whether the operation uses the descriptor layout of a typed
+/// bindless resource array. The typed-uniform and typed-nonuniform resource
+/// operations deliberately form one contiguous block in CallOp.
+[[nodiscard]] constexpr auto is_typed_bindless_resource_call(CallOp op) noexcept {
+    auto value = luisa::to_underlying(op);
+    return value >= luisa::to_underlying(
+                        CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+           value <= luisa::to_underlying(
+                        CallOp::TYPED_BINDLESS_BUFFER_ADDRESS);
+}
+
+/// Returns whether the operation carries the caller's block-uniform bindless
+/// index promise. Native compiler dialects must preserve this promise rather
+/// than rediscovering (or silently discarding) it.
+[[nodiscard]] constexpr auto is_uniform_bindless_resource_call(CallOp op) noexcept {
+    auto value = luisa::to_underlying(op);
+    return (value >= luisa::to_underlying(
+                         CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+            value <= luisa::to_underlying(
+                         CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS)) ||
+           (value >= luisa::to_underlying(
+                         CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
+            value <= luisa::to_underlying(
+                         CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS));
+}
+
+/// Returns whether the operation is a cluster launch control or mbarrier operation.
+[[nodiscard]] constexpr auto uses_cluster_launch_control(CallOp op) noexcept {
+    auto v = to_underlying(op);
+    return v >= to_underlying(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) &&
+           v <= to_underlying(CallOp::FENCE_PROXY_ASYNC_RELEASE);
+}
 class Expression;
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept;
 
@@ -566,7 +621,7 @@ public:
     using Bitset = std::bitset<call_op_count>;
 
     /// CallOpSet::Iterator
-    class Iterator {
+    class LUISA_AST_API Iterator {
 
     private:
         const CallOpSet &_set;
@@ -641,6 +696,18 @@ public:
                test(CallOp::BACKWARD) ||
                test(CallOp::DETACH);
     }
+    [[nodiscard]] auto uses_typed_bindless_resources() const noexcept {
+        for (auto op : *this) {
+            if (is_typed_bindless_resource_call(op)) { return true; }
+        }
+        return false;
+    }
+    [[nodiscard]] auto uses_uniform_bindless_resources() const noexcept {
+        for (auto op : *this) {
+            if (is_uniform_bindless_resource_call(op)) { return true; }
+        }
+        return false;
+    }
     [[nodiscard]] auto uses_cooperative() const noexcept {
         return test(CallOp::COOPERATIVE_MUL_ADD) ||
                test(CallOp::BINDLESS_COOPERATIVE_MUL_ADD) ||
@@ -663,6 +730,19 @@ public:
     }
     [[nodiscard]] auto uses_work_graph() const noexcept {
         return test(CallOp::WORK_GRAPH_OUTPUT) || test(CallOp::WORK_GRAPH_OUTPUT_ARRAY);
+    }
+    [[nodiscard]] auto uses_cluster_launch_control() const noexcept {
+        return test(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y) ||
+               test(CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z) ||
+               test(CallOp::MBARRIER_INIT) ||
+               test(CallOp::MBARRIER_ARRIVE_EXPECT_TX) ||
+               test(CallOp::MBARRIER_TRY_WAIT_PARITY) ||
+               test(CallOp::FENCE_PROXY_ASYNC_ACQUIRE) ||
+               test(CallOp::FENCE_PROXY_ASYNC_RELEASE);
     }
 };
 

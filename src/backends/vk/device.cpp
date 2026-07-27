@@ -1,4 +1,8 @@
 #include "device.h"
+#include "device_feature_plan.h"
+#include "float_atomic_policy.h"
+#include "sampler_anisotropy.h"
+#include "user_compute_codegen_route.h"
 #include <luisa/ast/op.h>
 #include <luisa/core/logging.h>
 #include "log.h"
@@ -11,12 +15,17 @@
 #include <luisa/runtime/context.h>
 #include "../common/hlsl/shader_compiler.h"
 #include "../common/backend_print_code.h"
+#include "../common/spirv/spirv_codegen/target_feature_mask.h"
 #include "builtin_kernel.h"
 #include "shader_serializer.h"
 #include "default_buffer.h"
+#include "upload_buffer.h"
+#include "indirect_buffer.h"
 #include "stream.h"
 #include "event.h"
 #include "texture.h"
+#include "resource_barrier_contract.h"
+#include "queue_family_contract.h"
 #include "bindless_array.h"
 #include "blas.h"
 #include "tlas.h"
@@ -24,10 +33,12 @@
 #include "rt_shader.h"
 #include "swapchain.h"
 #include "sparse_buffer.h"
+#include "sparse_heap.h"
 #include "pinned_memory_ext.h"
 #include "vk_raster_ext.h"
 #include "vk_native_res_ext.h"
 #include <luisa/backends/ext/raster_ext_interface.h>
+#include <luisa/runtime/dispatch_buffer.h>
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
 #include "vk_cuda_interop_ext.h"
 #endif
@@ -41,14 +52,117 @@
 #include <SPIRV/disassemble.h>
 #include <fstream>
 #elif defined(LUISA_AST_LLVM_TO_SPIRV)
-#include <spirv_llvm/llvm_codegen_utility.h>
+#include <spirv_llvm/spirv_llvm.h>
 #include <SPIRV/disassemble.h>
 #include <fstream>
 #endif
 #include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <limits>
 
 namespace lc::vk {
 using namespace std::string_literals;
+namespace {
+
+[[nodiscard]] bool require_native_xir_spirv() noexcept {
+    if (auto value = std::getenv(
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV")) {
+        auto flag = luisa::string_view{value};
+        return flag == "1" || flag == "true" || flag == "TRUE" ||
+               flag == "on" || flag == "ON";
+    }
+    return false;
+}
+
+#ifdef LUISA_XIR_TO_SPIRV
+[[nodiscard]] luisa::string describe_hlsl_fallback_reasons(
+    detail::UserComputeCodegenRoute route) noexcept {
+    constexpr std::array reasons{
+        detail::UserComputeHlslFallbackReason::NATIVE_INCLUDE,
+        detail::UserComputeHlslFallbackReason::PRINTING,
+        detail::UserComputeHlslFallbackReason::COOPERATIVE_OPERATIONS,
+        detail::UserComputeHlslFallbackReason::ASYNC_COPY,
+        detail::UserComputeHlslFallbackReason::TYPED_BINDLESS_RESOURCES,
+        detail::UserComputeHlslFallbackReason::UNIFORM_BINDLESS_RESOURCES,
+        detail::UserComputeHlslFallbackReason::MOTION_BLUR};
+    luisa::string description;
+    for (auto reason : reasons) {
+        if (!route.contains(reason)) { continue; }
+        if (!description.empty()) { description.append(", "); }
+        description.append(
+            detail::user_compute_hlsl_fallback_reason_name(reason));
+    }
+    return description;
+}
+#endif
+
+[[nodiscard]] bool validate_sampler_anisotropy_requirement(
+    Function function, luisa::string_view native_include,
+    bool anisotropy_enabled) noexcept {
+    auto usage = detail::analyze_sampler_usage(function);
+    if (usage.has_invalid_filter) [[unlikely]] {
+        LUISA_ERROR(
+            "Vulkan shader '{}' contains an explicit texture sampler filter "
+            "outside the valid [0, 4) selector range.",
+            function.name());
+    }
+    // Native source can reference the fixed sampler heap directly. Without a
+    // typed source-level contract, conservatively record that it may select
+    // an anisotropic entry.
+    auto unrestricted_native_sampler_access = !native_include.empty();
+    auto requires_anisotropy =
+        usage.requires_anisotropy || unrestricted_native_sampler_access;
+    if (!detail::sampler_requirement_is_supported(
+            requires_anisotropy, anisotropy_enabled)) [[unlikely]] {
+        if (unrestricted_native_sampler_access) {
+            LUISA_ERROR(
+                "Vulkan shader '{}' includes unrestricted native HLSL, which "
+                "may access anisotropic sampler-heap entries, but "
+                "samplerAnisotropy is not enabled on this logical device.",
+                function.name());
+        }
+        if (usage.has_dynamic_filter) {
+            LUISA_ERROR(
+                "Vulkan shader '{}' dynamically selects a texture sampler "
+                "filter, which may select ANISOTROPIC, but samplerAnisotropy "
+                "is not enabled on this logical device.",
+                function.name());
+        }
+        LUISA_ERROR(
+            "Vulkan shader '{}' selects ANISOTROPIC texture filtering, but "
+            "samplerAnisotropy is not enabled on this logical device.",
+            function.name());
+    }
+    return requires_anisotropy;
+}
+
+[[nodiscard]] SpirvArtifactFeatureRequirements
+validated_spirv_artifact_requirements(
+    const Device *device,
+    lc::spirv::SpirvTargetFeatureMask required) noexcept {
+    auto check = lc::spirv::check_spirv_target_feature_requirements(
+        required, device->enabled_spirv_artifact_features());
+    LUISA_ASSERT(
+        static_cast<bool>(check),
+        "Vulkan attempted to create or persist a SPIR-V artifact with "
+        "unknown requirements 0x{:016x} or unavailable requirements "
+        "0x{:016x}.",
+        check.unknown_required_bits, check.missing_required_bits);
+    return SpirvArtifactFeatureRequirements{required};
+}
+
+[[nodiscard]] SpirvArtifactFeatureRequirements
+conservative_spirv_artifact_requirements(
+    const Device *device, bool requires_sampler_anisotropy) noexcept {
+    auto required = device->enabled_spirv_artifact_features();
+    if (requires_sampler_anisotropy) {
+        required |= lc::spirv::target_feature::sampler_anisotropy;
+    }
+    return validated_spirv_artifact_requirements(device, required);
+}
+
+}// namespace
 static luisa::spin_mutex g_dxc_mutex;
 static vstd::StackObject<hlsl::ShaderCompiler, false> g_dxc_compiler;
 static luisa::filesystem::path g_dxc_runtime_directory;
@@ -56,6 +170,21 @@ static int32 g_dxc_ref_count = 0;
 static bool g_dxc_compiler_initialized = false;
 
 namespace detail {
+
+[[nodiscard]] bool validation_enabled_by_default() noexcept {
+#ifdef NDEBUG
+    auto enabled = false;
+#else
+    auto enabled = true;
+#endif
+    if (auto value = std::getenv("LUISA_VULKAN_VALIDATION")) {
+        auto flag = luisa::string_view{value};
+        enabled = flag == "1" || flag == "true" || flag == "TRUE" ||
+                  flag == "on" || flag == "ON";
+    }
+    return enabled;
+}
+
 struct Settings {
     bool validation{false};
     bool fullscreen{false};
@@ -65,10 +194,16 @@ struct Settings {
 
 static VkInstance vk_instance{nullptr};
 static std::mutex instance_mtx;
+static std::mutex dispatch_lifetime_mtx;
+static uint32_t live_device_count{};
+static bool vk_instance_surface_enabled{};
+static bool vk_instance_validation_enabled{};
+static vstd::unordered_set<luisa::string> vk_instance_extra_exts;
 static Settings settings{};
 static PFN_vkCreateDebugUtilsMessengerEXT vk_create_debug_utils_messenger_ext;
 static PFN_vkDestroyDebugUtilsMessengerEXT vk_destroy_debug_utils_messenger_ext;
 static VkDebugUtilsMessengerEXT debug_utils_messenger;
+static VkInstance debug_utils_messenger_instance;
 struct AllocCallbacks {
     VkAllocationCallbacks callbacks{};
     AllocCallbacks() {
@@ -94,13 +229,6 @@ struct AllocCallbacks {
     }
 };
 static AllocCallbacks alloc;
-struct InstanceDestructor {
-    ~InstanceDestructor() {
-        if (vk_instance) {
-            vkDestroyInstance(vk_instance, Device::alloc_callbacks());
-        }
-    }
-};
 VKAPI_ATTR VkBool32 VKAPI_CALL debug_utils_messenger_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     VkDebugUtilsMessageTypeFlagsEXT message_type,
@@ -121,7 +249,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_utils_messenger_callback(
     }
 
     // Display message to default output (console/logcat)
-    if (message_severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+    if (message_severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         vstd::string debug_message;
         debug_message << prefix << "[" << vstd::to_string(p_callback_data->messageIdNumber) << "][" << p_callback_data->pMessageIdName << "] : " << p_callback_data->pMessage;
         if (is_error)
@@ -137,16 +265,30 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_utils_messenger_callback(
 
 void setup_debugging(VkInstance instance) {
 
+    if (debug_utils_messenger != VK_NULL_HANDLE) {
+        LUISA_ASSERT(
+            debug_utils_messenger_instance == instance,
+            "Vulkan validation messenger is already attached to a different "
+            "process instance.");
+        return;
+    }
+
     vk_create_debug_utils_messenger_ext = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
     vk_destroy_debug_utils_messenger_ext = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+    LUISA_ASSERT(
+        vk_create_debug_utils_messenger_ext != nullptr &&
+            vk_destroy_debug_utils_messenger_ext != nullptr,
+        "VK_EXT_debug_utils was enabled, but its messenger entry points are unavailable.");
 
     VkDebugUtilsMessengerCreateInfoEXT debug_utils_messenger_ci{};
     debug_utils_messenger_ci.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     debug_utils_messenger_ci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     debug_utils_messenger_ci.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
     debug_utils_messenger_ci.pfnUserCallback = debug_utils_messenger_callback;
-    VkResult result = vk_create_debug_utils_messenger_ext(instance, &debug_utils_messenger_ci, Device::alloc_callbacks(), &debug_utils_messenger);
-    assert(result == VK_SUCCESS);
+    VK_CHECK_RESULT(vk_create_debug_utils_messenger_ext(
+        instance, &debug_utils_messenger_ci,
+        Device::alloc_callbacks(), &debug_utils_messenger));
+    debug_utils_messenger_instance = instance;
 }
 vstd::unordered_set<luisa::string> supported_exts(VkPhysicalDevice physical_device) {
     uint extensions_count;
@@ -273,7 +415,12 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
 #endif
         if (settings.validation) {
             emplace_instance_ext(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);// SRS - Dependency when VK_EXT_DEBUG_MARKER is enabled
-            emplace_instance_ext(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            if (!emplace_instance_ext(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+                LUISA_WARNING(
+                    "VK_EXT_debug_utils is unavailable; Vulkan validation "
+                    "messenger output is disabled.");
+                settings.validation = false;
+            }
         }
         instance_create_info.enabledExtensionCount = (uint32_t)instance_exts.size();
         instance_create_info.ppEnabledExtensionNames = instance_exts.size() > 0 ? instance_exts.data() : nullptr;
@@ -282,7 +429,57 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
     volkLoadInstance(instance);
 }
 
+void load_or_create_process_instance(
+    bool enable_validation, bool &enable_surface,
+    luisa::filesystem::path const &custom_path,
+    luisa::string_view lib_name,
+    luisa::span<luisa::string const> extra_exts) {
+    auto creating = vk_instance == VK_NULL_HANDLE;
+    if (!creating) {
+        enable_surface &= vk_instance_surface_enabled;
+        settings.validation = vk_instance_validation_enabled;
+        for (auto &&extension : extra_exts) {
+            LUISA_ASSERT(
+                vk_instance_extra_exts.contains(extension),
+                "The process Vulkan instance is already live without "
+                "requested extension '{}'. Instance extensions cannot be "
+                "added after creation.",
+                extension);
+        }
+    }
+    create_instance(
+        enable_validation, enable_surface, vk_instance,
+        custom_path, lib_name, extra_exts);
+    if (creating) {
+        vk_instance_surface_enabled = enable_surface;
+        vk_instance_validation_enabled = settings.validation;
+        vk_instance_extra_exts.clear();
+        for (auto &&extension : extra_exts) {
+            vk_instance_extra_exts.emplace(extension);
+        }
+    }
+}
+
 }// namespace detail
+
+Device::GlobalDispatchLease::GlobalDispatchLease() noexcept {
+    std::lock_guard lock{detail::dispatch_lifetime_mtx};
+    LUISA_ASSERT(
+        detail::live_device_count == 0u,
+        "The Vulkan backend currently supports only one live Device per "
+        "process because Volk uses process-global instance/device dispatch "
+        "tables. Destroy the existing Vulkan Device before creating another.");
+    ++detail::live_device_count;
+}
+
+Device::GlobalDispatchLease::~GlobalDispatchLease() noexcept {
+    std::lock_guard lock{detail::dispatch_lifetime_mtx};
+    LUISA_ASSERT(
+        detail::live_device_count == 1u,
+        "Vulkan global dispatch lifetime accounting is unbalanced.");
+    --detail::live_device_count;
+}
+
 VkAllocationCallbacks *Device::alloc_callbacks() {
     return &detail::alloc.callbacks;
 }
@@ -344,7 +541,8 @@ void Device::destroy_motion_instance(uint64_t handle) noexcept {
 Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
     : DeviceInterface{std::move(ctx_arg)},
       set_bindless_kernel(BuiltinKernel::load_bindless_set_kernel),
-      set_accel_kernel(BuiltinKernel::load_accel_set_kernel) {
+      set_accel_kernel(BuiltinKernel::load_accel_set_kernel),
+      prepare_indirect_kernel(BuiltinKernel::load_indirect_prepare_kernel) {
     bool headless = false;
     bool use_lmdb = false;
     bool load_dxc_for_config_readback = false;
@@ -365,19 +563,66 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
     VkPhysicalDevice ext_phy_device{};
     VkDevice ext_device{};
     luisa::filesystem::path custom_path;
-    luisa::string_view lib_name;
+    luisa::string lib_name;
 
     if (_config_ext) {
         auto external_device = _config_ext->create_external_device();
+        auto has_queue_metadata =
+            external_device.graphics_queue != VK_NULL_HANDLE ||
+            external_device.compute_queue != VK_NULL_HANDLE ||
+            external_device.copy_queue != VK_NULL_HANDLE ||
+            external_device.graphics_queue_family_index !=
+                VK_QUEUE_FAMILY_IGNORED ||
+            external_device.compute_queue_family_index !=
+                VK_QUEUE_FAMILY_IGNORED ||
+            external_device.copy_queue_family_index !=
+                VK_QUEUE_FAMILY_IGNORED;
+        auto ancestry = detail::validate_external_device_ancestry(
+            external_device.instance != VK_NULL_HANDLE,
+            external_device.physical_device != VK_NULL_HANDLE,
+            external_device.device != VK_NULL_HANDLE,
+            has_queue_metadata);
+        LUISA_ASSERT(
+            static_cast<bool>(ancestry),
+            "Invalid imported Vulkan device ancestry: {}.",
+            detail::external_device_ancestry_status_name(ancestry.status));
+        auto instance_api = detail::validate_external_instance_api(
+            external_device.instance != VK_NULL_HANDLE,
+            external_device.api_version);
+        LUISA_ASSERT(
+            static_cast<bool>(instance_api),
+            "Invalid imported Vulkan instance contract: {} (reported API "
+            "version {}.{}.{}).",
+            detail::external_instance_api_status_name(instance_api.status),
+            VK_API_VERSION_MAJOR(external_device.api_version),
+            VK_API_VERSION_MINOR(external_device.api_version),
+            VK_API_VERSION_PATCH(external_device.api_version));
+        auto queue_handles = detail::validate_external_queue_handles(
+            external_device.device != VK_NULL_HANDLE,
+            {external_device.graphics_queue != VK_NULL_HANDLE,
+             external_device.compute_queue != VK_NULL_HANDLE,
+             external_device.copy_queue != VK_NULL_HANDLE});
+        LUISA_ASSERT(
+            static_cast<bool>(queue_handles),
+            "Imported Vulkan device has an invalid {} queue contract: {}. "
+            "Supply the actual queue handle; the backend cannot infer which "
+            "queues were created on an existing logical device.",
+            detail::queue_family_role_name(queue_handles.role),
+            detail::external_queue_handle_status_name(queue_handles.status));
+        auto required_features =
+            detail::validate_external_required_features(
+                external_device.device != VK_NULL_HANDLE,
+                external_device.required_features.timeline_semaphore,
+                external_device.required_features.synchronization2);
+        LUISA_ASSERT(
+            static_cast<bool>(required_features),
+            "Imported Vulkan device is missing a mandatory enabled-feature "
+            "contract: {}.",
+            detail::external_required_feature_status_name(
+                required_features.status));
         ext_phy_device = external_device.physical_device;
         ext_device = external_device.device;
-        if ((ext_phy_device != nullptr) != (ext_device != nullptr)) [[unlikely]] {
-            LUISA_ERROR("External physical device must all have instance or all be null.");
-        }
-        if (external_device.instance) {
-            std::lock_guard lck{detail::instance_mtx};
-            detail::vk_instance = external_device.instance;
-        }
+        _instance = external_device.instance;
         load_dxc_for_config_readback = _config_ext->load_dxc();
         _graphics_queue = external_device.graphics_queue;
         auto ext_path = _config_ext->external_vulkan_lib_path();
@@ -387,14 +632,34 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         _copy_queue = external_device.copy_queue;
         external_instance = external_device.instance;
         this->external_device = external_device.device;
-        external_graphics_queue = external_device.graphics_queue;
-        external_compute_queue = external_device.compute_queue;
-        external_copy_queue = external_device.copy_queue;
+        external_graphics_queue_family_index =
+            external_device.graphics_queue_family_index;
+        external_compute_queue_family_index =
+            external_device.compute_queue_family_index;
+        external_copy_queue_family_index =
+            external_device.copy_queue_family_index;
         bindless_enabled = _config_ext->enable_bindless_feature();
         raytracing_enabled = _config_ext->enable_raytracing_feature();
         interop_enabled = _config_ext->enable_interop_feature();
         device_address_enabled = _config_ext->enable_device_address_feature();
         surface_enabled = _config_ext->enable_surface_feature();
+        if (external_instance) {
+            // The enabled instance-extension list is not queryable. A
+            // borrowed instance therefore remains compute-only until the
+            // import API grows an explicit surface-extension attestation.
+            surface_enabled = false;
+        }
+        if (ext_device != VK_NULL_HANDLE) {
+            // Optional logical-device features and extensions cannot be
+            // queried after VkDevice creation. Until the import API carries
+            // explicit attestations for them, keep every optional backend
+            // path fail-closed.
+            bindless_enabled = false;
+            raytracing_enabled = false;
+            interop_enabled = false;
+            device_address_enabled = false;
+            surface_enabled = false;
+        }
     }
     device_address_enabled |= raytracing_enabled;
 
@@ -416,30 +681,59 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         surface_enabled = false;
     }
     // init instance
-    {
+    if (external_instance) {
+        // Initialize dispatch entry points against the borrowed instance, but
+        // never install caller-owned lifetime into the backend's global owned
+        // instance slot.
+        auto capabilities = detail::plan_instance_runtime_capabilities(
+            true, surface_enabled,
+            detail::validation_enabled_by_default());
+        detail::settings.validation = capabilities.debug_utils;
+        auto enable_validation = capabilities.debug_utils;
+        auto enable_surface = capabilities.surface;
+        detail::create_instance(
+            enable_validation, enable_surface, _instance,
+            custom_path, lib_name, {});
+        surface_enabled = enable_surface;
+    } else {
         std::lock_guard lck{detail::instance_mtx};
-        if (!detail::vk_instance || external_instance) {
-#ifdef NDEBUG
-            constexpr bool enable_validation = false;
-#else
-            constexpr bool enable_validation = true;
-#endif
-            luisa::vector<luisa::string> extra_exts = [&]() {
-                if (_config_ext) {
-                    return _config_ext->extra_instance_exts();
-                } else {
-                    return luisa::vector<luisa::string>{};
-                }
-            }();
-            bool enable_surface = surface_enabled;
-            detail::create_instance(enable_validation, enable_surface, detail::vk_instance, custom_path, lib_name, extra_exts);
-            surface_enabled = enable_surface;
-        }
+        auto enable_validation = detail::validation_enabled_by_default();
+        luisa::vector<luisa::string> extra_exts = [&]() {
+            if (_config_ext) {
+                return _config_ext->extra_instance_exts();
+            } else {
+                return luisa::vector<luisa::string>{};
+            }
+        }();
+        bool enable_surface = surface_enabled;
+        // Reload Volk's global instance table even when reusing the
+        // process-owned instance: the previous Device may have borrowed a
+        // different instance and replaced those entry points.
+        detail::load_or_create_process_instance(
+            enable_validation, enable_surface,
+            custom_path, lib_name, extra_exts);
+        surface_enabled = enable_surface;
+        _instance = detail::vk_instance;
     }
 #ifndef LUISA_VULKAN_ENABLE_CUDA_INTEROP
     interop_enabled = false;
 #endif
     _init_device(ext_phy_device, ext_device, device_idx);
+
+    {
+        constexpr auto dummy_word_count =
+            IndirectDispatchLayout::header_word_count +
+            IndirectDispatchLayout::record_word_count;
+        std::array<uint32_t, dummy_word_count> zero_words{};
+        _indirect_dispatch_dummy = luisa::make_unique<UploadBuffer>(
+            this, sizeof(zero_words));
+        _indirect_dispatch_dummy->copy_from(
+            zero_words.data(), 0u, sizeof(zero_words));
+        // This host write precedes every possible queue submission. Flushing
+        // here makes the persistent descriptor valid on non-coherent heaps;
+        // it never changes again and needs no per-command resource tracking.
+        static_cast<void>(_indirect_dispatch_dummy->flush_host());
+    }
 
     if (_config_ext) {
         _config_ext->init_volk(vkGetInstanceProcAddr);
@@ -518,13 +812,13 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
 
         // If requested, we enable the default validation layers for debugging
         if (detail::settings.validation) {
-            detail::setup_debugging(detail::vk_instance);
+            detail::setup_debugging(instance());
         }
 
         // Physical device
         uint32_t gpu_count = 0;
         // Get number of available physical devices
-        VK_CHECK_RESULT(vkEnumeratePhysicalDevices(detail::vk_instance, &gpu_count, nullptr));
+        VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance(), &gpu_count, nullptr));
         if (gpu_count == 0) {
             LUISA_ERROR("No device with Vulkan support found");
             return;
@@ -532,7 +826,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         vstd::vector<VkPhysicalDevice> physical_devices;
         // Enumerate devices
         luisa::enlarge_by(physical_devices, gpu_count);
-        err = vkEnumeratePhysicalDevices(detail::vk_instance, &gpu_count, physical_devices.data());
+        err = vkEnumeratePhysicalDevices(instance(), &gpu_count, physical_devices.data());
         if (err) [[unlikely]] {
             LUISA_ERROR("Could not enumerate physical devices : {}", (int)err);
             return;
@@ -568,6 +862,23 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     auto supported_ext = detail::supported_exts(physical_device);
     VkPhysicalDeviceFeatures device_features{};
     vkGetPhysicalDeviceFeatures(physical_device, &device_features);
+    auto storage_image_format_features =
+        detail::plan_storage_image_format_features({
+            .read_without_format =
+                device_features.shaderStorageImageReadWithoutFormat ==
+                VK_TRUE,
+            .write_without_format =
+                device_features.shaderStorageImageWriteWithoutFormat ==
+                VK_TRUE,
+            .imported_device = external_device != VK_NULL_HANDLE});
+    device_features.shaderStorageImageReadWithoutFormat =
+        storage_image_format_features.read_without_format ?
+            VK_TRUE :
+            VK_FALSE;
+    device_features.shaderStorageImageWriteWithoutFormat =
+        storage_image_format_features.write_without_format ?
+            VK_TRUE :
+            VK_FALSE;
     // Derived examples can override this to set actual features (based on above readings) to enable for logical device creation
 
     // Vulkan device creation
@@ -575,26 +886,140 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     // and encapsulates functions related to a device
     _vk_device.create(physical_device);
     _vk_device->logical_device = external_device;
-    if (supported_ext.find(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == supported_ext.end()) [[unlikely]] {
-        LUISA_ERROR("Necessary extension \"VK_KHR_timeline_semaphore\" is unsupported.");
+    auto external_queue_contract =
+        detail::validate_external_queue_family_contract(
+            external_device != VK_NULL_HANDLE,
+            std::array{
+                external_graphics_queue_family_index,
+                external_compute_queue_family_index,
+                external_copy_queue_family_index},
+            luisa::span<const VkQueueFamilyProperties>{
+                _vk_device->queue_family_properties.data(),
+                _vk_device->queue_family_properties.size()});
+    LUISA_ASSERT(
+        static_cast<bool>(external_queue_contract),
+        "Imported Vulkan device has an invalid {} queue-family contract: {} "
+        "(index {}, required flags 0x{:x}, available flags 0x{:x}).",
+        detail::queue_family_role_name(external_queue_contract.role),
+        detail::queue_family_contract_status_name(
+            external_queue_contract.status),
+        external_queue_contract.family_index,
+        external_queue_contract.required_flags,
+        external_queue_contract.available_flags);
+    auto sampler_anisotropy_plan = detail::plan_sampler_anisotropy({.physical_device_feature =
+                                                                        device_features.samplerAnisotropy == VK_TRUE,
+                                                                    .imported_device = external_device != VK_NULL_HANDLE,
+                                                                    .max_sampler_anisotropy =
+                                                                        _vk_device->properties.limits.maxSamplerAnisotropy});
+    sampler_anisotropy_enabled = sampler_anisotropy_plan.enabled;
+    _max_sampler_anisotropy = sampler_anisotropy_plan.max_anisotropy;
+    // Keep VulkanDevice::enabled_features honest for both owned and imported
+    // logical devices. For imports the enabled feature chain is unknowable,
+    // so physical-device support must not be advertised as enabled support.
+    device_features.samplerAnisotropy =
+        sampler_anisotropy_enabled ? VK_TRUE : VK_FALSE;
+    if (external_device != VK_NULL_HANDLE && bindless_enabled) {
+        // Vulkan exposes physical support but cannot report which descriptor
+        // indexing features were enabled when an imported logical device was
+        // created. Without an explicit import-side feature contract, creating
+        // update-after-bind layouts would be unsound.
+        LUISA_INFO(
+            "Vulkan bindless descriptors disabled for imported logical device "
+            "because enabled descriptor-indexing features are unknown.");
+        bindless_enabled = false;
+        _bindless_heap_capacity = 0u;
     }
-    if (supported_ext.find(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) == supported_ext.end()) [[unlikely]] {
-        LUISA_ERROR("Necessary extension \"VK_KHR_synchronization2\" is unsupported.");
+    auto supports_device_extension = [&supported_ext](char const *name) noexcept {
+        return supported_ext.find(name) != supported_ext.end();
+    };
+    auto enable_device_extension = [this](char const *name) noexcept {
+        if (std::find(_enable_device_exts.begin(),
+                      _enable_device_exts.end(), name) ==
+            _enable_device_exts.end()) {
+            _enable_device_exts.emplace_back(name);
+        }
+    };
+    auto api_version = _vk_device->properties.apiVersion;
+    auto has_core_timeline_semaphore = api_version >= VK_API_VERSION_1_2;
+    auto has_core_synchronization2 = api_version >= VK_API_VERSION_1_3;
+    auto has_physical_device_api_1_3 =
+        api_version >= VK_API_VERSION_1_3;
+    VkPhysicalDeviceSynchronization2Features supported_synchronization2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+        .pNext = nullptr};
+    if (has_core_synchronization2 ||
+        supports_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_synchronization2};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
     }
-    bool enable_16bit = false;
-    bool enable_8bit = false;
-    bool enable_atomic64_bit = false;
+    auto required_device_features = detail::plan_required_device_features({.timeline_semaphore_core = has_core_timeline_semaphore,
+                                                                           .timeline_semaphore_extension =
+                                                                               supports_device_extension(
+                                                                                   VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
+                                                                           .timeline_semaphore_feature =
+                                                                               _vk_device->features_12.timelineSemaphore == VK_TRUE,
+                                                                           .synchronization2_core = has_core_synchronization2,
+                                                                           .synchronization2_extension =
+                                                                               supports_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME),
+                                                                           .synchronization2_feature =
+                                                                               supported_synchronization2.synchronization2 == VK_TRUE,
+                                                                           .physical_device_api_1_3 = has_physical_device_api_1_3});
+    if (!required_device_features.supported) [[unlikely]] {
+        LUISA_ERROR(
+            "The Vulkan backend requires a Vulkan 1.3 physical device "
+            "because it uses the core copy_commands2 entry points, as well "
+            "as timelineSemaphore and synchronization2; "
+            "physical device API {}.{}.{} reports timelineSemaphore={} "
+            "(core={}, extension={}) and synchronization2={} "
+            "(core={}, extension={}) and core copy_commands2={}.",
+            VK_API_VERSION_MAJOR(api_version),
+            VK_API_VERSION_MINOR(api_version),
+            VK_API_VERSION_PATCH(api_version),
+            _vk_device->features_12.timelineSemaphore == VK_TRUE,
+            has_core_timeline_semaphore,
+            supports_device_extension(
+                VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
+            supported_synchronization2.synchronization2 == VK_TRUE,
+            has_core_synchronization2,
+            supports_device_extension(
+                VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME),
+            has_physical_device_api_1_3);
+    }
+    {
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &_timeline_semaphore_properties};
+        vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+        LUISA_ASSERT(
+            _timeline_semaphore_properties
+                    .maxTimelineSemaphoreValueDifference != 0u,
+            "Vulkan 1.3 timeline-semaphore support reported a zero "
+            "maxTimelineSemaphoreValueDifference.");
+    }
+    if (required_device_features.enable_timeline_semaphore_extension) {
+        enable_device_extension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+    }
+    if (required_device_features.enable_synchronization2_extension) {
+        enable_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+    }
+    detail::NarrowNumericFeaturePlan narrow_numeric_features{};
+    bool enable_float8 = false;
+    bool enable_buffer_int64_atomics = false;
+    bool enable_shared_int64_atomics = false;
     bool enable_barycentric = false;
     bool enable_motion_blur = false;
-    bool enable_float_atomic_add = false;
-    bool enable_float_shared_atomic = false;
+    bool enable_buffer_float32_atomics = false;
+    bool enable_buffer_float32_atomic_add = false;
+    bool enable_buffer_float32_atomic_min_max = false;
+    bool enable_shared_float32_atomics = false;
+    bool enable_shared_float32_atomic_add = false;
+    bool enable_shared_float32_atomic_min_max = false;
     bool enable_subgroup_size_control = false;
     bool enable_subgroup_extended_types = false;
-    if (supported_ext.find(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) != supported_ext.end()) {
-        _enable_device_exts.emplace_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
-        enable_barycentric = true;
-    }
-    if (supported_ext.find(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME) != supported_ext.end()) {
+    bool enable_shader_device_clock = false;
+    {
         VkPhysicalDeviceVulkan12Features vk12_atomic_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .pNext = nullptr};
@@ -602,56 +1027,76 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
             .pNext = &vk12_atomic_features};
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
-        if (vk12_atomic_features.shaderBufferInt64Atomics == VK_TRUE &&
-            vk12_atomic_features.shaderSharedInt64Atomics == VK_TRUE) {
-            _enable_device_exts.emplace_back(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
-            enable_atomic64_bit = true;
+        enable_buffer_int64_atomics =
+            vk12_atomic_features.shaderBufferInt64Atomics == VK_TRUE;
+        enable_shared_int64_atomics =
+            vk12_atomic_features.shaderSharedInt64Atomics == VK_TRUE;
+        if (enable_buffer_int64_atomics || enable_shared_int64_atomics) {
+            if (supported_ext.find(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME) !=
+                supported_ext.end()) {
+                enable_device_extension(
+                    VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
+            }
         }
     }
     {
-        VkPhysicalDeviceVulkan11Features vk11_16bit_features{
+        VkPhysicalDeviceVulkan11Features vk11_narrow_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
             .pNext = nullptr};
-        VkPhysicalDeviceVulkan12Features vk12_16bit_features{
+        VkPhysicalDeviceVulkan12Features vk12_narrow_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-            .pNext = &vk11_16bit_features};
-        VkPhysicalDeviceFeatures2 features2_16bit{
+            .pNext = &vk11_narrow_features};
+        VkPhysicalDeviceFeatures2 features2_narrow{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-            .pNext = &vk12_16bit_features};
-        vkGetPhysicalDeviceFeatures2(physical_device, &features2_16bit);
-        bool has_16bit = false;
-        if (supported_ext.find(VK_KHR_16BIT_STORAGE_EXTENSION_NAME) != supported_ext.end() ||
-            supported_ext.find(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
-            has_16bit = (vk12_16bit_features.shaderFloat16 == VK_TRUE &&
-                         vk11_16bit_features.storageBuffer16BitAccess == VK_TRUE &&
-                         vk11_16bit_features.uniformAndStorageBuffer16BitAccess == VK_TRUE);
-        }
-        if (has_16bit) {
-            if (supported_ext.find(VK_KHR_16BIT_STORAGE_EXTENSION_NAME) != supported_ext.end()) {
-                _enable_device_exts.emplace_back(VK_KHR_16BIT_STORAGE_EXTENSION_NAME);
-            }
-            if (supported_ext.find(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
-                _enable_device_exts.emplace_back(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME);
-            }
-            enable_16bit = true;
-        }
+            .pNext = &vk12_narrow_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2_narrow);
+        narrow_numeric_features = detail::plan_narrow_numeric_features({.shader_float16 =
+                                                                            vk12_narrow_features.shaderFloat16 == VK_TRUE,
+                                                                        .shader_int8 = vk12_narrow_features.shaderInt8 == VK_TRUE,
+                                                                        .storage_buffer_8bit_access =
+                                                                            vk12_narrow_features.storageBuffer8BitAccess == VK_TRUE,
+                                                                        .uniform_storage_buffer_8bit_access =
+                                                                            vk12_narrow_features.uniformAndStorageBuffer8BitAccess ==
+                                                                            VK_TRUE,
+                                                                        .storage_buffer_16bit_access =
+                                                                            vk11_narrow_features.storageBuffer16BitAccess == VK_TRUE,
+                                                                        .uniform_storage_buffer_16bit_access =
+                                                                            vk11_narrow_features.uniformAndStorageBuffer16BitAccess ==
+                                                                            VK_TRUE});
     }
-    if (supported_ext.find(VK_KHR_8BIT_STORAGE_EXTENSION_NAME) != supported_ext.end()) {
-        VkPhysicalDeviceVulkan12Features vk12_8bit_features{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+    if (supported_ext.find(VK_EXT_SHADER_FLOAT8_EXTENSION_NAME) !=
+        supported_ext.end()) {
+        VkPhysicalDeviceShaderFloat8FeaturesEXT supported_float8{
+            .sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT,
             .pNext = nullptr};
-        VkPhysicalDeviceFeatures2 features2_8bit{
+        VkPhysicalDeviceFeatures2 features2{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-            .pNext = &vk12_8bit_features};
-        vkGetPhysicalDeviceFeatures2(physical_device, &features2_8bit);
-        if (vk12_8bit_features.storageBuffer8BitAccess == VK_TRUE &&
-            vk12_8bit_features.uniformAndStorageBuffer8BitAccess == VK_TRUE &&
-            vk12_8bit_features.shaderInt8 == VK_TRUE) {
-            _enable_device_exts.emplace_back(VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
-            enable_8bit = true;
+            .pNext = &supported_float8};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (supported_float8.shaderFloat8 == VK_TRUE) {
+            enable_device_extension(VK_EXT_SHADER_FLOAT8_EXTENSION_NAME);
+            enable_float8 = true;
         }
     }
-    if (supported_ext.find(VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME) != supported_ext.end()) {
+#ifndef NDEBUG
+    if (supported_ext.find(VK_KHR_SHADER_CLOCK_EXTENSION_NAME) !=
+        supported_ext.end()) {
+        VkPhysicalDeviceShaderClockFeaturesKHR supported_shader_clock{
+            .sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_shader_clock};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (supported_shader_clock.shaderDeviceClock == VK_TRUE) {
+            enable_device_extension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
+            enable_shader_device_clock = true;
+        }
+    }
+#endif
+    {
         VkPhysicalDeviceVulkan12Features vk12_subgroup_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .pNext = nullptr};
@@ -664,37 +1109,56 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         }
     }
     if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
-        VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
-            nullptr,
-            VK_FALSE, VK_FALSE, VK_FALSE, VK_FALSE,
-            VK_FALSE, VK_FALSE, VK_FALSE, VK_FALSE,
-            VK_FALSE, VK_FALSE, VK_FALSE, VK_FALSE};
-        VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-        features2.pNext = &float_atomic_features;
+        VkPhysicalDeviceShaderAtomicFloatFeaturesEXT supported_float_atomics{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_float_atomics};
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
-        bool needs_float_atomic_ext = false;
-        if (float_atomic_features.shaderBufferFloat32AtomicAdd == VK_TRUE) {
-            needs_float_atomic_ext = true;
-            enable_float_atomic_add = true;
-        }
-        if (float_atomic_features.shaderSharedFloat32Atomics == VK_TRUE ||
-            float_atomic_features.shaderSharedFloat32AtomicAdd == VK_TRUE) {
-            needs_float_atomic_ext = true;
-            enable_float_shared_atomic = true;
-        }
-        if (needs_float_atomic_ext) {
-            _enable_device_exts.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
-        }
+        enable_buffer_float32_atomics =
+            supported_float_atomics.shaderBufferFloat32Atomics == VK_TRUE;
+        enable_buffer_float32_atomic_add =
+            supported_float_atomics.shaderBufferFloat32AtomicAdd == VK_TRUE;
+        enable_shared_float32_atomics =
+            supported_float_atomics.shaderSharedFloat32Atomics == VK_TRUE;
+        enable_shared_float32_atomic_add =
+            supported_float_atomics.shaderSharedFloat32AtomicAdd == VK_TRUE;
     }
-    auto enable_device_extension = [this](char const *name) noexcept {
-        if (std::find(_enable_device_exts.begin(), _enable_device_exts.end(), name) == _enable_device_exts.end()) {
-            _enable_device_exts.emplace_back(name);
-        }
-    };
+    if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end() &&
+        supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceShaderAtomicFloat2FeaturesEXT supported_float_atomics2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_2_FEATURES_EXT,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_float_atomics2};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        enable_buffer_float32_atomic_min_max =
+            supported_float_atomics2.shaderBufferFloat32AtomicMinMax == VK_TRUE;
+        enable_shared_float32_atomic_min_max =
+            supported_float_atomics2.shaderSharedFloat32AtomicMinMax == VK_TRUE;
+    }
+    auto enable_float_atomic_ext =
+        enable_buffer_float32_atomics ||
+        enable_buffer_float32_atomic_add ||
+        enable_shared_float32_atomics ||
+        enable_shared_float32_atomic_add ||
+        enable_buffer_float32_atomic_min_max ||
+        enable_shared_float32_atomic_min_max;
+    if (enable_float_atomic_ext) {
+        enable_device_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
+    }
+    if (enable_buffer_float32_atomic_min_max ||
+        enable_shared_float32_atomic_min_max) {
+        enable_device_extension(VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME);
+    }
     // Try enabling cooperative-matrix extensions in order of preference:
     // VK_KHR_cooperative_matrix -> VK_NV_cooperative_matrix2 (requires KHR) -> VK_NV_cooperative_matrix.
-    enum class CooperativeMatrixExt : uint8_t { None, KHR, KHRAndNV2, NV };
+    enum class CooperativeMatrixExt : uint8_t { None,
+                                                KHR,
+                                                KHRAndNV2,
+                                                NV };
     auto enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features_khr{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR,
@@ -780,20 +1244,36 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             VkResult cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
                 physical_device, &prop_count, nullptr);
             if (cv_result == VK_SUCCESS && prop_count > 0u) {
-                // Allocate and zero-initialize the properties array on the stack.
-                VkCooperativeVectorPropertiesNV cv_props_storage[16];
-                auto cv_props = cv_props_storage;
-                uint32_t query_count = std::min<uint32_t>(prop_count, 16u);
+                // Allocate and zero-initialize the properties array dynamically
+                // so we can handle any number of configs the driver returns.
+                vstd::vector<VkCooperativeVectorPropertiesNV> cv_props(prop_count);
+                uint32_t query_count = prop_count;
                 for (uint32_t i = 0; i < query_count; ++i) {
                     cv_props[i] = VkCooperativeVectorPropertiesNV{};
                     cv_props[i].sType = VK_STRUCTURE_TYPE_COOPERATIVE_VECTOR_PROPERTIES_NV;
                 }
                 cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
-                    physical_device, &query_count, cv_props);
-                if (cv_result == VK_SUCCESS) {
-                    auto actual_count = std::min<uint32_t>(query_count, prop_count);
+                    physical_device, &query_count, cv_props.data());
+                if (cv_result == VK_INCOMPLETE || cv_result == VK_SUCCESS) {
+                    // query_count is now the actual number written by the driver.
+                    // Iterate only over valid entries and skip any with obviously
+                    // invalid enum values (driver corruption guard).
+                    // The VkComponentTypeKHR enum includes packed/quantized types
+                    // with large values (e.g. 0x10001450001, 1000491000). Accept
+                    // any value that is not an obviously corrupted pointer.
+                    constexpr uint32_t max_reasonable = 0x20000000u;
+                    auto actual_count = query_count;
                     for (uint32_t i = 0; i < actual_count; ++i) {
                         auto const &p = cv_props[i];
+                        if (static_cast<uint32_t>(p.inputType) >= max_reasonable ||
+                            static_cast<uint32_t>(p.inputInterpretation) >= max_reasonable ||
+                            static_cast<uint32_t>(p.matrixInterpretation) >= max_reasonable ||
+                            static_cast<uint32_t>(p.biasInterpretation) >= max_reasonable ||
+                            static_cast<uint32_t>(p.resultType) >= max_reasonable) {
+                            LUISA_VERBOSE(
+                                "  CooperativeVector config[{}]: SKIPPED (corrupted entry)", i);
+                            continue;
+                        }
                         LUISA_INFO("  CooperativeVector config[{}]: inputType={}, inputInterp={}, matrixInterp={}, biasInterp={}, resultType={}, transpose={}",
                                    i,
                                    static_cast<int>(p.inputType),
@@ -807,6 +1287,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                     bool has_fp32_float_config = false;
                     for (uint32_t i = 0; i < actual_count; ++i) {
                         auto const &p = cv_props[i];
+                        if (static_cast<uint32_t>(p.inputType) >= max_reasonable) { continue; }
                         if (p.inputType == VK_COMPONENT_TYPE_FLOAT32_KHR &&
                             p.inputInterpretation == VK_COMPONENT_TYPE_FLOAT32_KHR &&
                             p.matrixInterpretation == VK_COMPONENT_TYPE_FLOAT32_KHR &&
@@ -854,6 +1335,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             }
         }
     }
+#if ENABLE_HIDDEN_FEATURES
     VkPhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR workgroup_memory_explicit_layout_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_FEATURES_KHR,
         .pNext = nullptr,
@@ -879,61 +1361,261 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_device_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
         }
     }
-    enable_device_extension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
-    enable_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+#endif // ENABLE_HIDDEN_FEATURES
     if (bindless_enabled) {
-        if (supported_ext.find(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) != supported_ext.end() &&
-            supported_ext.find(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) != supported_ext.end()) {
-            // Query descriptor indexing features
-            VkPhysicalDeviceDescriptorIndexingFeatures desc_indexing_features{
-                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        // Descriptor indexing is core in Vulkan 1.2. Query the promoted feature
+        // structure directly: chaining it together with the EXT structure is
+        // invalid, because both structures describe the same promoted state.
+        VkPhysicalDeviceVulkan12Features descriptor_indexing_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &descriptor_indexing_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        auto supported =
+            descriptor_indexing_features.descriptorIndexing == VK_TRUE &&
+            descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing == VK_TRUE &&
+            descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing == VK_TRUE &&
+            descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE &&
+            descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind == VK_TRUE &&
+            descriptor_indexing_features.descriptorBindingPartiallyBound == VK_TRUE &&
+            descriptor_indexing_features.runtimeDescriptorArray == VK_TRUE;
+        if (supported) {
+            _descriptor_indexing_properties = VkPhysicalDeviceDescriptorIndexingProperties{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES,
                 .pNext = nullptr};
-            VkPhysicalDeviceVulkan12Features vk12_desc_features{
-                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-                .pNext = &desc_indexing_features};
-            VkPhysicalDeviceFeatures2 features2{
-                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-                .pNext = &vk12_desc_features};
-            vkGetPhysicalDeviceFeatures2(physical_device, &features2);
-            // Check master descriptorIndexing bit (Vk12) AND all individual sub-features (DescriptorIndexingFeatures)
-            if (vk12_desc_features.descriptorIndexing == VK_TRUE &&
-                desc_indexing_features.shaderUniformBufferArrayNonUniformIndexing == VK_TRUE &&
-                desc_indexing_features.shaderSampledImageArrayNonUniformIndexing == VK_TRUE &&
-                desc_indexing_features.shaderStorageBufferArrayNonUniformIndexing == VK_TRUE &&
-                desc_indexing_features.shaderStorageImageArrayNonUniformIndexing == VK_TRUE &&
-                desc_indexing_features.descriptorBindingUniformBufferUpdateAfterBind == VK_TRUE &&
-                desc_indexing_features.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE &&
-                desc_indexing_features.descriptorBindingStorageImageUpdateAfterBind == VK_TRUE &&
-                desc_indexing_features.descriptorBindingStorageBufferUpdateAfterBind == VK_TRUE &&
-                desc_indexing_features.runtimeDescriptorArray == VK_TRUE) {
-                enable_device_extension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-                enable_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-            } else {
-                bindless_enabled = false;
+            VkPhysicalDeviceProperties2 properties2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &_descriptor_indexing_properties};
+            vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+            _bindless_heap_capacity =
+                detail::plan_bindless_heap_capacity({.max_per_stage_update_after_bind_samplers =
+                                                         _descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSamplers,
+                                                     .max_descriptor_set_update_after_bind_samplers =
+                                                         _descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSamplers,
+                                                     .max_per_stage_update_after_bind_storage_buffers =
+                                                         _descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers,
+                                                     .max_descriptor_set_update_after_bind_storage_buffers =
+                                                         _descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageBuffers,
+                                                     .max_per_stage_update_after_bind_sampled_images =
+                                                         _descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSampledImages,
+                                                     .max_descriptor_set_update_after_bind_sampled_images =
+                                                         _descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSampledImages,
+                                                     .max_per_stage_update_after_bind_resources =
+                                                         _descriptor_indexing_properties.maxPerStageUpdateAfterBindResources,
+                                                     .max_update_after_bind_descriptors_in_all_pools =
+                                                         _descriptor_indexing_properties.maxUpdateAfterBindDescriptorsInAllPools});
+            supported = _bindless_heap_capacity != 0u;
+            if (_bindless_heap_capacity <
+                detail::requested_bindless_heap_capacity) {
+                LUISA_INFO(
+                    "Vulkan bindless heap capacity clamped from {} to {} by "
+                    "descriptor-indexing limits.",
+                    detail::requested_bindless_heap_capacity,
+                    _bindless_heap_capacity);
             }
-        } else {
+            if (supported_ext.find(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) !=
+                supported_ext.end()) {
+                enable_device_extension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+            }
+        }
+        if (!supported) {
+            _bindless_heap_capacity = 0u;
             bindless_enabled = false;
         }
     }
+    auto robust_buffer_access_enabled =
+        detail::plan_robust_buffer_access({.physical_device_feature =
+                                               device_features.robustBufferAccess == VK_TRUE,
+                                           .storage_buffer_update_after_bind = bindless_enabled,
+                                           .robust_buffer_access_update_after_bind =
+                                               _descriptor_indexing_properties
+                                                   .robustBufferAccessUpdateAfterBind == VK_TRUE});
+    if (device_features.robustBufferAccess == VK_TRUE &&
+        !robust_buffer_access_enabled) {
+        LUISA_INFO(
+            "Vulkan robustBufferAccess disabled because bindless storage "
+            "buffers use update-after-bind and the device does not support "
+            "robustBufferAccessUpdateAfterBind.");
+    }
+    device_features.robustBufferAccess =
+        robust_buffer_access_enabled ? VK_TRUE : VK_FALSE;
+    VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR supported_barycentric{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR,
+        .pNext = nullptr};
+    if (supports_device_extension(
+            VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_barycentric};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+    }
+    VkPhysicalDeviceRayQueryFeaturesKHR supported_ray_query{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+        .pNext = nullptr};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR supported_acceleration_structure{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+        .pNext = &supported_ray_query};
+    auto has_ray_query_extensions =
+        supports_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
+        supports_device_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+        supports_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    if (supports_device_extension(
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)) {
+        _acceleration_structure_properties =
+            VkPhysicalDeviceAccelerationStructurePropertiesKHR{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
+                .pNext = nullptr};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &_acceleration_structure_properties};
+        vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+    }
+    if (has_ray_query_extensions) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_acceleration_structure};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+    }
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR supported_ray_tracing_pipeline{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+        .pNext = nullptr};
+    VkPhysicalDeviceRayTracingMotionBlurFeaturesNV supported_motion_blur{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MOTION_BLUR_FEATURES_NV,
+        .pNext = &supported_ray_tracing_pipeline};
+    auto has_motion_blur_extensions =
+        has_ray_query_extensions &&
+        supports_device_extension(
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
+        supports_device_extension(
+            VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME);
+    if (has_motion_blur_extensions) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_motion_blur};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+    }
+    auto raytracing_requested = raytracing_enabled;
+    auto motion_blur_requested =
+        raytracing_requested &&
+        (!_config_ext || _config_ext->enable_motion_blur());
+    auto optional_device_features = detail::plan_optional_device_features(
+        {
+            .fragment_shader_barycentric_extension =
+                supports_device_extension(
+                    VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME),
+            .fragment_shader_barycentric_feature =
+                supported_barycentric.fragmentShaderBarycentric == VK_TRUE,
+            .ray_query_extension =
+                supports_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME),
+            .ray_query_feature = supported_ray_query.rayQuery == VK_TRUE,
+            .acceleration_structure_extension =
+                supports_device_extension(
+                    VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME),
+            .acceleration_structure_feature =
+                supported_acceleration_structure.accelerationStructure == VK_TRUE,
+            .deferred_host_operations_extension =
+                supports_device_extension(
+                    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME),
+            .buffer_device_address =
+                (api_version >= VK_API_VERSION_1_2 ||
+                 supports_device_extension(
+                     VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)) &&
+                _vk_device->features_12.bufferDeviceAddress == VK_TRUE,
+            .ray_tracing_pipeline_extension =
+                supports_device_extension(
+                    VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME),
+            .ray_tracing_pipeline_feature =
+                supported_ray_tracing_pipeline.rayTracingPipeline == VK_TRUE,
+            .ray_traversal_primitive_culling_feature =
+                supported_ray_tracing_pipeline.rayTraversalPrimitiveCulling ==
+                VK_TRUE,
+            .ray_tracing_motion_blur_extension =
+                supports_device_extension(
+                    VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME),
+            .ray_tracing_motion_blur_feature =
+                supported_motion_blur.rayTracingMotionBlur == VK_TRUE,
+        },
+        {.ray_query = raytracing_requested,
+         .ray_tracing_motion_blur = motion_blur_requested});
+    enable_barycentric =
+        optional_device_features.fragment_shader_barycentric;
+    raytracing_enabled = optional_device_features.ray_query;
+    enable_motion_blur =
+        optional_device_features.ray_tracing_motion_blur;
+    motion_blur_enabled = enable_motion_blur;
+    if (raytracing_requested && !raytracing_enabled) {
+        LUISA_WARNING(
+            "Vulkan ray query disabled: rayQuery={} accelerationStructure={} "
+            "bufferDeviceAddress={} and required extensions={}",
+            supported_ray_query.rayQuery == VK_TRUE,
+            supported_acceleration_structure.accelerationStructure == VK_TRUE,
+            _vk_device->features_12.bufferDeviceAddress == VK_TRUE,
+            has_ray_query_extensions);
+    }
+    if (motion_blur_requested && raytracing_enabled &&
+        !motion_blur_enabled) {
+        LUISA_INFO(
+            "Vulkan motion blur disabled: rayTracingPipeline={} "
+            "rayTraversalPrimitiveCulling={} rayTracingMotionBlur={} and "
+            "required extensions={}",
+            supported_ray_tracing_pipeline.rayTracingPipeline == VK_TRUE,
+            supported_ray_tracing_pipeline.rayTraversalPrimitiveCulling ==
+                VK_TRUE,
+            supported_motion_blur.rayTracingMotionBlur == VK_TRUE,
+            has_motion_blur_extensions);
+    }
+    if (external_device != VK_NULL_HANDLE) {
+        // Vulkan exposes physical-device support, not the feature bits that
+        // were enabled when an imported VkDevice was created. Reset every
+        // optional feature discovered above; physical support alone must
+        // neither enter a feature chain nor become a runtime capability.
+        device_features = {};
+        narrow_numeric_features = {};
+        enable_float8 = false;
+        enable_buffer_int64_atomics = false;
+        enable_shared_int64_atomics = false;
+        raytracing_enabled = false;
+        enable_barycentric = false;
+        enable_motion_blur = false;
+        motion_blur_enabled = false;
+        enable_buffer_float32_atomics = false;
+        enable_buffer_float32_atomic_add = false;
+        enable_buffer_float32_atomic_min_max = false;
+        enable_shared_float32_atomics = false;
+        enable_shared_float32_atomic_add = false;
+        enable_shared_float32_atomic_min_max = false;
+        enable_subgroup_size_control = false;
+        subgroup_size_control_enabled = false;
+        _subgroup_size_control_properties = {};
+        enable_subgroup_extended_types = false;
+#ifndef NDEBUG
+        enable_shader_device_clock = false;
+#endif
+        enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
+        cooperative_vector_enabled = false;
+        cooperative_vector_fp32_enabled = false;
+#if ENABLE_HIDDEN_FEATURES
+        async_copy_enabled = false;
+#endif
+        interop_enabled = false;
+        device_address_enabled = false;
+        surface_enabled = false;
+        _enable_device_exts.clear();
+    }
+    if (enable_barycentric) {
+        enable_device_extension(
+            VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+    }
     if (raytracing_enabled) {
-        if (supported_ext.find(VK_KHR_RAY_QUERY_EXTENSION_NAME) != supported_ext.end() &&
-            supported_ext.find(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) != supported_ext.end() &&
-            supported_ext.find(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) != supported_ext.end()) {
-            enable_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
-            enable_device_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
-            enable_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-            // Enable motion blur extension if available (NVIDIA only)
-            // VK_NV_ray_tracing_motion_blur requires VK_KHR_ray_tracing_pipeline
-            if (supported_ext.find(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME) != supported_ext.end() &&
-                supported_ext.find(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) != supported_ext.end()) {
-                enable_device_extension(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME);
-                enable_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
-                enable_motion_blur = true;
-                motion_blur_enabled = true;
-            }
-        } else {
-            raytracing_enabled = false;
-        }
+        enable_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        enable_device_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        enable_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    }
+    if (enable_motion_blur) {
+        enable_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+        enable_device_extension(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME);
     }
     if (interop_enabled) {
         if (supported_ext.find(VK_KHR_RAY_QUERY_EXTENSION_NAME) != supported_ext.end() &&
@@ -957,27 +1639,34 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             interop_enabled = false;
         }
     }
-    // bufferDeviceAddress requires VK_KHR_buffer_device_address on Vulkan 1.1 devices
+    // bufferDeviceAddress is core in Vulkan 1.2. The extension name is only
+    // needed for an older physical-device API, but the feature bit is required
+    // in either case.
     if (device_address_enabled) {
-        VkPhysicalDeviceVulkan12Features vk12_ba_features{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-            .pNext = nullptr};
-        VkPhysicalDeviceFeatures2 features2{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-            .pNext = &vk12_ba_features};
-        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
-        if (vk12_ba_features.bufferDeviceAddress != VK_TRUE) {
-            // Not natively supported (Vulkan < 1.2) — try extension
-            if (supported_ext.find(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) != supported_ext.end()) {
-                enable_device_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
-            } else {
-                LUISA_WARNING("bufferDeviceAddress not supported; disabling device address.");
-                device_address_enabled = false;
-            }
+        auto has_core_buffer_device_address =
+            api_version >= VK_API_VERSION_1_2;
+        auto has_buffer_device_address_extension =
+            supports_device_extension(
+                VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+        auto has_buffer_device_address_feature =
+            _vk_device->features_12.bufferDeviceAddress == VK_TRUE;
+        if ((!has_core_buffer_device_address &&
+             !has_buffer_device_address_extension) ||
+            !has_buffer_device_address_feature) {
+            LUISA_WARNING(
+                "bufferDeviceAddress is unavailable (core={}, extension={}, "
+                "feature={}); disabling device address.",
+                has_core_buffer_device_address,
+                has_buffer_device_address_extension,
+                has_buffer_device_address_feature);
+            device_address_enabled = false;
+        } else if (!has_core_buffer_device_address) {
+            enable_device_extension(
+                VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
         }
     }
     luisa::vector<luisa::string> extra_exts = [&]() {
-        if (_config_ext) {
+        if (_config_ext && external_device == VK_NULL_HANDLE) {
             return _config_ext->extra_device_exts();
         } else {
             return luisa::vector<luisa::string>{};
@@ -985,16 +1674,46 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     }();
     for (auto &i : extra_exts) {
         if (supported_ext.find(i) != supported_ext.end())
-            _enable_device_exts.emplace_back(i.c_str());
+            enable_device_extension(i.c_str());
     }
     void *feature_next{nullptr};
-    if (_config_ext) {
+    if (_config_ext && external_device == VK_NULL_HANDLE) {
         feature_next = _config_ext->device_feature_settings();
+    }
+    auto custom_feature_chain_validation =
+        detail::validate_device_feature_settings_chain(
+            static_cast<const VkBaseInStructure *>(feature_next));
+    if (!custom_feature_chain_validation) [[unlikely]] {
+        if (custom_feature_chain_validation.error ==
+            detail::DeviceFeatureChainValidationError::CYCLE) {
+            LUISA_ERROR(
+                "Vulkan device_feature_settings() returned a cyclic pNext "
+                "chain.");
+        } else if (custom_feature_chain_validation.error ==
+                   detail::DeviceFeatureChainValidationError::DUPLICATE_STRUCTURE) {
+            LUISA_ERROR(
+                "Vulkan device_feature_settings() pNext nodes {} and {} "
+                "repeat VkStructureType {}.",
+                custom_feature_chain_validation.related_node_index,
+                custom_feature_chain_validation.node_index,
+                static_cast<int32_t>(
+                    custom_feature_chain_validation.structure_type));
+        } else {
+            LUISA_ERROR(
+                "Vulkan device_feature_settings() pNext node {} uses reserved "
+                "VkStructureType {}; this feature structure is owned by the "
+                "Vulkan backend or conflicts with one of its promoted feature "
+                "structures.",
+                custom_feature_chain_validation.node_index,
+                static_cast<int32_t>(
+                    custom_feature_chain_validation.structure_type));
+        }
     }
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR raster_bary{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR,
         .pNext = feature_next,
-        .fragmentShaderBarycentric = VK_TRUE};
+        .fragmentShaderBarycentric =
+            enable_barycentric ? VK_TRUE : VK_FALSE};
     if (enable_barycentric) {
         feature_next = &raster_bary;
     }
@@ -1003,20 +1722,22 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     VkPhysicalDeviceRayQueryFeaturesKHR enable_rayquery_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
         .pNext = feature_next,
-        .rayQuery = VK_TRUE};
+        .rayQuery = raytracing_enabled ? VK_TRUE : VK_FALSE};
     VkPhysicalDeviceAccelerationStructureFeaturesKHR enabled_acceleration_structure_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
         .pNext = &enable_rayquery_features,
-        .accelerationStructure = VK_TRUE};
+        .accelerationStructure = raytracing_enabled ? VK_TRUE : VK_FALSE};
     VkPhysicalDeviceRayTracingMotionBlurFeaturesNV motion_blur_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MOTION_BLUR_FEATURES_NV,
         .pNext = &enabled_acceleration_structure_features,
-        .rayTracingMotionBlur = VK_TRUE,
+        .rayTracingMotionBlur = enable_motion_blur ? VK_TRUE : VK_FALSE,
         .rayTracingMotionBlurPipelineTraceRaysIndirect = VK_FALSE};
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_pipeline_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
         .pNext = &motion_blur_features,
-        .rayTracingPipeline = VK_TRUE};
+        .rayTracingPipeline = enable_motion_blur ? VK_TRUE : VK_FALSE,
+        .rayTraversalPrimitiveCulling =
+            enable_motion_blur ? VK_TRUE : VK_FALSE};
     if (raytracing_enabled) {
         if (enable_motion_blur) {
             feature_next = &rt_pipeline_features;
@@ -1024,24 +1745,55 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             feature_next = &enabled_acceleration_structure_features;
         }
     }
-    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_feature{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
-        feature_next,
-        VK_FALSE,
-        enable_float_atomic_add ? VK_TRUE : VK_FALSE,
-        VK_FALSE,
-        VK_FALSE,
-        enable_float_shared_atomic ? VK_TRUE : VK_FALSE,
-        enable_float_shared_atomic ? VK_TRUE : VK_FALSE,
-        VK_FALSE,
-        VK_FALSE,
-        VK_FALSE,
-        VK_FALSE,
-        VK_FALSE,
-        VK_FALSE};
-    if (enable_float_atomic_add || enable_float_shared_atomic) {
-        feature_next = &float_atomic_feature;
+    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+        .pNext = feature_next,
+        .shaderBufferFloat32Atomics =
+            enable_buffer_float32_atomics ? VK_TRUE : VK_FALSE,
+        .shaderBufferFloat32AtomicAdd =
+            enable_buffer_float32_atomic_add ? VK_TRUE : VK_FALSE,
+        .shaderSharedFloat32Atomics =
+            enable_shared_float32_atomics ? VK_TRUE : VK_FALSE,
+        .shaderSharedFloat32AtomicAdd =
+            enable_shared_float32_atomic_add ? VK_TRUE : VK_FALSE};
+    if (enable_buffer_float32_atomics ||
+        enable_buffer_float32_atomic_add ||
+        enable_shared_float32_atomics ||
+        enable_shared_float32_atomic_add) {
+        feature_next = &float_atomic_features;
     }
+    VkPhysicalDeviceShaderAtomicFloat2FeaturesEXT float_atomic2_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_2_FEATURES_EXT,
+        .pNext = feature_next,
+        .shaderBufferFloat32AtomicMinMax =
+            enable_buffer_float32_atomic_min_max ? VK_TRUE : VK_FALSE,
+        .shaderSharedFloat32AtomicMinMax =
+            enable_shared_float32_atomic_min_max ? VK_TRUE : VK_FALSE};
+    if (enable_buffer_float32_atomic_min_max ||
+        enable_shared_float32_atomic_min_max) {
+        feature_next = &float_atomic2_features;
+    }
+    VkPhysicalDeviceShaderFloat8FeaturesEXT float8_features{
+        .sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT,
+        .pNext = feature_next,
+        .shaderFloat8 = enable_float8 ? VK_TRUE : VK_FALSE,
+        .shaderFloat8CooperativeMatrix = VK_FALSE};
+    if (enable_float8) {
+        feature_next = &float8_features;
+    }
+#ifndef NDEBUG
+    VkPhysicalDeviceShaderClockFeaturesKHR shader_clock_features{
+        .sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR,
+        .pNext = feature_next,
+        .shaderSubgroupClock = VK_FALSE,
+        .shaderDeviceClock =
+            enable_shader_device_clock ? VK_TRUE : VK_FALSE};
+    if (enable_shader_device_clock) {
+        feature_next = &shader_clock_features;
+    }
+#endif
     VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
         .pNext = feature_next,
@@ -1074,16 +1826,19 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         cooperative_vector_features_nv.pNext = feature_next;
         feature_next = &cooperative_vector_features_nv;
     }
+#if ENABLE_HIDDEN_FEATURES
     if (async_copy_enabled) {
         maintenance5_features.pNext = feature_next;
         feature_next = &maintenance5_features;
         workgroup_memory_explicit_layout_features.pNext = feature_next;
         feature_next = &workgroup_memory_explicit_layout_features;
     }
+#endif
     VkPhysicalDeviceSynchronization2Features barrier_feature{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
-        feature_next,
-        true};
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+        .pNext = feature_next,
+        .synchronization2 =
+            required_device_features.supported ? VK_TRUE : VK_FALSE};
     // Variable pointers to storage buffers are required by cooperative
     // vector/matrix SPIR-V operations (which take buffer pointers via
     // [[vk::ext_reference]]). Only enable the device feature when a
@@ -1105,46 +1860,159 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     VkPhysicalDeviceVulkan11Features vk11_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
         .pNext = &barrier_feature,
-        .storageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
-        .uniformAndStorageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
+        .storageBuffer16BitAccess =
+            narrow_numeric_features.storage_buffer_16bit_access ?
+                VK_TRUE :
+                VK_FALSE,
+        .uniformAndStorageBuffer16BitAccess =
+            narrow_numeric_features.uniform_storage_buffer_16bit_access ?
+                VK_TRUE :
+                VK_FALSE,
         .variablePointersStorageBuffer = enable_variable_pointers_storage_buffer ? VK_TRUE : VK_FALSE,
         .variablePointers = enable_variable_pointers_storage_buffer ? VK_TRUE : VK_FALSE};
     auto vk_bindless_enabled = bindless_enabled ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &vk11_feature,
-        .storageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
-        .uniformAndStorageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
-        .shaderBufferInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
-        .shaderSharedInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
-        .shaderFloat16 = enable_16bit ? VK_TRUE : VK_FALSE,
-        .shaderInt8 = enable_8bit ? VK_TRUE : VK_FALSE,
+        .storageBuffer8BitAccess =
+            narrow_numeric_features.storage_buffer_8bit_access ?
+                VK_TRUE :
+                VK_FALSE,
+        .uniformAndStorageBuffer8BitAccess =
+            narrow_numeric_features.uniform_storage_buffer_8bit_access ?
+                VK_TRUE :
+                VK_FALSE,
+        .shaderBufferInt64Atomics =
+            enable_buffer_int64_atomics ? VK_TRUE : VK_FALSE,
+        .shaderSharedInt64Atomics =
+            enable_shared_int64_atomics ? VK_TRUE : VK_FALSE,
+        .shaderFloat16 = narrow_numeric_features.shader_float16 ?
+                             VK_TRUE :
+                             VK_FALSE,
+        .shaderInt8 = narrow_numeric_features.shader_int8 ?
+                          VK_TRUE :
+                          VK_FALSE,
         .descriptorIndexing = vk_bindless_enabled,
-        .shaderUniformBufferArrayNonUniformIndexing = vk_bindless_enabled,
         .shaderSampledImageArrayNonUniformIndexing = vk_bindless_enabled,
         .shaderStorageBufferArrayNonUniformIndexing = vk_bindless_enabled,
-        .shaderStorageImageArrayNonUniformIndexing = vk_bindless_enabled,
-        .descriptorBindingUniformBufferUpdateAfterBind = vk_bindless_enabled,
         .descriptorBindingSampledImageUpdateAfterBind = vk_bindless_enabled,
-        .descriptorBindingStorageImageUpdateAfterBind = vk_bindless_enabled,
         .descriptorBindingStorageBufferUpdateAfterBind = vk_bindless_enabled,
+        .descriptorBindingPartiallyBound = vk_bindless_enabled,
         .runtimeDescriptorArray = vk_bindless_enabled,
 
         .shaderSubgroupExtendedTypes = enable_subgroup_extended_types ? VK_TRUE : VK_FALSE,
 
-        .timelineSemaphore = VK_TRUE,
+        .timelineSemaphore =
+            required_device_features.supported ? VK_TRUE : VK_FALSE,
         .bufferDeviceAddress = device_address_enabled ? VK_TRUE : VK_FALSE};
     VK_CHECK_RESULT(_vk_device->create_logical_device(device_features, _enable_device_exts, &vk12_feature, surface_enabled));
+    if (external_device != VK_NULL_HANDLE) {
+        _vk_device->queue_family_indices.graphics =
+            external_graphics_queue_family_index;
+        _vk_device->queue_family_indices.compute =
+            external_compute_queue_family_index;
+        _vk_device->queue_family_indices.transfer =
+            external_copy_queue_family_index;
+        // Sparse capabilities are intentionally unavailable on imported
+        // logical devices until the import contract can attest both feature
+        // enablement and an actual sparse-capable queue.
+        _vk_device->queue_family_indices.sparse =
+            VK_QUEUE_FAMILY_IGNORED;
+    }
+    // Vulkan cannot query which optional features were enabled on an imported
+    // logical device. Be conservative there: only advertise the features that
+    // this backend itself requested while creating the device.
+    subgroup_extended_types_enabled =
+        external_device == VK_NULL_HANDLE && enable_subgroup_extended_types;
+#ifndef NDEBUG
+    _shader_device_clock_enabled =
+        external_device == VK_NULL_HANDLE && enable_shader_device_clock;
+#endif
+    if (external_device == VK_NULL_HANDLE) {
+        _numeric_features = {
+            .shader_float8 = enable_float8,
+            .shader_float16 = narrow_numeric_features.shader_float16,
+            .shader_float64 = device_features.shaderFloat64 == VK_TRUE,
+            .shader_int8 = narrow_numeric_features.shader_int8,
+            .shader_int16 = device_features.shaderInt16 == VK_TRUE,
+            .shader_int64 = device_features.shaderInt64 == VK_TRUE,
+            .storage_buffer_8bit_access =
+                narrow_numeric_features.storage_buffer_8bit_access,
+            .uniform_storage_buffer_8bit_access =
+                narrow_numeric_features.uniform_storage_buffer_8bit_access,
+            .storage_buffer_16bit_access =
+                narrow_numeric_features.storage_buffer_16bit_access,
+            .uniform_storage_buffer_16bit_access =
+                narrow_numeric_features.uniform_storage_buffer_16bit_access};
+        _float_atomic_features = {
+            .shader_buffer_float32_atomics =
+                enable_buffer_float32_atomics,
+            .shader_buffer_float32_atomic_add =
+                enable_buffer_float32_atomic_add,
+            .shader_buffer_float32_atomic_min_max =
+                enable_buffer_float32_atomic_min_max,
+            .shader_shared_float32_atomics =
+                enable_shared_float32_atomics,
+            .shader_shared_float32_atomic_add =
+                enable_shared_float32_atomic_add,
+            .shader_shared_float32_atomic_min_max =
+                enable_shared_float32_atomic_min_max};
+        _int64_atomic_features = {
+            .shader_buffer_int64_atomics =
+                enable_buffer_int64_atomics,
+            .shader_shared_int64_atomics =
+                enable_shared_int64_atomics};
+    } else {
+        _numeric_features = {};
+        _float_atomic_features = {};
+        _int64_atomic_features = {};
+    }
     auto device = _vk_device->logical_device;
     volkLoadDevice(device);
 
-    // Get a graphics queue from the device
-    if (!external_graphics_queue)
+    if (external_device == VK_NULL_HANDLE) {
         vkGetDeviceQueue(device, _vk_device->queue_family_indices.graphics, 0, &_graphics_queue);
-    if (!external_compute_queue)
         vkGetDeviceQueue(device, _vk_device->queue_family_indices.compute, 0, &_compute_queue);
-    if (!external_copy_queue)
         vkGetDeviceQueue(device, _vk_device->queue_family_indices.transfer, 0, &_copy_queue);
+        if (_vk_device->enabled_features.sparseBinding == VK_TRUE) {
+            vkGetDeviceQueue(
+                device, _vk_device->queue_family_indices.sparse,
+                0, &_sparse_queue);
+        }
+    }
+    LUISA_ASSERT(
+        _graphics_queue != VK_NULL_HANDLE &&
+            _compute_queue != VK_NULL_HANDLE &&
+            _copy_queue != VK_NULL_HANDLE,
+        "Vulkan queue acquisition returned a null graphics, compute, or copy queue.");
+    LUISA_ASSERT(
+        _vk_device->enabled_features.sparseBinding != VK_TRUE ||
+            _sparse_queue != VK_NULL_HANDLE,
+        "Vulkan sparseBinding is enabled, but sparse queue acquisition "
+        "returned a null handle.");
+    auto queue_lock_plan = detail::plan_queue_locks(
+        std::array{
+            static_cast<uint64_t>(
+                reinterpret_cast<uintptr_t>(_graphics_queue)),
+            static_cast<uint64_t>(
+                reinterpret_cast<uintptr_t>(_compute_queue)),
+            static_cast<uint64_t>(
+                reinterpret_cast<uintptr_t>(_copy_queue)),
+            static_cast<uint64_t>(
+                reinterpret_cast<uintptr_t>(_sparse_queue))});
+    std::array queue_locks{
+        &_graphics_queue_mtx,
+        &_compute_queue_mtx,
+        &_copy_queue_mtx,
+        &_sparse_queue_mtx};
+    _graphics_queue_lock =
+        queue_locks[queue_lock_plan.lock_indices[0u]];
+    _compute_queue_lock =
+        queue_locks[queue_lock_plan.lock_indices[1u]];
+    _copy_queue_lock =
+        queue_locks[queue_lock_plan.lock_indices[2u]];
+    _sparse_queue_lock =
+        queue_locks[queue_lock_plan.lock_indices[3u]];
     _pso_header.headerSize = sizeof(VkPipelineCacheHeaderVersionOne);
     _pso_header.headerVersion = VK_PIPELINE_CACHE_HEADER_VERSION_ONE;
     _pso_header.vendorID = _vk_device->properties.vendorID;
@@ -1153,15 +2021,54 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     _allocator.create(*this);
     // bind desc_pool
     VkDescriptorBindingFlags desc_binding_flag =
-        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
     VkDescriptorSetLayoutBindingFlagsCreateInfo bindless_binding_flags{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
         .bindingCount = 1,
         .pBindingFlags = &desc_binding_flag};
+    std::array<VkDescriptorSetLayoutBinding, 3u>
+        global_bindless_bindings{};
+    std::array<VkDescriptorSetLayoutCreateInfo, 3u>
+        global_bindless_layouts{};
+    if (bindless_enabled) {
+        constexpr std::array descriptor_types{
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
+        for (auto i = 0u; i < descriptor_types.size(); ++i) {
+            global_bindless_bindings[i] = VkDescriptorSetLayoutBinding{
+                .binding = 0u,
+                .descriptorType = descriptor_types[i],
+                .descriptorCount = _bindless_heap_capacity,
+                .stageFlags = VK_SHADER_STAGE_ALL,
+                .pImmutableSamplers = nullptr};
+            global_bindless_layouts[i] = VkDescriptorSetLayoutCreateInfo{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                .pNext = &bindless_binding_flags,
+                .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+                .bindingCount = 1u,
+                .pBindings = &global_bindless_bindings[i]};
+        }
+        // Query every persistent global layout before creating the first pool
+        // or layout. This keeps device initialization atomic with respect to
+        // implementation-specific update-after-bind layout restrictions.
+        for (auto i = 0u; i < global_bindless_layouts.size(); ++i) {
+            VkDescriptorSetLayoutSupport support{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_SUPPORT};
+            vkGetDescriptorSetLayoutSupport(
+                logic_device(), &global_bindless_layouts[i], &support);
+            LUISA_ASSERT(
+                support.supported == VK_TRUE,
+                "Vulkan device rejected global bindless descriptor layout {} "
+                "at capacity {}.",
+                i, _bindless_heap_capacity);
+        }
+    }
     // bindless buffer desc_pool
     if (bindless_enabled) {
         {
-            buffer_heap_pool.full_size = 262144;
+            buffer_heap_pool.full_size = _bindless_heap_capacity;
             VkDescriptorPoolSize pool_size;
             pool_size.descriptorCount = buffer_heap_pool.full_size;
             pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1172,19 +2079,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 .poolSizeCount = 1,
                 .pPoolSizes = &pool_size};
             VK_CHECK_RESULT(vkCreateDescriptorPool(logic_device(), &create_info, alloc_callbacks(), &_bdls_buffer_desc_pool));
-            VkDescriptorSetLayoutBinding binding{
-                0,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                buffer_heap_pool.full_size,
-                VK_SHADER_STAGE_ALL,
-                nullptr};
-            VkDescriptorSetLayoutCreateInfo descriptor_layout{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                .pNext = &bindless_binding_flags,
-                .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-                .bindingCount = 1,
-                .pBindings = &binding};
-            VK_CHECK_RESULT(vkCreateDescriptorSetLayout(logic_device(), &descriptor_layout, alloc_callbacks(), &_bdls_buffer_set_layout));
+            VK_CHECK_RESULT(vkCreateDescriptorSetLayout(logic_device(), &global_bindless_layouts[0u], alloc_callbacks(), &_bdls_buffer_set_layout));
             VkDescriptorSetAllocateInfo alloc_info{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
                 .descriptorPool = _bdls_buffer_desc_pool,
@@ -1194,7 +2089,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         }
         // bindless tex2d desc_pool
         {
-            tex2d_heap_pool.full_size = 262144;
+            tex2d_heap_pool.full_size = _bindless_heap_capacity;
             VkDescriptorPoolSize pool_size;
             pool_size.descriptorCount = tex2d_heap_pool.full_size;
             pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -1205,19 +2100,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 .poolSizeCount = 1,
                 .pPoolSizes = &pool_size};
             VK_CHECK_RESULT(vkCreateDescriptorPool(logic_device(), &create_info, alloc_callbacks(), &_bdls_tex2d_desc_pool));
-            VkDescriptorSetLayoutBinding binding{
-                0,
-                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                tex2d_heap_pool.full_size,
-                VK_SHADER_STAGE_ALL,
-                nullptr};
-            VkDescriptorSetLayoutCreateInfo descriptor_layout{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                .pNext = &bindless_binding_flags,
-                .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-                .bindingCount = 1,
-                .pBindings = &binding};
-            VK_CHECK_RESULT(vkCreateDescriptorSetLayout(logic_device(), &descriptor_layout, alloc_callbacks(), &_bdls_tex2d_set_layout));
+            VK_CHECK_RESULT(vkCreateDescriptorSetLayout(logic_device(), &global_bindless_layouts[1u], alloc_callbacks(), &_bdls_tex2d_set_layout));
             VkDescriptorSetAllocateInfo alloc_info{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
                 .descriptorPool = _bdls_tex2d_desc_pool,
@@ -1228,7 +2111,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         }
         // bindless tex3d desc_pool
         {
-            tex3d_heap_pool.full_size = 262144;
+            tex3d_heap_pool.full_size = _bindless_heap_capacity;
             VkDescriptorPoolSize pool_size;
             pool_size.descriptorCount = tex3d_heap_pool.full_size;
             pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -1239,19 +2122,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 .poolSizeCount = 1,
                 .pPoolSizes = &pool_size};
             VK_CHECK_RESULT(vkCreateDescriptorPool(logic_device(), &create_info, alloc_callbacks(), &_bdls_tex3d_desc_pool));
-            VkDescriptorSetLayoutBinding binding{
-                0,
-                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                tex3d_heap_pool.full_size,
-                VK_SHADER_STAGE_ALL,
-                nullptr};
-            VkDescriptorSetLayoutCreateInfo descriptor_layout{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                .pNext = &bindless_binding_flags,
-                .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-                .bindingCount = 1,
-                .pBindings = &binding};
-            VK_CHECK_RESULT(vkCreateDescriptorSetLayout(logic_device(), &descriptor_layout, alloc_callbacks(), &_bdls_tex3d_set_layout));
+            VK_CHECK_RESULT(vkCreateDescriptorSetLayout(logic_device(), &global_bindless_layouts[2u], alloc_callbacks(), &_bdls_tex3d_set_layout));
             VkDescriptorSetAllocateInfo alloc_info{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
                 .descriptorPool = _bdls_tex3d_desc_pool,
@@ -1264,7 +2135,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     // sampler desc_pool
     {
         VkDescriptorPoolSize pool_size;
-        pool_size.descriptorCount = 16;
+        pool_size.descriptorCount = detail::sampler_heap_size;
         pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
         VkDescriptorPoolCreateInfo create_info{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -1273,17 +2144,20 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             .poolSizeCount = 1,
             .pPoolSizes = &pool_size};
         VK_CHECK_RESULT(vkCreateDescriptorPool(logic_device(), &create_info, alloc_callbacks(), &_sampler_pool));
-        _samplers.resize(16);
-        size_t idx = 0;
-        for (auto x : vstd::range(4))
-            for (auto y : vstd::range(4)) {
-                auto d = vstd::scope_exit([&] { ++idx; });
+        _samplers.resize(detail::sampler_heap_size);
+        for (auto address_index :
+             vstd::range(detail::sampler_address_count))
+            for (auto filter_index :
+                 vstd::range(detail::sampler_filter_count)) {
+                auto idx = detail::sampler_heap_index(
+                    filter_index, address_index);
                 VkSamplerCreateInfo info{
                     VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
                     nullptr,
                     0};
+                info.maxAnisotropy = 1.0f;
 
-                switch ((Sampler::Filter)y) {
+                switch (static_cast<Sampler::Filter>(filter_index)) {
                     case Sampler::Filter::POINT:
                         info.minFilter = VK_FILTER_NEAREST;
                         info.magFilter = VK_FILTER_NEAREST;
@@ -1301,14 +2175,19 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                         info.minFilter = VK_FILTER_LINEAR;
                         info.magFilter = VK_FILTER_LINEAR;
                         info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-                        info.anisotropyEnable = VK_TRUE;
-                        info.maxAnisotropy = 16;
+                        // Preserve the fixed 16-entry descriptor ABI even on
+                        // devices without samplerAnisotropy. The anisotropic
+                        // slots contain valid linear placeholders there, but
+                        // shader/runtime validation makes them unreachable.
+                        info.anisotropyEnable =
+                            sampler_anisotropy_enabled ? VK_TRUE : VK_FALSE;
+                        info.maxAnisotropy = _max_sampler_anisotropy;
                         break;
                     default: LUISA_ASSUME(false); break;
                 }
 
                 VkSamplerAddressMode address = [&] {
-                    switch ((Sampler::Address)x) {
+                    switch (static_cast<Sampler::Address>(address_index)) {
                         case Sampler::Address::EDGE:
                             return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
                         case Sampler::Address::REPEAT:
@@ -1332,7 +2211,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         VkDescriptorSetLayoutBinding binding{
             0,
             VK_DESCRIPTOR_TYPE_SAMPLER,
-            16,
+            detail::sampler_heap_size,
             VK_SHADER_STAGE_ALL,
             _samplers.data()};
         VkDescriptorSetLayoutCreateInfo descriptor_layout{
@@ -1390,9 +2269,83 @@ Device::~Device() {
     }
 }
 void *Device::native_handle() const noexcept { return _vk_device->logical_device; }
+
+luisa::shared_ptr<NativeImageState> Device::acquire_native_image_state(
+    VkImage image, VkFormat format, uint dimension, uint3 size,
+    uint mip_levels, bool simultaneous_access) {
+    auto identity = detail::native_image_identity(image);
+    std::lock_guard lock{_native_image_state_mtx};
+    auto sweep_period = std::max<size_t>(
+        64u, _native_image_states.size() / 4u);
+    auto expired_hint =
+        _native_image_state_expiration_counter->load(
+            std::memory_order_relaxed);
+    if (expired_hint >= 64u ||
+        ++_native_image_state_acquisitions_since_sweep >= sweep_period) {
+        _native_image_state_acquisitions_since_sweep = 0u;
+        _native_image_state_expiration_counter->exchange(
+            0u, std::memory_order_relaxed);
+        for (auto iter = _native_image_states.begin();
+             iter != _native_image_states.end();) {
+            if (iter->second.expired()) {
+                iter = _native_image_states.erase(iter);
+            } else {
+                ++iter;
+            }
+        }
+    }
+    if (auto iter = _native_image_states.find(identity);
+        iter != _native_image_states.end()) {
+        if (auto state = iter->second.lock()) {
+            LUISA_ASSERT(
+                state->image == image && state->format == format &&
+                    state->dimension == dimension &&
+                    state->size.x == size.x && state->size.y == size.y &&
+                    state->size.z == size.z &&
+                    state->mip_levels == mip_levels &&
+                    state->simultaneous_access == simultaneous_access,
+                "Vulkan wrappers aliasing image 0x{:016x} disagree on its "
+                "native metadata (format, dimension, extent, mip count, or "
+                "simultaneous-access policy). Mutable-format aliases are not "
+                "supported.",
+                identity);
+            return state;
+        }
+        _native_image_states.erase(iter);
+    }
+    auto state = luisa::make_shared<NativeImageState>(
+        image, format, dimension, size, mip_levels, simultaneous_access,
+        _native_image_state_expiration_counter);
+    _native_image_states.emplace(identity, state);
+    return state;
+}
+
 BufferCreationInfo Device::create_buffer(const luisa::compute::Type *element, size_t elem_count, void *external_ptr) noexcept {
     if (element && element->is_custom()) [[unlikely]] {
-        LUISA_ERROR("Indirect buffer not supported.");
+        LUISA_ASSERT(
+            element == Type::of<IndirectKernelDispatch>(),
+            "Unsupported Vulkan custom buffer element type '{}'.",
+            element->description());
+        LUISA_ASSERT(
+            external_ptr == nullptr,
+            "Vulkan indirect-dispatch buffers cannot wrap external memory: "
+            "their header/record ABI is backend-owned.");
+        size_t indirect_size = 0u;
+        LUISA_ASSERT(
+            IndirectDispatchLayout::try_total_size(
+                elem_count, indirect_size) &&
+                indirect_size <=
+                    properties().limits.maxStorageBufferRange,
+            "Vulkan indirect-dispatch buffer for {} records exceeds the "
+            "device storage-buffer range limit {}.",
+            elem_count, properties().limits.maxStorageBufferRange);
+        auto ptr = new IndirectBuffer(this, elem_count);
+        BufferCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(ptr);
+        info.native_handle = ptr->vk_buffer();
+        info.element_stride = IndirectDispatchLayout::record_size;
+        info.total_size_bytes = ptr->byte_size();
+        return info;
     }
     BufferCreationInfo info{};
     info.element_stride = (element == Type::of<void>()) ? 1 : element->size();
@@ -1409,13 +2362,13 @@ BufferCreationInfo Device::create_buffer(const luisa::compute::Type *element, si
 BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_ptr) noexcept { return BufferCreationInfo::make_invalid(); }
 void Device::destroy_buffer(uint64_t handle) noexcept {
     auto *buffer = reinterpret_cast<Buffer *>(handle);
-    vstd::vector<Stream *> streams;
-    {
-        std::lock_guard lck{_stream_mtx};
-        streams.reserve(_streams.size());
-        for (auto *stream : _streams) { streams.emplace_back(stream); }
+    // Keep stream membership and lifetime stable until every per-stream
+    // barrier cache has dropped the wrapper. destroy_stream takes this same
+    // lock before deleting a Stream and cannot invalidate an entry midway.
+    std::lock_guard lock{_stream_mtx};
+    for (auto *stream : _streams) {
+        stream->remove_resource_state(buffer);
     }
-    for (auto *stream : streams) { stream->remove_resource_state(buffer); }
     delete buffer;
 }
 
@@ -1423,16 +2376,18 @@ void Device::destroy_buffer(uint64_t handle) noexcept {
 ResourceCreationInfo Device::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth, uint mipmap_levels,
-    void *, bool simultaneous_access, bool allow_raster_target) noexcept {
+    void *external_native_handle, bool simultaneous_access,
+    bool allow_raster_target) noexcept {
 
-    auto ptr = new Texture(
-        this,
-        dimension,
-        format,
-        uint3(width, height, depth),
-        mipmap_levels,
-        simultaneous_access,
-        allow_raster_target);
+    auto size = uint3(width, height, depth);
+    auto ptr = external_native_handle == nullptr ?
+                   new Texture(
+                       this, dimension, format, size, mipmap_levels,
+                       simultaneous_access, allow_raster_target) :
+                   new Texture(
+                       this, static_cast<VkImage>(external_native_handle),
+                       dimension, format, size,
+                       mipmap_levels, simultaneous_access);
     ResourceCreationInfo r{
         .handle = reinterpret_cast<uint64_t>(ptr),
         .native_handle = ptr->vk_image()};
@@ -1440,23 +2395,39 @@ ResourceCreationInfo Device::create_texture(
 }
 void Device::destroy_texture(uint64_t handle) noexcept {
     auto *texture = reinterpret_cast<Texture *>(handle);
-    vstd::vector<Stream *> streams;
-    {
-        std::lock_guard lck{_stream_mtx};
-        streams.reserve(_streams.size());
-        for (auto *stream : _streams) { streams.emplace_back(stream); }
+    std::lock_guard lock{_stream_mtx};
+    for (auto *stream : _streams) {
+        stream->remove_resource_state(texture);
     }
-    for (auto *stream : streams) { stream->remove_resource_state(texture); }
     delete texture;
 }
 luisa::FirstFit::Node *Device::HeapAlloc::sub_alloc(uint32_t size) {
+    std::lock_guard lck{mtx};
+    LUISA_ASSERT(size > 0u && size <= full_size,
+                 "Invalid Vulkan bindless contiguous allocation size {} for "
+                 "a heap of {} descriptors.",
+                 size, full_size);
     auto ptr = sub_allocator.allocate_best_fit(size);
-    if (ptr->offset() + ptr->size() > (full_size - count)) [[unlikely]] {
-        vengine_log("bindless allocator out or range!\n");
+    LUISA_ASSERT(ptr != nullptr,
+                 "Vulkan bindless contiguous descriptor allocator exhausted.");
+    auto index = full_size - (ptr->offset() + ptr->size());
+    if (index < count) [[unlikely]] {
+        sub_allocator.free(ptr);
+        LUISA_ERROR(
+            "Vulkan bindless descriptor heap exhausted: contiguous allocation "
+            "of {} slots overlaps {} individually allocated slots in a heap "
+            "of {} descriptors.",
+            size, count, full_size);
     }
+    sub_allocations.emplace_back(ptr);
     return ptr;
 }
 void Device::HeapAlloc::free(luisa::FirstFit::Node *ptr) {
+    std::lock_guard lck{mtx};
+    auto iter = std::find(sub_allocations.begin(), sub_allocations.end(), ptr);
+    LUISA_ASSERT(iter != sub_allocations.end(),
+                 "Attempted to free an unknown Vulkan bindless allocation.");
+    sub_allocations.erase(iter);
     sub_allocator.free(ptr);
 }
 uint Device::HeapAlloc::get_index(luisa::FirstFit::Node const *ptr) const {
@@ -1530,17 +2501,162 @@ bool Device::print_code() {
     return luisa::compute::backend_print_code_enabled();
 }
 
+luisa::string Device::query(luisa::string_view property) noexcept {
+    if (property == "shader_device_clock") {
+        return _shader_device_clock_enabled ? "true" : "false";
+    }
+    if (property == "buffer_device_address") {
+        return device_address_enabled ? "true" : "false";
+    }
+    if (property == "shader_int64") {
+        return _numeric_features.shader_int64 ? "true" : "false";
+    }
+    return DeviceInterface::query(property);
+}
+
+uint64_t Device::enabled_spirv_artifact_features() const noexcept {
+    using namespace lc::spirv;
+    SpirvTargetFeatureMask mask{};
+    auto enable = [&mask](bool enabled,
+                          SpirvTargetFeatureMask feature) noexcept {
+        if (enabled) { mask |= feature; }
+    };
+    auto owned_logical_device = !external_device;
+    enable(owned_logical_device &&
+               _vk_device->enabled_features
+                       .shaderSampledImageArrayDynamicIndexing == VK_TRUE,
+           target_feature::sampled_image_array_dynamic_indexing);
+    enable(owned_logical_device && bindless_enabled,
+           target_feature::sampled_image_array_non_uniform_indexing);
+    enable(owned_logical_device &&
+               _vk_device->enabled_features.shaderResourceMinLod == VK_TRUE,
+           target_feature::shader_resource_min_lod);
+    enable(_float_atomic_features.shader_buffer_float32_atomics,
+           target_feature::shader_buffer_float32_atomics);
+    enable(_float_atomic_features.shader_buffer_float32_atomic_add,
+           target_feature::shader_buffer_float32_atomic_add);
+    enable(_float_atomic_features.shader_buffer_float32_atomic_min_max,
+           target_feature::shader_buffer_float32_atomic_min_max);
+    enable(_float_atomic_features.shader_shared_float32_atomics,
+           target_feature::shader_shared_float32_atomics);
+    enable(_float_atomic_features.shader_shared_float32_atomic_add,
+           target_feature::shader_shared_float32_atomic_add);
+    enable(_float_atomic_features.shader_shared_float32_atomic_min_max,
+           target_feature::shader_shared_float32_atomic_min_max);
+
+    VkPhysicalDeviceSubgroupProperties subgroup_properties{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+    VkPhysicalDeviceProperties2 properties2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &subgroup_properties};
+    vkGetPhysicalDeviceProperties2(physical_device(), &properties2);
+    auto subgroup_compute_supported =
+        (subgroup_properties.supportedStages &
+         VK_SHADER_STAGE_COMPUTE_BIT) != 0u;
+    auto subgroup_operation_supported =
+        [&](VkSubgroupFeatureFlagBits feature) noexcept {
+            return subgroup_compute_supported &&
+                   (subgroup_properties.supportedOperations & feature) != 0u;
+        };
+    enable(subgroup_operation_supported(VK_SUBGROUP_FEATURE_BASIC_BIT),
+           target_feature::subgroup_basic);
+    enable(subgroup_operation_supported(VK_SUBGROUP_FEATURE_VOTE_BIT),
+           target_feature::subgroup_vote);
+    enable(subgroup_operation_supported(VK_SUBGROUP_FEATURE_ARITHMETIC_BIT),
+           target_feature::subgroup_arithmetic);
+    enable(subgroup_operation_supported(VK_SUBGROUP_FEATURE_BALLOT_BIT),
+           target_feature::subgroup_ballot);
+    enable(subgroup_operation_supported(VK_SUBGROUP_FEATURE_SHUFFLE_BIT),
+           target_feature::subgroup_shuffle);
+    enable(subgroup_extended_types_enabled,
+           target_feature::subgroup_extended_types);
+
+    enable(owned_logical_device &&
+               _vk_device->enabled_features
+                       .shaderStorageImageReadWithoutFormat == VK_TRUE,
+           target_feature::storage_image_read_without_format);
+    enable(owned_logical_device &&
+               _vk_device->enabled_features
+                       .shaderStorageImageWriteWithoutFormat == VK_TRUE,
+           target_feature::storage_image_write_without_format);
+    enable(_numeric_features.shader_float8,
+           target_feature::shader_float8);
+    enable(_numeric_features.shader_float16,
+           target_feature::shader_float16);
+    enable(_numeric_features.shader_float64,
+           target_feature::shader_float64);
+    enable(_numeric_features.shader_int8, target_feature::shader_int8);
+    enable(_numeric_features.shader_int16, target_feature::shader_int16);
+    enable(_numeric_features.shader_int64, target_feature::shader_int64);
+    enable(_numeric_features.storage_buffer_8bit_access,
+           target_feature::storage_buffer_8bit_access);
+    enable(_numeric_features.uniform_storage_buffer_8bit_access,
+           target_feature::uniform_storage_buffer_8bit_access);
+    enable(_numeric_features.storage_buffer_16bit_access,
+           target_feature::storage_buffer_16bit_access);
+    enable(_numeric_features.uniform_storage_buffer_16bit_access,
+           target_feature::uniform_storage_buffer_16bit_access);
+    enable(owned_logical_device && raytracing_enabled,
+           target_feature::ray_query);
+    enable(sampler_anisotropy_enabled,
+           target_feature::sampler_anisotropy);
+    enable(_int64_atomic_features.shader_buffer_int64_atomics,
+           target_feature::shader_buffer_int64_atomics);
+    enable(_int64_atomic_features.shader_shared_int64_atomics,
+           target_feature::shader_shared_int64_atomics);
+
+    auto descriptor_indexing_enabled =
+        owned_logical_device && bindless_enabled;
+    enable(descriptor_indexing_enabled,
+           target_feature::descriptor_indexing);
+    enable(descriptor_indexing_enabled,
+           target_feature::runtime_descriptor_array);
+    enable(descriptor_indexing_enabled,
+           target_feature::descriptor_binding_partially_bound);
+    enable(descriptor_indexing_enabled,
+           target_feature::storage_buffer_array_non_uniform_indexing);
+    enable(descriptor_indexing_enabled,
+           target_feature::descriptor_binding_sampled_image_update_after_bind);
+    enable(descriptor_indexing_enabled,
+           target_feature::descriptor_binding_storage_buffer_update_after_bind);
+    enable(owned_logical_device &&
+               _vk_device->enabled_features
+                       .shaderStorageBufferArrayDynamicIndexing == VK_TRUE,
+           target_feature::storage_buffer_array_dynamic_indexing);
+    enable(owned_logical_device && _shader_device_clock_enabled,
+           target_feature::shader_device_clock);
+    enable(owned_logical_device && device_address_enabled,
+           target_feature::buffer_device_address);
+    return mask;
+}
+
 #ifdef LUISA_XIR_TO_SPIRV
-[[nodiscard]] static vstd::MD5 compute_shader_cache_md5(Function kernel, const ShaderOption &option,
-                                                        bool use_native_float_atomics) noexcept {
+[[nodiscard]] static uint64_t xir_spirv_environment_hash() noexcept {
+    auto hash_env = [](const char *name) noexcept {
+        auto *value = std::getenv(name);
+        return value == nullptr ? 0ull :
+                                  luisa::hash_value(luisa::string_view{value});
+    };
+    return luisa::hash_combine({
+        hash_env("LUISA_XIR_DISABLE_OPTIMIZATION"),
+        hash_env("LUISA_XIR_ENABLE_SCALARIZER"),
+        hash_env("LUISA_SPIRV_OPT_LEVEL"),
+        hash_env("LUISA_SPIRV_OPT_PASSES"),
+    });
+}
+
+[[nodiscard]] static vstd::MD5 compute_shader_cache_md5(
+    Function kernel, const ShaderOption &option,
+    lc::spirv::SpirvTargetFeatures target_features) noexcept {
     using namespace std::string_view_literals;
     auto option_flags =
         (static_cast<uint64_t>(option.enable_fast_math) << 0u) |
         (static_cast<uint64_t>(option.enable_debug_info) << 1u) |
-        (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u);
+        (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u) |
+        (static_cast<uint64_t>(option.enable_scalarizer) << 3u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v3"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v13"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),
@@ -1551,35 +2667,253 @@ bool Device::print_code() {
         static_cast<uint64_t>(option.max_registers),
         luisa::hash_value(option.native_include),
         option.native_include.size(),
-        static_cast<uint64_t>(use_native_float_atomics),
+        target_features.enabled_mask(),
+        static_cast<uint64_t>(
+            target_features.buffer_float32_atomic_rmw_policy),
+        xir_spirv_environment_hash(),
+        static_cast<uint64_t>(kernel.allowed_warp_size().value_or(0u)),
     };
     return vstd::MD5{vstd::span<const uint8_t>{
         reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
 }
 #endif
 
+ShaderCreationInfo Device::_create_shader_hlsl(
+    const ShaderOption &option, Function kernel,
+    bool requires_sampler_anisotropy) noexcept {
+#ifdef LC_NO_HLSL_BUILTIN
+    LUISA_ERROR(
+        "This Vulkan shader requires the HLSL-to-SPIR-V fallback, but the "
+        "backend was built without the bundled HLSL compiler.");
+#else
+    if (kernel.requires_raytracing() && !raytracing_enabled) {
+        LUISA_ERROR(
+            "Vulkan shader '{}' requires ray tracing, but ray-query support "
+            "is not enabled on this device.",
+            kernel.name());
+    }
+    ShaderCreationInfo info;
+    uint mask = 0u;
+    if (option.enable_fast_math) { mask |= 1u; }
+    if (option.enable_debug_info) { mask |= 2u; }
+
+    auto code = hlsl::CodegenUtility{}.Codegen(
+        kernel, option.native_include, mask, true, false,
+        option.enable_debug_info);
+    vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(
+                             code.result.data() + code.immutableHeaderSize),
+                         code.result.size() - code.immutableHeaderSize});
+    auto requires_async_copy =
+        kernel.propagated_builtin_callables().test(CallOp::ASYNC_COPY) ||
+        kernel.propagated_builtin_callables().test(CallOp::PIPELINE_COMMIT) ||
+        kernel.propagated_builtin_callables().test(CallOp::PIPELINE_WAIT_PRIOR);
+    if (requires_async_copy && !async_copy_enabled) {
+        LUISA_WARNING(
+            "ASYNC_COPY is used but VK_KHR_workgroup_memory_explicit_layout "
+            "is unavailable. Async copy will use per-thread copy + barrier "
+            "instead of hardware-accelerated OpGroupAsyncCopy.");
+    }
+    auto shader_model = [&]() noexcept -> uint {
+        if (kernel.use_cooperative_operations()) { return kTensorShaderModel; }
+        if (kernel.allowed_warp_size().has_value() || requires_async_copy) {
+            return kHighShaderModel;
+        }
+        return kShaderModel;
+    }();
+
+    if (option.compile_only) {
+        LUISA_ASSERT(!option.name.empty(),
+                     "Vulkan compile-only shader requires a non-empty shader name.");
+        info.invalidate();
+        if (print_code()) {
+            if (auto file = fopen("hlsl_output.hlsl", "ab")) {
+                fwrite(code.result.view().data(), code.result.view().size(), 1u,
+                       file);
+                fclose(file);
+            }
+        }
+        auto cache_result = ShaderSerializer::try_deser_compute(
+            this,
+            {.shader_md5 = check_md5,
+             .type_md5 = code.typeMD5,
+             .codegen_dialect =
+                 detail::ShaderCodegenDialect::HLSL_SPIRV},
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            option.name,
+            SerdeType::kByteCode,
+            _binary_io);
+        if (cache_result.shader) {
+            delete static_cast<ComputeShader *>(cache_result.shader);
+            LUISA_VERBOSE("ComputeShader (HLSL compile-only) loaded from cache.");
+            info.block_size = kernel.block_size();
+            return info;
+        }
+        auto comp_result = Device::compiler()->compile_compute(
+            code.result.view(),
+            !option.enable_debug_info,
+            shader_model,
+            option.enable_fast_math,
+            true,
+            option.enable_debug_info);
+        comp_result.multi_visit(
+            [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
+                auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
+                ShaderSerializer::serialize_bytecode(
+                    code.properties,
+                    saved_args,
+                    check_md5,
+                    code.typeMD5,
+                    kernel.block_size(),
+                    option.name,
+                    {reinterpret_cast<const uint *>(buffer->GetBufferPointer()),
+                     buffer->GetBufferSize() / sizeof(uint)},
+                    SerdeType::kByteCode,
+                    _binary_io,
+                    code.useTex2DBindless,
+                    code.useTex3DBindless,
+                    code.useBufferBindless,
+                    code.printers,
+                    code.validation_count,
+                    {},
+                    kernel.allowed_warp_size(),
+                    conservative_spirv_artifact_requirements(
+                        this, requires_sampler_anisotropy));
+            },
+            [](auto &&error) {
+                LUISA_ERROR("Compile Error: {}", error);
+                return nullptr;
+            });
+    } else {
+        vstd::string_view file_name;
+        vstd::string cache_name;
+        SerdeType serde_type{};
+        if (option.enable_cache) {
+            if (option.name.empty()) {
+                cache_name << check_md5.to_string(false) << ".spv"sv;
+                file_name = cache_name;
+                serde_type = SerdeType::kCache;
+            } else {
+                file_name = option.name;
+                serde_type = SerdeType::kByteCode;
+            }
+        }
+        auto validation_count = code.validation_count;
+        auto shader = ComputeShader::compile(
+            _binary_io,
+            this,
+            ShaderSerializer::serialize_saved_args(kernel),
+            [&]() { return std::move(code); },
+            check_md5,
+            code.typeMD5,
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            kernel.block_size(),
+            file_name,
+            serde_type,
+            shader_model,
+            option.enable_fast_math,
+            validation_count,
+            kernel.allowed_warp_size(),
+            requires_sampler_anisotropy,
+            32u,
+            detail::ShaderCodegenDialect::HLSL_SPIRV);
+        LUISA_VERBOSE(
+            "ComputeShader (HLSL) created, pipeline: {}",
+            reinterpret_cast<void *>(shader->pipeline()));
+        info.handle = reinterpret_cast<uint64_t>(shader);
+        info.native_handle = shader->pipeline();
+    }
+    info.block_size = kernel.block_size();
+    return info;
+#endif
+}
+
 // kernel
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
 
-    // Check if this shader uses motion blur trace operations
-    bool requires_motion_blur = kernel.propagated_builtin_callables().uses_raytracing_motion_blur();
+#ifdef LUISA_XIR_TO_SPIRV
+    constexpr auto native_xir_spirv_compiled = true;
+#else
+    constexpr auto native_xir_spirv_compiled = false;
+#endif
+    auto require_native = require_native_xir_spirv();
+    auto builtin_calls = kernel.propagated_builtin_callables();
+    auto requires_motion_blur =
+        builtin_calls.uses_raytracing_motion_blur();
+    detail::UserComputeCodegenRequirements codegen_requirements{
+        .native_include = !option.native_include.empty(),
+        .printing = kernel.requires_printing(),
+        .cooperative_operations = kernel.use_cooperative_operations(),
+        .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
+                      builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
+                      builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
+        .typed_bindless_resources =
+            detail::requires_typed_bindless_hlsl_fallback(builtin_calls),
+        .uniform_bindless_resources =
+            detail::requires_uniform_bindless_hlsl_fallback(builtin_calls),
+        .motion_blur = requires_motion_blur};
+    auto codegen_route =
+        detail::plan_user_compute_codegen_route(codegen_requirements);
+    auto native_requirement = detail::plan_required_native_xir_spirv(
+        require_native, native_xir_spirv_compiled, codegen_route);
+    LUISA_ASSERT(
+        native_requirement.status !=
+            detail::RequiredNativeXirSpirvStatus::NATIVE_CODEGEN_UNAVAILABLE,
+        "Vulkan shader '{}' requires native XIR-to-SPIR-V codegen because "
+        "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV is enabled, but this Vulkan "
+        "backend was built without LUISA_XIR_TO_SPIRV.",
+        kernel.name());
 
-    if (requires_motion_blur && !motion_blur_enabled) {
-        LUISA_WARNING("Shader uses motion blur but device does not support it. "
-                      "Falling back to non-motion compute shader.");
-        requires_motion_blur = false;
+#ifdef LUISA_XIR_TO_SPIRV
+    luisa::string fallback_reasons;
+    if (codegen_route.requires_hlsl_fallback()) {
+        fallback_reasons = describe_hlsl_fallback_reasons(codegen_route);
+        LUISA_ASSERT(
+            native_requirement.status != detail::RequiredNativeXirSpirvStatus::
+                                             HLSL_FALLBACK_REQUIRED,
+            "Vulkan shader '{}' cannot use the required native "
+            "XIR-to-SPIR-V path because it requires the HLSL fallback for: "
+            "{}. LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV is enabled.",
+            kernel.name(), fallback_reasons);
     }
+#endif
 
-    if (requires_motion_blur) {
-        LUISA_ERROR("Vulkan compute shaders must use native SPIR-V codegen. "
-                    "The legacy HLSL ray-tracing fallback for motion-blur compute shaders is disabled.");
+    // Capability errors are meaningful only after the requested codegen
+    // route has been accepted. In strict mode the route-contract diagnostic
+    // must take precedence over unrelated device limitations.
+    auto requires_sampler_anisotropy =
+        validate_sampler_anisotropy_requirement(
+            kernel, option.native_include,
+            sampler_anisotropy_enabled);
+    if (requires_motion_blur && !motion_blur_enabled) {
+        LUISA_ERROR("Vulkan device does not support VK_NV_ray_tracing_motion_blur; "
+                    "motion-time compute tracing cannot be compiled.");
     }
 #ifdef LUISA_XIR_TO_SPIRV
-    static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
-    bool use_native_float_atomics = _vk_device->properties.vendorID == VK_VENDOR_ID_NVIDIA;
+    if (codegen_route.requires_hlsl_fallback()) {
+        LUISA_VERBOSE(
+            "Vulkan shader '{}' requires the HLSL-to-SPIR-V fallback for: "
+            "{}.",
+            kernel.name(), fallback_reasons);
+        return _create_shader_hlsl(
+            option, kernel, requires_sampler_anisotropy);
+    }
+    auto enabled_spirv_features = enabled_spirv_artifact_features();
+    auto target_features =
+        lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+            enabled_spirv_features);
+    auto float_atomic_policy = detail::plan_vulkan_float_atomic_codegen(
+        _vk_device->properties.vendorID);
+    if (float_atomic_policy
+            .native_xir_spirv_prefers_software_buffer_float32_rmw) {
+        target_features.buffer_float32_atomic_rmw_policy =
+            lc::spirv::SpirvBufferFloat32AtomicRmwPolicy::PREFER_WORD_CAS;
+    }
+    LUISA_ASSERT(target_features.enabled_mask() == enabled_spirv_features,
+                 "Vulkan SPIR-V target-feature mask did not round-trip.");
     vstd::optional<lc::spirv::SpirvResult> spv_result;
-    auto shader_md5 = compute_shader_cache_md5(kernel, option, use_native_float_atomics);
+    auto shader_md5 = compute_shader_cache_md5(
+        kernel, option, target_features);
     auto require_print_code = print_code();
     auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
     auto uses_user_path = !option.name.empty();
@@ -1591,14 +2925,24 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     luisa::string shader_name = uses_user_path ? option.name : luisa::format("{}.spv", shader_md5.to_string(false));
 
     if (require_print_code || !use_binary_io ||
-        ShaderSerializer::require_recompile(shader_name, shader_md5, type_md5, serde_type, _binary_io)) {
-        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
+        ShaderSerializer::require_recompile(
+            shader_name,
+            {.shader_md5 = shader_md5,
+             .type_md5 = type_md5,
+             .codegen_dialect =
+                 detail::ShaderCodegenDialect::XIR_SPIRV},
+            serde_type, _binary_io)) {
+        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(
+            kernel, option, target_features);
     }
 
     if (!spv_result && !option.compile_only && use_binary_io) {
         auto deser = ShaderSerializer::try_deser_compute(
             this,
-            {shader_md5},
+            {.shader_md5 = shader_md5,
+             .type_md5 = type_md5,
+             .codegen_dialect =
+                 detail::ShaderCodegenDialect::XIR_SPIRV},
             hlsl::binding_to_arg(kernel.bound_arguments()),
             shader_name,
             serde_type,
@@ -1611,10 +2955,14 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             info.block_size = shader->block_size();
             return info;
         }
-        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
+        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(
+            kernel, option, target_features);
     }
 
     if (spv_result) {
+        auto artifact_requirements =
+            validated_spirv_artifact_requirements(
+                this, spv_result->required_target_features);
         for (size_t i = 0; i < spv_result->properties.size(); ++i) {
             auto &p = spv_result->properties[i];
             LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
@@ -1636,7 +2984,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         if (use_binary_io) {
             ShaderSerializer::serialize_bytecode(
                 spv_result->properties,
-                ShaderSerializer::serialize_saved_args(luisa::span{spv_result->argument_usages}),
+                ShaderSerializer::serialize_saved_args(
+                    luisa::span{spv_result->argument_usages}, true,
+                    luisa::span{spv_result->argument_roles}),
                 shader_md5,
                 type_md5,
                 kernel.block_size(),
@@ -1649,7 +2999,10 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result->useBufferBindless,
                 spv_result->printers,
                 0,
-                spv_result->constant_ubo_data);
+                spv_result->constant_ubo_data,
+                kernel.allowed_warp_size(),
+                artifact_requirements,
+                detail::ShaderCodegenDialect::XIR_SPIRV);
         }
     }
     if (option.compile_only) {
@@ -1661,7 +3014,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             this,
             kernel.block_size(),
             spv_result->properties,
-            ShaderSerializer::serialize_saved_args(luisa::span{spv_result->argument_usages}),
+            ShaderSerializer::serialize_saved_args(
+                luisa::span{spv_result->argument_usages}, true,
+                luisa::span{spv_result->argument_roles}),
             {reinterpret_cast<const uint *>(spv_result->spv_bin.data()), spv_result->spv_bin.size()},
             hlsl::binding_to_arg(kernel.bound_arguments()),
             {},
@@ -1671,7 +3026,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             std::move(spv_result->printers),
             {spv_result->constant_ubo_data.data(), spv_result->constant_ubo_data.size()},
             0,
-            kernel.allowed_warp_size());
+            kernel.allowed_warp_size(),
+            32u,
+            detail::ShaderCodegenDialect::XIR_SPIRV);
         LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
@@ -1679,7 +3036,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 
 #elif defined(LUISA_AST_LLVM_TO_SPIRV)
     // === AST LLVM to SPIR-V codegen path ===
-    auto llvm_result = lc::llvm_codegen::LLVMCodegenUtility::CompileSPIRV(kernel, option);
+    if (kernel.requires_raytracing() && !raytracing_enabled) {
+        LUISA_ERROR(
+            "Vulkan shader '{}' requires ray tracing, but ray-query support "
+            "is not enabled on this device.",
+            kernel.name());
+    }
+    auto llvm_result = lc::llvm_codegen::compile_spirv(kernel, option);
     for (size_t i = 0; i < llvm_result.properties.size(); ++i) {
         auto &p = llvm_result.properties[i];
         LUISA_VERBOSE("  LLVM prop[{}]: type={}, space={}, reg={}, array_size={}",
@@ -1720,7 +3083,11 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             llvm_result.useBufferBindless,
             llvm_result.printers,
             0,
-            llvm_result.constant_ubo_data);
+            {},// LLVM constants are embedded in the module; no constant UBO.
+            kernel.allowed_warp_size(),
+            conservative_spirv_artifact_requirements(
+                this, requires_sampler_anisotropy),
+            detail::ShaderCodegenDialect::LLVM_SPIRV);
     } else {
         auto shader = new ComputeShader(
             this,
@@ -1735,123 +3102,19 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             llvm_result.useTex3DBindless,
             llvm_result.useBufferBindless,
             std::move(llvm_result.printers),
-            {llvm_result.constant_ubo_data.data(),
-             llvm_result.constant_ubo_data.size()},
+            {},// LLVM constants are embedded in the module; no constant UBO.
             0,
-            kernel.allowed_warp_size());
+            kernel.allowed_warp_size(),
+            32u,
+            detail::ShaderCodegenDialect::LLVM_SPIRV);
         LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
                       reinterpret_cast<void *>(shader->pipeline()));
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     }
 #else
-    // HLSL codegen fallback path
-    {
-        uint mask = 0;
-        if (option.enable_fast_math) { mask |= 1; }
-        if (option.enable_debug_info) { mask |= 2; }
-        
-        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
-        vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-        bool const requires_async_copy = kernel.propagated_builtin_callables().test(CallOp::ASYNC_COPY);
-        if (requires_async_copy) {
-            if (!async_copy_enabled) {
-                LUISA_ERROR("ASYNC_COPY is not supported on this Vulkan device because VK_KHR_workgroup_memory_explicit_layout is unavailable.");
-            }
-        }
-        uint const shader_model = [&]() noexcept -> uint {
-            if (kernel.use_cooperative_operations()) { return kTensorShaderModel; }
-            if (kernel.allowed_warp_size().has_value() || requires_async_copy) { return kHighShaderModel; }
-            return kShaderModel;
-        }();
-        
-        if (option.compile_only) {
-            LUISA_ASSERT(!option.name.empty(), "Vulkan compile-only shader requires a non-empty shader name.");
-            info.invalidate();
-            if (print_code()) {
-                auto f = fopen("hlsl_output.hlsl", "ab");
-                if (f) {
-                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-                    fclose(f);
-                }
-            }
-            // Try loading from cache before compiling, like the non-compile-only branch.
-            auto cache_result = ShaderSerializer::try_deser_compute(
-                this,
-                {check_md5},
-                hlsl::binding_to_arg(kernel.bound_arguments()),
-                option.name,
-                SerdeType::kByteCode,
-                _binary_io);
-            if (cache_result.shader) {
-                delete static_cast<ComputeShader *>(cache_result.shader);
-                LUISA_VERBOSE("ComputeShader (HLSL compile-only) loaded from cache.");
-                info.block_size = kernel.block_size();
-                return info;
-            }
-            auto comp_result = Device::compiler()->compile_compute(
-                code.result.view(),
-                !option.enable_debug_info,
-                shader_model,
-                option.enable_fast_math,
-                true,
-                option.enable_debug_info);
-            comp_result.multi_visit(
-                [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
-                    auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
-                    ShaderSerializer::serialize_bytecode(
-                        code.properties,
-                        saved_args,
-                        check_md5,
-                        code.typeMD5,
-                        kernel.block_size(),
-                        option.name,
-                        {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
-                        SerdeType::kByteCode,
-                        _binary_io,
-                        code.useTex2DBindless,
-                        code.useTex3DBindless,
-                        code.useBufferBindless,
-                        code.printers);
-                },
-                [](auto &&err) {
-                    LUISA_ERROR("Compile Error: {}", err);
-                    return nullptr;
-                });
-        } else {
-            vstd::string_view file_name;
-            vstd::string str_cache;
-            SerdeType serde_type;
-            if (option.enable_cache) {
-                if (option.name.empty()) {
-                    str_cache << check_md5.to_string(false) << ".spv"sv;
-                    file_name = str_cache;
-                    serde_type = SerdeType::kCache;
-                } else {
-                    file_name = option.name;
-                    serde_type = SerdeType::kByteCode;
-                }
-            }
-            auto shader = ComputeShader::compile(
-                _binary_io,
-                this,
-                ShaderSerializer::serialize_saved_args(kernel),
-                [&]() { return std::move(code); },
-                check_md5,
-                hlsl::binding_to_arg(kernel.bound_arguments()),
-                kernel.block_size(),
-                file_name,
-                serde_type,
-                shader_model,
-                option.enable_fast_math,
-                0,
-                kernel.allowed_warp_size());
-            LUISA_VERBOSE("ComputeShader (HLSL) created, pipeline: {}",
-                          reinterpret_cast<void *>(shader->pipeline()));
-            info.handle = reinterpret_cast<uint64_t>(shader);
-            info.native_handle = shader->pipeline();
-        }
-    }
+    return _create_shader_hlsl(
+        option, kernel, requires_sampler_anisotropy);
 #endif
     info.block_size = kernel.block_size();
     return info;
@@ -1859,13 +3122,18 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept {
     ShaderCreationInfo info;
-    auto deser_result = ShaderSerializer::try_deser_compute(this, {}, {}, name, SerdeType::kByteCode, _binary_io);
-    if (!deser_result.shader) {
-        info.invalidate();
-        return info;
+    luisa::optional<detail::ShaderCodegenDialect> required_dialect;
+    if (require_native_xir_spirv()) {
+        required_dialect = detail::ShaderCodegenDialect::XIR_SPIRV;
     }
-    if (!ComputeShader::verify_type_md5(arg_types, deser_result.type_md5)) {
-        LUISA_WARNING("Shader {} arguments not match.", name);
+    auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(arg_types);
+    auto deser_result = ShaderSerializer::try_deser_compute(
+        this,
+        {.type_md5 = type_md5,
+         .codegen_dialect = required_dialect},
+        {}, name,
+        SerdeType::kByteCode, _binary_io);
+    if (!deser_result.shader) {
         info.invalidate();
         return info;
     }
@@ -1909,20 +3177,21 @@ bool Device::is_event_completed(uint64_t handle, uint64_t fence_value) const noe
 }
 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
-    bool destroy_inst = false;
-    {
-        std::lock_guard lck{detail::instance_mtx};
-        if (!detail::vk_instance) {
-            destroy_inst = true;
-#ifdef NDEBUG
-            constexpr bool enable_validation = false;
-#else
-            constexpr bool enable_validation = true;
-#endif
-            bool enable_surface{false};
-            detail::create_instance(enable_validation, enable_surface, detail::vk_instance, {}, {}, {});
-        }
-    }
+    std::lock_guard dispatch_lock{detail::dispatch_lifetime_mtx};
+    LUISA_ASSERT(
+        detail::live_device_count == 0u,
+        "Cannot enumerate Vulkan devices while a Vulkan Device is live; "
+        "Volk uses process-global dispatch tables.");
+    std::lock_guard lck{detail::instance_mtx};
+    auto enable_validation = detail::validation_enabled_by_default();
+    // Create the reusable enumeration instance with the supported surface
+    // extensions as a superset, so a later graphics Device can reuse it.
+    bool enable_surface{true};
+    // Keep this process-owned instance alive for subsequent enumeration or
+    // device creation, and always reload the instance dispatch table.
+    detail::load_or_create_process_instance(
+        enable_validation, enable_surface,
+        {}, {}, {});
     vstd::vector<VkPhysicalDevice> physical_devices;
     uint32_t gpu_count = 0;
     // Get number of available physical devices
@@ -1943,10 +3212,6 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
         vkGetPhysicalDeviceProperties(i, &device_properties);
         r.emplace_back(device_properties.deviceName);
     }
-    if (destroy_inst) {
-        vkDestroyInstance(detail::vk_instance, Device::alloc_callbacks());
-        vks::VulkanDevice::force_free_volk();
-    }
 }
 
 hlsl::ShaderCompiler *Device::compiler() {
@@ -1965,21 +3230,19 @@ hlsl::ShaderCompiler *Device::compiler() {
 #endif
 }
 
-VkInstance Device::instance() {
-    return detail::vk_instance;
+VkInstance Device::instance() const noexcept {
+    return _instance;
 }
 // HACK: for some app need external instance without device
 LUISA_EXPORT_API VkInstance init_vk_instance(bool enable_validation, bool &enable_surface, const luisa::string *extra_instance_exts, size_t extra_instance_ext_count, const char *custom_vk_lib_path, const char *custom_vk_lib_name) {
+    std::lock_guard dispatch_lock{detail::dispatch_lifetime_mtx};
+    LUISA_ASSERT(
+        detail::live_device_count == 0u,
+        "Cannot initialize the process Vulkan instance while a Vulkan Device "
+        "is live; Volk uses process-global dispatch tables.");
     std::lock_guard lck{detail::instance_mtx};
-    if (!detail::vk_instance) {
-#ifdef NDEBUG
-        constexpr bool enable_validation = false;
-#else
-        constexpr bool enable_validation = true;
-#endif
-        (void)enable_validation;
-        detail::create_instance(enable_validation, enable_surface, detail::vk_instance, custom_vk_lib_path ? luisa::filesystem::path{custom_vk_lib_path} : luisa::filesystem::path{}, custom_vk_lib_name ? luisa::string_view{custom_vk_lib_name} : luisa::string_view{}, luisa::span{extra_instance_exts, extra_instance_ext_count});
-    }
+    enable_validation |= detail::validation_enabled_by_default();
+    detail::load_or_create_process_instance(enable_validation, enable_surface, custom_vk_lib_path ? luisa::filesystem::path{custom_vk_lib_path} : luisa::filesystem::path{}, custom_vk_lib_name ? luisa::string_view{custom_vk_lib_name} : luisa::string_view{}, luisa::span{extra_instance_exts, extra_instance_ext_count});
     return detail::vk_instance;
 }
 
@@ -1994,6 +3257,13 @@ LUISA_EXPORT_API void destroy(DeviceInterface *device) {
 uint Device::HeapAlloc::alloc() {
     std::lock_guard lck{mtx};
     if (release_pool.empty()) {
+        auto upper_bound = full_size;
+        for (auto ptr : sub_allocations) {
+            upper_bound = std::min(upper_bound, get_index(ptr));
+        }
+        LUISA_ASSERT(count < upper_bound,
+                     "Vulkan bindless descriptor heap exhausted at {} slots.",
+                     full_size);
         return count++;
     }
     auto r = release_pool.back();
@@ -2024,23 +3294,37 @@ bool Device::LazyLoadShader::check(Device *self) {
     return false;
 }
 ResourceCreationInfo Device::allocate_sparse_texture_heap(size_t byte_size) noexcept {
-    VkMemoryRequirements req{
-        .size = byte_size,
-        .alignment = kSparseBufferSize,
-        .memoryTypeBits = std::numeric_limits<uint>::max()};
-    auto allocation = vengine_new<std::pair<VmaAllocation, VmaAllocationInfo>>();
-    VmaAllocationCreateInfo allocInfo = {
-        .flags = VMA_ALLOCATION_CREATE_STRATEGY_BEST_FIT_BIT,
-        .usage = VMA_MEMORY_USAGE_GPU_ONLY};
-    _allocator->alloc_sparse(req, &allocInfo, allocation->first, &allocation->second);
+    LUISA_ASSERT(
+        _vk_device->enabled_features.sparseBinding == VK_TRUE,
+        "Vulkan sparse heap allocation requires sparseBinding to be enabled "
+        "on the logical device.");
+    auto heap = vengine_new<VulkanSparseHeap>(this, byte_size);
+    auto handle = reinterpret_cast<uint64_t>(heap);
+    auto registration = _sparse_residency_registry.register_heap(handle);
+    LUISA_ASSERT(
+        static_cast<bool>(registration),
+        "Failed to register Vulkan sparse heap 0x{:016x}: {}.",
+        handle,
+        detail::sparse_residency_registry_status_name(
+            registration.status));
     return ResourceCreationInfo{
-        .handle = reinterpret_cast<uint64_t>(allocation),
-        .native_handle = allocation->first};
+        .handle = handle,
+        // Allocation is lazy and ResourceCreationInfo cannot update its
+        // native handle later. Native sparse-heap interop is therefore
+        // intentionally unsupported on Vulkan.
+        .native_handle = nullptr};
 }
 void Device::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
-    auto ptr = reinterpret_cast<std::pair<VmaAllocation, VmaAllocationInfo> *>(handle);
-    _allocator->dealloc_sparse(ptr->first);
-    vengine_delete(ptr);
+    auto unregistration =
+        _sparse_residency_registry.unregister_heap(handle);
+    LUISA_ASSERT(
+        static_cast<bool>(unregistration),
+        "Cannot destroy Vulkan sparse heap 0x{:016x}: {}. Explicitly unmap "
+        "every resident range before destroying its heap.",
+        handle,
+        detail::sparse_residency_registry_status_name(
+            unregistration.status));
+    vengine_delete(reinterpret_cast<VulkanSparseHeap *>(handle));
 }
 ResourceCreationInfo Device::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
     return allocate_sparse_texture_heap(byte_size);
@@ -2058,12 +3342,29 @@ SparseBufferCreationInfo Device::create_sparse_buffer(const luisa::compute::Type
         LUISA_ERROR("Indirect buffer not supported.");
     }
     SparseBufferCreationInfo info{};
-    auto ptr = new SparseBuffer(this, element->size() * elem_count, true);
     info.element_stride = (element == Type::of<void>()) ? 1 : element->size();
+    LUISA_ASSERT(
+        elem_count != 0u &&
+            info.element_stride <=
+                std::numeric_limits<size_t>::max() / elem_count,
+        "Vulkan sparse buffer element count {} and stride {} produce an "
+        "empty or overflowing byte size.",
+        elem_count, info.element_stride);
+    auto ptr = new SparseBuffer(
+        this, info.element_stride * elem_count, true);
     info.handle = reinterpret_cast<uint64_t>(ptr);
+    auto registration = _sparse_residency_registry.register_resource(
+        info.handle,
+        detail::SparseResidencyResourceKind::BUFFER);
+    LUISA_ASSERT(
+        static_cast<bool>(registration),
+        "Failed to register Vulkan sparse buffer 0x{:016x}: {}.",
+        info.handle,
+        detail::sparse_residency_registry_status_name(
+            registration.status));
     info.native_handle = ptr->vk_buffer();
     info.total_size_bytes = ptr->byte_size();
-    info.tile_size_bytes = kSparseBufferSize;
+    info.tile_size_bytes = ptr->sparse_block_size();
     return info;
 }
 SparseTextureCreationInfo Device::create_sparse_texture(
@@ -2074,15 +3375,18 @@ SparseTextureCreationInfo Device::create_sparse_texture(
     ptr->init_as_sparse(dimension, format, uint3(width, height, depth), mipmap_levels, simultaneous_access);
     SparseTextureCreationInfo r;
     r.handle = reinterpret_cast<uint64_t>(ptr);
+    auto registration = _sparse_residency_registry.register_resource(
+        r.handle,
+        detail::SparseResidencyResourceKind::IMAGE);
+    LUISA_ASSERT(
+        static_cast<bool>(registration),
+        "Failed to register Vulkan sparse image 0x{:016x}: {}.",
+        r.handle,
+        detail::sparse_residency_registry_status_name(
+            registration.status));
     r.native_handle = ptr->vk_image();
-    r.tile_size_bytes = kSparseBufferSize;
-    r.tile_size = [&]() {
-        if (dimension == 2) {
-            return make_uint3(Texture::tex2d_tile_size(pixel_format_to_storage(format)), 1);
-        } else {
-            return Texture::tex3d_tile_size(pixel_format_to_storage(format));
-        }
-    }();
+    r.tile_size_bytes = ptr->sparse_block_size();
+    r.tile_size = ptr->tile_size();
     return r;
 }
 DeviceExtension *Device::extension(vstd::string_view name) noexcept {
@@ -2098,10 +3402,28 @@ DeviceExtension *Device::extension(vstd::string_view name) noexcept {
     return v.ext;
 }
 void Device::destroy_sparse_texture(uint64_t handle) noexcept {
-    delete reinterpret_cast<Texture *>(handle);
+    auto unregistration =
+        _sparse_residency_registry.unregister_resource(handle);
+    LUISA_ASSERT(
+        static_cast<bool>(unregistration),
+        "Cannot destroy Vulkan sparse image 0x{:016x}: {}. Explicitly unmap "
+        "every resident range before destroying the image.",
+        handle,
+        detail::sparse_residency_registry_status_name(
+            unregistration.status));
+    destroy_texture(handle);
 }
 void Device::destroy_sparse_buffer(uint64_t handle) noexcept {
-    delete reinterpret_cast<SparseBuffer *>(handle);
+    auto unregistration =
+        _sparse_residency_registry.unregister_resource(handle);
+    LUISA_ASSERT(
+        static_cast<bool>(unregistration),
+        "Cannot destroy Vulkan sparse buffer 0x{:016x}: {}. Explicitly unmap "
+        "every resident range before destroying the buffer.",
+        handle,
+        detail::sparse_residency_registry_status_name(
+            unregistration.status));
+    destroy_buffer(handle);
 }
 void Device::set_stream_log_callback(uint64_t stream_handle,
                                      const StreamLogCallback &callback) noexcept {

@@ -62,6 +62,8 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
+    example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
+    example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)
@@ -76,7 +78,9 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
             add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
         end)
     end
-    example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false)
+    example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false, function()
+        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
+    end)
     includes("compute/tokenize")
 
 -- extension

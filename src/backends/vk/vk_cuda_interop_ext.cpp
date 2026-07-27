@@ -3,6 +3,7 @@
 #include "vk_cuda_interop_ext.h"
 #include "device.h"
 #include "texture.h"
+#include "cuda_interop_texture_plan.h"
 #include "stream.h"
 #include "default_buffer.h"
 #include "../cuda/cuda_stream.h"
@@ -216,6 +217,7 @@ BufferCreationInfo VkCudaInteropImpl::create_interop_buffer(const Type *element,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
         .pQueueFamilyIndices = nullptr};
+    _device->allocator().apply_queue_sharing(buffer_info);
     LUISA_CHECK_VULKAN(vkCreateBuffer(
         _device->logic_device(),
         &buffer_info,
@@ -284,25 +286,31 @@ ResourceCreationInfo VkCudaInteropImpl::create_interop_texture(
     VkImage image;
     VkDeviceMemory image_memory;
 
+    auto plan = detail::plan_cuda_interop_texture(
+        format, dimension, width, height, depth,
+        mipmap_levels, simultaneous_access,
+        allow_raster_target);
+    LUISA_ASSERT(
+        plan.valid(),
+        "Invalid Vulkan-CUDA interop texture plan for dimension {} and "
+        "extent {}x{}x{}: {}.",
+        dimension, width, height, depth,
+        detail::cuda_interop_texture_plan_status_name(plan.status));
+
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = width;
-    image_info.extent.height = height;
-    image_info.extent.depth = 1;
-    image_info.mipLevels = 1;
+    image_info.imageType = plan.image_type;
+    image_info.extent = plan.extent;
+    image_info.mipLevels = plan.mip_levels;
     image_info.arrayLayers = 1;
     image_info.format = Texture::to_vk_format(format);
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                       VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                       VK_IMAGE_USAGE_SAMPLED_BIT |
-                       (allow_raster_target ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
-                       (is_srgb(format) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT);
+    image_info.usage = plan.usage;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.pNext = &external_memory_info;
+    _device->allocator().apply_queue_sharing(image_info);
     LUISA_CHECK_VULKAN(vkCreateImage(_device->logic_device(), &image_info, Device::alloc_callbacks(), &image));
 
     // compute memory requirements
@@ -345,11 +353,14 @@ ResourceCreationInfo VkCudaInteropImpl::create_interop_texture(
     auto tex = new Texture(
         _device,
         image,
-        dimension,
-        Texture::to_vk_format(format),
-        uint3(width, height, 1),
-        mipmap_levels,
-        true,
+        plan.dimension,
+        format,
+        uint3(
+            plan.extent.width,
+            plan.extent.height,
+            plan.extent.depth),
+        plan.mip_levels,
+        plan.simultaneous_access,
         image_memory);
     return ResourceCreationInfo{
         .handle = reinterpret_cast<uint64_t>(tex),
@@ -360,8 +371,6 @@ void VkCudaInteropImpl::vk_signal(uint64_t cuda_event_handle, uint64_t vk_stream
     evt->_mark_signal_fence(fence_index);
     auto stream = reinterpret_cast<lc::vk::Stream *>(vk_stream);
     auto semaphore = evt->vk_semaphore();
-    if (_device->config_ext() && _device->config_ext()->signal_semaphore(stream->queue(), semaphore, fence_index))
-        return;
     VkTimelineSemaphoreSubmitInfo timelineInfo1{};
     timelineInfo1.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
     timelineInfo1.pNext = nullptr;
@@ -379,16 +388,18 @@ void VkCudaInteropImpl::vk_signal(uint64_t cuda_event_handle, uint64_t vk_stream
     // ... Enqueue initial device work here.
     info1.commandBufferCount = 0;
     info1.pCommandBuffers = nullptr;
-    stream->queue_mtx().lock();
-    LUISA_CHECK_VULKAN(vkQueueSubmit(stream->queue(), 1, &info1, VK_NULL_HANDLE));
-    stream->queue_mtx().unlock();
+    std::lock_guard queue_lock{stream->queue_mtx()};
+    auto config_ext = _device->config_ext();
+    if (!(config_ext && config_ext->signal_semaphore(
+                            stream->queue(), semaphore, fence_index))) {
+        LUISA_CHECK_VULKAN(vkQueueSubmit(
+            stream->queue(), 1, &info1, VK_NULL_HANDLE));
+    }
 }
 void VkCudaInteropImpl::vk_wait(uint64_t cuda_event_handle, uint64_t vk_stream, uint64_t fence_index) noexcept {
     auto evt = reinterpret_cast<cuda::CUDAEvent *>(cuda_event_handle);
     auto stream = reinterpret_cast<lc::vk::Stream *>(vk_stream);
     auto semaphore = evt->vk_semaphore();
-    if (_device->config_ext() && _device->config_ext()->wait_semaphore(stream->queue(), semaphore, fence_index))
-        return;
     VkTimelineSemaphoreSubmitInfo timelineInfo1{};
     VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     timelineInfo1.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -408,9 +419,13 @@ void VkCudaInteropImpl::vk_wait(uint64_t cuda_event_handle, uint64_t vk_stream, 
     // ... Enqueue initial device work here.
     info1.commandBufferCount = 0;
     info1.pCommandBuffers = nullptr;
-    stream->queue_mtx().lock();
-    LUISA_CHECK_VULKAN(vkQueueSubmit(stream->queue(), 1, &info1, VK_NULL_HANDLE));
-    stream->queue_mtx().unlock();
+    std::lock_guard queue_lock{stream->queue_mtx()};
+    auto config_ext = _device->config_ext();
+    if (!(config_ext && config_ext->wait_semaphore(
+                            stream->queue(), semaphore, fence_index))) {
+        LUISA_CHECK_VULKAN(vkQueueSubmit(
+            stream->queue(), 1, &info1, VK_NULL_HANDLE));
+    }
 }
 
 void VkCudaInteropImpl::cuda_buffer(uint64_t vk_buffer_handle, uint64_t *cuda_ptr, uint64_t *cuda_handle /*CUexternalMemory* */) noexcept {

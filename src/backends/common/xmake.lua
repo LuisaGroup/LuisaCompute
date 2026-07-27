@@ -1,10 +1,18 @@
-if (has_config("lc_vk_backend") or has_config("lc_dx_backend")) then
+if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
     includes("hlsl")
-    local lc_vk_backend_use_ast_llvm_spirv = has_config('lc_vk_backend_use_ast_llvm_spirv')
-    if has_config('lc_vk_backend_use_xir_spirv') or lc_vk_backend_use_ast_llvm_spirv then
-        includes('spirv')
+end
+
+-- Both SPIR-V code generators are Vulkan-only. Key their targets on the
+-- backend as well as the codegen option so a DX-only/test configuration cannot
+-- create dangling dependencies on lc-spirv or lc-spirv-llvm.
+if has_config("lc_vk_backend") then
+    local use_ast_llvm_spirv =
+        has_config("lc_vk_backend_use_ast_llvm_spirv")
+    if has_config("lc_vk_backend_use_xir_spirv") or
+       use_ast_llvm_spirv then
+        includes("spirv")
     end
-    if lc_vk_backend_use_ast_llvm_spirv then
+    if use_ast_llvm_spirv then
         includes("spirv_llvm")
     end
 end

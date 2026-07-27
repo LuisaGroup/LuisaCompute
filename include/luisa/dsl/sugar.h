@@ -230,4 +230,7 @@ inline void suspend_impl(uint32_t token, const char *name) {
 
 #define $suspend(...) ::luisa::compute::dsl::suspend_impl(__VA_ARGS__)
 
+#define $clc_work_stealing_1d(body) \
+    ::luisa::compute::cluster_launch_control_work_stealing_1d([&](auto bx) noexcept -> void body)
+
 #endif

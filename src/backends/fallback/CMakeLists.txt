@@ -1,4 +1,20 @@
+# LLVMConfig.cmake exports its build-time CMAKE_MSVC_RUNTIME_LIBRARY into the
+# including directory. Preserve the project's value across this dependency
+# probe: otherwise a later LLVM consumer could mistake LLVM's leaked setting
+# for the project's own CRT selection and turn its ABI check into a tautology.
+set(_luisa_fallback_had_msvc_runtime_library FALSE)
+if (DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+    set(_luisa_fallback_had_msvc_runtime_library TRUE)
+    set(_luisa_fallback_project_msvc_runtime_library
+            "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+endif ()
 find_package(LLVM CONFIG)
+if (_luisa_fallback_had_msvc_runtime_library)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY
+            "${_luisa_fallback_project_msvc_runtime_library}")
+else ()
+    unset(CMAKE_MSVC_RUNTIME_LIBRARY)
+endif ()
 find_package(embree CONFIG)
 
 if (NOT embree_FOUND)
@@ -34,6 +50,7 @@ if (LLVM_FOUND AND embree_FOUND)
             fallback_buffer.cpp
             fallback_swapchain.cpp
             fallback_tex_compress.cpp
+            ../common/default_binary_io.cpp
     )
 
     luisa_compute_add_backend(fallback SOURCES ${LUISA_FALLBACK_BACKEND_SOURCES})

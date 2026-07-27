@@ -138,16 +138,23 @@ void test_raster(Device &device) {
         stream << synchronize();
         return;
     } else {
-        Image<float> out_img = device.create_image<float>(PixelStorage::BYTE4, width, height, 1, false, true);
-        luisa::vector<std::byte> pixels(out_img.view().size_bytes());
+        // Render into a nonzero color mip whose extent matches the depth
+        // attachment. This exercises attachment-view levels, framebuffer
+        // extent derivation, and per-mip layout tracking without changing the
+        // reference image dimensions.
+        Image<float> out_img = device.create_image<float>(
+            PixelStorage::BYTE4, width * 2u, height * 2u,
+            2u, false, true);
+        auto out_view = out_img.view(1u);
+        luisa::vector<std::byte> pixels(out_view.size_bytes());
         luisa::vector<RasterMesh> meshes;
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 114514);
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 1919810, 3);
         stream
-            << clear_shader(out_img).dispatch(width, height)
+            << clear_shader(out_view).dispatch(width, height)
             << depth_buffer.clear(1.0)
-            << shader(0.0f, 0.0f).draw(std::move(meshes), mesh_format, Viewport{0, 0, width, height}, state, &depth_buffer, out_img)
-            << out_img.copy_to(luisa::span{pixels})
+            << shader(0.0f, 0.0f).draw(std::move(meshes), mesh_format, Viewport{0, 0, width, height}, state, &depth_buffer, out_view)
+            << out_view.copy_to(luisa::span{pixels})
             << synchronize();
         if (opts.compare_path) {
             auto result = luisa::test::compare_with_reference_file(

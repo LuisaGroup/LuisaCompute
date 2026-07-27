@@ -4,6 +4,9 @@
 
 #pragma once
 
+#ifndef LUISA_XIR_OP_H
+#define LUISA_XIR_OP_H
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/string.h>
 
@@ -52,8 +55,8 @@ enum class ArithmeticOp {
     SATURATE,// (vecN)
     LERP,    // (vecN, vecN, vecN)
 
-    SMOOTHSTEP,// (vecN, vecN, vecN)
-    STEP,      // (x, y): (x >= y) ? 1 : 0
+    SMOOTHSTEP,// (edge0, edge1, x)
+    STEP,      // (edge, x): (x >= edge) ? 1 : 0
 
     ABS,// (vecN)
     MIN,// (vecN)
@@ -124,7 +127,7 @@ enum class ArithmeticOp {
     MATRIX_COMP_SUB,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
     MATRIX_COMP_MUL,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
     MATRIX_COMP_DIV,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
-    MATRIX_LINALG_MUL, // (floatNxN, floatNxN) -> floatNxN | (floatNxN, floatN) -> floatN
+    MATRIX_LINALG_MUL, // (floatNxN, floatNxN) -> floatNxN | (floatNxN, floatN) -> floatN | (floatN, floatNxN) -> floatN
     MATRIX_DETERMINANT,// (floatNxN) -> float
     MATRIX_TRANSPOSE,  // (floatNxN) -> floatNxN
     MATRIX_INVERSE,    // (floatNxN) -> floatNxN
@@ -200,8 +203,8 @@ enum class ResourceQueryOp {
     TEXTURE3D_SIZE,/// [(texture) -> Vector<uint, dim>]
 
     // bindless array query operations
-    BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size: uint64
-    BINDLESS_BYTE_BUFFER_SIZE,// (bindless_array, index: uint) -> size: uint64
+    BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size: uint32|uint64
+    BINDLESS_BYTE_BUFFER_SIZE,// (bindless_array, index: uint) -> size: uint32|uint64
 
     BINDLESS_TEXTURE2D_SIZE,      // (bindless_array, index: uint): uint2
     BINDLESS_TEXTURE3D_SIZE,      // (bindless_array, index: uint): uint3
@@ -209,15 +212,15 @@ enum class ResourceQueryOp {
     BINDLESS_TEXTURE3D_SIZE_LEVEL,// (bindless_array, index: uint, level: uint): uint3
 
     // texture sampling (note: we assume texture sampling is not affected by resource writes in the same shader)
-    TEXTURE2D_SAMPLE,           // (tex, uv: float2, filter: uint, level: uint): float4
-    TEXTURE2D_SAMPLE_LEVEL,     // (tex, uv: float2, level: float, filter: uint, level: uint): float4
-    TEXTURE2D_SAMPLE_GRAD,      // (tex, uv: float2, ddx: float2, ddy: float2, filter: uint, level: uint): float4
-    TEXTURE2D_SAMPLE_GRAD_LEVEL,// (tex, uv: float2, ddx: float2, ddy: float2,  mip_clamp: float, filter: uint, level: uint): float4
+    TEXTURE2D_SAMPLE,           // (tex, uv: float2, filter: uint, address: uint): float4
+    TEXTURE2D_SAMPLE_LEVEL,     // (tex, uv: float2, level: float, filter: uint, address: uint): float4
+    TEXTURE2D_SAMPLE_GRAD,      // (tex, uv: float2, ddx: float2, ddy: float2, filter: uint, address: uint): float4
+    TEXTURE2D_SAMPLE_GRAD_LEVEL,// (tex, uv: float2, ddx: float2, ddy: float2, mip_clamp: float, filter: uint, address: uint): float4
 
-    TEXTURE3D_SAMPLE,           // (tex, uv: float3, filter: uint, level: uint): float4
-    TEXTURE3D_SAMPLE_LEVEL,     // (tex, uv: float3, level: float, filter: uint, level: uint): float4
-    TEXTURE3D_SAMPLE_GRAD,      // (tex, uv: float3, ddx: float3, ddy: float3, filter: uint, level: uint): float4
-    TEXTURE3D_SAMPLE_GRAD_LEVEL,// (tex, uv: float3, ddx: float3, ddy: float3,  mip_clamp: float, filter: uint, level: uint): float4
+    TEXTURE3D_SAMPLE,           // (tex, uv: float3, filter: uint, address: uint): float4
+    TEXTURE3D_SAMPLE_LEVEL,     // (tex, uv: float3, level: float, filter: uint, address: uint): float4
+    TEXTURE3D_SAMPLE_GRAD,      // (tex, uv: float3, ddx: float3, ddy: float3, filter: uint, address: uint): float4
+    TEXTURE3D_SAMPLE_GRAD_LEVEL,// (tex, uv: float3, ddx: float3, ddy: float3, mip_clamp: float, filter: uint, address: uint): float4
 
     BINDLESS_TEXTURE2D_SAMPLE,           // (bindless_array, index: uint, uv: float2): float4
     BINDLESS_TEXTURE2D_SAMPLE_LEVEL,     // (bindless_array, index: uint, uv: float2, level: float): float4
@@ -228,14 +231,14 @@ enum class ResourceQueryOp {
     BINDLESS_TEXTURE3D_SAMPLE_GRAD,      // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
     BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL,// (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3, mip_clamp: float): float4
 
-    BINDLESS_TEXTURE2D_SAMPLE_SAMPLER,           // (bindless_array, index: uint, uv: float2, filter: uint, level: uint): float4
-    BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER,     // (bindless_array, index: uint, uv: float2, level: float, filter: uint, level: uint): float4
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER,      // (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2, filter: uint, level: uint): float4
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER,// (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2,  mip_clamp: float, filter: uint, level: uint): float4
-    BINDLESS_TEXTURE3D_SAMPLE_SAMPLER,           // (bindless_array, index: uint, uv: float3, filter: uint, level: uint): float4
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER,     // (bindless_array, index: uint, uv: float3, level: float, filter: uint, level: uint): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER,      // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3, filter: uint, level: uint): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER,// (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3,  mip_clamp: float, filter: uint, level: uint): float4
+    BINDLESS_TEXTURE2D_SAMPLE_SAMPLER,           // (bindless_array, index: uint, uv: float2, filter: uint, address: uint): float4
+    BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER,     // (bindless_array, index: uint, uv: float2, level: float, filter: uint, address: uint): float4
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER,      // (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2, filter: uint, address: uint): float4
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER,// (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2, mip_clamp: float, filter: uint, address: uint): float4
+    BINDLESS_TEXTURE3D_SAMPLE_SAMPLER,           // (bindless_array, index: uint, uv: float3, filter: uint, address: uint): float4
+    BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER,     // (bindless_array, index: uint, uv: float3, level: float, filter: uint, address: uint): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER,      // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3, filter: uint, address: uint): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER,// (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3, mip_clamp: float, filter: uint, address: uint): float4
 
     // low-level pointer operations, for akari
     BUFFER_DEVICE_ADDRESS,         // (buffer) -> address: uint64
@@ -350,3 +353,5 @@ enum class ThreadGroupOp {
 #include <luisa/xir/op_to_string.inl.h>
 
 }// namespace luisa::compute::xir
+
+#endif// LUISA_XIR_OP_H

@@ -44,7 +44,7 @@ All backends inherit from `DeviceInterface`:
 |---|---|
 | `native_handle()` | Underlying API handle (CUcontext, VkDevice, etc.) |
 | `compute_warp_size()` | Warp size (32 CUDA, 1 CPU/fallback) |
-| `memory_granularity()` | Allocation alignment |
+| `memory_granularity()` | Legacy backend-wide allocation granularity; not a resource-specific sparse page size |
 | `query(property)` | Device property queries |
 | `extension(name)` | Device extension interface |
 | `set_name(Resource::Tag, handle, name)` | Debug naming |
@@ -144,6 +144,224 @@ class MyCommandEncoder : public MutableCommandVisitor {
 ```
 
 Architecture: each backend has a `*Stream` class owning the native stream/queue. `stream->dispatch(CommandList)` visits all commands via an encoder. User callbacks are executed after GPU work completes.
+
+### Command reordering and bindless hazards
+
+`src/backends/common/command_reorder_visitor.h` plans command layers from the
+resource accesses visible at each command boundary. A backend instantiating
+this visitor must preserve these contracts:
+
+- Saved shader argument `Usage` is authoritative. Do not rediscover or
+  approximate read/write access in the reorder or barrier layer.
+- A bindless dispatch reads the bindless index/descriptor object itself.
+- Snapshot every resource currently reachable from the bindless array when
+  the dispatch is visited. Register each buffer as a whole-resource read or
+  write according to the saved bindless argument usage. Bindless textures are
+  sampled-only in the current runtime ABI and remain reads.
+- The snapshot belongs to that dispatch. Never infer an earlier dispatch's
+  hazards from the array's later membership; a subsequent update may replace
+  a slot, and two distinct arrays may still reference the same resource.
+- Backend resource-barrier preprocessing must mirror the same exact saved
+  usage and resource snapshot. Correct reordering without matching native API
+  access masks is insufficient, and vice versa.
+- A Vulkan `VKCustomCmd::ResourceUsage` that names a bindless array applies
+  its declared native stage/access/layout contract both to the array's index
+  storage and to every member in the encoded descriptor snapshot at that
+  command boundary. Reordering and native barriers must describe the same
+  aggregate access.
+- `VKCustomCmd` states are exact native contracts, not abstract usage hints.
+  Place them in an isolated resource reorder layer: otherwise a read-only
+  custom layout can merge with another read into one layer even though the
+  two commands pass different `VkImageLayout` values to Vulkan. Isolation
+  covers the bindless descriptor object and every snapshotted member.
+- The simultaneous-access optimization may select `GENERAL` only for
+  backend-owned commands that query the tracker's selected layout. Never
+  replace a custom command's explicit native layout. When aggregating access,
+  an empty prior access is an identity and repeated equal read layouts remain
+  equal; only incompatible abstract read layouts collapse to `GENERAL`.
+- A `VulkanDeviceConfigExt` `before_states` or `after_states` entry naming a
+  bindless array expands over the descriptor index storage and the exact
+  encoded member snapshot. Preserve the entry's raw stage/access contract for
+  every member and its texture layout for every referenced mip; the texture
+  layout must be defined whenever the snapshot contains an image.
+- `VulkanDeviceConfigExt::before_states()` is expanded against the bindless
+  snapshot at command-list entry. `after_states()` is expanded only after all
+  commands have been encoded, against the final snapshot after in-list
+  updates. Treating both callbacks as if they saw the same membership loses
+  either newly inserted resources or resources removed during the list.
+
+When a backend permits multiple opaque handles to wrap the same native
+resource, the native resource identity is an additional alias boundary. Either
+canonicalize hazards by that identity or enforce a documented external-sync
+contract; pointer equality between backend wrappers is not enough.
+
+For Vulkan-owned buffers and images, queue-family sharing is a separate
+creation-time contract. If graphics, compute, and copy select more than one
+unique queue family, create resources in concurrent sharing mode over exactly
+those unique families; a single-family device may retain exclusive sharing.
+Timeline events still establish execution and memory ordering between streams:
+concurrent sharing removes queue-family ownership transfers, not synchronization.
+Sparse resources follow the same graphics/compute/copy sharing plan. A
+backend-owned logical device additionally requests one canonical queue whose
+family advertises `VK_QUEUE_SPARSE_BINDING_BIT`, preferring a family without
+graphics or compute capability and falling back to a shared stream family.
+Route every `vkQueueBindSparse` through that queue and its canonical per-handle
+mutex. Sparse binding changes page tables but does not access the resource in a
+pipeline stage, so a dedicated sparse-only family is not added to the
+resource-access sharing list. Imported logical devices keep sparse support
+disabled until the import ABI can attest enabled sparse features and supply an
+actual sparse queue handle/family; physical-device support alone is not enough.
+Creation also requires the corresponding enabled logical-device features
+(`sparseBinding` plus buffer/2D/3D residency), and the format-specific sparse
+image query must succeed. Vulkan forbids sparse-residency 1D images.
+Do not encode a guessed sparse page size or image tile shape. Query each created
+resource's `VkMemoryRequirements`, query every sparse image's
+`VkSparseImageMemoryRequirements`, and retain the selected color-aspect
+requirement with the resource. The non-tail image tile shape is
+`formatProperties.imageGranularity`; each tile consumes one full
+`VkMemoryRequirements::alignment` block even when an edge bind clips its texel
+extent against the selected mip. Reject mip-tail levels in the public tile-bind
+path, and reject creation when any requested mip begins at or beyond
+`imageMipTailFirstLod`: those levels require opaque binds that
+`SparseTextureMapOperation` cannot express, so returning a partly usable image
+would make the public mip range dishonest.
+Likewise reject metadata or ambiguous aspect requirements until the public API
+can describe their opaque bindings.
+
+Sparse-buffer binds use `VkMemoryRequirements::alignment` for resource offset,
+memory offset, and bind size. Preserve the API-visible `VkBufferCreateInfo`
+size and use `VkMemoryRequirements::size` as the aligned sparse virtual-address
+range; the requirements already include any padding needed by the final page.
+Validate map and unmap ranges with checked arithmetic against this sparse tile
+grid; do not clip a final buffer page as if it were an image edge.
+
+The public sparse heap is allocated before a consuming Vulkan resource exposes
+its memory type mask and alignment. Defer its physical `VkDeviceMemory`
+allocation until the first map, allocate for that resource's real requirements,
+exclude lazily allocated memory types, and require all later consumers to be
+compatible with the chosen memory type and alignment. Until that first map no
+`VkDeviceMemory` exists, and the immutable
+`ResourceCreationInfo::native_handle` remains null: native sparse-heap interop
+is intentionally unsupported on Vulkan. A map region consumes `tile_count *
+alignment` bytes even when its final image tile is texel-clipped; heap-capacity
+checks must use that full-block size rather than copied pixel size.
+Within one `VkBindSparseInfo`, reject overlapping ranges of the same resource,
+including a map overlapping an unmap. The public sparse API supplies no heap
+offset or alias opt-in, and the Vulkan device does not enable aliased sparse
+residency. Maintain a mutex-protected, Device-wide residency registry across
+all streams: a heap may back only one live mapping (possibly split into
+fragments by partial unmaps), mapped resource ranges may not overlap, and a
+heap released by an unmap may not be recycled by another bind in the same
+unordered batch. Require maps to target an inactive registered heap and an
+entirely unmapped resource range. Require unmaps to be fully covered by live
+mappings, subtract partial buffer intervals or image texel boxes exactly, and
+keep the heap active until its last fragment is removed. Hold the registry
+transaction through native submission and host completion, commit only after
+success, and reject destruction of a heap or sparse resource with live
+mappings.
+
+Sparse-binding submissions also have no
+implicit execution dependency with adjacent command-buffer submissions on the
+same queue. A stream can also contain external-event wait/signal submissions
+that do not advance its internal timeline. Immediately before sparse binding,
+submit a bridge signal of the internal timeline on the ordinary stream queue;
+make the sparse queue wait for that exact bridge value and signal a second
+value. Query the current semaphore counter and reject a handoff whose farther
+signal would exceed the physical device's
+`maxTimelineSemaphoreValueDifference`; host-only logical fence gaps are not a
+license to violate the timeline value limit. Establish an explicit completion boundary before later stream work may
+be submitted. The current Vulkan backend host-waits that second value because
+sparse updates are rare and the public API exposes no asynchronous residency
+lifetime token; do not replace either edge with inferred submission order.
+
+The same timeline-value window applies to ordinary `vkQueueSubmit` event waits
+and signals, not only `vkQueueBindSparse`. Validate public and internal event
+values through the common timeline planner. Keep a GPU-only completion
+watermark so the hot dispatch path can validate conservatively without calling
+`vkGetSemaphoreCounterValue` every time; query the driver only on a
+limit-boundary slow path. Logical stream fences may include callback-only or
+skipped-present work, so an embedded Vulkan wait (for example the standalone
+present handoff) must use the last value actually submitted to the semaphore,
+never the last logical fence.
+The image `simultaneous_access` flag controls the layout/access policy and is
+not a substitute for queue-family sharing. Imported native resources retain
+their external creation-time sharing contract, while aliases of a Luisa-owned
+native image must share its canonical per-mip layout state.
+
+An imported Vulkan logical device must provide the exact family index for each
+graphics, compute, and copy queue. A `VkQueue` handle cannot be queried for its
+family after creation, so rediscovering a preferred family from the physical
+device is not equivalent. The graphics family must support both graphics and
+compute because a Luisa graphics stream records both command classes. It must
+also provide all three actual queue handles: calling `vkGetDeviceQueue` would
+otherwise assume queue index zero was present in the imported device's queue
+creation infos. Roles may share one handle; equal handles share one backend
+mutex because Vulkan host synchronization is per `VkQueue` identity.
+Every path that may submit through a `VulkanDeviceConfigExt` callback must hold
+that same canonical queue mutex while invoking the callback; custom submission
+is not outside Vulkan's host-synchronization rules. A callback that handles an
+event signal must still advance the backend's timeline-fence bookkeeping.
+Returning true from a queue semaphore callback means the requested operation
+was submitted on the supplied queue before return and has independent forward
+progress; returning true from the host-sync callback means the requested value
+is already complete. A callback must not report mere intent or defer submission
+to work that depends on the blocked backend call.
+`borrow_command_buffer()` is a one-shot ownership boundary: every non-null
+result must be a fresh primary command buffer in the initial state for the
+selected stream family, and its owner must keep both it and its pool alive
+until stream completion. The backend records it but never resets, frees, or
+recycles it; only backend-owned command buffers enter the reset/reuse pool.
+
+An imported logical device must attest that `timelineSemaphore` and
+`synchronization2` were enabled in its creation feature chain. Physical-device
+queries prove only support, not logical-device enablement. All optional
+logical-device features remain disabled on imports until the public import
+contract carries a corresponding enabled-feature attestation; never infer
+enablement from physical support. A borrowed instance must also report the
+effective API version used at `vkCreateInstance` and must be Vulkan 1.3 or
+newer. It is stored on that backend device and remains caller-owned; it must
+never be installed in the process-owned internal-instance slot.
+All imported Vulkan handles are borrowed, including the instance, physical
+device, logical device, and queues. Their complete ancestry and originating
+loader must outlive the Luisa Vulkan `Device`; backend teardown must finish
+before the importer invalidates any of them.
+Because enabled instance extensions are likewise not queryable, borrowed
+instances are compute-only until the import contract carries an explicit
+surface-extension attestation.
+
+Volk's default dispatch mode stores instance and device entry points in
+process-global tables. The Vulkan backend therefore permits one live backend
+`Device` at a time and device enumeration/instance initialization must not run
+while it is live. Keep the Vulkan loader module resident for process lifetime,
+and reload the appropriate instance table whenever switching between a
+borrowed instance and the process-owned instance.
+Pin loader identity independently of `DynamicModule` ownership: Volk's default
+`volkInitialize()` path owns its module internally, so an empty client-side
+module handle does not mean that Volk is uninitialized. The first Vulkan
+backend operation fixes either the default loader or a custom identity made of
+the normalized absolute search directory plus exact library name. Reuse only
+that identity and fail closed on default/custom, path, or name mismatches;
+never replace `vkGetInstanceProcAddr` underneath existing instance state.
+Device enumeration requests the default loader, so enumerating before a
+custom-loader Device intentionally makes the later custom request invalid.
+Client code linked to a separate Volk copy must initialize that copy through
+`VulkanDeviceConfigExt::init_volk(handler)`, then call
+`volkLoadInstanceOnly(instance)` from `readback_vulkan_device()` before using
+`volkLoadDeviceTable()`. `volkInitialize()` or `volkInitializeCustom()` alone
+loads only loader-level entry points and leaves `vkGetDeviceProcAddr` unset.
+
+Native interop allocations must derive API creation fields and runtime wrapper
+metadata from one plan. In particular, image type/dimension, extent, mip count,
+format capabilities, and simultaneous-access policy must not diverge between
+the native image and the wrapper returned to LuisaCompute.
+
+Vulkan cannot query an imported image's current layout. A new native-image
+identity therefore starts with every mip tracked as `VK_IMAGE_LAYOUT_UNDEFINED`;
+the importer must publish the real external layout/access state through
+`VulkanDeviceConfigExt::before_states()` before preserving or consuming
+existing contents. Multiple wrappers created by the same backend device for
+the same `VkImage` share one per-mip layout state, so aliases cannot publish
+contradictory native metadata.
 
 ## Resource Handle Pattern
 

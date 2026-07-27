@@ -47,10 +47,10 @@ public:
     class LUISA_XIR_API ConstBitSpan {
     protected:
         uint64_t *_bits;
-        uint32_t _offset;
-        uint32_t _size;
+        size_t _offset;
+        size_t _size;
     public:
-        ConstBitSpan(uint64_t *bits, uint32_t offset, uint32_t size) noexcept
+        ConstBitSpan(uint64_t *bits, size_t offset, size_t size) noexcept
             : _bits{bits}, _offset{offset}, _size{size} {}
         [[nodiscard]] const uint64_t *raw_bits() const noexcept { return _bits; }
         [[nodiscard]] size_t offset() const noexcept { return _offset; }

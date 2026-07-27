@@ -19,9 +19,20 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-template<typename T_FloatX>
-int test_floatx(Device &device, int literal_size = 1, int align_size = 4) {
-    constexpr uint n = 1u;
+template<typename T>
+void check_floatx_equal(const T &actual, const T &expected) noexcept {
+    if constexpr (is_vector_v<T>) {
+        for (auto i = 0u; i < vector_dimension_v<T>; i++) {
+            boost::ut::expect(actual[i] == expected[i]);
+        }
+    } else {
+        boost::ut::expect(actual == expected);
+    }
+}
+
+template<typename T_FloatX, typename LhsFactory, typename RhsFactory>
+int test_floatx(Device &device, LhsFactory &&lhs_factory, RhsFactory &&rhs_factory) {
+    constexpr uint n = 11u;
     Buffer<T_FloatX> a = device.create_buffer<T_FloatX>(n);
     Buffer<T_FloatX> b = device.create_buffer<T_FloatX>(n);
     Buffer<T_FloatX> c = device.create_buffer<T_FloatX>(n);
@@ -35,27 +46,27 @@ int test_floatx(Device &device, int literal_size = 1, int align_size = 4) {
     };
     auto add = device.compile(add_kernel);
 
-    // init a, b and c
-
     Stream stream = device.create_stream();
-    luisa::vector<float> data_init(n * align_size, 1.f);
-    luisa::vector<float> data_result(n * align_size, 0.f);
-    stream << a.copy_from(luisa::span{data_init});
-    stream << b.copy_from(luisa::span{data_init});
-    stream << c.copy_from(luisa::span{data_result});
+    luisa::vector<T_FloatX> lhs(n);
+    luisa::vector<T_FloatX> rhs(n);
+    luisa::vector<T_FloatX> expected(n);
+    luisa::vector<T_FloatX> result(n, T_FloatX{});
+    for (auto i = 0u; i < n; i++) {
+        lhs[i] = lhs_factory(i);
+        rhs[i] = rhs_factory(i);
+        expected[i] = lhs[i] + rhs[i];
+    }
+    stream << a.copy_from(luisa::span{lhs});
+    stream << b.copy_from(luisa::span{rhs});
+    stream << c.copy_from(luisa::span{result});
 
     stream << add(a, b, c).dispatch(n);
     stream << synchronize();
-    stream << c.copy_to(luisa::span{data_result});
+    stream << c.copy_to(luisa::span{result});
     stream << synchronize();
 
-    for (uint idx = 0u; idx < n * align_size; idx++) {
-        uint i = idx % align_size;
-        if (align_size != literal_size && i == align_size - 1) {
-            // undefined behavior, depends on backend implementation
-        } else {
-            boost::ut::expect(static_cast<bool>(data_result[idx] == 2.f));
-        }
+    for (auto i = 0u; i < n; i++) {
+        check_floatx_equal(result[i], expected[i]);
     }
     return 0;
 }
@@ -217,6 +228,40 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
     auto &device = dc->device;
+    test_floatx<float>(
+        device,
+        [](auto i) noexcept { return static_cast<float>(i) + 0.25f; },
+        [](auto i) noexcept { return static_cast<float>(i * 3u) - 1.5f; });
+    test_floatx<float2>(
+        device,
+        [](auto i) noexcept {
+            auto x = static_cast<float>(i);
+            return make_float2(x + 0.25f, -x - 0.5f);
+        },
+        [](auto i) noexcept {
+            auto x = static_cast<float>(i);
+            return make_float2(x * 2.0f + 1.0f, x * x + 0.75f);
+        });
+    test_floatx<float3>(
+        device,
+        [](auto i) noexcept {
+            auto x = static_cast<float>(i);
+            return make_float3(x + 0.25f, -x - 0.5f, x * x + 1.0f);
+        },
+        [](auto i) noexcept {
+            auto x = static_cast<float>(i);
+            return make_float3(x * 2.0f + 1.0f, x + 3.0f, -x * 0.5f);
+        });
+    test_floatx<float4>(
+        device,
+        [](auto i) noexcept {
+            auto x = static_cast<float>(i);
+            return make_float4(x + 0.25f, -x - 0.5f, x * x + 1.0f, x * 4.0f);
+        },
+        [](auto i) noexcept {
+            auto x = static_cast<float>(i);
+            return make_float4(x * 2.0f + 1.0f, x + 3.0f, -x * 0.5f, 0.125f - x);
+        });
     test_float3x3(device);
     test_float3x3_order(device);
     test_float4x4(device);

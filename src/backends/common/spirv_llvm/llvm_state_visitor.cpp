@@ -1,4 +1,5 @@
 #include "llvm_state_visitor.h"
+#include "llvm_compat.h"
 #include "llvm_codegen_utility.h"
 #include "llvm_codegen_stack_data.h"
 
@@ -706,6 +707,13 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
             auto *v = EvalExpr(args[0]);
             auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::round, {v->getType()});
+            _last_value = _builder.CreateCall(intrinsic, {v});
+            break;
+        }
+        case CallOp::RINT: {
+            auto *v = EvalExpr(args[0]);
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
+                &_module, llvm::Intrinsic::rint, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
         }
@@ -1549,7 +1557,7 @@ void LLVMStateVisitor::visit(const ScopeStmt *stmt) {
     for (auto *s : stmt->statements()) {
         s->accept(*this);
         // If the current block has a terminator, stop
-        if (_builder.GetInsertBlock()->getTerminatorOrNull()) {
+        if (terminator_or_null(_builder.GetInsertBlock())) {
             break;
         }
     }
@@ -1557,6 +1565,11 @@ void LLVMStateVisitor::visit(const ScopeStmt *stmt) {
 
 void LLVMStateVisitor::visit(const ExprStmt *stmt) {
     EvalExpr(stmt->expression()); // discard result
+}
+
+void LLVMStateVisitor::visit(const SuspendStmt *) {
+    // Suspension points are consumed by coroutine lowering before device codegen.
+    // Like the other device backends, keep any residual marker as a no-op.
 }
 
 void LLVMStateVisitor::visit(const AssignStmt *stmt) {
@@ -1703,7 +1716,7 @@ void LLVMStateVisitor::visit(const IfStmt *stmt) {
     // Then branch
     _builder.SetInsertPoint(then_bb);
     stmt->true_branch()->accept(*this);
-    if (!_builder.GetInsertBlock()->getTerminatorOrNull()) {
+    if (!terminator_or_null(_builder.GetInsertBlock())) {
         _builder.CreateBr(merge_bb);
     }
 
@@ -1711,7 +1724,7 @@ void LLVMStateVisitor::visit(const IfStmt *stmt) {
     if (else_bb) {
         _builder.SetInsertPoint(else_bb);
         stmt->false_branch()->accept(*this);
-        if (!_builder.GetInsertBlock()->getTerminatorOrNull()) {
+        if (!terminator_or_null(_builder.GetInsertBlock())) {
             _builder.CreateBr(merge_bb);
         }
     }
@@ -1735,7 +1748,7 @@ void LLVMStateVisitor::visit(const LoopStmt *stmt) {
 
     _builder.SetInsertPoint(loop_body);
     stmt->body()->accept(*this);
-    if (!_builder.GetInsertBlock()->getTerminatorOrNull()) {
+    if (!terminator_or_null(_builder.GetInsertBlock())) {
         _builder.CreateBr(loop_header);
     }
 
@@ -1773,7 +1786,7 @@ void LLVMStateVisitor::visit(const ForStmt *stmt) {
     // Body
     _builder.SetInsertPoint(for_body);
     stmt->body()->accept(*this);
-    if (!_builder.GetInsertBlock()->getTerminatorOrNull()) {
+    if (!terminator_or_null(_builder.GetInsertBlock())) {
         _builder.CreateBr(for_step);
     }
 
@@ -1839,7 +1852,7 @@ void LLVMStateVisitor::visit(const SwitchStmt *stmt) {
     for (auto &ci : cases) {
         _builder.SetInsertPoint(ci.block);
         ci.case_stmt->accept(*this);
-        if (!_builder.GetInsertBlock()->getTerminatorOrNull()) {
+        if (!terminator_or_null(_builder.GetInsertBlock())) {
             _builder.CreateBr(merge_bb);
         }
     }
@@ -1848,7 +1861,7 @@ void LLVMStateVisitor::visit(const SwitchStmt *stmt) {
     if (default_stmt) {
         _builder.SetInsertPoint(default_bb);
         default_stmt->accept(*this);
-        if (!_builder.GetInsertBlock()->getTerminatorOrNull()) {
+        if (!terminator_or_null(_builder.GetInsertBlock())) {
             _builder.CreateBr(merge_bb);
         }
     }
@@ -1862,14 +1875,14 @@ void LLVMStateVisitor::visit(const SwitchStmt *stmt) {
 void LLVMStateVisitor::visit(const SwitchCaseStmt *stmt) {
     for (auto *s : stmt->body()->statements()) {
         s->accept(*this);
-        if (_builder.GetInsertBlock()->getTerminatorOrNull()) break;
+        if (terminator_or_null(_builder.GetInsertBlock())) break;
     }
 }
 
 void LLVMStateVisitor::visit(const SwitchDefaultStmt *stmt) {
     for (auto *s : stmt->body()->statements()) {
         s->accept(*this);
-        if (_builder.GetInsertBlock()->getTerminatorOrNull()) break;
+        if (terminator_or_null(_builder.GetInsertBlock())) break;
     }
 }
 

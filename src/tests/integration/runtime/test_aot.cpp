@@ -30,11 +30,12 @@ void test_aot(Device &device) {
     log_level_verbose();
 
     static constexpr auto n = 1024u;
-    static constexpr auto filename = "test_aot_save.bytes";
+    auto file_path = std::filesystem::absolute("test_aot_save.bytes");
+    auto filename = luisa::string{file_path.string()};
 
     // Clean up any leftover from a previous run
     std::error_code ec;
-    std::filesystem::remove(filename, ec);
+    std::filesystem::remove(file_path, ec);
 
     // Step 1: Define a kernel
     Kernel1D kernel = [](BufferVar<float> buffer) noexcept {
@@ -50,6 +51,8 @@ void test_aot(Device &device) {
         [[maybe_unused]] auto saved_shader = device.compile<1>(kernel, option);
         // Compile-only shader: handle is invalid, but bytecode was written to disk.
     }
+    expect(std::filesystem::is_regular_file(file_path))
+        << "AOT package was not written to the requested path";
     // saved_shader out of scope → discarded
 
     // Step 3: Load the shader back from the saved file
@@ -80,7 +83,9 @@ void test_aot(Device &device) {
     expect(passed) << "AOT save/load round-trip verification failed";
 
     // Clean up the saved file
-    std::filesystem::remove(filename, ec);
+    std::filesystem::remove(file_path, ec);
+    expect(!std::filesystem::exists(file_path))
+        << "AOT package cleanup failed";
 }
 
 int main(int argc, char *argv[]) {

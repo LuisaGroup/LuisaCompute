@@ -91,6 +91,7 @@ bool PostDomTree::contains(BasicBlock *block) const noexcept {
 }
 
 bool PostDomTree::post_dominates(BasicBlock *a, BasicBlock *b) const noexcept {
+    if (!contains(b) || (a != nullptr && !contains(a))) { return false; }
     if (a == b) { return true; }
     if (a == nullptr) { return true; }
     auto a_node = node(a);
@@ -115,43 +116,72 @@ auto PostDomTree::immediate_post_dominator(BasicBlock *block) const noexcept -> 
 static const auto kUnknownDom = reinterpret_cast<BasicBlock *>(uintptr_t(-1));
 
 PostDomTree compute_post_dom_tree(Function *function) noexcept {
-    auto definition = function->definition();
-    LUISA_ASSERT(definition != nullptr, "Function has no definition.");
+    auto definition =
+        function == nullptr ? nullptr : function->definition();
+    if (definition == nullptr || definition->body_block() == nullptr) {
+        return {};
+    }
     // Collect all blocks and identify real exits. Testing the CFG successor set
     // instead of enumerating instruction tags also covers CoroTerminateInst and
     // future zero-successor terminators.
     luisa::vector<BasicBlock *> all_blocks;
+    luisa::unordered_set<BasicBlock *> reachable_blocks;
     luisa::unordered_set<BasicBlock *> real_sinks;
     definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
         all_blocks.emplace_back(block);
+        reachable_blocks.emplace(block);
         if (!block->is_terminated()) { return; }
         auto has_successor = false;
         block->traverse_successors(false, [&](BasicBlock *) noexcept { has_successor = true; });
         if (!has_successor) { real_sinks.emplace(block); }
     });
 
-    // A CFG can contain a path that never reaches a real exit (for example an
-    // infinite loop). Ignoring that path would make the other branch appear to
-    // post-dominate its fork. Conservatively model every block in a non-exiting
-    // region as an edge to the virtual exit. This may lose precision inside an
-    // infinite SCC, but it never invents a post-dominance relation.
-    luisa::unordered_set<BasicBlock *> can_reach_real_sink;
-    luisa::vector<BasicBlock *> reverse_worklist;
-    for (auto *sink : real_sinks) {
-        can_reach_real_sink.emplace(sink);
-        reverse_worklist.emplace_back(sink);
-    }
-    while (!reverse_worklist.empty()) {
-        auto *block = reverse_worklist.back();
-        reverse_worklist.pop_back();
-        block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-            if (can_reach_real_sink.emplace(pred).second) { reverse_worklist.emplace_back(pred); }
+    // Post-dominance here is defined over all maximal executions, including
+    // executions that remain in a reachable cycle forever. A DFS back edge
+    // therefore contributes a conservative virtual-exit source even when the
+    // cycle also has a path to a real sink. This prevents a return on the
+    // alternate path from being claimed as a post-dominator of the cycle.
+    luisa::unordered_map<BasicBlock *, uint8_t> color;
+    luisa::unordered_set<BasicBlock *> virtual_exit_sources;
+    struct DFSFrame {
+        BasicBlock *block;
+        luisa::vector<BasicBlock *> successors;
+        size_t next_successor;
+    };
+    for (auto *root : all_blocks) {
+        if (color[root] != 0u) { continue; }
+        luisa::vector<DFSFrame> stack;
+        color[root] = 1u;
+        stack.emplace_back(DFSFrame{root, {}, 0u});
+        root->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (reachable_blocks.contains(succ)) {
+                stack.back().successors.emplace_back(succ);
+            }
         });
+        while (!stack.empty()) {
+            auto &frame = stack.back();
+            if (frame.next_successor == frame.successors.size()) {
+                color[frame.block] = 2u;
+                stack.pop_back();
+                continue;
+            }
+            auto *successor = frame.successors[frame.next_successor++];
+            auto successor_color = color[successor];
+            if (successor_color == 1u) {
+                virtual_exit_sources.emplace(frame.block);
+            } else if (successor_color == 0u) {
+                color[successor] = 1u;
+                stack.emplace_back(DFSFrame{successor, {}, 0u});
+                successor->traverse_successors(false, [&](BasicBlock *next) noexcept {
+                    if (reachable_blocks.contains(next)) {
+                        stack.back().successors.emplace_back(next);
+                    }
+                });
+            }
+        }
     }
     auto sinks = std::move(real_sinks);
-    for (auto *block : all_blocks) {
-        if (!can_reach_real_sink.contains(block)) { sinks.emplace(block); }
-    }
+    sinks.insert(virtual_exit_sources.begin(), virtual_exit_sources.end());
 
     // compute postorder on reversed CFG (follow original predecessors)
     luisa::unordered_set<BasicBlock *> visited;
@@ -171,7 +201,9 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
             auto block = frame.block;
             preds.clear();
             block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                preds.emplace_back(pred);
+                if (reachable_blocks.contains(pred)) {
+                    preds.emplace_back(pred);
+                }
             });
             bool pushed = false;
             while (frame.next_pred_idx < preds.size()) {

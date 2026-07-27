@@ -79,8 +79,8 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 | `LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB` | OFF | CUDA extension: LCUB |
 | `LUISA_COMPUTE_ENABLE_CLANG_CXX` | OFF | ClangTooling-based C++ shading language |
 | `LUISA_COMPUTE_ENABLE_RUST` | ON if cargo found, else OFF | Rust/IR support; required for CPU/Remote |
-| `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` | ON | XIR-to-SPIR-V codegen path for Vulkan |
-| `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` | OFF | AST LLVM codegen for Vulkan SPIR-V |
+| `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` | ON | Native XIR-to-SPIR-V codegen path for Vulkan |
+| `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` | OFF | Experimental AST→LLVM SPIR-V path; requires LLVM's native `SPIRV` target |
 | `LUISA_COMPUTE_BUILD_TESTS` | ON in master project | Build tests, examples and tutorials |
 | `LUISA_COMPUTE_ENABLE_SAFE_MODE` | OFF | Runtime safe mode |
 | `LUISA_COMPUTE_ENABLE_UNITY_BUILD` | OFF | Unity build |
@@ -94,6 +94,11 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 | `LUISA_COMPUTE_DOWNLOAD_NVCOMP` | OFF (if CUDA) | Download nvCOMP for CUDA decompression |
 
 `LUISA_COMPUTE_USE_SYSTEM_*` options exist for `STL`, `GLFW`, `LMDB`, `REPROC`, `SPDLOG`, `XXHASH`, `YYJSON`, `MAGIC_ENUM`, and `MARL`.
+
+The two Vulkan SPIR-V codegen options are mutually exclusive. The LLVM path
+also builds/links the common `luisa-compute-spirv` support library because the
+Vulkan artifact codec shares its SPIR-V validation and feature-reconciliation
+utilities.
 
 **CI minimal build**:
 ```bash

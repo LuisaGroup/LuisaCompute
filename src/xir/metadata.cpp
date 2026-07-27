@@ -4,6 +4,7 @@
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata.h>
 
 namespace luisa::compute::xir::detail {
@@ -27,6 +28,7 @@ Metadata *luisa_xir_metadata_list_mixin_create_metadata(MetadataList &list, Deri
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(Comment)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(CurveBasis)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(SignatureConstraint)
+        LUISA_XIR_MAKE_METADATA_CREATE_CASE(Reg2MemSpill)
 #undef LUISA_XIR_MAKE_METADATA_CREATE_CASE
     }
     LUISA_ERROR_WITH_LOCATION("Unknown derived metadata tag 0x{:x}.",

@@ -7,5 +7,11 @@ void error_pixel_invalid_format(const char *name) noexcept {
     LUISA_ERROR_WITH_LOCATION("Invalid pixel storage for {} format.", name);
 }
 
-}// namespace luisa::compute::detail
+void error_pixel_size_overflow(uint32_t storage, uint3 size) noexcept {
+    LUISA_ERROR_WITH_LOCATION(
+        "Pixel storage {} extent ({}, {}, {}) exceeds the host byte-size "
+        "representation.",
+        storage, size.x, size.y, size.z);
+}
 
+}// namespace luisa::compute::detail

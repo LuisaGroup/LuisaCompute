@@ -12,11 +12,30 @@
 
 namespace lc::vk {
 
+void VkAllocator::apply_queue_sharing(
+    VkBufferCreateInfo &info) const noexcept {
+    info.sharingMode = _queue_family_sharing.sharing_mode();
+    info.queueFamilyIndexCount =
+        _queue_family_sharing.create_info_family_count();
+    info.pQueueFamilyIndices =
+        _queue_family_sharing.create_info_family_indices();
+}
+
+void VkAllocator::apply_queue_sharing(
+    VkImageCreateInfo &info) const noexcept {
+    info.sharingMode = _queue_family_sharing.sharing_mode();
+    info.queueFamilyIndexCount =
+        _queue_family_sharing.create_info_family_count();
+    info.pQueueFamilyIndices =
+        _queue_family_sharing.create_info_family_indices();
+}
+
 AllocatedBuffer VkAllocator::allocate_buffer(size_t byte_size, VkBufferUsageFlagBits usage, AccessType access) {
     VkBufferCreateInfo buffer_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = byte_size,
         .usage = static_cast<VkBufferUsageFlags>(usage)};
+    apply_queue_sharing(buffer_info);
     VmaAllocationCreateInfo alloc_info = {.flags = VMA_ALLOCATION_CREATE_STRATEGY_BEST_FIT_BIT};
     switch (access) {
         case AccessType::kReadBack:
@@ -37,7 +56,11 @@ AllocatedBuffer VkAllocator::allocate_buffer(size_t byte_size, VkBufferUsageFlag
     return r;
 }
 VkAllocator::VkAllocator(Device &device)
-    : _allocator(nullptr) {
+    : _allocator{nullptr},
+      _queue_family_sharing{detail::plan_queue_family_sharing(
+          {device.graphics_queue_index(),
+           device.compute_queue_index(),
+           device.copy_queue_index()})} {
     VmaAllocatorCreateInfo create_info{
         .flags = VmaAllocatorCreateFlags(device.enable_device_address() ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0),
         .physicalDevice = device.physical_device(),
@@ -71,6 +94,7 @@ AllocatedImage VkAllocator::allocate_image(
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .usage = usage,
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+    apply_queue_sharing(image_info);
     VmaAllocationCreateInfo alloc_info = {
         .flags = VMA_ALLOCATION_CREATE_STRATEGY_BEST_FIT_BIT,
         .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};

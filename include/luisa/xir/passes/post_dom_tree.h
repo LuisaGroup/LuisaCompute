@@ -52,6 +52,7 @@ public:
     [[nodiscard]] auto immediate_post_dominator(BasicBlock *block) const noexcept -> BasicBlock *;
 };
 
+/// Null and declaration-only functions yield an empty tree.
 [[nodiscard]] LUISA_XIR_API PostDomTree compute_post_dom_tree(Function *function) noexcept;
 
 }// namespace luisa::compute::xir

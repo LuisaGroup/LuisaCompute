@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/value.h>
@@ -22,6 +23,8 @@ class LUISA_XIR_API UniformityAnalysis {
 public:
     UniformityAnalysis() noexcept = default;
     void analyze(const Function *function) noexcept;
+    void analyze(const Function *function,
+                 luisa::span<const BasicBlock *const> blocks) noexcept;
     [[nodiscard]] bool is_uniform(const Value *value) const noexcept;
     void clear() noexcept;
 

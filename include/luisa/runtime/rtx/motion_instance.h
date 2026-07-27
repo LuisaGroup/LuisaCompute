@@ -17,11 +17,16 @@ class LUISA_RUNTIME_API MotionInstance : public Resource {
     friend class Device;
 
 private:
-    uint64_t _child_handle;
-    AccelMotionMode _mode;
+    uint64_t _child_handle{};
+    AccelMotionMode _mode{};
     luisa::vector<MotionInstanceTransform> _transform_keyframes;
 
 private:
+    [[nodiscard]] static ResourceCreationInfo _create_resource(
+        DeviceInterface *device,
+        const Resource &resource,
+        const AccelMotionOption &option) noexcept;
+
     // for internal use only; does not have linkages
     MotionInstance(DeviceInterface *device,
                    const Resource &resource,
@@ -41,11 +46,15 @@ private:
                    const AccelMotionOption &option) noexcept;
 
 public:
+    MotionInstance() noexcept = default;
+    ~MotionInstance() noexcept override;
     MotionInstance(MotionInstance &&) noexcept = default;
     MotionInstance &operator=(MotionInstance &&rhs) noexcept {
         _move_from(std::move(rhs));
         return *this;
     }
+    MotionInstance(const MotionInstance &) noexcept = delete;
+    MotionInstance &operator=(const MotionInstance &) noexcept = delete;
     using Resource::operator bool;
     using Resource::release;
     void set_keyframe(size_t index, const MotionInstanceTransform &transform) noexcept;
@@ -63,8 +72,14 @@ public:
     [[nodiscard]] luisa::span<const MotionInstanceTransformMatrix> keyframes_matrix() const noexcept;
     [[nodiscard]] luisa::span<const MotionInstanceTransformSRT> keyframes_srt() const noexcept;
 
-    [[nodiscard]] auto keyframe_count() const noexcept { return _transform_keyframes.size(); }
-    [[nodiscard]] auto mode() const noexcept { return _mode; }
+    [[nodiscard]] auto keyframe_count() const noexcept {
+        _check_is_valid();
+        return _transform_keyframes.size();
+    }
+    [[nodiscard]] auto mode() const noexcept {
+        _check_is_valid();
+        return _mode;
+    }
 
     [[nodiscard]] luisa::unique_ptr<Command> build() noexcept;
 };

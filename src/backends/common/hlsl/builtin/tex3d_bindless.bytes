@@ -140,7 +140,7 @@ return s;
 }
 template<typename T>
 float4 _typed_SampleTex3DLevelSmp(StructuredBuffer<uint> arr,const T index,const float3 uv,const float level,uint filter,uint address){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 SamplerState samp=_GETSMP(address*4+filter);
 return _BindlessTex3D[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleLevel(samp,uv,level);
 }
@@ -150,26 +150,26 @@ return _typed_SampleTex3DLevelSmp(arr,index,uv,0,filter,address);
 }
 template<typename T>
 float4 _typed_SampleTex3DGradSmp(StructuredBuffer<uint> arr,const T index,const float3 uv,const float3 dx,const float3 dy,uint filter,uint address){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 SamplerState samp=_GETSMP(address*4+filter);
 return _BindlessTex3D[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy);
 }
 template<typename T>
 float4 _typed_SampleTex3DGradLevelSmp(StructuredBuffer<uint> arr,const T index,const float3 uv,const float3 dx,const float3 dy,const float minmap,uint filter,uint address){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 SamplerState samp=_GETSMP(address*4+filter);
 return _BindlessTex3D[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy,int3(0,0,0),minmap);
 }
 template<typename T>
 float4 _typed_ReadTex3DLevel(StructuredBuffer<uint> arr,const T index,const uint3 coord,const uint level){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 return _BindlessTex3D[NonUniformResourceIndex(_ReadBdlsTex(num))].Load(uint4(coord,level));
 }
 template<typename T>
 float4 _typed_ReadTex3D(StructuredBuffer<uint> arr,const T index,const uint3 coord){return _typed_ReadTex3DLevel(arr,index,coord,0);}
 template<typename T>
 uint3 _typed_Tex3DSize(StructuredBuffer<uint> arr,const T index){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 uint3 s;
 uint mip;
 _BindlessTex3D[NonUniformResourceIndex(_ReadBdlsTex(num))].GetDimensions(0,s.x,s.y,s.z,mip);
@@ -177,7 +177,7 @@ return s;
 }
 template<typename T>
 uint3 _typed_Tex3DSizeLevel(StructuredBuffer<uint> arr,const T index,const uint level){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 uint3 s;
 uint mip;
 _BindlessTex3D[NonUniformResourceIndex(_ReadBdlsTex(num))].GetDimensions(level,s.x,s.y,s.z,mip);
@@ -185,7 +185,7 @@ return s;
 }
 template<typename T>
 float4 _typed_uniform_SampleTex3DLevelSmp(StructuredBuffer<uint> arr,const T index,const float3 uv,const float level,uint filter,uint address){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 SamplerState samp=_GETSMP(address*4+filter);
 return _BindlessTex3D[(_ReadBdlsTex(num))].SampleLevel(samp,uv,level);
 }
@@ -195,26 +195,26 @@ return _typed_uniform_SampleTex3DLevelSmp(arr,index,uv,0,filter,address);
 }
 template<typename T>
 float4 _typed_uniform_SampleTex3DGradSmp(StructuredBuffer<uint> arr,const T index,const float3 uv,const float3 dx,const float3 dy,uint filter,uint address){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 SamplerState samp=_GETSMP(address*4+filter);
 return _BindlessTex3D[(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy);
 }
 template<typename T>
 float4 _typed_uniform_SampleTex3DGradLevelSmp(StructuredBuffer<uint> arr,const T index,const float3 uv,const float3 dx,const float3 dy,const float minmap,uint filter,uint address){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 SamplerState samp=_GETSMP(address*4+filter);
 return _BindlessTex3D[(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy,int3(0,0,0),minmap);
 }
 template<typename T>
 float4 _typed_uniform_ReadTex3DLevel(StructuredBuffer<uint> arr,const T index,const uint3 coord,const uint level){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 return _BindlessTex3D[(_ReadBdlsTex(num))].Load(uint4(coord,level));
 }
 template<typename T>
 float4 _typed_uniform_ReadTex3D(StructuredBuffer<uint> arr,const T index,const uint3 coord){return _typed_uniform_ReadTex3DLevel(arr,index,coord,0);}
 template<typename T>
 uint3 _typed_uniform_Tex3DSize(StructuredBuffer<uint> arr,const T index){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 uint3 s;
 uint mip;
 _BindlessTex3D[(_ReadBdlsTex(num))].GetDimensions(0,s.x,s.y,s.z,mip);
@@ -222,7 +222,7 @@ return s;
 }
 template<typename T>
 uint3 _typed_uniform_Tex3DSizeLevel(StructuredBuffer<uint> arr,const T index,const uint level){
-uint num=arr[0]+index;
+uint num=_TYPED_TEXTURE_INDEX(arr,index);
 uint3 s;
 uint mip;
 _BindlessTex3D[(_ReadBdlsTex(num))].GetDimensions(level,s.x,s.y,s.z,mip);

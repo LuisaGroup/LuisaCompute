@@ -1,10 +1,15 @@
+// Test for XIR post-dominator analysis on branching and malformed CFGs.
+
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/post_dom_tree.h>
+
+#include <algorithm>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -68,6 +73,80 @@ void register_post_dom_tree_tests() {
         expect(tree.immediate_post_dominator(cycle) == nullptr);
         expect(!tree.post_dominates(return_block, body));
         expect(!tree.post_dominates(cycle, body));
+    };
+
+    "post_dom_tree_mixed_exit_self_cycle_has_virtual_exit"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *return_block = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(condition, return_block, body);
+        b.set_insertion_point(return_block);
+        b.return_void();
+
+        auto tree = compute_post_dom_tree(kernel);
+        expect(tree.immediate_post_dominator(body) == nullptr);
+        expect(!tree.post_dominates(return_block, body));
+    };
+
+    "dom_tree_queries_reject_blocks_outside_the_analysis"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+
+        auto dom_tree = compute_dom_tree(kernel);
+        auto post_dom_tree = compute_post_dom_tree(kernel);
+        auto *foreign = reinterpret_cast<BasicBlock *>(uintptr_t{0xdead});
+        expect(!dom_tree.dominates(foreign, foreign));
+        expect(!dom_tree.strictly_dominates(foreign, foreign));
+        expect(!post_dom_tree.post_dominates(foreign, foreign));
+        expect(!post_dom_tree.strictly_post_dominates(foreign, foreign));
+        expect(!post_dom_tree.post_dominates(nullptr, foreign));
+    };
+
+    "dom_tree_entry_backedges_compute_root_frontier"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(body);
+        b.set_insertion_point(right);
+        b.br(body);
+
+        auto tree = compute_dom_tree(kernel);
+        auto frontiers = tree.root()->frontiers();
+        expect(std::find(frontiers.begin(), frontiers.end(), tree.root()) != frontiers.end());
+    };
+
+    "dom_trees_ignore_unreachable_predecessors"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *orphan = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+        b.set_insertion_point(orphan);
+        b.br(body);
+
+        auto dom_tree = compute_dom_tree(kernel);
+        auto post_dom_tree = compute_post_dom_tree(kernel);
+        expect(dom_tree.contains(body));
+        expect(!dom_tree.contains(orphan));
+        expect(post_dom_tree.contains(body));
+        expect(!post_dom_tree.contains(orphan));
     };
 }
 

@@ -1,3 +1,5 @@
+// Test for XIR pass-pipeline ordering, nesting, fixed points, and failure propagation.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/dce.h>
@@ -73,6 +75,9 @@ int main() {
         expect(stats.records[0].name == "converge");
         expect(stats.records[0].invocations == 3u);
         expect(stats.records[0].changed);
+        expect(stats.records[0].converged);
+        expect(!stats.records[0].iteration_limit_reached);
+        expect(stats.succeeded());
         expect(stats.records[0].children.size() == 1u);
         expect(stats.records[0].children[0].name == "countdown");
         expect(stats.records[0].children[0].invocations == 3u);
@@ -92,6 +97,48 @@ int main() {
         expect(counter == 5);
         expect(stats.records.size() == 1u);
         expect(stats.records[0].invocations == 5u);
+        expect(!stats.records[0].converged);
+        expect(stats.records[0].iteration_limit_reached);
+        expect(!stats.records[0].succeeded());
+        expect(!stats.succeeded());
+    };
+
+    "fixed_point_zero_budget_is_reported_not_silently_converged"_test = [] {
+        auto invoked = false;
+        PassPipeline sub;
+        sub.add("unreachable", [&](Module *, PassReport &) {
+            invoked = true;
+            return false;
+        });
+        PassPipeline p;
+        p.add_fixed_point("zero-budget", std::move(sub), 0u);
+        Module m;
+        auto stats = p.run(&m);
+        expect(!invoked);
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].invocations == 0u);
+        expect(!stats.records[0].converged);
+        expect(stats.records[0].iteration_limit_reached);
+        expect(!stats.succeeded());
+    };
+
+    "one_shot_sequence_can_change_without_false_nonconvergence"_test = [] {
+        auto invocations = 0u;
+        PassPipeline sub;
+        sub.add("change-once", [&](Module *, PassReport &) {
+            ++invocations;
+            return true;
+        });
+        PassPipeline p;
+        p.add_sequence("one-shot", std::move(sub));
+        Module m;
+        auto stats = p.run(&m);
+        expect(invocations == 1u);
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].changed);
+        expect(stats.records[0].converged);
+        expect(!stats.records[0].iteration_limit_reached);
+        expect(stats.succeeded());
     };
 
     "real_dce_pass_wrapper"_test = [] {
@@ -143,6 +190,38 @@ int main() {
         expect(stats.records[0].report.entries().size() == 2u);
     };
 
+    "stats_own_pass_names"_test = [] {
+        Module m;
+        auto stats = [&] {
+            PassPipeline pipeline;
+            pipeline.add("owned-name", [](Module *, PassReport &) { return false; });
+            return pipeline.run(&m);
+        }();
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].name == "owned-name");
+    };
+
+    "nested_fixed_point_groups"_test = [] {
+        Module m;
+        uint32_t invocations = 0u;
+        PassPipeline leaf;
+        leaf.add("leaf", [&](Module *, PassReport &) {
+            invocations++;
+            return invocations < 2u;
+        });
+        PassPipeline middle;
+        middle.add_fixed_point("inner", std::move(leaf), 4u);
+        PassPipeline pipeline;
+        pipeline.add_fixed_point("outer", std::move(middle), 4u);
+        auto stats = pipeline.run(&m);
+        expect(invocations == 3u);
+        expect(stats.records.size() == 1u);
+        expect(stats.records[0].children.size() == 1u);
+        expect(stats.records[0].children[0].children.size() == 1u);
+        expect(stats.records[0].children[0].children[0].name == "leaf");
+        expect(stats.records[0].children[0].children[0].invocations == 3u);
+    };
+
     "factory_basic_optimization"_test = [] {
         auto p = create_basic_optimization_pipeline({.enable_fast_math = false});
         expect(!p.empty());
@@ -160,12 +239,16 @@ int main() {
         Module m;
         auto stats = p.run(&m);
         expect(stats.records.size() == p.size());
+        // Structured-CFG-unsafe loop transforms stay opt-in, but
+        // slp-vectorization is block-local and intentionally wired in.
+        auto saw_slp = false;
         for (auto &&record : stats.records) {
             expect(record.name != "loop-fusion");
             expect(record.name != "indvar-simplify");
             expect(record.name != "loop-vectorization");
-            expect(record.name != "slp-vectorization");
+            saw_slp = saw_slp || record.name == "slp-vectorization";
         }
+        expect(saw_slp);
     };
 
     "pass_report_set_overwrites"_test = [] {

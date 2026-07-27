@@ -13,6 +13,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         use.cpp
         user.cpp
         value.cpp
+        verifier.cpp
 
         # derived instructions
         instructions/alloca.cpp
@@ -31,6 +32,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         instructions/debug_break.cpp
         instructions/gep.cpp
         instructions/if.cpp
+        instructions/indexed_branch.cpp
         instructions/load.cpp
         instructions/loop.cpp
         instructions/outline.cpp
@@ -51,10 +53,12 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata/name.cpp
         metadata/curve_basis.cpp
         metadata/signature_constraint.cpp
+        metadata/reg2mem_spill.cpp
 
         # translators
         translators/ast2xir.cpp
         translators/json2xir.cpp
+        translators/xir_interchange.cpp
         translators/xir2ast.cpp
         translators/xir2json.cpp
         translators/xir2text.cpp
@@ -87,7 +91,6 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/local_load_elimination.cpp
         passes/lower_ray_query_loop.cpp
         passes/lower_ray_query_loop_to_loop.cpp
-        passes/lower_switch.cpp
         passes/mem2reg.cpp
         passes/autodiff.cpp
         passes/transpose_gep.cpp
@@ -103,9 +106,9 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/sccp.cpp
         passes/scalarizer.cpp
         passes/inline.cpp
+        passes/natural_loop.cpp
         passes/loop_fusion.cpp
         passes/loop_rotation.cpp
-        passes/loop_unroll.cpp
         passes/loop_vectorization.cpp
         passes/slp_vectorization.cpp
         passes/lower_break_continue.cpp

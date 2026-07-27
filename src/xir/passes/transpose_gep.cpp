@@ -68,6 +68,9 @@ static void transpose_load_gep(LoadInst *load, TransposeGEPInfo &info) noexcept 
     auto alloca_load = b.load(alloca_inst->type(), alloca_inst);
     gep_chain[0] = alloca_load;
     auto extract = b.call(load->type(), ArithmeticOp::EXTRACT, gep_chain);
+    for (auto *metadata : load->metadata_list()) {
+        extract->metadata_list().push_front(metadata->clone());
+    }
     load->replace_all_uses_with(extract);
     load->remove_self();
     info.transposed_load_count++;
@@ -86,16 +89,28 @@ static void transpose_store_gep(StoreInst *store, TransposeGEPInfo &info) noexce
     gep_chain[0] = alloca_load;
     gep_chain.insert(gep_chain.begin() + 1, store->value());
     auto insert = b.call(alloca_inst->type(), ArithmeticOp::INSERT, gep_chain);
-    (void)b.store(alloca_inst, insert);
+    auto *replacement = b.store(alloca_inst, insert);
+    for (auto *metadata : store->metadata_list()) {
+        replacement->metadata_list().push_front(metadata->clone());
+    }
     store->remove_self();
     info.transposed_store_count++;
 }
 
 static void run_transpose_gep_pass_on_function(Function *function, TransposeGEPInfo &info) noexcept {
+    if (function == nullptr) { return; }
     if (auto def = function->definition()) {
+        if (def->body_block() == nullptr) { return; }
         // run the trace gep pass first to ensure that no nested GEP chains exist
-        if (auto trace_gep_info = trace_gep_pass_run_on_function(def); trace_gep_info.traced_gep_count != 0) {
-            LUISA_VERBOSE("Traced {} GEP chain(s) in transpose_gep pass.", trace_gep_info.traced_gep_count);
+        auto trace_gep_info = trace_gep_pass_run_on_function(def);
+        info.traced_gep_count += trace_gep_info.traced_gep_count;
+        info.removed_noop_gep_count += trace_gep_info.removed_noop_gep_count;
+        if (trace_gep_info.changed()) {
+            LUISA_VERBOSE(
+                "Traced {} GEP chain(s) and removed {} no-op GEP(s) in "
+                "transpose_gep pass.",
+                trace_gep_info.traced_gep_count,
+                trace_gep_info.removed_noop_gep_count);
         }
         // run the pass
         luisa::vector<GEPInst *> geps;
@@ -127,6 +142,10 @@ static void run_transpose_gep_pass_on_function(Function *function, TransposeGEPI
             geps.erase(std::remove_if(geps.begin(), geps.end(), [&](GEPInst *gep) noexcept {
                            auto base = trace_pointer_base_local_alloca_inst(gep->base());
                            if (base == nullptr || non_applicable_allocas.contains(base)) { return true; }
+                           // Removing an annotated address computation has no
+                           // single replacement when it feeds multiple memory
+                           // operations.
+                           if (!gep->metadata_list().empty()) { return true; }
                            // Skip GEPs targeting large arrays with dynamic indices:
                            // transposition would create O(N) full-array copy per element.
                            auto base_type = base->type();
@@ -164,6 +183,7 @@ static void run_transpose_gep_pass_on_function(Function *function, TransposeGEPI
             for (auto store : gep_stores) { transpose_store_gep(store, info); }
             LUISA_DEBUG_ASSERT(gep->use_list().empty(), "Unexpected users of transposed GEP.");
             gep->remove_self();
+            info.removed_gep_count++;
         }
     }
 }
@@ -178,6 +198,7 @@ TransposeGEPInfo transpose_gep_pass_run_on_function(Function *function) noexcept
 
 TransposeGEPInfo transpose_gep_pass_run_on_module(Module *module) noexcept {
     TransposeGEPInfo info;
+    if (module == nullptr) { return info; }
     for (auto f : module->function_list()) {
         detail::run_transpose_gep_pass_on_function(f, info);
     }

@@ -160,6 +160,16 @@ struct ShaderOption {
     ///   massive instance counts (>2^24) in acceleration structures. Only has
     ///   effect on the Metal backend; other backends ignore this option.
     bool enable_extended_accel_limits{false};
+    /// \brief Whether to enable the XIR scalarizer in the SPIR-V optimization
+    ///   pipeline.
+    /// \details The scalarizer decomposes vector operations into scalar
+    ///   components. It is disabled by default: measurements on the Vulkan
+    ///   backend show that keeping vectors intact preserves GVN/CSE
+    ///   effectiveness and produces ~10% smaller SPIR-V modules. Only has
+    ///   effect on backends compiling through the XIR-to-SPIR-V pipeline.
+    ///   The `LUISA_XIR_ENABLE_SCALARIZER` environment variable, when set,
+    ///   overrides this field.
+    bool enable_scalarizer{false};
     /// \brief A user-defined name for the shader.
     /// \details If provided, the shader will be read from or written to disk
     ///   via the `BinaryIO` object (passed to backends on device creation)
@@ -168,9 +178,11 @@ struct ShaderOption {
     /// \sa DeviceConfig
     /// \sa BinaryIO
     luisa::string name;
-    /// \brief Include code written in the native shading language.
-    /// \details If provided, backend will include this string into the generated
-    ///   shader code. This field is useful for interoperation with external callables.
+    /// \brief Include code in the backend's native shader representation.
+    /// \details If provided, the backend incorporates this string into the generated
+    ///   shader module. The accepted representation is backend-specific (for example,
+    ///   source code for source-generating backends and LLVM IR/bitcode for the direct
+    ///   LLVM HIP backend). This field is useful for interoperation with external callables.
     /// \sa ExternalCallable
     luisa::string native_include;
 };

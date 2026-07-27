@@ -5,6 +5,8 @@ description: Optimize LuisaCompute DSL kernels using warp/wave primitives, share
 
 # LuisaCompute DSL Kernel Optimization Guide
 
+> **Zero-initialization note:** All temporary local variables in DSL kernels — scalars, vectors, matrices, structs, and arrays (excluding shared arrays `Shared<T>`) — are created with a zero value automatically. There is no need to manually set them to zero before use. This applies to variables declared with `Var<T>`, `auto`, or type-inferred syntax inside a kernel or callable body.
+
 ## 1. Available Warp/Wave Primitives
 
 LuisaCompute exposes the following warp-level (subgroup) intrinsics via `luisa/dsl/builtin.h`. All operate on *active lanes within the current warp*.
@@ -516,3 +518,192 @@ Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on
 10. **Privatize global atomics into shared memory** (section 4.3). Aggregate per-thread contributions with cheap shared atomics, then issue **one** global atomic per block. This is the key stream-compaction / queue-append win.
 
 11. **Shared memory needs `sync_block()`; warp collectives do not.** Barrier after filling shared and between the read/write-back phases of a tree reduction (section 4.4). Reduce into a register first, then write back after the barrier to avoid RAW/WAR hazards.
+
+---
+
+## 7. Host-Side Command Batching with CommandList
+
+GPU kernel optimization (sections 1–6) focuses on what happens *inside* a single kernel dispatch. Equally important is how you *submit* work from the host: every `stream << command` call adds driver overhead. When a per-frame or per-iteration hot loop issues many small stream submissions (upload, dispatch A, dispatch B, download, ...), the accumulated driver cost can become a bottleneck, especially on D3D12 and Vulkan where command submission is not free.
+
+### 7.1 The Pattern
+
+`CommandList` lets you batch multiple commands into a single submission. Commands are recorded into a `CommandList` object, then committed to the stream in one shot:
+
+```cpp
+CommandList cmdlist = CommandList::create();
+cmdlist << upload_command
+        << dispatch_a
+        << dispatch_b
+        << download_command;
+stream << cmdlist.commit() << synchronize();
+```
+
+All commands execute in FIFO order on the GPU, exactly as if they were submitted individually — but with a single driver round-trip instead of many.
+
+### 7.2 When to Use
+
+- **Hot loops**: Rendering loops, training iterations, or per-frame update loops that submit several commands each iteration.
+- **Dependent pipeline stages**: Commands with producer-consumer relationships (e.g., kernel A writes a buffer, kernel B reads it) that can be submitted together because GPU ordering guarantees correct sequencing.
+- **Upload → compute → download chains**: Batched uploads followed by multiple kernels then final downloads, all in one commit.
+
+### 7.3 When NOT to Use
+
+- **Interactive latency-sensitive paths**: If a command produces results that need immediate host feedback (e.g., debug readbacks), avoid delaying it behind unrelated work.
+- **Cross-stream synchronization**: Commands in different streams (COMPUTE vs GRAPHICS) must use events for ordering; a single `CommandList` cannot span multiple streams.
+- **Very long command sequences**: Extremely large command lists may starve the GPU if they take too long to record; split into chunks if recording itself becomes a bottleneck.
+
+### 7.4 General Recipe
+
+1. **Identify the hot loop** — look for repeated `stream <<` statements inside a loop or per-frame function.
+2. **Group dependent commands** — all commands that form an in-order GPU pipeline (upload → kernel A → kernel B → download) belong in the same `CommandList`.
+3. **Create and fill** — call `CommandList::create()` once at the start of the group, then append commands with `<<`.
+4. **Commit once** — `stream << cmdlist.commit()` submits the batch; follow with a single `synchronize()` if host-readback is needed.
+5. **Verify correctness** — ensure the sequence of operations inside the CommandList matches the dependency order (commands execute in FIFO order on the GPU).
+
+### 7.5 Performance Impact
+
+Batching N separate `stream << cmd` submissions into one `CommandList` reduces:
+- **Driver submission overhead**: Each stream submission incurs a kernel transition / command-queue flush cost. With CommandList, that cost is paid once per batch.
+- **Host-device synchronization points**: A single `commit() + synchronize()` replaces N pairs of `stream << ... << synchronize()`.
+
+In practice, replacing 5+ stream submissions per iteration with a single `CommandList::create()` → `commit()` can yield measurable wall-clock speedups in offline rendering or training-data export loops, where the CPU-side submission overhead is a meaningful fraction of the iteration time.
+
+### 7.6 Comparison with Other Optimizations
+
+| Optimization | Scope | Impact |
+|---|---|---|
+| Warp collectives (section 3) | GPU kernel — replaces shared memory and atomics | Reduces latency/contention within a warp |
+| Shared memory privatization (section 4.3) | GPU kernel — aggregates block atomics | Reduces global atomic contention from O(block_size) to O(1) per block |
+| **CommandList batching** (this section) | **Host submission — batches stream commands** | **Reduces driver overhead from O(N) to O(1) per iteration** |
+
+CommandList batching is orthogonal to kernel-level optimizations. Apply both: optimize the kernel with warp/shared-memory techniques, then batch the host submissions for maximum throughput.
+
+### 7.7 Key Rules
+
+1. **One CommandList, one commit, one sync.** Create a single `CommandList` for a group of dependent commands, commit it once, and synchronize once rather than submitting each command separately.
+2. **FIFO ordering preserved.** Commands execute in record order — no need for explicit barriers between kernel dispatches and buffer copies inside the same CommandList (GPU pipeline dependencies are handled automatically).
+3. **Don't reuse a committed CommandList.** After `commit()` the list is consumed; create a fresh one for the next batch.
+4. **Prefer CommandList over chaining on `stream <<`.** Batched submission is more efficient than long chains of `stream << a << b << c << synchronize()` because it reduces internal queue flushes.
+5. **Combine with kernel optimization.** Host-side batching and kernel-level warp/shared-memory optimization are complementary — use both.
+
+### 7.8 Async Callbacks — Replacing `synchronize()` with Non-Blocking Completion
+
+`CommandList` provides two callback hooks that decouple host work from GPU execution:
+
+```cpp
+// Runs AFTER all GPU commands in this CommandList finish.
+cmdlist.add_callback([](auto &&... captured) noexcept {
+    // GPU work is done — safe to read back buffers, write files, etc.
+});
+
+// Runs when the CommandList is committed/destructed, BEFORE GPU starts.
+cmdlist.add_dtor_callback([](auto &&... captured) noexcept {
+    // Host-side cleanup of resources no longer needed.
+});
+```
+
+#### 7.8.1 Understanding the Two Callbacks
+
+| Callback | When it fires | GPU status | Typical use |
+|---|---|---|---|
+| `add_dtor_callback` | At `commit()` (or when `Commit` object is destroyed) | **Not started yet** | Release temporary host buffers, close files, or free staging memory that was only needed to construct the commands. |
+| `add_callback` | After all GPU commands in the list have completed | **Done** | Read back downloaded buffers, write output files, signal host work queues, or launch dependent host tasks. |
+
+**Critical difference:** `add_dtor_callback` runs *before* GPU execution begins — it is not a completion callback. Only `add_callback` guarantees GPU work is finished.
+
+#### 7.8.2 Avoiding `synchronize()` Stalls
+
+Without callbacks, host→GPU data exchange typically looks like:
+
+```cpp
+// Blocking pattern: host stalls until GPU finishes.
+stream << cmdlist.commit() << synchronize();  // host waits here
+process_results(host_buffer);                  // then processes
+```
+
+`add_callback` lets you flip this into a non-blocking, continuation-passing style:
+
+```cpp
+// Non-blocking pattern: callback processes results when GPU is done.
+cmdlist.add_callback([host_buffer = std::move(host_buf)]() noexcept {
+    process_results(host_buffer);  // runs after GPU finishes
+});
+stream << cmdlist.commit();  // host returns immediately, no stall
+// Host can begin preparing the next frame/iteration NOW...
+```
+
+This is most impactful when:
+- The host has independent work (e.g., preparing the next config, loading assets, updating UI).
+- The GPU work is long enough that blocking would waste host cycles.
+- You process results per-iteration and can pipeline iterations (iteration N's callback runs while iteration N+1's GPU work is already in flight).
+
+#### 7.8.3 The Pipelined Iteration Pattern
+
+The classic pattern for hiding latency: overlap GPU execution of iteration N+1 with host processing of iteration N's results.
+
+```cpp
+// Host-side buffers must outlive the GPU work.
+// Use double-buffering or shared ownership (e.g., shared_ptr).
+for (int i = 0; i < num_iterations; i++) {
+    auto host_buf = std::make_shared<std::vector<float>>(size);
+    CommandList cmdlist = CommandList::create();
+
+    // Record GPU commands (upload, dispatch, download into host_buf)
+    cmdlist << upload << kernel.dispatch(...) << download(host_buf->data());
+
+    // Install the completion callback — captures host_buf by shared_ptr
+    cmdlist.add_callback([host_buf, i]() noexcept {
+        // GPU done: safely read host_buf, write to disk, etc.
+        save_result(*host_buf, i);
+    });
+
+    // Submit without blocking — host returns immediately
+    stream << cmdlist.commit();
+    // Host can prepare iteration i+1's work right away...
+}
+// Final sync: wait for the very last iteration to finish.
+stream << synchronize();
+```
+
+With this pattern:
+- **No `synchronize()` per iteration** — only one final sync at the very end.
+- **CPU and GPU overlap** — iteration N's result processing runs concurrently with iteration N+1's GPU execution.
+- **Throughput improves** by the cost of one `synchronize()` stall × (N−1) iterations.
+
+#### 7.8.4 Capturing Resources for Callbacks
+
+Lambdas passed to `add_callback` / `add_dtor_callback` must own their captured resources because the callback outlives the `CommandList` object. Use:
+
+```cpp
+// ✅ Shared ownership (recommended for buffers)
+auto data = std::make_shared<std::vector<float>>(size);
+cmdlist.add_callback([data]() noexcept { /* safe */ });
+
+// ✅ Move semantics for unique resources
+auto data = std::make_unique<std::vector<float>>(size);
+cmdlist.add_callback([data = std::move(data)]() noexcept { /* safe */ });
+
+// ❌ Capturing raw pointers or references to stack/local variables is UAF.
+float *raw = ...;
+cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
+```
+
+`add_dtor_callback` has the same ownership rules, despite running earlier — it still fires after `commit()` returns, so stack variables captured by reference would be invalid.
+
+#### 7.8.5 When to Use Which
+
+| Situation | Use |
+|---|---|
+| Read back GPU results and save/process them | `add_callback` |
+| Free host staging buffers after upload | `add_dtor_callback` |
+| Close files or decrement refcounts after submission | `add_dtor_callback` |
+| Signal a host work queue that GPU output is ready | `add_callback` |
+| Launch the next iteration's host prep work | Just place after `commit()` on the host (no callback needed) |
+
+#### 7.8.6 Key Rules
+
+1. **`add_callback` fires after GPU completion** — it is the non-blocking replacement for `synchronize()`.
+2. **`add_dtor_callback` fires before GPU starts** — use only for host-side cleanup, never for reading back GPU results.
+3. **Always capture by value** (shared_ptr, unique_ptr, or copy). Raw pointers and references to stack variables are dangling by the time the callback runs.
+4. **One final `synchronize()` is still needed** at the end of a pipeline to ensure the last iteration's callbacks have fired before the program exits.
+5. **Callbacks execute on an internal worker thread** — they should not throw, block on the GPU, or perform GPU API calls on the same stream.

@@ -9,6 +9,7 @@ OutlineInfo outline_pass_run_on_function(Module *module, Function *function) noe
     static_cast<void>(module);
     OutlineInfo info;
     if (function == nullptr || function->definition() == nullptr) { return info; }
+    if (function->definition()->body_block() == nullptr) { return info; }
     function->definition()->traverse_instructions([&](Instruction *inst) noexcept {
         if (inst->isa<OutlineInst>()) { ++info.unsupported_outline_count; }
     });
@@ -23,6 +24,7 @@ OutlineInfo outline_pass_run_on_function(Module *module, Function *function) noe
 
 OutlineInfo outline_pass_run_on_module(Module *module) noexcept {
     OutlineInfo info;
+    if (module == nullptr) { return info; }
     luisa::vector<Function *> functions;
     for (auto f : module->function_list()) { functions.emplace_back(f); }
     for (auto f : functions) {

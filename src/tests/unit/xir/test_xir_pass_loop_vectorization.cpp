@@ -1,3 +1,5 @@
+// Test for the conservative XIR loop-vectorization contract.
+
 #include "ut/ut.hpp"
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
@@ -10,6 +12,8 @@
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/passes/loop_vectorization.h>
+#include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -75,7 +79,7 @@ struct CountedLoopFixture {
 
 void reg_loop_vectorization() {
 
-    "loop_vectorization_simple_array_add"_test = [] {
+    "loop_vectorization_rejects_structured_array_add"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -113,7 +117,7 @@ void reg_loop_vectorization() {
         expect(loop.loop->merge_block() == loop.merge);
     };
 
-    "loop_vectorization_non_unit_stride_rejected"_test = [] {
+    "loop_vectorization_rejects_structured_non_unit_stride"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -145,7 +149,7 @@ void reg_loop_vectorization() {
         expect(info.structured_cfg_error_count == 1u);
     };
 
-    "loop_vectorization_no_memory_access_rejected"_test = [] {
+    "loop_vectorization_rejects_structured_empty_body"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -186,8 +190,951 @@ void reg_loop_vectorization() {
     };
 }
 
+namespace {
+
+struct VectorizableLoop {
+    KernelFunction *kernel;
+    BasicBlock *entry;
+    BasicBlock *header;
+    BasicBlock *latch;
+    BasicBlock *exit;
+    PhiInst *iv;
+    AllocaInst *arr_a;
+    AllocaInst *arr_b;
+    AllocaInst *arr_c;
+};
+
+// entry -> header { iv = phi(0, next); cond = iv < bound;
+//                   cond_br(cond, latch, exit) }
+// latch { c[iv] = a[iv] + b[iv]; next = iv + stride; br header }
+[[nodiscard]] VectorizableLoop make_vectorizable_loop(
+    Module &m, uint32_t bound_value, uint32_t stride_value,
+    bool second_phi = false, bool alias_store = false,
+    bool shared_memory = false) noexcept {
+    VectorizableLoop loop;
+    loop.kernel = make_kernel_with_body(m, loop.entry);
+    auto *def = loop.kernel->definition();
+    loop.header = def->create_basic_block();
+    loop.latch = def->create_basic_block();
+    loop.exit = def->create_basic_block();
+    auto *zero = m.create_constant_zero(Type::of<uint>());
+    auto *stride = m.create_constant(Type::of<uint>(), &stride_value);
+    auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+
+    XIRBuilder b;
+    b.set_insertion_point(loop.entry);
+    auto allocate = [&](const Type *type) noexcept {
+        return shared_memory ? b.alloca_shared(type) : b.alloca_local(type);
+    };
+    loop.arr_a = allocate(Type::array(Type::of<float>(), 64u));
+    loop.arr_b = allocate(Type::array(Type::of<float>(), 64u));
+    loop.arr_c = allocate(Type::array(Type::of<float>(), 64u));
+    b.br(loop.header);
+    b.set_insertion_point(loop.header);
+    loop.iv = b.phi(Type::of<uint>());
+    PhiInst *extra = nullptr;
+    if (second_phi) {
+        extra = b.phi(Type::of<float>());
+    }
+    auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                        {loop.iv, bound});
+    b.cond_br(cond, loop.latch, loop.exit);
+    b.set_insertion_point(loop.latch);
+    auto *pa = gep_array_element(b, m, loop.arr_a, loop.iv, Type::of<float>());
+    auto *va = b.load(Type::of<float>(), pa);
+    auto *pb = gep_array_element(b, m, loop.arr_b, loop.iv, Type::of<float>());
+    auto *vb = b.load(Type::of<float>(), pb);
+    auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {va, vb});
+    auto *store_base = alias_store ? loop.arr_a : loop.arr_c;
+    auto *pc = gep_array_element(b, m, store_base, loop.iv, Type::of<float>());
+    b.store(pc, sum);
+    auto *next = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                        {loop.iv, stride});
+    b.br(loop.header);
+    b.set_insertion_point(loop.exit);
+    b.return_void();
+    loop.iv->add_incoming(zero, loop.entry);
+    loop.iv->add_incoming(next, loop.latch);
+    if (extra != nullptr) {
+        auto *zero_f = m.create_constant_zero(Type::of<float>());
+        extra->add_incoming(zero_f, loop.entry);
+        extra->add_incoming(sum, loop.latch);
+    }
+    return loop;
+}
+
+void expect_module_valid(Module &m) noexcept {
+    auto verification = xir_verify_module(&m);
+    expect(verification.succeeded())
+        << (verification.errors.empty() ? "unknown XIR verification error" :
+                                          verification.errors.front().message.c_str());
+}
+
+[[nodiscard]] size_t count_vector_aggregates(FunctionDefinition *def) noexcept {
+    auto count = 0u;
+    def->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<ArithmeticInst>() &&
+            static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::AGGREGATE &&
+            inst->type() != nullptr && inst->type()->is_vector()) {
+            count++;
+        }
+    });
+    return count;
+}
+
+}// namespace
+
+void reg_loop_vectorization_plain_cfg() {
+
+    "plain_elementwise_add_is_vectorized_four_wide"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 1u);
+        expect(info.created_vector_inst_count > 0u);
+        // the induction now steps by the vector factor
+        auto found_step = false;
+        for (auto i = 0u; i < loop.iv->incoming_count(); ++i) {
+            auto incoming = loop.iv->incoming(i);
+            if (incoming.value->isa<ArithmeticInst>()) {
+                auto *add = static_cast<ArithmeticInst *>(incoming.value);
+                if (add->op() == ArithmeticOp::BINARY_ADD) {
+                    for (auto j = 0u; j < 2u; ++j) {
+                        if (add->operand(j)->isa<Constant>()) {
+                            auto *c = static_cast<Constant *>(add->operand(j));
+                            if (c->as<uint32_t>() == 4u) { found_step = true; }
+                        }
+                    }
+                }
+            }
+        }
+        expect(found_step);
+        // vector aggregates exist (packed lanes)
+        expect(count_vector_aggregates(loop.kernel->definition()) > 0u);
+        expect_module_valid(m);
+    };
+
+    "plain_trip_count_not_multiple_of_vf_vectorized_with_peeled_remainder"_test = [] {
+        Module m;
+        // trip count 10 = 2 vector iterations (8) + 2 peeled scalar ones
+        auto loop = make_vectorizable_loop(m, 10u, 1u);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 1u);
+        expect(info.created_vector_inst_count > 0u);
+        // the loop bound is tightened to 8 (largest multiple of VF <= 10)
+        auto *header_branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *condition = static_cast<ArithmeticInst *>(header_branch->condition());
+        auto found_tightened_bound = false;
+        for (auto i = 0u; i < condition->operand_count(); ++i) {
+            auto *operand = condition->operand(i);
+            if (operand->isa<Constant>() &&
+                static_cast<Constant *>(operand)->as<uint32_t>() == 8u) {
+                found_tightened_bound = true;
+            }
+        }
+        expect(found_tightened_bound);
+        // entry + header + latch + 2 peel blocks + exit
+        auto block_count = 0u;
+        for (auto *block : loop.kernel->definition()->basic_blocks()) {
+            static_cast<void>(block);
+            block_count++;
+        }
+        expect(block_count == 6u);
+        // the header no longer exits directly to the exit block
+        expect(header_branch->true_block() != loop.exit &&
+               header_branch->false_block() != loop.exit);
+        expect_module_valid(m);
+    };
+
+    "plain_non_reduction_second_phi_rejected"_test = [] {
+        Module m;
+        // the extra phi's latch incoming is the body value itself (not an
+        // accumulator combine), so it is not a valid reduction pattern
+        auto loop = make_vectorizable_loop(m, 16u, 1u, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 0u);
+        expect_module_valid(m);
+    };
+
+    "plain_non_unit_stride_rejected"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 2u);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 0u);
+        expect_module_valid(m);
+    };
+
+    "plain_store_load_alias_rejected"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u, false, true);
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.vectorized_loop_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_annotated_scalar_instruction_is_rejected_atomically"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        Instruction *annotated = nullptr;
+        for (auto *inst : loop.latch->instructions()) {
+            if (inst->isa<LoadInst>()) {
+                annotated = inst;
+                break;
+            }
+        }
+        expect(annotated != nullptr);
+        annotated->add_comment("semantic scalar load annotation");
+        auto before = xir_to_text_translate(&m, true);
+        auto info =
+            loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(!info.changed());
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_annotated_replaced_address_is_rejected_atomically"_test = [] {
+        auto run = [](bool store_address) noexcept {
+            Module m;
+            auto loop = make_vectorizable_loop(m, 16u, 1u);
+            GEPInst *annotated = nullptr;
+            for (auto *inst : loop.latch->instructions()) {
+                if (!inst->isa<GEPInst>()) { continue; }
+                auto *gep = static_cast<GEPInst *>(inst);
+                auto selects_requested_kind = false;
+                for (auto *use : gep->use_list()) {
+                    auto *user = use->user();
+                    selects_requested_kind =
+                        selects_requested_kind ||
+                        (user != nullptr && user->isa<Instruction>() &&
+                         (store_address ?
+                              static_cast<Instruction *>(user)->isa<StoreInst>() :
+                              static_cast<Instruction *>(user)->isa<LoadInst>()));
+                }
+                if (selects_requested_kind) {
+                    annotated = gep;
+                    break;
+                }
+            }
+            expect(annotated != nullptr);
+            annotated->add_comment(
+                store_address ?
+                    "scalar store address has multiple lane replacements" :
+                    "scalar load address has multiple lane replacements");
+            auto before = xir_to_text_translate(&m, true);
+            auto info =
+                loop_vectorization_pass_run_on_function(loop.kernel);
+            auto after = xir_to_text_translate(&m, true);
+            expect(!info.changed());
+            expect(before == after);
+            expect_module_valid(m);
+        };
+        // Cover both sides of the memory operation: the input gather and the
+        // output scatter each replace one address with several lane GEPs.
+        run(false);
+        run(true);
+    };
+
+    "plain_peeled_block_metadata_is_rejected_atomically"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 10u, 1u);
+        loop.latch->add_comment(
+            "annotation cannot be duplicated across peels");
+        auto before = xir_to_text_translate(&m, true);
+        auto info =
+            loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(!info.changed());
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_shared_memory_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(
+            m, 16u, 1u, false, false, true);
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_overlapping_store_groups_are_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        StoreInst *first_store = nullptr;
+        for (auto *inst : loop.latch->instructions()) {
+            if (inst->isa<StoreInst>()) {
+                first_store = static_cast<StoreInst *>(inst);
+                break;
+            }
+        }
+        expect(first_store != nullptr);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(first_store);
+        auto *shifted = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD, {loop.iv, one});
+        auto *overlapping = gep_array_element(
+            b, m, loop.arr_c, shifted, Type::of<float>());
+        b.store(overlapping, first_store->value());
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_observable_header_store_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        XIRBuilder b;
+        b.set_insertion_point(loop.entry->terminator()->prev());
+        auto *slot = b.alloca_local(Type::of<uint>());
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *condition = static_cast<Instruction *>(branch->condition());
+        b.set_insertion_point(condition->prev());
+        b.store(slot, loop.iv);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_header_derived_store_value_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        StoreInst *store = nullptr;
+        for (auto *inst : loop.latch->instructions()) {
+            if (inst->isa<StoreInst>()) {
+                store = static_cast<StoreInst *>(inst);
+                break;
+            }
+        }
+        expect(store != nullptr);
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *condition = static_cast<Instruction *>(branch->condition());
+        XIRBuilder b;
+        b.set_insertion_point(condition->prev());
+        auto *header_value =
+            b.static_cast_(Type::of<float>(), loop.iv);
+        store->set_value(header_value);
+        auto store_lock = store->lock();
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info =
+            loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        // The header expression is evaluated once per packed group. It
+        // cannot be broadcast to all lanes as if it were loop-invariant.
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        auto *locked_store =
+            static_cast<StoreInst *>(store_lock.get());
+        expect(locked_store->is_linked());
+        if (locked_store->is_linked()) {
+            expect(locked_store->value() == header_value);
+        }
+        expect_module_valid(m);
+    };
+
+    "plain_body_computed_address_is_rejected_without_mutation"_test = [] {
+        Module m;
+        BasicBlock *entry = nullptr;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *def = kernel->definition();
+        auto *header = def->create_basic_block();
+        auto *latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        uint32_t bound_value = 16u;
+        auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *input0 =
+            b.alloca_local(Type::array(Type::of<uint>(), 32u));
+        auto *input1 =
+            b.alloca_local(Type::array(Type::of<uint>(), 32u));
+        auto *output =
+            b.alloca_local(Type::array(Type::of<uint>(), 32u));
+        b.br(header);
+
+        b.set_insertion_point(header);
+        auto *iv = b.phi(Type::of<uint>());
+        auto *condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, bound});
+        b.cond_br(condition, latch, exit);
+
+        b.set_insertion_point(latch);
+        auto *body_index = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD, {iv, one});
+        auto *p0 = b.gep(Type::of<uint>(), input0, {body_index});
+        auto *p1 = b.gep(Type::of<uint>(), input1, {body_index});
+        auto *po = b.gep(Type::of<uint>(), output, {body_index});
+        auto *v0 = b.load(Type::of<uint>(), p0);
+        auto *v1 = b.load(Type::of<uint>(), p1);
+        auto *sum = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD, {v0, v1});
+        b.store(po, sum);
+        auto *next = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD, {iv, one});
+        b.br(header);
+
+        b.set_insertion_point(exit);
+        b.return_void();
+        iv->add_incoming(zero, entry);
+        iv->add_incoming(next, latch);
+        expect_module_valid(m);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(kernel);
+        auto after = xir_to_text_translate(&m, true);
+
+        // The current gather/scatter lowering is emitted at the top of the
+        // body. A body-defined address would not dominate those new uses, so
+        // it must be rejected until address expressions are scheduled in the
+        // vector dependency graph.
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect(body_index->is_linked());
+        expect_module_valid(m);
+    };
+
+    "plain_header_affine_address_still_vectorizes"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *condition =
+            static_cast<Instruction *>(branch->condition());
+        XIRBuilder b;
+        b.set_insertion_point(condition->prev());
+        auto *header_index = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {loop.iv, m.create_constant_one(Type::of<uint>())});
+        for (auto *inst : loop.latch->instructions()) {
+            if (inst->isa<GEPInst>()) {
+                static_cast<GEPInst *>(inst)->set_index(
+                    0u, header_index);
+            }
+        }
+        expect_module_valid(m);
+
+        auto info =
+            loop_vectorization_pass_run_on_function(loop.kernel);
+
+        // The header expression dominates the compute block and is evaluated
+        // once at the packed IV, so adding lane offsets preserves iv+1+k.
+        expect(info.vectorized_loop_count == 1u);
+        expect(info.created_vector_inst_count > 0u);
+        expect(header_index->is_linked());
+        expect_module_valid(m);
+    };
+
+    "plain_induction_recurrence_with_extra_use_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        Instruction *recurrence = nullptr;
+        for (auto i = 0u; i < loop.iv->incoming_count(); ++i) {
+            auto incoming = loop.iv->incoming(i);
+            if (incoming.block == loop.latch &&
+                incoming.value->isa<Instruction>()) {
+                recurrence =
+                    static_cast<Instruction *>(incoming.value);
+            }
+        }
+        expect(recurrence != nullptr);
+        XIRBuilder b;
+        b.set_insertion_point(recurrence);
+        uint32_t limit_value = 32u;
+        auto *limit = m.create_constant(
+            Type::of<uint>(), &limit_value);
+        auto *extra_compare = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {recurrence, limit});
+        expect_module_valid(m);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info =
+            loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+
+        // Replacing the induction step is legal only when the recurrence is
+        // exclusively the latch incoming of the induction phi.
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect(recurrence->is_linked());
+        expect(extra_compare->is_linked());
+        expect(extra_compare->operand(0u) == recurrence);
+        expect_module_valid(m);
+    };
+
+    "plain_opaque_header_call_is_rejected_without_mutation"_test = [] {
+        Module m;
+        auto *external = m.create_external_function(Type::of<void>());
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *condition = static_cast<Instruction *>(branch->condition());
+        XIRBuilder b;
+        b.set_insertion_point(condition->prev());
+        static_cast<void>(b.call(nullptr, external, {}));
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_mixed_memory_element_types_are_rejected_without_mutation"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        XIRBuilder b;
+        b.set_insertion_point(loop.entry->terminator()->prev());
+        auto *uint_array = b.alloca_local(
+            Type::array(Type::of<uint>(), 64u));
+        StoreInst *float_store = nullptr;
+        for (auto *inst : loop.latch->instructions()) {
+            if (inst->isa<StoreInst>()) {
+                float_store = static_cast<StoreInst *>(inst);
+                break;
+            }
+        }
+        expect(float_store != nullptr);
+        b.set_insertion_point(float_store);
+        auto *uint_element = gep_array_element(
+            b, m, uint_array, loop.iv, Type::of<uint>());
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        b.store(uint_element, zero);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_reversed_comparison_operands_are_vectorized"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *old_condition = static_cast<ArithmeticInst *>(
+            branch->condition());
+        auto *bound = old_condition->operand(1u);
+        XIRBuilder b;
+        b.set_insertion_point(branch->prev());
+        auto *condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_GREATER,
+            {bound, loop.iv});
+        branch->set_condition(condition);
+
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 1u);
+        expect(info.created_vector_inst_count > 0u);
+        expect_module_valid(m);
+    };
+
+    "plain_inverted_branch_polarity_is_vectorized"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *old_condition = static_cast<ArithmeticInst *>(
+            branch->condition());
+        auto *bound = old_condition->operand(1u);
+        XIRBuilder b;
+        b.set_insertion_point(branch->prev());
+        auto *condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_GREATER_EQUAL,
+            {loop.iv, bound});
+        branch->set_condition(condition);
+        branch->set_true_target(loop.exit);
+        branch->set_false_target(loop.latch);
+
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 1u);
+        expect(info.created_vector_inst_count > 0u);
+        expect_module_valid(m);
+    };
+
+    "plain_chained_arithmetic_erases_users_before_definitions"_test = [] {
+        Module m;
+        auto loop = make_vectorizable_loop(m, 16u, 1u);
+        StoreInst *store = nullptr;
+        for (auto *inst : loop.latch->instructions()) {
+            if (inst->isa<StoreInst>()) {
+                store = static_cast<StoreInst *>(inst);
+                break;
+            }
+        }
+        expect(store != nullptr);
+        auto *sum = static_cast<Instruction *>(store->value());
+        XIRBuilder b;
+        b.set_insertion_point(sum);
+        auto *square = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_MUL, {sum, sum});
+        store->set_value(square);
+
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 1u);
+        expect(info.created_vector_inst_count >= 2u);
+        expect_module_valid(m);
+    };
+
+    "plain_uint64_induction_uses_typed_lane_and_step_constants"_test = [] {
+        Module m;
+        BasicBlock *entry = nullptr;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *def = kernel->definition();
+        auto *header = def->create_basic_block();
+        auto *latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint64_t>());
+        uint64_t one_value = 1u;
+        auto *one = m.create_constant(Type::of<uint64_t>(), &one_value);
+        uint64_t bound_value = 16u;
+        auto *bound = m.create_constant(Type::of<uint64_t>(), &bound_value);
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *arr_a = b.alloca_local(
+            Type::array(Type::of<float>(), 64u));
+        auto *arr_b = b.alloca_local(
+            Type::array(Type::of<float>(), 64u));
+        auto *arr_c = b.alloca_local(
+            Type::array(Type::of<float>(), 64u));
+        b.br(header);
+        b.set_insertion_point(header);
+        auto *iv = b.phi(Type::of<uint64_t>());
+        auto *condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, bound});
+        b.cond_br(condition, latch, exit);
+        b.set_insertion_point(latch);
+        auto *pa = gep_array_element(b, m, arr_a, iv, Type::of<float>());
+        auto *pb = gep_array_element(b, m, arr_b, iv, Type::of<float>());
+        auto *pc = gep_array_element(b, m, arr_c, iv, Type::of<float>());
+        auto *va = b.load(Type::of<float>(), pa);
+        auto *vb = b.load(Type::of<float>(), pb);
+        auto *sum = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD, {va, vb});
+        b.store(pc, sum);
+        auto *next = b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD, {iv, one});
+        b.br(header);
+        b.set_insertion_point(exit);
+        b.return_void();
+        iv->add_incoming(zero, entry);
+        iv->add_incoming(next, latch);
+
+        auto info = loop_vectorization_pass_run_on_function(kernel);
+        expect(info.vectorized_loop_count == 1u);
+        auto found_wide_step = false;
+        for (auto i = 0u; i < iv->incoming_count(); ++i) {
+            auto incoming = iv->incoming(i);
+            if (incoming.block != latch ||
+                !incoming.value->isa<ArithmeticInst>()) {
+                continue;
+            }
+            auto *add = static_cast<ArithmeticInst *>(incoming.value);
+            for (auto j = 0u; j < add->operand_count(); ++j) {
+                auto *operand = add->operand(j);
+                if (operand->isa<Constant>() &&
+                    operand->type() == Type::of<uint64_t>() &&
+                    static_cast<Constant *>(operand)->as<uint64_t>() == 4u) {
+                    found_wide_step = true;
+                }
+            }
+        }
+        expect(found_wide_step);
+        expect_module_valid(m);
+    };
+
+    "plain_float_sum_reduction_is_rejected_without_fast_math"_test = [] {
+        Module m;
+        // acc = phi(0.0f, acc + (a[iv] + b[iv])); no stores in the body
+        VectorizableLoop loop;
+        loop.kernel = make_kernel_with_body(m, loop.entry);
+        auto *def = loop.kernel->definition();
+        loop.header = def->create_basic_block();
+        loop.latch = def->create_basic_block();
+        loop.exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *zero_f = m.create_constant_zero(Type::of<float>());
+        uint32_t bound_value = 16u;
+        auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+        uint32_t one_value = 1u;
+        auto *one = m.create_constant(Type::of<uint>(), &one_value);
+
+        XIRBuilder b;
+        b.set_insertion_point(loop.entry);
+        loop.arr_a = b.alloca_local(Type::array(Type::of<float>(), 64u));
+        loop.arr_b = b.alloca_local(Type::array(Type::of<float>(), 64u));
+        b.br(loop.header);
+        b.set_insertion_point(loop.header);
+        loop.iv = b.phi(Type::of<uint>());
+        auto *acc = b.phi(Type::of<float>());
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                            {loop.iv, bound});
+        b.cond_br(cond, loop.latch, loop.exit);
+        b.set_insertion_point(loop.latch);
+        auto *pa = gep_array_element(b, m, loop.arr_a, loop.iv, Type::of<float>());
+        auto *va = b.load(Type::of<float>(), pa);
+        auto *pb = gep_array_element(b, m, loop.arr_b, loop.iv, Type::of<float>());
+        auto *vb = b.load(Type::of<float>(), pb);
+        auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {va, vb});
+        auto *acc_next = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD,
+                                {acc, sum});
+        auto *next = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                            {loop.iv, one});
+        b.br(loop.header);
+        b.set_insertion_point(loop.exit);
+        auto *result = b.phi(Type::of<float>());
+        b.return_void();
+        loop.iv->add_incoming(zero, loop.entry);
+        loop.iv->add_incoming(next, loop.latch);
+        acc->add_incoming(zero_f, loop.entry);
+        acc->add_incoming(acc_next, loop.latch);
+        result->add_incoming(acc, loop.header);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "plain_uint_sum_reduction_is_vectorized_with_horizontal_fold"_test = [] {
+        Module m;
+        // Integer addition is associative modulo 2^N, so regrouping lanes
+        // preserves the language-level result.
+        VectorizableLoop loop;
+        loop.kernel = make_kernel_with_body(m, loop.entry);
+        auto *def = loop.kernel->definition();
+        loop.header = def->create_basic_block();
+        loop.latch = def->create_basic_block();
+        loop.exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        uint32_t bound_value = 16u;
+        auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+        uint32_t one_value = 1u;
+        auto *one = m.create_constant(Type::of<uint>(), &one_value);
+
+        XIRBuilder b;
+        b.set_insertion_point(loop.entry);
+        loop.arr_a = b.alloca_local(Type::array(Type::of<uint>(), 64u));
+        loop.arr_b = b.alloca_local(Type::array(Type::of<uint>(), 64u));
+        b.br(loop.header);
+        b.set_insertion_point(loop.header);
+        loop.iv = b.phi(Type::of<uint>());
+        auto *acc = b.phi(Type::of<uint>());
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                            {loop.iv, bound});
+        b.cond_br(cond, loop.latch, loop.exit);
+        b.set_insertion_point(loop.latch);
+        auto *pa = gep_array_element(b, m, loop.arr_a, loop.iv, Type::of<uint>());
+        auto *va = b.load(Type::of<uint>(), pa);
+        auto *pb = gep_array_element(b, m, loop.arr_b, loop.iv, Type::of<uint>());
+        auto *vb = b.load(Type::of<uint>(), pb);
+        auto *sum = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD, {va, vb});
+        auto *acc_next = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                                {acc, sum});
+        auto *next = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                            {loop.iv, one});
+        b.br(loop.header);
+        b.set_insertion_point(loop.exit);
+        auto *result = b.phi(Type::of<uint>());
+        b.return_void();
+        loop.iv->add_incoming(zero, loop.entry);
+        loop.iv->add_incoming(next, loop.latch);
+        acc->add_incoming(zero, loop.entry);
+        acc->add_incoming(acc_next, loop.latch);
+        result->add_incoming(acc, loop.header);
+
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 1u);
+        expect(info.created_vector_inst_count > 0u);
+        expect(acc->incoming_count() == 2u);
+        auto found_folded_combine = false;
+        for (auto i = 0u; i < acc->incoming_count(); ++i) {
+            auto incoming = acc->incoming(i);
+            if (incoming.block == loop.latch &&
+                incoming.value->isa<ArithmeticInst>()) {
+                auto *combine = static_cast<ArithmeticInst *>(incoming.value);
+                if (combine->op() == ArithmeticOp::BINARY_ADD &&
+                    combine->operand(0u) == acc) {
+                    found_folded_combine = true;
+                }
+            }
+        }
+        expect(found_folded_combine);
+        auto combine_still_present = false;
+        def->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst == static_cast<Instruction *>(acc_next)) {
+                combine_still_present = true;
+            }
+        });
+        expect(!combine_still_present);
+        expect_module_valid(m);
+    };
+
+    "plain_reduction_with_remainder_is_rejected"_test = [] {
+        Module m;
+        // trip count 10 (not a multiple of VF) + reduction: peeling the
+        // trailing iterations would need accumulator threading, so the
+        // loop is left scalar
+        VectorizableLoop loop;
+        loop.kernel = make_kernel_with_body(m, loop.entry);
+        auto *def = loop.kernel->definition();
+        loop.header = def->create_basic_block();
+        loop.latch = def->create_basic_block();
+        loop.exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *zero_f = m.create_constant_zero(Type::of<float>());
+        uint32_t bound_value = 10u;
+        auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+        uint32_t one_value = 1u;
+        auto *one = m.create_constant(Type::of<uint>(), &one_value);
+
+        XIRBuilder b;
+        b.set_insertion_point(loop.entry);
+        loop.arr_a = b.alloca_local(Type::array(Type::of<float>(), 64u));
+        loop.arr_b = b.alloca_local(Type::array(Type::of<float>(), 64u));
+        b.br(loop.header);
+        b.set_insertion_point(loop.header);
+        loop.iv = b.phi(Type::of<uint>());
+        auto *acc = b.phi(Type::of<float>());
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                            {loop.iv, bound});
+        b.cond_br(cond, loop.latch, loop.exit);
+        b.set_insertion_point(loop.latch);
+        auto *pa = gep_array_element(b, m, loop.arr_a, loop.iv, Type::of<float>());
+        auto *va = b.load(Type::of<float>(), pa);
+        auto *pb = gep_array_element(b, m, loop.arr_b, loop.iv, Type::of<float>());
+        auto *vb = b.load(Type::of<float>(), pb);
+        auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {va, vb});
+        auto *acc_next = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD,
+                                {acc, sum});
+        auto *next = b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                            {loop.iv, one});
+        b.br(loop.header);
+        b.set_insertion_point(loop.exit);
+        b.return_void();
+        loop.iv->add_incoming(zero, loop.entry);
+        loop.iv->add_incoming(next, loop.latch);
+        acc->add_incoming(zero_f, loop.entry);
+        acc->add_incoming(acc_next, loop.latch);
+
+        auto info = loop_vectorization_pass_run_on_function(loop.kernel);
+        expect(info.vectorized_loop_count == 0u);
+        expect_module_valid(m);
+    };
+
+    "plain_remainder_with_loop_live_out_is_rejected_without_mutation"_test = [] {
+        auto run = [](bool use_derived_header_value) noexcept {
+            Module m;
+            auto loop = make_vectorizable_loop(m, 10u, 1u);
+            XIRBuilder b;
+            b.set_insertion_point(loop.entry->terminator()->prev());
+            auto *result = b.alloca_local(Type::of<uint>());
+            Value *live_out = loop.iv;
+            if (use_derived_header_value) {
+                auto *condition = static_cast<Instruction *>(
+                    static_cast<ConditionalBranchInst *>(
+                        loop.header->terminator())
+                        ->condition());
+                b.set_insertion_point(condition->prev());
+                live_out = b.call(
+                    Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                    {loop.iv,
+                     m.create_constant_one(Type::of<uint>())});
+            }
+            b.set_insertion_point(loop.exit->terminator()->prev());
+            b.store(result, live_out);
+            expect_module_valid(m);
+
+            auto before = xir_to_text_translate(&m, true);
+            auto info =
+                loop_vectorization_pass_run_on_function(loop.kernel);
+            auto after = xir_to_text_translate(&m, true);
+            expect(info.vectorized_loop_count == 0u);
+            expect(info.created_vector_inst_count == 0u);
+            expect(before == after);
+            expect_module_valid(m);
+        };
+        // Cover both the induction phi itself and a pure header-derived
+        // value: both would otherwise expose the tightened bound (8) rather
+        // than the scalar loop's final check value (10).
+        run(false);
+        run(true);
+    };
+
+    "loop_vectorization_module_rejection_is_atomic_across_functions"_test = [] {
+        Module m;
+        auto plain = make_vectorizable_loop(m, 16u, 1u);
+
+        BasicBlock *structured_parent;
+        auto *structured =
+            make_kernel_with_body(m, structured_parent);
+        CountedLoopFixture structured_loop(m, structured_parent, 8);
+        structured_loop.b.set_insertion_point(structured_loop.lbody);
+        structured_loop.b.br(structured_loop.upd);
+        structured_loop.b.set_insertion_point(structured_loop.merge);
+        structured_loop.b.return_void();
+        static_cast<void>(structured);
+        expect_module_valid(m);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_vectorization_pass_run_on_module(&m);
+        auto after = xir_to_text_translate(&m, true);
+        expect(!info.succeeded());
+        expect(!info.changed());
+        expect(info.structured_cfg_error_count == 1u);
+        expect(info.vectorized_loop_count == 0u);
+        expect(info.created_vector_inst_count == 0u);
+        expect(before == after);
+        expect(count_vector_aggregates(plain.kernel->definition()) == 0u);
+        expect_module_valid(m);
+    };
+
+    "loop_vectorization_null_module_is_a_noop"_test = [] {
+        auto info = loop_vectorization_pass_run_on_module(nullptr);
+        expect(info.succeeded());
+        expect(!info.changed());
+    };
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_loop_vectorization();
+    reg_loop_vectorization_plain_cfg();
     return 0;
 }

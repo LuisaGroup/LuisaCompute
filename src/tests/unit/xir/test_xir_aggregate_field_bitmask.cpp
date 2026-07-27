@@ -1,7 +1,12 @@
+// Test for aggregate-field bitmask layout, projection, and set operations.
+
 #include "ut/ut.hpp"
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
+
+#include <utility>
+#include <limits>
 
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
@@ -9,6 +14,15 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 int main() {
+
+    "bitmask_span_coordinates_do_not_truncate_at_uint32"_test = [] {
+        auto above_u32 =
+            static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 17u;
+        AggregateFieldBitmask::ConstBitSpan span{
+            nullptr, above_u32, above_u32 + 9u};
+        expect(span.offset() == above_u32);
+        expect(span.size() == above_u32 + 9u);
+    };
 
     "bitmask_exact_bucket_span"_test = [] {
         AggregateFieldBitmask mask{Type::array(Type::of<int>(), 64u)};
@@ -73,5 +87,32 @@ int main() {
         expect(lhs.access(1u) == rhs.access(2u));
         rhs.access(2u, 95u).set();
         expect(lhs.access(1u) != rhs.access(2u));
+    };
+
+    "bitmask_large_copy_and_move_preserve_storage"_test = [] {
+        auto *type = Type::array(Type::of<int>(), 130u);
+        AggregateFieldBitmask source{type};
+        source.access(0u).set();
+        source.access(64u).set();
+        source.access(129u).set();
+
+        AggregateFieldBitmask copied{source};
+        expect(copied == source);
+        copied.access(1u).set();
+        expect(copied != source);
+
+        AggregateFieldBitmask copy_assigned{type};
+        copy_assigned = source;
+        expect(copy_assigned == source);
+
+        AggregateFieldBitmask moved{std::move(copied)};
+        expect(moved.access(0u).all());
+        expect(moved.access(1u).all());
+        expect(moved.access(64u).all());
+        expect(moved.access(129u).all());
+
+        AggregateFieldBitmask move_assigned{type};
+        move_assigned = std::move(copy_assigned);
+        expect(move_assigned == source);
     };
 }

@@ -17,6 +17,7 @@ struct OutlineInfo {
 };
 
 LUISA_XIR_API OutlineInfo outline_pass_run_on_function(Module *module, Function *function) noexcept;
+/// Total entry point: a null module is an unchanged successful no-op.
 LUISA_XIR_API OutlineInfo outline_pass_run_on_module(Module *module) noexcept;
 
 }// namespace luisa::compute::xir

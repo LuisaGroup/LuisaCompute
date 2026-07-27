@@ -46,7 +46,9 @@ static void run_local_store_forward_on_basic_block(luisa::unordered_set<BasicBlo
             switch (inst->derived_instruction_tag()) {
                 case DerivedInstructionTag::LOAD: {
                     auto load = static_cast<LoadInst *>(inst);
-                    if (auto iter = latest_stores.find(load->variable()); iter != latest_stores.end()) {
+                    if (auto iter = latest_stores.find(load->variable());
+                        iter != latest_stores.end() &&
+                        load->metadata_list().empty()) {
                         removable_loads.emplace(load, iter->second);
                     }
                     break;
@@ -188,6 +190,7 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
         function->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->isa<LoadInst>()) {
                 auto load = static_cast<LoadInst *>(inst);
+                if (!load->metadata_list().empty()) { return; }
                 if (auto base_alloca = trace_pointer_base_local_alloca_inst(load->variable())) {
                     auto iter = single_store.find(base_alloca);
                     if (iter != single_store.end() && dominates(iter->second, load) &&
@@ -315,6 +318,7 @@ static void forward_uniform_store_to_loads_on_function(FunctionDefinition *funct
     function->traverse_instructions([&](Instruction *inst) noexcept {
         if (inst->isa<LoadInst>()) {
             auto load = static_cast<LoadInst *>(inst);
+            if (!load->metadata_list().empty()) { return; }
             if (auto base = trace_pointer_base_local_alloca_inst(load->variable())) {
                 auto it = uniform_value.find(base);
                 if (it != uniform_value.end()) {
@@ -372,7 +376,9 @@ static void forward_uniform_store_to_loads_on_function(FunctionDefinition *funct
 }
 
 static void run_local_store_forward_on_function(Function *function, LocalStoreForwardInfo &info) noexcept {
+    if (function == nullptr) { return; }
     if (auto definition = function->definition()) {
+        if (definition->body_block() == nullptr) { return; }
         // first pass: forward stores to loads within straight-line code
         forward_straight_line_stores_to_loads_on_function(definition, info);
         // second pass: forward stores to loads from local variables that only have a single (or no) store
@@ -392,6 +398,10 @@ LocalStoreForwardInfo local_store_forward_pass_run_on_function(Function *functio
 
 LocalStoreForwardInfo local_store_forward_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LocalStoreForwardInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("removed_load", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::run_local_store_forward_on_function(f, info);
     }

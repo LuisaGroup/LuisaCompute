@@ -29,6 +29,7 @@ void print_help_and_exit(std::ostream &os, const char *program, int code, bool p
        << "  -i, --indent <spaces>         Number of spaces for indentation (default: 4)\n"
        << "  -e, --preserve-ext            Preserve file extensions in variable names (default: false)\n"
        << "  -r, --remove-carriage         Remove carriage returns (CRs) in file (default: false)\n"
+       << "      --check                   Verify output files without modifying them\n"
        << "      --help                    Show this help message\n"
        << std::endl;
     exit(code);
@@ -46,6 +47,7 @@ struct Options {
     bool use_unsigned_char = false;
     bool preserve_extension = false;
     bool remove_carriage = false;
+    bool check_only = false;
 };
 
 [[nodiscard]] auto parse(int argc, char *argv[]) noexcept {
@@ -89,6 +91,8 @@ struct Options {
             }
         } else if (opt == "-r" || opt == "--remove-carriage") {
             o.remove_carriage = true;
+        } else if (opt == "--check") {
+            o.check_only = true;
         } else if (opt == "--help") {
             print_help_and_exit(std::cout, argv[0], 0, true);
         } else if (opt.starts_with('-')) {
@@ -203,6 +207,16 @@ void append_file_as_c_array(std::ostringstream &oss_source, std::ostringstream &
     return std::make_pair(oss_source.str(), oss_header.str());
 }
 
+[[nodiscard]] bool file_matches(
+    const std::filesystem::path &file_path,
+    std::string_view content) noexcept {
+    auto existing = read_file_content(file_path, true);
+    std::erase(existing, '\r');
+    return std::equal(
+        existing.begin(), existing.end(),
+        content.begin(), content.end());
+}
+
 void update_file_if_changed(const std::filesystem::path &file_path, std::string_view content) noexcept {
     std::error_code ec;
     auto abs_path = std::filesystem::absolute(file_path, ec);
@@ -214,11 +228,8 @@ void update_file_if_changed(const std::filesystem::path &file_path, std::string_
     if (ec) {
         std::cerr << "Error: failed to create directories for output file: " << ec.message() << std::endl;
         exit(1);
-    }auto existing = read_file_content(abs_path, true);
-    std::erase(existing, '\r');
-    if (std::equal(existing.begin(), existing.end(), content.begin(), content.end())) {
-        return;
     }
+    if (file_matches(abs_path, content)) { return; }
     std::ofstream ofs{abs_path, std::ios::binary | std::ios::trunc};
     if (!ofs) {
         std::cerr << "Error: failed to open output file for writing: " << abs_path << std::endl;
@@ -226,9 +237,28 @@ void update_file_if_changed(const std::filesystem::path &file_path, std::string_
     ofs << content;
 }
 
+void check_file_matches(
+    const std::filesystem::path &file_path,
+    std::string_view content) noexcept {
+    if (!file_matches(file_path, content)) {
+        std::cerr << "Error: embedded output is stale: " << file_path
+                  << "\nRegenerate it with the same command without --check.\n";
+        exit(1);
+    }
+}
+
 int main(int argc, char *argv[]) {
     auto options = parse(argc, argv);
     auto [source, header] = generate_source(options);
-    update_file_if_changed(options.output_file, source);
-    if (!options.header_file.empty()) { update_file_if_changed(options.header_file, header); }
+    if (options.check_only) {
+        check_file_matches(options.output_file, source);
+        if (!options.header_file.empty()) {
+            check_file_matches(options.header_file, header);
+        }
+    } else {
+        update_file_if_changed(options.output_file, source);
+        if (!options.header_file.empty()) {
+            update_file_if_changed(options.header_file, header);
+        }
+    }
 }

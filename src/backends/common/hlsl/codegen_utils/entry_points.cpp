@@ -98,35 +98,18 @@ namespace detail {
 size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool isWorkGraph, bool is_spirv, bool fallback, bool linalg) {
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
     if (is_spirv) {
+        // Vulkan versions typed bindless descriptors per slot. DXIL keeps its
+        // established contiguous base+slot ABI.
+        builder << "#define LUISA_SPIRV_TYPED_BINDLESS_INDIRECT 1\n";
         builder << CodegenUtility::ReadInternalHLSLFile("spv_alias");
     }
     if (is_spirv && ops.test(CallOp::ASYNC_COPY)) {
         builder << R"(
-[[vk::ext_instruction(259, "")]]
-[[vk::ext_capability(18)]]
-uint __builtin_spirv_group_async_copy_typed(
-    uint execution_scope,
-    [[vk::ext_reference]] inout uint destination,
-    [[vk::ext_reference]] in uint source,
-    uint num_elements,
-    uint stride,
-    uint event);
-uint __builtin_spirv_group_async_copy(
-    uint execution_scope,
-    [[vk::ext_reference]] inout uint destination,
-    [[vk::ext_reference]] in uint source,
-    uint element_num_bytes,
-    uint num_elements,
-    uint stride,
-    uint event) {
-    return __builtin_spirv_group_async_copy_typed(
-        execution_scope,
-        destination,
-        source,
-        num_elements,
-        stride / element_num_bytes,
-        event);
-}
+// --- Vulkan async-copy builtins ---
+// Workgroup scratch buffer for async copies (byte-addressed).
+// The async_copy src/dst offsets index into this buffer (dst)
+// and the first StructuredBuffer argument (src).
+groupshared uint _vk_wg_copy_buf[4096];
 )";
     }
     size_t immutable_size = builder.size();
@@ -161,7 +144,11 @@ uint __builtin_spirv_group_async_copy(
         ops.test(CallOp::BINDLESS_COOPERATIVE_MUL_ADD) ||
         ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) ||
         ops.test(CallOp::BINDLESS_COOPERATIVE_MUL) ||
-        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL)) {
+        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) ||
+        ops.test(CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) ||
+        ops.test(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE) ||
+        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE)) {
         useBindless = true;
     }
     if (useBindless) {

@@ -3,10 +3,13 @@
 //
 
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/runtime/dispatch_buffer.h>
 
 #include "hip_codegen_llvm_impl.h"
 #include "../hip_bindless_array.h"
 #include "../hip_buffer.h"
+#include "../hip_shader_printer.h"
+#include "../hip_texture.h"
 
 namespace luisa::compute::hip {
 
@@ -166,6 +169,14 @@ const HIPCodegenLLVMImpl::LLVMTypeInfo *HIPCodegenLLVMImpl::_get_llvm_type(const
                     auto llvm_type = _get_llvm_ray_query_type();
                     return make_info(llvm_type, llvm_type, sizeof(uint8_t), alignof(uint8_t));
                 }
+                if (type == Type::of<IndirectDispatchBuffer>()) {
+                    // The indirect descriptor is pointer + packed {offset, end},
+                    // which deliberately has the same 16-byte ABI as a buffer.
+                    auto llvm_type = _get_llvm_buffer_type();
+                    return make_info(llvm_type, llvm_type,
+                                     sizeof(HIPBuffer::IndirectBinding),
+                                     alignof(HIPBuffer::IndirectBinding));
+                }
                 LUISA_NOT_IMPLEMENTED("Custom type: {}.", type->description());
             }
             default: LUISA_ERROR_WITH_LOCATION("Unsupported type with tag {}.", static_cast<uint32_t>(type->tag()));
@@ -198,14 +209,22 @@ const HIPCodegenLLVMImpl::KernelArgumentStruct *HIPCodegenLLVMImpl::_get_kernel_
         auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
         auto count = luisa::align(current_offset, alignment) - current_offset;
         llvm_arg_members.emplace_back(llvm::ArrayType::get(llvm_i8_type, count));
+        current_offset += count;
+    }
+    auto print_buffer_index = static_cast<size_t>(0u);
+    if (_config.requires_printing) {
+        print_buffer_index = llvm_arg_members.size();
+        auto llvm_print_buffer_type = _get_llvm_print_buffer_type();
+        llvm_arg_members.emplace_back(llvm_print_buffer_type);
+        current_offset += _data_layout->getTypeAllocSize(
+                                          llvm_print_buffer_type)
+                              .getFixedValue();
     }
     auto dispatch_size_and_kernel_id_index = llvm_arg_members.size();
     auto llvm_i32x4_type = llvm::ArrayType::get(llvm::Type::getInt32Ty(_llvm_context), 4);
     llvm_arg_members.emplace_back(llvm_i32x4_type);
     auto rt_global_stack_buffer_index = static_cast<size_t>(0u);
-    // TEMPORARILY DISABLED for firefly debugging: do NOT add RT stack fields to the kernel arg struct.
-    // The RT stack data will be passed as constants instead.
-    auto has_rt_global_stack_buffer = _rt_analysis.uses_ray_tracing;
+    auto has_rt_global_stack_buffer = _requires_global_rt_stack;
     if (has_rt_global_stack_buffer) {
         rt_global_stack_buffer_index = llvm_arg_members.size();
         auto llvm_i32_type = llvm::Type::getInt32Ty(_llvm_context);
@@ -218,6 +237,8 @@ const HIPCodegenLLVMImpl::KernelArgumentStruct *HIPCodegenLLVMImpl::_get_kernel_
     auto kernel_arg_struct = luisa::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
         .llvm_type = llvm_arg_struct_type,
         .argument_indices = std::move(llvm_arg_member_indices),
+        .print_buffer_index = print_buffer_index,
+        .has_print_buffer = _config.requires_printing,
         .dispatch_size_and_kernel_id_index = dispatch_size_and_kernel_id_index,
         .rt_global_stack_buffer_index = rt_global_stack_buffer_index,
         .has_rt_global_stack_buffer = has_rt_global_stack_buffer,
@@ -225,6 +246,21 @@ const HIPCodegenLLVMImpl::KernelArgumentStruct *HIPCodegenLLVMImpl::_get_kernel_
     auto [iter, success] = _kernel_arg_struct_types.try_emplace(func, std::move(kernel_arg_struct));
     LUISA_ASSERT(success, "Failed to insert kernel argument struct.");
     return iter->second.get();
+}
+
+llvm::Type *HIPCodegenLLVMImpl::_get_llvm_print_buffer_type() noexcept {
+    if (_llvm_print_buffer_type == nullptr) {
+        auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
+        auto llvm_global_ptr_type = llvm::PointerType::get(
+            _llvm_context, amdgpu_address_space_global);
+        _llvm_print_buffer_type = llvm::StructType::get(
+            _llvm_context, {llvm_i64_type, llvm_global_ptr_type}, false);
+        detail::luisa_check_llvm_type_size_and_alignment(
+            *_data_layout, _llvm_print_buffer_type,
+            sizeof(HIPShaderPrinter::Binding),
+            alignof(HIPShaderPrinter::Binding));
+    }
+    return _llvm_print_buffer_type;
 }
 
 llvm::Type *HIPCodegenLLVMImpl::_get_llvm_buffer_type() noexcept {
@@ -244,6 +280,10 @@ llvm::Type *HIPCodegenLLVMImpl::_get_llvm_texture_type() noexcept {
     if (_llvm_texture_type == nullptr) {
         auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
         _llvm_texture_type = llvm::StructType::get(_llvm_context, {llvm_i64_type, llvm_i64_type}, false);
+        detail::luisa_check_llvm_type_size_and_alignment(
+            *_data_layout, _llvm_texture_type,
+            sizeof(HIPTexture::Binding),
+            alignof(HIPTexture::Binding));
     }
     return _llvm_texture_type;
 }
@@ -252,7 +292,13 @@ llvm::Type *HIPCodegenLLVMImpl::_get_llvm_bindless_array_type() noexcept {
     if (_llvm_bindless_array_type == nullptr) {
         auto ptr_type = llvm::PointerType::get(_llvm_context, amdgpu_address_space_global);
         auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
-        _llvm_bindless_array_type = llvm::StructType::get(_llvm_context, {ptr_type, llvm_i64_type}, false);
+        _llvm_bindless_array_type = llvm::StructType::get(
+            _llvm_context,
+            {ptr_type, llvm_i64_type, ptr_type, llvm_i64_type}, false);
+        detail::luisa_check_llvm_type_size_and_alignment(
+            _llvm_module->getDataLayout(), _llvm_bindless_array_type,
+            sizeof(HIPBindlessArray::Binding),
+            alignof(HIPBindlessArray::Binding));
     }
     return _llvm_bindless_array_type;
 }
@@ -301,6 +347,7 @@ llvm::Type *HIPCodegenLLVMImpl::_get_llvm_accel_instance_type() noexcept {
                                                            llvm::Type::getInt32Ty(_llvm_context),
                                                            llvm::Type::getInt32Ty(_llvm_context),
                                                            llvm::Type::getInt32Ty(_llvm_context),
+                                                           llvm::Type::getInt64Ty(_llvm_context),
                                                            llvm::Type::getInt64Ty(_llvm_context)},
                                                           false);
     }

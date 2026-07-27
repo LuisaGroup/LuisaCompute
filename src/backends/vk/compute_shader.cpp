@@ -9,9 +9,6 @@
 
 namespace lc::vk {
 
-bool ComputeShader::verify_type_md5(luisa::span<const luisa::compute::Type *const> arg_types, vstd::MD5 md5) {
-    return hlsl::CodegenUtility::GetTypeMD5(arg_types) == md5;
-}
 ComputeShader::ComputeShader(
     Device *device,
     uint3 block_size,
@@ -26,8 +23,10 @@ ComputeShader::ComputeShader(
     vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
     luisa::span<const std::byte> constant_ubo_data,
     uint validation_count,
-    luisa::optional<uint8_t> required_subgroup_size)
-    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count}, _block_size(block_size) {
+    luisa::optional<uint8_t> required_subgroup_size,
+    uint32_t push_constant_size,
+    detail::ShaderCodegenDialect codegen_dialect)
+    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect}, _block_size(block_size) {
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     if (!cache_code.empty()) {
@@ -103,6 +102,7 @@ ComputeShader *ComputeShader::compile(
     vstd::vector<SavedArgument> &&saved_args,
     vstd::function<hlsl::CodegenResult()> const &codegen,
     vstd::optional<vstd::MD5> const &code_md5,
+    luisa::optional<vstd::MD5> expected_type_md5,
     vstd::vector<Argument> &&bindings,
     uint3 block_size,
     vstd::string_view file_name,
@@ -110,15 +110,58 @@ ComputeShader *ComputeShader::compile(
     uint shader_model,
     bool unsafe_math,
     uint validation_count,
-    luisa::optional<uint8_t> required_subgroup_size) {
+    luisa::optional<uint8_t> required_subgroup_size,
+    bool requires_sampler_anisotropy,
+    uint32_t push_constant_size,
+    detail::ShaderCodegenDialect codegen_dialect) {
+
+    auto required_spirv_features =
+        device->enabled_spirv_artifact_features();
+    if (requires_sampler_anisotropy) {
+        required_spirv_features |=
+            spirv::target_feature::sampler_anisotropy;
+    }
+    auto feature_check = spirv::check_spirv_target_feature_requirements(
+        required_spirv_features,
+        device->enabled_spirv_artifact_features());
+    LUISA_ASSERT(
+        static_cast<bool>(feature_check),
+        "Vulkan HLSL-to-SPIR-V compute artifact requires unavailable "
+        "features 0x{:016x} or unknown features 0x{:016x}.",
+        feature_check.missing_required_bits,
+        feature_check.unknown_required_bits);
+    auto artifact_requirements =
+        SpirvArtifactFeatureRequirements{required_spirv_features};
+    luisa::optional<vstd::MD5> expected_shader_md5;
+    if (code_md5) { expected_shader_md5.emplace(*code_md5); }
 
     auto result = required_subgroup_size ?
                       ShaderSerializer::DeserResult{} :
-                      ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
+                      ShaderSerializer::try_deser_compute(
+                          device,
+                          {.shader_md5 = expected_shader_md5,
+                           .type_md5 = expected_type_md5,
+                           .codegen_dialect = codegen_dialect},
+                          std::move(bindings), file_name, serde_type, bin_io,
+                          push_constant_size);
     // cache invalid, need compile
     bool write_cache = !required_subgroup_size && !file_name.empty();
     if (!result.shader) {
         auto str = codegen();
+        if (expected_type_md5) {
+            LUISA_ASSERT(
+                *expected_type_md5 == str.typeMD5,
+                "Vulkan compute shader type identity changed across codegen: "
+                "expected {}, generated {}.",
+                expected_type_md5->to_string(false),
+                str.typeMD5.to_string(false));
+        }
+        LUISA_ASSERT(
+            validation_count == str.validation_count,
+            "Vulkan HLSL validation-count handoff mismatch: caller supplied {}, "
+            "but code generation produced {}.",
+            validation_count, str.validation_count);
+        validation_count = str.validation_count;
         vstd::MD5 md5;
         if (write_cache) {
             if (code_md5) {
@@ -164,7 +207,9 @@ ComputeShader *ComputeShader::compile(
                     std::move(str.printers),
                     {},
                     validation_count,
-                    required_subgroup_size);
+                    required_subgroup_size,
+                    push_constant_size,
+                    codegen_dialect);
                 if (write_cache) {
                     ShaderSerializer::serialize_bytecode(
                         shader->binds(),
@@ -180,7 +225,11 @@ ComputeShader *ComputeShader::compile(
                         str.useTex3DBindless,
                         str.useBufferBindless,
                         shader->printers(),
-                        validation_count);
+                        validation_count,
+                        {},
+                        required_subgroup_size,
+                        artifact_requirements,
+                        codegen_dialect);
                     ShaderSerializer::serialize_pso(
                         device,
                         shader,
@@ -210,7 +259,9 @@ ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
     uint shader_model,
     bool unsafe_math,
     uint validation_count,
-    luisa::optional<uint8_t> required_subgroup_size) {
+    luisa::optional<uint8_t> required_subgroup_size,
+    bool requires_sampler_anisotropy,
+    uint32_t push_constant_size) {
 
     if (serde_type != SerdeType::kBuiltin) [[unlikely]] {
         LUISA_ERROR("Vulkan HLSL-to-SPIR-V compute compilation is restricted to internal builtins. "
@@ -223,6 +274,7 @@ ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
         std::move(saved_args),
         codegen,
         code_md5,
+        luisa::nullopt,
         std::move(bindings),
         block_size,
         file_name,
@@ -230,6 +282,9 @@ ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
         shader_model,
         unsafe_math,
         validation_count,
-        required_subgroup_size);
+        required_subgroup_size,
+        requires_sampler_anisotropy,
+        push_constant_size,
+        detail::ShaderCodegenDialect::VULKAN_BUILTIN);
 }
 }// namespace lc::vk

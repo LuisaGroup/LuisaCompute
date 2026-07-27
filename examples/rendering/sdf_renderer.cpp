@@ -40,35 +40,16 @@ using namespace luisa::compute;
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 int main(int argc, char *argv[]) {
 
-    // Parse optional --spp and --offline flags
-    uint user_spp = 0u;
-    bool force_offline = false;
-    std::optional<std::filesystem::path> compare_path;
-    std::optional<std::filesystem::path> out_ref_path;
-    bool out_ref_write = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
-            compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
-            user_spp = static_cast<uint>(std::atoi(argv[++i]));
-        } else if (std::string_view{argv[i]} == "--out_ref" && i + 1 < argc) {
-            std::string_view mode{argv[++i]};
-            if (mode == "write" && i + 1 < argc) {
-                out_ref_path = std::filesystem::path{argv[++i]};
-                out_ref_write = true;
-                force_offline = true;
-            } else if (mode == "read" && i + 1 < argc) {
-                out_ref_path = std::filesystem::path{argv[++i]};
-                out_ref_write = false;
-                force_offline = true;
-            } else {
-                LUISA_WARNING("--out_ref requires 'write <path>' or 'read <path>'");
-            }
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto user_spp = opts.spp;
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
+    auto out_ref_path = opts.out_ref_path;
+    auto out_ref_write = opts.out_ref_write;
 
     static constexpr int max_ray_depth = 6;
     static constexpr float eps = 1e-4f;
@@ -313,7 +294,10 @@ int main(int argc, char *argv[]) {
     stream << hdr2ldr_shader(accum_image, ldr_image, 2.0).dispatch(width, height)
            << ldr_image.copy_to(luisa::span{host_image})
            << synchronize();
-    stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
+    if (stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0) == 0) {
+        LUISA_ERROR("Failed to write 'sdf-renderer.png'.");
+        return 1;
+    }
 
     // out_ref: compare raw floating-point accum data for precise debugging
     if (out_ref_path) {
@@ -322,6 +306,14 @@ int main(int argc, char *argv[]) {
         luisa::vector<float> accum_host(float_count);
         stream << accum_image.copy_to(luisa::span{accum_host}) << synchronize();
 
+        for (size_t i = 0; i < accum_host.size(); ++i) {
+            if (!std::isfinite(accum_host[i])) {
+                LUISA_ERROR("Rendered raw accumulation contains a non-finite value at pixel {}, channel {}: {}.",
+                            i / 4u, i % 4u, accum_host[i]);
+                return 1;
+            }
+        }
+
         if (out_ref_write) {
             // Write reference: save raw float4 data to binary file
             std::ofstream ofs(out_ref_path->string(), std::ios::binary);
@@ -329,49 +321,70 @@ int main(int argc, char *argv[]) {
                 LUISA_ERROR("Failed to open out_ref file '{}' for writing.", out_ref_path->string());
                 return 1;
             }
-            ofs.write(reinterpret_cast<const char *>(accum_host.data()),
-                      accum_host.size() * sizeof(float));
+            auto byte_count = static_cast<std::streamsize>(accum_host.size() * sizeof(float));
+            ofs.write(reinterpret_cast<const char *>(accum_host.data()), byte_count);
+            if (!ofs) {
+                LUISA_ERROR("Failed to write complete out_ref file '{}'.", out_ref_path->string());
+                return 1;
+            }
             ofs.close();
+            if (!ofs) {
+                LUISA_ERROR("Failed to finalize out_ref file '{}'.", out_ref_path->string());
+                return 1;
+            }
             LUISA_INFO("Reference written to {} ({} floats, {} pixels)",
                        out_ref_path->string(), accum_host.size(), pixel_count);
         } else {
             // Read reference and compare
-            if (!std::filesystem::exists(*out_ref_path)) {
-                LUISA_WARNING("Reference file '{}' not found; skipping comparison.",
-                              out_ref_path->string());
-            } else {
-                auto file_size = std::filesystem::file_size(*out_ref_path);
-                auto expected_size = float_count * sizeof(float);
-                if (file_size != expected_size) {
-                    LUISA_ERROR("Reference file size mismatch: got {}, expected {} ({} floats).",
-                                file_size, expected_size, float_count);
-                    return 1;
-                }
-                luisa::vector<float> ref_host(float_count);
-                std::ifstream ifs(out_ref_path->string(), std::ios::binary);
-                if (!ifs) {
-                    LUISA_ERROR("Failed to open out_ref file '{}' for reading.", out_ref_path->string());
-                    return 1;
-                }
-                ifs.read(reinterpret_cast<char *>(ref_host.data()), expected_size);
-                ifs.close();
-
-                // Compute average absolute difference per color channel (RGB only, skip alpha)
-                double total_diff = 0.0;
-                size_t compared = 0;
-                for (size_t i = 0; i < pixel_count; ++i) {
-                    size_t base = i * 4u;
-                    for (size_t c = 0; c < 3u; ++c) {
-                        total_diff += std::abs(
-                            static_cast<double>(accum_host[base + c]) -
-                            static_cast<double>(ref_host[base + c]));
-                        ++compared;
-                    }
-                }
-                double avg_diff = total_diff / static_cast<double>(compared);
-                LUISA_INFO("Reference comparison (raw float accum): avg_abs_diff={:.9f} ({} pixels compared)",
-                           avg_diff, pixel_count);
+            constexpr double absolute_tolerance = 1e-5;
+            constexpr double relative_tolerance = 1e-4;
+            auto expected_size = float_count * sizeof(float);
+            std::ifstream ifs(out_ref_path->string(), std::ios::binary | std::ios::ate);
+            if (!ifs) {
+                LUISA_ERROR("Failed to open out_ref file '{}' for reading; the reference is required.",
+                            out_ref_path->string());
+                return 1;
             }
+            auto file_size = static_cast<std::streamoff>(ifs.tellg());
+            if (file_size != static_cast<std::streamoff>(expected_size)) {
+                LUISA_ERROR("Reference file size mismatch: got {}, expected {} ({} floats).",
+                            file_size, expected_size, float_count);
+                return 1;
+            }
+            ifs.seekg(0, std::ios::beg);
+            luisa::vector<float> ref_host(float_count);
+            auto byte_count = static_cast<std::streamsize>(expected_size);
+            if (!ifs.read(reinterpret_cast<char *>(ref_host.data()), byte_count)) {
+                LUISA_ERROR("Failed to read complete out_ref file '{}'.", out_ref_path->string());
+                return 1;
+            }
+
+            double total_diff = 0.0;
+            double max_diff = 0.0;
+            for (size_t i = 0; i < float_count; ++i) {
+                auto actual = static_cast<double>(accum_host[i]);
+                auto expected = static_cast<double>(ref_host[i]);
+                if (!std::isfinite(expected)) {
+                    LUISA_ERROR("Raw reference contains a non-finite value at pixel {}, channel {}: {}.",
+                                i / 4u, i % 4u, expected);
+                    return 1;
+                }
+                auto diff = std::abs(actual - expected);
+                auto limit = absolute_tolerance +
+                             relative_tolerance * std::max(std::abs(actual), std::abs(expected));
+                total_diff += diff;
+                max_diff = std::max(max_diff, diff);
+                if (diff > limit) {
+                    LUISA_ERROR("Raw reference comparison failed at pixel {}, channel {}: got {}, expected {}, "
+                                "abs_diff={} exceeds tolerance {}.",
+                                i / 4u, i % 4u, actual, expected, diff, limit);
+                    return 1;
+                }
+            }
+            auto avg_diff = total_diff / static_cast<double>(float_count);
+            LUISA_INFO("Reference comparison (raw float accum): PASSED "
+                       "(avg_abs_diff={:.9f}, max_abs_diff={:.9f}, abs_tol={}, rel_tol={}).",
+                       avg_diff, max_diff, absolute_tolerance, relative_tolerance);
         }
     }
 

@@ -423,6 +423,7 @@ void Tlas::pre_build(
             _instance_buffer->vk_buffer(),
             0,
             _instance_buffer->byte_size()};
+        auto local_write_begin = write_desc_sets.size();
         write_desc_sets.emplace_back(VkWriteDescriptorSet{
             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             nullptr,
@@ -445,6 +446,13 @@ void Tlas::pre_build(
             nullptr,
             &buffer_info,
             nullptr});
+        LUISA_ASSERT(
+            write_desc_sets.size() - local_write_begin ==
+                shader->local_descriptor_binding_count(),
+            "Vulkan acceleration-update kernel consumed {} local descriptor "
+            "bindings but its validated interface requires {}.",
+            write_desc_sets.size() - local_write_begin,
+            shader->local_descriptor_binding_count());
         vkUpdateDescriptorSets(
             device()->logic_device(),
             write_desc_sets.size(),

@@ -26,12 +26,67 @@ struct ButtomCompactCmd {
     size_t size;
 };
 struct ReorderFuncTable {
-    bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept {
-        return reinterpret_cast<BindlessArray *>(bindless_handle)->IsPtrInBindless(resource_handle);
+    [[nodiscard]] uint64_t canonical_buffer_handle(
+        uint64_t handle) const noexcept {
+        LUISA_ASSERT(handle != 0u,
+                     "Cannot canonicalize a null DirectX buffer handle.");
+        auto resource = reinterpret_cast<Resource const *>(handle);
+        auto native_resource = resource->GetResource();
+        LUISA_ASSERT(native_resource != nullptr,
+                     "DirectX buffer has no underlying ID3D12Resource.");
+        return static_cast<uint64_t>(
+            reinterpret_cast<uintptr_t>(native_resource));
+    }
+    [[nodiscard]] uint64_t canonical_texture_handle(
+        uint64_t handle) const noexcept {
+        LUISA_ASSERT(handle != 0u,
+                     "Cannot canonicalize a null DirectX texture handle.");
+        auto resource = reinterpret_cast<Resource const *>(handle);
+        auto native_resource = resource->GetResource();
+        LUISA_ASSERT(native_resource != nullptr,
+                     "DirectX texture has no underlying ID3D12Resource.");
+        return static_cast<uint64_t>(
+            reinterpret_cast<uintptr_t>(native_resource));
+    }
+    void traverse_bindless_resources(
+        uint64_t bindless_handle,
+        ReorderBindlessResourceVisitor visitor) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        bindless->Lock();
+        auto unlocker = vstd::scope_exit(
+            [bindless]() noexcept { bindless->Unlock(); });
+        bindless->TraversePendingResources(
+            [&](uint64_t resource_handle) noexcept {
+                auto resource = reinterpret_cast<Resource const *>(
+                    resource_handle);
+                auto tag = resource->get_tag();
+                auto is_buffer =
+                    tag == Resource::Tag::UploadBuffer ||
+                    tag == Resource::Tag::ReadbackBuffer ||
+                    tag == Resource::Tag::DefaultBuffer ||
+                    tag == Resource::Tag::SparseBuffer ||
+                    tag == Resource::Tag::ExternalBuffer;
+                auto is_texture =
+                    tag == Resource::Tag::RenderTexture ||
+                    tag == Resource::Tag::SparseTexture ||
+                    tag == Resource::Tag::DepthBuffer ||
+                    tag == Resource::Tag::ExternalTexture ||
+                    tag == Resource::Tag::ExternalDepth;
+                LUISA_ASSERT(
+                    is_buffer || is_texture,
+                    "DirectX bindless reorder snapshot contains an invalid resource.");
+                visitor(resource_handle, is_buffer);
+            });
     }
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {
-        auto cs = reinterpret_cast<ComputeShader *>(shader_handle);
-        return cs->args()[argument_index].var_usage;
+        auto shader = reinterpret_cast<Shader const *>(shader_handle);
+        auto arguments = shader->args();
+        LUISA_ASSERT(
+            argument_index < arguments.size(),
+            "DirectX command reordering requested shader argument {} from "
+            "a saved table containing only {} entries.",
+            argument_index, arguments.size());
+        return arguments[argument_index].var_usage;
     }
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {
         reinterpret_cast<BindlessArray *>(handle)->Bind(modifications);
@@ -43,9 +98,7 @@ struct ReorderFuncTable {
         reinterpret_cast<BindlessArray *>(handle)->Bind(modifications);
     }
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Texture3DModification> modifications) const noexcept {
-        reinterpret_cast<BindlessArray *>(handle)->Bind(luisa::span{
-            reinterpret_cast<const BindlessArrayUpdateCommand::Texture2DModification *>(modifications.data()),
-            modifications.size()});
+        reinterpret_cast<BindlessArray *>(handle)->Bind(modifications);
     }
     luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {
         return reinterpret_cast<ComputeShader const *>(handle)->arg_bindings();
@@ -53,14 +106,9 @@ struct ReorderFuncTable {
     luisa::span<const Argument> work_graph_bindings(uint64_t handle) const noexcept {
         return reinterpret_cast<WorkGraphProgram const *>(handle)->arg_bindings();
     }
-    Usage work_graph_get_usage(uint64_t handle, size_t argument_index) const noexcept {
-        return reinterpret_cast<WorkGraphProgram const *>(handle)->args()[argument_index].var_usage;
-    }
-    void lock_bindless(uint64_t bindless_handle) const noexcept {
-        reinterpret_cast<BindlessArray *>(bindless_handle)->Lock();
-    }
-    void unlock_bindless(uint64_t bindless_handle) const noexcept {
-        reinterpret_cast<BindlessArray *>(bindless_handle)->Unlock();
+    luisa::span<const Argument> raster_shader_bindings(uint64_t) const noexcept {
+        // The DirectX raster shader ABI currently has no captured-binding list.
+        return {};
     }
     template<typename Func>
     void traverse_arguments(

@@ -3,17 +3,26 @@
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/passes/scalar_evolution.h>
 
 namespace luisa::compute::xir {
 
 Function::Function(Module *parent_module, const Type *type) noexcept
-    : Super{parent_module, type}, _arguments{this}, _basic_blocks{this} {}
+    : Super{parent_module, type}, _arguments{this}, _basic_blocks{this},
+      _lifetime_token{luisa::make_shared<uint8_t>(0u)} {
+    detail::scev_register_function(this);
+}
+
+Function::~Function() noexcept {
+    detail::scev_invalidate_function(this);
+}
 
 Argument *Function::create_argument(const Type *type, bool by_ref) noexcept {
     if (type->is_resource()) {
         LUISA_ASSERT(!by_ref, "Resource argument must not be passed by reference.");
         return create_resource_argument(type);
     }
+    if (type->is_custom()) { return create_reference_argument(type); }
     return by_ref ? static_cast<Argument *>(create_reference_argument(type)) :
                     static_cast<Argument *>(create_value_argument(type));
 }
@@ -129,11 +138,20 @@ void FunctionDefinition::_traverse_basic_block_reverse_post_order(BasicBlock *bl
 KernelFunction::KernelFunction(Module *parent_module, luisa::uint3 block_size) noexcept
     : Super{parent_module}, _block_size{} { set_block_size(block_size); }
 
+bool KernelFunction::is_valid_block_size(luisa::uint3 size) noexcept {
+    constexpr auto max_thread_count = uint64_t{1024u};
+    if (size.x == 0u || size.y == 0u || size.z == 0u ||
+        size.x > max_thread_count || size.y > max_thread_count ||
+        size.z > max_thread_count) {
+        return false;
+    }
+    auto thread_count = static_cast<uint64_t>(size.x) * size.y * size.z;
+    return thread_count >= 32u && thread_count <= max_thread_count &&
+           thread_count % 32u == 0u;
+}
+
 void KernelFunction::set_block_size(luisa::uint3 size) noexcept {
-    auto thread_count = size.x * size.y * size.z;
-    LUISA_ASSERT(thread_count >= 32u &&
-                     thread_count <= 1024u &&
-                     thread_count % 32u == 0u,
+    LUISA_ASSERT(is_valid_block_size(size),
                  "Invalid block size: {}.", size);
     _block_size = {size.x, size.y, size.z};
 }

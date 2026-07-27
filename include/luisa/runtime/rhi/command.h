@@ -1,5 +1,7 @@
 #pragma once
 
+#include <limits>
+
 #include <luisa/core/macro.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/vector.h>
@@ -686,18 +688,27 @@ public:
     };
 
     struct ModifiedBuffer {
+        static constexpr auto whole_buffer_size =
+            std::numeric_limits<size_t>::max();
         uint64_t handle;
         size_t offset_bytes;
+        size_t size_bytes;
         Operation op;
         ModifiedBuffer() noexcept
-            : handle{0}, offset_bytes{0u}, op{Operation::NONE} {}
-        ModifiedBuffer(uint64_t handle, size_t offset_bytes, Operation op) noexcept
-            : handle{handle}, offset_bytes{offset_bytes}, op{op} {}
-        [[nodiscard]] static auto emplace(uint64_t handle, size_t offset_bytes) noexcept {
-            return ModifiedBuffer{handle, offset_bytes, Operation::EMPLACE};
+            : handle{0}, offset_bytes{0u}, size_bytes{0u},
+              op{Operation::NONE} {}
+        ModifiedBuffer(uint64_t handle, size_t offset_bytes,
+                       size_t size_bytes, Operation op) noexcept
+            : handle{handle}, offset_bytes{offset_bytes},
+              size_bytes{size_bytes}, op{op} {}
+        [[nodiscard]] static auto emplace(
+            uint64_t handle, size_t offset_bytes,
+            size_t size_bytes = whole_buffer_size) noexcept {
+            return ModifiedBuffer{handle, offset_bytes, size_bytes,
+                                  Operation::EMPLACE};
         }
         [[nodiscard]] static auto remove() noexcept {
-            return ModifiedBuffer{0u, 0u, Operation::REMOVE};
+            return ModifiedBuffer{0u, 0u, 0u, Operation::REMOVE};
         }
     };
 
@@ -733,7 +744,7 @@ public:
             : slot{slot}, buffer{buffer}, tex2d{tex2d}, tex3d{tex3d} {}
     };
 
-    static_assert(sizeof(Modification) == 64u);
+    static_assert(sizeof(Modification) == 72u);
 
     struct BufferModification {
         using Operation = BindlessArrayUpdateCommand::Operation;
@@ -900,6 +911,14 @@ public:
 
     virtual void traverse_arguments(MutableArgumentVisitor &visitor) noexcept = 0;
     virtual void traverse_arguments(ArgumentVisitor &visitor) const noexcept = 0;
+
+    // Native dispatches that pass exact backend resource states can request
+    // an isolated reorder layer. This prevents their state contract from
+    // being merged with another command's abstract resource usage.
+    [[nodiscard]] virtual bool
+    requires_resource_state_isolation() const noexcept {
+        return false;
+    }
 
     // For backend reorder
     [[nodiscard]] virtual uint3 max_dispatch_size() const noexcept { return uint3{65535u * 32u}; }

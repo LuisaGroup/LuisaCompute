@@ -124,17 +124,22 @@ template<typename T>
     auto u = __float_as_int(x);
     return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
 }
-[[nodiscard]] __device__ inline lc_float powi_impl(lc_float x, lc_int y) noexcept {
-    lc_float r = 1.0f;
-    auto is_y_neg = y < 0;
-    auto y_abs = is_y_neg ? -y : y;
+template<typename T, typename I>
+[[nodiscard]] __device__ inline T powi_impl(T x, I y) noexcept {
+    T r = static_cast<T>(1.0f);
+    auto is_y_neg = y < static_cast<I>(0);
+    // Convert first, then negate in the unsigned domain. This preserves the
+    // magnitude of every signed minimum value and the complete width of every
+    // unsigned exponent.
+    auto y_abs = static_cast<lc_ulong>(y);
+    if (is_y_neg) y_abs = lc_ulong{0} - y_abs;
 
-    while (y_abs) {
-        if (y_abs & 1) r *= x;
+    while (y_abs != 0u) {
+        if ((y_abs & 1u) != 0u) r *= x;
         x *= x;
         y_abs >>= 1;
     }
-    return is_y_neg ? 1.0f / r : r;
+    return is_y_neg ? static_cast<T>(1.0f) / r : r;
 }
 [[nodiscard]] __device__ inline lc_float powf_impl(lc_float x, lc_float y) noexcept {
     auto y_int = static_cast<lc_int>(y);
@@ -147,18 +152,6 @@ template<typename T>
 [[nodiscard]] __device__ inline bool isnan_impl(lc_double x) noexcept {
     auto u = reinterpret_cast<lc_ulong&>(x);
     return u == 9221120237041090560ull || u == 9218868437227405313ull;
-}
-[[nodiscard]] __device__ inline lc_double powi_impl(lc_double x, lc_int y) noexcept {
-    lc_double r = 1.0;
-    auto is_y_neg = y < 0;
-    auto y_abs = is_y_neg ? -y : y;
-
-    while (y_abs) {
-        if (y_abs & 1) r *= x;
-        x *= x;
-        y_abs >>= 1;
-    }
-    return is_y_neg ? 1.0 / r : r;
 }
 [[nodiscard]] __device__ inline lc_double powf_impl(lc_double x, lc_double y) noexcept {
     auto y_int = static_cast<lc_long>(y);
@@ -397,6 +390,56 @@ struct lc_float{i}x{i} {{
                         file=file)
             print(file=file)
 
+        def generate_powi_calls():
+            base_types = ["half", "float"] if is_cpu else [
+                "half", "float", "double"]
+            exponent_types = [
+                "byte", "ubyte", "short", "ushort", "int",
+                "uint", "long", "ulong"]
+            print("template<typename I>\nstruct lc_powi_exponent_traits;", file=file)
+            for exponent_type in exponent_types:
+                print(
+                    f"template<>\nstruct lc_powi_exponent_traits<lc_{exponent_type}> {{\n"
+                    f"    static constexpr lc_uint dimension = 1u;\n"
+                    f"    [[nodiscard]] __device__ inline static lc_{exponent_type} "
+                    f"lane(lc_{exponent_type} v, lc_uint) noexcept {{ return v; }}\n"
+                    f"}};",
+                    file=file)
+                for n in range(2, 5):
+                    print(
+                        f"template<>\nstruct lc_powi_exponent_traits<lc_{exponent_type}{n}> {{\n"
+                        f"    static constexpr lc_uint dimension = {n}u;\n"
+                        f"    [[nodiscard]] __device__ inline static lc_{exponent_type} "
+                        f"lane(lc_{exponent_type}{n} v, lc_uint i) noexcept {{ return v[i]; }}\n"
+                        f"}};",
+                        file=file)
+            for base_type in base_types:
+                print(
+                    f"template<typename I>\n"
+                    f"[[nodiscard]] __device__ inline lc_{base_type} lc_powi("
+                    f"lc_{base_type} x, I a) noexcept {{\n"
+                    f"    using E = lc_powi_exponent_traits<I>;\n"
+                    f"    static_assert(E::dimension == 1u);\n"
+                    f"    return powi_impl(x, E::lane(a, 0u));\n"
+                    f"}}",
+                    file=file)
+                for n in range(2, 5):
+                    elements = "xyzw"[:n]
+                    calls = ", ".join(
+                        f"powi_impl(x.{e}, E::lane(a, "
+                        f"E::dimension == 1u ? 0u : {i}u))"
+                        for i, e in enumerate(elements))
+                    print(
+                        f"template<typename I>\n"
+                        f"[[nodiscard]] __device__ inline lc_{base_type}{n} lc_powi("
+                        f"lc_{base_type}{n} x, I a) noexcept {{\n"
+                        f"    using E = lc_powi_exponent_traits<I>;\n"
+                        f"    static_assert(E::dimension == 1u || E::dimension == {n}u);\n"
+                        f"    return lc_make_{base_type}{n}({calls});\n"
+                        f"}}",
+                        file=file)
+            print(file=file)
+
 
         # select
         print(
@@ -455,7 +498,7 @@ struct lc_float{i}x{i} {{
         generate_vector_call("log2", "log2f", "hfd", ["x"])
         generate_vector_call("log10", "log10f", "hfd", ["x"])
         generate_vector_call("pow", "powf_impl", "hfd", ["x", "a"])
-        generate_vector_call("powi", "powi_impl", "hfd", ["x", "a"])
+        generate_powi_calls()
 
         generate_vector_call("sqrt", "sqrtf", "f", ["x"])
         generate_vector_call("sqrt", "sqrt", "d", ["x"])

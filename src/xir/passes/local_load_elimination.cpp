@@ -54,7 +54,11 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
                     auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable());
                     if (alloca_inst == nullptr) { break; }
                     if (auto iter = already_loaded.find(load->variable()); iter != already_loaded.end()) {
-                        removable_loads.emplace(load, iter->second);
+                        // Replacing a load with a shared earlier value has no
+                        // unique owner for instruction-local metadata.
+                        if (load->metadata_list().empty()) {
+                            removable_loads.emplace(load, iter->second);
+                        }
                     } else {
                         variable_pointers[alloca_inst].emplace_back(load->variable());
                         already_loaded[load->variable()] = load;
@@ -147,7 +151,10 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                 if (trace_pointer_base_local_alloca_inst(ptr) == nullptr) { continue; }
                 auto it = current.find(ptr);
                 if (it != current.end() && it->second != load) {
-                    if (removable != nullptr) { removable->emplace_back(load, it->second); }
+                    if (removable != nullptr &&
+                        load->metadata_list().empty()) {
+                        removable->emplace_back(load, it->second);
+                    }
                 } else {
                     current[ptr] = load;
                 }
@@ -222,7 +229,9 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
 }
 
 static void run_local_load_elimination_on_function(Function *function, LocalLoadEliminationInfo &info) noexcept {
+    if (function == nullptr) { return; }
     if (auto definition = function->definition()) {
+        if (definition->body_block() == nullptr) { return; }
         luisa::unordered_set<BasicBlock *> visited;
         definition->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
             run_local_load_elimination_on_basic_block(visited, block, info);
@@ -241,6 +250,10 @@ LocalLoadEliminationInfo local_load_elimination_pass_run_on_function(Function *f
 
 LocalLoadEliminationInfo local_load_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LocalLoadEliminationInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("removed_load", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::run_local_load_elimination_on_function(f, info);
     }

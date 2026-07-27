@@ -41,12 +41,15 @@ float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return mul(a,b);}
 float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
 float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
 #ifdef LUISA_DEBUG_INFO
-	#define _bfreadMat(bf,idx,vid) (((idx) < _Global[0]._validate_##vid) ? bf[idx].m : (bf[0].m * 0) - 1)
-	#define _bfwriteMat(bf,idx,value,vid) { if ((idx) < _Global[0]._validate_##vid) { bf[idx].m = value; } }
-	// Volatile and byte-buffer matrix macros use template functions below (unchanged for debug)
+	#define _bfreadMat(bf,idx,bound) (((idx) < (bound)) ? bf[idx].m : (bf[0].m * 0) - 1)
+	#define _bfwriteMat(bf,idx,value,bound) { if ((idx) < (bound)) { bf[idx].m = value; } }
+	#define _bytebfreadMat(bf,type,idx,bound) (((idx) < (bound)) ? bf.template Load<type>(idx).m : (bf.template Load<type>(0).m * 0) - 1)
+	#define _bytebfwriteMat(bf,type,idx,value,bound) { if ((idx) < (bound)) { type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm); } }
 #else
 	#define _bfreadMat(bf,idx) bf[idx].m
 	#define _bfwriteMat(bf,idx,value) bf[idx].m=value
+	#define _bytebfreadMat(bf,type,idx) bf.template Load<type>(idx).m
+	#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
 #endif
 template<typename T,typename BufferType>
 T _volatile_bfreadMat(BufferType b,uint idx){
@@ -59,8 +62,6 @@ DeviceMemoryBarrier();
 return b.template Load<BufferElem>(idx).m;
 }
 #define _volatile_bfwriteMat(bf,idx,value) {bf[idx].m=value; DeviceMemoryBarrier();}
-#define _bytebfreadMat(bf,type,idx) bf.template Load<type>(idx).m
-#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
 #define _volatile_bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);DeviceMemoryBarrier();}
 struct _wfloat3 {float3 v; float a;};
 struct _wfloat16_t3 {float16_t3 v; float16_t a;};
@@ -79,15 +80,15 @@ struct _WrappedFloat4x4 {
 float4x4 m;
 };
 #ifdef LUISA_DEBUG_INFO
-// Debug: range-checked buffer read/write macros with validate index
-#define _bfread(bf,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf[idx] : (bf[0] * 0) - 1)
-#define _bfreadVec3(bf,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf[idx].xyz : (bf[0].xyz * 0) - 1)
-#define _bfwrite(bf,idx,value,vid) \
-    { if ((idx) < _Global[0]._validate_##vid) { bf[idx] = value; } }
-#define _bfwriteVec3(bf,idx,value,type,vid) \
-    { if ((idx) < _Global[0]._validate_##vid) { bf[idx] = type##4(value, 0); } }
+// Debug: range-checked buffer read/write macros with an explicit bound.
+	#define _bfread(bf,idx,bound) \
+	    (((idx) < (bound)) ? bf[idx] : (bf[0] * 0) - 1)
+	#define _bfreadVec3(bf,idx,bound) \
+	    (((idx) < (bound)) ? bf[idx].xyz : (bf[0].xyz * 0) - 1)
+	#define _bfwrite(bf,idx,value,bound) \
+	    { if ((idx) < (bound)) { bf[idx] = value; } }
+	#define _bfwriteVec3(bf,idx,value,type,bound) \
+	    { if ((idx) < (bound)) { bf[idx] = type##4(value, 0); } }
 #else
 #define _bfread(bf,idx) bf[idx]
 #define _bfreadVec3(bf,idx) bf[idx].xyz
@@ -119,26 +120,22 @@ return b.template Load<BufferElem>(idx).xyz;
 #define _volatile_bfwrite(bf,idx,value) {bf[idx]=value; DeviceMemoryBarrier();}
 #define _volatile_bfwriteVec3(bf,idx,value,type) {bf[idx]=type##4(value,0); DeviceMemoryBarrier();}
 #ifdef LUISA_DEBUG_INFO
-#define _bytebfread(bf,type,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf.template Load<type>(idx) : (bf.template Load<type>(0) * 0) - 1)
-#define _bytebfreadVec3(bf,type,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf.template Load<type##4>(idx).xyz : (bf.template Load<type##4>(0).xyz * 0) - 1)
-#define _bytebfwrite(bf,idx,value,vid) \
-    { if ((idx) < _Global[0]._validate_##vid) { bf.Store(idx, value); } }
-#define _bytebfwriteVec3(bf,type,idx,value,vid) \
-    { if ((idx) < _Global[0]._validate_##vid) { bf.template Store<type##4>(idx, type##4(value, 0)); } }
-#define _volatile_bytebfwrite(bf,idx,value,vid) \
-    { if ((idx) < _Global[0]._validate_##vid) { bf.Store(idx, value); DeviceMemoryBarrier(); } }
-#define _volatile_bytebfwriteVec3(bf,type,idx,value,vid) \
-    { if ((idx) < _Global[0]._validate_##vid) { bf.template Store<type##4>(idx, type##4(value, 0)); DeviceMemoryBarrier(); } }
+	#define _bytebfread(bf,type,idx,bound) \
+	    (((idx) < (bound)) ? bf.template Load<type>(idx) : (bf.template Load<type>(0) * 0) - 1)
+	#define _bytebfreadVec3(bf,type,idx,bound) \
+	    (((idx) < (bound)) ? bf.template Load<type##4>(idx).xyz : (bf.template Load<type##4>(0).xyz * 0) - 1)
+	#define _bytebfwrite(bf,idx,value,bound) \
+	    { if ((idx) < (bound)) { bf.Store(idx, value); } }
+	#define _bytebfwriteVec3(bf,type,idx,value,bound) \
+	    { if ((idx) < (bound)) { bf.template Store<type##4>(idx, type##4(value, 0)); } }
 #else
-#define _bytebfread(bf,type,idx) bf.template Load<type>(idx)
-#define _bytebfreadVec3(bf,type,idx) bf.template Load<type##4>(idx).xyz
-#define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
-#define _bytebfwriteVec3(bf,type,idx,value) bf.template Store<type##4>(idx,type##4(value,0))
+	#define _bytebfread(bf,type,idx) bf.template Load<type>(idx)
+	#define _bytebfreadVec3(bf,type,idx) bf.template Load<type##4>(idx).xyz
+	#define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
+	#define _bytebfwriteVec3(bf,type,idx,value) bf.template Store<type##4>(idx,type##4(value,0))
+#endif
 #define _volatile_bytebfwrite(bf,idx,value) {bf.Store(idx,value); DeviceMemoryBarrier();}
 #define _volatile_bytebfwriteVec3(bf,type,idx,value) {bf.template Store<type##4>(idx,type##4(value,0)); DeviceMemoryBarrier();}
-#endif
 #define _Readtx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
 #define _Smptx(tex,uv,filter,address) (tex.SampleLevel(_GETSMP((address)*4+(filter)),(uv),0))

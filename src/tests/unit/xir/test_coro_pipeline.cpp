@@ -128,8 +128,9 @@ void reg_coro_pipeline() {
         XIRBuilder b;
         b.set_insertion_point(body);
         // Keep both switch arms executable through phase-A DCE so the test
-        // actually reaches coro split/materialize instead of passing after the
-        // switch alone was lowered.
+        // actually reaches coro split/materialize. The raw coroutine interval
+        // uses IndexedBranchInst, and the final structured boundary must
+        // reconstruct a native SwitchInst rather than binary-lowering it.
         auto *selector = kernel->create_value_argument(Type::of<int>());
         auto *sw = b.switch_(selector);
         auto *suspend_block = sw->create_case_block(0);
@@ -149,7 +150,10 @@ void reg_coro_pipeline() {
         expect(count_tag_in_owned_blocks(m, DerivedInstructionTag::SWITCH) == 1u);
         xir_to_ast_normalize_module(&m);
 
-        expect(count_tag_in_owned_blocks(m, DerivedInstructionTag::SWITCH) == 0u);
+        expect(count_tag_in_owned_blocks(
+                   m, DerivedInstructionTag::INDEXED_BRANCH) == 0u);
+        expect(count_tag_in_owned_blocks(
+                   m, DerivedInstructionTag::SWITCH) >= 1u);
         expect(count_callables(m) >= 2u);
         size_t checked_continuations = 0u;
         for (auto *function : m.function_list()) {

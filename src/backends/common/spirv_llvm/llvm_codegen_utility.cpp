@@ -1,6 +1,8 @@
 #include "llvm_codegen_utility.h"
 #include "llvm_codegen_stack_data.h"
+#include "llvm_compat.h"
 #include "llvm_state_visitor.h"
+#include "vulkan_binding_properties.h"
 
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/GlobalVariable.h>
@@ -18,7 +20,6 @@
 #include <llvm/IR/IntrinsicsSPIRV.h>
 
 #include "../hlsl/shader_property.h"
-#include "../hlsl/hlsl_codegen.h"
 
 #include <luisa/ast/variable.h>
 #include <luisa/ast/usage.h>
@@ -120,7 +121,7 @@ llvm::Type *LLVMCodegenUtility::ToLLVMType(Type const &type) {
         case Type::Tag::TEXTURE:
         case Type::Tag::BINDLESS_ARRAY:
         case Type::Tag::ACCEL:
-            return _builder->getPtrTy(0); // opaque pointer in addr space 0
+            return _builder->getPtrTy(0);// opaque pointer in addr space 0
 
         // --- Cooperative types ---
         case Type::Tag::COOPERATIVE_VECTOR:
@@ -137,7 +138,7 @@ llvm::Type *LLVMCodegenUtility::ToLLVMType(Type const &type) {
         default:
             LUISA_ERROR_WITH_LOCATION("Unsupported type tag: {}",
                                       static_cast<uint32_t>(type.tag()));
-            return _builder->getInt32Ty(); // unreachable
+            return _builder->getInt32Ty();// unreachable
     }
 }
 
@@ -205,13 +206,17 @@ void LLVMCodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str)
             break;
         }
         case Type::Tag::BUFFER:
-            str << "buffer"; break;
+            str << "buffer";
+            break;
         case Type::Tag::TEXTURE:
-            str << "texture"; break;
+            str << "texture";
+            break;
         case Type::Tag::BINDLESS_ARRAY:
-            str << "bindless_array"; break;
+            str << "bindless_array";
+            break;
         case Type::Tag::ACCEL:
-            str << "accel"; break;
+            str << "accel";
+            break;
         default:
             str << "type_" << vstd::to_string(type.hash());
             break;
@@ -357,8 +362,10 @@ static llvm::Constant *CreateConstantImpl(ConstantData const &data, llvm::Type *
             } else if (elem_type->isIntegerTy()) {
                 uint64_t v = 0;
                 auto bw = elem_type->getIntegerBitWidth();
-                if (bw == 32) v = *reinterpret_cast<uint32_t const *>(sub_data);
-                else if (bw == 64) v = *reinterpret_cast<uint64_t const *>(sub_data);
+                if (bw == 32)
+                    v = *reinterpret_cast<uint32_t const *>(sub_data);
+                else if (bw == 64)
+                    v = *reinterpret_cast<uint64_t const *>(sub_data);
                 elems.push_back(llvm::ConstantInt::get(elem_type, v));
             } else {
                 elems.push_back(llvm::Constant::getNullValue(elem_type));
@@ -397,7 +404,7 @@ llvm::Constant *LLVMCodegenUtility::CreateConstant(ConstantData const &data, llv
 llvm::GlobalVariable *LLVMCodegenUtility::CreateConstantGlobal(ConstantData const &data, llvm::Type *type) {
     auto *init = CreateConstant(data, type);
     auto *gv = new llvm::GlobalVariable(
-        *_module, type, true, // isConstant
+        *_module, type, true,// isConstant
         llvm::GlobalValue::InternalLinkage, init, "const");
     return gv;
 }
@@ -450,9 +457,7 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
     }
 
     // Use ExternalLinkage for kernel entry points, InternalLinkage for callables
-    auto linkage = (func.tag() == Function::Tag::KERNEL)
-                       ? llvm::Function::ExternalLinkage
-                       : llvm::Function::InternalLinkage;
+    auto linkage = (func.tag() == Function::Tag::KERNEL) ? llvm::Function::ExternalLinkage : llvm::Function::InternalLinkage;
     auto *llvm_func = llvm::Function::Create(
         func_type, linkage,
         llvm::StringRef(name_builder.data(), name_builder.size()), _module.get());
@@ -522,7 +527,7 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
                     llvm::GlobalValue::ExternalLinkage, nullptr,
                     llvm::StringRef(var_name.data(), var_name.size()),
                     nullptr, llvm::GlobalVariable::NotThreadLocal,
-                    1u); // addrspace(1) = CrossWorkgroup/StorageBuffer
+                    1u);// addrspace(1) = CrossWorkgroup/StorageBuffer
                 opt->variables[arg.uid()] = global;
             } else if (arg.tag() == Variable::Tag::REFERENCE) {
                 // Reference arguments: create GlobalVariable in addrspace(1)
@@ -557,7 +562,7 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
                 llvm::GlobalValue::ExternalLinkage, nullptr,
                 "_Global", nullptr,
                 llvm::GlobalVariable::NotThreadLocal,
-                1u); // addrspace(1) = CrossWorkgroup/StorageBuffer
+                1u);// addrspace(1) = CrossWorkgroup/StorageBuffer
 
             for (size_t i = 0; i < value_args.size(); i++) {
                 auto *gep = _builder->CreateStructGEP(
@@ -630,7 +635,7 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
     }
 
     // If no terminator, add ret void or unreachable
-    if (!_builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!terminator_or_null(_builder->GetInsertBlock())) {
         if (ret_type->isVoidTy()) {
             _builder->CreateRetVoid();
         } else {
@@ -1020,75 +1025,60 @@ luisa::vector<uint32_t> LLVMCodegenUtility::EmitSPIRV() {
 void LLVMCodegenUtility::GenerateProperties(
     Function kernel,
     LLVMCodegenResult::Properties &properties) {
-
-    // Mirror the XIR SpirvCodegenEntry::generate_binding() logic.
-    // Walk kernel arguments (Variables) and generate property entries.
-
-    // Detect writable usage from the kernel's variable usage map
-    auto is_writable = [&](const Variable &v) {
-        return (static_cast<uint>(kernel.variable_usage(v.uid())) &
-                static_cast<uint>(Usage::WRITE)) != 0;
-    };
-
-    // Detect cbuffer non-empty: any argument that is not a resource or builtin
-    bool cbuffer_non_empty = false;
-    for (auto &&arg : kernel.arguments()) {
-        auto tag = arg.tag();
-        switch (tag) {
-            case Variable::Tag::BUFFER:
-            case Variable::Tag::TEXTURE:
-            case Variable::Tag::BINDLESS_ARRAY:
-            case Variable::Tag::ACCEL:
-            case Variable::Tag::THREAD_ID:
-            case Variable::Tag::BLOCK_ID:
-            case Variable::Tag::DISPATCH_ID:
-            case Variable::Tag::DISPATCH_SIZE:
-            case Variable::Tag::KERNEL_ID:
-            case Variable::Tag::WARP_LANE_COUNT:
-            case Variable::Tag::WARP_LANE_ID:
-                break;
-            default:
-                cbuffer_non_empty = true;
-                break;
-        }
-    }
-
     // Detect bindless usage from propagated builtin callables
     const auto &builtins = kernel.propagated_builtin_callables();
     bool use_buffer_bindless = [&]() noexcept -> bool {
         static constexpr CallOp ops[] = {
-            CallOp::BINDLESS_BUFFER_READ, CallOp::BINDLESS_BUFFER_WRITE,
+            CallOp::BINDLESS_BUFFER_READ,
+            CallOp::BINDLESS_BUFFER_WRITE,
             CallOp::BINDLESS_BYTE_BUFFER_READ,
-            CallOp::UNIFORM_BINDLESS_BUFFER_READ, CallOp::UNIFORM_BINDLESS_BUFFER_WRITE,
+            CallOp::UNIFORM_BINDLESS_BUFFER_READ,
+            CallOp::UNIFORM_BINDLESS_BUFFER_WRITE,
             CallOp::UNIFORM_BINDLESS_BYTE_BUFFER_READ,
-            CallOp::TYPED_BINDLESS_BUFFER_READ, CallOp::TYPED_BINDLESS_BUFFER_WRITE,
-            CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_READ, CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_WRITE,
+            CallOp::TYPED_BINDLESS_BUFFER_READ,
+            CallOp::TYPED_BINDLESS_BUFFER_WRITE,
+            CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_READ,
+            CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_WRITE,
         };
-        for (auto op : ops) { if (builtins.test(op)) return true; }
+        for (auto op : ops) {
+            if (builtins.test(op)) return true;
+        }
         return false;
     }();
     bool use_tex2d_bindless = [&]() noexcept -> bool {
         static constexpr CallOp ops[] = {
-            CallOp::BINDLESS_TEXTURE2D_SAMPLE, CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL,
-            CallOp::BINDLESS_TEXTURE2D_READ, CallOp::BINDLESS_TEXTURE2D_SIZE,
-            CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE, CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_LEVEL,
-            CallOp::UNIFORM_BINDLESS_TEXTURE2D_READ, CallOp::UNIFORM_BINDLESS_TEXTURE2D_SIZE,
+            CallOp::BINDLESS_TEXTURE2D_SAMPLE,
+            CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL,
+            CallOp::BINDLESS_TEXTURE2D_READ,
+            CallOp::BINDLESS_TEXTURE2D_SIZE,
+            CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE,
+            CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_LEVEL,
+            CallOp::UNIFORM_BINDLESS_TEXTURE2D_READ,
+            CallOp::UNIFORM_BINDLESS_TEXTURE2D_SIZE,
             CallOp::TYPED_BINDLESS_TEXTURE2D_SAMPLE_SAMPLER,
             CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_SAMPLER,
         };
-        for (auto op : ops) { if (builtins.test(op)) return true; }
+        for (auto op : ops) {
+            if (builtins.test(op)) return true;
+        }
         return false;
     }();
     bool use_tex3d_bindless = [&]() noexcept -> bool {
         static constexpr CallOp ops[] = {
-            CallOp::BINDLESS_TEXTURE3D_SAMPLE, CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL,
-            CallOp::BINDLESS_TEXTURE3D_READ, CallOp::BINDLESS_TEXTURE3D_SIZE,
-            CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE, CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_LEVEL,
-            CallOp::UNIFORM_BINDLESS_TEXTURE3D_READ, CallOp::UNIFORM_BINDLESS_TEXTURE3D_SIZE,
+            CallOp::BINDLESS_TEXTURE3D_SAMPLE,
+            CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL,
+            CallOp::BINDLESS_TEXTURE3D_READ,
+            CallOp::BINDLESS_TEXTURE3D_SIZE,
+            CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE,
+            CallOp::UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_LEVEL,
+            CallOp::UNIFORM_BINDLESS_TEXTURE3D_READ,
+            CallOp::UNIFORM_BINDLESS_TEXTURE3D_SIZE,
             CallOp::TYPED_BINDLESS_TEXTURE3D_SAMPLE_SAMPLER,
             CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_SAMPLER,
         };
-        for (auto op : ops) { if (builtins.test(op)) return true; }
+        for (auto op : ops) {
+            if (builtins.test(op)) return true;
+        }
         return false;
     }();
 
@@ -1097,45 +1087,33 @@ void LLVMCodegenUtility::GenerateProperties(
     opt->useTex2DBindless = use_tex2d_bindless;
     opt->useTex3DBindless = use_tex3d_bindless;
 
-    // CBuffer (global argument buffer) — fixed at reg=0 if non-empty
-    uint reg_count = cbuffer_non_empty ? 1u : 0u;
-    if (cbuffer_non_empty) {
-        properties.emplace_back(hlsl::Property{
-            hlsl::ShaderVariableType::StructuredBuffer, 0u, 0u, 1u});
+    luisa::vector<LLVMVulkanBindingArgument> arguments;
+    arguments.reserve(kernel.arguments().size());
+    for (auto &&argument : kernel.arguments()) {
+        auto type = argument.type();
+        arguments.emplace_back(LLVMVulkanBindingArgument{
+            .tag = type->tag(),
+            .usage = kernel.variable_usage(argument.uid()),
+            .indirect_dispatch_buffer =
+                type->is_custom() &&
+                type->description() == "LC_IndirectDispatchBuffer"sv});
     }
-
-    // Kernel resource arguments
-    for (auto &&arg : kernel.arguments()) {
-        hlsl::Property prop;
-        switch (arg.type()->tag()) {
-            case Type::Tag::BUFFER:
-                if (is_writable(arg)) {
-                    prop.type = hlsl::ShaderVariableType::RWStructuredBuffer;
-                } else {
-                    prop.type = hlsl::ShaderVariableType::StructuredBuffer;
-                }
-                break;
-            case Type::Tag::TEXTURE:
-                if (is_writable(arg)) {
-                    prop.type = hlsl::ShaderVariableType::UAVTextureHeap;
-                } else {
-                    prop.type = hlsl::ShaderVariableType::SRVTextureHeap;
-                }
-                break;
-            case Type::Tag::BINDLESS_ARRAY:
-                prop.type = hlsl::ShaderVariableType::StructuredBuffer;
-                break;
-            case Type::Tag::ACCEL:
-                prop.type = hlsl::ShaderVariableType::SPIRVAccel;
-                break;
-            default:
-                continue; // skip non-resource bindings
-        }
-        prop.space_index = 0u;
-        prop.register_index = reg_count++;
-        prop.array_size = 1u;
-        properties.push_back(prop);
-    }
+    auto request = LLVMVulkanBindingPropertyRequest{
+        .arguments = arguments,
+        .use_buffer_bindless = use_buffer_bindless,
+        .use_tex2d_bindless = use_tex2d_bindless,
+        .use_tex3d_bindless = use_tex3d_bindless,
+        .printer_count =
+            static_cast<uint32_t>(kernel.requires_printing())};
+    auto support = validate_llvm_vulkan_resource_model(request);
+    LUISA_ASSERT(
+        support,
+        "AST-to-LLVM Vulkan SPIR-V cannot lower this shader's runtime "
+        "resource interface: {}. Use the XIR-to-SPIR-V or HLSL-to-SPIR-V "
+        "path for this shader.",
+        llvm_vulkan_resource_model_error_name(support.error));
+    auto plan = plan_llvm_vulkan_binding_properties(request);
+    properties = std::move(plan.properties);
 }
 
 // ============================================================================
@@ -1164,10 +1142,10 @@ static void strip_addresses_capability(luisa::vector<uint32_t> &spv_bin) {
                (version >> 8) & 0xFF, version & 0xFF);
 
     constexpr uint32_t kOpCapability = 17;
-    constexpr uint32_t kAddressesCap = 4; // SpvCapabilityAddresses = 4
-    constexpr uint32_t kLinkageCap = 5;   // SpvCapabilityLinkage = 5
+    constexpr uint32_t kAddressesCap = 4;// SpvCapabilityAddresses = 4
+    constexpr uint32_t kLinkageCap = 5;  // SpvCapabilityLinkage = 5
     constexpr uint32_t kOpDecorate = 71;
-    constexpr uint32_t kLinkageAttributesDec = 69; // SpvDecorationLinkageAttributes = 69
+    constexpr uint32_t kLinkageAttributesDec = 69;// SpvDecorationLinkageAttributes = 69
     constexpr uint32_t kOpPtrAccessChain = 67;
     constexpr uint32_t kOpAccessChain = 65;
     constexpr uint32_t kOpInBoundsPtrAccessChain = 70;
@@ -1181,7 +1159,7 @@ static void strip_addresses_capability(luisa::vector<uint32_t> &spv_bin) {
     for (size_t h = 0; h < 5; ++h) out.push_back(spv_bin[h]);
 
     bool found_addresses = false;
-    size_t i = 5; // Start after header
+    size_t i = 5;// Start after header
     while (i < spv_bin.size()) {
         uint32_t word = spv_bin[i];
         uint32_t word_count = word >> 16;
@@ -1208,9 +1186,7 @@ static void strip_addresses_capability(luisa::vector<uint32_t> &spv_bin) {
             // Convert PtrAccessChain to AccessChain by removing the Element
             // operand (at index 4). The Element operand is the extra pointer
             // that distinguishes PtrAccessChain from AccessChain.
-            uint32_t new_opcode = (opcode == kOpInBoundsPtrAccessChain)
-                                      ? kOpInBoundsAccessChain
-                                      : kOpAccessChain;
+            uint32_t new_opcode = (opcode == kOpInBoundsPtrAccessChain) ? kOpInBoundsAccessChain : kOpAccessChain;
             uint32_t new_wc = word_count - 1;
             out.push_back((new_wc << 16) | new_opcode);
             // Copy words 1-3 (ResultType, Result, Base)
@@ -1279,11 +1255,14 @@ LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(
     LLVMCodegenUtility util;
     util.InitializeSPIRVModule();
 
-    // 2. Codegen the kernel function into LLVM IR
-    util.CodegenFunction(kernel);
-
-    // 3. Generate binding properties from kernel arguments
+    // 2. Validate and plan the runtime interface before AST lowering. The
+    // experimental LLVM path deliberately rejects resource families whose
+    // descriptor-handle lowering is not implemented yet; doing this first
+    // keeps those kernels away from partially implemented visitor stubs.
     util.GenerateProperties(kernel, result.properties);
+
+    // 3. Codegen the kernel function into LLVM IR
+    util.CodegenFunction(kernel);
 
     // 4. Collect bindless usage flags from stack data
     result.useTex2DBindless = util.opt->useTex2DBindless;
@@ -1293,22 +1272,16 @@ LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(
     // 5. Collect printer info
     result.printers = std::move(util.opt->printers);
 
-    // 6. Collect constant UBO data
-    result.constant_ubo_data = std::move(util.opt->constant_ubo_data);
-
-    // 7. Emit SPIR-V binary via LLVM SPIRV target
+    // 6. Emit SPIR-V binary via LLVM SPIRV target
     result.spv_bin = util.EmitSPIRV();
 
-    // 8. Strip Addresses/Linkage capabilities and convert PtrAccessChain
+    // 7. Strip Addresses/Linkage capabilities and convert PtrAccessChain
     strip_addresses_capability(result.spv_bin);
 
-    // 9. Validate and optimize the SPIR-V binary (mirrors XIR path post-processing)
+    // 8. Validate the Vulkan SPIR-V binary before returning it
     luisa_spirv_validate_post_llvm(result.spv_bin, "post-llvm");
-
-    // 10. Compute type MD5 for caching
-    result.typeMD5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
 
     return result;
 }
 
-} // namespace lc::llvm_codegen
+}// namespace lc::llvm_codegen

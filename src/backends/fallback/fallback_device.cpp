@@ -44,8 +44,19 @@
 
 namespace luisa::compute::fallback {
 
-FallbackDevice::FallbackDevice(Context &&ctx) noexcept
+FallbackDevice::FallbackDevice(Context &&ctx, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(ctx)} {
+
+    if (config == nullptr || config->binary_io == nullptr) {
+        auto use_lmdb =
+            config != nullptr && config->use_lmdb;
+        _default_io =
+            luisa::make_unique<DefaultBinaryIO>(
+                context(), false, use_lmdb);
+        _io = _default_io.get();
+    } else {
+        _io = config->binary_io;
+    }
 
 #if defined(LUISA_ARCH_X86_64)
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
@@ -404,8 +415,10 @@ ResourceCreationInfo FallbackDevice::create_event() noexcept {
 }// namespace luisa::compute::fallback
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
-                                                         const luisa::compute::DeviceConfig *) noexcept {
-    return luisa::new_with_allocator<luisa::compute::fallback::FallbackDevice>(std::move(ctx));
+                                                         const luisa::compute::DeviceConfig *config) noexcept {
+    return luisa::new_with_allocator<
+        luisa::compute::fallback::FallbackDevice>(
+        std::move(ctx), config);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {

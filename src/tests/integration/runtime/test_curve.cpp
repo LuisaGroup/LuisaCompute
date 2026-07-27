@@ -248,15 +248,21 @@ void test_curve(Device &device) {
         stream << hdr2ldr(hdr_image, ldr_image, false).dispatch(resolution)
                << ldr_image.copy_to(luisa::span{pixels})
                << synchronize();
+        auto output_path = std::filesystem::path{opts.output_dir} / "test_curve.png";
+        auto saved = stbi_write_png(output_path.string().c_str(),
+                                    resolution.x, resolution.y, 4,
+                                    pixels.data(), resolution.x * 4u);
+        boost::ut::expect(static_cast<bool>(saved != 0)) << "Failed to save output image.";
+        if (!saved) { return; }
         if (opts.compare_path) {
             auto result = luisa::test::compare_with_reference_file(
                 reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
                 *opts.compare_path);
             LUISA_INFO("Reference comparison [test_curve]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
             if (!result.passed) {
-            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-            return;
-        }
+                boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+                return;
+            }
         }
         return;
     }
@@ -267,7 +273,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_curve(device);
 }

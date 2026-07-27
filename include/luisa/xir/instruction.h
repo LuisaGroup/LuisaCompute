@@ -46,7 +46,7 @@ enum struct DerivedInstructionTag {
     THREAD_GROUP,// volatile, may involve synchronization and cannot be moved/eliminated
 
     /* resource instructions */
-    RESOURCE_QUERY,// query resource properties, free to move and eliminate
+    RESOURCE_QUERY,// query resource state; memory effects depend on ResourceQueryOp
     RESOURCE_READ, // read from resources, may be eliminated if not used, but can be volatile to code motion
     RESOURCE_WRITE,// write to resources, may be volatile to code elimination and motion
 
@@ -72,6 +72,9 @@ enum struct DerivedInstructionTag {
     ASSUME,// assumption
 
     OUTLINE,// mark that the body might be outlined (e.g., for faster compilation)
+
+    // Appended to preserve the numeric values of all existing public tags.
+    INDEXED_BRANCH,// basic block terminator: raw multi-way branches
 };
 
 [[nodiscard]] constexpr luisa::string_view to_string(DerivedInstructionTag tag) noexcept {
@@ -79,6 +82,7 @@ enum struct DerivedInstructionTag {
     switch (tag) {
         case DerivedInstructionTag::IF: return "if"sv;
         case DerivedInstructionTag::SWITCH: return "switch"sv;
+        case DerivedInstructionTag::INDEXED_BRANCH: return "indexed_branch"sv;
         case DerivedInstructionTag::LOOP: return "loop"sv;
         case DerivedInstructionTag::SIMPLE_LOOP: return "simple_loop"sv;
         case DerivedInstructionTag::BRANCH: return "branch"sv;

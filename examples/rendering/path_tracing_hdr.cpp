@@ -5,6 +5,7 @@
 #include <stb/stb_image_write.h>
 
 #include "common/reference_compare.h"
+#include "common/path_tracing_sample_plan.h"
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
@@ -40,6 +41,10 @@ int main(int argc, char *argv[]) {
     }
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
 
     Device device = context.create_device(argv[1]);
 
@@ -179,18 +184,18 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_block_size(16u, 16u, 1u);
         UInt2 coord = dispatch_id().xy();
         Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
-        Float rx = lcg(state);
-        Float ry = lcg(state);
-        Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
-        $for (i, spp_per_dispatch) {
+        $for (i, dispatch_spp) {
+            Float rx = lcg(state);
+            Float ry = lcg(state);
+            Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             Float3 beta = def(make_float3(1.0f));
             Float pdf_bsdf = def(0.0f);
@@ -268,17 +273,17 @@ int main(int argc, char *argv[]) {
                 beta *= 1.0f / q;
             };
         };
-        radiance /= static_cast<float>(spp_per_dispatch);
+        radiance /= dispatch_spp.cast<float>();
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), dispatch_spp.cast<float>()));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         UInt2 p = dispatch_id().xy();
         Float4 accum = accum_image.read(p);
-        Float3 curr = curr_image.read(p).xyz();
-        accum_image.write(p, accum + make_float4(curr, 1.f));
+        Float4 curr = curr_image.read(p);
+        accum_image.write(p, accum + make_float4(curr.xyz() * curr.w, curr.w));
     };
 
     // http://filmicworlds.com/blog/filmic-tonemapping-with-piecewise-power-curves/
@@ -410,11 +415,16 @@ int main(int argc, char *argv[]) {
         (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
-    uint frame_count = 0u;
+    uint64_t frame_count = 0u;
     Clock clock;
 
-    uint offline_total_spp = opts.spp == 0u ? 1024u : opts.spp;
-    while (opts.offline ? (frame_count < offline_total_spp) : !window->should_close()) {
+    auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
+        .total_spp = opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp,
+        .max_spp_per_dispatch = max_spp_per_dispatch,
+        .infinite = !opts.offline,
+    };
+    while (sample_plan.has_next(frame_count) && (opts.offline || !window->should_close())) {
+        auto dispatch_spp = sample_plan.next_dispatch_spp(frame_count);
         int mode = 0;
         if (!opts.offline && swap_chain.has_value()) {
             if (swap_chain->backend_storage() == PixelStorage::R10G10B10A2) {
@@ -423,7 +433,7 @@ int main(int argc, char *argv[]) {
                 mode = 2;
             }
         }
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
+        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution, dispatch_spp)
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
@@ -436,9 +446,9 @@ int main(int argc, char *argv[]) {
             stream << cmd_list.commit() << synchronize();
         }
         double dt = clock.toc() - last_time;
-        LUISA_INFO("dt = {:.2f}ms ({:.2f} spp/s)", dt, spp_per_dispatch / dt * 1000);
+        LUISA_INFO("dt = {:.2f}ms ({:.2f} spp/s)", dt, dispatch_spp / dt * 1000);
         last_time = clock.toc();
-        frame_count += spp_per_dispatch;
+        frame_count += dispatch_spp;
     }
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
     stream << hdr2ldr_shader(accum_image, ldr_image, scale, 0, white_point, false).dispatch(resolution)

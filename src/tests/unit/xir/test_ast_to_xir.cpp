@@ -5,6 +5,8 @@
 // and outputs both text and JSON representations.
 
 #include <luisa/luisa-compute.h>
+#include <luisa/xir/verifier.h>
+#include <yyjson.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -178,11 +180,34 @@ int main() {
 
     // Convert AST to XIR (Extended IR)
     auto module = xir::ast_to_xir_translate(render_kernel.function()->function(), {});
+    if (module == nullptr) {
+        LUISA_WARNING("AST-to-XIR translation returned a null module.");
+        return 1;
+    }
+    auto verification = xir::xir_verify_module(module.get());
+    if (!verification.succeeded()) {
+        LUISA_WARNING("AST-to-XIR produced invalid IR: {}",
+                      verification.errors.front().message);
+        return 1;
+    }
     auto text = xir::xir_to_text_translate(module.get(), true);
-
-    LUISA_INFO("AST2IR:\n{}", text);
+    if (text.empty() || text.find("module;") == luisa::string::npos) {
+        LUISA_WARNING("XIR text translation produced invalid output.");
+        return 1;
+    }
 
     // Convert XIR to JSON for inspection
     auto json = xir::xir_to_json_translate(module.get());
-    LUISA_INFO("IR2JSON:\n{}", json);
+    auto *json_doc = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
+    auto *json_root = json_doc == nullptr ? nullptr : yyjson_doc_get_root(json_doc);
+    auto json_valid = yyjson_is_obj(json_root) &&
+                      yyjson_get_bool(yyjson_obj_get(json_root, "ok")) &&
+                      yyjson_get_uint(yyjson_obj_get(json_root, "function_count")) >= 1u &&
+                      yyjson_is_str(yyjson_obj_get(json_root, "text"));
+    if (json_doc != nullptr) { yyjson_doc_free(json_doc); }
+    if (!json_valid) {
+        LUISA_WARNING("XIR JSON translation produced an invalid module snapshot.");
+        return 1;
+    }
+    return 0;
 }

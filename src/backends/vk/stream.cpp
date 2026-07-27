@@ -10,10 +10,20 @@
 #include "rt_shader.h"
 #include "swapchain.h"
 #include "sparse_buffer.h"
+#include "sparse_binding_plan.h"
+#include "sparse_heap.h"
+#include "timeline_semaphore_plan.h"
+#include "indirect_buffer.h"
+#include "descriptor_interface_plan.h"
+#include "queue_family_contract.h"
+#include "resource_barrier_contract.h"
 #include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/vk_custom_cmd.h>
+#include "../common/argument_block_layout.h"
 #include "../common/shader_print_formatter.h"
 #include "raster_shader.h"
+#include <bit>
+#include <limits>
 namespace lc::vk {
 struct PresentCommand {
     luisa::fixed_vector<VkFence, 1> submit_fences;
@@ -59,21 +69,108 @@ ResourceBarrier::ResourceView get_resource_view(VKCustomCmd::ResourceHandle cons
                 auto tex = reinterpret_cast<Texture const *>(t.handle);
                 return TexView(tex, t.level);
             } else {
-                auto bdls = reinterpret_cast<BindlessArray const *>(t.handle);
-                auto &buffer = bdls->indices_buffer();
-                return BufferView(&buffer, 0, buffer.byte_size());
+                LUISA_ERROR(
+                    "Vulkan bindless state must be expanded through the "
+                    "structured ResourceBarrier bindless APIs.");
             }
         },
         res);
 }
-bool ReorderFuncTable::is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept {
-    return reinterpret_cast<BindlessArray *>(bindless_handle)->is_ptr_in_bindless(resource_handle);
+
+void record_custom_resource_usage(
+    ResourceBarrier *barrier,
+    VKCustomCmd::ResourceUsage const &usage) {
+    LUISA_ASSERT(barrier != nullptr,
+                 "Vulkan custom-command preprocessing requires a resource barrier.");
+    if (auto bindless = luisa::get_if<Argument::BindlessArray>(
+            &usage.resource)) {
+        LUISA_ASSERT(bindless->handle != 0u,
+                     "Vulkan custom command contains a null bindless-array handle.");
+        auto array = reinterpret_cast<BindlessArray const *>(bindless->handle);
+        // The bindless declaration names the index object and reaches the
+        // encoded descriptor members through the same declared native Vulkan
+        // scope. Record both sides so native barriers match the reorder snapshot.
+        barrier->record_bindless(
+            array, usage.stage, usage.access, usage.texture_layout);
+        return;
+    }
+    barrier->record(
+        get_resource_view(usage.resource),
+        usage.stage, usage.access, usage.texture_layout);
 }
-void ReorderFuncTable::lock_bindless(uint64_t bindless_handle) const noexcept {
-    reinterpret_cast<BindlessArray *>(bindless_handle)->mtx.lock();
+
+void set_config_resource_before_state(
+    ResourceBarrier *barrier,
+    VKCustomCmd::ResourceUsage const &usage) {
+    LUISA_ASSERT(barrier != nullptr,
+                 "Vulkan config before-state preprocessing requires a "
+                 "resource barrier.");
+    if (auto bindless = luisa::get_if<Argument::BindlessArray>(
+            &usage.resource)) {
+        LUISA_ASSERT(bindless->handle != 0u,
+                     "Vulkan config before-state contains a null "
+                     "bindless-array handle.");
+        barrier->set_bindless_before_state(
+            reinterpret_cast<BindlessArray const *>(bindless->handle),
+            usage.stage, usage.access, usage.texture_layout);
+        return;
+    }
+    barrier->set_res(
+        get_resource_view(usage.resource),
+        usage.stage, usage.access, usage.texture_layout);
 }
-void ReorderFuncTable::unlock_bindless(uint64_t bindless_handle) const noexcept {
-    reinterpret_cast<BindlessArray *>(bindless_handle)->mtx.unlock();
+
+void set_config_resource_restore_state(
+    ResourceBarrier *barrier,
+    VKCustomCmd::ResourceUsage const &usage) {
+    LUISA_ASSERT(barrier != nullptr,
+                 "Vulkan config restore-state preprocessing requires a "
+                 "resource barrier.");
+    if (auto bindless = luisa::get_if<Argument::BindlessArray>(
+            &usage.resource)) {
+        LUISA_ASSERT(bindless->handle != 0u,
+                     "Vulkan config restore-state contains a null "
+                     "bindless-array handle.");
+        barrier->set_bindless_restore_state(
+            reinterpret_cast<BindlessArray const *>(bindless->handle),
+            usage.stage, usage.access, usage.texture_layout);
+        return;
+    }
+    barrier->set_restore_state(
+        get_resource_view(usage.resource),
+        usage.stage, usage.access, usage.texture_layout);
+}
+
+uint64_t ReorderFuncTable::canonical_buffer_handle(
+    uint64_t handle) const noexcept {
+    auto buffer = reinterpret_cast<Buffer const *>(handle);
+    return std::bit_cast<uint64_t>(buffer->vk_buffer());
+}
+
+uint64_t ReorderFuncTable::canonical_texture_handle(
+    uint64_t handle) const noexcept {
+    auto texture = reinterpret_cast<Texture const *>(handle);
+    return std::bit_cast<uint64_t>(texture->vk_image());
+}
+
+void ReorderFuncTable::traverse_bindless_resources(
+    uint64_t bindless_handle,
+    ReorderBindlessResourceVisitor visitor) const noexcept {
+    auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+    std::lock_guard lock{bindless->mtx};
+    bindless->traverse_pending_resources(
+        [&](uint64_t resource_handle) noexcept {
+            auto resource = reinterpret_cast<Resource const *>(
+                resource_handle);
+            LUISA_ASSERT(
+                resource != nullptr &&
+                    (resource->tag() == Resource::Tag::kBuffer ||
+                     resource->tag() == Resource::Tag::kTexture),
+                "Vulkan bindless reorder snapshot contains an invalid resource.");
+            visitor(
+                resource_handle,
+                resource->tag() == Resource::Tag::kBuffer);
+        });
 }
 void ReorderFuncTable::update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {
     reinterpret_cast<BindlessArray *>(handle)->bind(modifications);
@@ -85,42 +182,454 @@ void ReorderFuncTable::update_bindless(uint64_t handle, luisa::span<const Bindle
     reinterpret_cast<BindlessArray *>(handle)->bind(modifications);
 }
 void ReorderFuncTable::update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Texture3DModification> modifications) const noexcept {
-    reinterpret_cast<BindlessArray *>(handle)->bind({reinterpret_cast<const BindlessArrayUpdateCommand::Texture2DModification *>(modifications.data()),
-                                                     modifications.size()});
+    reinterpret_cast<BindlessArray *>(handle)->bind(modifications);
 }
+struct ResourceAccess {
+    bool reads;
+    bool writes;
+};
+[[nodiscard]] static ResourceAccess resource_access(Usage usage) noexcept {
+    auto bits = luisa::to_underlying(usage);
+    return {
+        .reads = (bits & luisa::to_underlying(Usage::READ)) != 0u ||
+                 usage == Usage::NONE,
+        .writes = (bits & luisa::to_underlying(Usage::WRITE)) != 0u};
+}
+
+struct TextureDescriptorBindings {
+    static constexpr auto invalid =
+        std::numeric_limits<uint32_t>::max();
+    uint32_t sampled{invalid};
+    uint32_t storage{invalid};
+};
+
+[[nodiscard]] static TextureDescriptorBindings
+consume_texture_descriptor_bindings(
+    vstd::span<const hlsl::Property> bindings,
+    uint32_t &descriptor_index, Usage usage,
+    const char *phase) noexcept {
+    auto descriptor_roles = detail::texture_descriptor_roles(usage);
+    auto result = TextureDescriptorBindings{};
+    auto consume = [&](hlsl::ShaderVariableType expected,
+                       uint32_t &role_binding,
+                       const char *role_name) noexcept {
+        auto index = descriptor_index;
+        auto *property = detail::find_local_descriptor_property(
+            bindings, index);
+        LUISA_ASSERT(
+            property != nullptr,
+            "Vulkan {} found no {} descriptor for texture argument at "
+            "binding {}.",
+            phase, role_name, index);
+        LUISA_ASSERT(
+            property->type == expected,
+            "Vulkan {} expected a {} descriptor for texture argument at "
+            "binding {}, but found property type {}.",
+            phase, role_name, index,
+            static_cast<uint32_t>(property->type));
+        role_binding = index;
+        ++descriptor_index;
+    };
+    if (descriptor_roles.sampled) {
+        consume(hlsl::ShaderVariableType::SRVTextureHeap,
+                result.sampled, "sampled-image");
+    }
+    if (descriptor_roles.storage) {
+        consume(hlsl::ShaderVariableType::UAVTextureHeap,
+                result.storage, "storage-image");
+    }
+    return result;
+}
+
+struct ValidatedIndirectDispatch {
+    const Buffer *source;
+    IndirectDispatchPlan plan;
+};
+
+[[nodiscard]] static ValidatedIndirectDispatch
+validate_indirect_dispatch_source(
+    const ShaderDispatchCommand *command) noexcept {
+    LUISA_ASSERT(command != nullptr && command->is_indirect(),
+                 "Vulkan indirect-dispatch validation requires an indirect command.");
+    auto argument = command->indirect_dispatch();
+    LUISA_ASSERT(argument.handle != invalid_resource_handle &&
+                     argument.handle != 0u,
+                 "Vulkan indirect dispatch has an invalid source buffer handle.");
+    auto source = reinterpret_cast<const Buffer *>(argument.handle);
+    LUISA_ASSERT(
+        source->is_indirect_dispatch_buffer(),
+        "Vulkan indirect dispatch source is not a backend-owned "
+        "IndirectDispatchBuffer.");
+    auto plan = plan_indirect_dispatch(
+        source->indirect_dispatch_capacity(), argument.offset,
+        argument.max_dispatch_size);
+    LUISA_ASSERT(
+        static_cast<bool>(plan),
+        "Invalid Vulkan indirect-dispatch range: capacity {}, offset {}, "
+        "maximum count {}, planner error {}.",
+        source->indirect_dispatch_capacity(), argument.offset,
+        argument.max_dispatch_size, static_cast<uint32_t>(plan.error));
+    size_t expected_size = 0u;
+    LUISA_ASSERT(
+        IndirectDispatchLayout::try_total_size(
+            source->indirect_dispatch_capacity(), expected_size) &&
+            source->byte_size() == expected_size,
+        "Vulkan indirect-dispatch buffer has an invalid physical layout: "
+        "capacity {}, expected {} bytes, got {} bytes.",
+        source->indirect_dispatch_capacity(), expected_size,
+        source->byte_size());
+    return {source, plan.plan};
+}
+
+static void validate_indirect_dispatch_target(
+    const ShaderDispatchCommand *command, const Shader *shader,
+    const ValidatedIndirectDispatch &indirect,
+    bool require_initialized_source) noexcept {
+    LUISA_ASSERT(
+        command != nullptr && command->is_indirect() &&
+            indirect.source != nullptr && indirect.plan.command_count != 0u,
+        "Vulkan indirect target validation requires a nonempty source plan.");
+    LUISA_ASSERT(shader != nullptr &&
+                     shader->shader_tag() == Shader::ShaderTag::kComputeShader,
+                 "Vulkan indirect dispatch is supported only for compute "
+                 "pipelines (ray-query kernels are compute pipelines).");
+    LUISA_ASSERT(
+        shader->uses_indirect_dispatch(),
+        "Vulkan indirect dispatch requires the native XIR-to-SPIR-V logical "
+        "metadata ABI. This shader was compiled through an incompatible path.");
+    auto argument = command->indirect_dispatch();
+    if (require_initialized_source) {
+        // This check belongs to command execution, not preprocessing. An
+        // authoring dispatch earlier in the same command list claims and
+        // initializes the header only when its descriptors are bound during
+        // execution; preprocessing necessarily visits the later consumer
+        // before that has happened.
+        LUISA_ASSERT(
+            indirect.source->indirect_header_initialization_claimed(),
+            "Vulkan indirect dispatch source has never been submitted to a GPU "
+            "authoring shader. Set its dispatch count or records before consuming it.");
+    }
+    auto saved_arguments = shader->saved_arguments();
+    auto saved_argument_index = size_t{0u};
+    auto reject_writable_source_alias = [&](auto args) noexcept {
+        for (auto &&arg : args) {
+            LUISA_ASSERT(
+                saved_argument_index < saved_arguments.size(),
+                "Vulkan indirect-dispatch argument table is shorter than "
+                "the encoded shader arguments.");
+            auto &&saved = saved_arguments[saved_argument_index++];
+            if (arg.tag == Argument::Tag::BINDLESS_ARRAY &&
+                resource_access(saved.var_usage).writes) {
+                auto *bindless = reinterpret_cast<const BindlessArray *>(
+                    arg.bindless_array.handle);
+                if (bindless != nullptr &&
+                    bindless->contains_buffer_alias(indirect.source)) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Vulkan indirect-dispatch target binds its "
+                        "GPU-authored source through a writable bindless "
+                        "array. Logical metadata loads would race with "
+                        "target writes; use a separate array/buffer.");
+                }
+            }
+            if (arg.tag == Argument::Tag::BUFFER &&
+                resource_access(saved.var_usage).writes) {
+                auto *target_buffer = reinterpret_cast<const Buffer *>(
+                    arg.buffer.handle);
+                // Luisa handles are not an alias boundary: importing the same
+                // native VkBuffer creates a distinct wrapper. Compare the
+                // actual descriptor resource as well as the fast-path handle.
+                if (arg.buffer.handle == argument.handle ||
+                    (target_buffer != nullptr &&
+                     target_buffer->vk_buffer() ==
+                         indirect.source->vk_buffer())) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Vulkan indirect-dispatch target aliases its "
+                        "GPU-authored source through a writable shader "
+                        "argument. Logical metadata loads would race with "
+                        "target writes; use a separate destination buffer.");
+                }
+            }
+        }
+    };
+    reject_writable_source_alias(shader->captured());
+    reject_writable_source_alias(command->arguments());
+    LUISA_ASSERT(
+        saved_argument_index == saved_arguments.size(),
+        "Vulkan indirect-dispatch argument table has {} unbound entries.",
+        saved_arguments.size() - saved_argument_index);
+}
+
+static void ensure_indirect_header_initialized(
+    CommandBuffer *command_buffer, const Buffer *buffer,
+    ResourceBarrier::Usage next_usage) noexcept {
+    LUISA_ASSERT(command_buffer != nullptr && buffer != nullptr &&
+                     buffer->is_indirect_dispatch_buffer(),
+                 "Vulkan indirect initialization requires an indirect buffer.");
+    if (!buffer->claim_indirect_header_initialization()) { return; }
+    auto whole_buffer = BufferView{buffer, 0u, buffer->byte_size()};
+    command_buffer->resource_barrier->record(
+        whole_buffer, ResourceBarrier::Usage::kCopyDest);
+    command_buffer->resource_barrier->update_states(
+        command_buffer->cmdbuffer());
+    vkCmdFillBuffer(
+        command_buffer->cmdbuffer(), buffer->vk_buffer(), 0u,
+        IndirectDispatchLayout::header_size, 0u);
+    command_buffer->resource_barrier->record(
+        whole_buffer, next_usage);
+    command_buffer->resource_barrier->update_states(
+        command_buffer->cmdbuffer());
+}
+
+struct PlannedArgumentBlock {
+    ArgumentBlockLayout layout;
+    size_t buffer_metadata_count{};
+    ArgumentBlockTrailerPlacement trailer{};
+};
+
+class SavedArgumentCursor {
+private:
+    luisa::span<const SavedArgument> _arguments;
+    size_t _index{};
+
+    [[nodiscard]] const SavedArgument &_next(
+        const char *runtime_kind) noexcept {
+        LUISA_ASSERT(
+            _index < _arguments.size(),
+            "Vulkan dispatch contains more {} arguments than the shader ABI "
+            "table (consumed {}, available {}).",
+            runtime_kind, _index, _arguments.size());
+        return _arguments[_index++];
+    }
+
+public:
+    SavedArgumentCursor() noexcept = default;
+    explicit SavedArgumentCursor(
+        luisa::span<const SavedArgument> arguments) noexcept
+        : _arguments{arguments} {}
+
+    [[nodiscard]] const SavedArgument &next_buffer() noexcept {
+        auto &argument = _next("buffer");
+        LUISA_ASSERT(
+            argument.tag == Type::Tag::BUFFER ||
+                argument.tag == Type::Tag::CUSTOM,
+            "Vulkan dispatch buffer argument {} does not match saved ABI tag {}.",
+            _index - 1u, luisa::to_underlying(argument.tag));
+        return argument;
+    }
+
+    [[nodiscard]] const SavedArgument &next_texture() noexcept {
+        auto &argument = _next("texture");
+        LUISA_ASSERT(
+            argument.tag == Type::Tag::TEXTURE,
+            "Vulkan dispatch texture argument {} does not match saved ABI tag {}.",
+            _index - 1u, luisa::to_underlying(argument.tag));
+        return argument;
+    }
+
+    [[nodiscard]] const SavedArgument &next_bindless_array() noexcept {
+        auto &argument = _next("bindless-array");
+        LUISA_ASSERT(
+            argument.tag == Type::Tag::BINDLESS_ARRAY,
+            "Vulkan dispatch bindless-array argument {} does not match saved ABI tag {}.",
+            _index - 1u, luisa::to_underlying(argument.tag));
+        return argument;
+    }
+
+    [[nodiscard]] const SavedArgument &next_accel() noexcept {
+        auto &argument = _next("acceleration-structure");
+        LUISA_ASSERT(
+            argument.tag == Type::Tag::ACCEL,
+            "Vulkan dispatch accel argument {} does not match saved ABI tag {}.",
+            _index - 1u, luisa::to_underlying(argument.tag));
+        return argument;
+    }
+
+    [[nodiscard]] const SavedArgument &next_uniform(
+        size_t encoded_size) noexcept {
+        auto &argument = _next("uniform");
+        auto resource_tag =
+            argument.tag == Type::Tag::BUFFER ||
+            argument.tag == Type::Tag::TEXTURE ||
+            argument.tag == Type::Tag::BINDLESS_ARRAY ||
+            argument.tag == Type::Tag::ACCEL ||
+            argument.tag == Type::Tag::CUSTOM;
+        LUISA_ASSERT(
+            !resource_tag && argument.struct_size == encoded_size,
+            "Vulkan dispatch uniform argument {} has saved tag {} and size {}, "
+            "but the command encodes {} bytes.",
+            _index - 1u, luisa::to_underlying(argument.tag),
+            argument.struct_size, encoded_size);
+        return argument;
+    }
+
+    void finish(const char *phase) const noexcept {
+        LUISA_ASSERT(
+            _index == _arguments.size(),
+            "Vulkan {} consumed {} saved shader arguments, but the ABI table "
+            "contains {}.",
+            phase, _index, _arguments.size());
+    }
+};
+
+static void validate_saved_argument_count(
+    const Shader *shader,
+    const ShaderDispatchCommandBase *command) noexcept {
+    auto captured_count = shader->captured().size();
+    auto runtime_count = command->arguments().size();
+    LUISA_ASSERT(
+        captured_count <=
+            std::numeric_limits<size_t>::max() - runtime_count,
+        "Vulkan dispatch argument count overflowed.");
+    auto encoded_count = captured_count + runtime_count;
+    LUISA_ASSERT(
+        encoded_count == shader->saved_arguments().size(),
+        "Vulkan dispatch encodes {} captured plus {} runtime arguments, but "
+        "the shader ABI table contains {} entries.",
+        captured_count, runtime_count,
+        shader->saved_arguments().size());
+}
+
+[[nodiscard]] static size_t argument_block_metadata_count(
+    const Shader *shader) noexcept {
+    auto count = size_t{0u};
+    for (auto &argument : shader->saved_arguments()) {
+        if (argument.has_buffer_metadata()) {
+            auto next = static_cast<size_t>(
+                            argument.buffer_metadata_index()) +
+                        1u;
+            count = std::max(count, next);
+        }
+    }
+    return count;
+}
+
+[[nodiscard]] static ArgumentBlockTrailerLayout argument_block_trailer_layout(
+    const Shader *shader, size_t buffer_metadata_count) noexcept {
+    return ArgumentBlockTrailerLayout{
+        .metadata_count = buffer_metadata_count,
+        .metadata_stride = sizeof(StorageBufferMetadata),
+        .metadata_alignment = alignof(StorageBufferMetadata),
+        .validation_count = shader->validation_count(),
+        .validation_stride = sizeof(uint32_t),
+        .validation_alignment = alignof(uint32_t),
+        .word_alignment = sizeof(uint32_t)};
+}
+
+[[nodiscard]] static PlannedArgumentBlock plan_argument_block(
+    const Shader *shader, const ShaderDispatchCommandBase *command,
+    size_t descriptor_range_limit) noexcept {
+    PlannedArgumentBlock plan{
+        .layout = ArgumentBlockLayout{descriptor_range_limit},
+        .buffer_metadata_count =
+            argument_block_metadata_count(shader)};
+    validate_saved_argument_count(shader, command);
+    auto append_uniforms = [&](auto arguments) noexcept {
+        for (auto &argument : arguments) {
+            if (argument.tag != Argument::Tag::UNIFORM) { continue; }
+            auto data = command->uniform(argument.uniform);
+            size_t offset = 0u;
+            if (!plan.layout.append(
+                    data.size_bytes(), argument.uniform.alignment,
+                    offset)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!append_uniforms(shader->captured()) ||
+        !append_uniforms(command->arguments())) {
+        return plan;
+    }
+    static_cast<void>(plan.layout.append_trailers(
+        argument_block_trailer_layout(
+            shader, plan.buffer_metadata_count),
+        plan.trailer));
+    return plan;
+}
+
+static void validate_argument_block_plan(
+    const PlannedArgumentBlock &plan) noexcept {
+    LUISA_ASSERT(
+        static_cast<bool>(plan.layout),
+        "Vulkan per-dispatch argument block is invalid for the device's "
+        "maxStorageBufferRange ({} bytes): {}.",
+        plan.layout.limit(),
+        argument_block_layout_status_name(plan.layout.status()));
+}
+
 struct ResourceBarrierVisitor {
     ResourceBarrier *barrier;
-    SavedArgument const *arg;
+    SavedArgumentCursor arguments;
     vstd::vector<std::byte> *arg_buffer;
+    ArgumentBlockLayout *argument_layout;
+    size_t argument_block_offset;
+    vstd::vector<StorageBufferMetadata> *buffer_metadata;
+    vstd::vector<uint32_t> *validation_values;
     ShaderDispatchCommandBase const &cmd;
     ResourceBarrier::Usage uav_usage;
     ResourceBarrier::Usage read_usage;
     ResourceBarrier::Usage accel_read_usage;
-    template<typename T>
-    void emplace_data(T const &data, size_t alignment) {
-        size_t sz = arg_buffer->size();
-        alignment -= 1;
-        auto aligned_size = (sz + alignment) & (~alignment);
-        luisa::enlarge_by(*arg_buffer, sizeof(T) + aligned_size - sz);
-        using PlaceHolder = luisa::aligned_storage_t<sizeof(T), 1>;
-        *reinterpret_cast<PlaceHolder *>(arg_buffer->data() + aligned_size) =
-            *reinterpret_cast<PlaceHolder const *>(&data);
+    vstd::span<const hlsl::Property> bindings;
+    uint32_t descriptor_index{};
+    detail::ShaderCodegenDialect codegen_dialect{
+        detail::ShaderCodegenDialect::HLSL_SPIRV};
+    [[nodiscard]] const hlsl::Property *binding_at(
+        uint32_t index) const noexcept {
+        return detail::find_local_descriptor_property(bindings, index);
     }
-    template<typename T>
-    void emplace_data(T const *data, size_t size, size_t alignment) {
-        alignment -= 1;
-        size_t sz = arg_buffer->size();
-        auto aligned_size = (sz + alignment) & (~alignment);
-        auto byteSize = size * sizeof(T);
-        luisa::enlarge_by(*arg_buffer, byteSize + aligned_size - sz);
-        std::memcpy(arg_buffer->data() + aligned_size, data, byteSize);
+    [[nodiscard]] const hlsl::Property *consume_binding() noexcept {
+        auto *property = binding_at(descriptor_index);
+        if (property != nullptr) { ++descriptor_index; }
+        return property;
+    }
+    void emplace_data(
+        const void *data, size_t byte_size,
+        size_t alignment) {
+        size_t relative_offset = 0u;
+        if (!argument_layout->append(
+                byte_size, alignment, relative_offset)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Vulkan argument preprocessing diverged from its checked "
+                "layout plan: {}.",
+                argument_block_layout_status_name(
+                    argument_layout->status()));
+        }
+        LUISA_ASSERT(
+            argument_block_offset <=
+                std::numeric_limits<size_t>::max() -
+                    argument_layout->size(),
+            "Vulkan cumulative argument-buffer size overflowed during "
+            "preprocessing.");
+        auto required_size =
+            argument_block_offset + argument_layout->size();
+        luisa::vector_resize(*arg_buffer, required_size);
+        if (byte_size != 0u) {
+            std::memcpy(
+                arg_buffer->data() + argument_block_offset + relative_offset,
+                data, byte_size);
+        }
     }
     ResourceBarrierVisitor(
         ResourceBarrier *barrier,
-        SavedArgument const *arg,
+        luisa::span<const SavedArgument> saved_arguments,
         vstd::vector<std::byte> *arg_buffer,
+        ArgumentBlockLayout *argument_layout,
+        size_t argument_block_offset,
+        vstd::vector<StorageBufferMetadata> *buffer_metadata,
+        vstd::vector<uint32_t> *validation_values,
         ShaderDispatchCommandBase const &cmd,
-        bool is_raster) : barrier(barrier), arg(arg), arg_buffer(arg_buffer), cmd(cmd) {
+        bool is_raster,
+        vstd::span<const hlsl::Property> bindings,
+        uint32_t resource_binding_offset,
+        detail::ShaderCodegenDialect codegen_dialect)
+        : barrier(barrier), arguments(saved_arguments),
+          arg_buffer(arg_buffer),
+          argument_layout(argument_layout),
+          argument_block_offset(argument_block_offset),
+          buffer_metadata(buffer_metadata),
+          validation_values(validation_values), cmd(cmd),
+          bindings(bindings), descriptor_index(resource_binding_offset),
+          codegen_dialect(codegen_dialect) {
         if (is_raster) {
             uav_usage = ResourceBarrier::Usage::kRasterUAV;
             read_usage = ResourceBarrier::Usage::kRasterRead;
@@ -132,73 +641,251 @@ struct ResourceBarrierVisitor {
         }
     }
     void operator()(Argument::Buffer const &bf) {
+        auto &argument = arguments.next_buffer();
+        auto property_index = descriptor_index;
+        auto *property = consume_binding();
+        LUISA_ASSERT(
+            property != nullptr &&
+                (property->type ==
+                     hlsl::ShaderVariableType::StructuredBuffer ||
+                 property->type ==
+                     hlsl::ShaderVariableType::RWStructuredBuffer),
+            "Vulkan barrier preprocessing found no buffer descriptor at binding {}.",
+            property_index);
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null buffer handle.");
         auto res = reinterpret_cast<Buffer const *>(bf.handle);
-        if (((uint)arg->var_usage & (uint)Usage::WRITE) != 0) {
+        LUISA_ASSERT(
+            (argument.tag == Type::Tag::CUSTOM) ==
+                res->is_indirect_dispatch_buffer(),
+            "Vulkan dispatch buffer kind does not match saved ABI tag {}.",
+            luisa::to_underlying(argument.tag));
+        auto view = BufferView{res, bf.offset, bf.size};
+        if (res->is_indirect_dispatch_buffer()) {
+            LUISA_ASSERT(
+                !argument.has_buffer_metadata() && bf.offset == 0u &&
+                    (bf.size == res->indirect_dispatch_capacity() ||
+                     bf.size == res->byte_size()),
+                "Vulkan indirect-dispatch shader arguments must encode the "
+                "whole record range (offset 0, capacity {} or byte size {}), "
+                "got offset {} and encoded size {}.",
+                res->indirect_dispatch_capacity(), res->byte_size(),
+                bf.offset, bf.size);
+            view = BufferView{res, 0u, res->byte_size()};
+        } else {
+            LUISA_ASSERT(
+                bf.offset <= res->byte_size() &&
+                    bf.size <= res->byte_size() - bf.offset,
+                "Vulkan buffer argument offset {} and size {} exceed the "
+                "backing buffer size {}.",
+                bf.offset, bf.size, res->byte_size());
+        }
+        if (argument.has_buffer_metadata()) {
+            LUISA_ASSERT(buffer_metadata != nullptr &&
+                             argument.buffer_metadata_index() < buffer_metadata->size(),
+                         "Missing Vulkan XIR/SPIR-V buffer metadata slot {}.",
+                         argument.buffer_metadata_index());
+            (*buffer_metadata)[argument.buffer_metadata_index()] =
+                storage_buffer_descriptor_range(
+                    res, bf.offset, bf.size, argument.struct_size,
+                    argument.native_buffer_uses_device_address())
+                    .metadata;
+        }
+        if (validation_values != nullptr) {
+            uint32_t value = 0u;
+            LUISA_ASSERT(
+                argument_block_validation_value(
+                    bf.size, argument.struct_size, value),
+                "Vulkan buffer validation size {} bytes is not an exact, "
+                "32-bit element count for stride {}.",
+                bf.size, argument.struct_size);
+            validation_values->emplace_back(value);
+        }
+        if (((uint)argument.var_usage & (uint)Usage::WRITE) != 0) {
             // LUISA_ASSERT(is_device_buffer(res), "Unordered access buffer can not be host-buffer.");
             barrier->record(
-                BufferView{res, bf.offset, bf.size},
+                view,
                 uav_usage);
         } else {
             barrier->record(
-                BufferView{res, bf.offset, bf.size},
+                view,
                 read_usage);
         }
-        ++arg;
     }
     void operator()(Argument::Texture const &bf) {
+        auto &argument = arguments.next_texture();
+        static_cast<void>(consume_texture_descriptor_bindings(
+            bindings, descriptor_index, argument.var_usage,
+            "barrier preprocessing"));
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null texture handle.");
         auto rt = reinterpret_cast<Texture *>(bf.handle);
-        //UAV
-        if (((uint)arg->var_usage & (uint)Usage::WRITE) != 0) {
+        LUISA_ASSERT(bf.level < rt->mip(),
+                     "Texture argument base mip {} is outside {} mip levels.",
+                     bf.level, rt->mip());
+        auto descriptor_roles =
+            detail::texture_descriptor_roles(argument.var_usage);
+        if (descriptor_roles.storage) {
             if (!rt->allow_uav()) {
                 LUISA_ERROR("Texture not allowed for Unordered-Access.");
             }
-            barrier->record(
-                TexView{rt, bf.level},
-                uav_usage);
         }
-        // SRV
-        else {
-            barrier->record(
-                TexView{rt, bf.level},
-                read_usage);
-        }
-        ++arg;
+        barrier->record_texture_descriptor(
+            rt, bf.level,
+            descriptor_roles.sampled,
+            descriptor_roles.storage,
+            read_usage, uav_usage);
     }
     void operator()(Argument::BindlessArray const &bf) {
+        auto &argument = arguments.next_bindless_array();
+        auto property_index = descriptor_index;
+        auto *property = consume_binding();
+        LUISA_ASSERT(
+            property != nullptr && property->type ==
+                                       hlsl::ShaderVariableType::StructuredBuffer,
+            "Vulkan barrier preprocessing found no bindless index descriptor at binding {}.",
+            property_index);
+        auto uses_metadata = false;
+        if (auto *metadata = binding_at(descriptor_index);
+            metadata != nullptr && metadata->type ==
+                                       hlsl::ShaderVariableType::SPIRVBindlessBufferMetadata) {
+            ++descriptor_index;
+            uses_metadata = true;
+        }
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null bindless-array handle.");
         auto bdls = reinterpret_cast<BindlessArray *>(bf.handle);
+        if (codegen_dialect ==
+                detail::ShaderCodegenDialect::XIR_SPIRV &&
+            argument.native_bindless_uses_device_address()) {
+            LUISA_ASSERT(
+                bdls->encoded_buffers_support_device_address(),
+                "Native Vulkan bindless buffer device-address queries "
+                "require every buffer in the encoded descriptor snapshot "
+                "to carry an address-capable creation attestation.");
+        }
         auto &buffer = bdls->indices_buffer();
         barrier->record(
             BufferView(&buffer, 0, buffer.byte_size()),
             read_usage);
-        barrier->process_bindless(bdls, read_usage);
-        ++arg;
+        if (uses_metadata) {
+            auto metadata = bdls->buffer_metadata();
+            LUISA_ASSERT(
+                metadata != nullptr,
+                "A shader uses bindless buffer metadata, but the bound "
+                "bindless array has no metadata storage.");
+            barrier->record(
+                BufferView(metadata, 0, metadata->byte_size()),
+                read_usage);
+        }
+        auto access = resource_access(argument.var_usage);
+        barrier->process_bindless(
+            bdls,
+            access.writes ? uav_usage : read_usage,
+            read_usage);
+        if (validation_values != nullptr) {
+            uint32_t value = 0u;
+            LUISA_ASSERT(
+                argument_block_validation_value(
+                    bdls->size(), 0u, value),
+                "Vulkan bindless-array capacity {} is not representable by "
+                "the HLSL validation ABI.",
+                bdls->size());
+            validation_values->emplace_back(value);
+        }
     }
     void operator()(Argument::Uniform const &a) {
+        static_cast<void>(arguments.next_uniform(a.size));
         auto bf = cmd.uniform(a);
         emplace_data(bf.data(), bf.size_bytes(), a.alignment);
-        ++arg;
     }
     void operator()(Argument::Accel const &bf) {
+        auto &argument = arguments.next_accel();
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null accel handle.");
         auto tlas = reinterpret_cast<Tlas *>(bf.handle);
-        if (!tlas->instance_buffer()) [[unlikely]] {
-            LUISA_ERROR("Accel not initialized.");
+        auto [reads, writes] = resource_access(argument.var_usage);
+        auto native = codegen_dialect ==
+                      detail::ShaderCodegenDialect::XIR_SPIRV;
+        auto traversal = false;
+        auto instance_read = false;
+        auto instance_write = false;
+        if (native) {
+            LUISA_ASSERT(
+                argument.has_explicit_native_accel_roles(),
+                "Native Vulkan accel argument has no persisted exact-role mask.");
+            traversal = argument.native_accel_uses_traversal();
+            auto instance =
+                argument.native_accel_uses_instance_buffer();
+            if (argument.var_usage == Usage::NONE) {
+                LUISA_ASSERT(!traversal && !instance,
+                             "Unused native Vulkan accel has nonempty descriptor roles.");
+                return;
+            }
+            if (traversal) {
+                auto *property = binding_at(descriptor_index);
+                LUISA_ASSERT(
+                    property != nullptr &&
+                        property->type ==
+                            hlsl::ShaderVariableType::SPIRVAccel,
+                    "Native Vulkan accel traversal role has no descriptor at binding {}.",
+                    descriptor_index);
+                ++descriptor_index;
+            }
+            if (instance) {
+                auto *property = binding_at(descriptor_index);
+                auto expected = writes ?
+                                    hlsl::ShaderVariableType::SPIRVAccelInstanceRW :
+                                    hlsl::ShaderVariableType::SPIRVAccelInstance;
+                LUISA_ASSERT(
+                    property != nullptr && property->type == expected,
+                    "Native Vulkan accel instance role has no matching descriptor at binding {}.",
+                    descriptor_index);
+                ++descriptor_index;
+                instance_read = !writes;
+                instance_write = writes;
+            }
+        } else {
+            auto *property = binding_at(descriptor_index);
+            traversal = property != nullptr &&
+                        property->type ==
+                            hlsl::ShaderVariableType::SPIRVAccel;
+            if (traversal) {
+                ++descriptor_index;
+                property = binding_at(descriptor_index);
+            }
+            instance_read = property != nullptr &&
+                            property->type ==
+                                hlsl::ShaderVariableType::SPIRVAccelInstance;
+            instance_write = property != nullptr &&
+                             property->type ==
+                                 hlsl::ShaderVariableType::SPIRVAccelInstanceRW;
+            if (instance_read || instance_write) { ++descriptor_index; }
         }
-        if ((luisa::to_underlying(arg->var_usage) & luisa::to_underlying(Usage::WRITE)) != 0) {
+        auto instance = instance_read || instance_write;
+        LUISA_ASSERT(
+            native ? (traversal || instance) : traversal == reads,
+            "Vulkan accel barrier contract disagrees with the {} descriptor dialect.",
+            native ? "native XIR" : "legacy HLSL/LLVM");
+        LUISA_ASSERT(
+            !instance || instance_write == writes,
+            "Vulkan accel instance descriptor writability disagrees with saved usage.");
+        if (instance) {
+            LUISA_ASSERT(
+                tlas->instance_buffer() != nullptr,
+                "Cannot access an uninitialized Vulkan accel instance buffer.");
             barrier->record(
                 BufferView(tlas->instance_buffer()),
-                ResourceBarrier::Usage::kComputeUAV);
-        } else {
+                instance_write ? uav_usage : read_usage);
+        }
+        if (traversal) {
             if (!tlas->accel_buffer()) [[unlikely]] {
                 LUISA_ERROR("Accel not initialized.");
             }
             barrier->record(
-                BufferView(tlas->instance_buffer()),
-                ResourceBarrier::Usage::kComputeRead);
-            barrier->record(
                 BufferView(tlas->accel_buffer()),
-                ResourceBarrier::Usage::kComputeAccelRead);
+                accel_read_usage);
         }
-        ++arg;
     }
 };
 struct BindPropVisitor {
@@ -207,14 +894,82 @@ struct BindPropVisitor {
     VkDescriptorSet desc_set;
     uint desc_index;
     vstd::vector<VkImageView> *img_views;
-    SavedArgument const *arg;
+    SavedArgumentCursor arguments;
+    vstd::span<const hlsl::Property> bindings;
+    detail::ShaderCodegenDialect codegen_dialect{
+        detail::ShaderCodegenDialect::HLSL_SPIRV};
+    ResourceBarrier::Usage uav_usage;
+    [[nodiscard]] const hlsl::Property *binding_at(uint index) const noexcept {
+        return detail::find_local_descriptor_property(bindings, index);
+    }
     void operator()(Argument::Buffer const &bf) {
+        auto &argument = arguments.next_buffer();
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null buffer handle.");
+        auto *binding = binding_at(desc_index);
+        LUISA_ASSERT(
+            binding != nullptr &&
+                (binding->type == hlsl::ShaderVariableType::StructuredBuffer ||
+                 binding->type == hlsl::ShaderVariableType::RWStructuredBuffer),
+            "Buffer argument at binding {} has no explicit storage-buffer descriptor.",
+            desc_index);
         auto idx = desc_index++;
+        auto buffer = reinterpret_cast<Buffer const *>(bf.handle);
+        LUISA_ASSERT(
+            (argument.tag == Type::Tag::CUSTOM) ==
+                buffer->is_indirect_dispatch_buffer(),
+            "Vulkan dispatch buffer kind does not match saved ABI tag {}.",
+            luisa::to_underlying(argument.tag));
         auto buffer_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-        *buffer_descs = VkDescriptorBufferInfo{
-            reinterpret_cast<Buffer const *>(bf.handle)->vk_buffer(),
-            bf.offset,
-            bf.size};
+        auto validate_direct_descriptor = [&](size_t offset, size_t size,
+                                              size_t element_stride) noexcept {
+            auto &limits = buffer->device()->properties().limits;
+            auto status = detail::validate_direct_storage_buffer_descriptor(
+                offset, size, buffer->byte_size(), element_stride,
+                std::max<VkDeviceSize>(
+                    1u, limits.minStorageBufferOffsetAlignment),
+                limits.maxStorageBufferRange);
+            LUISA_ASSERT(
+                status == detail::DirectStorageBufferDescriptorStatus::SUCCESS,
+                "Vulkan HLSL storage-buffer descriptor for view [{}, {}) is "
+                "invalid: {}. The legacy HLSL ABI cannot represent a "
+                "descriptor-relative subview bias; use an aligned view or "
+                "the native XIR/SPIR-V path.",
+                offset, offset + size,
+                detail::direct_storage_buffer_descriptor_status_name(status));
+        };
+        if (buffer->is_indirect_dispatch_buffer()) {
+            LUISA_ASSERT(
+                !argument.has_buffer_metadata() && bf.offset == 0u &&
+                    (bf.size == buffer->indirect_dispatch_capacity() ||
+                     bf.size == buffer->byte_size()),
+                "Vulkan indirect-dispatch descriptor must cover the whole "
+                "record buffer.");
+            auto writes =
+                (luisa::to_underlying(argument.var_usage) &
+                 luisa::to_underlying(Usage::WRITE)) != 0u;
+            if (writes) {
+                // Initialization belongs to the first authoring pass. A
+                // reader cannot safely claim it while a writer is merely
+                // recorded (but not yet submitted) on another stream.
+                ensure_indirect_header_initialized(
+                    cmdbuffer, buffer, uav_usage);
+            }
+            validate_direct_descriptor(
+                0u, buffer->byte_size(), argument.struct_size);
+            *buffer_descs = VkDescriptorBufferInfo{
+                buffer->vk_buffer(), 0u, buffer->byte_size()};
+        } else if (argument.has_buffer_metadata()) {
+            auto descriptor = storage_buffer_descriptor_range(
+                buffer, bf.offset, bf.size, argument.struct_size);
+            *buffer_descs = VkDescriptorBufferInfo{
+                buffer->vk_buffer(), descriptor.offset, descriptor.range};
+        } else {
+            validate_direct_descriptor(
+                bf.offset, bf.size, argument.struct_size);
+            *buffer_descs = VkDescriptorBufferInfo{
+                buffer->vk_buffer(), bf.offset, bf.size};
+        }
         cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             nullptr,
@@ -226,53 +981,80 @@ struct BindPropVisitor {
             nullptr,
             buffer_descs,
             nullptr});
-        ++arg;
     }
     void operator()(Argument::Texture const &bf) {
-        auto idx = desc_index++;
+        auto &argument = arguments.next_texture();
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null texture handle.");
         auto tex = reinterpret_cast<Texture const *>(bf.handle);
-
-        VkImageViewCreateInfo imgview_create_info{
-            VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            nullptr,
-            0,
-            tex->vk_image(),
-            VkImageViewType(tex->dimension() - 1),
-            Texture::to_vk_format(tex->format()),
-            VkComponentMapping{VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-            VkImageSubresourceRange{
-                tex->get_aspect(),
-                bf.level,
-                1,
+        LUISA_ASSERT(bf.level < tex->mip(),
+                     "Texture argument base mip {} is outside {} mip levels.",
+                     bf.level, tex->mip());
+        auto descriptor_bindings = consume_texture_descriptor_bindings(
+            bindings, desc_index, argument.var_usage,
+            "descriptor binding");
+        auto bind_view = [&](uint32_t idx, bool writable) {
+            VkImageViewCreateInfo imgview_create_info{
+                VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                nullptr,
                 0,
-                1}};
-        VkImageView img_view;
-        VK_CHECK_RESULT(vkCreateImageView(cmdbuffer->device()->logic_device(), &imgview_create_info, Device::alloc_callbacks(), &img_view));
-        img_views->emplace_back(img_view);
-        auto image_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorImageInfo>();
-        *image_descs = VkDescriptorImageInfo{
-            VkSampler{nullptr},
-            img_view,
-            cmdbuffer->resource_barrier->get_layout(tex, bf.level)};
-
-        cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
-            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            nullptr,
-            desc_set,
-            idx,
-            0,
-            1,
-            ((luisa::to_underlying(arg->var_usage) & luisa::to_underlying(Usage::WRITE)) != 0) ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            image_descs,
-            nullptr,
-            nullptr});
-        ++arg;
+                tex->vk_image(),
+                VkImageViewType(tex->dimension() - 1),
+                Texture::to_vk_format(tex->format()),
+                VkComponentMapping{VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+                VkImageSubresourceRange{
+                    tex->get_aspect(),
+                    bf.level,
+                    writable ? 1u : tex->mip() - bf.level,
+                    0,
+                    1}};
+            VkImageView img_view;
+            VK_CHECK_RESULT(vkCreateImageView(cmdbuffer->device()->logic_device(), &imgview_create_info, Device::alloc_callbacks(), &img_view));
+            img_views->emplace_back(img_view);
+            auto image_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorImageInfo>();
+            auto level_count = writable ? 1u : tex->mip() - bf.level;
+            *image_descs = VkDescriptorImageInfo{
+                VkSampler{nullptr},
+                img_view,
+                cmdbuffer->resource_barrier->get_texture_descriptor_layout(
+                    tex, bf.level, level_count)};
+            cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                nullptr,
+                desc_set,
+                idx,
+                0,
+                1,
+                writable ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE :
+                           VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                image_descs,
+                nullptr,
+                nullptr});
+        };
+        if (descriptor_bindings.sampled !=
+            TextureDescriptorBindings::invalid) {
+            bind_view(descriptor_bindings.sampled, false);
+        }
+        if (descriptor_bindings.storage !=
+            TextureDescriptorBindings::invalid) {
+            bind_view(descriptor_bindings.storage, true);
+        }
     }
     void operator()(Argument::Uniform const &a) {
-        ++arg;
+        static_cast<void>(arguments.next_uniform(a.size));
     }
     void operator()(Argument::BindlessArray const &bf) {
-        auto &buffer = reinterpret_cast<BindlessArray const *>(bf.handle)->indices_buffer();
+        static_cast<void>(arguments.next_bindless_array());
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null bindless-array handle.");
+        auto bindless = reinterpret_cast<BindlessArray const *>(bf.handle);
+        auto &buffer = bindless->indices_buffer();
+        auto index_binding = binding_at(desc_index);
+        LUISA_ASSERT(index_binding != nullptr &&
+                         index_binding->type ==
+                             hlsl::ShaderVariableType::StructuredBuffer,
+                     "Bindless array at binding {} has no explicit index-buffer descriptor.",
+                     desc_index);
         auto idx = desc_index++;
         auto buffer_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
         *buffer_descs = VkDescriptorBufferInfo{
@@ -290,11 +1072,88 @@ struct BindPropVisitor {
             nullptr,
             buffer_descs,
             nullptr});
-        ++arg;
+        if (auto metadata_binding = binding_at(desc_index);
+            metadata_binding != nullptr &&
+            metadata_binding->type ==
+                hlsl::ShaderVariableType::SPIRVBindlessBufferMetadata) {
+            auto metadata = bindless->buffer_metadata();
+            LUISA_ASSERT(metadata != nullptr,
+                         "A shader uses bindless buffers, but the bound "
+                         "bindless array has no buffer metadata storage.");
+            auto metadata_idx = desc_index++;
+            auto metadata_desc =
+                cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+            *metadata_desc = VkDescriptorBufferInfo{
+                metadata->vk_buffer(), 0, metadata->byte_size()};
+            cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                nullptr,
+                desc_set,
+                metadata_idx,
+                0,
+                1,
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                nullptr,
+                metadata_desc,
+                nullptr});
+        }
     }
     void operator()(Argument::Accel const &bf) {
+        auto &argument = arguments.next_accel();
+        LUISA_ASSERT(bf.handle != 0u,
+                     "Vulkan dispatch contains a null accel handle.");
         auto tlas = reinterpret_cast<Tlas *>(bf.handle);
-        if ((luisa::to_underlying(arg->var_usage) & luisa::to_underlying(Usage::WRITE)) != 0) {
+        auto [reads, writes] = resource_access(argument.var_usage);
+        auto native = codegen_dialect ==
+                      detail::ShaderCodegenDialect::XIR_SPIRV;
+        auto bind_traversal = [&] {
+            auto *binding = binding_at(desc_index);
+            LUISA_ASSERT(
+                binding != nullptr &&
+                    binding->type ==
+                        hlsl::ShaderVariableType::SPIRVAccel,
+                "Missing Vulkan acceleration-structure descriptor at binding {}.",
+                desc_index);
+            LUISA_ASSERT(reads,
+                         "Acceleration-structure descriptor at binding {} has no traversal/query read usage.",
+                         desc_index);
+            LUISA_ASSERT(tlas->accel_buffer() != nullptr &&
+                             tlas->accel() != VK_NULL_HANDLE,
+                         "Cannot bind an unbuilt Vulkan acceleration structure.");
+            auto idx = desc_index++;
+            auto accel_info = cmdbuffer->temp_desc->allocate_memory<VkWriteDescriptorSetAccelerationStructureKHR>();
+            *accel_info = VkWriteDescriptorSetAccelerationStructureKHR{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
+                .pNext = nullptr,
+                .accelerationStructureCount = 1u,
+                .pAccelerationStructures = &tlas->accel()};
+            cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                accel_info,
+                desc_set,
+                idx,
+                0,
+                1,
+                VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+                nullptr,
+                nullptr,
+                nullptr});
+        };
+        auto bind_instance = [&](bool writable) {
+            auto *binding = binding_at(desc_index);
+            auto expected = writable ?
+                                hlsl::ShaderVariableType::SPIRVAccelInstanceRW :
+                                hlsl::ShaderVariableType::SPIRVAccelInstance;
+            LUISA_ASSERT(
+                binding != nullptr && binding->type == expected,
+                "Missing Vulkan accel instance descriptor at binding {} "
+                "(expected type {}, got {}).",
+                desc_index, static_cast<uint32_t>(expected),
+                binding == nullptr ?
+                    std::numeric_limits<uint32_t>::max() :
+                    static_cast<uint32_t>(binding->type));
+            LUISA_ASSERT(tlas->instance_buffer() != nullptr,
+                         "Cannot bind an uninitialized Vulkan accel instance buffer.");
             auto idx = desc_index++;
             auto buffer_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
             *buffer_descs = VkDescriptorBufferInfo{
@@ -312,48 +1171,45 @@ struct BindPropVisitor {
                 nullptr,
                 buffer_descs,
                 nullptr});
-        } else {
-            // accel
-            {
-                auto idx = desc_index++;
-                auto accel_info = cmdbuffer->temp_desc->allocate_memory<VkWriteDescriptorSetAccelerationStructureKHR>();
-                accel_info->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-                accel_info->accelerationStructureCount = 1;
-                accel_info->pAccelerationStructures = &tlas->accel();
-                cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    accel_info,
-                    desc_set,
-                    idx,
-                    0,
-                    1,
-                    VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
-                    nullptr,
-                    nullptr,
-                    nullptr});
+        };
+        if (native) {
+            LUISA_ASSERT(
+                argument.has_explicit_native_accel_roles(),
+                "Native Vulkan accel argument has no persisted exact-role mask.");
+            auto traversal =
+                argument.native_accel_uses_traversal();
+            auto instance =
+                argument.native_accel_uses_instance_buffer();
+            if (argument.var_usage == Usage::NONE) {
+                LUISA_ASSERT(!traversal && !instance,
+                             "Unused native Vulkan accel has nonempty descriptor roles.");
+                return;
             }
-            // instance
-            {
-                auto idx = desc_index++;
-                auto buffer_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-                *buffer_descs = VkDescriptorBufferInfo{
-                    tlas->instance_buffer()->vk_buffer(),
-                    0,
-                    tlas->instance_buffer()->byte_size()};
-                cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    nullptr,
-                    desc_set,
-                    idx,
-                    0,
-                    1,
-                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                    nullptr,
-                    buffer_descs,
-                    nullptr});
-            }
+            if (traversal) { bind_traversal(); }
+            if (instance) { bind_instance(writes); }
+            LUISA_ASSERT(
+                traversal || instance,
+                "Used native Vulkan accel has an empty descriptor-role mask.");
+            return;
         }
-        ++arg;
+
+        // Legacy HLSL/LLVM artifacts have no explicit role mask. Their stable
+        // ABI makes every read a traversal descriptor and may append one
+        // instance buffer before the next argument's mandatory descriptor.
+        if (reads) { bind_traversal(); }
+        auto *next = binding_at(desc_index);
+        auto has_instance =
+            next != nullptr &&
+            (next->type ==
+                 hlsl::ShaderVariableType::SPIRVAccelInstance ||
+             next->type ==
+                 hlsl::ShaderVariableType::SPIRVAccelInstanceRW);
+        if (has_instance) {
+            bind_instance(writes);
+        } else {
+            LUISA_ASSERT(!writes,
+                         "Legacy Vulkan accel write has no writable instance descriptor.");
+        }
     }
 };
 namespace temp_buffer {
@@ -443,7 +1299,7 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     upload_alloc.visitor.device = &device;
     readback_alloc.visitor.device = &device;
     {
-        VkDescriptorPoolSize pool_sizes[4];
+        VkDescriptorPoolSize pool_sizes[6];
         pool_sizes[0].descriptorCount = 65536;
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         pool_sizes[1].descriptorCount = 65536;
@@ -452,11 +1308,20 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
         pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         pool_sizes[3].descriptorCount = 65536;
         pool_sizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+        pool_sizes[4].descriptorCount = 65536;
+        pool_sizes[4].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        auto pool_size_count = 5u;
+        if (device.enable_raytracing()) {
+            pool_sizes[pool_size_count].descriptorCount = 65536;
+            pool_sizes[pool_size_count].type =
+                VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+            ++pool_size_count;
+        }
         VkDescriptorPoolCreateInfo createInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .flags = 0,
             .maxSets = 262144,
-            .poolSizeCount = vstd::array_count(pool_sizes),
+            .poolSizeCount = pool_size_count,
             .pPoolSizes = pool_sizes};
         VK_CHECK_RESULT(vkCreateDescriptorPool(device.logic_device(), &createInfo, Device::alloc_callbacks(), &desc_pool));
     }
@@ -501,9 +1366,13 @@ void CommandBufferState::reset(Stream *stream, Device &device) {
     img_views.clear();
     VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), desc_pool, 0));
 }
-void CommandBuffer::reset() {
-    VK_CHECK_RESULT(vkResetCommandBuffer(_cmdbuffer, 0));
+bool CommandBuffer::retire_and_recycle() {
+    auto retirement = detail::plan_command_buffer_retirement(_ownership);
+    if (retirement.reset_native_buffer) {
+        VK_CHECK_RESULT(vkResetCommandBuffer(_cmdbuffer, 0));
+    }
     _state->reset(&_stream, *device());
+    return retirement.recycle_native_buffer;
 }
 
 Stream::Stream(Device *device, StreamTag tag)
@@ -533,8 +1402,9 @@ Stream::Stream(Device *device, StreamTag tag)
                           } else if constexpr (std::is_same_v<T, NotifyEvt>) {
                               t.evt->_notify(t.value);
                           } else if constexpr (std::is_same_v<T, CommandBuffer>) {
-                              t.reset();
-                              _cmdbuffers.enqueue(std::move(t));
+                              if (t.retire_and_recycle()) {
+                                  _cmdbuffers.enqueue(std::move(t));
+                              }
                           }
                       });
               }
@@ -553,20 +1423,17 @@ Stream::Stream(Device *device, StreamTag tag)
     switch (tag) {
         case StreamTag::GRAPHICS:
             _queue = device->graphics_queue();
-            _resource_barrier.queue_type = ResourceBarrier::QueueType::kGraphics;
-            _resource_barrier.queue_index = device->graphics_queue_index();
+            _resource_barrier.queue_type = ResourceBarrier::QueueType::GRAPHICS;
             _queue_mtx = &device->graphics_queue_mtx();
             break;
         case StreamTag::COPY:
-            _resource_barrier.queue_type = ResourceBarrier::QueueType::kCopy;
+            _resource_barrier.queue_type = ResourceBarrier::QueueType::COPY;
             _queue = device->copy_queue();
-            _resource_barrier.queue_index = device->copy_queue_index();
             _queue_mtx = &device->copy_queue_mtx();
             break;
         case StreamTag::COMPUTE:
-            _resource_barrier.queue_type = ResourceBarrier::QueueType::kCompute;
+            _resource_barrier.queue_type = ResourceBarrier::QueueType::COMPUTE;
             _queue = device->compute_queue();
-            _resource_barrier.queue_index = device->compute_queue_index();
             _queue_mtx = &device->compute_queue_mtx();
             break;
         default:
@@ -590,6 +1457,14 @@ void Stream::remove_resource_state(Resource const *resource) noexcept {
     _resource_barrier.remove_resource(resource);
 }
 
+bool Stream::_execute_external_command_buffer(
+    VkCommandBuffer command_buffer) noexcept {
+    auto config_ext = device()->config_ext();
+    if (config_ext == nullptr) { return false; }
+    std::lock_guard queue_lock{*_queue_mtx};
+    return config_ext->execute_command_buffer(command_buffer);
+}
+
 void Stream::present(
     Texture const *tex,
     uint mip,
@@ -602,7 +1477,12 @@ void Stream::present(
             _evt.sync(_evt.last_fence() - 2);
         }
     }
-    auto fence = _evt.last_fence() + 1;
+    auto fence_plan = detail::plan_timeline_value_increment(
+        _evt.last_fence(), 1u);
+    LUISA_ASSERT(
+        static_cast<bool>(fence_plan),
+        "Vulkan stream timeline fence overflow during presentation.");
+    auto fence = fence_plan.value;
     {
         CommandBuffer cmdbuffer = [&]() {
             auto p = _cmdbuffers.dequeue();
@@ -657,7 +1537,14 @@ void Stream::present(
         }
 
         {
-            auto producer_wait_value = _evt.last_fence();
+            auto producer_wait_plan =
+                detail::plan_internal_timeline_wait(
+                    _evt.last_fence(),
+                    _evt.last_signaled_fence());
+            LUISA_ASSERT(
+                static_cast<bool>(producer_wait_plan),
+                "Vulkan stream GPU signal is ahead of its logical fence.");
+            auto producer_wait_value = producer_wait_plan.wait_value;
             auto producer_semaphore = _evt.semaphore();
             luisa::fixed_vector<VkSemaphore, 2> wait_semaphores;
             luisa::fixed_vector<VkPipelineStageFlags, 2> wait_stages_all;
@@ -688,7 +1575,7 @@ void Stream::present(
             submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
             submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
             auto _cmdbuffer = cmdbuffer.cmdbuffer();
-            if (device()->config_ext() && device()->config_ext()->execute_command_buffer(_cmdbuffer)) {
+            if (_execute_external_command_buffer(_cmdbuffer)) {
                 submit_info.commandBufferCount = 0;
                 submit_info.pCommandBuffers = nullptr;
             } else {
@@ -747,7 +1634,12 @@ void Stream::dispatch(
             _evt.sync(_evt.last_fence() - 2);
         }
     }
-    auto fence = _evt.last_fence() + 1;
+    auto fence_plan = detail::plan_timeline_value_increment(
+        _evt.last_fence(), 1u);
+    LUISA_ASSERT(
+        static_cast<bool>(fence_plan),
+        "Vulkan stream timeline fence overflow during dispatch.");
+    auto fence = fence_plan.value;
     if (!cmds.empty() || !presents.empty()) {
         CommandBuffer cmdbuffer = [&]() {
             auto p = _cmdbuffers.dequeue();
@@ -759,21 +1651,11 @@ void Stream::dispatch(
 
         auto cb = cmdbuffer.cmdbuffer();
         auto cb_ptr = &cb;
-        _resource_barrier.saved_restore_states.clear();
+        _resource_barrier.clear_restore_states();
         if (device()->config_ext()) {
-            auto after_states = device()->config_ext()->after_states(reinterpret_cast<uint64_t>(this));
             auto before_states = device()->config_ext()->before_states(reinterpret_cast<uint64_t>(this));
             for (auto &i : before_states) {
-                _resource_barrier.set_res(get_resource_view(i.resource), i.stage, i.access, i.texture_layout);
-            }
-            for (auto &i : after_states) {
-                _resource_barrier.saved_restore_states.emplace(
-                    reinterpret_cast<Resource const *>(luisa::visit([](auto &&t) { return t.handle; }, i.resource)),
-                    ResourceBarrier::RestoreStates{
-                        get_resource_view(i.resource),
-                        i.stage,
-                        i.access,
-                        i.texture_layout});
+                set_config_resource_before_state(&_resource_barrier, i);
             }
         }
         cmdbuffer.resource_barrier = &_resource_barrier;
@@ -818,6 +1700,16 @@ void Stream::dispatch(
 
             vk_swapchains.emplace_back(swapchain->swapchain());
         }
+        if (device()->config_ext()) {
+            // Bindless updates have now advanced the encoded descriptor map.
+            // Expand the after-state against this final snapshot, whereas the
+            // before-state above deliberately used the initial snapshot.
+            auto after_states = device()->config_ext()->after_states(
+                reinterpret_cast<uint64_t>(this));
+            for (auto &i : after_states) {
+                set_config_resource_restore_state(&_resource_barrier, i);
+            }
+        }
         _resource_barrier.restore_states(cmdbuffer.cmdbuffer());
         cmdbuffer.end();
 
@@ -829,7 +1721,7 @@ void Stream::dispatch(
             submit_info.pWaitDstStageMask = present_cmd.wait_stages.data();
             submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
             submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
-            if (device()->config_ext() && device()->config_ext()->execute_command_buffer(cb)) {
+            if (_execute_external_command_buffer(cb)) {
                 // External execution - submit with 0 command buffers
                 submit_info.commandBufferCount = 0;
                 submit_info.pCommandBuffers = nullptr;
@@ -884,7 +1776,7 @@ void Stream::dispatch(
                 submit_info.pWaitDstStageMask = present_cmd.wait_stages.data();
                 submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
                 submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
-                if (device()->config_ext() && device()->config_ext()->execute_command_buffer(cb)) {
+                if (_execute_external_command_buffer(cb)) {
                     submit_info.commandBufferCount = 0;
                     submit_info.pCommandBuffers = nullptr;
                 } else {
@@ -931,7 +1823,7 @@ void Stream::dispatch(
                 if (!cmds.empty()) {
                     // Check for external command buffer execution (same as normal path)
                     auto cb_ptr = &cb;
-                    if (device()->config_ext() && device()->config_ext()->execute_command_buffer(cb)) {
+                    if (_execute_external_command_buffer(cb)) {
                         cb_ptr = nullptr;
                     }
                     _evt._signal(*this, fence, cb_ptr);
@@ -973,7 +1865,7 @@ void Stream::dispatch(
         if (!presents.empty()) {
             cb_ptr = nullptr;
         }
-        if (cb_ptr && device()->config_ext() && device()->config_ext()->execute_command_buffer(cb)) {
+        if (cb_ptr && _execute_external_command_buffer(cb)) {
             cb_ptr = nullptr;
         }
         _evt._signal(*this, fence, cb_ptr);
@@ -1000,10 +1892,51 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
     _temp_desc.clear();
     if (textures_update.empty()) [[unlikely]]
         return;
+    auto queue_family_index = device()->sparse_queue_index();
+    auto sparse_queue = detail::validate_sparse_binding_queue_family(
+        queue_family_index, device()->queue_family_properties());
+    LUISA_ASSERT(
+        static_cast<bool>(sparse_queue),
+        "Cannot bind Vulkan sparse resources for the {} stream: the device's "
+        "sparse queue family {} failed validation ({}, available flags "
+        "0x{:x}).",
+        detail::queue_family_role_name(static_cast<uint32_t>(_stream_tag)),
+        queue_family_index,
+        detail::sparse_binding_queue_status_name(sparse_queue.status),
+        sparse_queue.available_flags);
+    LUISA_ASSERT(
+        device()->sparse_queue() != VK_NULL_HANDLE,
+        "Vulkan sparse queue family {} has no acquired queue handle.",
+        queue_family_index);
     VkBindSparseInfo info{
         .sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO,
     };
-    auto fence = _evt.last_fence() + 1;
+    auto previous_logical_fence = _evt.last_fence();
+    auto previous_gpu_signal = _evt.last_signaled_fence();
+    auto current_gpu_value = _evt.current_gpu_value();
+    auto max_value_difference =
+        device()->max_timeline_semaphore_value_difference();
+    auto timeline_plan = detail::plan_sparse_submission_timeline(
+        previous_logical_fence,
+        previous_gpu_signal,
+        current_gpu_value,
+        max_value_difference);
+    LUISA_ASSERT(
+        static_cast<bool>(timeline_plan),
+        "Cannot reserve Vulkan sparse-submission timeline values from "
+        "logical fence {}, tracked GPU signal {}, current GPU value {}, and "
+        "max difference {}: {}.",
+        previous_logical_fence, previous_gpu_signal, current_gpu_value,
+        max_value_difference,
+        detail::sparse_submission_timeline_status_name(
+            timeline_plan.status));
+    auto bridge_fence = timeline_plan.bridge_signal_value;
+    auto fence = timeline_plan.sparse_signal_value;
+    // Lock the Device-wide residency state before dereferencing any sparse
+    // resource or heap handles. The transaction remains uncommitted through
+    // native submission and host completion.
+    auto residency_transaction =
+        device()->sparse_residency_registry().begin_transaction();
     struct Alloc {
         size_t size{};
         void *ptr{};
@@ -1013,40 +1946,85 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
     size_t buffer_bind_count = 0;
     size_t img_bind_count = 0;
     for (auto &i : textures_update) {
-        auto iter = counter.try_emplace(i.handle, 0);
+        auto iter = counter.try_emplace(i.handle, Alloc{});
         auto &v = iter.first->second;
         v.size += 1;
         luisa::visit(
             [&]<typename T>(T const &op) {
-                if constexpr (std::is_same_v<SparseTextureMapOperation, T> || std::is_same_v<SparseTextureUnMapOperation, T>) {
-                    if (iter.second)
-                        img_bind_count += 1;
-                    v.is_buffer = false;
+                constexpr auto operation_is_buffer =
+                    std::is_same_v<SparseBufferMapOperation, T> ||
+                    std::is_same_v<SparseBufferUnMapOperation, T>;
+                if (iter.second) {
+                    v.is_buffer = operation_is_buffer;
+                    if constexpr (operation_is_buffer) {
+                        ++buffer_bind_count;
+                    } else {
+                        ++img_bind_count;
+                    }
                 } else {
-                    if (iter.second)
-                        buffer_bind_count += 1;
-                    v.is_buffer = true;
+                    LUISA_ASSERT(
+                        v.is_buffer == operation_is_buffer,
+                        "Sparse update handle 0x{:016x} is used as both a "
+                        "buffer and an image in one Vulkan bind batch.",
+                        i.handle);
                 }
             },
             i.operations);
     }
-    auto buffer_ptr_chunk = _temp_desc.allocate(sizeof(VkSparseBufferMemoryBindInfo) * buffer_bind_count, alignof(VkSparseBufferMemoryBindInfo));
-    auto img_ptr_chunk = _temp_desc.allocate(sizeof(VkSparseImageMemoryBindInfo) * img_bind_count, alignof(VkSparseImageMemoryBindInfo));
-    auto buffer_ptr = reinterpret_cast<VkSparseBufferMemoryBindInfo *>(buffer_ptr_chunk.handle + buffer_ptr_chunk.offset);
-    auto img_ptr = reinterpret_cast<VkSparseImageMemoryBindInfo *>(img_ptr_chunk.handle + img_ptr_chunk.offset);
+    LUISA_ASSERT(
+        buffer_bind_count <= std::numeric_limits<uint32_t>::max() &&
+            img_bind_count <= std::numeric_limits<uint32_t>::max(),
+        "Vulkan sparse update contains too many resource bind groups.");
+    // Validate handles and resource kinds while the registry lock guarantees
+    // their lifetime, before interpreting the opaque integers as C++ objects.
+    // This turns malformed direct DeviceInterface updates into a diagnosed
+    // contract failure instead of an unchecked pointer dereference.
+    for (auto const &[handle, allocation] : counter) {
+        auto resource_kind = allocation.is_buffer ?
+                                 detail::SparseResidencyResourceKind::BUFFER :
+                                 detail::SparseResidencyResourceKind::IMAGE;
+        auto validation = residency_transaction.validate_resource(
+            handle, resource_kind);
+        LUISA_ASSERT(
+            static_cast<bool>(validation),
+            "Invalid Vulkan sparse resource handle 0x{:016x}: {}.",
+            handle,
+            detail::sparse_residency_registry_status_name(
+                validation.status));
+    }
+    VkSparseBufferMemoryBindInfo *buffer_ptr = nullptr;
+    if (buffer_bind_count != 0u) {
+        auto chunk = _temp_desc.allocate(
+            sizeof(VkSparseBufferMemoryBindInfo) * buffer_bind_count,
+            alignof(VkSparseBufferMemoryBindInfo));
+        buffer_ptr = reinterpret_cast<VkSparseBufferMemoryBindInfo *>(
+            chunk.handle + chunk.offset);
+    }
+    VkSparseImageMemoryBindInfo *img_ptr = nullptr;
+    if (img_bind_count != 0u) {
+        auto chunk = _temp_desc.allocate(
+            sizeof(VkSparseImageMemoryBindInfo) * img_bind_count,
+            alignof(VkSparseImageMemoryBindInfo));
+        img_ptr = reinterpret_cast<VkSparseImageMemoryBindInfo *>(
+            chunk.handle + chunk.offset);
+    }
     info.pBufferBinds = buffer_ptr;
     info.pImageBinds = img_ptr;
-    info.bufferBindCount = buffer_bind_count;
-    info.imageBindCount = img_bind_count;
+    info.bufferBindCount = static_cast<uint32_t>(buffer_bind_count);
+    info.imageBindCount = static_cast<uint32_t>(img_bind_count);
     // Bind ptr
     for (auto &i : counter) {
         auto &a = i.second;
+        LUISA_ASSERT(
+            a.size <= std::numeric_limits<uint32_t>::max(),
+            "Vulkan sparse resource 0x{:016x} has too many binds in one batch.",
+            i.first);
         if (a.is_buffer) {
             auto chunk = _temp_desc.allocate(sizeof(VkSparseMemoryBind) * a.size, alignof(VkSparseMemoryBind));
             auto ptr = reinterpret_cast<VkSparseMemoryBind *>(chunk.handle + chunk.offset);
             a.ptr = ptr;
             buffer_ptr->buffer = reinterpret_cast<SparseBuffer *>(i.first)->vk_buffer();
-            buffer_ptr->bindCount = a.size;
+            buffer_ptr->bindCount = static_cast<uint32_t>(a.size);
             buffer_ptr->pBinds = ptr;
             ++buffer_ptr;
         } else {
@@ -1054,62 +2032,229 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
             auto ptr = reinterpret_cast<VkSparseImageMemoryBind *>(chunk.handle + chunk.offset);
             a.ptr = ptr;
             img_ptr->image = reinterpret_cast<Texture *>(i.first)->vk_image();
-            img_ptr->bindCount = a.size;
+            img_ptr->bindCount = static_cast<uint32_t>(a.size);
             img_ptr->pBinds = ptr;
             ++img_ptr;
         }
     }
+    auto plan_image_binding = [](
+                                  Texture const *texture,
+                                  auto const &operation) noexcept {
+        auto mip_extent = texture->mip_extent(operation.mip_level);
+        auto const &sparse_requirements =
+            texture->sparse_memory_requirements();
+        auto granularity =
+            sparse_requirements.formatProperties.imageGranularity;
+        auto plan = detail::plan_sparse_image_binding({.mip_extent = {mip_extent.x, mip_extent.y, mip_extent.z},
+                                                       .granularity = granularity,
+                                                       .tile_byte_size = texture->sparse_block_size(),
+                                                       .mip_level = operation.mip_level,
+                                                       .mip_tail_first_lod =
+                                                           sparse_requirements.imageMipTailFirstLod,
+                                                       .start_tile = {operation.start_tile.x,
+                                                                      operation.start_tile.y,
+                                                                      operation.start_tile.z},
+                                                       .tile_count = {operation.tile_count.x,
+                                                                      operation.tile_count.y,
+                                                                      operation.tile_count.z}});
+        LUISA_ASSERT(
+            static_cast<bool>(plan),
+            "Invalid Vulkan sparse-image binding at mip {} (status {}). "
+            "Mip-tail levels require opaque bindings and are not representable "
+            "by the Luisa tile API.",
+            operation.mip_level, static_cast<uint32_t>(plan.status));
+        return plan;
+    };
+    auto plan_buffer_binding = [](
+                                   SparseBuffer const *buffer,
+                                   auto const &operation) noexcept {
+        auto plan = detail::plan_sparse_buffer_binding({.physical_resource_size = buffer->sparse_binding_size(),
+                                                        .alignment = buffer->sparse_block_size(),
+                                                        .start_tile = operation.start_tile,
+                                                        .tile_count = operation.tile_count});
+        LUISA_ASSERT(
+            static_cast<bool>(plan),
+            "Invalid Vulkan sparse-buffer binding (status {}).",
+            static_cast<uint32_t>(plan.status));
+        return plan;
+    };
+    struct PlannedSparseBinding {
+        bool is_buffer{};
+        uint32_t mip_level{};
+        detail::SparseBufferBindingPlan buffer{};
+        detail::SparseImageBindingPlan image{};
+    };
+    luisa::vector<PlannedSparseBinding> planned_bindings;
+    planned_bindings.reserve(textures_update.size());
+    for (auto const &update : textures_update) {
+        luisa::visit(
+            [&]<typename T>(T const &operation) {
+                constexpr auto operation_is_buffer =
+                    std::is_same_v<SparseBufferMapOperation, T> ||
+                    std::is_same_v<SparseBufferUnMapOperation, T>;
+                PlannedSparseBinding planned{
+                    .is_buffer = operation_is_buffer};
+                if constexpr (operation_is_buffer) {
+                    planned.buffer = plan_buffer_binding(
+                        reinterpret_cast<SparseBuffer const *>(
+                            update.handle),
+                        operation);
+                } else {
+                    planned.mip_level = operation.mip_level;
+                    planned.image = plan_image_binding(
+                        reinterpret_cast<Texture const *>(
+                            update.handle),
+                        operation);
+                }
+                planned_bindings.emplace_back(planned);
+            },
+            update.operations);
+    }
+    // A VkBindSparseInfo batch may not bind any resource range more than
+    // once. Validate the complete batch before acquiring heaps or emitting
+    // native bind records; map/map and map/unmap overlaps are both illegal.
+    for (auto index = 0u; index < textures_update.size(); ++index) {
+        for (auto previous = 0u; previous < index; ++previous) {
+            if (textures_update[index].handle !=
+                textures_update[previous].handle) {
+                continue;
+            }
+            auto const &lhs = planned_bindings[index];
+            auto const &rhs = planned_bindings[previous];
+            auto overlaps = lhs.is_buffer ?
+                                detail::sparse_buffer_bindings_overlap(
+                                    lhs.buffer, rhs.buffer) :
+                                detail::sparse_image_bindings_overlap(
+                                    lhs.image, lhs.mip_level,
+                                    rhs.image, rhs.mip_level);
+            LUISA_ASSERT(
+                !overlaps,
+                "Vulkan sparse bind batch entries {} and {} overlap for "
+                "resource 0x{:016x}.",
+                previous, index, textures_update[index].handle);
+        }
+    }
+    // Apply the whole ownership transition transactionally before acquiring
+    // heaps or emitting native bind records.
+    for (auto index = 0u; index < textures_update.size(); ++index) {
+        auto const &update = textures_update[index];
+        auto const &planned = planned_bindings[index];
+        auto result = luisa::visit(
+            [&]<typename T>(T const &operation) {
+                if constexpr (
+                    std::is_same_v<SparseBufferMapOperation, T>) {
+                    return residency_transaction.map_buffer(
+                        update.handle, operation.allocated_heap,
+                        {.offset = planned.buffer.resource_offset,
+                         .size = planned.buffer.binding_size});
+                } else if constexpr (
+                    std::is_same_v<SparseBufferUnMapOperation, T>) {
+                    return residency_transaction.unmap_buffer(
+                        update.handle,
+                        {.offset = planned.buffer.resource_offset,
+                         .size = planned.buffer.binding_size});
+                } else {
+                    LUISA_ASSERT(
+                        planned.image.offset.x >= 0 &&
+                            planned.image.offset.y >= 0 &&
+                            planned.image.offset.z >= 0,
+                        "Vulkan sparse-image planner produced a negative "
+                        "offset.");
+                    auto box = detail::SparseImageResidencyBox{
+                        .mip_level = operation.mip_level,
+                        .offset = {
+                            static_cast<uint64_t>(planned.image.offset.x),
+                            static_cast<uint64_t>(planned.image.offset.y),
+                            static_cast<uint64_t>(planned.image.offset.z)},
+                        .extent = {planned.image.extent.width, planned.image.extent.height, planned.image.extent.depth}};
+                    if constexpr (
+                        std::is_same_v<SparseTextureMapOperation, T>) {
+                        return residency_transaction.map_image(
+                            update.handle, operation.allocated_heap, box);
+                    } else {
+                        return residency_transaction.unmap_image(
+                            update.handle, box);
+                    }
+                }
+            },
+            update.operations);
+        LUISA_ASSERT(
+            static_cast<bool>(result),
+            "Vulkan sparse residency update {} for resource 0x{:016x} and "
+            "heap 0x{:016x} failed: {}. Sparse ranges must be explicitly "
+            "unmapped before remapping, unmaps must cover only resident "
+            "ranges, and one heap cannot back multiple live ranges.",
+            index, result.resource, result.heap,
+            detail::sparse_residency_registry_status_name(result.status));
+    }
     // Write value
+    auto planned_index = size_t{0u};
     for (auto &i : textures_update) {
-        auto &v = counter.try_emplace(i.handle, 0).first->second;
+        auto const &planned = planned_bindings[planned_index++];
+        auto &v = counter.find(i.handle)->second;
         luisa::visit([&]<typename T>(T const &op) {
             if constexpr (std::is_same_v<SparseTextureMapOperation, T>) {
                 auto ptr = reinterpret_cast<VkSparseImageMemoryBind *>(v.ptr);
-                auto heap = reinterpret_cast<std::pair<VmaAllocation, VmaAllocationInfo> *>(op.allocated_heap);
                 auto tex = reinterpret_cast<Texture const *>(i.handle);
-                ptr->subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                auto const &plan = planned.image;
+                auto heap = reinterpret_cast<VulkanSparseHeap *>(op.allocated_heap);
+                LUISA_ASSERT(heap != nullptr,
+                             "Vulkan sparse-image map uses a null heap.");
+                auto memory = heap->acquire(
+                    tex->memory_requirements(),
+                    plan.required_heap_size);
+                ptr->subresource.aspectMask =
+                    tex->sparse_memory_requirements()
+                        .formatProperties.aspectMask;
                 ptr->subresource.mipLevel = op.mip_level;
                 ptr->subresource.arrayLayer = 0;
-                auto tile_size = tex->tile_size();
-                auto start_size = op.start_tile * tile_size;
-                auto extent = op.tile_count * tile_size;
-                ptr->offset = VkOffset3D{(int)start_size.x, (int)start_size.y, (int)start_size.z};
-                ptr->extent = VkExtent3D{extent.x, extent.y, extent.z};
-                ptr->memory = heap->second.deviceMemory;
-                ptr->memoryOffset = heap->second.offset;
+                ptr->offset = plan.offset;
+                ptr->extent = plan.extent;
+                ptr->memory = memory.memory;
+                ptr->memoryOffset = memory.offset;
                 ptr->flags = 0;
                 ++ptr;
                 v.ptr = ptr;
             } else if constexpr (std::is_same_v<SparseTextureUnMapOperation, T>) {
                 auto ptr = reinterpret_cast<VkSparseImageMemoryBind *>(v.ptr);
                 auto tex = reinterpret_cast<Texture const *>(i.handle);
-                ptr->subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                auto const &plan = planned.image;
+                ptr->subresource.aspectMask =
+                    tex->sparse_memory_requirements()
+                        .formatProperties.aspectMask;
                 ptr->subresource.mipLevel = op.mip_level;
                 ptr->subresource.arrayLayer = 0;
-                auto tile_size = tex->tile_size();
-                auto start_size = op.start_tile * tile_size;
-                auto extent = op.tile_count * tile_size;
-                ptr->offset = VkOffset3D{(int)start_size.x, (int)start_size.y, (int)start_size.z};
-                ptr->extent = VkExtent3D{extent.x, extent.y, extent.z};
+                ptr->offset = plan.offset;
+                ptr->extent = plan.extent;
                 ptr->memory = VK_NULL_HANDLE;
+                ptr->memoryOffset = 0u;
                 ptr->flags = 0;
                 ++ptr;
                 v.ptr = ptr;
             } else if constexpr (std::is_same_v<SparseBufferMapOperation, T>) {
                 auto ptr = reinterpret_cast<VkSparseMemoryBind *>(v.ptr);
-                auto heap = reinterpret_cast<std::pair<VmaAllocation, VmaAllocationInfo> *>(op.allocated_heap);
-                ptr->memory = heap->second.deviceMemory;
-                ptr->memoryOffset = heap->second.offset;
-                ptr->resourceOffset = op.start_tile * kSparseBufferSize;
-                ptr->size = kSparseBufferSize * op.tile_count;
+                auto buffer = reinterpret_cast<SparseBuffer const *>(i.handle);
+                auto const &plan = planned.buffer;
+                auto heap = reinterpret_cast<VulkanSparseHeap *>(op.allocated_heap);
+                LUISA_ASSERT(heap != nullptr,
+                             "Vulkan sparse-buffer map uses a null heap.");
+                auto memory = heap->acquire(
+                    buffer->memory_requirements(),
+                    plan.required_heap_size);
+                ptr->memory = memory.memory;
+                ptr->memoryOffset = memory.offset;
+                ptr->resourceOffset = plan.resource_offset;
+                ptr->size = plan.binding_size;
                 ptr->flags = 0;
                 ++ptr;
                 v.ptr = ptr;
             } else if constexpr (std::is_same_v<SparseBufferUnMapOperation, T>) {
                 auto ptr = reinterpret_cast<VkSparseMemoryBind *>(v.ptr);
+                auto const &plan = planned.buffer;
                 ptr->memory = VK_NULL_HANDLE;
-                ptr->resourceOffset = op.start_tile * kSparseBufferSize;
-                ptr->size = kSparseBufferSize * op.tile_count;
+                ptr->memoryOffset = 0u;
+                ptr->resourceOffset = plan.resource_offset;
+                ptr->size = plan.binding_size;
                 ptr->flags = 0;
                 ++ptr;
                 v.ptr = ptr;
@@ -1118,15 +2263,41 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
                      i.operations);
     }
     VkTimelineSemaphoreSubmitInfo timeline;
-    _evt._signal_sparse(*this, &fence, &info, &timeline);
-    _queue_mtx->lock();
-    VK_CHECK_RESULT(vkQueueBindSparse(
-        _queue,
-        1,
-        &info,
-        VK_NULL_HANDLE));
-    _queue_mtx->unlock();
+    // A preceding external-event wait/signal is real ordinary-queue work but
+    // does not advance this stream's internal timeline. Submit an explicit
+    // bridge signal on the ordinary queue after every prior operation, then
+    // make the sparse queue wait on that exact value. Queue submission order
+    // alone cannot bridge two distinct VkQueue handles.
+    _evt._signal(*this, bridge_fence);
+    _evt._signal_sparse(
+        &bridge_fence,
+        &fence, &info, &timeline);
+    {
+        std::lock_guard queue_lock{device()->sparse_queue_mtx()};
+        VK_CHECK_RESULT(vkQueueBindSparse(
+            device()->sparse_queue(),
+            1,
+            &info,
+            VK_NULL_HANDLE));
+    }
     _evt.mark_signal_fence(fence);
+    // Sparse-binding submissions have no implicit ordering with command-buffer
+    // submissions, even on the same queue. The bind waits for the preceding
+    // stream fence above; completing it on the host before releasing the
+    // dispatch mutex makes the new mapping an explicit boundary for every
+    // later stream operation without serializing ordinary command batches.
+    _evt._host_wait(fence);
+    auto residency_commit = residency_transaction.commit();
+    LUISA_ASSERT(
+        static_cast<bool>(residency_commit),
+        "Failed to commit Vulkan sparse residency state after successful "
+        "queue submission: {}.",
+        detail::sparse_residency_registry_status_name(
+            residency_commit.status));
+    // Logical fences can also represent callbacks or skipped presents that do
+    // not signal the Vulkan semaphore. Publish sparse completion through the
+    // FIFO executor so those host-only operations retain their ordering, while
+    // the host wait above still makes every later GPU submission safe.
     _mtx.lock();
     _exec.enqueue(NotifyEvt{
         .evt = &_evt,
@@ -1145,7 +2316,10 @@ CommandBuffer::CommandBuffer(Stream &stream) noexcept
     if (device()->config_ext()) {
         _cmdbuffer = device()->config_ext()->borrow_command_buffer(stream.stream_tag());
     }
-    if (!_cmdbuffer) {
+    if (_cmdbuffer) {
+        _ownership = detail::CommandBufferOwnership::BORROWED;
+    } else {
+        _ownership = detail::CommandBufferOwnership::BACKEND;
         VkCommandBufferAllocateInfo cb_ci{
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .commandPool = _state->pool,
@@ -1156,8 +2330,10 @@ CommandBuffer::CommandBuffer(Stream &stream) noexcept
     // VK_CHECK_RESULT(vkCreateFence(device()->logic_device(), &fence_info, Device::alloc_callbacks(), nullptr));
 }
 CommandBuffer::~CommandBuffer() {
-    if (_cmdbuffer)
+    auto retirement = detail::plan_command_buffer_retirement(_ownership);
+    if (_cmdbuffer && retirement.free_native_buffer) {
         vkFreeCommandBuffers(device()->logic_device(), _state->pool, 1, &_cmdbuffer);
+    }
 }
 void CommandBuffer::begin() {
     VkCommandBufferBeginInfo bi{
@@ -1170,9 +2346,10 @@ void CommandBuffer::end() {
 }
 CommandBuffer::CommandBuffer(CommandBuffer &&rhs) noexcept
     : Resource(std::move(rhs)),
-      _stream(rhs._stream),          // NOLINT(bugprone-use-after-move)
-      _cmdbuffer(rhs._cmdbuffer),    // NOLINT(bugprone-use-after-move)
-      _state(std::move(rhs._state)) {// NOLINT(bugprone-use-after-move)
+      _stream(rhs._stream),         // NOLINT(bugprone-use-after-move)
+      _cmdbuffer(rhs._cmdbuffer),   // NOLINT(bugprone-use-after-move)
+      _state(std::move(rhs._state)),// NOLINT(bugprone-use-after-move)
+      _ownership(rhs._ownership) {  // NOLINT(bugprone-use-after-move)
     rhs._cmdbuffer = nullptr;
 }
 void Stream::signal(Event *event, uint64_t value) {
@@ -1189,29 +2366,40 @@ void Stream::wait(Event *event, uint64_t value) {
 }
 void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     // collect argument buffer
-    size_t uniform_buffer_size = 0;
-    auto add_size = [&](ShaderDispatchCommandBase const &c, Argument const &a) {
-        if (a.tag != Argument::Tag::UNIFORM) [[likely]]
-            return;
-
-        auto bf = c.uniform(a.uniform);
-        auto aligned_size = a.uniform.alignment - 1;
-        uniform_buffer_size = (uniform_buffer_size + aligned_size) & (~(aligned_size));
-        uniform_buffer_size += std::max<size_t>(4, bf.size_bytes());
-    };
+    const auto argument_buffer_alignment = std::max<size_t>(
+        32u, device()->properties().limits.minStorageBufferOffsetAlignment);
+    const auto argument_buffer_range_limit = static_cast<size_t>(
+        device()->properties().limits.maxStorageBufferRange);
+    ArgumentBlockLayout planned_argument_buffer_layout;
     auto dispatch_shader = [&](ShaderDispatchCommandBase const *c, Shader const *shader) {
-        uniform_buffer_size = (uniform_buffer_size + 31) & (~(31ull));
-        for (auto &i : shader->captured()) {
-            add_size(*c, i);
-        }
-        for (auto &i : c->arguments()) {
-            add_size(*c, i);
-        }
-        if (shader->validation_count() > 0) {
-            uniform_buffer_size += shader->validation_count() * sizeof(uint);
+        auto plan = plan_argument_block(
+            shader, c, argument_buffer_range_limit);
+        validate_argument_block_plan(plan);
+        size_t dispatch_offset = 0u;
+        if (!planned_argument_buffer_layout.append_padded(
+                plan.layout.size(), argument_buffer_alignment,
+                dispatch_offset)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Vulkan cumulative argument-buffer sizing failed: {}.",
+                argument_block_layout_status_name(
+                    planned_argument_buffer_layout.status()));
         }
     };
     for (auto &&command : cmds) {
+        if (command->tag() == Command::Tag::EShaderDispatchCommand) {
+            auto c = static_cast<ShaderDispatchCommand const *>(command.get());
+            if (c->is_indirect()) {
+                auto indirect = validate_indirect_dispatch_source(c);
+                if (indirect.plan.command_count == 0u) {
+                    // A statically empty indirect range has no target/source
+                    // resource use and must not perturb reorder boundaries.
+                    continue;
+                }
+                auto shader = reinterpret_cast<Shader const *>(c->handle());
+                validate_indirect_dispatch_target(
+                    c, shader, indirect, false);
+            }
+        }
         command->accept(_stream.reorder);
         switch (command->tag()) {
             case Command::Tag::EShaderDispatchCommand: {
@@ -1238,41 +2426,172 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             default: break;
         }
     }
+    const auto uniform_buffer_size =
+        planned_argument_buffer_layout.size();
     auto cmd_lists = _stream.reorder.command_lists();
     auto clear_reorder = vstd::scope_exit([&] {
         _stream.reorder.clear();
     });
     uniform_data->clear();
     uniform_data->reserve(uniform_buffer_size);
-#ifndef NDEBUG
-    auto check_uniform = vstd::scope_exit([&]() {
-        auto aligned_size = (luisa::size_bytes(*uniform_data) + 31ull) & (~31ull);
-        auto origin = uniform_buffer_size;
-        uniform_buffer_size = (uniform_buffer_size + 31ull) & (~(31ull));
-
-        if (aligned_size != uniform_buffer_size) [[unlikely]] {
-            LUISA_ERROR("Bad uniform size {} {} {} {}.", aligned_size, uniform_buffer_size, luisa::size_bytes(*uniform_data), origin);
-        }
-    });
-#endif
     BufferView arg_buffer;
     if (uniform_buffer_size > 0) {
-        arg_buffer = _state->upload_alloc.allocate(uniform_buffer_size, 256);
+        arg_buffer = _state->upload_alloc.allocate(
+            uniform_buffer_size, argument_buffer_alignment);
     }
-    auto preprocess_arguments = [this](Shader const *shader, ShaderDispatchCommandBase const *c, bool is_raster) {
-        luisa::vector_resize(*uniform_data, (uniform_data->size() + 31) & (~(31ull)));
-        std::pair<size_t, size_t> sizes;
-        sizes.first = luisa::size_bytes(*uniform_data);
+    ArgumentBlockLayout preprocessed_argument_buffer_layout;
+    auto preprocess_arguments = [this, argument_buffer_alignment,
+                                 argument_buffer_range_limit,
+                                 &preprocessed_argument_buffer_layout](
+                                    Shader const *shader,
+                                    ShaderDispatchCommandBase const *c,
+                                    bool is_raster) {
+        auto plan = plan_argument_block(
+            shader, c, argument_buffer_range_limit);
+        validate_argument_block_plan(plan);
+        size_t block_offset = 0u;
+        if (!preprocessed_argument_buffer_layout.append_padded(
+                plan.layout.size(), argument_buffer_alignment,
+                block_offset)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Vulkan cumulative argument-buffer preprocessing failed: {}.",
+                argument_block_layout_status_name(
+                    preprocessed_argument_buffer_layout.status()));
+        }
+        LUISA_ASSERT(
+            uniform_data->size() == block_offset,
+            "Vulkan cumulative argument-buffer layout diverged before "
+            "dispatch preprocessing (emitted {}, planned {}).",
+            uniform_data->size(), block_offset);
+
+        vstd::vector<StorageBufferMetadata> buffer_metadata(
+            plan.buffer_metadata_count);
+        vstd::vector<uint32_t> validation_values;
+        validation_values.reserve(shader->validation_count());
+        ArgumentBlockLayout emitted_layout{
+            argument_buffer_range_limit};
         ResourceBarrierVisitor visitor{
             resource_barrier,
-            shader->saved_arguments().data(),
+            shader->saved_arguments(),
             uniform_data,
+            &emitted_layout,
+            block_offset,
+            buffer_metadata.empty() ? nullptr : &buffer_metadata,
+            shader->validation_count() == 0u ? nullptr :
+                                               &validation_values,
             *c,
-            is_raster};
+            is_raster,
+            shader->binds(),
+            shader->resource_argument_binding_offset(),
+            shader->codegen_dialect()};
         decode_cmd(shader->captured(), visitor);
         decode_cmd(c->arguments(), visitor);
-        sizes.second = uniform_data->size() - sizes.first;
-        dispatch_offsets->emplace_back(sizes);
+        visitor.arguments.finish("argument preprocessing");
+        auto descriptor_tail_count =
+            static_cast<uint32_t>(shader->uses_indirect_dispatch()) +
+            (shader->printers().empty() ? 0u : 2u);
+        auto local_descriptor_count =
+            shader->local_descriptor_binding_count();
+        auto expected_resource_descriptor_end =
+            descriptor_tail_count <= local_descriptor_count ?
+                local_descriptor_count - descriptor_tail_count :
+                0u;
+        LUISA_ASSERT(
+            descriptor_tail_count <=
+                    local_descriptor_count &&
+                visitor.descriptor_index ==
+                    expected_resource_descriptor_end,
+            "Vulkan barrier preprocessing consumed {} local descriptor "
+            "bindings before the indirect/printer tail, but the validated "
+            "shader interface requires {}.",
+            visitor.descriptor_index,
+            expected_resource_descriptor_end);
+
+        LUISA_ASSERT(
+            validation_values.size() == shader->validation_count(),
+            "Vulkan argument preprocessing produced {} HLSL validation "
+            "values, but the shader ABI requires {}.",
+            validation_values.size(), shader->validation_count());
+
+        if (!buffer_metadata.empty()) {
+            for (auto i = 0u; i < buffer_metadata.size(); ++i) {
+                LUISA_ASSERT(buffer_metadata[i].logical_size_bytes != 0u,
+                             "Vulkan XIR/SPIR-V buffer metadata slot {} was not populated.",
+                             i);
+            }
+        }
+
+        ArgumentBlockTrailerPlacement emitted_trailer{};
+        if (!emitted_layout.append_trailers(
+                argument_block_trailer_layout(
+                    shader, plan.buffer_metadata_count),
+                emitted_trailer)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Vulkan argument preprocessing could not append its "
+                "checked trailer layout: {}.",
+                argument_block_layout_status_name(
+                    emitted_layout.status()));
+        }
+        LUISA_ASSERT(
+            emitted_layout.size() == plan.layout.size() &&
+                emitted_trailer.metadata_offset ==
+                    plan.trailer.metadata_offset &&
+                emitted_trailer.metadata_size ==
+                    plan.trailer.metadata_size &&
+                emitted_trailer.validation_offset ==
+                    plan.trailer.validation_offset &&
+                emitted_trailer.validation_size ==
+                    plan.trailer.validation_size,
+            "Vulkan argument sizing and preprocessing produced different "
+            "per-dispatch layouts.");
+
+        luisa::vector_resize(
+            *uniform_data,
+            preprocessed_argument_buffer_layout.size());
+        auto copy_trailer = [&](size_t relative_offset, size_t byte_size,
+                                const void *data,
+                                size_t source_size,
+                                const char *trailer_name) noexcept {
+            if (byte_size == 0u) {
+                LUISA_ASSERT(
+                    source_size == 0u,
+                    "Vulkan {} trailer has no destination but {} source bytes.",
+                    trailer_name, source_size);
+                return;
+            }
+            LUISA_ASSERT(
+                block_offset <=
+                    std::numeric_limits<size_t>::max() -
+                        relative_offset,
+                "Vulkan {} trailer destination offset overflowed.",
+                trailer_name);
+            auto destination_offset = block_offset + relative_offset;
+            LUISA_ASSERT(
+                byte_size == source_size && data != nullptr,
+                "Vulkan {} trailer has {} planned bytes but {} source bytes.",
+                trailer_name, byte_size, source_size);
+            LUISA_ASSERT(
+                destination_offset <= uniform_data->size() &&
+                    byte_size <=
+                        uniform_data->size() - destination_offset,
+                "Vulkan {} trailer exceeds its planned argument block.",
+                trailer_name);
+            std::memcpy(
+                uniform_data->data() + destination_offset,
+                data, byte_size);
+        };
+        copy_trailer(
+            emitted_trailer.metadata_offset,
+            emitted_trailer.metadata_size,
+            buffer_metadata.data(), luisa::size_bytes(buffer_metadata),
+            "buffer-metadata");
+        copy_trailer(
+            emitted_trailer.validation_offset,
+            emitted_trailer.validation_size,
+            validation_values.data(), luisa::size_bytes(validation_values),
+            "HLSL-validation");
+        dispatch_offsets->emplace_back(
+            block_offset, emitted_layout.size());
     };
     for (auto &&lst : cmd_lists) {
         dispatch_offsets->clear();
@@ -1322,18 +2641,33 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         TexView{
                             reinterpret_cast<Texture const *>(c->texture()),
                             c->level()},
-                        ResourceBarrier::Usage::kCopySource);
+                        ResourceBarrier::Usage::kCopyDest);
                     resource_barrier->record(
                         BufferView{
                             reinterpret_cast<Buffer const *>(c->buffer()),
                             c->buffer_offset(),
                             pixel_storage_size(c->storage(), c->size())},
-                        ResourceBarrier::Usage::kCopyDest);
+                        ResourceBarrier::Usage::kCopySource);
                 } break;
                 case Command::Tag::EShaderDispatchCommand: {
                     auto c = static_cast<ShaderDispatchCommand const *>(cmd);
-                    auto shader = reinterpret_cast<Shader const *>(c->handle());
-                    preprocess_arguments(shader, c, false);
+                    if (c->is_indirect()) {
+                        auto indirect = validate_indirect_dispatch_source(c);
+                        if (indirect.plan.command_count == 0u) { break; }
+                        auto shader =
+                            reinterpret_cast<Shader const *>(c->handle());
+                        validate_indirect_dispatch_target(
+                            c, shader, indirect, false);
+                        preprocess_arguments(shader, c, false);
+                        resource_barrier->record(
+                            BufferView{indirect.source, 0u,
+                                       indirect.source->byte_size()},
+                            ResourceBarrier::Usage::kComputeRead);
+                    } else {
+                        auto shader =
+                            reinterpret_cast<Shader const *>(c->handle());
+                        preprocess_arguments(shader, c, false);
+                    }
                 } break;
                 case Command::Tag::ETextureUploadCommand: {
                     auto c = static_cast<TextureUploadCommand const *>(cmd);
@@ -1370,13 +2704,13 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         TexView{
                             reinterpret_cast<Texture const *>(c->texture()),
                             c->level()},
-                        ResourceBarrier::Usage::kCopyDest);
+                        ResourceBarrier::Usage::kCopySource);
                     resource_barrier->record(
                         BufferView{
                             reinterpret_cast<Buffer const *>(c->buffer()),
                             c->buffer_offset(),
                             pixel_storage_size(c->storage(), c->size())},
-                        ResourceBarrier::Usage::kCopySource);
+                        ResourceBarrier::Usage::kCopyDest);
                 } break;
                 case Command::Tag::EAccelBuildCommand: {
                     auto c = static_cast<AccelBuildCommand const *>(cmd);
@@ -1429,14 +2763,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             if (cmd->dsv_tex().handle != invalid_resource_handle) {
                                 auto tex = reinterpret_cast<Texture const *>(cmd->dsv_tex().handle);
                                 resource_barrier->record(
-                                    TexView(tex, 0),
+                                    TexView(tex, cmd->dsv_tex().level),
                                     ResourceBarrier::Usage::kDepthWrite);
                             }
                         } break;
                         case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH): {
                             auto custom_cmd = static_cast<VKCustomCmd const *>(c);
                             for (auto &&i : const_cast<VKCustomCmd *>(custom_cmd)->get_resource_usages()) {
-                                resource_barrier->record(get_resource_view(i.resource), i.stage, i.access, i.texture_layout);
+                                record_custom_resource_usage(
+                                    resource_barrier, i);
                             }
                         } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
@@ -1450,8 +2785,27 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             }
         }
         resource_barrier->update_states(_cmdbuffer);
-        auto offset_ptr = dispatch_offsets->data();
-        auto set_dispatch_args = [&](BindPropVisitor &visitor, ShaderDispatchCommandBase const *c, Shader const *shader) {
+        size_t dispatch_offset_index = 0u;
+        auto set_dispatch_args = [&](
+                                     BindPropVisitor &visitor,
+                                     ShaderDispatchCommandBase const *c,
+                                     Shader const *shader,
+                                     const Buffer *indirect_source = nullptr) {
+            LUISA_ASSERT(
+                dispatch_offset_index < dispatch_offsets->size(),
+                "Vulkan descriptor binding requested argument block {} from "
+                "a {}-entry preprocessing table.",
+                dispatch_offset_index, dispatch_offsets->size());
+            auto [relative_offset, descriptor_range] =
+                (*dispatch_offsets)[dispatch_offset_index++];
+            LUISA_ASSERT(
+                relative_offset <= arg_buffer.size_bytes &&
+                    descriptor_range <=
+                        arg_buffer.size_bytes - relative_offset,
+                "Vulkan dispatch argument block offset {} and size {} exceed "
+                "the {}-byte upload allocation.",
+                relative_offset, descriptor_range,
+                arg_buffer.size_bytes);
             uint desc_index = 0;
             visitor.cmdbuffer = this;
             VkDescriptorSetAllocateInfo alloc_info{
@@ -1464,12 +2818,36 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     device()->logic_device(),
                     &alloc_info,
                     &visitor.desc_set));
-            if (offset_ptr->second > 0 || shader->validation_count() > 0) {
+            if (descriptor_range > 0u) {
+                LUISA_ASSERT(
+                    arg_buffer.buffer != nullptr,
+                    "Vulkan dispatch has a nonempty argument block without "
+                    "an upload buffer.");
+                constexpr auto max_device_offset =
+                    std::numeric_limits<VkDeviceSize>::max();
+                LUISA_ASSERT(
+                    arg_buffer.offset <= max_device_offset &&
+                        relative_offset <= max_device_offset - arg_buffer.offset,
+                    "Vulkan argument descriptor offset {} + {} is not "
+                    "representable by VkDeviceSize.",
+                    arg_buffer.offset, relative_offset);
+                auto descriptor_offset =
+                    static_cast<VkDeviceSize>(arg_buffer.offset) +
+                    static_cast<VkDeviceSize>(relative_offset);
+                LUISA_ASSERT(
+                    descriptor_range <= max_device_offset &&
+                        descriptor_offset <= arg_buffer.buffer->byte_size() &&
+                        descriptor_range <=
+                            arg_buffer.buffer->byte_size() - descriptor_offset,
+                    "Vulkan argument descriptor offset {} and range {} exceed "
+                    "the backing upload buffer size {}.",
+                    descriptor_offset, descriptor_range,
+                    arg_buffer.buffer->byte_size());
                 auto arg_buffer_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
                 *arg_buffer_info = VkDescriptorBufferInfo{
                     arg_buffer.buffer->vk_buffer(),
-                    arg_buffer.offset + offset_ptr->first,
-                    offset_ptr->second + shader->validation_count() * sizeof(uint)};
+                    descriptor_offset,
+                    static_cast<VkDeviceSize>(descriptor_range)};
                 write_desc_sets->emplace_back(VkWriteDescriptorSet{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
@@ -1482,13 +2860,12 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     arg_buffer_info,
                     nullptr});
             }
-            offset_ptr++;
             if (shader->has_constant_ubo()) {
                 auto ubo_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
                 *ubo_info = VkDescriptorBufferInfo{
                     shader->constant_ubo()->vk_buffer(),
                     0,
-                    VK_WHOLE_SIZE};
+                    shader->constant_ubo()->byte_size()};
                 write_desc_sets->emplace_back(VkWriteDescriptorSet{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
@@ -1503,16 +2880,103 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             }
             visitor.desc_index = desc_index;
             visitor.img_views = &_state->img_views;
-            visitor.arg = shader->saved_arguments().data();
+            visitor.arguments =
+                SavedArgumentCursor{shader->saved_arguments()};
+            visitor.bindings = shader->binds();
+            visitor.codegen_dialect = shader->codegen_dialect();
+            visitor.uav_usage =
+                shader->shader_tag() == Shader::ShaderTag::kRasterShader ?
+                    ResourceBarrier::Usage::kRasterUAV :
+                    ResourceBarrier::Usage::kComputeUAV;
             decode_cmd(shader->captured(), visitor);
             decode_cmd(c->arguments(), visitor);
+            visitor.arguments.finish("descriptor binding");
+            if (shader->uses_indirect_dispatch()) {
+                auto source_view = BufferView{};
+                if (indirect_source != nullptr) {
+                    LUISA_ASSERT(
+                        indirect_source->is_indirect_dispatch_buffer(),
+                        "Vulkan indirect metadata source has the wrong buffer type.");
+                    source_view = BufferView{
+                        indirect_source, 0u,
+                        indirect_source->byte_size()};
+                } else {
+                    auto *dummy = device()->indirect_dispatch_dummy();
+                    LUISA_ASSERT(
+                        dummy != nullptr &&
+                            dummy->byte_size() >=
+                                IndirectDispatchLayout::header_size +
+                                    IndirectDispatchLayout::record_size,
+                        "Vulkan direct dispatch has no valid persistent "
+                        "indirect-metadata descriptor.");
+                    source_view = BufferView{dummy};
+                }
+                auto *binding = visitor.binding_at(visitor.desc_index);
+                LUISA_ASSERT(
+                    binding != nullptr &&
+                        binding->type == hlsl::ShaderVariableType::SPIRVIndirectDispatch,
+                    "Vulkan native SPIR-V shader is missing its indirect "
+                    "metadata descriptor at binding {}.",
+                    visitor.desc_index);
+                auto descriptor =
+                    temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                *descriptor = VkDescriptorBufferInfo{
+                    source_view.buffer->vk_buffer(), source_view.offset,
+                    source_view.size_bytes};
+                write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    visitor.desc_set,
+                    visitor.desc_index++,
+                    0u,
+                    1u,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    descriptor,
+                    nullptr});
+            } else {
+                LUISA_ASSERT(
+                    indirect_source == nullptr,
+                    "Vulkan indirect dispatch cannot bind a shader without "
+                    "the native logical-metadata descriptor.");
+            }
             return visitor.desc_index;
         };
+        auto push_shader_constants = [&]<typename T>(
+                                         const Shader *shader,
+                                         VkShaderStageFlags stage_flags,
+                                         uint32_t offset,
+                                         const T &value) {
+            static_assert(sizeof(T) <=
+                          std::numeric_limits<uint32_t>::max());
+            constexpr auto size = static_cast<uint32_t>(sizeof(T));
+            LUISA_ASSERT(
+                detail::valid_push_constant_write(
+                    offset, size, shader->push_constant_size()),
+                "Vulkan push-constant write [{}, {}) exceeds or is not "
+                "aligned to the shader range [0, {}).",
+                offset, static_cast<uint64_t>(offset) + size,
+                shader->push_constant_size());
+            vkCmdPushConstants(
+                _cmdbuffer, shader->pipeline_layout(), stage_flags,
+                offset, size, &value);
+        };
         auto bind_shader_desc = [&](BindPropVisitor &visitor, Shader const *shader, VkPipelineBindPoint bind_point) {
+            LUISA_ASSERT(
+                visitor.desc_index ==
+                    shader->local_descriptor_binding_count(),
+                "Vulkan dispatch consumed {} local descriptor bindings but "
+                "the validated shader interface requires {}.",
+                visitor.desc_index,
+                shader->local_descriptor_binding_count());
             if (!write_desc_sets->empty()) {
+                LUISA_ASSERT(
+                    write_desc_sets->size() <=
+                        std::numeric_limits<uint32_t>::max(),
+                    "Vulkan descriptor-write count is not representable.");
                 vkUpdateDescriptorSets(
                     device()->logic_device(),
-                    write_desc_sets->size(),
+                    static_cast<uint32_t>(write_desc_sets->size()),
                     write_desc_sets->data(), 0,
                     nullptr);
                 write_desc_sets->clear();
@@ -1529,15 +2993,169 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             if (shader->use_tex3d_bindless()) {
                 desc_sets->push_back(device()->bdls_tex3d_set());
             }
+            LUISA_ASSERT(
+                desc_sets->size() == shader->desc_set_layout().size() &&
+                    desc_sets->size() <=
+                        std::numeric_limits<uint32_t>::max(),
+                "Vulkan dispatch assembled {} descriptor sets for a "
+                "validated pipeline layout with {} sets.",
+                desc_sets->size(), shader->desc_set_layout().size());
             vkCmdBindDescriptorSets(
                 _cmdbuffer,
                 bind_point,
                 shader->pipeline_layout(),
                 0,
-                desc_sets->size(),
+                static_cast<uint32_t>(desc_sets->size()),
                 desc_sets->data(),
                 0,
                 nullptr);
+        };
+        auto prepare_indirect_dispatch = [&](
+                                             const Buffer *source,
+                                             IndirectDispatchPlan plan,
+                                             uint3 target_block_size) {
+            LUISA_ASSERT(source != nullptr &&
+                             source->is_indirect_dispatch_buffer(),
+                         "Vulkan indirect preparation requires an indirect source buffer.");
+            if (plan.command_count == 0u) { return BufferView{}; }
+            LUISA_ASSERT(
+                plan.scratch_size_bytes <=
+                    device()->properties().limits.maxStorageBufferRange,
+                "Vulkan indirect command scratch range {} exceeds "
+                "maxStorageBufferRange {}.",
+                plan.scratch_size_bytes,
+                device()->properties().limits.maxStorageBufferRange);
+            auto descriptor_alignment = std::max<size_t>(
+                16u,
+                device()->properties().limits.minStorageBufferOffsetAlignment);
+            auto scratch = scratch_buffer_alloc->allocate(
+                plan.scratch_size_bytes, descriptor_alignment);
+            auto command_buffer = BufferView{
+                reinterpret_cast<const Buffer *>(scratch.handle),
+                scratch.offset, plan.scratch_size_bytes};
+            resource_barrier->record(
+                command_buffer,
+                ResourceBarrier::Usage::kComputeUAV);
+            resource_barrier->update_states(_cmdbuffer);
+
+            auto prepare_shader =
+                device()->prepare_indirect_kernel.get(device());
+            VkDescriptorSet prepare_set{};
+            VkDescriptorSetAllocateInfo alloc_info{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .descriptorPool = _state->desc_pool,
+                .descriptorSetCount = 1u,
+                .pSetLayouts =
+                    prepare_shader->desc_set_layout().data()};
+            VK_CHECK_RESULT(vkAllocateDescriptorSets(
+                device()->logic_device(), &alloc_info, &prepare_set));
+            std::array descriptor_infos{
+                VkDescriptorBufferInfo{
+                    source->vk_buffer(), 0u, source->byte_size()},
+                VkDescriptorBufferInfo{
+                    command_buffer.buffer->vk_buffer(),
+                    command_buffer.offset, command_buffer.size_bytes}};
+            std::array descriptor_writes{
+                VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    prepare_set,
+                    0u,
+                    0u,
+                    1u,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    &descriptor_infos[0],
+                    nullptr},
+                VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    prepare_set,
+                    1u,
+                    0u,
+                    1u,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    &descriptor_infos[1],
+                    nullptr}};
+            LUISA_ASSERT(
+                descriptor_writes.size() ==
+                    prepare_shader->local_descriptor_binding_count(),
+                "Vulkan indirect preparation consumed {} local descriptor "
+                "bindings but its validated interface requires {}.",
+                descriptor_writes.size(),
+                prepare_shader->local_descriptor_binding_count());
+            vkUpdateDescriptorSets(
+                device()->logic_device(),
+                static_cast<uint32_t>(descriptor_writes.size()),
+                descriptor_writes.data(), 0u, nullptr);
+            vkCmdBindDescriptorSets(
+                _cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                prepare_shader->pipeline_layout(), 0u, 1u,
+                &prepare_set, 0u, nullptr);
+            vkCmdBindPipeline(
+                _cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                prepare_shader->pipeline());
+
+            auto &&limits = device()->properties().limits;
+            LUISA_ASSERT(
+                limits.maxComputeWorkGroupCount[0] != 0u &&
+                    target_block_size.x != 0u &&
+                    target_block_size.y != 0u &&
+                    target_block_size.z != 0u,
+                "Vulkan device or target shader reports a zero compute "
+                "workgroup dimension.");
+            auto max_commands_per_dispatch =
+                static_cast<uint64_t>(
+                    limits.maxComputeWorkGroupCount[0]) *
+                IndirectDispatchLayout::prepare_block_size;
+            auto command_base = uint64_t{0u};
+            while (command_base < plan.command_count) {
+                auto remaining =
+                    static_cast<uint64_t>(plan.command_count) -
+                    command_base;
+                auto chunk = std::min(
+                    remaining, max_commands_per_dispatch);
+                IndirectDispatchPrepareConstants constants{
+                    .command_count = plan.command_count,
+                    .source_record_offset =
+                        plan.source_record_offset,
+                    .target_block_size_x = target_block_size.x,
+                    .target_block_size_y = target_block_size.y,
+                    .target_block_size_z = target_block_size.z,
+                    .max_group_count_x = static_cast<uint32_t>(
+                        std::min<uint64_t>(
+                            limits.maxComputeWorkGroupCount[0],
+                            indirect_dispatch_max_group_count_for_uint32_global_id(
+                                target_block_size.x))),
+                    .max_group_count_y = static_cast<uint32_t>(
+                        std::min<uint64_t>(
+                            limits.maxComputeWorkGroupCount[1],
+                            indirect_dispatch_max_group_count_for_uint32_global_id(
+                                target_block_size.y))),
+                    .max_group_count_z = static_cast<uint32_t>(
+                        std::min<uint64_t>(
+                            limits.maxComputeWorkGroupCount[2],
+                            indirect_dispatch_max_group_count_for_uint32_global_id(
+                                target_block_size.z))),
+                    .command_base =
+                        static_cast<uint32_t>(command_base)};
+                push_shader_constants(
+                    prepare_shader, VK_SHADER_STAGE_COMPUTE_BIT,
+                    0u, constants);
+                auto group_count = static_cast<uint32_t>(
+                    chunk / IndirectDispatchLayout::prepare_block_size +
+                    (chunk % IndirectDispatchLayout::prepare_block_size != 0u));
+                vkCmdDispatch(
+                    _cmdbuffer, group_count, 1u, 1u);
+                command_base += chunk;
+            }
+
+            resource_barrier->record(
+                command_buffer,
+                ResourceBarrier::Usage::kIndirectArgs);
+            resource_barrier->update_states(_cmdbuffer);
+            return command_buffer;
         };
         // Execute
         struct BufferPair {
@@ -1669,14 +3287,33 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 case Command::Tag::EShaderDispatchCommand: {
                     flush_all_pending();
                     auto c = static_cast<ShaderDispatchCommand const *>(cmd);
+                    auto indirect_plan = IndirectDispatchPlan{};
+                    const Buffer *indirect_source = nullptr;
+                    auto indirect = ValidatedIndirectDispatch{};
+                    if (c->is_indirect()) {
+                        indirect = validate_indirect_dispatch_source(c);
+                        indirect_plan = indirect.plan;
+                        indirect_source = indirect.source;
+                        if (indirect_plan.command_count == 0u) {
+                            // The preprocessing phase likewise skipped this
+                            // command, so it owns no argument-offset entry and
+                            // needs no descriptor, pipeline, or source read.
+                            break;
+                        }
+                    }
                     auto shader = reinterpret_cast<Shader *>(c->handle());
+                    if (c->is_indirect()) {
+                        validate_indirect_dispatch_target(
+                            c, shader, indirect, true);
+                    }
                     // Keep the shader's pipeline alive until this command buffer completes.
                     if (auto *ref = shader->pipeline_ref()) {
                         _state->dispose_after_flush(PipelineRefHolder{ref});
                     }
                     bool is_rt_shader = (shader->shader_tag() == Shader::ShaderTag::kRayTracingShader);
                     BindPropVisitor visitor{};
-                    set_dispatch_args(visitor, c, shader);
+                    set_dispatch_args(
+                        visitor, c, shader, indirect_source);
                     constexpr size_t max_printer_count = 1024ull * 1024ull;
                     BufferView count_buffer;
                     BufferView data_buffer;
@@ -1783,22 +3420,99 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     bind_shader_desc(visitor, shader, bind_point);
                     vkCmdBindPipeline(_cmdbuffer, bind_point, vk_pipeline);
                     auto calc = [](uint disp, uint thd) {
-                        return (disp + thd - 1u) / thd;
+                        auto group_count = indirect_dispatch_group_count(
+                            disp, thd);
+                        LUISA_ASSERT(group_count.valid_block_size,
+                                     "Vulkan compute block dimension is zero.");
+                        return group_count.value;
+                    };
+                    auto validate_group_count = [&](uint3 group_count) {
+                        if (is_rt_shader) { return; }
+                        auto &&limits = device()->properties().limits;
+                        auto representable = [](uint block_size) noexcept {
+                            return indirect_dispatch_max_group_count_for_uint32_global_id(
+                                block_size);
+                        };
+                        LUISA_ASSERT(
+                            group_count.x <=
+                                    limits.maxComputeWorkGroupCount[0] &&
+                                group_count.y <=
+                                    limits.maxComputeWorkGroupCount[1] &&
+                                group_count.z <=
+                                    limits.maxComputeWorkGroupCount[2] &&
+                                group_count.x <= representable(blk.x) &&
+                                group_count.y <= representable(blk.y) &&
+                                group_count.z <= representable(blk.z),
+                            "Vulkan direct dispatch group count ({}, {}, {}) "
+                            "exceeds device or uint32 global-ID limits.",
+                            group_count.x, group_count.y, group_count.z);
+                    };
+                    auto push_direct = [&](uint3 dispatch_size,
+                                           uint kernel_id) {
+                        if (is_rt_shader) {
+                            auto value = make_uint4(
+                                dispatch_size, kernel_id);
+                            push_shader_constants(
+                                shader, push_stage, 0u, value);
+                        } else {
+                            IndirectDispatchPushConstants value{
+                                .logical_size_x = dispatch_size.x,
+                                .logical_size_y = dispatch_size.y,
+                                .logical_size_z = dispatch_size.z,
+                                .kernel_id = kernel_id,
+                                .mode = static_cast<uint32_t>(
+                                    IndirectDispatchMode::DIRECT)};
+                            push_shader_constants(
+                                shader, push_stage, 0u, value);
+                        }
                     };
                     if (c->is_indirect()) {
-                        LUISA_ERROR("Indirect not implemented.");
+                        auto commands = prepare_indirect_dispatch(
+                            indirect_source, indirect_plan, blk);
+                        if (indirect_plan.command_count != 0u) {
+                            // Preparation binds its own compute pipeline and
+                            // descriptor set. Restore the target contract once,
+                            // then select one absolute source record per command.
+                            bind_shader_desc(
+                                visitor, shader,
+                                VK_PIPELINE_BIND_POINT_COMPUTE);
+                            vkCmdBindPipeline(
+                                _cmdbuffer,
+                                VK_PIPELINE_BIND_POINT_COMPUTE,
+                                vk_pipeline);
+                            for (auto command_index = 0u;
+                                 command_index <
+                                 indirect_plan.command_count;
+                                 ++command_index) {
+                                auto source_record_index =
+                                    indirect_plan.source_record_offset +
+                                    command_index;
+                                IndirectDispatchPushConstants value{
+                                    .mode = static_cast<uint32_t>(
+                                        IndirectDispatchMode::INDIRECT),
+                                    .source_record_index =
+                                        source_record_index};
+                                push_shader_constants(
+                                    shader, VK_SHADER_STAGE_COMPUTE_BIT,
+                                    0u, value);
+                                auto command_offset =
+                                    static_cast<VkDeviceSize>(
+                                        commands.offset) +
+                                    static_cast<VkDeviceSize>(
+                                        command_index) *
+                                        IndirectDispatchLayout::
+                                            vulkan_command_size;
+                                vkCmdDispatchIndirect(
+                                    _cmdbuffer,
+                                    commands.buffer->vk_buffer(),
+                                    command_offset);
+                            }
+                        }
                     } else if (c->is_multiple_dispatch()) {
                         uint idx = 0;
                         for (auto &disp_size : c->dispatch_sizes()) {
-                            uint4 value{make_uint4(disp_size, idx)};
+                            push_direct(disp_size, idx);
                             ++idx;
-                            vkCmdPushConstants(
-                                _cmdbuffer,
-                                shader->pipeline_layout(),
-                                push_stage,
-                                0,
-                                16,
-                                &value);
                             if (is_rt_shader) {
                                 auto rt = static_cast<RayTracingShader const *>(shader);
                                 vkCmdTraceRaysKHR(_cmdbuffer,
@@ -1806,19 +3520,19 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                                   &rt->hit_region(), &rt->callable_region(),
                                                   disp_size.x, disp_size.y, disp_size.z);
                             } else {
-                                vkCmdDispatch(_cmdbuffer, calc(disp_size.x, blk.x), calc(disp_size.y, blk.y), calc(disp_size.z, blk.z));
+                                auto group_count = make_uint3(
+                                    calc(disp_size.x, blk.x),
+                                    calc(disp_size.y, blk.y),
+                                    calc(disp_size.z, blk.z));
+                                validate_group_count(group_count);
+                                vkCmdDispatch(
+                                    _cmdbuffer, group_count.x,
+                                    group_count.y, group_count.z);
                             }
                         }
                     } else {
                         auto disp_size = c->dispatch_size();
-                        uint4 value{make_uint4(disp_size, 0)};
-                        vkCmdPushConstants(
-                            _cmdbuffer,
-                            shader->pipeline_layout(),
-                            push_stage,
-                            0,
-                            16,
-                            &value);
+                        push_direct(disp_size, 0u);
                         if (is_rt_shader) {
                             auto rt = static_cast<RayTracingShader const *>(shader);
                             vkCmdTraceRaysKHR(_cmdbuffer,
@@ -1826,7 +3540,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                               &rt->hit_region(), &rt->callable_region(),
                                               disp_size.x, disp_size.y, disp_size.z);
                         } else {
-                            vkCmdDispatch(_cmdbuffer, calc(disp_size.x, blk.x), calc(disp_size.y, blk.y), calc(disp_size.z, blk.z));
+                            auto group_count = make_uint3(
+                                calc(disp_size.x, blk.x),
+                                calc(disp_size.y, blk.y),
+                                calc(disp_size.z, blk.z));
+                            validate_group_count(group_count);
+                            vkCmdDispatch(
+                                _cmdbuffer, group_count.x,
+                                group_count.y, group_count.z);
                         }
                     }
                     if (logger && !shader->printers().empty()) {
@@ -1992,7 +3713,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         src_tex->vk_image(),
                         resource_barrier->get_layout(src_tex, c->src_level()),
                         dst_tex->vk_image(),
-                        resource_barrier->get_layout(dst_tex, c->src_level()),
+                        resource_barrier->get_layout(dst_tex, c->dst_level()),
                         1,
                         &copy};
                     vkCmdCopyImage2(
@@ -2165,7 +3886,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             std::memcpy(color_value.float32, &values, sizeof(float4));
                             VkImageSubresourceRange sub_range{
                                 .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                .baseMipLevel = 0,
+                                .baseMipLevel = cmd->level(),
                                 .levelCount = 1,
                                 .baseArrayLayer = 0,
                                 .layerCount = 1};
@@ -2206,28 +3927,52 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                         1}};
                                 VK_CHECK_RESULT(vkCreateImageView(device()->logic_device(), &imgview_create_info, Device::alloc_callbacks(), &img_view));
                             };
-                            uint2 resolution;
+                            auto mip_resolution = [](Texture *tex, uint level) noexcept {
+                                LUISA_ASSERT(
+                                    level < tex->mip(),
+                                    "Raster attachment mip level {} is outside [0, {}) for a {}x{} texture.",
+                                    level, tex->mip(), tex->size().x, tex->size().y);
+                                return make_uint2(
+                                    std::max(tex->size().x >> level, 1u),
+                                    std::max(tex->size().y >> level, 1u));
+                            };
+                            auto resolution = uint2{};
+                            auto has_resolution = false;
+                            auto include_attachment_resolution = [&](Texture *tex, uint level) noexcept {
+                                auto extent = mip_resolution(tex, level);
+                                if (!has_resolution) {
+                                    resolution = extent;
+                                    has_resolution = true;
+                                } else {
+                                    LUISA_ASSERT(
+                                        resolution.x == extent.x &&
+                                            resolution.y == extent.y,
+                                        "Raster attachments have mismatched mip extents: expected {}x{}, got {}x{} at mip {}.",
+                                        resolution.x, resolution.y,
+                                        extent.x, extent.y, level);
+                                }
+                            };
                             for (auto &i : cmd->rtv_texs()) {
                                 auto &img_view = _state->img_views.emplace_back();
                                 auto tex = reinterpret_cast<Texture *>(i.handle);
                                 emplace_img_view(img_view, tex, i.level);
+                                include_attachment_resolution(tex, i.level);
                                 VkClearValue clear_value;
                                 std::memset(&clear_value, 0, sizeof(VkClearValue));
-                            }
-                            if (!cmd->rtv_texs().empty()) {
-                                auto &&i = cmd->rtv_texs()[0];
-                                auto tex = reinterpret_cast<Texture *>(i.handle);
-                                resolution = tex->size().xy();
                             }
                             if (cmd->dsv_tex().handle != invalid_resource_handle) {
                                 auto &img_view = _state->img_views.emplace_back();
                                 auto tex = reinterpret_cast<Texture *>(cmd->dsv_tex().handle);
                                 emplace_img_view(img_view, tex, cmd->dsv_tex().level);
-                                resolution = tex->size().xy();
+                                include_attachment_resolution(
+                                    tex, cmd->dsv_tex().level);
                                 VkClearValue clear_value;
                                 std::memset(&clear_value, 0, sizeof(VkClearValue));
                                 clear_value.depthStencil.depth = 0.f;
                             }
+                            LUISA_ASSERT(
+                                has_resolution,
+                                "Raster draw command has no color or depth attachment.");
 
                             VkFramebufferCreateInfo framebuffer_create_info{
                                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -2281,13 +4026,10 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 vkCmdBindVertexBuffers(_cmdbuffer, 0, vb.size(), vertex_buffers.data(), vertex_buffer_offsets.data());
                                 auto before_draw = [&]() {
                                     uint value = mesh.object_id();
-                                    vkCmdPushConstants(
-                                        _cmdbuffer,
-                                        shader->pipeline_layout(),
+                                    push_shader_constants(
+                                        shader,
                                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                                        0,
-                                        4,
-                                        &value);
+                                        0u, value);
                                 };
                                 luisa::visit([&]<typename T>(T const &t) {
                                     // Draw
@@ -2331,7 +4073,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             if (cmd->dsv_tex().handle != invalid_resource_handle) {
                                 auto tex = reinterpret_cast<Texture const *>(cmd->dsv_tex().handle);
                                 resource_barrier->force_refresh_layout(
-                                    tex, 0,
+                                    tex, cmd->dsv_tex().level,
                                     VK_IMAGE_LAYOUT_GENERAL);
                             }
 
@@ -2354,8 +4096,22 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 default: break;
             }
         }
+        LUISA_ASSERT(
+            dispatch_offset_index == dispatch_offsets->size(),
+            "Vulkan descriptor binding consumed {} argument blocks, but "
+            "preprocessing produced {}.",
+            dispatch_offset_index, dispatch_offsets->size());
         flush_all_pending();
     }
+    LUISA_ASSERT(
+        preprocessed_argument_buffer_layout.size() ==
+                planned_argument_buffer_layout.size() &&
+            uniform_data->size() == uniform_buffer_size,
+        "Vulkan argument-buffer sizing/preprocessing mismatch: planned {} "
+        "bytes, preprocessed {} bytes, emitted {} bytes.",
+        planned_argument_buffer_layout.size(),
+        preprocessed_argument_buffer_layout.size(),
+        uniform_data->size());
     if (uniform_buffer_size > 0) {
         static_cast<UploadBuffer const *>(arg_buffer.buffer)->copy_from(uniform_data->data(), arg_buffer.offset, uniform_data->size());
     }
@@ -2373,99 +4129,4 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     }
 }
 
-vstd::span<VkDescriptorSet> Shader::allocate_desc_set(VkDescriptorPool pool, vstd::vector<VkDescriptorSet> &descs) const {
-    VkDescriptorSetAllocateInfo alloc_info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = pool,
-        .descriptorSetCount = static_cast<uint>(_desc_set_layout.size()),
-        .pSetLayouts = _desc_set_layout.data()};
-    auto last_size = descs.size();
-    luisa::enlarge_by(descs, _desc_set_layout.size());
-    VK_CHECK_RESULT(
-        vkAllocateDescriptorSets(
-            device()->logic_device(),
-            &alloc_info,
-            descs.data() + last_size));
-    return vstd::span<VkDescriptorSet>{descs.data() + last_size, _desc_set_layout.size()};
-}
-void Shader::update_desc_set(
-    VkDescriptorSet set,
-    vstd::vector<VkWriteDescriptorSet> &write_buffer,
-    vstd::vector<VkImageView> &img_view_buffer,
-    vstd::span<vstd::variant<BufferView, TexView>> texs) {
-    write_buffer.clear();
-    write_buffer.reserve(texs.size());
-    uint arg_idx = 0;
-    VkDescriptorBufferInfo buffer_info;
-    VkDescriptorImageInfo image_info;
-    [[maybe_unused]] auto make_desc = [&]<typename T>(T const &t) {
-        auto &v = write_buffer.emplace_back();
-        v.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        v.dstSet = set;
-        v.dstBinding = arg_idx;
-        v.dstArrayElement = 1;
-        v.descriptorCount = 1;
-        auto &&b = _binds[arg_idx];
-
-        switch (b.type) {
-            case lc::hlsl::ShaderVariableType::SRVTextureHeap:
-                v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-                break;
-            case lc::hlsl::ShaderVariableType::UAVTextureHeap:
-                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                break;
-            case lc::hlsl::ShaderVariableType::ConstantBuffer:
-            case lc::hlsl::ShaderVariableType::ConstantValue:
-            case lc::hlsl::ShaderVariableType::CBVBufferHeap:
-                v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                break;
-            case lc::hlsl::ShaderVariableType::SamplerHeap:
-                v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-                break;
-            case lc::hlsl::ShaderVariableType::SRVBufferHeap:
-            case lc::hlsl::ShaderVariableType::UAVBufferHeap:
-            case lc::hlsl::ShaderVariableType::StructuredBuffer:
-            case lc::hlsl::ShaderVariableType::RWStructuredBuffer:
-                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                break;
-            default: break;
-        }
-        if constexpr (std::is_same_v<T, Argument::Buffer>) {
-            buffer_info.buffer = reinterpret_cast<Buffer *>(t.handle)->vk_buffer();
-            buffer_info.offset = t.offset;
-            buffer_info.range = t.size;
-            v.pBufferInfo = &buffer_info;
-        }
-        if constexpr (std::is_same_v<T, Argument::Texture>) {
-            image_info.sampler = nullptr;
-            auto &img_view = img_view_buffer.emplace_back();
-            auto tex = reinterpret_cast<Texture *>(t.handle);
-            VkImageViewCreateInfo img_view_create_info = {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .flags = 0,
-                .image = tex->vk_image(),
-                .viewType = [&]() {
-                    switch (tex->dimension()) {
-                        case 1:
-                            return VK_IMAGE_VIEW_TYPE_1D;
-                        case 2:
-                            return VK_IMAGE_VIEW_TYPE_2D;
-                        default:
-                            return VK_IMAGE_VIEW_TYPE_3D;
-                    }
-                }(),
-                .format = Texture::to_vk_format(tex->format()),
-                .subresourceRange = VkImageSubresourceRange{.aspectMask = tex->get_aspect(), .baseMipLevel = t.level, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}};
-            VK_CHECK_RESULT(vkCreateImageView(device()->logic_device(), &img_view_create_info, Device::alloc_callbacks(), &img_view));
-            image_info.imageView = img_view;
-            image_info.imageLayout = tex->layout(t.level);
-            v.pImageInfo = &image_info;
-        }
-        arg_idx++;
-    };
-    // for (auto i : vstd::range((int64_t)texs.size())) {
-
-    //     // v.descriptorType = view.index() ==
-    // }
-}
 }// namespace lc::vk

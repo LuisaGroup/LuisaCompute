@@ -25,6 +25,21 @@ struct RayQueryHandlerRegion {
     size_t dispatch_exit_count{0u};
 };
 
+static void clone_metadata(const MetadataListMixin &source,
+                           MetadataListMixin &target) noexcept {
+    for (auto *metadata : source.metadata_list()) {
+        target.metadata_list().push_front(metadata->clone());
+    }
+}
+
+[[nodiscard]] static bool is_ray_query_object(
+    const Value *value) noexcept {
+    if (value == nullptr || !value->is_lvalue()) { return false; }
+    auto *type = value->type();
+    return type == Type::custom("LC_RayQueryAll") ||
+           type == Type::custom("LC_RayQueryAny");
+}
+
 [[nodiscard]] static bool collect_outlineable_handler_region(
     BasicBlock *entry, BasicBlock *dispatch, BasicBlock *loop_merge,
     RayQueryHandlerRegion &region, luisa::string_view &reason) noexcept {
@@ -103,6 +118,20 @@ struct RayQueryHandlerRegion {
     if (smaller->size() > larger->size()) { std::swap(smaller, larger); }
     for (auto *block : *smaller) {
         if (larger->contains(block)) { return true; }
+    }
+    return false;
+}
+
+[[nodiscard]] static bool handler_region_has_external_predecessor(
+    BasicBlock *entry, BasicBlock *dispatch,
+    const RayQueryHandlerRegion &handler) noexcept {
+    for (auto *block : handler.blocks) {
+        auto invalid = false;
+        block->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+            invalid |= !handler.blocks.contains(predecessor) &&
+                       !(block == entry && predecessor == dispatch);
+        });
+        if (invalid) { return true; }
     }
     return false;
 }
@@ -206,9 +235,10 @@ struct RayQueryHandlerRegion {
         }
     }
     auto *dispatch = static_cast<RayQueryDispatchInst *>(term);
-    if (dispatch->query_object() == nullptr || !dispatch->query_object()->is_lvalue() ||
+    if (!is_ray_query_object(dispatch->query_object()) ||
         dispatch->exit_block() != merge_block) {
-        reason = "dispatch query/exit does not match the loop";
+        reason = "dispatch requires an lvalue LC_RayQueryAll/"
+                 "LC_RayQueryAny object and an exit matching the loop";
         return false;
     }
     auto *owner = loop->parent_block()->parent_function();
@@ -236,6 +266,36 @@ struct RayQueryHandlerRegion {
         reason = "dispatch has a null candidate handler";
         return false;
     }
+    if (dispatch_block == merge_block || dispatch_block == loop->parent_block() ||
+        merge_block == loop->parent_block() || surface == dispatch_block ||
+        procedural == dispatch_block || surface == merge_block ||
+        procedural == merge_block) {
+        reason = "ray-query loop reuses a parent, dispatch, merge, or handler block";
+        return false;
+    }
+    for (auto *inst : merge_block->instructions()) {
+        if (inst->isa<PhiInst>()) {
+            reason = "ray-query loop merge contains a PHI that cannot be moved atomically";
+            return false;
+        }
+    }
+    auto merge_has_external_predecessor = false;
+    merge_block->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+        merge_has_external_predecessor |= predecessor != dispatch_block &&
+                                          predecessor != loop->parent_block();
+    });
+    if (merge_has_external_predecessor) {
+        reason = "ray-query loop merge has a predecessor outside the loop";
+        return false;
+    }
+    auto merge_has_self_successor = false;
+    merge_block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+        merge_has_self_successor |= successor == merge_block;
+    });
+    if (merge_has_self_successor) {
+        reason = "ray-query loop merge has a self edge";
+        return false;
+    }
     RayQueryHandlerRegion surface_region;
     RayQueryHandlerRegion procedural_region;
     if (!collect_outlineable_handler_region(surface, dispatch_block, merge_block,
@@ -246,6 +306,23 @@ struct RayQueryHandlerRegion {
     }
     if (handler_regions_overlap(surface_region, procedural_region)) {
         reason = "surface and procedural candidate handler regions overlap";
+        return false;
+    }
+    auto dispatch_has_external_predecessor = false;
+    dispatch_block->traverse_predecessors(
+        false, [&](BasicBlock *predecessor) noexcept {
+            dispatch_has_external_predecessor |=
+                predecessor != loop->parent_block() &&
+                !surface_region.blocks.contains(predecessor) &&
+                !procedural_region.blocks.contains(predecessor);
+        });
+    if (dispatch_has_external_predecessor) {
+        reason = "ray-query dispatch has a predecessor outside the loop";
+        return false;
+    }
+    if (handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
+        handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
+        reason = "candidate handler has a predecessor outside its outline region";
         return false;
     }
     luisa::unordered_set<BasicBlock *> loop_blocks;
@@ -259,6 +336,40 @@ struct RayQueryHandlerRegion {
         return false;
     }
     return true;
+}
+
+[[nodiscard]] static luisa::vector<RayQueryLoopInst *>
+collect_ray_query_loops(Function *function) noexcept {
+    luisa::vector<RayQueryLoopInst *> loops;
+    if (function == nullptr) { return loops; }
+    if (auto *def = function->definition()) {
+        for (auto *block : def->basic_blocks()) {
+            if (block != nullptr && block->is_terminated()) {
+                auto *terminator = block->terminator();
+                if (terminator->isa<RayQueryLoopInst>()) {
+                    loops.emplace_back(
+                        static_cast<RayQueryLoopInst *>(terminator));
+                }
+            }
+        }
+    }
+    return loops;
+}
+
+[[nodiscard]] static bool preflight_ray_query_loops(
+    luisa::span<RayQueryLoopInst *const> loops,
+    RayQueryLoopLowerInfo &info) noexcept {
+    auto rejected = false;
+    for (auto *loop : loops) {
+        luisa::string_view reason;
+        if (!can_lower_ray_query_loop(loop, reason)) {
+            LUISA_WARNING_WITH_LOCATION(
+                "lower_ray_query_loop: rejecting loop: {}", reason);
+            ++info.error_count;
+            rejected = true;
+        }
+    }
+    return !rejected;
 }
 
 struct RayQueryLoopSubgraph {
@@ -405,15 +516,18 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
                                                                             luisa::vector<std::pair<const PhiInst *, PhiInst *>> &phi_nodes,
                                                                             RayQueryLowerPassValueResolver &resolver) noexcept {
     auto bb = static_cast<BasicBlock *>(resolver.resolve(original));
+    clone_metadata(*original, *bb);
     XIRBuilder b;
     b.set_insertion_point(bb);
     for (auto inst : original->instructions()) {
         // special case: branch to the merge block
         if (inst->is_terminator() && inst->isa<BranchInst>() &&
             static_cast<const BranchInst *>(inst)->target_block() == merge) {
-            b.return_void();
+            auto *return_inst = b.return_void();
+            clone_metadata(*inst, *return_inst);
         } else if (inst->isa<PhiInst>()) {
             auto dup_phi = b.phi(inst->type());
+            clone_metadata(*inst, *dup_phi);
             phi_nodes.emplace_back(static_cast<const PhiInst *>(inst), dup_phi);
             resolver.emplace(inst, dup_phi);
         } else {
@@ -526,7 +640,14 @@ static void lower_ray_query_loop(Function *function, RayQueryLoopInst *loop, Ray
     XIRBuilder b;
     b.set_insertion_point(loop->prev());
     auto loop_parent_block = loop->parent_block();
-    (void)b.ray_query_pipeline(subgraph.query_object, on_surface, on_procedural, captured_args);
+    auto *pipeline = b.ray_query_pipeline(
+        subgraph.query_object, on_surface, on_procedural, captured_args);
+    // The pipeline is the unique semantic replacement for both the candidate
+    // dispatch and its enclosing loop. Clone dispatch provenance first so the
+    // enclosing loop's name/location remains the primary identity if both
+    // sources carry single-valued metadata.
+    clone_metadata(*dispatch, *pipeline);
+    clone_metadata(*loop, *pipeline);
     // remove the loop and record the change
     {
         loop->remove_self();
@@ -592,6 +713,7 @@ static void replace_phi_uses_with_local_load_in_blocks(BasicBlock *block, PhiIns
             b.set_insertion_point(block->instructions().head_sentinel());
             auto phi_load = b.load(phi->type(), phi_alloca);
             phi_load->add_comment("load from phi alloca");
+            clone_metadata(*phi, *phi_load);
             for (auto use : local_uses) {
                 User::set_operand_use_value(use, phi_load);
             }
@@ -639,6 +761,7 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
             b.set_insertion_point(f->body_block()->instructions().head_sentinel());
             auto phi_alloca = b.alloca_local(phi->type());
             phi_alloca->add_comment("alloca to lower phi node in ray query loop");
+            clone_metadata(*phi, *phi_alloca);
             static constexpr auto is_undef = [](Value *v) noexcept {
                 return v == nullptr || v->isa<Undefined>();
             };
@@ -664,6 +787,7 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
                 b.set_insertion_point(exit_block->instructions().head_sentinel());
                 auto phi_load = b.load(phi->type(), phi_alloca);
                 phi_load->add_comment("load from phi alloca in ray query exit block");
+                clone_metadata(*phi, *phi_load);
                 phi->replace_all_uses_with(phi_load);
             }
             LUISA_DEBUG_ASSERT(phi->use_list().empty(), "Phi node has uses but no exit block.");
@@ -672,45 +796,35 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
     }
 }
 
-static void run_lower_ray_query_loop_pass_on_function(Function *function, RayQueryLoopLowerInfo &info) noexcept {
-    if (auto def = function->definition()) {
-        // discover all ray query loops
-        luisa::vector<RayQueryLoopInst *> loops;
-        for (auto *block : def->basic_blocks()) {
-            if (block != nullptr && block->is_terminated()) {
-                auto *terminator = block->terminator();
-                if (terminator->isa<RayQueryLoopInst>()) {
-                    loops.emplace_back(static_cast<RayQueryLoopInst *>(terminator));
-                }
-            }
-        }
-        auto lowered_before = info.lowered_loop_count;
-        // Preflight the complete function before touching dispatch PHIs,
-        // hoisting allocas, creating callbacks, or running function-wide DCE.
-        // This keeps a later invalid loop from observing partial mutations made
-        // while lowering an earlier valid loop.
-        auto rejected = false;
-        for (auto loop : loops) {
-            luisa::string_view reason;
-            if (!can_lower_ray_query_loop(loop, reason)) {
-                LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop: rejecting loop: {}", reason);
-                ++info.error_count;
-                rejected = true;
-            }
-        }
-        if (rejected) { return; }
-        for (auto loop : loops) {
-            lower_phi_nodes_in_loop_dispatch_block(def, loop);
-            hoist_alloca_instructions_to_entry_block(def);
-            lower_ray_query_loop(function, loop, info);
-        }
-        // remove dead code after lowering using the DCE pass
-        if (info.lowered_loop_count != lowered_before) {
-            auto dce_info = dce_pass_run_on_function(function);
-            LUISA_VERBOSE("Removed {} dead instruction(s) and {} dead block(s) after lowering ray query loop(s).",
-                          dce_info.removed_inst_count, dce_info.removed_block_count);
-        }
+static void lower_preflighted_ray_query_loops(
+    Function *function, luisa::span<RayQueryLoopInst *const> loops,
+    RayQueryLoopLowerInfo &info) noexcept {
+    auto *def = function == nullptr ? nullptr : function->definition();
+    if (def == nullptr) { return; }
+    auto lowered_before = info.lowered_loop_count;
+    for (auto *loop : loops) {
+        lower_phi_nodes_in_loop_dispatch_block(def, loop);
+        hoist_alloca_instructions_to_entry_block(def);
+        lower_ray_query_loop(function, loop, info);
     }
+    // Remove dead code after lowering using the DCE pass.
+    if (info.lowered_loop_count != lowered_before) {
+        auto dce_info = dce_pass_run_on_function(function);
+        LUISA_VERBOSE(
+            "Removed {} dead instruction(s) and {} dead block(s) after "
+            "lowering ray query loop(s).",
+            dce_info.removed_inst_count, dce_info.removed_block_count);
+    }
+}
+
+static void run_lower_ray_query_loop_pass_on_function(
+    Function *function, RayQueryLoopLowerInfo &info) noexcept {
+    auto loops = collect_ray_query_loops(function);
+    // Preflight the complete function before touching dispatch PHIs, hoisting
+    // allocas, creating callbacks, or running function-wide DCE.
+    if (!preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
+    lower_preflighted_ray_query_loops(
+        function, luisa::span{loops}, info);
 }
 
 }// namespace detail
@@ -723,8 +837,34 @@ RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_function(Function *functi
 
 RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, PassReport *report) noexcept {
     RayQueryLoopLowerInfo info;
-    for (auto f : module->function_list()) {
-        detail::run_lower_ray_query_loop_pass_on_function(f, info);
+    struct FunctionWork {
+        Function *function;
+        luisa::vector<RayQueryLoopInst *> loops;
+    };
+    luisa::vector<FunctionWork> work;
+    if (module != nullptr) {
+        // Snapshot the original function list: successful lowering appends two
+        // callback functions per loop, and those generated functions are not
+        // part of this pass invocation's input domain.
+        for (auto *function : module->function_list()) {
+            work.emplace_back(FunctionWork{
+                .function = function,
+                .loops = detail::collect_ray_query_loops(function)});
+        }
+        // The module overload is transactional as well as the function
+        // overload. Discover every rejection before the first callback,
+        // alloca, pipeline, or DCE mutation is created.
+        auto accepted = true;
+        for (auto &item : work) {
+            accepted &= detail::preflight_ray_query_loops(
+                luisa::span{item.loops}, info);
+        }
+        if (accepted) {
+            for (auto &item : work) {
+                detail::lower_preflighted_ray_query_loops(
+                    item.function, luisa::span{item.loops}, info);
+            }
+        }
     }
     if (report != nullptr) {
         report->set("lowered_loop", info.lowered_loop_count);

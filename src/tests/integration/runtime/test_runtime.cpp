@@ -37,24 +37,12 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void test_runtime(Device &device_from_ut) {
+void test_runtime(Device &device) {
     luisa::log_level_verbose();
 
-    auto argv = boost::ut::detail::cfg::largv;
-    (void)device_from_ut;
-    Buffer<float> buffer;
     auto opts = luisa::test::ImageTestOptions::parse(
         boost::ut::detail::cfg::largc,
         boost::ut::detail::cfg::largv);
-
-    // Configure device with explicit settings
-    Context context{argv[0]};
-    DeviceConfig device_config{
-        .device_index = 0,
-        .inqueue_buffer_limit = false};
-    // To avoid memory overflows, the backend automatically waits 2 - 3 frames before committing,
-    // set .inqueue_buffer_limit to false when multi-stream interactions are involved
-    Device device = context.create_device(argv[1], &device_config, true /*use validation layer for debug*/);
 
     // Get statistics extension for profiling
     auto stats = device.extension<StatsExt>();
@@ -193,6 +181,13 @@ void test_runtime(Device &device_from_ut) {
             << ldr_image.copy_to(luisa::span{pixels})
             << synchronize();
 
+        auto output_path = std::filesystem::path{opts.output_dir} / "test_runtime.png";
+        auto saved = stbi_write_png(output_path.string().c_str(),
+                                    resolution.x, resolution.y, 4,
+                                    pixels.data(), resolution.x * 4u);
+        boost::ut::expect(static_cast<bool>(saved != 0)) << "Failed to save output image.";
+        if (!saved) { return; }
+
         if (opts.compare_path) {
             auto result = luisa::test::compare_with_reference_file(
                 reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
@@ -208,7 +203,14 @@ void test_runtime(Device &device_from_ut) {
 }
 
 int main(int argc, char *argv[]) {
-    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    // Multi-stream interactions must not be throttled independently. Create
+    // the fixture device with the required configuration instead of holding
+    // a second live device inside the test body.
+    DeviceConfig device_config{
+        .device_index = 0,
+        .inqueue_buffer_limit = false};
+    auto dc = luisa::test::create_device_from_ut(
+        argc, argv, &device_config, true);
     if (!dc) {
         return 0;
     }

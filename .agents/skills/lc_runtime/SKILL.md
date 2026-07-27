@@ -85,16 +85,52 @@ auto elem_view = buf.view().as<float>();  // for atomic operations
 buf.set_name("vertex data");
 ```
 
-### Buffer in Kernels
+#### Buffer-to-Buffer Copy
+
+Use `BufferView::copy_from(BufferView<T>)` or `BufferView::copy_to(BufferView<T>)` — **these work in both normal and SAFE builds**.
+
 ```cpp
-Kernel1D k = [&](BufferVar<float> buf) {
-    float v = buf.read(idx);
-    buf.write(idx, v + 1.0f);
-    buf.atomic(idx).fetch_add(1.0f);
-    float v2 = buf.volatile_read(idx);
-    buf.volatile_write(idx, v2);
-};
+Buffer<float> src = device.create_buffer<float>(1024);
+Buffer<float> dst = device.create_buffer<float>(1024);
+Buffer<float> readback = device.create_buffer<float>(1024);
+
+// ✅ Correct (SAFE-mode compatible): go through .view()
+stream << dst.view().copy_from(src);            // BufferView::copy_from(BufferView)
+stream << readback.view().copy_from(src);       // BufferView::copy_from(BufferView)
+
+// ❌ Wrong (fails in SAFE mode): Buffer::copy_from(BufferView<T>)
+// is guarded by #ifndef LUISA_ENABLE_SAFE_MODE
+// stream << dst.copy_from(src.view());          // compile error in SAFE
 ```
+
+#### SAFE Build Mode (`LUISA_ENABLE_SAFE_MODE`)
+
+Define `LUISA_ENABLE_SAFE_MODE` at build time to **disable unsafe raw-pointer overloads**, enabling runtime validation of buffer creation. This is controlled by the cmake option `ENABLE_SAFE_MODE` in the project.
+
+**What is excluded in SAFE mode** (`#ifndef LUISA_ENABLE_SAFE_MODE` blocks in `include/luisa/runtime/buffer.h`):
+
+| Class | Excluded overloads |
+|---|---|
+| `Buffer<T>` | `copy_to(void*)`
+`copy_to(BufferView<T>)`
+`copy_to(const ByteBufferView&)`
+`copy_from(const void*)`
+`copy_from(const void*, move_only_function)`
+`copy_from(BufferView<T>)`
+`copy_from(const ByteBufferView&)` |
+| `BufferView<T>` | `copy_to(void*)`
+`copy_from(const void*)` |
+
+**What remains available** (works in both modes):
+
+| API | Example |
+|---|---|
+| `Buffer::copy_to(luisa::span<U>)` / `Buffer::copy_from(luisa::span<U>)` | `buf.copy_from(luisa::span{host_vec})` |
+| `BufferView::copy_to(luisa::span<U>)` / `BufferView::copy_from(luisa::span<U>)` | `buf.view().copy_to(luisa::span{host_vec})` |
+| `BufferView::copy_to(BufferView<T>)` / `BufferView::copy_from(BufferView<T>)` | `dst.view().copy_from(src)` |
+| `BufferView::copy_to(const ByteBufferView&)` / `BufferView::copy_from(const ByteBufferView&)` | `buf.view().copy_to(byte_view)` |
+
+**To pass the build in SAFE mode**: Always go through `BufferView` or `luisa::span` overloads instead of the `Buffer<T>` convenience overloads that are guarded. For buffer-to-buffer copy, change `dst.copy_from(src.view())` → `dst.view().copy_from(src)`. For raw-pointer transfers, change `buf.copy_from(data_ptr)` → `buf.copy_from(luisa::span{ptr, count})`.
 
 ## Image & Volume
 
@@ -108,6 +144,21 @@ Image<float> img2 = device.create_image<float>(swapchain.backend_storage(), size
 #include <luisa/runtime/volume.h>
 Volume<float> vol = device.create_volume<float>(PixelStorage::FLOAT4, w, h, d);
 ```
+
+### Sparse Images and Volumes
+
+Sparse image/volume mip counts follow the same convention as regular textures:
+zero requests the full chain and larger requests are clamped to the logical
+maximum. Tile map and unmap regions are validated against the selected mip's
+ceil-divided tile grid, not the base extent or a floor-divided grid. Counts
+must be nonzero and range arithmetic must not wrap. Sparse copy regions use
+the same validation, convert tiles to texel offsets, and clip the final partial
+tile to the selected mip extent; buffer-backed copies must provide enough
+bytes for that clipped texel region.
+
+Sparse buffers use the same nonzero-count and checked-range rules over a
+ceil-divided byte tile grid. Every sparse map operation requires a valid heap
+created by the same `DeviceInterface` as the sparse resource.
 
 ### Image in Kernels
 ```cpp
@@ -243,11 +294,19 @@ while (running) {
 ```
 
 ### Buffer Upload/Download
+
+Always prefer `luisa::span<T>` overloads for SAFE-mode compatibility:
+
 ```cpp
-stream << buf.copy_from(host_data) << synchronize();
-stream << buf.copy_to(host_data) << synchronize();
-luisa::vector<float> data(size);
-stream << buf.copy_to(data.data()) << synchronize();
+luisa::vector<float> host_data(1024, 1.0f);
+
+// ✅ span-based (SAFE-mode compatible)
+stream << buf.copy_from(luisa::span{host_data}) << synchronize();
+stream << buf.copy_to(luisa::span{host_data}) << synchronize();
+
+// ❌ raw-pointer (fails in SAFE mode)
+// stream << buf.copy_to(host_data.data()) << synchronize();
+// stream << buf.copy_from(host_data.data()) << synchronize();
 ```
 
 ## Key Headers

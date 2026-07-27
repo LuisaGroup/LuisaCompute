@@ -21,7 +21,6 @@
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/destructure_cfg.h>
-#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -29,11 +28,22 @@
 #include <cmath>
 #include <limits>
 
+#include "helpers.h"
+
 namespace luisa::compute::xir {
 
 namespace {
 
 static constexpr auto max_ad_loop_unroll_count = 64u;
+
+template<typename Source, typename Target>
+void clone_local_metadata(
+    const Source *source, Target *target) noexcept {
+    if (source == nullptr || target == nullptr) { return; }
+    for (auto *metadata : source->metadata_list()) {
+        target->metadata_list().push_front(metadata->clone());
+    }
+}
 
 [[nodiscard]] auto is_differentiable_type(const Type *type) noexcept -> bool {
     switch (type->tag()) {
@@ -89,6 +99,65 @@ static constexpr auto max_ad_loop_unroll_count = 64u;
                                type->is_int64() || type->is_uint64());
 }
 
+struct IntegerTypeInfo {
+    bool is_signed;
+    uint64_t mask;
+    uint64_t sign_bit;
+};
+
+[[nodiscard]] auto integer_type_info(const Type *type) noexcept -> luisa::optional<IntegerTypeInfo> {
+    uint32_t bit_width = 0u;
+    auto is_signed = false;
+    switch (type->tag()) {
+        case Type::Tag::INT8:
+            bit_width = 8u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT8: bit_width = 8u; break;
+        case Type::Tag::INT16:
+            bit_width = 16u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT16: bit_width = 16u; break;
+        case Type::Tag::INT32:
+            bit_width = 32u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT32: bit_width = 32u; break;
+        case Type::Tag::INT64:
+            bit_width = 64u;
+            is_signed = true;
+            break;
+        case Type::Tag::UINT64: bit_width = 64u; break;
+        default: return luisa::nullopt;
+    }
+    auto mask = bit_width == 64u ? std::numeric_limits<uint64_t>::max() : (uint64_t{1u} << bit_width) - 1u;
+    return IntegerTypeInfo{
+        .is_signed = is_signed,
+        .mask = mask,
+        .sign_bit = uint64_t{1u} << (bit_width - 1u),
+    };
+}
+
+[[nodiscard]] auto constant_integer_bits(Value *value, const IntegerTypeInfo &info) noexcept
+    -> luisa::optional<uint64_t> {
+    if (value == nullptr || !value->isa<Constant>()) { return luisa::nullopt; }
+    auto *constant = static_cast<Constant *>(value);
+    uint64_t bits = 0u;
+    switch (constant->type()->tag()) {
+        case Type::Tag::INT8: bits = static_cast<uint64_t>(constant->as<int8_t>()); break;
+        case Type::Tag::UINT8: bits = constant->as<uint8_t>(); break;
+        case Type::Tag::INT16: bits = static_cast<uint64_t>(constant->as<int16_t>()); break;
+        case Type::Tag::UINT16: bits = constant->as<uint16_t>(); break;
+        case Type::Tag::INT32: bits = static_cast<uint64_t>(constant->as<int32_t>()); break;
+        case Type::Tag::UINT32: bits = constant->as<uint32_t>(); break;
+        case Type::Tag::INT64: bits = static_cast<uint64_t>(constant->as<int64_t>()); break;
+        case Type::Tag::UINT64: bits = constant->as<uint64_t>(); break;
+        default: return luisa::nullopt;
+    }
+    return bits & info.mask;
+}
+
 [[nodiscard]] auto find_store_before(BasicBlock *block, Instruction *before, Value *variable) noexcept -> StoreInst * {
     StoreInst *store = nullptr;
     if (block == nullptr || before == nullptr || variable == nullptr) { return nullptr; }
@@ -101,22 +170,26 @@ static constexpr auto max_ad_loop_unroll_count = 64u;
     return store;
 }
 
-[[nodiscard]] auto constant_i64_before(Value *value, BasicBlock *block, Instruction *before,
-                                       luisa::unordered_set<Value *> &visiting) noexcept -> luisa::optional<int64_t> {
-    if (auto c = constant_i64(value)) { return c; }
-    auto load = value != nullptr && value->isa<LoadInst>() ? static_cast<LoadInst *>(value) : nullptr;
+[[nodiscard]] auto constant_integer_bits_before(Value *value, BasicBlock *block, Instruction *before,
+                                                const IntegerTypeInfo &info,
+                                                luisa::unordered_set<Value *> &visiting) noexcept
+    -> luisa::optional<uint64_t> {
+    if (auto constant = constant_integer_bits(value, info)) { return constant; }
+    auto *load = value != nullptr && value->isa<LoadInst>() ? static_cast<LoadInst *>(value) : nullptr;
     if (load == nullptr || !is_integer_lvalue(load->variable())) { return luisa::nullopt; }
     if (!visiting.emplace(load->variable()).second) { return luisa::nullopt; }
-    auto store = find_store_before(block, before, load->variable());
-    auto result = store == nullptr ? luisa::optional<int64_t>{} :
-                                     constant_i64_before(store->value(), block, before, visiting);
+    auto *store = find_store_before(block, before, load->variable());
+    auto result = store == nullptr ? luisa::optional<uint64_t>{} :
+                                     constant_integer_bits_before(store->value(), block, before, info, visiting);
     visiting.erase(load->variable());
     return result;
 }
 
-[[nodiscard]] auto constant_i64_before(Value *value, BasicBlock *block, Instruction *before) noexcept -> luisa::optional<int64_t> {
+[[nodiscard]] auto constant_integer_bits_before(Value *value, BasicBlock *block, Instruction *before,
+                                                const IntegerTypeInfo &info) noexcept
+    -> luisa::optional<uint64_t> {
     luisa::unordered_set<Value *> visiting;
-    return constant_i64_before(value, block, before, visiting);
+    return constant_integer_bits_before(value, block, before, info, visiting);
 }
 
 void reject_loop_autodiff() noexcept {
@@ -125,7 +198,11 @@ void reject_loop_autodiff() noexcept {
                               "or move the dynamic loop outside the autodiff scope.");
 }
 
-void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
+// Rewrite only executable CFG successors. Structured merge/body/update roles
+// are declarative ownership and must never be changed merely because they
+// happen to name the same block as an executable edge.
+void retarget_executable_successor(
+    Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
     if (term == nullptr || from == nullptr || to == nullptr) { return; }
     switch (term->derived_instruction_tag()) {
         case DerivedInstructionTag::BRANCH: {
@@ -143,13 +220,11 @@ void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
             auto if_inst = static_cast<IfInst *>(term);
             if (if_inst->true_block() == from) { if_inst->set_true_target(to); }
             if (if_inst->false_block() == from) { if_inst->set_false_target(to); }
-            if (if_inst->merge_block() == from) { if_inst->set_merge_block(to); }
             break;
         }
         case DerivedInstructionTag::SWITCH: {
             auto sw = static_cast<SwitchInst *>(term);
             if (sw->default_block() == from) { sw->set_default_block(to); }
-            if (sw->merge_block() == from) { sw->set_merge_block(to); }
             for (auto i = 0u; i < sw->case_count(); i++) {
                 if (sw->case_block(i) == from) { sw->set_case_block(i, to); }
             }
@@ -158,15 +233,11 @@ void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
         case DerivedInstructionTag::LOOP: {
             auto loop = static_cast<LoopInst *>(term);
             if (loop->prepare_block() == from) { loop->set_prepare_block(to); }
-            if (loop->body_block() == from) { loop->set_body_block(to); }
-            if (loop->update_block() == from) { loop->set_update_block(to); }
-            if (loop->merge_block() == from) { loop->set_merge_block(to); }
             break;
         }
         case DerivedInstructionTag::SIMPLE_LOOP: {
             auto loop = static_cast<SimpleLoopInst *>(term);
             if (loop->body_block() == from) { loop->set_body_block(to); }
-            if (loop->merge_block() == from) { loop->set_merge_block(to); }
             break;
         }
         default: break;
@@ -201,9 +272,7 @@ void traverse_loop_region_successors(BasicBlock *block, const luisa::unordered_s
 
 struct LoopTripCount {
     Value *variable{};
-    int64_t start{};
-    int64_t step{};
-    int64_t trip_count{};
+    size_t trip_count{};
 };
 
 struct LoopCondition {
@@ -226,14 +295,18 @@ struct LoopCondition {
     if (!value->isa<ArithmeticInst>()) { return luisa::nullopt; }
     auto inst = static_cast<ArithmeticInst *>(value);
     if (inst->operand_count() != 2u) { return luisa::nullopt; }
-    auto lhs = constant_i64_before(inst->operand(0), block, before);
-    auto rhs = constant_i64_before(inst->operand(1), block, before);
+    auto info = integer_type_info(inst->operand(0)->type());
+    if (!info) { return luisa::nullopt; }
+    auto lhs = constant_integer_bits_before(inst->operand(0), block, before, *info);
+    auto rhs = constant_integer_bits_before(inst->operand(1), block, before, *info);
     if (!lhs || !rhs) { return luisa::nullopt; }
+    auto lhs_ordered = info->is_signed ? *lhs ^ info->sign_bit : *lhs;
+    auto rhs_ordered = info->is_signed ? *rhs ^ info->sign_bit : *rhs;
     switch (inst->op()) {
-        case ArithmeticOp::BINARY_LESS: return *lhs < *rhs;
-        case ArithmeticOp::BINARY_LESS_EQUAL: return *lhs <= *rhs;
-        case ArithmeticOp::BINARY_GREATER: return *lhs > *rhs;
-        case ArithmeticOp::BINARY_GREATER_EQUAL: return *lhs >= *rhs;
+        case ArithmeticOp::BINARY_LESS: return lhs_ordered < rhs_ordered;
+        case ArithmeticOp::BINARY_LESS_EQUAL: return lhs_ordered <= rhs_ordered;
+        case ArithmeticOp::BINARY_GREATER: return lhs_ordered > rhs_ordered;
+        case ArithmeticOp::BINARY_GREATER_EQUAL: return lhs_ordered >= rhs_ordered;
         case ArithmeticOp::BINARY_EQUAL: return *lhs == *rhs;
         case ArithmeticOp::BINARY_NOT_EQUAL: return *lhs != *rhs;
         default: return luisa::nullopt;
@@ -273,20 +346,29 @@ struct LoopCondition {
     auto loop_cond = analyze_loop_condition(prepare_branch->condition(), preheader, loop);
     if (!loop_cond) { return luisa::nullopt; }
     auto cmp = loop_cond->compare;
+    if (cmp->parent_block() != prepare) { return luisa::nullopt; }
     auto op = cmp->op();
     auto load = cmp->operand(0)->isa<LoadInst>() ? static_cast<LoadInst *>(cmp->operand(0)) : nullptr;
-    auto bound = constant_i64_before(cmp->operand(1), preheader, loop);
-    if (load == nullptr || !bound) { return luisa::nullopt; }
+    if (load == nullptr || load->parent_block() != prepare) { return luisa::nullopt; }
     auto variable = load->variable();
-    if (!is_integer_lvalue(variable)) { return luisa::nullopt; }
+    // A fixed-trip proof needs a non-escaping induction storage location.
+    // Pointer identity alone is not a no-alias proof: requiring a local alloca
+    // and later checking every use prevents hidden writes through a GEP/call.
+    if (!is_integer_lvalue(variable) || !variable->isa<AllocaInst>()) { return luisa::nullopt; }
+    auto integer_info = integer_type_info(variable->type());
+    if (!integer_info) { return luisa::nullopt; }
+    // Keep the fixed-trip proof intentionally syntactic. Values loaded from
+    // apparently constant storage may still be changed through aliases.
+    auto bound = constant_integer_bits(cmp->operand(1), *integer_info);
+    if (!bound) { return luisa::nullopt; }
     auto update_br = update->terminator();
     if (update_br == nullptr || !update_br->isa<BranchInst>() ||
         static_cast<BranchInst *>(update_br)->target_block() != prepare) {
         return luisa::nullopt;
     }
     auto init_store = find_store_before(preheader, loop, variable);
-    if (init_store == nullptr) { return luisa::nullopt; }
-    auto start = constant_i64_before(init_store->value(), preheader, loop);
+    if (init_store == nullptr || init_store->parent_block() != preheader) { return luisa::nullopt; }
+    auto start = constant_integer_bits(init_store->value(), *integer_info);
     if (!start) { return luisa::nullopt; }
     StoreInst *update_store = nullptr;
     for (auto inst : update->instructions()) {
@@ -303,34 +385,69 @@ struct LoopCondition {
     auto step_value = update_store->value();
     if (step_value == nullptr || !step_value->isa<ArithmeticInst>()) { return luisa::nullopt; }
     auto add = static_cast<ArithmeticInst *>(step_value);
-    if (add->op() != ArithmeticOp::BINARY_ADD || add->operand_count() != 2u) { return luisa::nullopt; }
+    if (add->parent_block() != update ||
+        add->op() != ArithmeticOp::BINARY_ADD ||
+        add->operand_count() != 2u) {
+        return luisa::nullopt;
+    }
     auto update_load = add->operand(0)->isa<LoadInst>() ? static_cast<LoadInst *>(add->operand(0)) : nullptr;
-    auto step = constant_i64_before(add->operand(1), preheader, loop);
-    if (update_load == nullptr || update_load->variable() != variable || !step) { return luisa::nullopt; }
-    if (*step == 0) { return luisa::nullopt; }
-    auto compare = [&](int64_t v) noexcept {
+    auto step = constant_integer_bits(add->operand(1), *integer_info);
+    if (update_load == nullptr || update_load->parent_block() != update ||
+        update_load->variable() != variable || !step) {
+        return luisa::nullopt;
+    }
+    if (*step == 0u) { return luisa::nullopt; }
+
+    // The fixed expansion omits the final, false condition evaluation. This is
+    // semantics-preserving only when the prepare block is observationally
+    // pure. Restrict it to arithmetic over the induction load; everything else
+    // uses the bounded lowering, which evaluates the original prepare block on
+    // every dynamic iteration and once more on loop exit.
+    // A metadata-bearing prepare block also uses the bounded form: fixed
+    // expansion fuses prepare instructions into the cloned body and therefore
+    // has no unique replacement block for prepare-local provenance.
+    if (!prepare->metadata_list().empty()) { return luisa::nullopt; }
+    for (auto inst : prepare->instructions()) {
+        if (inst->is_terminator()) { break; }
+        if (auto prepare_load = inst->isa<LoadInst>() ? static_cast<LoadInst *>(inst) : nullptr) {
+            if (prepare_load->variable() != variable) { return luisa::nullopt; }
+        } else if (!inst->isa<ArithmeticInst>()) {
+            return luisa::nullopt;
+        }
+    }
+
+    // Prove that the induction alloca cannot be written or escape anywhere
+    // except through its initializer and canonical update.
+    for (auto use : variable->use_list()) {
+        auto user = use->user();
+        if (auto induction_load = user->isa<LoadInst>() ? static_cast<LoadInst *>(user) : nullptr) {
+            if (induction_load->variable() == variable) { continue; }
+        }
+        if (user == init_store || user == update_store) { continue; }
+        return luisa::nullopt;
+    }
+
+    auto compare = [&](uint64_t v) noexcept {
+        auto lhs_ordered = integer_info->is_signed ? v ^ integer_info->sign_bit : v;
+        auto rhs_ordered = integer_info->is_signed ? *bound ^ integer_info->sign_bit : *bound;
         auto result = false;
         switch (op) {
-            case ArithmeticOp::BINARY_LESS: result = v < *bound; break;
-            case ArithmeticOp::BINARY_LESS_EQUAL: result = v <= *bound; break;
-            case ArithmeticOp::BINARY_GREATER: result = v > *bound; break;
-            case ArithmeticOp::BINARY_GREATER_EQUAL: result = v >= *bound; break;
+            case ArithmeticOp::BINARY_LESS: result = lhs_ordered < rhs_ordered; break;
+            case ArithmeticOp::BINARY_LESS_EQUAL: result = lhs_ordered <= rhs_ordered; break;
+            case ArithmeticOp::BINARY_GREATER: result = lhs_ordered > rhs_ordered; break;
+            case ArithmeticOp::BINARY_GREATER_EQUAL: result = lhs_ordered >= rhs_ordered; break;
             default: break;
         }
         return loop_cond->inverted ? !result : result;
     };
     auto v = *start;
-    int64_t trips = 0;
+    size_t trips = 0u;
     while (compare(v)) {
         trips++;
         if (trips > max_ad_loop_unroll_count) { return luisa::nullopt; }
-        if ((*step > 0 && v > std::numeric_limits<int64_t>::max() - *step) ||
-            (*step < 0 && v < std::numeric_limits<int64_t>::min() - *step)) {
-            return luisa::nullopt;
-        }
-        v += *step;
+        v = (v + *step) & integer_info->mask;
     }
-    return LoopTripCount{.variable = variable, .start = *start, .step = *step, .trip_count = trips};
+    return LoopTripCount{.variable = variable, .trip_count = trips};
 }
 
 struct CloneRemap final : public InstructionCloneValueResolver {
@@ -366,6 +483,11 @@ struct TransformAdScope {
     BasicBlock *epilogue_block{};
     size_t changed_count{0u};
     bool unrolled_early_exit_loop{false};
+
+    struct LoopPrepareEscape {
+        Instruction *source{};
+        AllocaInst *slot{};
+    };
 
     [[nodiscard]] auto owns_block(BasicBlock *block) const noexcept {
         if (block == nullptr) { return false; }
@@ -543,23 +665,186 @@ struct TransformAdScope {
         return valid;
     }
 
+    static void resolve_cloned_instruction_operands(
+        BasicBlock *source_block, CloneRemap &remap) noexcept {
+        LUISA_ASSERT(source_block != nullptr,
+                     "Autodiff loop cloning received a null source block.");
+        for (auto *source : source_block->instructions()) {
+            auto clone_iter = remap.map.find(source);
+            if (clone_iter == remap.map.end()) { continue; }
+            auto *clone_value = clone_iter->second;
+            LUISA_ASSERT(
+                clone_value != nullptr &&
+                    clone_value->isa<Instruction>(),
+                "Autodiff loop instruction map contains a non-instruction.");
+            auto *clone =
+                static_cast<Instruction *>(clone_value);
+            LUISA_ASSERT(
+                clone->operand_count() == source->operand_count(),
+                "Autodiff loop clone changed instruction operand count.");
+            // Blocks are pre-mapped, but an SSA definition may be cloned after
+            // one of its dominated users when structural merge roles do not
+            // follow executable DFS order. Resolve every operand only after
+            // all instruction shells for this clone are present.
+            for (auto i = 0u; i < source->operand_count(); i++) {
+                clone->set_operand(
+                    i, remap.resolve(source->operand(i)));
+            }
+        }
+    }
+
+    [[nodiscard]] luisa::vector<Instruction *>
+    collect_prepare_escape_sources(
+        BasicBlock *prepare,
+        const luisa::unordered_set<BasicBlock *> &region) noexcept {
+        luisa::vector<Instruction *> sources;
+        for (auto *instruction : prepare->instructions()) {
+            if (instruction->is_terminator()) { break; }
+            auto escapes = false;
+            for (auto *use : instruction->use_list()) {
+                auto *user = use->user();
+                auto *user_value =
+                    user == nullptr ?
+                        nullptr :
+                        static_cast<Value *>(user);
+                auto *user_instruction =
+                    user_value != nullptr &&
+                            user_value->isa<Instruction>() ?
+                        static_cast<Instruction *>(
+                            user_value) :
+                        nullptr;
+                if (user_instruction == nullptr) {
+                    escapes = true;
+                    break;
+                }
+                auto *user_block =
+                    user_instruction->parent_block();
+                if (user_block != prepare &&
+                    !region.contains(user_block)) {
+                    escapes = true;
+                    break;
+                }
+            }
+            if (!escapes) { continue; }
+            auto *type = instruction->type();
+            LUISA_ASSERT(
+                type != nullptr && !instruction->is_lvalue() &&
+                    !type->is_resource() && !type->is_custom() &&
+                    !type->is_cooperative_vector_ref() &&
+                    !type->is_cooperative_matrix_ref(),
+                "Autodiff loop prepare value escaping the loop cannot be "
+                "represented by a local snapshot.");
+            sources.emplace_back(instruction);
+        }
+        return sources;
+    }
+
+    void lower_loop_clone_phis(
+        const luisa::unordered_set<BasicBlock *> &region,
+        BasicBlock *merge) noexcept {
+        luisa::vector<PhiInst *> phis;
+        auto collect = [&](BasicBlock *block) noexcept {
+            if (block == nullptr) { return; }
+            for (auto *instruction : block->instructions()) {
+                if (instruction->isa<PhiInst>()) {
+                    phis.emplace_back(
+                        static_cast<PhiInst *>(instruction));
+                }
+            }
+        };
+        for (auto *block : region) { collect(block); }
+        collect(merge);
+        for (auto *phi : phis) {
+            lower_phi_node_to_local_variable(phi);
+        }
+        changed_count += phis.size();
+    }
+
+    [[nodiscard]] luisa::vector<LoopPrepareEscape>
+    create_prepare_escape_snapshots(
+        luisa::span<Instruction *const> sources) noexcept {
+        luisa::vector<LoopPrepareEscape> escapes;
+        escapes.reserve(sources.size());
+        for (auto *source : sources) {
+            escapes.emplace_back(LoopPrepareEscape{
+                .source = source,
+                .slot = create_snapshot_slot(source->type())});
+        }
+        return escapes;
+    }
+
+    static void snapshot_prepare_escapes(
+        XIRBuilder &builder, CloneRemap &remap,
+        luisa::span<const LoopPrepareEscape> escapes) noexcept {
+        for (auto escape : escapes) {
+            auto iter = remap.map.find(escape.source);
+            LUISA_ASSERT(
+                iter != remap.map.end() &&
+                    iter->second != nullptr,
+                "Autodiff loop prepare escape was not cloned.");
+            builder.store(escape.slot, iter->second);
+        }
+    }
+
+    static void restore_prepare_escapes_at_merge(
+        BasicBlock *prepare,
+        const luisa::unordered_set<BasicBlock *> &region,
+        BasicBlock *merge,
+        luisa::span<const LoopPrepareEscape> escapes) noexcept {
+        XIRBuilder builder;
+        auto *insertion_point =
+            merge->instructions().head_sentinel();
+        for (auto escape : escapes) {
+            luisa::vector<Use *> external_uses;
+            for (auto *use : escape.source->use_list()) {
+                auto *user = use->user();
+                auto *user_value =
+                    user == nullptr ?
+                        nullptr :
+                        static_cast<Value *>(user);
+                auto *instruction =
+                    user_value != nullptr &&
+                            user_value->isa<Instruction>() ?
+                        static_cast<Instruction *>(
+                            user_value) :
+                        nullptr;
+                if (instruction == nullptr) { continue; }
+                auto *user_block = instruction->parent_block();
+                if (user_block != prepare &&
+                    !region.contains(user_block)) {
+                    external_uses.emplace_back(use);
+                }
+            }
+            if (external_uses.empty()) { continue; }
+            builder.set_insertion_point(insertion_point);
+            auto *reload =
+                builder.load(escape.source->type(), escape.slot);
+            insertion_point = reload;
+            for (auto *use : external_uses) {
+                User::set_operand_use_value(use, reload);
+            }
+        }
+    }
+
     void retarget_unrolled_early_exits(BasicBlock *block, BasicBlock *break_target, BasicBlock *continue_target) noexcept {
         if (!block->is_terminated()) { return; }
         auto term = block->terminator();
         if (auto break_inst = term->isa<BreakInst>() ? static_cast<BreakInst *>(term) : nullptr) {
             if (break_inst->target_block() == nullptr || break_inst->target_block() == break_target) {
-                break_inst->remove_self();
+                auto removed = break_inst->remove_self();
                 XIRBuilder b;
                 b.set_insertion_point(block);
-                b.br(break_target);
+                auto *branch = b.br(break_target);
+                clone_local_metadata(removed.get(), branch);
                 unrolled_early_exit_loop = true;
             }
         } else if (auto continue_inst = term->isa<ContinueInst>() ? static_cast<ContinueInst *>(term) : nullptr) {
             if (continue_inst->target_block() == nullptr || continue_inst->target_block() == continue_target) {
-                continue_inst->remove_self();
+                auto removed = continue_inst->remove_self();
                 XIRBuilder b;
                 b.set_insertion_point(block);
-                b.br(continue_target);
+                auto *branch = b.br(continue_target);
+                clone_local_metadata(removed.get(), branch);
                 unrolled_early_exit_loop = true;
             }
         }
@@ -567,25 +852,30 @@ struct TransformAdScope {
 
     void unroll_fixed_trip_loop(LoopInst *loop, const LoopTripCount &trip) noexcept {
         auto preheader = loop->parent_block();
+        auto prepare = loop->prepare_block();
         auto merge = loop->merge_block();
-        LUISA_ASSERT(preheader != nullptr && merge != nullptr, "Invalid loop.");
-        if (trip.trip_count == 0) {
-            loop->remove_self();
-            XIRBuilder b;
-            b.set_insertion_point(preheader);
-            b.br(merge);
-            changed_count++;
-            return;
-        }
+        LUISA_ASSERT(preheader != nullptr && prepare != nullptr &&
+                         merge != nullptr,
+                     "Invalid loop.");
         luisa::unordered_set<BasicBlock *> region;
         luisa::vector<BasicBlock *> ordered;
         if (!collect_loop_unroll_region(loop, region, ordered)) { reject_loop_autodiff(); }
+        // Validate snapshotability before the first mutation so unsupported
+        // escaping prepare values cannot leave a partially lowered loop.
+        auto escape_sources =
+            collect_prepare_escape_sources(prepare, region);
+        lower_loop_clone_phis(region, merge);
+        auto escapes =
+            create_prepare_escape_snapshots(escape_sources);
         auto trips = static_cast<size_t>(trip.trip_count);
         luisa::vector<CloneRemap> remaps;
         remaps.resize(trips);
         for (auto iter = 0u; iter < trips; iter++) {
             for (auto block : ordered) {
-                remaps[iter].map[block] = definition->create_basic_block();
+                auto *cloned_block =
+                    definition->create_basic_block();
+                clone_local_metadata(block, cloned_block);
+                remaps[iter].map[block] = cloned_block;
             }
         }
         XIRBuilder b;
@@ -595,47 +885,96 @@ struct TransformAdScope {
                 auto new_block = static_cast<BasicBlock *>(remap.map[old_block]);
                 b.set_insertion_point(new_block);
                 if (old_block == loop->body_block()) {
-                    for (auto old_inst : loop->prepare_block()->instructions()) {
+                    for (auto old_inst : prepare->instructions()) {
                         if (old_inst->is_terminator()) { break; }
                         auto new_inst = old_inst->clone_with_metadata(b, remap);
                         remap.map[old_inst] = new_inst;
                     }
+                    resolve_cloned_instruction_operands(
+                        prepare, remap);
+                    snapshot_prepare_escapes(
+                        b, remap, escapes);
                 }
                 for (auto old_inst : old_block->instructions()) {
                     auto new_inst = old_inst->clone_with_metadata(b, remap);
                     remap.map[old_inst] = new_inst;
                 }
             }
+            for (auto *old_block : ordered) {
+                resolve_cloned_instruction_operands(
+                    old_block, remap);
+            }
         }
+        // A canonical while-style Loop evaluates prepare once more when the
+        // condition becomes false. Materialize that final evaluation instead
+        // of silently dropping it; escaping prepare values and observable
+        // arithmetic exceptional behavior therefore match the source loop.
+        auto *final_prepare =
+            definition->create_basic_block();
+        clone_local_metadata(prepare, final_prepare);
+        CloneRemap final_prepare_remap;
+        final_prepare_remap.map.emplace(
+            prepare, final_prepare);
+        b.set_insertion_point(final_prepare);
+        for (auto *old_inst : prepare->instructions()) {
+            if (old_inst->is_terminator()) { break; }
+            auto *new_inst =
+                old_inst->clone_with_metadata(
+                    b, final_prepare_remap);
+            final_prepare_remap.map[old_inst] = new_inst;
+        }
+        resolve_cloned_instruction_operands(
+            prepare, final_prepare_remap);
+        snapshot_prepare_escapes(
+            b, final_prepare_remap, escapes);
+        auto *final_branch = b.br(merge);
+        clone_local_metadata(
+            prepare->terminator(), final_branch);
         for (auto iter = 0u; iter < trips; iter++) {
             auto &remap = remaps[iter];
             auto next = iter + 1u < trips ?
                             static_cast<BasicBlock *>(remaps[iter + 1u].map[loop->body_block()]) :
-                            merge;
+                            final_prepare;
             auto iteration_update = static_cast<BasicBlock *>(remap.map[loop->update_block()]);
             for (auto old_block : ordered) {
                 auto new_block = static_cast<BasicBlock *>(remap.map[old_block]);
                 if (new_block->is_terminated()) {
-                    retarget_terminator(new_block->terminator(), loop->prepare_block(), next);
+                    retarget_executable_successor(
+                        new_block->terminator(),
+                        loop->prepare_block(), next);
                     retarget_unrolled_early_exits(new_block, merge, iteration_update);
                 }
             }
         }
-        auto first = static_cast<BasicBlock *>(remaps.front().map[loop->body_block()]);
-        loop->remove_self();
+        restore_prepare_escapes_at_merge(
+            prepare, region, merge, escapes);
+        auto *first =
+            trips == 0u ?
+                final_prepare :
+                static_cast<BasicBlock *>(
+                    remaps.front().map[
+                        loop->body_block()]);
+        auto removed = loop->remove_self();
         b.set_insertion_point(preheader);
-        b.br(first);
+        auto *branch = b.br(first);
+        clone_local_metadata(removed.get(), branch);
         changed_count++;
     }
 
-    [[nodiscard]] auto clone_loop_prepare_condition(XIRBuilder &b, BasicBlock *prepare, ConditionalBranchInst *branch,
-                                                    CloneRemap &remap, BasicBlock *target) noexcept -> Value * {
+    [[nodiscard]] auto clone_loop_prepare_condition(
+        XIRBuilder &b, BasicBlock *prepare,
+        ConditionalBranchInst *branch, CloneRemap &remap,
+        BasicBlock *target,
+        luisa::span<const LoopPrepareEscape> escapes) noexcept
+        -> Value * {
         b.set_insertion_point(target);
         for (auto old_inst : prepare->instructions()) {
             if (old_inst->is_terminator()) { break; }
             auto new_inst = old_inst->clone_with_metadata(b, remap);
             remap.map[old_inst] = new_inst;
         }
+        resolve_cloned_instruction_operands(prepare, remap);
+        snapshot_prepare_escapes(b, remap, escapes);
         return remap.resolve(branch->condition());
     }
 
@@ -668,18 +1007,20 @@ struct TransformAdScope {
         auto term = block->terminator();
         if (auto break_inst = term->isa<BreakInst>() ? static_cast<BreakInst *>(term) : nullptr) {
             if (break_inst->target_block() == nullptr || break_inst->target_block() == break_target) {
-                break_inst->remove_self();
+                auto removed = break_inst->remove_self();
                 XIRBuilder b;
                 b.set_insertion_point(block);
                 b.store(done_slot, one(Type::of<bool>()));
-                b.br(exit_target);
+                auto *branch = b.br(exit_target);
+                clone_local_metadata(removed.get(), branch);
             }
         } else if (auto continue_inst = term->isa<ContinueInst>() ? static_cast<ContinueInst *>(term) : nullptr) {
             if (continue_inst->target_block() == nullptr || continue_inst->target_block() == continue_target) {
-                continue_inst->remove_self();
+                auto removed = continue_inst->remove_self();
                 XIRBuilder b;
                 b.set_insertion_point(block);
-                b.br(continue_target);
+                auto *branch = b.br(continue_target);
+                clone_local_metadata(removed.get(), branch);
             }
         }
     }
@@ -694,6 +1035,11 @@ struct TransformAdScope {
         luisa::unordered_set<BasicBlock *> region;
         luisa::vector<BasicBlock *> ordered;
         if (!collect_loop_unroll_region(loop, region, ordered)) { reject_loop_autodiff(); }
+        auto escape_sources =
+            collect_prepare_escape_sources(prepare, region);
+        lower_loop_clone_phis(region, merge);
+        auto escapes =
+            create_prepare_escape_snapshots(escape_sources);
         auto done_slot = create_snapshot_slot(Type::of<bool>());
         luisa::vector<CloneRemap> remaps;
         remaps.resize(max_ad_loop_unroll_count);
@@ -716,8 +1062,12 @@ struct TransformAdScope {
             condition_false_blocks.emplace_back(definition->create_basic_block());
             condition_merge_blocks.emplace_back(definition->create_basic_block());
             iteration_merge_blocks.emplace_back(definition->create_basic_block());
+            clone_local_metadata(prepare, eval_blocks.back());
             for (auto block : ordered) {
-                remaps[iter].map[block] = definition->create_basic_block();
+                auto *cloned_block =
+                    definition->create_basic_block();
+                clone_local_metadata(block, cloned_block);
+                remaps[iter].map[block] = cloned_block;
             }
         }
         XIRBuilder b;
@@ -731,7 +1081,9 @@ struct TransformAdScope {
             active_if->set_merge_block(iteration_merge_blocks[iter]);
             b.set_insertion_point(inactive_blocks[iter]);
             b.br(iteration_merge_blocks[iter]);
-            auto loop_condition = clone_loop_prepare_condition(b, prepare, prepare_branch, remap, eval_blocks[iter]);
+            auto loop_condition = clone_loop_prepare_condition(
+                b, prepare, prepare_branch, remap,
+                eval_blocks[iter], escapes);
             auto condition_if = b.if_(loop_condition);
             condition_if->set_true_target(static_cast<BasicBlock *>(remap.map[loop->body_block()]));
             condition_if->set_false_target(condition_false_blocks[iter]);
@@ -747,6 +1099,10 @@ struct TransformAdScope {
                     remap.map[old_inst] = new_inst;
                 }
             }
+            for (auto *old_block : ordered) {
+                resolve_cloned_instruction_operands(
+                    old_block, remap);
+            }
             b.set_insertion_point(condition_merge_blocks[iter]);
             b.br(iteration_merge_blocks[iter]);
         }
@@ -757,6 +1113,7 @@ struct TransformAdScope {
         auto overflow_condition_merge = definition->create_basic_block();
         auto overflow_merge = definition->create_basic_block();
         auto overflow = definition->create_basic_block();
+        clone_local_metadata(prepare, overflow_eval);
         for (auto iter = 0u; iter < max_ad_loop_unroll_count; iter++) {
             auto &remap = remaps[iter];
             auto next = iter + 1u < max_ad_loop_unroll_count ? gate_blocks[iter + 1u] : overflow_check;
@@ -764,7 +1121,10 @@ struct TransformAdScope {
             for (auto old_block : ordered) {
                 auto new_block = static_cast<BasicBlock *>(remap.map[old_block]);
                 if (new_block->is_terminated()) {
-                    retarget_terminator(new_block->terminator(), loop->prepare_block(), condition_merge_blocks[iter]);
+                    retarget_executable_successor(
+                        new_block->terminator(),
+                        loop->prepare_block(),
+                        condition_merge_blocks[iter]);
                     retarget_dynamic_unrolled_early_exits(new_block, merge, iteration_update, done_slot,
                                                           condition_merge_blocks[iter]);
                 }
@@ -781,7 +1141,10 @@ struct TransformAdScope {
         overflow_active_if->set_merge_block(overflow_merge);
         b.set_insertion_point(overflow_inactive);
         b.br(overflow_merge);
-        auto overflow_condition = clone_loop_prepare_condition(b, prepare, prepare_branch, overflow_remap, overflow_eval);
+        auto overflow_condition =
+            clone_loop_prepare_condition(
+                b, prepare, prepare_branch,
+                overflow_remap, overflow_eval, escapes);
         auto overflow_condition_if = b.if_(overflow_condition);
         overflow_condition_if->set_true_target(overflow);
         overflow_condition_if->set_false_target(overflow_condition_false);
@@ -795,17 +1158,27 @@ struct TransformAdScope {
         b.br(overflow_merge);
         b.set_insertion_point(overflow_merge);
         b.br(merge);
+        restore_prepare_escapes_at_merge(
+            prepare, region, merge, escapes);
         auto first = gate_blocks.front();
-        loop->remove_self();
+        auto removed = loop->remove_self();
         b.set_insertion_point(preheader);
-        b.br(first);
+        auto *branch = b.br(first);
+        clone_local_metadata(removed.get(), branch);
         changed_count++;
     }
 
+    // `merge` tracks the current structured subregion. `region_merge` remains
+    // fixed so a raw early-exit branch cannot escape the autodiff scope while
+    // the fixed-point loop scan descends through nested control flow.
     void collect_first_level_loops(BasicBlock *block, BasicBlock *merge,
+                                   BasicBlock *region_merge,
                                    luisa::unordered_set<BasicBlock *> &visited,
                                    luisa::vector<LoopInst *> &loops) noexcept {
-        if (block == nullptr || block == merge || !visited.emplace(block).second) { return; }
+        if (block == nullptr || block == merge || block == region_merge ||
+            !visited.emplace(block).second) {
+            return;
+        }
         auto term = block->terminator();
         if (term == nullptr) { return; }
         if (auto loop = term->isa<LoopInst>() ? static_cast<LoopInst *>(term) : nullptr) {
@@ -818,27 +1191,33 @@ struct TransformAdScope {
             // Match collect_forward: a null local merge means both arms are
             // bounded by the enclosing structured region.
             auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
-            collect_first_level_loops(if_inst->true_block(), branch_merge, visited, loops);
-            collect_first_level_loops(if_inst->false_block(), branch_merge, visited, loops);
+            collect_first_level_loops(if_inst->true_block(), branch_merge,
+                                      region_merge, visited, loops);
+            collect_first_level_loops(if_inst->false_block(), branch_merge,
+                                      region_merge, visited, loops);
             if (structured_merge != nullptr) {
-                collect_first_level_loops(structured_merge, merge, visited, loops);
+                collect_first_level_loops(structured_merge, merge,
+                                          region_merge, visited, loops);
             }
             return;
         }
         if (auto switch_inst = term->isa<SwitchInst>() ? static_cast<SwitchInst *>(term) : nullptr) {
             auto *structured_merge = switch_inst->merge_block();
             auto *branch_merge = structured_merge == nullptr ? merge : structured_merge;
-            collect_first_level_loops(switch_inst->default_block(), branch_merge, visited, loops);
+            collect_first_level_loops(switch_inst->default_block(), branch_merge,
+                                      region_merge, visited, loops);
             for (auto i = 0u; i < switch_inst->case_count(); i++) {
-                collect_first_level_loops(switch_inst->case_block(i), branch_merge, visited, loops);
+                collect_first_level_loops(switch_inst->case_block(i), branch_merge,
+                                          region_merge, visited, loops);
             }
             if (structured_merge != nullptr) {
-                collect_first_level_loops(structured_merge, merge, visited, loops);
+                collect_first_level_loops(structured_merge, merge,
+                                          region_merge, visited, loops);
             }
             return;
         }
         block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
-            collect_first_level_loops(succ, merge, visited, loops);
+            collect_first_level_loops(succ, merge, region_merge, visited, loops);
         });
     }
 
@@ -846,7 +1225,7 @@ struct TransformAdScope {
         for (;;) {
             luisa::vector<LoopInst *> loops;
             luisa::unordered_set<BasicBlock *> visited;
-            collect_first_level_loops(entry, merge, visited, loops);
+            collect_first_level_loops(entry, merge, merge, visited, loops);
             if (loops.empty()) { break; }
             for (auto loop : loops) {
                 auto trip = analyze_simple_counted_loop(loop);
@@ -861,12 +1240,21 @@ struct TransformAdScope {
 
     void normalize_cfg_after_early_exit_unrolls() noexcept {
         if (!unrolled_early_exit_loop) { return; }
-        [[maybe_unused]] auto lower_switch_info = lower_switch_pass_run_on_function(function);
         [[maybe_unused]] auto destructure_info = destructure_cfg_pass_run_on_function(function);
+        // Generic CFG cleanup belongs to the raw/destructured interval. Once
+        // structure is rebuilt, Loop.prepare branches carry structural roles
+        // that generic DCE must not reinterpret.
         [[maybe_unused]] auto simplify_info = simplify_cfg_pass_run_on_function(function);
-        [[maybe_unused]] auto reg2mem_pre_info = reg2mem_pass_run_on_function(function);
-        [[maybe_unused]] auto restructure_info = restructure_cfg_pass_run_on_function(function);
         [[maybe_unused]] auto dce_info = dce_pass_run_on_function(function);
+        [[maybe_unused]] auto reg2mem_pre_info = reg2mem_pass_run_on_function(function);
+        auto restructure_info = restructure_cfg_pass_run_on_function(function);
+        LUISA_ASSERT(
+            restructure_info.succeeded(),
+            "Autodiff CFG normalization failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+            restructure_info.irreducible_region_count,
+            restructure_info.unstructured_branch_count,
+            restructure_info.invalid_construct_count,
+            restructure_info.iteration_limit_count);
         [[maybe_unused]] auto reg2mem_post_info = reg2mem_pass_run_on_function(function);
         changed_count++;
         unrolled_early_exit_loop = false;
@@ -933,19 +1321,31 @@ struct TransformAdScope {
         if (!is_differentiable_type(value->type())) { return nullptr; }
         if (value->isa<GEPInst>()) { return nullptr; }
         if (auto iter = grads.find(value); iter != grads.end()) { return iter->second; }
-        XIRBuilder b;
-        b.set_insertion_point(definition->body_block()->instructions().head_sentinel());
-        auto slot = b.alloca_local(value->type());
-        b.store(slot, zero(value->type()));
+        XIRBuilder allocation_builder;
+        allocation_builder.set_insertion_point(
+            definition->body_block()->instructions().head_sentinel());
+        auto *slot =
+            allocation_builder.alloca_local(value->type());
+        // Storage lifetime is function-wide, but gradient state belongs to one
+        // dynamic execution of this scope. Initializing at function entry
+        // leaks gradients across re-entries when the scope is nested in a
+        // loop; reset immediately before the scope boundary instead.
+        XIRBuilder initialization_builder;
+        initialization_builder.set_insertion_point(scope->prev());
+        initialization_builder.store(
+            slot, zero(value->type()));
         grads.emplace(value, slot);
         return slot;
     }
 
     [[nodiscard]] auto create_snapshot_slot(const Type *type) noexcept -> AllocaInst * {
-        XIRBuilder b;
-        b.set_insertion_point(definition->body_block()->instructions().head_sentinel());
-        auto slot = b.alloca_local(type);
-        b.store(slot, zero(type));
+        XIRBuilder allocation_builder;
+        allocation_builder.set_insertion_point(
+            definition->body_block()->instructions().head_sentinel());
+        auto *slot = allocation_builder.alloca_local(type);
+        XIRBuilder initialization_builder;
+        initialization_builder.set_insertion_point(scope->prev());
+        initialization_builder.store(slot, zero(type));
         return slot;
     }
 
@@ -1235,7 +1635,7 @@ struct TransformAdScope {
             return collect_forward(structured_merge, merge, visited, emit_instructions);
         }
         if (auto loop_inst = block->terminator(); loop_inst != nullptr &&
-                                                (loop_inst->isa<LoopInst>() || loop_inst->isa<SimpleLoopInst>())) {
+                                                  (loop_inst->isa<LoopInst>() || loop_inst->isa<SimpleLoopInst>())) {
             reject_loop_autodiff();
         }
         if (block->terminator() != nullptr) {
@@ -1397,16 +1797,16 @@ struct TransformAdScope {
         };
         switch (inst->op()) {
             case ArithmeticOp::BINARY_ADD:
-                accum(arg(0), out_grad);
-                accum(arg(1), out_grad);
+                accum_component(arg(0), out_grad);
+                accum_component(arg(1), out_grad);
                 break;
             case ArithmeticOp::MATRIX_COMP_ADD:
                 accum_component(arg(0), out_grad);
                 accum_component(arg(1), out_grad);
                 break;
             case ArithmeticOp::BINARY_SUB:
-                accum(arg(0), out_grad);
-                accum(arg(1), neg(b, arg(1)->type(), out_grad));
+                accum_component(arg(0), out_grad);
+                accum_component(arg(1), neg(b, type, out_grad));
                 break;
             case ArithmeticOp::MATRIX_COMP_SUB:
                 accum_component(arg(0), out_grad);
@@ -1417,8 +1817,8 @@ struct TransformAdScope {
                 accum(arg(0), neg(b, arg(0)->type(), out_grad));
                 break;
             case ArithmeticOp::BINARY_MUL:
-                accum(arg(0), mul(b, arg(0)->type(), out_grad, arg(1)));
-                accum(arg(1), mul(b, arg(1)->type(), out_grad, arg(0)));
+                accum_component(arg(0), mul(b, type, out_grad, lift_value_to_type(b, type, arg(1))));
+                accum_component(arg(1), mul(b, type, out_grad, lift_value_to_type(b, type, arg(0))));
                 break;
             case ArithmeticOp::MATRIX_COMP_MUL:
                 accum_component(arg(0), mul(b, type, out_grad, lift_value_to_type(b, type, arg(1))));
@@ -1442,13 +1842,14 @@ struct TransformAdScope {
                 break;
             }
             case ArithmeticOp::BINARY_DIV: {
-                auto lhs_grad = div(b, arg(0)->type(), out_grad, arg(1));
-                auto neg_lhs = neg(b, arg(0)->type(), arg(0));
-                auto sqr_rhs = mul(b, arg(1)->type(), arg(1), arg(1));
-                auto rhs_factor = div(b, arg(1)->type(), neg_lhs, sqr_rhs);
-                auto rhs_grad = mul(b, arg(1)->type(), out_grad, rhs_factor);
-                accum(arg(0), lhs_grad);
-                accum(arg(1), rhs_grad);
+                auto lhs = lift_value_to_type(b, type, arg(0));
+                auto rhs = lift_value_to_type(b, type, arg(1));
+                auto lhs_grad = div(b, type, out_grad, rhs);
+                auto sqr_rhs = mul(b, type, rhs, rhs);
+                auto rhs_factor = div(b, type, neg(b, type, lhs), sqr_rhs);
+                auto rhs_grad = mul(b, type, out_grad, rhs_factor);
+                accum_component(arg(0), lhs_grad);
+                accum_component(arg(1), rhs_grad);
                 break;
             }
             case ArithmeticOp::MATRIX_COMP_DIV: {
@@ -1463,10 +1864,12 @@ struct TransformAdScope {
                 break;
             }
             case ArithmeticOp::BINARY_MOD: {
-                auto quotient = div(b, type, arg(0), arg(1));
+                auto lhs = lift_value_to_type(b, type, arg(0));
+                auto rhs = lift_value_to_type(b, type, arg(1));
+                auto quotient = div(b, type, lhs, rhs);
                 auto truncated = b.call(type, ArithmeticOp::TRUNC, {quotient});
-                accum(arg(0), out_grad);
-                accum(arg(1), neg(b, type, mul(b, type, out_grad, truncated)));
+                accum_component(arg(0), out_grad);
+                accum_component(arg(1), neg(b, type, mul(b, type, out_grad, truncated)));
                 break;
             }
             case ArithmeticOp::SELECT: {
@@ -1994,11 +2397,17 @@ struct TransformAdScope {
         }
         {
             auto parent = scope->parent_block();
-            scope->remove_self();
+            auto removed = scope->remove_self();
             XIRBuilder b;
             b.set_insertion_point(parent);
-            b.br(entry);
+            auto *branch = b.br(entry);
+            clone_local_metadata(removed.get(), branch);
         }
+        // Dominance-based primal snapshot repair can only see the generated
+        // backward blocks after both physical CFG edges above are installed.
+        auto repair_info =
+            reg2mem_pass_repair_cross_block_rvalue_uses_on_function(function);
+        changed_count += repair_info.lowered_cross_block_value_count;
         return changed_count + 1u;
     }
 };
@@ -2184,13 +2593,19 @@ struct TransformForwardAdScope {
         LUISA_ASSERT(value != nullptr && is_differentiable_type(value->type()), "Invalid forward gradient value.");
         LUISA_ASSERT(!value->isa<GEPInst>(), "GEP gradient slots are represented by their base.");
         if (auto iter = grads.find(value); iter != grads.end()) { return iter->second; }
-        XIRBuilder b;
-        b.set_insertion_point(definition->body_block()->instructions().head_sentinel());
         luisa::vector<AllocaInst *> slots;
         slots.reserve(n_grads());
         for (auto i = 0u; i < n_grads(); i++) {
-            auto slot = b.alloca_local(value->type());
-            b.store(slot, zero(value->type()));
+            XIRBuilder allocation_builder;
+            allocation_builder.set_insertion_point(
+                definition->body_block()->instructions().head_sentinel());
+            auto *slot =
+                allocation_builder.alloca_local(value->type());
+            XIRBuilder initialization_builder;
+            initialization_builder.set_insertion_point(
+                scope->prev());
+            initialization_builder.store(
+                slot, zero(value->type()));
             slots.emplace_back(slot);
         }
         auto [iter, inserted] = grads.emplace(value, std::move(slots));
@@ -2314,13 +2729,13 @@ struct TransformForwardAdScope {
             Value *grad = nullptr;
             switch (inst->op()) {
                 case ArithmeticOp::BINARY_ADD:
-                    grad = add(b, type, g(arg(0), i), g(arg(1), i));
+                    grad = add(b, type, component_g(arg(0), i), component_g(arg(1), i));
                     break;
                 case ArithmeticOp::MATRIX_COMP_ADD:
                     grad = add(b, type, component_g(arg(0), i), component_g(arg(1), i));
                     break;
                 case ArithmeticOp::BINARY_SUB:
-                    grad = sub(b, type, g(arg(0), i), g(arg(1), i));
+                    grad = sub(b, type, component_g(arg(0), i), component_g(arg(1), i));
                     break;
                 case ArithmeticOp::MATRIX_COMP_SUB:
                     grad = sub(b, type, component_g(arg(0), i), component_g(arg(1), i));
@@ -2330,8 +2745,8 @@ struct TransformForwardAdScope {
                     grad = neg(b, type, g(arg(0), i));
                     break;
                 case ArithmeticOp::BINARY_MUL: {
-                    auto lhs = mul(b, type, g(arg(0), i), arg(1));
-                    auto rhs = mul(b, type, g(arg(1), i), arg(0));
+                    auto lhs = mul(b, type, component_g(arg(0), i), component_v(arg(1)));
+                    auto rhs = mul(b, type, component_g(arg(1), i), component_v(arg(0)));
                     grad = add(b, type, lhs, rhs);
                     break;
                 }
@@ -2342,10 +2757,12 @@ struct TransformForwardAdScope {
                     break;
                 }
                 case ArithmeticOp::BINARY_DIV: {
-                    auto lhs = mul(b, type, g(arg(0), i), arg(1));
-                    auto rhs = mul(b, type, g(arg(1), i), arg(0));
+                    auto lhs_value = component_v(arg(0));
+                    auto rhs_value = component_v(arg(1));
+                    auto lhs = mul(b, type, component_g(arg(0), i), rhs_value);
+                    auto rhs = mul(b, type, component_g(arg(1), i), lhs_value);
                     auto numer = sub(b, type, lhs, rhs);
-                    auto denom = mul(b, type, arg(1), arg(1));
+                    auto denom = mul(b, type, rhs_value, rhs_value);
                     grad = div(b, type, numer, denom);
                     break;
                 }
@@ -2360,9 +2777,9 @@ struct TransformForwardAdScope {
                     break;
                 }
                 case ArithmeticOp::BINARY_MOD: {
-                    auto quotient = div(b, type, arg(0), arg(1));
+                    auto quotient = div(b, type, component_v(arg(0)), component_v(arg(1)));
                     auto truncated = b.call(type, ArithmeticOp::TRUNC, {quotient});
-                    grad = sub(b, type, g(arg(0), i), mul(b, type, truncated, g(arg(1), i)));
+                    grad = sub(b, type, component_g(arg(0), i), mul(b, type, truncated, component_g(arg(1), i)));
                     break;
                 }
                 case ArithmeticOp::SELECT:
@@ -2816,10 +3233,11 @@ struct TransformForwardAdScope {
         transform_region(entry, merge, visited);
         remove_intrinsics();
         auto parent = scope->parent_block();
-        scope->remove_self();
+        auto removed = scope->remove_self();
         XIRBuilder b;
         b.set_insertion_point(parent);
-        b.br(entry);
+        auto *branch = b.br(entry);
+        clone_local_metadata(removed.get(), branch);
         return changed_count + 1u;
     }
 };
@@ -2830,7 +3248,9 @@ struct AutodiffPass {
 
     [[nodiscard]] auto locate_autodiff_scopes() const noexcept {
         luisa::vector<AutodiffScopeInst *> scopes;
-        if (auto def = function->definition()) {
+        if (auto def =
+                function == nullptr ? nullptr : function->definition();
+            def != nullptr && def->body_block() != nullptr) {
             def->traverse_instructions([&](Instruction *inst) noexcept {
                 if (inst->isa<AutodiffScopeInst>()) {
                     scopes.emplace_back(static_cast<AutodiffScopeInst *>(inst));
@@ -2842,7 +3262,10 @@ struct AutodiffPass {
 
     [[nodiscard]] auto run() noexcept -> AutodiffInfo {
         AutodiffInfo info;
-        if (!function->definition()) { return info; }
+        if (function == nullptr || function->definition() == nullptr ||
+            function->definition()->body_block() == nullptr) {
+            return info;
+        }
         auto scopes = locate_autodiff_scopes();
         for (auto scope : scopes) {
             if (scope->is_forward()) {
@@ -2876,10 +3299,15 @@ LUISA_XIR_API AutodiffInfo autodiff_pass_run_on_function(Function *function, con
 
 LUISA_XIR_API AutodiffInfo autodiff_pass_run_on_module(Module *module, const AutodiffOptions &options) noexcept {
     AutodiffInfo info;
-    for (auto func : module->function_list()) {
-        auto f_info = autodiff_pass_run_on_function(func, options);
-        info.transformed_scope_count += f_info.transformed_scope_count;
-        info.removed_instruction_count += f_info.removed_instruction_count;
+    if (module != nullptr) {
+        for (auto func : module->function_list()) {
+            auto f_info =
+                autodiff_pass_run_on_function(func, options);
+            info.transformed_scope_count +=
+                f_info.transformed_scope_count;
+            info.removed_instruction_count +=
+                f_info.removed_instruction_count;
+        }
     }
     return info;
 }

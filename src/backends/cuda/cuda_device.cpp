@@ -39,6 +39,7 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/verifier.h>
 
 #include "cuda_codegen_xir.h"
 
@@ -86,11 +87,22 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     return false;
 }();
 
+void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
+                         const xir::XIRVerificationOptions &options = {}) noexcept {
+    auto verification = xir::xir_verify_module(module, options);
+    if (!verification.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid XIR at CUDA {}: {} ({} error(s) total).",
+            stage, verification.errors.front().message, verification.errors.size());
+    }
+}
+
 [[nodiscard]] auto luisa_cuda_backend_translate_ast_to_xir(Function kernel, const ShaderOption &option, bool lower_rq = true) noexcept {
     Clock translate_clk;
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
     if (!option.name.empty()) { xir_module->set_location(option.name); }
+    verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
     // dump for debugging
@@ -103,7 +115,7 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     xir::PassPipeline pipeline;
     pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::local_store_forward_pass_run_on_module(m, &r);
@@ -115,7 +127,7 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     });
     pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
@@ -129,13 +141,14 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     }
     pipeline.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::mem2reg_pass_run_on_module(m, &r);
-        return i.promoted_alloca_count > 0u;
+        return i.changed();
     });
     pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     auto pre_cfg_stats = pipeline.run(xir_module.get());
+    verify_xir_or_error(xir_module.get(), "pre-CFG optimization");
     pre_cfg_stats.log("CUDA backend pre-CFG optimization");
     if (LUISA_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
@@ -146,34 +159,48 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     if (lower_rq) {
         cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+            if (!i.succeeded()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "CUDA XIR ray-query lowering rejected {} loop(s).",
+                    i.error_count);
+            }
             return i.lowered_loop_count > 0u;
         });
         cfg.add("reg2mem", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::reg2mem_pass_run_on_module(m, &r);
-            return i.lowered_phi_count > 0u;
+            return i.changed();
         });
     }
     if (LUISA_XIR_NORMALIZE_CFG) {
         cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
-            return i.destructured_if_count > 0u ||
-                   i.destructured_loop_count > 0u ||
-                   i.destructured_simple_loop_count > 0u;
+            if (!i.succeeded()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "CUDA XIR destructuring failed (errors={}, leaked_blocks={}).",
+                    i.error_count, i.leaked_block_count);
+            }
+            return i.changed();
         });
         cfg.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-            return i.folded_constant_cond_br_count > 0u ||
-                   i.threaded_empty_block_count > 0u ||
-                   i.merged_straight_line_count > 0u;
+            return i.changed();
         });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
             cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
-                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+                if (!i.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "CUDA XIR restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+                        i.irreducible_region_count, i.unstructured_branch_count,
+                        i.invalid_construct_count, i.iteration_limit_count);
+                }
+                return i.changed();
             });
         }
     }
     auto cfg_stats = cfg.run(xir_module.get());
+    verify_xir_or_error(xir_module.get(), "codegen handoff",
+                        {.require_no_phi = lower_rq});
     cfg_stats.log("CUDA backend CFG normalization");
 
     // dump for debugging
@@ -740,7 +767,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
                                                        luisa::span<const char *const> nvrtc_options,
                                                        const CUDAShaderMetadata &expected_metadata,
                                                        luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
-                                                       luisa::string force_ptx) noexcept {
+                                                       luisa::function<luisa::string()> generate_ptx) noexcept {
 
     // generate a default name if not specified
     auto uses_user_path = !name.empty();
@@ -752,11 +779,6 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
 
     // try disk cache
     auto ptx = [&] {
-        if (!force_ptx.empty()) {
-            return luisa::vector<std::byte>{
-                reinterpret_cast<std::byte *>(force_ptx.data()),
-                reinterpret_cast<std::byte *>(force_ptx.data()) + force_ptx.size() + 1};
-        }
         luisa::unique_ptr<BinaryStream> ptx_stream;
         luisa::unique_ptr<BinaryStream> metadata_stream;
         if (uses_user_path) {
@@ -770,6 +792,37 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
             metadata_stream.get(), ptx_stream.get(),
             name, false, expected_metadata);
     }();
+
+    const auto write_cache = [&](luisa::span<const std::byte> ptx_data) {
+        auto metadata = luisa::format(
+            "// METADATA: {}\n\n",
+            serialize_cuda_shader_metadata(expected_metadata));
+        luisa::span metadata_data{
+            reinterpret_cast<const std::byte *>(metadata.data()),
+            metadata.size()};
+        if (uses_user_path) {
+            static_cast<void>(_io->write_shader_bytecode(name, ptx_data));
+            static_cast<void>(
+                _io->write_shader_bytecode(metadata_name, metadata_data));
+        } else if (option.enable_cache) {
+            static_cast<void>(_io->write_shader_cache(name, ptx_data));
+            static_cast<void>(
+                _io->write_shader_cache(metadata_name, metadata_data));
+        }
+    };
+
+    // LLVM codegen is deliberately lazy: cached PTX must be checked before
+    // translating AST to XIR and running the LLVM optimization pipeline.
+    if (ptx.empty() && generate_ptx) {
+        luisa::string generated = generate_ptx();
+        if (!generated.empty()) {
+            ptx.assign(
+                reinterpret_cast<const std::byte *>(generated.data()),
+                reinterpret_cast<const std::byte *>(generated.data()) +
+                    generated.size() + 1u);
+            write_cache(luisa::span{ptx.data(), ptx.size()});
+        }
+    }
 
     // compile if not found in cache
     if (ptx.empty()) {
@@ -786,16 +839,9 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
         luisa::string src_filename{src_dump_path.string()};
         ptx = _compiler->compile(source, src_filename, nvrtc_options, &expected_metadata);
         if (!ptx.empty()) {
-            luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
-            auto metadata = luisa::format("// METADATA: {}\n\n", serialize_cuda_shader_metadata(expected_metadata));
-            luisa::span metadata_data{reinterpret_cast<const std::byte *>(metadata.data()), metadata.size()};
-            if (uses_user_path) {
-                static_cast<void>(_io->write_shader_bytecode(name, ptx_data));
-                static_cast<void>(_io->write_shader_bytecode(metadata_name, metadata_data));
-            } else if (option.enable_cache) {
-                static_cast<void>(_io->write_shader_cache(name, ptx_data));
-                static_cast<void>(_io->write_shader_cache(metadata_name, metadata_data));
-            }
+            luisa::span ptx_data{
+                reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
+            write_cache(ptx_data);
         }
     }
 
@@ -841,22 +887,31 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 
     // codegen
     StringScratch scratch;
-    luisa::string ptx_from_llvm;
+    luisa::function<luisa::string()> generate_ptx;
     auto print_formats = [&] {
 #ifdef LUISA_ENABLE_XIR
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
         if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN) {
-            auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option, false);
-            CUDACodegenLLVMConfig config{
-                .source_file = option.name,
-                .bindings = kernel.bound_arguments(),
-                .block_size = {kernel.block_size().x, kernel.block_size().y, kernel.block_size().z},
-                .cuda_arch = _handle.compute_capability(),
-                .enable_fast_math = option.enable_fast_math,
-                .enable_debug_info = option.enable_debug_info,
+            generate_ptx = [this, &kernel, &option] {
+                auto xir_module =
+                    luisa_cuda_backend_translate_ast_to_xir(
+                        kernel, option, false);
+                CUDACodegenLLVMConfig config{
+                    .source_file = option.name,
+                    .bindings = kernel.bound_arguments(),
+                    .block_size = {
+                        kernel.block_size().x,
+                        kernel.block_size().y,
+                        kernel.block_size().z},
+                    .cuda_arch = _handle.compute_capability(),
+                    .enable_fast_math = option.enable_fast_math,
+                    .enable_debug_info = option.enable_debug_info,
+                };
+                return luisa_compute_cuda_codegen_llvm(
+                    *xir_module, config);
             };
-            ptx_from_llvm = luisa_compute_cuda_codegen_llvm(*xir_module, config);
-            return CUDACodegenXIR::PrintFormatVector{};
+            // Keep emitting the canonical NVRTC source below. Its source and
+            // options define the existing CUDA shader cache identity.
         }
 #endif
         if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN) {
@@ -1023,7 +1078,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     return _load_or_compile_shader(option.name, scratch.string(),
                                    option, nvrtc_options,
                                    metadata, std::move(bound_arguments),
-                                   ptx_from_llvm);
+                                   std::move(generate_ptx));
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {

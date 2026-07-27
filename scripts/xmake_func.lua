@@ -110,8 +110,16 @@ before_check(function(option)
         })
     end
 
-    -- AST LLVM codegen forces LLVM path and XIR, disables XIR→SPIR-V
+    -- AST LLVM codegen requires an explicit LLVM installation and XIR, and
+    -- disables XIR→SPIR-V.
     if lc_vk_backend_use_ast_llvm_spirv:enabled() then
+        local configured_llvm_path = get_config("lc_llvm_path")
+        if type(configured_llvm_path) ~= "string" or
+            configured_llvm_path:len() == 0 then
+            raise("lc_vk_backend_use_ast_llvm_spirv requires " ..
+                  "lc_llvm_path to name an LLVM installation built with " ..
+                  "the native SPIR-V target.")
+        end
         lc_enable_xir:enable(true, {force = true})
         lc_vk_backend_use_xir_spirv:enable(false, {force = true})
     end

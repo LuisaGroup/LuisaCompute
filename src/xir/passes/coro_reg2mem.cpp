@@ -39,7 +39,7 @@ static void run_on_callable(CallableFunction *func, CoroReg2MemInfo &info) noexc
 
 CoroReg2MemInfo coro_reg2mem_pass_run_on_module(Module *m) noexcept {
     CoroReg2MemInfo info;
-
+    if (m == nullptr) { return info; }
     for (auto *f : m->function_list()) {
         if (!f->isa<CallableFunction>() || f->definition() == nullptr) { continue; }
         auto *cf = static_cast<CallableFunction *>(f);

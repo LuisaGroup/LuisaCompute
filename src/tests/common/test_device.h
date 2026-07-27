@@ -28,6 +28,24 @@ struct DeviceContext {
     compute::Device device;
 };
 
+inline void print_device_usage(const char *exe) noexcept {
+    LUISA_INFO(
+        "Usage: {} <backend>. <backend> must be an installed runtime backend "
+        "(for example: cpu, cuda, dx, fallback, hip, metal, remote, vk).",
+        exe);
+}
+
+inline void log_test_backend(const char *requested, const compute::Device &device) noexcept {
+    auto active = device.backend_name();
+    if (active.empty()) {
+        // Validation layers may hide the underlying DeviceInterface name. The
+        // context still loaded the exact requested backend plugin.
+        LUISA_INFO("Test device backend: {}.", requested);
+    } else {
+        LUISA_INFO("Test device backend: {}.", active);
+    }
+}
+
 /// Safe executable-path helper for Windows when __argv is unreliable.
 inline const char *safe_argv0() noexcept {
 #ifdef _WIN32
@@ -46,11 +64,12 @@ inline const char *safe_argv0() noexcept {
 [[nodiscard]] inline DeviceContext create_device(int argc, char *argv[]) {
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
     compute::Context context{exe};
-    if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal, vk", exe);
+    if (argc <= 1 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
+        print_device_usage(exe);
         exit(1);
     }
     compute::Device device = context.create_device(argv[1]);
+    log_test_backend(argv[1], device);
     return {std::move(context), std::move(device)};
 }
 
@@ -61,22 +80,28 @@ inline const char *safe_argv0() noexcept {
     auto argc = boost::ut::detail::cfg::largc;
     auto argv = boost::ut::detail::cfg::largv;
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
-    if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal, vk", exe);
+    if (argc <= 1 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
+        print_device_usage(exe);
         return std::nullopt;
     }
     compute::Context context{exe};
     compute::Device device = context.create_device(argv[1]);
+    log_test_backend(argv[1], device);
     return DeviceContext{std::move(context), std::move(device)};
 }
-[[nodiscard]] inline std::optional<DeviceContext> create_device_from_ut(int argc, char *argv[]) {
+[[nodiscard]] inline std::optional<DeviceContext> create_device_from_ut(
+    int argc, char *argv[],
+    const compute::DeviceConfig *config = nullptr,
+    bool enable_validation = false) {
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
-    if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal, vk", exe);
+    if (argc <= 1 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
+        print_device_usage(exe);
         return std::nullopt;
     }
     compute::Context context{exe};
-    compute::Device device = context.create_device(argv[1]);
+    compute::Device device = context.create_device(
+        argv[1], config, enable_validation);
+    log_test_backend(argv[1], device);
     return DeviceContext{std::move(context), std::move(device)};
 }
 

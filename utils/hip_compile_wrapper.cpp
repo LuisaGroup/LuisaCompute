@@ -19,12 +19,13 @@
 
 [[noreturn]] static void print_usage_and_exit(const char *prog, int code) noexcept {
     std::cerr << "Usage: " << prog
-              << " -i <input.hip> -o <output.bc> [-a <arch>] [-I <include-dir>]...\n"
+              << " -i <input.hip> -o <output.bc> [-a <arch>] [-I <include-dir>] [-D <definition>]...\n"
               << "Options:\n"
               << "  -i, --input  <file>   Input .hip source file\n"
               << "  -o, --output <file>   Output LLVM bitcode file\n"
               << "  -a, --arch   <arch>   Target GPU architecture (e.g., gfx1201)\n"
               << "  -I <dir>              Additional include directory (repeatable)\n"
+              << "  -D, --define <def>    Preprocessor definition (repeatable)\n"
               << "      --help            Show this help\n";
     std::exit(code);
 }
@@ -34,6 +35,7 @@ int main(int argc, char *argv[]) {
     std::filesystem::path output_file;
     std::vector<std::string> archs;
     std::vector<std::string> include_dirs;
+    std::vector<std::string> definitions;
 
     for (int i = 1; i < argc; i++) {
         auto opt = std::string_view{argv[i]};
@@ -52,6 +54,8 @@ int main(int argc, char *argv[]) {
             archs.emplace_back(require_next());
         } else if (opt == "-I") {
             include_dirs.emplace_back(require_next());
+        } else if (opt == "-D" || opt == "--define") {
+            definitions.emplace_back(require_next());
         } else if (opt == "--help") {
             print_usage_and_exit(argv[0], 0);
         } else {
@@ -101,6 +105,9 @@ int main(int argc, char *argv[]) {
     }
     for (auto &dir : include_dirs) {
         option_strings.emplace_back("-I" + dir);
+    }
+    for (auto &definition : definitions) {
+        option_strings.emplace_back("-D" + definition);
     }
 
     std::vector<const char *> options;

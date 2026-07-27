@@ -1,14 +1,24 @@
 #pragma once
 
 #include <algorithm>
+#include <limits>
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/basic_types.h>
+
+// WORKAROUND: Windows SDK corecrt_math.h defines OVERFLOW as a macro
+// (expanded to the constant _OVERFLOW == 3), which conflicts with
+// PixelStorageSizeStatus::OVERFLOW. Undefine it before the enum.
+#ifdef OVERFLOW
+#undef OVERFLOW
+#endif
 
 namespace luisa::compute {
 
 namespace detail {
 [[noreturn]] LUISA_RUNTIME_API void error_pixel_invalid_format(const char *name) noexcept;
+[[noreturn]] LUISA_RUNTIME_API void error_pixel_size_overflow(
+    uint32_t storage, uint3 size) noexcept;
 }// namespace detail
 
 enum struct PixelStorage : uint32_t {
@@ -46,6 +56,21 @@ enum struct PixelStorage : uint32_t {
     BC7_SRGB,
     BYTE4_SRGB,
     //TODO: ASTC
+};
+
+enum struct PixelStorageSizeStatus : uint8_t {
+    SUCCESS,
+    INVALID_STORAGE,
+    OVERFLOW
+};
+
+struct PixelStorageSizeResult {
+    PixelStorageSizeStatus status;
+    size_t size;
+
+    [[nodiscard]] constexpr explicit operator bool() const noexcept {
+        return status == PixelStorageSizeStatus::SUCCESS;
+    }
 };
 
 enum struct PixelFormat : uint32_t {
@@ -268,49 +293,113 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA8SRGB) + 1u;
     detail::error_pixel_invalid_format("unknown");
 }
 
-[[nodiscard]] constexpr size_t pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
-    if (is_block_compressed(storage)) {
-        auto block_width = (size.x + 3u) / 4u;
-        auto block_height = (size.y + 3u) / 4u;
-        auto block_count = block_width * block_height * std::max(size.z, 1u);
-        switch (storage) {
-            case PixelStorage::BC1:
-            case PixelStorage::BC4: return block_count * 8u;
-            case PixelStorage::BC2:
-            case PixelStorage::BC3:
-            case PixelStorage::BC5:
-            case PixelStorage::BC6:
-            case PixelStorage::BC7:
-            case PixelStorage::BC7_SRGB:
-                return block_count * 16u;
-            default: break;
+[[nodiscard]] constexpr PixelStorageSizeResult
+checked_pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
+    auto checked_multiply = [](size_t lhs, size_t rhs,
+                               size_t &result) constexpr noexcept {
+        if (rhs != 0u &&
+            lhs > std::numeric_limits<size_t>::max() / rhs) {
+            return false;
         }
-        detail::error_pixel_invalid_format("unknown.");
-    }
-    auto pixel_count = size.x * size.y * size.z;
+        result = lhs * rhs;
+        return true;
+    };
+
+    size_t unit_size = 0u;
+    auto block_compressed = false;
     switch (storage) {
-        case PixelStorage::BYTE1: return pixel_count * sizeof(std::byte) * 1u;
-        case PixelStorage::BYTE2: return pixel_count * sizeof(std::byte) * 2u;
+        case PixelStorage::BYTE1:
+            unit_size = sizeof(std::byte);
+            break;
+        case PixelStorage::BYTE2:
+            unit_size = sizeof(std::byte) * 2u;
+            break;
+        case PixelStorage::BYTE4:
         case PixelStorage::BYTE4_SRGB:
-        case PixelStorage::BYTE4: return pixel_count * sizeof(std::byte) * 4u;
-        case PixelStorage::SHORT1: return pixel_count * sizeof(short) * 1u;
-        case PixelStorage::SHORT2: return pixel_count * sizeof(short) * 2u;
-        case PixelStorage::SHORT4: return pixel_count * sizeof(short) * 4u;
-        case PixelStorage::INT1: return pixel_count * sizeof(int) * 1u;
-        case PixelStorage::INT2: return pixel_count * sizeof(int) * 2u;
-        case PixelStorage::INT4: return pixel_count * sizeof(int) * 4u;
-        case PixelStorage::HALF1: return pixel_count * sizeof(short) * 1u;
-        case PixelStorage::HALF2: return pixel_count * sizeof(short) * 2u;
-        case PixelStorage::HALF4: return pixel_count * sizeof(short) * 4u;
-        case PixelStorage::FLOAT1: return pixel_count * sizeof(float) * 1u;
-        case PixelStorage::FLOAT2: return pixel_count * sizeof(float) * 2u;
-        case PixelStorage::FLOAT4: return pixel_count * sizeof(float) * 4u;
+            unit_size = sizeof(std::byte) * 4u;
+            break;
+        case PixelStorage::SHORT1:
+        case PixelStorage::HALF1:
+            unit_size = sizeof(short);
+            break;
+        case PixelStorage::SHORT2:
+        case PixelStorage::HALF2:
+            unit_size = sizeof(short) * 2u;
+            break;
+        case PixelStorage::SHORT4:
+        case PixelStorage::HALF4:
+            unit_size = sizeof(short) * 4u;
+            break;
+        case PixelStorage::INT1:
+            unit_size = sizeof(int);
+            break;
+        case PixelStorage::INT2:
+            unit_size = sizeof(int) * 2u;
+            break;
+        case PixelStorage::INT4:
+            unit_size = sizeof(int) * 4u;
+            break;
+        case PixelStorage::FLOAT1:
+            unit_size = sizeof(float);
+            break;
+        case PixelStorage::FLOAT2:
+            unit_size = sizeof(float) * 2u;
+            break;
+        case PixelStorage::FLOAT4:
+            unit_size = sizeof(float) * 4u;
+            break;
         case PixelStorage::R10G10B10A2:
         case PixelStorage::R11G11B10:
-            return pixel_count * 4;
-        default: break;
+            unit_size = 4u;
+            break;
+        case PixelStorage::BC1:
+        case PixelStorage::BC4:
+            unit_size = 8u;
+            block_compressed = true;
+            break;
+        case PixelStorage::BC2:
+        case PixelStorage::BC3:
+        case PixelStorage::BC5:
+        case PixelStorage::BC6:
+        case PixelStorage::BC7:
+        case PixelStorage::BC7_SRGB:
+            unit_size = 16u;
+            block_compressed = true;
+            break;
+        default:
+            return {PixelStorageSizeStatus::INVALID_STORAGE, 0u};
     }
-    detail::error_pixel_invalid_format("unknown");
+
+    auto width = static_cast<size_t>(size.x);
+    auto height = static_cast<size_t>(size.y);
+    auto depth = static_cast<size_t>(size.z);
+    if (block_compressed) {
+        // Avoid `(extent + 3) / 4`: the addition itself wraps for UINT32_MAX.
+        width = width / 4u + static_cast<size_t>(width % 4u != 0u);
+        height = height / 4u + static_cast<size_t>(height % 4u != 0u);
+        depth = std::max<size_t>(depth, 1u);
+    }
+    size_t element_count = 0u;
+    size_t byte_size = 0u;
+    if (!checked_multiply(width, height, element_count) ||
+        !checked_multiply(element_count, depth, element_count) ||
+        !checked_multiply(element_count, unit_size, byte_size)) {
+        return {PixelStorageSizeStatus::OVERFLOW, 0u};
+    }
+    return {PixelStorageSizeStatus::SUCCESS, byte_size};
+}
+
+[[nodiscard]] constexpr size_t pixel_storage_size(
+    PixelStorage storage, uint3 size) noexcept {
+    auto result = checked_pixel_storage_size(storage, size);
+    if (result.status == PixelStorageSizeStatus::INVALID_STORAGE) {
+        detail::error_pixel_invalid_format("unknown");
+    }
+    if (result.status == PixelStorageSizeStatus::OVERFLOW) {
+        detail::error_pixel_size_overflow(
+            luisa::to_underlying(storage), size);
+    }
+    return result.size;
 }
 
 [[nodiscard]] constexpr size_t pixel_format_align(PixelFormat format) noexcept {

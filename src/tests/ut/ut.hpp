@@ -832,7 +832,7 @@ struct cfg {
       cfg::largv = nullptr;
     }
 #else
-    {
+    else {
       cfg::largc = 0;
       cfg::largv = nullptr;
     }
@@ -855,7 +855,18 @@ struct cfg {
     }
     query_pattern = "";
     bool found_first_option = false;
-    for (auto i = 1U; i < n_args && argv != nullptr; i++) {
+    // LuisaCompute backend tests conventionally use argv[1] for the backend.
+    // It is test configuration, not a Boost.UT name filter.
+    auto first_ut_arg = 1U;
+    if (n_args > 1U && argv != nullptr) {
+      const std::string_view first{argv[1]};
+      if (first == "cuda" || first == "dx" || first == "cpu" ||
+          first == "fallback" || first == "hip" || first == "metal" ||
+          first == "vk") {
+        first_ut_arg = 2U;
+      }
+    }
+    for (auto i = first_ut_arg; i < n_args && argv != nullptr; i++) {
       std::string cmd(argv[i]);
       auto cmd_option = find_arg(cmd);
       if (!cmd_option.has_value()) {

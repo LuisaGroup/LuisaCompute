@@ -98,6 +98,7 @@ void export_op(py::module &m) {
         .value("FRACT", CallOp::FRACT)
         .value("TRUNC", CallOp::TRUNC)
         .value("ROUND", CallOp::ROUND)
+        .value("RINT", CallOp::RINT)
 
         .value("FMA", CallOp::FMA)
         .value("COPYSIGN", CallOp::COPYSIGN)

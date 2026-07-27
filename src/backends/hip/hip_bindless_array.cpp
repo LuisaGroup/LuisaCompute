@@ -19,10 +19,23 @@ namespace {
            (static_cast<uint64_t>(size.y) << 32u);
 }
 
+[[nodiscard]] uint64_t pack_texture_levels_sampler(
+    size_t levels, Sampler sampler, PixelStorage storage) noexcept {
+    LUISA_ASSERT(levels > 0u &&
+                     levels <= HIPBindlessArray::texture_level_count_mask,
+                 "Invalid HIP bindless texture level count {}.", levels);
+    LUISA_ASSERT(sampler.code() <= HIPBindlessArray::texture_sampler_mask,
+                 "Invalid HIP bindless texture sampler code {}.", sampler.code());
+    LUISA_ASSERT(to_underlying(storage) <= HIPBindlessArray::texture_storage_mask,
+                 "Invalid HIP bindless texture storage {}.", to_underlying(storage));
+    return static_cast<uint64_t>(levels) |
+           (static_cast<uint64_t>(sampler.code()) << HIPBindlessArray::texture_sampler_shift) |
+           (static_cast<uint64_t>(to_underlying(storage)) << HIPBindlessArray::texture_storage_shift);
+}
+
 class TextureRecycleCallback : public HIPCallbackContext {
 
 private:
-    luisa::vector<hipTextureObject_t> _objects;
     luisa::vector<hipDeviceptr_t> _tables;
 
     [[nodiscard]] static auto &_pool() noexcept {
@@ -31,19 +44,14 @@ private:
     }
 
 public:
-    TextureRecycleCallback(luisa::vector<hipTextureObject_t> &&objects,
-                           luisa::vector<hipDeviceptr_t> &&tables) noexcept
-        : _objects{std::move(objects)}, _tables{std::move(tables)} {}
+    explicit TextureRecycleCallback(luisa::vector<hipDeviceptr_t> &&tables) noexcept
+        : _tables{std::move(tables)} {}
 
-    [[nodiscard]] static TextureRecycleCallback *create(luisa::vector<hipTextureObject_t> &&objects,
-                                                        luisa::vector<hipDeviceptr_t> &&tables) noexcept {
-        return _pool().create(std::move(objects), std::move(tables));
+    [[nodiscard]] static TextureRecycleCallback *create(luisa::vector<hipDeviceptr_t> &&tables) noexcept {
+        return _pool().create(std::move(tables));
     }
 
     void recycle() noexcept override {
-        for (auto object : _objects) {
-            LUISA_CHECK_HIP(hipTexObjectDestroy(object));
-        }
         for (auto table : _tables) {
             LUISA_CHECK_HIP(hipFree(table));
         }
@@ -58,7 +66,6 @@ HIPBindlessArray::HIPBindlessArray(size_t capacity) noexcept
       _host_slots(capacity, Slot{}),
       _tex2d_slots(capacity),
       _tex3d_slots(capacity),
-      _texture_tracker{capacity},
       _texture_handle_table_tracker{capacity} {
     LUISA_CHECK_HIP(hipMalloc(&_handle, capacity * sizeof(Slot)));
     LUISA_CHECK_HIP(hipMemset(_handle, 0, capacity * sizeof(Slot)));
@@ -68,10 +75,9 @@ HIPBindlessArray::~HIPBindlessArray() noexcept {
     if (_handle) {
         LUISA_CHECK_HIP(hipFree(_handle));
     }
-    _texture_tracker.traverse([](auto tex) noexcept {
-        auto tex_obj = reinterpret_cast<hipTextureObject_t>(tex);
-        LUISA_CHECK_HIP(hipTexObjectDestroy(tex_obj));
-    });
+    if (_sampler_table) {
+        LUISA_CHECK_HIP(hipFree(_sampler_table));
+    }
     _texture_handle_table_tracker.traverse([](auto table) noexcept {
         auto handle_table = reinterpret_cast<hipDeviceptr_t>(table);
         LUISA_CHECK_HIP(hipFree(handle_table));
@@ -94,10 +100,6 @@ void HIPBindlessArray::update(HIPCommandEncoder &encoder,
     luisa::vector<size_t> dirty_slots;
 
     auto release_texture_slot = [&](auto &slot) noexcept {
-        for (auto object : slot.objects) {
-            _texture_tracker.release(reinterpret_cast<uint64_t>(object));
-        }
-        slot.objects.clear();
         if (slot.handle_table) {
             _texture_handle_table_tracker.release(reinterpret_cast<uint64_t>(slot.handle_table));
             slot.handle_table = nullptr;
@@ -106,16 +108,25 @@ void HIPBindlessArray::update(HIPCommandEncoder &encoder,
 
     auto emplace_texture_slot = [&](auto &slot, const HIPTexture *texture, Sampler sampler) noexcept {
         auto level_count = texture->levels();
-        slot.objects.resize(level_count);
-        texture->create_texture_objects({slot.objects.data(), slot.objects.size()}, sampler);
-        auto table_bytes = level_count * sizeof(hipTextureObject_t);
+        luisa::vector<HIPImageDescriptor> descriptors(level_count);
+        texture->copy_image_descriptors(descriptors);
+        auto table_bytes = level_count * sizeof(HIPImageDescriptor);
         LUISA_CHECK_HIP(hipMalloc(&slot.handle_table, table_bytes));
-        LUISA_CHECK_HIP(hipMemcpyHtoDAsync(slot.handle_table, slot.objects.data(), table_bytes, stream));
-        for (auto object : slot.objects) {
-            _texture_tracker.retain(reinterpret_cast<uint64_t>(object));
+        LUISA_CHECK_HIP(hipMemcpyHtoDAsync(slot.handle_table, descriptors.data(), table_bytes, stream));
+        if (_sampler_table == nullptr) {
+            static constexpr auto sampler_count = 16u;
+            std::array<HIPSamplerDescriptor, sampler_count> sampler_descriptors{};
+            texture->copy_sampler_descriptors(sampler_descriptors);
+            LUISA_CHECK_HIP(hipMalloc(&_sampler_table, sizeof(sampler_descriptors)));
+            LUISA_CHECK_HIP(hipMemcpyHtoDAsync(
+                _sampler_table, sampler_descriptors.data(),
+                sizeof(sampler_descriptors), stream));
         }
         _texture_handle_table_tracker.retain(reinterpret_cast<uint64_t>(slot.handle_table));
-        return HIPTextureObject{slot.handle_table, level_count};
+        return HIPTextureObject{
+            slot.handle_table,
+            pack_texture_levels_sampler(
+                level_count, sampler, texture->storage())};
     };
 
     auto process_buffer = [&](size_t slot, const auto &buf) noexcept {
@@ -125,7 +136,15 @@ void HIPBindlessArray::update(HIPCommandEncoder &encoder,
                          "Offset {} exceeds buffer size {}.",
                          buf.offset_bytes, buffer->size_bytes());
             auto address = reinterpret_cast<uint64_t>(buffer->handle()) + buf.offset_bytes;
-            auto size = buffer->size_bytes() - buf.offset_bytes;
+            auto remaining_size = buffer->size_bytes() - buf.offset_bytes;
+            auto size = buf.size_bytes ==
+                                BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size ?
+                            remaining_size :
+                            buf.size_bytes;
+            LUISA_ASSERT(size > 0u && size <= remaining_size,
+                         "Bindless buffer view [{}, {}) exceeds buffer size {}.",
+                         buf.offset_bytes, buf.offset_bytes + size,
+                         buffer->size_bytes());
             _host_slots[slot].buffer = address;
             _host_slots[slot].size = size;
             dirty_slots.emplace_back(slot);
@@ -199,16 +218,12 @@ void HIPBindlessArray::update(HIPCommandEncoder &encoder,
         }
     });
 
-    luisa::vector<hipTextureObject_t> retired_objects;
     luisa::vector<hipDeviceptr_t> retired_tables;
-    _texture_tracker.commit([&](auto tex) noexcept {
-        retired_objects.emplace_back(reinterpret_cast<hipTextureObject_t>(tex));
-    });
     _texture_handle_table_tracker.commit([&](auto table) noexcept {
         retired_tables.emplace_back(reinterpret_cast<hipDeviceptr_t>(table));
     });
-    if (!retired_objects.empty() || !retired_tables.empty()) {
-        encoder.add_callback(TextureRecycleCallback::create(std::move(retired_objects), std::move(retired_tables)));
+    if (!retired_tables.empty()) {
+        encoder.add_callback(TextureRecycleCallback::create(std::move(retired_tables)));
     }
 
     if (dirty_slots.empty()) { return; }

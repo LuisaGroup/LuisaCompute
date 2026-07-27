@@ -93,6 +93,7 @@ public:
     void visit(const AutoDiffStmt *stmt) override;
     void visit(const PrintStmt *stmt) override;
     void visit(const DebugBreakStmt *stmt) override;
+    void visit(const SuspendStmt *stmt) override;
 
     // --- Main entry ---
     void VisitFunction(Function func);

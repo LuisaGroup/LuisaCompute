@@ -11,8 +11,8 @@
 
 #include "ut/ut.hpp"
 #include "test_device.h"
+#include "pbrt_curve_parser.h"
 
-#include <fstream>
 #include "reference_image.h"
 #include <filesystem>
 #include <luisa/luisa-compute.h>
@@ -40,135 +40,15 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
-// Parse PBRT curve file format
-[[nodiscard]] auto parse_pbrt_curve_file(const std::filesystem::path &path) noexcept {
-    std::ifstream file{path};
-    if (!file.is_open()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to open curve file: {}",
-            path.string());
-    }
-    luisa::vector<float4> control_points;
-    luisa::vector<uint> segments;
-    static constexpr auto inf = std::numeric_limits<float>::infinity();
-    auto aabb_min = make_float3(inf);
-    auto aabb_max = make_float3(-inf);
-
-    // Parser helper functions
-    auto eof = [&] { return file.peek() == EOF; };
-    auto peek = [&] {
-        boost::ut::expect(static_cast<bool>(!eof())) << "Unexpected EOF.";
-        return static_cast<char>(file.peek());
-    };
-    auto pop = [&] {
-        boost::ut::expect(static_cast<bool>(!eof())) << "Unexpected EOF.";
-        return static_cast<char>(file.get());
-    };
-    auto match = [&](char c) noexcept {
-        auto x = pop();
-        boost::ut::expect(static_cast<bool>(x == c)) << "Unexpected character.";
-    };
-    auto skip_whitespaces = [&] {
-        while (!eof() && std::isspace(peek())) { pop(); }
-    };
-    auto read_string = [&] {
-        skip_whitespaces();
-        match('"');
-        static std::string s;
-        s.clear();
-        while (peek() != '"') { s.push_back(pop()); }
-        match('"');
-        return s;
-    };
-    auto read_token = [&] {
-        skip_whitespaces();
-        static std::string s;
-        s.clear();
-        while (!eof() && !std::isspace(peek())) { s.push_back(pop()); }
-        return s;
-    };
-    auto read_float = [&]() noexcept {
-        skip_whitespaces();
-        static std::string s;
-        s.clear();
-        auto is_digit = [](char c) noexcept {
-            return std::isdigit(c) || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E';
-        };
-        while (!eof() && is_digit(peek())) { s.push_back(pop()); }
-        auto p = static_cast<size_t>(0u);
-        auto x = std::stof(s, &p);
-        boost::ut::expect(static_cast<bool>(p == s.size())) << "Failed to parse float.";
-        return x;
-    };
-
-    // Parse individual curve
-    auto parse_curve = [&]() noexcept -> bool {
-        skip_whitespaces();
-        if (eof()) { return false; }
-        auto token = read_token();
-        boost::ut::expect(static_cast<bool>(token == "Shape")) << "Unexpected token.";
-        boost::ut::expect(static_cast<bool>(read_string() == "curve")) << "Unexpected shape.";
-        static luisa::vector<float3> vertices;
-        vertices.clear();
-        auto radius_max = 0.;
-        auto radius_min = 0.;
-        skip_whitespaces();
-        while (!eof() && peek() == '"') {
-            auto prop = read_string();
-            skip_whitespaces();
-            match('[');
-            if (prop == "point3 P") {
-                skip_whitespaces();
-                while (peek() != ']') {
-                    auto x = read_float();
-                    auto y = read_float();
-                    auto z = read_float();
-                    auto p = make_float3(x, y, z);
-                    aabb_min = min(aabb_min, p);
-                    aabb_max = max(aabb_max, p);
-                    vertices.emplace_back(make_float3(x, y, z));
-                    skip_whitespaces();
-                }
-            } else if (prop == "float width" || prop == "float width0") {
-                radius_max = read_float();
-            } else if (prop == "float width1") {
-                radius_min = read_float();
-            } else {
-                while (peek() != ']') { pop(); }
-            }
-            skip_whitespaces();
-            match(']');
-            skip_whitespaces();
-        }
-        boost::ut::expect(static_cast<bool>(!vertices.empty())) << "Empty curve.";
-        boost::ut::expect(static_cast<bool>(radius_max > 0.f)) << "Invalid curve radius.";
-        auto offset = static_cast<uint>(control_points.size());
-        auto n = static_cast<double>(vertices.size() - 1u);
-        for (auto i = 0u; i < vertices.size(); i++) {
-            auto v = vertices[i];
-            auto r = std::lerp(radius_max, radius_min, i / n);
-            control_points.emplace_back(make_float4(v, static_cast<float>(r)));
-        }
-        for (auto i = 0u; i < vertices.size() - 3u; i++) {
-            segments.emplace_back(offset + i);
-        }
-        return true;
-    };
-    while (parse_curve()) {}
-    return std::make_tuple(std::move(control_points), std::move(segments), aabb_min, aabb_max);
-}
-
 void test_curve_pbrt_diffuse(Device &device) {
 
-    auto argc = boost::ut::detail::cfg::largc;
     auto argv = boost::ut::detail::cfg::largv;
 
     log_level_verbose();
 
-    if (argc < 3) {
-        LUISA_INFO("Usage: {} <backend> <pbrt-curve-file>. "
-                   "<backend>: cuda, dx, cpu, metal",
-                   argv[0]);
+    auto curve_path = std::filesystem::path{argv[2]};
+    if (!std::filesystem::is_regular_file(curve_path)) {
+        boost::ut::expect(false) << "PBRT curve input file does not exist: " << curve_path.string();
         return;
     }
     auto opts = luisa::test::ImageTestOptions::parse(
@@ -176,7 +56,12 @@ void test_curve_pbrt_diffuse(Device &device) {
         boost::ut::detail::cfg::largv);
 
     // Create device and parse curve file
-    auto [control_points, segments, aabb_min, aabb_max] = parse_pbrt_curve_file(argv[2]);
+    auto parsed_curve = luisa::test::parse_pbrt_curve_file(curve_path);
+    if (!parsed_curve) {
+        boost::ut::expect(false) << parsed_curve.error;
+        return;
+    }
+    auto [control_points, segments, aabb_min, aabb_max] = std::move(parsed_curve.data);
     auto control_point_count = static_cast<uint>(control_points.size());
     auto segment_count = static_cast<uint>(segments.size());
     auto extent = aabb_max - aabb_min;
@@ -440,21 +325,24 @@ void test_curve_pbrt_diffuse(Device &device) {
                 *opts.compare_path);
             LUISA_INFO("Reference comparison [test_curve_pbrt_diffuse]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
             if (!result.passed) {
-            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-            return;
-        }
+                boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+                return;
+            }
         }
         return;
     }
-
 }
 
 int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        LUISA_INFO("Usage: {} <backend> <pbrt-curve-file>.", argc > 0 ? argv[0] : "test_curve_pbrt_diffuse");
+        return 2;
+    }
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_curve_pbrt_diffuse(device);
 }

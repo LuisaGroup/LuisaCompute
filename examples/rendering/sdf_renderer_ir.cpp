@@ -213,20 +213,14 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    uint user_spp = 0u;
-    std::optional<std::filesystem::path> compare_path;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
-            compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
-            user_spp = static_cast<uint>(std::atoi(argv[++i]));
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto force_offline = opts.offline;
+    auto user_spp = opts.spp;
+    auto compare_path = opts.compare_path;
     Device device = context.create_device(argv[1]);
 #if LUISA_RENDERING_USE_XIR_TO_AST
     auto render_ast = build_xir_to_ast_kernel(render_kernel.function()->function());

@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/loop.h>
@@ -61,6 +62,7 @@ public:
 
     IfInst *if_(Value *cond) noexcept;
     SwitchInst *switch_(Value *value) noexcept;
+    IndexedBranchInst *indexed_branch(Value *value) noexcept;
     LoopInst *loop() noexcept;
     SimpleLoopInst *simple_loop() noexcept;
 

@@ -1,31 +1,42 @@
 luisa_compute_link_llvm_into_backend(hip
-        COMPONENTS core ir amdgpucodegen support irreader bitreader passes analysis linker bitwriter asmparser
+        COMPONENTS core ir amdgpucodegen support targetparser irreader bitreader passes analysis linker bitwriter asmparser
         DEFINITIONS LUISA_COMPUTE_ENABLE_LLVM=1)
 if (LUISA_COMPUTE_HIP_LINKED_LLVM)
     message(STATUS "Linking LLVM AMDGPU into the HIP backend")
-    # find AMD OCML device library bitcode
+    # find AMD OCML/OCKL device library bitcode
     set(HIP_OCML_SEARCH_PATHS
             /opt/rocm/amdgcn/bitcode
             $ENV{ROCM_PATH}/amdgcn/bitcode
     )
     find_file(HIP_OCML_FILE NAMES ocml.bc HINTS ${HIP_OCML_SEARCH_PATHS} NO_DEFAULT_PATH)
-    if (HIP_OCML_FILE)
-        message(STATUS "Found AMD OCML: ${HIP_OCML_FILE}")
+    find_file(HIP_OCKL_FILE NAMES ockl.bc HINTS ${HIP_OCML_SEARCH_PATHS} NO_DEFAULT_PATH)
+    if (HIP_OCML_FILE AND HIP_OCKL_FILE)
+        message(STATUS "Found AMD device libraries: ${HIP_OCML_FILE};${HIP_OCKL_FILE}")
     else ()
-        message(FATAL_ERROR "Could not find AMD OCML (ocml.bc) in ${HIP_OCML_SEARCH_PATHS}")
+        message(FATAL_ERROR "Could not find AMD OCML/OCKL (ocml.bc and ockl.bc) in ${HIP_OCML_SEARCH_PATHS}")
     endif ()
-    # use luisa-embed-device-lib to embed OCML bitcode
-    add_custom_target(luisa-compute-backend-hip-embed-ocml
-            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${HIP_OCML_FILE} --unsigned --prefix luisa_compute_hip_ -o hip_codegen_llvm_device_bitcode.cpp -h hip_codegen_llvm_device_bitcode.h
-            BYPRODUCTS ${CMAKE_CURRENT_LIST_DIR}/hip_codegen_llvm_device_bitcode.cpp ${CMAKE_CURRENT_LIST_DIR}/hip_codegen_llvm_device_bitcode.h
-            DEPENDS luisa_embed_device_lib ${CMAKE_CURRENT_LIST_FILE}
-            SOURCES ${HIP_OCML_FILE}
-            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-            COMMENT "Embedding AMD OCML bitcode..."
+    # Use luisa-embed-device-lib to embed OCML and the OCKL hostcall
+    # implementation. Keep generated payloads in the build tree so the result
+    # is derived from the selected ROCm installation without modifying tracked
+    # source files.
+    set(_hip_device_bitcode_cpp "${CMAKE_CURRENT_BINARY_DIR}/hip_codegen_llvm_device_bitcode.cpp")
+    set(_hip_device_bitcode_h "${CMAKE_CURRENT_BINARY_DIR}/hip_codegen_llvm_device_bitcode.h")
+    add_custom_command(
+            OUTPUT "${_hip_device_bitcode_cpp}" "${_hip_device_bitcode_h}"
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${HIP_OCML_FILE} ${HIP_OCKL_FILE}
+            --unsigned --prefix luisa_compute_hip_
+            -o "${_hip_device_bitcode_cpp}"
+            -h "${_hip_device_bitcode_h}"
+            DEPENDS luisa_embed_device_lib ${CMAKE_CURRENT_LIST_FILE} ${HIP_OCML_FILE} ${HIP_OCKL_FILE}
+            COMMENT "Embedding AMD OCML/OCKL bitcode..."
             VERBATIM)
+    add_custom_target(luisa-compute-backend-hip-embed-ocml
+            DEPENDS "${_hip_device_bitcode_cpp}" "${_hip_device_bitcode_h}")
     add_dependencies(luisa-compute-backend-hip luisa-compute-backend-hip-embed-ocml)
+    target_include_directories(luisa-compute-backend-hip BEFORE PRIVATE
+            "${CMAKE_CURRENT_BINARY_DIR}")
     target_sources(luisa-compute-backend-hip PRIVATE
-            hip_codegen_llvm_device_bitcode.cpp hip_codegen_llvm_device_bitcode.h
+            "${_hip_device_bitcode_cpp}" "${_hip_device_bitcode_h}"
             hip_codegen_llvm.h
             hip_codegen_llvm.cpp
             hip_codegen_llvm_impl.h
@@ -55,6 +66,12 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
     set(LUISA_HIP_RT_WRAPPER_SOURCE ${CMAKE_CURRENT_LIST_DIR}/hiprt_device_wrapper.hip)
     # Include both the generated header dir and the source tree
     set(_HIPRT_WRAPPER_INCLUDE_ARGS -I ${LUISA_COMPUTE_HIPRT_SDK_INCLUDE_DIR} -I ${HIPRT_SOURCE_DIR})
+    # The wrapper includes the header-only HIPRT traversal implementation. Track
+    # the complete transitive header tree so ABI or stack-layout changes always
+    # regenerate every per-architecture wrapper instead of reusing stale BC.
+    file(GLOB_RECURSE _hiprt_wrapper_dependencies CONFIGURE_DEPENDS
+            "${HIPRT_SOURCE_DIR}/hiprt/*.h"
+            "${HIPRT_SOURCE_DIR}/hiprt/*.inl")
     # hip_codegen_llvm_impl.cpp dispatches among these wrappers at runtime and
     # directly references every embedded symbol. They must therefore all be
     # linked into the backend even when HIPRT_GPU_ARCHS restricts the HIPRT
@@ -79,21 +96,10 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
                 -i ${LUISA_HIP_RT_WRAPPER_SOURCE}
                 -o "${_wrapper_bc}"
                 -a "${_arch}"
+                --define HIPRT_MATRIX_FRAME=1
                 ${_HIPRT_WRAPPER_INCLUDE_ARGS}
                 DEPENDS luisa_hip_compile_wrapper ${LUISA_HIP_RT_WRAPPER_SOURCE}
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/hiprt_device_impl.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/hiprt_device.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/hiprt_common.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/hiprt_vec.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/hiprt_math.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/Aabb.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/BvhNode.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/Header.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/Instance.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/QrDecomposition.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/Quaternion.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/Transform.h
-                        ${HIPRT_SOURCE_DIR}/hiprt/impl/Triangle.h
+                        ${_hiprt_wrapper_dependencies}
                 WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
                 COMMENT "[HIPRT wrapper] Compiling for ${_arch}..."
                 VERBATIM)

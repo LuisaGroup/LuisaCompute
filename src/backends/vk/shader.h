@@ -1,29 +1,17 @@
 #pragma once
 #include "pipeline_ref.h"
 #include "resource.h"
+#include "saved_argument_contract.h"
+#include "shader_interface_plan.h"
 #include <volk.h>
 #include "../common/hlsl/shader_property.h"
-#include <luisa/ast/usage.h>
 #include <luisa/ast/type_registry.h>
-#include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/argument.h>
 #include "buffer.h"
 #include "texture.h"
 namespace lc::vk {
 using namespace luisa::compute;
-struct SavedArgument {
-    luisa::compute::Type::Tag tag{};
-    Usage var_usage{};
-    uint struct_size{};
-    SavedArgument() = default;
-    SavedArgument(Function kernel, Variable const &var) : SavedArgument(var.type()) {
-        var_usage = kernel.variable_usage(var.uid());
-    }
-    SavedArgument(Usage usage, Variable const &var) : SavedArgument(var.type()) {
-        var_usage = usage;
-    }
-    explicit SavedArgument(luisa::compute::Type const *type);
-};
+
 class Shader : public Resource {
 public:
     enum class ShaderTag : uint {
@@ -45,7 +33,13 @@ protected:
     bool _use_tex2d_bindless;
     bool _use_tex3d_bindless;
     bool _use_buffer_bindless;
+    bool _uses_indirect_dispatch{false};
     uint _validation_count{0};
+    uint32_t _push_constant_size{32u};
+    uint32_t _local_descriptor_binding_count{};
+    uint32_t _resource_argument_binding_offset{};
+    detail::ShaderCodegenDialect _codegen_dialect{
+        detail::ShaderCodegenDialect::HLSL_SPIRV};
 public:
     auto pipeline_layout() const { return _pipeline_layout; }
     auto shader_tag() const { return _shader_tag; }
@@ -58,7 +52,16 @@ public:
     bool use_tex2d_bindless() const { return _use_tex2d_bindless; }
     bool use_tex3d_bindless() const { return _use_tex3d_bindless; }
     bool use_buffer_bindless() const { return _use_buffer_bindless; }
+    bool uses_indirect_dispatch() const { return _uses_indirect_dispatch; }
     uint validation_count() const { return _validation_count; }
+    uint32_t push_constant_size() const { return _push_constant_size; }
+    uint32_t local_descriptor_binding_count() const {
+        return _local_descriptor_binding_count;
+    }
+    uint32_t resource_argument_binding_offset() const noexcept {
+        return _resource_argument_binding_offset;
+    }
+    auto codegen_dialect() const noexcept { return _codegen_dialect; }
     bool has_constant_ubo() const { return _has_constant_ubo; }
     UploadBuffer const *constant_ubo() const { return _constant_ubo.get(); }
     auto printers() const { return luisa::span{_printers}; }
@@ -73,13 +76,10 @@ public:
         bool use_buffer_bindless,
         vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
         luisa::span<const std::byte> constant_ubo_data = {},
-        uint validation_count = 0);
+        uint validation_count = 0,
+        uint32_t push_constant_size = 32u,
+        detail::ShaderCodegenDialect codegen_dialect =
+            detail::ShaderCodegenDialect::HLSL_SPIRV);
     virtual ~Shader();
-    vstd::span<VkDescriptorSet> allocate_desc_set(VkDescriptorPool pool, vstd::vector<VkDescriptorSet> &descs) const;
-    void update_desc_set(
-        VkDescriptorSet set,
-        vstd::vector<VkWriteDescriptorSet> &write_buffer,
-        vstd::vector<VkImageView> &img_view_buffer,
-        vstd::span<vstd::variant<BufferView, TexView>> texs);
 };
 }// namespace lc::vk

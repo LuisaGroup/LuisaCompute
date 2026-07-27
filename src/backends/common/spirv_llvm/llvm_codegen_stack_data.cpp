@@ -31,8 +31,6 @@ void LLVMCodegenStackData::Clear() {
     useTex3DBindless = false;
     useBufferBindless = false;
     printers.clear();
-    constant_ubo_data.clear();
-    has_constant_ubo = false;
 }
 
 uint64_t LLVMCodegenStackData::GetTypeCount(Type const *t) {

@@ -151,6 +151,9 @@ public:
     /// Return RefExpr
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
+    /// Read T at a byte offset satisfying Type::of<T>()->alignment().
+    /// Use a scalar array (for example std::array<float, 3>) for packed data
+    /// that does not satisfy the vector ABI alignment.
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto read(I &&byte_offset) const noexcept {
@@ -161,6 +164,7 @@ public:
              detail::extract_expression(std::forward<I>(byte_offset))});
         return def<T>(expr);
     }
+    /// Write a value at a byte offset satisfying its DSL type alignment.
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void write(I &&byte_offset, V &&value) const noexcept {
@@ -171,6 +175,7 @@ public:
              detail::extract_expression(std::forward<V>(value))});
     }
 
+    /// Volatile form of read<T>(); the same alignment requirement applies.
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto volatile_read(I &&byte_offset) const noexcept {
@@ -181,6 +186,7 @@ public:
              detail::extract_expression(std::forward<I>(byte_offset))});
         return def<T>(expr);
     }
+    /// Volatile form of write(); the same alignment requirement applies.
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void volatile_write(I &&byte_offset, V &&value) const noexcept {
@@ -366,6 +372,37 @@ public:
              detail::extract_expression(std::forward<V>(value))});
     }
 
+    /// Number of logical T elements in the bound buffer view.
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto stride = def(static_cast<uint>(sizeof(T)));
+        return def<uint>(f->call(
+            Type::of<uint>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::TYPED_BINDLESS_BUFFER_SIZE) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::BINDLESS_BUFFER_SIZE),
+            {_array, _index, stride.expression()}));
+    }
+
+    /// Device address of the first byte in the bound logical buffer view.
+    [[nodiscard]] auto device_address() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint64_t>(f->call(
+            Type::of<uint64_t>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::TYPED_BINDLESS_BUFFER_ADDRESS) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::BINDLESS_BUFFER_ADDRESS),
+            {_array, _index}));
+    }
+
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
@@ -382,6 +419,9 @@ public:
     BindlessByteBuffer(const RefExpr *array, const Expression *index, bool is_typed, bool is_uniform) noexcept
         : _array{array}, _index{index}, _is_typed{is_typed}, _is_uniform{is_uniform} {}
 
+    /// Read T at a byte offset satisfying Type::of<T>()->alignment().
+    /// Use a scalar array for packed data that does not satisfy vector
+    /// alignment.
     template<typename T, typename I>
         requires is_valid_buffer_element_v<T> && is_integral_expr_v<I>
     [[nodiscard]] auto read(I &&offset) const noexcept {
@@ -390,6 +430,37 @@ public:
             f->call(
                 Type::of<T>(), _is_typed ? (_is_uniform ? CallOp::TYPED_UNIFORM_BINDLESS_BYTE_BUFFER_READ : CallOp::TYPED_BINDLESS_BYTE_BUFFER_READ) : (_is_uniform ? CallOp::UNIFORM_BINDLESS_BYTE_BUFFER_READ : CallOp::BINDLESS_BYTE_BUFFER_READ),
                 {_array, _index, detail::extract_expression(std::forward<I>(offset))}));
+    }
+
+    /// Exact logical byte size of the bound buffer view.
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto byte_stride = def(1u);
+        return def<uint>(f->call(
+            Type::of<uint>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::TYPED_BINDLESS_BUFFER_SIZE) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::BINDLESS_BUFFER_SIZE),
+            {_array, _index, byte_stride.expression()}));
+    }
+
+    /// Device address of the first byte in the bound logical byte-buffer view.
+    [[nodiscard]] auto device_address() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint64_t>(f->call(
+            Type::of<uint64_t>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::TYPED_BINDLESS_BUFFER_ADDRESS) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::BINDLESS_BUFFER_ADDRESS),
+            {_array, _index}));
     }
 
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>

@@ -31,15 +31,16 @@ ResourceCreationInfo VkNativeResourceExt::register_external_texture(
     uint mipmap_levels,
     // custom data see backends' header
     void *custom_data) noexcept {
-    VkFormat vk_format = custom_data ? *static_cast<VkFormat *>(custom_data) : Texture::to_vk_format(format);
-    auto tex = new Texture(
-        _device,
-        static_cast<VkImage>(image_ptr),
-        dimension,
-        vk_format,
-        uint3(width, height, depth),
-        mipmap_levels,
-        false);
+    auto image = static_cast<VkImage>(image_ptr);
+    auto size = uint3(width, height, depth);
+    auto tex = custom_data ?
+                   new Texture(
+                       _device, image, dimension,
+                       *static_cast<VkFormat *>(custom_data), size,
+                       mipmap_levels, false) :
+                   new Texture(
+                       _device, image, dimension, format, size,
+                       mipmap_levels, false);
     ResourceCreationInfo info{
         .handle = reinterpret_cast<uint64_t>(tex),
         .native_handle = image_ptr};

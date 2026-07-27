@@ -43,7 +43,8 @@ void test_select_device(Device &device, const char *exe_path) {
     // Create device with the selected index
     DeviceConfig device_config{
         .device_index = device_index};
-    [[maybe_unused]] auto selected_device = context.create_device(device.backend_name(), &device_config);
+    auto selected_device = context.create_device(device.backend_name(), &device_config);
+    expect(static_cast<bool>(selected_device)) << "Failed to create the selected hardware device.";
 }
 
 int main(int argc, char *argv[]) {
@@ -51,7 +52,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     auto *exe = argc > 0 && argv != nullptr ? argv[0] : luisa::test::safe_argv0();
     test_select_device(device, exe);

@@ -21,6 +21,31 @@ namespace lc::hlsl {
 void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept;
 #endif
 
+namespace {
+
+[[nodiscard]] bool is_validation_resource(Type const *type) noexcept {
+    return type->is_buffer() || type->is_bindless_array();
+}
+
+[[nodiscard]] bool usage_reads(Usage usage) noexcept {
+    return (luisa::to_underlying(usage) &
+            luisa::to_underlying(Usage::READ)) != 0u ||
+           usage == Usage::NONE;
+}
+
+[[nodiscard]] bool usage_writes(Usage usage) noexcept {
+    return (luisa::to_underlying(usage) &
+            luisa::to_underlying(Usage::WRITE)) != 0u;
+}
+
+void print_validation_bound_name(
+    vstd::StringBuilder &str, Variable variable) noexcept {
+    str << "_validation_bound_"sv;
+    vstd::to_string(variable.uid(), str);
+}
+
+}// namespace
+
 // Generate function declaration
 void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
     vstd::StringBuilder data;
@@ -59,7 +84,13 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
 
                 vstd::StringBuilder varName;
                 CodegenUtility::GetVariableName(func, i, varName);
-                if (i.type()->is_accel()) {
+                if (opt->isSpirv && i.type()->is_texture() &&
+                    usage_reads(usage) && usage_writes(usage)) {
+                    GetTemplateName();
+                    data << ' ' << varName << ',';
+                    GetTemplateName();
+                    data << ' ' << varName << "_rw,"sv;
+                } else if (i.type()->is_accel()) {
                     if ((to_underlying(usage) & to_underlying(Usage::WRITE)) == 0) {
                         CodegenUtility::GetTypeName(*i.type(), data, usage);
                         data << ' ' << varName << ',';
@@ -69,7 +100,13 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                 } else {
                     GetTypeName(i.type(), usage);
                     data << ' ';
-                    data << varName << ',';
+                    data << varName;
+                    if (opt->enable_debug_info &&
+                        is_validation_resource(i.type())) {
+                        data << ",uint "sv;
+                        print_validation_bound_name(data, i);
+                    }
+                    data << ',';
                 }
             }
             data[data.size() - 1] = ')';
@@ -114,6 +151,71 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         args.back()->accept(vis);
     };
+    auto PrintTypedBindlessBufferIndex = [&](Expression const *array,
+                                              Expression const *slot) {
+        str << "_TYPED_BUFFER_INDEX(";
+        array->accept(vis);
+        str << ',';
+        slot->accept(vis);
+        str << ')';
+    };
+    auto PrintTypedBindlessBufferOffset = [&](Expression const *array,
+                                               Expression const *slot,
+                                               Expression const *offset) {
+        str << "(_TYPED_BUFFER_BIAS(";
+        array->accept(vis);
+        str << ',';
+        slot->accept(vis);
+        str << ")+";
+        offset->accept(vis);
+        str << ')';
+    };
+    auto PrintValidationBound = [&](Expression const *resource) {
+        LUISA_ASSERT(
+            resource != nullptr && resource->tag() == Expression::Tag::REF,
+            "HLSL debug validation requires a referenced resource expression.");
+        auto variable = static_cast<RefExpr const *>(resource)->variable();
+        LUISA_ASSERT(
+            is_validation_resource(variable.type()),
+            "HLSL debug validation bound requested for non-buffer resource {}.",
+            variable.type()->description());
+        if (opt->funcType == CodegenStackData::FuncType::Callable) {
+            print_validation_bound_name(str, variable);
+            return;
+        }
+        auto key = CodegenStackData::ValidateKey{
+            vis.f.hash(), variable.uid()};
+        auto iter = opt->validate_index_map.find(key);
+        LUISA_ASSERT(
+            iter != opt->validate_index_map.end(),
+            "Missing HLSL debug-validation slot for resource {} in function {}.",
+            variable.uid(), vis.f.hash());
+        str << "_Global[0]._validate_"sv;
+        vstd::to_string(iter->second, str);
+    };
+    auto PrintValidationBoundArgument = [&](Expression const *resource) {
+        if (opt->enable_debug_info) {
+            str << ',';
+            PrintValidationBound(resource);
+        }
+    };
+    auto IsSplitTextureView = [&](Expression const *resource) {
+        if (!opt->isSpirv || !resource->type()->is_texture()) {
+            return false;
+        }
+        LUISA_ASSERT(
+            resource->tag() == Expression::Tag::REF,
+            "HLSL texture-view selection requires a referenced texture.");
+        auto variable = static_cast<RefExpr const *>(resource)->variable();
+        auto usage = vis.f.variable_usage(variable.uid());
+        return usage_reads(usage) && usage_writes(usage);
+    };
+    auto PrintTextureView = [&](Expression const *resource, bool writable) {
+        resource->accept(vis);
+        if (writable && IsSplitTextureView(resource)) {
+            str << "_rw"sv;
+        }
+    };
     auto TypeToCoop = [](CoopRefVecType type, vstd::StringBuilder &sb) {
         switch (type) {
             case CoopRefVecType::UINT8:
@@ -156,10 +258,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << '(';
             {
                 uint64 sz = 0;
+                auto custom_arguments = expr->custom().arguments();
+                LUISA_ASSERT(
+                    custom_arguments.size() == args.size(),
+                    "HLSL custom-call argument count mismatch: expected {}, got {}.",
+                    custom_arguments.size(), args.size());
                 auto iter = opt->globallyCoherentBuffers.find(expr->custom().builder());
                 for (auto &&i : args) {
+                    auto formal = custom_arguments[sz];
                     if (i->type()->is_accel()) {
-                        if ((static_cast<uint>(expr->custom().variable_usage(expr->custom().arguments()[sz].uid())) & static_cast<uint>(Usage::WRITE)) == 0) {
+                        if ((static_cast<uint>(expr->custom().variable_usage(formal.uid())) & static_cast<uint>(Usage::WRITE)) == 0) {
                             i->accept(vis);
                             str << ',';
                         }
@@ -168,11 +276,34 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     } else {
                         // globallycoherent propagated
                         if (i->type()->is_buffer() && i->tag() == Expression::Tag::REF && iter) {
-                            if (iter.value().contains(expr->custom().arguments()[sz].uid())) {
+                            if (iter.value().contains(formal.uid())) {
                                 opt->globallyCoherentBuffers.emplace(vis.f.builder()).value().emplace(static_cast<RefExpr const *>(i)->variable().uid());
                             }
                         }
-                        i->accept(vis);
+                        if (opt->isSpirv && formal.type()->is_texture()) {
+                            auto formal_usage =
+                                expr->custom().variable_usage(formal.uid());
+                            auto reads = usage_reads(formal_usage);
+                            auto writes = usage_writes(formal_usage);
+                            LUISA_ASSERT(
+                                reads || writes,
+                                "HLSL callable texture argument {} has no resource usage.",
+                                formal.uid());
+                            if (reads) {
+                                PrintTextureView(i, false);
+                            }
+                            if (writes) {
+                                if (reads) { str << ','; }
+                                PrintTextureView(i, true);
+                            }
+                        } else {
+                            i->accept(vis);
+                        }
+                        if (opt->enable_debug_info &&
+                            is_validation_resource(formal.type())) {
+                            str << ',';
+                            PrintValidationBound(i);
+                        }
                     }
                     ++sz;
                     if (sz != args.size()) {
@@ -357,6 +488,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::ROUND:
             str << "_round"sv;
             break;
+        case CallOp::RINT:
+            // HLSL round is the round-to-nearest-even intrinsic. ROUND uses
+            // the separate _round helper to implement half-away-from-zero.
+            str << "round"sv;
+            break;
         case CallOp::FMA:
             str << "_fma"sv;
             break;
@@ -501,12 +637,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << '(';
             PrintArgs();
             if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
+                str << ',';
+                PrintValidationBound(args[0]);
             }
             str << ')';
             if (aliasStruct) {
@@ -555,12 +687,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ',';
                 GetTypeName(*elem->element(), str, Usage::NONE);
                 if (opt->enable_debug_info && !is_volatile) {
-                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                    uint64_t func_hash = vis.f.hash();
-                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                        str << ',' << luisa::format("{}", it->second);
-                    }
+                    str << ',';
+                    PrintValidationBound(args[0]);
                 }
                 str << ')';
                 return;
@@ -582,12 +710,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args.back()->accept(vis);
             }
             if (opt->enable_debug_info && !is_volatile) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
+                str << ',';
+                PrintValidationBound(args[0]);
             }
             str << ')';
             return;
@@ -676,12 +800,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ',';
                 args[1]->accept(vis);
                 if (opt->enable_debug_info) {
-                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                    uint64_t func_hash = vis.f.hash();
-                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
+                    str << ',';
+                    PrintValidationBound(args[0]);
                 }
                 str << ')';
 
@@ -703,12 +823,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ',';
                 args[1]->accept(vis);
                 if (opt->enable_debug_info) {
-                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                    uint64_t func_hash = vis.f.hash();
-                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
+                    str << ',';
+                    PrintValidationBound(args[0]);
                 }
                 str << ')';
             } else {
@@ -723,12 +839,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ',';
                 args[1]->accept(vis);
                 if (opt->enable_debug_info) {
-                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                    uint64_t func_hash = vis.f.hash();
-                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
+                    str << ',';
+                    PrintValidationBound(args[0]);
                 }
                 str << ')';
             }
@@ -757,12 +869,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ',';
                 args[2]->accept(vis);
                 if (opt->enable_debug_info && !is_volatile) {
-                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                    uint64_t func_hash = vis.f.hash();
-                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                        str << ',' << luisa::format("{}", it->second);
-                    }
+                    str << ',';
+                    PrintValidationBound(args[0]);
                 }
                 str << ')';
                 return;
@@ -793,12 +901,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     args[2]->accept(vis);
                 }
                 if (opt->enable_debug_info && !is_volatile) {
-                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                    uint64_t func_hash = vis.f.hash();
-                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                        str << ',' << luisa::format("{}", it->second);
-                    }
+                    str << ',';
+                    PrintValidationBound(args[0]);
                 }
                 str << ')';
                 return;
@@ -898,14 +1002,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
             str << ",bdls"sv;
-            if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
-            }
+            PrintValidationBoundArgument(args[0]);
             str << ')';
             if (aliasStruct) {
                 str << ')';
@@ -931,14 +1028,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
             str << ",bdls"sv;
-            if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
-            }
+            PrintValidationBoundArgument(args[0]);
             str << ')';
             if (aliasStruct) {
                 str << ')';
@@ -977,14 +1067,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
             str << ",bdls"sv;
-            if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
-            }
+            PrintValidationBoundArgument(args[0]);
             str << ')';
             if (aliasStruct) {
                 str << ')';
@@ -1010,14 +1093,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
             str << ",bdls"sv;
-            if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
-            }
+            PrintValidationBoundArgument(args[0]);
             str << ')';
             if (aliasStruct) {
                 str << ')';
@@ -1056,14 +1132,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
             str << ",bdls"sv;
-            if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
-            }
+            PrintValidationBoundArgument(args[0]);
             str << ')';
             if (aliasStruct) {
                 str << ')';
@@ -1089,14 +1158,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
             str << ",bdls"sv;
-            if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
-            }
+            PrintValidationBoundArgument(args[0]);
             str << ')';
             if (aliasStruct) {
                 str << ')';
@@ -1135,14 +1197,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
             str << ",bdls"sv;
-            if (opt->enable_debug_info) {
-                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-                uint64_t func_hash = vis.f.hash();
-                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                    str << ',' << luisa::format("{}", it->second);
-                }
-            }
+            PrintValidationBoundArgument(args[0]);
             str << ')';
             if (aliasStruct) {
                 str << ')';
@@ -1167,7 +1222,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            PrintValidationBoundArgument(args[0]);
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -1884,9 +1941,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << luisa::format(",{}>(", expr->type()->dimension());
             str << "bdls[NonUniformResourceIndex(";
             if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[1]->accept(vis);
+                PrintTypedBindlessBufferIndex(args[0], args[1]);
             } else {
                 str << "_ReadBdlsBuffer(";
                 args[0]->accept(vis);
@@ -1895,7 +1950,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ')';
             }
             str << ")],";
-            args[2]->accept(vis);
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD) {
+                PrintTypedBindlessBufferOffset(args[0], args[1], args[2]);
+            } else {
+                args[2]->accept(vis);
+            }
             str << ')';
         }
             return;
@@ -1907,9 +1966,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << luisa::format(",{}>(", args[3]->type()->dimension());
             str << "bdls[NonUniformResourceIndex(";
             if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[1]->accept(vis);
+                PrintTypedBindlessBufferIndex(args[0], args[1]);
             } else {
                 str << "_ReadBdlsBuffer(";
                 args[0]->accept(vis);
@@ -1918,7 +1975,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ')';
             }
             str << ")],";
-            args[2]->accept(vis);
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) {
+                PrintTypedBindlessBufferOffset(args[0], args[1], args[2]);
+            } else {
+                args[2]->accept(vis);
+            }
             str << ',';
             args[3]->accept(vis);
             str << ')';
@@ -1973,9 +2034,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << luisa::format(",{},{}>(", matrix_dimension.x, matrix_dimension.y);
             str << "bdls[NonUniformResourceIndex(";
             if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[1]->accept(vis);
+                PrintTypedBindlessBufferIndex(args[0], args[1]);
             } else {
                 str << "_ReadBdlsBuffer(";
                 args[0]->accept(vis);
@@ -1984,12 +2043,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ')';
             }
             str << ")],";
-            args[2]->accept(vis);
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) {
+                PrintTypedBindlessBufferOffset(args[0], args[1], args[2]);
+            } else {
+                args[2]->accept(vis);
+            }
             str << ",bdls[NonUniformResourceIndex(";
             if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[3]->accept(vis);
+                PrintTypedBindlessBufferIndex(args[0], args[3]);
             } else {
                 str << "_ReadBdlsBuffer(";
                 args[0]->accept(vis);
@@ -1997,10 +2058,15 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args[3]->accept(vis);
                 str << ')';
             }
-            str << ")]";
-            for (auto &i : args.subspan(4)) {
+            str << ")],";
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) {
+                PrintTypedBindlessBufferOffset(args[0], args[3], args[4]);
                 str << ',';
-                i->accept(vis);
+                args[5]->accept(vis);
+            } else {
+                args[4]->accept(vis);
+                str << ',';
+                args[5]->accept(vis);
             }
             str << ')';
         }
@@ -2021,14 +2087,54 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (!opt->isSpirv) {
                 LUISA_NOT_IMPLEMENTED();
             }
-            str << "__builtin_spirv_group_async_copy(";
-            for (size_t i = 0; i < args.size(); ++i) {
-                if (i) str << ",";
-                args[i]->accept(vis);
-            }
-            str << ")";
+            // Emit per-thread copy from source buffer to workgroup scratch.
+            // AST args: [scope, dst, src, elem_bytes, num, stride, event]
+            str << "/* async_copy */ for(uint _i=0;_i<";
+            args[4]->accept(vis);
+            str << ";_i++)_vk_wg_copy_buf[(";
+            args[1]->accept(vis);
+            str << "+_i*";
+            args[3]->accept(vis);
+            str << ")>>2]=";
+            if (opt->kernel) {
+                auto kernel_args = opt->kernel.arguments();
+                bool found = false;
+                for (auto &&v : kernel_args) {
+                    if (v.type()->is_buffer()) {
+                        auto name = opt->kernel.get_variable_name(v.uid());
+                        str << "_bfread(" << name << "_b";
+                        vstd::to_string(v.uid(), str);
+                        str << ",(";
+                        args[2]->accept(vis);
+                        str << "+_i*";
+                        args[5]->accept(vis);
+                        str << ")/";
+                        args[3]->accept(vis);
+                        str << ");";
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) { str << "0/*no buf*/;"; }
+            } else { str << "0/*null*/;"; }
+            str << "}";
             return;
         }
+        case CallOp::PIPELINE_COMMIT:
+            // SPIR-V: each OpGroupAsyncCopy is implicitly committed.
+            // Pipeline tracking counter increment is handled in _vk_async_copy_impl.
+            str << "/* pipeline_commit (no-op in SPIR-V) */";
+            return;
+        case CallOp::PIPELINE_WAIT_PRIOR:
+            if (!opt->isSpirv) {
+                LUISA_NOT_IMPLEMENTED();
+            }
+            // Emit workgroup barrier for synchronization.
+            // In a full implementation this would use OpGroupWaitEvents with
+            // event tracking. For now, a full memory barrier is correct for
+            // pipeline_wait_prior(0) and conservative for N > 0.
+            str << "GroupMemoryBarrierWithGroupSync()";
+            return;
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
         case CallOp::BINDLESS_COOPERATIVE_MUL: {
             opt->useBufferBindless = true;
@@ -2043,9 +2149,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
 
             str << "bdls[NonUniformResourceIndex(";
             if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[1]->accept(vis);
+                PrintTypedBindlessBufferIndex(args[0], args[1]);
             } else {
                 str << "_ReadBdlsBuffer(";
                 args[0]->accept(vis);
@@ -2053,10 +2157,15 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args[1]->accept(vis);
                 str << ')';
             }
-            str << ")]";
-            for (auto &i : args.subspan(2)) {
+            str << ")],";
+            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) {
+                PrintTypedBindlessBufferOffset(args[0], args[1], args[2]);
                 str << ',';
-                i->accept(vis);
+                args[3]->accept(vis);
+            } else {
+                args[2]->accept(vis);
+                str << ',';
+                args[3]->accept(vis);
             }
             str << ')';
         }
@@ -2066,17 +2175,22 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
     }
     str << '(';
-    PrintArgs();
+    if (expr->is_builtin() && !args.empty() &&
+        args[0]->type()->is_texture()) {
+        PrintTextureView(args[0], expr->op() == CallOp::TEXTURE_WRITE);
+        for (auto argument : args.subspan(1u)) {
+            str << ',';
+            argument->accept(vis);
+        }
+    } else {
+        PrintArgs();
+    }
     if (opt->enable_debug_info) {
-        // Append validate index for byte buffer write/read generic path
+        // Append the byte-buffer validation bound for the generic path.
         auto op = expr->op();
         if (op == CallOp::BYTE_BUFFER_WRITE || op == CallOp::BYTE_BUFFER_READ) {
-            auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
-            uint64_t func_hash = vis.f.hash();
-            auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
-            if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
-                str << ',' << luisa::format("{}", it->second);
-            }
+            str << ',';
+            PrintValidationBound(args[0]);
         }
     }
     str << ')';

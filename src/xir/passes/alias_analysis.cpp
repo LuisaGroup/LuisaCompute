@@ -17,18 +17,11 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static luisa::optional<int64_t> try_get_constant_int_value(Value *v) noexcept {
-    if (v->isa<Constant>()) {
-        auto c = static_cast<Constant *>(v);
-        auto type = c->type();
-        auto size = type->size();
-        if (size == 4) {
-            return static_cast<int64_t>(*static_cast<const int32_t *>(c->data()));
-        } else if (size == 8) {
-            return *static_cast<const int64_t *>(c->data());
-        }
-    }
-    return luisa::nullopt;
+static luisa::optional<uint64_t> try_get_constant_int_value(Value *v) noexcept {
+    uint64_t result = 0u;
+    return try_decode_constant_nonnegative_integer(v, result) ?
+               luisa::optional<uint64_t>{result} :
+               luisa::nullopt;
 }
 
 static AllocaInst *get_base_alloca(Instruction *inst) noexcept {
@@ -40,13 +33,19 @@ static AllocaInst *get_base_alloca(Instruction *inst) noexcept {
         case DerivedInstructionTag::STORE:
             ptr = static_cast<StoreInst *>(inst)->variable();
             break;
+        case DerivedInstructionTag::ATOMIC:
+            ptr = static_cast<AtomicInst *>(inst)->base();
+            break;
         default:
             return nullptr;
     }
     // Derive this from the current operand graph on every query. XIR passes can
     // retarget GEPs after alias analysis has run, and a process-global cache
     // keyed only by Instruction * otherwise returns stale (or recycled) data.
-    return trace_pointer_base_local_alloca_inst(ptr);
+    auto base = trace_pointer_base_value(ptr);
+    return base != nullptr && base->isa<AllocaInst>() ?
+               static_cast<AllocaInst *>(base) :
+               nullptr;
 }
 
 static Value *get_local_pointer(Instruction *inst) noexcept {
@@ -55,9 +54,89 @@ static Value *get_local_pointer(Instruction *inst) noexcept {
             return static_cast<LoadInst *>(inst)->variable();
         case DerivedInstructionTag::STORE:
             return static_cast<StoreInst *>(inst)->variable();
+        case DerivedInstructionTag::ATOMIC:
+            return static_cast<AtomicInst *>(inst)->base();
         default:
             return nullptr;
     }
+}
+
+static AtomicInst *get_indexed_atomic(Instruction *inst) noexcept {
+    if (inst->isa<AtomicInst>()) {
+        auto atomic = static_cast<AtomicInst *>(inst);
+        if (atomic->index_count() != 0u) { return atomic; }
+    }
+    return nullptr;
+}
+
+static AliasResult alias_atomic_indices(AtomicInst *a, AtomicInst *b) noexcept {
+    if (a->base() != b->base() || a->index_count() != b->index_count()) {
+        return AliasResult::MayAlias;
+    }
+    auto all_equal = true;
+    for (auto i = 0u; i < a->index_count(); i++) {
+        auto index_a = a->index_uses()[i]->value();
+        auto index_b = b->index_uses()[i]->value();
+        if (index_a == nullptr || index_b == nullptr) {
+            all_equal = false;
+            continue;
+        }
+        if (index_a == index_b) { continue; }
+        auto constant_a = try_get_constant_int_value(index_a);
+        auto constant_b = try_get_constant_int_value(index_b);
+        if (constant_a.has_value() && constant_b.has_value()) {
+            if (*constant_a != *constant_b) { return AliasResult::NoAlias; }
+        } else {
+            all_equal = false;
+        }
+    }
+    return all_equal ? AliasResult::MustAlias : AliasResult::MayAlias;
+}
+
+static bool is_byte_addressed_access(Instruction *inst) noexcept {
+    if (inst->isa<ResourceReadInst>()) {
+        switch (static_cast<ResourceReadInst *>(inst)->op()) {
+            case ResourceReadOp::BYTE_BUFFER_READ:
+            case ResourceReadOp::BYTE_BUFFER_VOLATILE_READ:
+            case ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
+            case ResourceReadOp::DEVICE_ADDRESS_READ:
+                return true;
+            default: break;
+        }
+    } else if (inst->isa<ResourceWriteInst>()) {
+        switch (static_cast<ResourceWriteInst *>(inst)->op()) {
+            case ResourceWriteOp::BYTE_BUFFER_WRITE:
+            case ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE:
+            case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+            case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
+                return true;
+            default: break;
+        }
+    }
+    return false;
+}
+
+static bool is_bindless_access(Instruction *inst) noexcept {
+    if (inst->isa<ResourceReadInst>()) {
+        switch (static_cast<ResourceReadInst *>(inst)->op()) {
+            case ResourceReadOp::BINDLESS_BUFFER_READ:
+            case ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
+            case ResourceReadOp::BINDLESS_TEXTURE2D_READ:
+            case ResourceReadOp::BINDLESS_TEXTURE3D_READ:
+            case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+            case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
+                return true;
+            default: break;
+        }
+    } else if (inst->isa<ResourceWriteInst>()) {
+        switch (static_cast<ResourceWriteInst *>(inst)->op()) {
+            case ResourceWriteOp::BINDLESS_BUFFER_WRITE:
+            case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+                return true;
+            default: break;
+        }
+    }
+    return false;
 }
 
 static Value *get_resource_handle(Instruction *inst) noexcept {
@@ -94,13 +173,54 @@ static size_t get_global_index_count(Instruction *inst) noexcept {
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::ATOMIC:
             return static_cast<AtomicInst *>(inst)->index_count();
-        case DerivedInstructionTag::RESOURCE_READ:
-            return inst->operand_count() > 0 ? inst->operand_count() - 1 : 0;
-        case DerivedInstructionTag::RESOURCE_WRITE:
-            return inst->operand_count() > 1 ? inst->operand_count() - 2 : 0;
+        case DerivedInstructionTag::RESOURCE_READ: {
+            switch (static_cast<ResourceReadInst *>(inst)->op()) {
+                case ResourceReadOp::BUFFER_READ:
+                case ResourceReadOp::BUFFER_VOLATILE_READ:
+                case ResourceReadOp::BYTE_BUFFER_READ:
+                case ResourceReadOp::BYTE_BUFFER_VOLATILE_READ:
+                case ResourceReadOp::TEXTURE2D_READ:
+                case ResourceReadOp::TEXTURE3D_READ:
+                case ResourceReadOp::DEVICE_ADDRESS_READ: return 1u;
+                case ResourceReadOp::BINDLESS_BUFFER_READ:
+                case ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
+                case ResourceReadOp::BINDLESS_TEXTURE2D_READ:
+                case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return 2u;
+                case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+                case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return 3u;
+            }
+            break;
+        }
+        case DerivedInstructionTag::RESOURCE_WRITE: {
+            switch (static_cast<ResourceWriteInst *>(inst)->op()) {
+                case ResourceWriteOp::BUFFER_WRITE:
+                case ResourceWriteOp::BUFFER_VOLATILE_WRITE:
+                case ResourceWriteOp::BYTE_BUFFER_WRITE:
+                case ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE:
+                case ResourceWriteOp::TEXTURE2D_WRITE:
+                case ResourceWriteOp::TEXTURE3D_WRITE:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID:
+                case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL:
+                    return 1u;
+                case ResourceWriteOp::BINDLESS_BUFFER_WRITE:
+                case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT:
+                    return 2u;
+                case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
+                    return 1u;
+                case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT:
+                    return 0u;
+            }
+            break;
+        }
         default:
-            return 0;
+            break;
     }
+    return 0u;
 }
 
 static Value *get_global_index(Instruction *inst, size_t i) noexcept {
@@ -134,7 +254,7 @@ static AliasResult alias_global_indices(Instruction *a, Instruction *b) noexcept
     return AliasResult::MayAlias;
 }
 
-} // namespace detail
+}// namespace detail
 
 AliasAnalysisInfo alias_analysis_pass_run_on_function(FunctionDefinition *def) noexcept {
     AliasAnalysisInfo info;
@@ -144,10 +264,13 @@ AliasAnalysisInfo alias_analysis_pass_run_on_function(FunctionDefinition *def) n
 
 AliasAnalysisInfo alias_analysis_pass_run_on_module(Module *module, PassReport *report) noexcept {
     AliasAnalysisInfo info;
-    for (auto f : module->function_list()) {
-        if (auto def = f->definition()) {
-            auto func_info = alias_analysis_pass_run_on_function(def);
-            info.queried_count += func_info.queried_count;
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (auto def = f->definition()) {
+                auto func_info =
+                    alias_analysis_pass_run_on_function(def);
+                info.queried_count += func_info.queried_count;
+            }
         }
     }
     if (report != nullptr) {
@@ -167,15 +290,32 @@ AliasResult alias_analysis_query(Instruction *a, Instruction *b) noexcept {
         return AliasResult::NoAlias;
     }
 
+    // A call or autodiff operation can access storage through reference
+    // operands. Its single summary scope is therefore not an exclusion proof
+    // against LOCAL or SHARED memory. Likewise, an effectful instruction whose
+    // scope is not classified must remain conservative.
+    auto has_unknown_scope = [](Instruction *inst,
+                                InstructionMemoryInfo info) noexcept {
+        switch (inst->derived_instruction_tag()) {
+            case DerivedInstructionTag::CALL:
+            case DerivedInstructionTag::AUTODIFF_SCOPE:
+            case DerivedInstructionTag::AUTODIFF_INTRINSIC:
+                return true;
+            default:
+                return info.scope == MemoryScope::NONE &&
+                       !info.is_pure();
+        }
+    };
+    if (has_unknown_scope(a, mem_a) ||
+        has_unknown_scope(b, mem_b)) {
+        return AliasResult::MayAlias;
+    }
+
     if (mem_a.scope != mem_b.scope) {
         return AliasResult::NoAlias;
     }
 
-    if (mem_a.scope == MemoryScope::SHARED) {
-        return AliasResult::MustAlias;
-    }
-
-    if (mem_a.scope == MemoryScope::LOCAL) {
+    if (mem_a.scope == MemoryScope::LOCAL || mem_a.scope == MemoryScope::SHARED) {
         auto base_a = detail::get_base_alloca(a);
         auto base_b = detail::get_base_alloca(b);
         if (base_a == nullptr || base_b == nullptr) {
@@ -183,6 +323,13 @@ AliasResult alias_analysis_query(Instruction *a, Instruction *b) noexcept {
         }
         if (base_a != base_b) {
             return AliasResult::NoAlias;
+        }
+        auto atomic_a = detail::get_indexed_atomic(a);
+        auto atomic_b = detail::get_indexed_atomic(b);
+        if (atomic_a != nullptr || atomic_b != nullptr) {
+            return atomic_a != nullptr && atomic_b != nullptr ?
+                       detail::alias_atomic_indices(atomic_a, atomic_b) :
+                       AliasResult::MayAlias;
         }
         auto ptr_a = detail::get_local_pointer(a);
         auto ptr_b = detail::get_local_pointer(b);
@@ -206,10 +353,14 @@ AliasResult alias_analysis_query(Instruction *a, Instruction *b) noexcept {
         // resource arguments may be bound to the same buffer or overlapping
         // views. Only compare indices once the handle itself is identical.
         if (handle_a != handle_b) { return AliasResult::MayAlias; }
+        if (detail::is_bindless_access(a) || detail::is_bindless_access(b) ||
+            detail::is_byte_addressed_access(a) || detail::is_byte_addressed_access(b)) {
+            return AliasResult::MayAlias;
+        }
         return detail::alias_global_indices(a, b);
     }
 
     return AliasResult::MayAlias;
 }
 
-} // namespace luisa::compute::xir
+}// namespace luisa::compute::xir

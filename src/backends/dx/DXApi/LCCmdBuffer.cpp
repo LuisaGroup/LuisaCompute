@@ -630,9 +630,10 @@ public:
         }
         pending_download.copies.clear();
     }
-    void flush_all_pending() { flush_pending_upload(); flush_pending_download(); }
-
-
+    void flush_all_pending() {
+        flush_pending_upload();
+        flush_pending_download();
+    }
 
     void visit(const BufferUploadCommand *cmd) noexcept override {
 #ifdef LCDX_ENABLE_WINPIX
@@ -1126,20 +1127,11 @@ public:
         });
 #endif
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
-        cmd->visit_modifications([&]<typename T>(T const &t) {
-            if constexpr (std::is_same_v<T, luisa::vector<BindlessArrayUpdateCommand::Texture3DModification>>) {
-                arr->UpdateStates(
-                    *bd,
-                    *state_tracker,
-                    luisa::span{
-                        reinterpret_cast<BindlessArrayUpdateCommand::Texture2DModification const *>(t.data()),
-                        t.size()});
-            } else {
-                arr->UpdateStates(
-                    *bd,
-                    *state_tracker,
-                    luisa::span{t});
-            }
+        cmd->visit_modifications([&](auto const &t) {
+            arr->UpdateStates(
+                *bd,
+                *state_tracker,
+                luisa::span{t});
         });
     }
     void visit(const DXCustomCmd *cmd) noexcept {

@@ -68,12 +68,12 @@ stats.log("my-pipeline");
 
 Custom pipelines can be built with `PassPipeline::add` (single run) and `PassPipeline::add_fixed_point` (fixed-point sub-pipeline).
 
-## Hook Rules (project priority-3)
+## Comments
 
-- No docstrings.
-- No memo/explanatory comments.
-- Only `// namespace foo` trailers after closing braces of namespaces are allowed.
-- BDD (`// given / when / then`) is also allowed in tests.
+- Document non-obvious correctness invariants and pass-ordering boundaries where the code alone cannot explain why the ordering matters.
+- Avoid comments that merely restate the next statement or preserve obsolete implementation history.
+- Keep `// namespace foo` trailers after namespace closing braces.
+- BDD (`// given / when / then`) is useful in tests when it clarifies the fixture and expected transform.
 
 ## Core APIs
 
@@ -139,7 +139,7 @@ For instruction-tag switch: `inst->derived_instruction_tag()` returns `DerivedIn
 | `UnreachableInst` | `instructions/unreachable.h` | none |
 | `RasterDiscardInst` | `instructions/raster_discard.h` | none |
 | `IfInst` (structured) | `instructions/if.h` | `condition()`, `true_block()`, `false_block()`, `merge_block()` |
-| `LoopInst` (structured) | `instructions/loop.h` | `prepare_block()`, `body_block()`, `update_block()`, `merge_block()`. **No `condition()` getter** — the loop condition lives as the terminating `cond_br(cond, body_block, merge_block)` of `prepare_block()`. Canonical shape from `ast2xir.cpp:970-1004`: `prepare: cond_br(cond, body, merge)`, `body → br(update)`, `update → br(prepare)`. Setters: `set_prepare_block`, `set_body_block`, `set_update_block`. Creators: `create_prepare_block(overwrite=false)`, `create_body_block(...)`, `create_update_block(...)`. |
+| `LoopInst` (structured) | `instructions/loop.h` | `prepare_block()`, `body_block()`, `update_block()`, `merge_block()`. **No `condition()` getter.** AST lowering normally creates `prepare: cond_br(cond, body, merge)`, but `restructure_cfg` may create an internally exiting natural loop with `prepare: br(body)`. Both retain distinct prepare/body/update/merge roles. Setters: `set_prepare_block`, `set_body_block`, `set_update_block`. Creators: `create_prepare_block(overwrite=false)`, `create_body_block(...)`, `create_update_block(...)`. |
 | `SimpleLoopInst` (structured) | `instructions/loop.h` | `body_block()`, `merge_block()` |
 | `BreakInst` (structured) | `instructions/break.h` | `target_block()` |
 | `ContinueInst` (structured) | `instructions/continue.h` | `target_block()` |
@@ -292,7 +292,7 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 | Pipeline B Pass 1 `destructure_cfg` | ✅ done (12 tests, 46 asserts) | `destructure_cfg.{h,cpp}` |
 | Pipeline B Pass 2 `simplify_cfg` | ✅ done (8 tests, 22 asserts) | `simplify_cfg.{h,cpp}` |
 | Pipeline B Pass 3 `restructure_cfg` | ✅ done (unit tests) | `restructure_cfg.{h,cpp}` |
-| `lower_switch` | ✅ done (lowers `SwitchInst` to cascaded `IfInst`) | `lower_switch.{h,cpp}` |
+| Structured switch | ✅ `SwitchInst` is preserved; raw multi-way CFG uses `IndexedBranchInst` and `restructure_cfg` reconstructs the merge | `switch.{h,cpp}`, `indexed_branch.{h,cpp}` |
 | `convergence_region` | ✅ done (region analysis used by `restructure_cfg`) | `convergence_region.{h,cpp}` |
 | `early_cse` | ✅ done (local common subexpression elimination) | `early_cse.{h,cpp}` |
 | `pass_pipeline` | ✅ done (driver + canned pipelines) | `pass_pipeline.{h,cpp}` |
@@ -331,11 +331,14 @@ Note: `src/xir/passes/CFG_NORMALIZATION_PLAN.md` is the historical master plan; 
 - ❌ Building orphan test blocks without wiring reachability — `traverse_basic_blocks` will skip them silently.
 - ❌ Forgetting fixed-point loop when transformation creates new candidates (RayQueryLoop → new LoopInst).
 - ❌ Touching `SwitchInst` case-block contents structurally — Pipeline B preserves switches; only fold/thread within cases.
-- ❌ Writing memo comments — project hook will flag and force you to apologize.
-- ❌ Calling `LoopInst::condition()` — **does not exist**. The loop condition is the terminating `cond_br(cond, body, merge)` of `prepare_block()`. To read the condition: `static_cast<ConditionalBranchInst*>(loop->prepare_block()->terminator())->condition()`. Likewise no `set_condition`; rewrite the prepare-block terminator instead.
+- ❌ Calling `LoopInst::condition()` — **does not exist**. Inspect the prepare terminator first. AST-canonical loops use `cond_br(cond, body, merge)`, while internally exiting loops recovered by `restructure_cfg` may use `br(body)`. Only cast to `ConditionalBranchInst` after checking the tag. There is no `set_condition`; rewrite the prepare-block terminator instead.
 - ❌ Restructuring CFG with live `PhiInst` nodes — splitting/inserting blocks (preheaders, latches, exit stubs) invalidates phi `incoming_blocks`. Run `reg2mem_pass_run_on_module` before `restructure_cfg_pass_run_on_module` so the input is phi-free; assert this as a precondition.
 - ❌ Computing post-dominators without a virtual exit — multi-sink CFGs (`ReturnInst`, `UnreachableInst`, `RasterDiscardInst` in different blocks) yield wrong/null ipostdoms for blocks whose successors reach different sinks. Add a synthetic virtual exit that all sinks point to before running the iterative ipostdom algorithm.
-- ❌ Running `reg2mem` immediately after `restructure_cfg` without DCE — `restructure_cfg` may leave orphan blocks not reachable from `body_block()`. These blocks are absent from the dom tree, causing assertion failures in `reg2mem`. Always run `dce_pass_run_on_module` between `restructure_cfg` and `reg2mem`.
+- ❌ Running generic cleanup (including DCE) between `restructure_cfg` and SSA recovery in a structured backend pipeline — generic cleanup belongs in the raw/destructured CFG interval, before restructuring. DCE preserves a constant-false canonical `LoopInst::prepare_block()` conditional branch, but that safeguard does not authorize post-restructure cleanup: other structured role arms can still be folded or erased. For native SPIR-V, use the backend's targeted inactive-role payload cleanup, then run `mem2reg` immediately to recover SSA. A generic pipeline that truly needs later cleanup must first lower or otherwise protect every structured role and reverify the resulting boundary.
+- ❌ Replacing an enclosing region boundary with a nested `IfInst`/`SwitchInst` merge during recursive CFG traversal — lowered `break`/`continue` edges may bypass the local merge and escape the enclosing region. Carry the immutable outer boundary alongside the current local merge and stop at either.
+- ❌ Repairing reverse-autodiff SSA before its generated backward block is reachable — install `backward_marker_block -> backward_block`, replace the `AutodiffScopeInst` with `parent -> entry`, and only then call `reg2mem_pass_repair_cross_block_rvalue_uses_on_function`. The narrow repair snapshots branch-local primal rvalues used by mirrored backward control flow without lowering unrelated Phi nodes. It deliberately ignores Phi edge operands and lvalue definitions; downstream final `mem2reg` must consume the typed `CROSS_BLOCK` spills before codegen.
+- ❌ Treating every instruction that names itself as malformed — a loop-carried `PhiInst` may legally use itself as the incoming value on a backedge to preserve the previous iteration's value. SPIR-V represents this directly with a self-referencing `OpPhi`. `fix_self_referential` repairs malformed aggregate `INSERT` cycles and must leave legal Phi self-references alone.
+- ❌ Spending a fixed-point round on one independent candidate — a round budget is a cross-pass cycle guard, not a substitute for draining a phase's finite backlog. One-site rewrites must use a phase-local worklist, recompute invalidated analyses after every mutation, and detect repeated site identities as non-convergence. A fixed cap smaller than the number of legal candidates produces false failures; callers must inspect `RestructureCFGInfo::succeeded()` before using the result.
 - ❌ Using `OpCopyMemory` on `OpTypeRayQueryKHR` in SPIR-V emission — forbidden since Rev 15. Instead, remap `_value_map[store->variable()] = val` so subsequent loads resolve to the source variable directly.
 - ❌ Trusting `src/xir/passes/CFG_NORMALIZATION_PLAN.md` as a task tracker — it is the historical design doc and contains unchecked items that are already implemented (e.g., `early_return_elimination`, `restructure_cfg`). Use the table above and the actual headers/sources as the source of truth.
 
@@ -445,7 +448,7 @@ When debugging or implementing an XIR pass, the LLVM project has similar passes 
 | `aggregate_field_bitmask` | — | XIR-specific aggregate field bit-range analysis. |
 | `algebraic_simplify` | `llvm/lib/Transforms/InstCombine/InstCombineAndOrXor.cpp` (and siblings) | Peephole algebraic simplifications; also see `AggressiveInstCombine`. |
 | `alias_analysis` | `llvm/lib/Analysis/BasicAliasAnalysis.cpp` | Basic and type-based alias analysis. |
-| `autodiff` | — | XIR-specific autodiff pass. |
+| `autodiff` | — | XIR-specific autodiff pass. Reverse mode closes the generated CFG with a narrow cross-block-rvalue reg2mem repair so the pass returns dominance-valid XIR. |
 | `call_graph` | `llvm/lib/Analysis/CallGraph.cpp` | Call-graph construction and SCC passes. |
 | `const_fold` | `llvm/lib/Analysis/ConstantFolding.cpp` | Constant folding of instructions and intrinsics. |
 | `convergence_region` | — | XIR-specific convergence-region / region-of-interest analysis used by `restructure_cfg`. |
@@ -471,11 +474,11 @@ When debugging or implementing an XIR pass, the LLVM project has similar passes 
 | `loop_fusion` | `llvm/lib/Transforms/Scalar/LoopFuse.cpp` | Fuse adjacent loops with compatible bounds. |
 | `loop_vectorization` | `llvm/lib/Transforms/Vectorize/LoopVectorize.cpp` | Vectorize innermost loops (widening). |
 | `slp_vectorization` | `llvm/lib/Transforms/Vectorize/SLPVectorizer.cpp` | Superword-level parallelism (horizontal SIMD). |
-| `loop_unroll` | `llvm/lib/Transforms/Utils/LoopUnroll.cpp` | Loop unrolling (full / partial / runtime). |
+| Generic loop unroll | `llvm/lib/Transforms/Utils/LoopUnroll.cpp` | No generic XIR pass: it was removed because its structured-CFG correctness contract was not established. Autodiff's private bounded semantic expansion and SPIRV-Tools unrolling are separate mechanisms. |
 | `lower_break_continue` | — | XIR-specific lowering of structured `BreakInst`/`ContinueInst`. |
 | `lower_ray_query_loop` | — | XIR-specific ray-query pipeline lowering. |
 | `lower_ray_query_loop_to_loop` | — | XIR-specific ray-query → structured `LoopInst` lowering. |
-| `lower_switch` | `llvm/lib/Transforms/Utils/LowerSwitch.cpp` | Lower `switch` to cascaded branches / if-else chains. |
+| Generic lower switch | `llvm/lib/Transforms/Utils/LowerSwitch.cpp` | No generic XIR pass: `SwitchInst` is a first-class structured terminator. `destructure_cfg` alone maps it to raw `IndexedBranchInst`, and `restructure_cfg` rebuilds the switch merge. |
 | `mem2reg` | `llvm/lib/Transforms/Utils/Mem2Reg.cpp` | Promote memory to registers (alloca → SSA). Also see `PromoteMemToReg.h`. |
 | `outline` | `llvm/lib/Transforms/IPO/IROutliner.cpp` | Outlining similar instruction sequences. |
 | `pass_pipeline` | — | XIR pass pipeline driver. |

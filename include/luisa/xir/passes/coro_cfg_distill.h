@@ -72,12 +72,24 @@ struct CoroCfgDistillResult {
     luisa::vector<luisa::vector<size_t>> edges;
     luisa::vector<Edge> transition_edges;
     luisa::vector<FrameValue> frame_values;
+    size_t structured_cfg_error_count{0u};
+    size_t invalid_input_error_count{0u};
+    size_t invalid_cfg_error_count{0u};
+
+    [[nodiscard]] bool succeeded() const noexcept {
+        return structured_cfg_error_count == 0u &&
+               invalid_input_error_count == 0u &&
+               invalid_cfg_error_count == 0u;
+    }
 };
 
-// These analysis entry points do not mutate the input, but their scope/liveness
-// results are supported only for unstructured CFG. Call lower_switch followed by
-// destructure_cfg before distilling a function that contains structured or
-// ambiguous control flow (including SWITCH with a null merge).
+// These analysis entry points do not mutate the input. Their scope/liveness
+// model requires verifier-valid, void, Phi-free raw CFG: call destructure_cfg
+// for structured control and reg2mem for SSA Phis before distilling. Coroutine
+// functions carrying a fixed SignatureConstraint cannot be split because the
+// continuation ABI prepends a frame argument. Unsupported or invalid input
+// returns an empty, explicitly failed result. The module overload returns the
+// number of definitions successfully distilled.
 [[nodiscard]] LUISA_XIR_API CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept;
 [[nodiscard]] LUISA_XIR_API size_t coro_cfg_distill_pass_run_on_module(Module *m) noexcept;
 

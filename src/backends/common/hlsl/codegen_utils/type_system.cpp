@@ -73,7 +73,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "uint64_t"sv;
             return;
         case Type::Tag::COOPERATIVE_VECTOR:
-            str << "vector<";
+            str << "vk::nv::CooperativeVector<";
             GetTypeName(*type.element(), str, usage);
             str << luisa::format(",{}>", type.dimension());
             return;

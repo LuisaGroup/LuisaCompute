@@ -20,7 +20,6 @@ class ComputeShader : public Shader {
     PipelineRef *_pipeline_ref{};
     uint3 _block_size;
 public:
-    static bool verify_type_md5(luisa::span<const luisa::compute::Type *const> arg_types, vstd::MD5 md5);
     auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
     auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
     PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
@@ -40,7 +39,10 @@ public:
         vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
         luisa::span<const std::byte> constant_ubo_data = {},
         uint validation_count = 0,
-        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt);
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
+        uint32_t push_constant_size = 32u,
+        detail::ShaderCodegenDialect codegen_dialect =
+            detail::ShaderCodegenDialect::HLSL_SPIRV);
     ~ComputeShader();
     static ComputeShader *compile(
         BinaryIO const *bin_io,
@@ -48,6 +50,7 @@ public:
         vstd::vector<SavedArgument> &&saved_args,
         vstd::function<hlsl::CodegenResult()> const &codegen,
         vstd::optional<vstd::MD5> const &code_md5,
+        luisa::optional<vstd::MD5> expected_type_md5,
         vstd::vector<Argument> &&bindings,
         uint3 block_size,
         vstd::string_view file_name,
@@ -55,7 +58,11 @@ public:
         uint shader_model,
         bool unsafe_math,
         uint validation_count = 0,
-        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt);
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
+        bool requires_sampler_anisotropy = false,
+        uint32_t push_constant_size = 32u,
+        detail::ShaderCodegenDialect codegen_dialect =
+            detail::ShaderCodegenDialect::HLSL_SPIRV);
     static ComputeShader *compile_builtin_hlsl_to_spirv(
         BinaryIO const *bin_io,
         Device *device,
@@ -69,6 +76,8 @@ public:
         uint shader_model,
         bool unsafe_math,
         uint validation_count = 0,
-        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt);
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
+        bool requires_sampler_anisotropy = false,
+        uint32_t push_constant_size = 32u);
 };
 }// namespace lc::vk

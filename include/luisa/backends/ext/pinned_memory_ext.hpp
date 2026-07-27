@@ -49,7 +49,7 @@ public:
         auto elem_type = Type::of<T>();
         auto info = _pin_host_memory(elem_type, elem_count, host_ptr, option);
         auto buffer = Buffer<T>{device(), info};
-        auto offset_bytes = static_cast<std::byte *>(host_ptr) -
+        auto offset_bytes = reinterpret_cast<std::byte *>(host_ptr) -
                             static_cast<std::byte *>(buffer.native_handle());
         auto view = buffer.view(offset_bytes / info.element_stride, elem_count);
         return std::pair{std::move(buffer), std::move(view)};

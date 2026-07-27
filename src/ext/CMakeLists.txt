@@ -191,8 +191,11 @@ if (LUISA_COMPUTE_USE_SYSTEM_YYJSON)
 else ()
     add_library(luisa-compute-ext-yyjson-interface INTERFACE)
     target_include_directories(luisa-compute-ext-yyjson-interface INTERFACE
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/yyjson/src>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/yyjson/src>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_compile_definitions(luisa-compute-ext-yyjson-interface INTERFACE YYJSON_IMPORTS=1)
+    luisa_compute_install_extension(luisa-compute-ext-yyjson-interface
+            HEADER_FILES yyjson/src/yyjson.h)
     add_library(luisa-compute-ext-yyjson OBJECT yyjson/src/yyjson.c yyjson/src/yyjson.h)
     target_link_libraries(luisa-compute-ext-yyjson PUBLIC luisa-compute-ext-yyjson-interface)
     target_compile_definitions(luisa-compute-ext-yyjson PRIVATE YYJSON_EXPORTS=1)
@@ -308,7 +311,8 @@ if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
+if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV OR
+        LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
 # SPIRV-Tools
 set(SPIRV-Headers_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers CACHE PATH "" FORCE)
 set(SPIRV_HEADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers/include CACHE PATH "" FORCE)
@@ -317,6 +321,26 @@ set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
 set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
 set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
 add_subdirectory(SPIRV-Tools)
+# SPIRV-Tools adds /WX to its base MSVC warning list even when SPIRV_WERROR is
+# disabled. Append /WX- so warnings in the bundled dependency stay non-fatal.
+if (MSVC)
+    foreach(_spirv_target IN ITEMS
+            SPIRV-Tools SPIRV-Tools-static SPIRV-Tools-shared
+            SPIRV-Tools-opt SPIRV-Tools-link SPIRV-Tools-reduce
+            SPIRV-Tools-lint SPIRV-Tools-diff)
+        if (TARGET ${_spirv_target})
+            # target_compile_options cannot be used on ALIAS targets; resolve first
+            get_target_property(_spirv_aliased ${_spirv_target} ALIASED_TARGET)
+            if (_spirv_aliased)
+                target_compile_options(${_spirv_aliased} PRIVATE /WX-)
+            else()
+                target_compile_options(${_spirv_target} PRIVATE /WX-)
+            endif()
+            unset(_spirv_aliased)
+        endif()
+    endforeach()
+    unset(_spirv_target)
+endif()
 endif ()
 
 

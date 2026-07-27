@@ -95,6 +95,7 @@ private:
                     auto buffer = BindlessArrayUpdateCommand::Modification::Buffer(
                         api_buffer.handle._0,
                         api_buffer.offset,
+                        api_buffer.size,
                         convert_op(api_buffer.op));
                     auto tex2d = BindlessArrayUpdateCommand::Modification::Texture(
                         api_tex2d.handle._0,

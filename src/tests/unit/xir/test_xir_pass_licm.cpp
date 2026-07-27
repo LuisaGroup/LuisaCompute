@@ -8,6 +8,7 @@
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/passes/licm.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -222,6 +223,126 @@ void reg_licm() {
         expect(shl->parent_block() == lbody);
     };
 
+    "licm_unknown_arithmetic_op_is_fail_closed"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prep = loop->create_prepare_block();
+        auto *lbody = loop->create_body_block();
+        auto *upd = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prep);
+        b.cond_br(m.create_constant_zero(Type::of<bool>()), lbody, merge);
+
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+        b.set_insertion_point(lbody);
+        // Model a future ArithmeticOp that LICM has not audited yet. The pass
+        // must reject it instead of inheriting speculative safety from a
+        // default switch arm.
+        auto *unknown = b.call(
+            Type::of<int>(), static_cast<ArithmeticOp>(0x7fffffffu),
+            {zero, one});
+        b.br(upd);
+
+        b.set_insertion_point(upd);
+        b.br(prep);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto info = licm_pass_run_on_function(k);
+        expect(info.hoisted_count == 0u);
+        expect(unknown->parent_block() == lbody);
+    };
+
+    "licm_does_not_speculate_dynamic_aggregate_indexing"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *aggregate =
+            k->create_value_argument(Type::of<int4>());
+        auto *element = k->create_value_argument(Type::of<int>());
+        auto *index = k->create_value_argument(Type::of<uint>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *storage = b.alloca_local(Type::of<int4>());
+        auto *loop = b.loop();
+        auto *prep = loop->create_prepare_block();
+        auto *lbody = loop->create_body_block();
+        auto *upd = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prep);
+        b.cond_br(m.create_constant_zero(Type::of<bool>()), lbody, merge);
+        b.set_insertion_point(lbody);
+        auto *extract = b.call(
+            Type::of<int>(), ArithmeticOp::EXTRACT, {aggregate, index});
+        auto *insert = b.call(
+            Type::of<int4>(), ArithmeticOp::INSERT,
+            {aggregate, element, index});
+        auto *shuffle = b.call(
+            Type::of<int2>(), ArithmeticOp::SHUFFLE,
+            {aggregate, index, index});
+        auto *gep = b.gep(Type::of<int>(), storage, {index});
+        b.br(upd);
+        b.set_insertion_point(upd);
+        b.br(prep);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = licm_pass_run_on_function(k);
+        expect(info.hoisted_count == 0u);
+        expect(extract->parent_block() == lbody);
+        expect(insert->parent_block() == lbody);
+        expect(shuffle->parent_block() == lbody);
+        expect(gep->parent_block() == lbody);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "licm_static_cast_is_not_speculated_but_bit_cast_is_safe"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *floating =
+            k->create_value_argument(Type::of<float>());
+        auto *bits = k->create_value_argument(Type::of<int>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prep = loop->create_prepare_block();
+        auto *lbody = loop->create_body_block();
+        auto *upd = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prep);
+        b.cond_br(m.create_constant_zero(Type::of<bool>()), lbody, merge);
+        b.set_insertion_point(lbody);
+        auto *numeric =
+            b.static_cast_(Type::of<int>(), floating);
+        auto *bitwise =
+            b.bit_cast_(Type::of<uint>(), bits);
+        b.br(upd);
+        b.set_insertion_point(upd);
+        b.br(prep);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = licm_pass_run_on_function(k);
+        expect(info.hoisted_count == 1u);
+        expect(numeric->parent_block() == lbody);
+        expect(bitwise->parent_block() == prep);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "licm_fixed_point_chained_invariant"_test = [] {
         Module m;
         BasicBlock *body;
@@ -343,7 +464,7 @@ void reg_licm() {
     };
 
     "licm_hoist_resource_query"_test = [] {
-        // RESOURCE_QUERY is pure, should be hoisted
+        // Stable resource metadata is pure and may be hoisted.
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -375,6 +496,85 @@ void reg_licm() {
         expect(info.hoisted_count == 1u);
         expect(size_query->parent_block() == prep);
         expect(appears_before(prep, size_query, prep->terminator()));
+    };
+
+    "licm_does_not_hoist_mutable_accel_query"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *accel = k->create_resource_argument(Type::of<Accel>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prep = loop->create_prepare_block();
+        auto *lbody = loop->create_body_block();
+        auto *upd = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        auto *false_const = m.create_constant_zero(Type::of<bool>());
+        b.set_insertion_point(prep);
+        b.cond_br(false_const, lbody, merge);
+
+        b.set_insertion_point(lbody);
+        auto *instance = m.create_constant_zero(Type::of<uint>());
+        auto *query = b.call(
+            Type::of<uint>(),
+            ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID,
+            {accel, instance});
+        b.br(upd);
+
+        b.set_insertion_point(upd);
+        b.br(prep);
+
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto info = licm_pass_run_on_function(k);
+
+        expect(info.hoisted_count == 0u);
+        expect(query->parent_block() == lbody);
+    };
+
+    "licm_does_not_speculate_bindless_metadata_queries"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *heap =
+            k->create_resource_argument(Type::from("bindless_array"));
+        auto *slot = k->create_value_argument(Type::of<uint>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prep = loop->create_prepare_block();
+        auto *lbody = loop->create_body_block();
+        auto *upd = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prep);
+        b.cond_br(m.create_constant_zero(Type::of<bool>()), lbody, merge);
+        b.set_insertion_point(lbody);
+        auto *size = b.call(
+            Type::of<uint>(),
+            ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE,
+            {heap, slot});
+        auto *address = b.call(
+            Type::of<uint64_t>(),
+            ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS,
+            {heap, slot});
+        b.br(upd);
+        b.set_insertion_point(upd);
+        b.br(prep);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = licm_pass_run_on_function(k);
+        expect(info.hoisted_count == 0u);
+        expect(size->parent_block() == lbody);
+        expect(address->parent_block() == lbody);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "licm_empty_module"_test = [] {

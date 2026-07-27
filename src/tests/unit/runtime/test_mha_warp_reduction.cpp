@@ -169,7 +169,17 @@ void test_grouped_softmax(Device &device) {
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) { return 0; }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    // argv[1] selects the runtime backend; it is not a Boost.UT name filter.
+    // Keeping it in the UT argument list silently skips both tests when invoked
+    // in the usual form `test_mha_warp_reduction hip`.
+    std::vector<const char *> ut_args;
+    ut_args.reserve(static_cast<size_t>(argc - 1));
+    ut_args.emplace_back(argv[0]);
+    for (auto i = 2; i < argc; i++) {
+        ut_args.emplace_back(argv[i]);
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        static_cast<int>(ut_args.size()), ut_args.data());
     "mha_grouped_float2_prefix_extract"_test = [&] {
         test_grouped_float2_prefix_extract(dc->device);
     };

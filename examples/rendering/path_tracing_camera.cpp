@@ -124,6 +124,10 @@ int main(int argc, char *argv[]) {
     }
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
 
     Device device = context.create_device(argv[1]);
 
@@ -522,7 +526,10 @@ int main(int argc, char *argv[]) {
            << synchronize();
 
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
-    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
+    if (stbi_write_png("test_path_tracing_camera.png", resolution.x, resolution.y, 4, host_image.data(), 0) == 0) {
+        LUISA_ERROR("Failed to write test_path_tracing_camera.png.");
+        return 1;
+    }
     if (opts.offline) {
         if (opts.compare_path) {
             auto result = luisa::ref::compare_with_reference_file(

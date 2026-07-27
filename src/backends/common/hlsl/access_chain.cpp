@@ -96,22 +96,27 @@ std::pair<vstd::vector<AccessChain::Node>, Type const *> AccessChain::nodes_from
     for (auto index : luisa::span{args}.subspan(1)) {
         switch (type->tag()) {
             case Type::Tag::BUFFER:
-                nodes.emplace_back(AccessNode{false, false});
+                nodes.emplace_back(AccessNode{false, false, false, false});
                 last_is_covered_vector = true;
                 type = type->element();
                 break;
             case Type::Tag::VECTOR:
-                nodes.emplace_back(AccessNode{false, type->dimension() == 3 && (!last_is_covered_vector)});
+                nodes.emplace_back(AccessNode{false, type->dimension() == 3 && (!last_is_covered_vector), false});
+                last_is_covered_vector = false;
+                type = type->element();
+                break;
+            case Type::Tag::COOPERATIVE_VECTOR:
+                nodes.emplace_back(AccessNode{false, false, false, true});
                 last_is_covered_vector = false;
                 type = type->element();
                 break;
             case Type::Tag::MATRIX:
-                nodes.emplace_back(AccessNode{true, false});
+                nodes.emplace_back(AccessNode{true, false, false, false});
                 type = Type::vector(type->element(), type->dimension());
                 last_is_covered_vector = true;
                 break;
             case Type::Tag::ARRAY:
-                nodes.emplace_back(AccessNode{false, true, true});
+                nodes.emplace_back(AccessNode{false, true, true, false});
                 type = type->element();
                 last_is_covered_vector = false;
                 break;
@@ -144,16 +149,22 @@ void AccessChain::gen_func_impl(Function f, CodegenUtility *util, TemplateFuncti
         for (auto &&i : _nodes) {
             i.multi_visit(
                 [&](AccessNode const &n) {
-                    if (n.is_matrix) {
-                        chain_str << ".m"sv;
-                    } else if (n.is_covered_class && (!is_shared)) {
-                        chain_str << ".v"sv;
+                    if (n.is_cooperative_vector) {
+                        chain_str << ".Get(a"sv;
+                        vstd::to_string(arg_idx, chain_str);
+                        chain_str << ')';
+                    } else {
+                        if (n.is_matrix) {
+                            chain_str << ".m"sv;
+                        } else if (n.is_covered_class && (!is_shared)) {
+                            chain_str << ".v"sv;
+                        }
+                        chain_str << "[a"sv;
+                        vstd::to_string(arg_idx, chain_str);
+                        chain_str << ']';
+                        if (arg_idx > 1 && n.is_array)
+                            is_shared = false;
                     }
-                    chain_str << "[a"sv;
-                    vstd::to_string(arg_idx, chain_str);
-                    chain_str << ']';
-                    if (arg_idx > 1 && n.is_array)
-                        is_shared = false;
                     ++arg_idx;
                 },
                 [&](MemberNode const &m) {

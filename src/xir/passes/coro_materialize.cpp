@@ -3,10 +3,12 @@
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/coro.h>
@@ -18,6 +20,8 @@
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/passes/coro_split.h>
+
+#include <limits>
 
 namespace luisa::compute::xir {
 
@@ -59,18 +63,25 @@ struct RegisterInfo {
     if (gep->base() != frame_arg) { return false; }
     if (gep->index_count() != 1u) { return false; }
     auto *field_idx = gep->index(0u);
-    if (!field_idx->isa<Constant>()) { return false; }
-    return static_cast<Constant *>(field_idx)->as<uint32_t>() == FRAME_FIELD_TOKEN_CMAT;
+    uint64_t decoded_index = 0u;
+    return try_decode_constant_nonnegative_integer(
+               field_idx, decoded_index) &&
+           decoded_index == FRAME_FIELD_TOKEN_CMAT;
 }
 
-[[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(
-    Module *mod, const luisa::unordered_set<luisa::string> *filter = nullptr) noexcept {
-    luisa::unordered_set<luisa::string> seen;
-    luisa::vector<RegisterInfo> regs;
-
-    for (auto *f : mod->function_list()) {
-        if (!f->isa<CallableFunction>() || f->definition() == nullptr) { continue; }
-        auto *def = f->definition();
+[[nodiscard]] static bool collect_registers(
+    const luisa::vector<CallableFunction *> &callables,
+    luisa::vector<RegisterInfo> &regs,
+    const luisa::unordered_set<luisa::string> *filter = nullptr) noexcept {
+    luisa::unordered_map<luisa::string, const Type *> name_to_type;
+    auto valid = true;
+    for (auto *callable : callables) {
+        if (callable == nullptr || callable->definition() == nullptr) {
+            valid = false;
+            continue;
+        }
+        luisa::unordered_set<luisa::string> local_names;
+        auto *def = callable->definition();
         def->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->derived_instruction_tag() != DerivedInstructionTag::ALLOCA) { return; }
             auto *alloca = static_cast<AllocaInst *>(inst);
@@ -79,15 +90,30 @@ struct RegisterInfo {
             if (!name_opt.has_value()) { return; }
             luisa::string name(name_opt.value());
             if (filter != nullptr && !filter->contains(name)) { return; }
-            if (seen.insert(name).second) {
-                regs.push_back({std::move(name), alloca->type()});
+            // One frame field denotes one logical register. Two locals in the
+            // same callable cannot share it, even if their types happen to
+            // match. Across split callables the same logical name is allowed
+            // only when its type is identical.
+            if (!local_names.emplace(name).second) {
+                valid = false;
+                return;
+            }
+            auto [iter, inserted] =
+                name_to_type.try_emplace(name, alloca->type());
+            if (!inserted && iter->second != alloca->type()) {
+                valid = false;
             }
         });
+    }
+    if (!valid) { return false; }
+    regs.reserve(name_to_type.size());
+    for (auto &[name, type] : name_to_type) {
+        regs.push_back(RegisterInfo{.name = name, .type = type});
     }
     luisa::sort(regs.begin(), regs.end(), [](auto &a, auto &b) noexcept {
         return a.name < b.name;
     });
-    return regs;
+    return true;
 }
 
 [[nodiscard]] static const Type *build_frame_type(const luisa::vector<RegisterInfo> &regs) noexcept {
@@ -109,6 +135,98 @@ struct RegisterInfo {
     return map;
 }
 
+[[nodiscard]] static bool frame_type_matches_cfg(Value *frame,
+                                                 const CoroCfgDistillResult &cfg) noexcept {
+    if (frame == nullptr || frame->type() == nullptr || !frame->type()->is_structure()) { return false; }
+    auto members = frame->type()->members();
+    if (members.size() != FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size()) { return false; }
+    for (auto i = 0u; i < FRAME_RESERVED_FIELD_COUNT; ++i) {
+        if (members[i] != Type::of<uint>()) { return false; }
+    }
+    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
+        if (cfg.frame_values[i].type == nullptr ||
+            members[FRAME_RESERVED_FIELD_COUNT + i] != cfg.frame_values[i].type) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool validate_cfg_trigger_tokens(const CoroCfgDistillResult &cfg) noexcept {
+    if (!cfg.succeeded() || cfg.scopes.empty()) { return false; }
+    luisa::unordered_set<uint32_t> tokens;
+    for (size_t i = 0u; i < cfg.scopes.size(); ++i) {
+        auto token = cfg.scopes[i].trigger_token;
+        if ((i == 0u && token != 0u) ||
+            (i != 0u && (token == 0u || token == TERMINAL_TOKEN)) ||
+            !tokens.emplace(token).second) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool validate_materialize_frame(
+    CallableFunction *callable, Value *frame,
+    const Type *expected_type) noexcept {
+    if (callable == nullptr || callable->definition() == nullptr ||
+        frame == nullptr || !frame->isa<Argument>() ||
+        frame->type() != expected_type) {
+        return false;
+    }
+    auto *argument = static_cast<Argument *>(frame);
+    if (!argument->is_reference() ||
+        argument->parent_function() != callable) {
+        return false;
+    }
+    auto valid = true;
+    callable->traverse_instructions([&](Instruction *inst) noexcept {
+        switch (inst->derived_instruction_tag()) {
+            case DerivedInstructionTag::CORO_SUSPEND:
+                valid &= static_cast<CoroSuspendInst *>(inst)->frame() ==
+                         frame;
+                break;
+            case DerivedInstructionTag::CORO_RESUME:
+                valid &= static_cast<CoroResumeInst *>(inst)->frame() ==
+                         frame;
+                break;
+            default: break;
+        }
+    });
+    return valid;
+}
+
+static void clone_metadata(const MetadataListMixin &source,
+                           MetadataListMixin &target) noexcept {
+    for (auto *metadata : source.metadata_list()) {
+        target.metadata_list().push_front(metadata->clone());
+    }
+}
+
+static void clone_instruction_metadata(
+    const Instruction *source, Instruction *target) noexcept {
+    if (source == nullptr || target == nullptr) { return; }
+    clone_metadata(*source, *target);
+}
+
+[[nodiscard]] static bool validate_resume_boundary(
+    CallableFunction *callable, uint32_t trigger_token) noexcept {
+    if (callable == nullptr || callable->definition() == nullptr) {
+        return false;
+    }
+    auto resume_count = 0u;
+    auto valid = true;
+    callable->traverse_instructions([&](Instruction *inst) noexcept {
+        if (!inst->isa<CoroResumeInst>()) { return; }
+        ++resume_count;
+        valid &= trigger_token != 0u &&
+                 static_cast<CoroResumeInst *>(inst)->token() ==
+                     trigger_token;
+    });
+    return valid &&
+           resume_count == (trigger_token == 0u ? 0u : 1u);
+}
+
 static void store_user_vars_to_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
                                      const luisa::vector<RegisterInfo> &regs,
                                      const luisa::unordered_map<luisa::string, size_t> &field_map,
@@ -121,7 +239,11 @@ static void store_user_vars_to_frame(XIRBuilder &b, Module *mod, Value *frame_ar
         if (it == local_map.end()) { continue; }
         auto *local_val = it->second;
         auto fi = field_map.at(reg.name);
-        auto *idx_c = mod->create_constant(Type::of<uint32_t>(), &fi);
+        LUISA_ASSERT(fi <= std::numeric_limits<uint32_t>::max(),
+                     "Coroutine frame field index is not representable.");
+        auto field_index = static_cast<uint32_t>(fi);
+        auto *idx_c =
+            mod->create_constant(Type::of<uint32_t>(), &field_index);
         auto *gep = b.gep(reg.type, frame_arg, {idx_c});
         if (local_val->isa<AllocaInst>()) {
             auto *loaded = b.load(reg.type, local_val);
@@ -145,7 +267,11 @@ static void load_user_vars_from_frame(XIRBuilder &b, Module *mod, Value *frame_a
         if (it == local_map.end()) { continue; }
         auto *local_val = it->second;
         auto fi = field_map.at(reg.name);
-        auto *idx_c = mod->create_constant(Type::of<uint32_t>(), &fi);
+        LUISA_ASSERT(fi <= std::numeric_limits<uint32_t>::max(),
+                     "Coroutine frame field index is not representable.");
+        auto field_index = static_cast<uint32_t>(fi);
+        auto *idx_c =
+            mod->create_constant(Type::of<uint32_t>(), &field_index);
         auto *gep = b.gep(reg.type, frame_arg, {idx_c});
         auto *loaded = b.load(reg.type, gep);
         if (local_val->isa<AllocaInst>()) {
@@ -201,7 +327,8 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_token});
         auto *tok_c = mod->create_constant(Type::of<uint32_t>(), &token);
         b.store(gep0, tok_c);
-        b.return_void();
+        auto *replacement = b.return_void();
+        clone_instruction_metadata(s, replacement);
         s->remove_self();
         info.suspend_lowered_count++;
     }
@@ -224,7 +351,8 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         auto term_tok = TERMINAL_TOKEN;
         auto *term_c = mod->create_constant(Type::of<uint32_t>(), &term_tok);
         b.store(gep0, term_c);
-        b.return_void();
+        auto *replacement = b.return_void();
+        clone_instruction_metadata(t, replacement);
         t->remove_self();
         info.terminal_lowered_count++;
     }
@@ -266,6 +394,10 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
             load_user_vars_from_frame(b, mod, frame_arg, regs, field_map, local_map,
                                       live_in, info.load_inserted_count);
         }
+        // Resume has no runtime operation after materialization. Its parent
+        // block is the unique continuation-entry boundary, so it owns the
+        // source provenance once the marker is removed.
+        clone_metadata(*r, *r->parent_block());
         r->remove_self();
         info.resume_lowered_count++;
     }
@@ -404,7 +536,7 @@ static void populate_value_transition_edges(CoroMaterializeInfo &info,
 static void warn_structured_rejection(size_t count) noexcept {
     LUISA_WARNING_WITH_LOCATION(
         "Coro materialize rejected {} function definition(s) with structured or ambiguous "
-        "CFG; run lower_switch followed by destructure_cfg first. The module "
+        "CFG; run destructure_cfg first. The module "
         "was left unchanged.",
         count);
 }
@@ -424,7 +556,29 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
         return info;
     }
 
-    auto regs = detail::collect_registers(m);
+    luisa::vector<detail::RegisterInfo> regs;
+    if (!detail::collect_registers(callables, regs)) {
+        info.invalid_input_error_count = 1u;
+        LUISA_WARNING_WITH_LOCATION(
+            "Coro materialize rejected duplicate or type-inconsistent "
+            "register names. The module was left unchanged.");
+        return info;
+    }
+    auto *expected_frame_type = detail::build_frame_type(regs);
+    for (auto *func : callables) {
+        if (!detail::validate_materialize_frame(
+                func, detail::find_frame_operand(func),
+                expected_frame_type)) {
+            ++info.invalid_input_error_count;
+        }
+    }
+    if (info.invalid_input_error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Coro materialize rejected {} callable(s) with an invalid or "
+            "inconsistent frame. The module was left unchanged.",
+            info.invalid_input_error_count);
+        return info;
+    }
     info.register_count = regs.size();
     for (const auto &reg : regs) {
         info.name_to_type.emplace(reg.name, reg.type);
@@ -433,6 +587,14 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
     auto field_map = detail::build_field_map(regs);
     info.name_to_field = field_map;
     info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + regs.size();
+    info.frame_fields.reserve(regs.size());
+    for (size_t i = 0u; i < regs.size(); ++i) {
+        info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
+            .name = regs[i].name,
+            .type = regs[i].type,
+            .index = detail::FRAME_RESERVED_FIELD_COUNT + i,
+        });
+    }
 
     for (auto *func : callables) {
         detail::process_callable(m, func, detail::find_frame_operand(func), regs, field_map, nullptr, nullptr, true, info);
@@ -446,6 +608,10 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     Module *m, const CoroCfgDistillResult &cfg) noexcept {
     CoroMaterializeInfo info;
     if (m == nullptr) { return info; }
+    if (!detail::validate_cfg_trigger_tokens(cfg)) {
+        info.invalid_input_error_count = 1u;
+        return info;
+    }
     auto callables = detail::collect_materialize_callables(m);
     info.structured_cfg_error_count = detail::count_structured_inputs(&cfg, callables);
     if (info.structured_cfg_error_count != 0u) {
@@ -461,6 +627,9 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     if (m == nullptr) { return info; }
     info.structured_cfg_error_count = split.structured_cfg_error_count;
     info.invalid_input_error_count = split.invalid_cfg_error_count;
+    if (!detail::validate_cfg_trigger_tokens(cfg)) {
+        ++info.invalid_input_error_count;
+    }
 
     // Validate the complete request before projecting it by scope index. Doing
     // this after projection would let a duplicate or out-of-range entry hide a
@@ -491,6 +660,23 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
             if (!argument->is_reference() || argument->parent_function() != callable) {
                 valid = false;
             }
+        }
+        if (!detail::frame_type_matches_cfg(frame, cfg)) { valid = false; }
+        if (callable != nullptr && frame != nullptr &&
+            !detail::validate_materialize_frame(
+                callable, frame, frame->type())) {
+            valid = false;
+        }
+        if (subroutine.scope_index < cfg.scopes.size() &&
+            subroutine.trigger_token != cfg.scopes[subroutine.scope_index].trigger_token) {
+            valid = false;
+        }
+        if (subroutine.scope_index < cfg.scopes.size() &&
+            callable != nullptr &&
+            !detail::validate_resume_boundary(
+                callable,
+                cfg.scopes[subroutine.scope_index].trigger_token)) {
+            valid = false;
         }
         if (!valid) {
             ++info.invalid_input_error_count;
@@ -523,11 +709,26 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     luisa::unordered_map<Value *, size_t> value_field_map;
     info.register_count = cfg.frame_values.size();
     info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size();
+    info.frame_fields.reserve(cfg.frame_values.size());
+    luisa::unordered_set<luisa::string> used_names;
     for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
         auto &value = cfg.frame_values[i];
         auto field_index = i + detail::FRAME_RESERVED_FIELD_COUNT;
-        info.name_to_field.emplace(value.name, field_index);
-        info.name_to_type.emplace(value.name, value.type);
+        auto name = value.name;
+        if (!used_names.emplace(name).second) {
+            auto base = name;
+            auto suffix = i;
+            do {
+                name = luisa::format("{}#{}", base, suffix++);
+            } while (!used_names.emplace(name).second);
+        }
+        info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
+            .name = name,
+            .type = value.type,
+            .index = field_index,
+        });
+        info.name_to_field.emplace(name, field_index);
+        info.name_to_type.emplace(name, value.type);
         value_field_map.emplace(value.value, field_index);
     }
     detail::populate_value_transition_edges(info, cfg, value_field_map);

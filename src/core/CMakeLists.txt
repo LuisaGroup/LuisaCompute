@@ -33,7 +33,9 @@ if (NOT LUISA_COMPUTE_USE_SYSTEM_MARL)
 endif ()
 
 if (NOT LUISA_COMPUTE_USE_SYSTEM_YYJSON)
-    target_link_libraries(luisa-compute-core PRIVATE luisa-compute-ext-yyjson)
+    target_link_libraries(luisa-compute-core
+            PRIVATE luisa-compute-ext-yyjson
+            PUBLIC luisa-compute-ext-yyjson-interface)
 endif ()
 
 if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)

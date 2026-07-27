@@ -20,22 +20,22 @@ using namespace boost::ut::literals;
 int test_ast(Device &device) {
     Stream stream = device.create_stream();
     Buffer<int> buf = device.create_buffer<int>(10);
+    constexpr auto sentinel = -0x13579;
+    luisa::vector<int> v(10, sentinel);
     Kernel1D k1 = [&] {
         buf->write(1, 42);
     };
     auto s = device.compile(k1);
-    stream << s().dispatch(1u);
-    stream << synchronize();
-
-    luisa::vector<int> v(10);
-    stream << buf.copy_to(luisa::span{v});
-    stream << synchronize();
+    stream << buf.copy_from(luisa::span{v})
+           << s().dispatch(1u)
+           << buf.copy_to(luisa::span{v})
+           << synchronize();
 
     for (auto i = 0u; i < 10u; i++) {
         if (i == 1) {
             expect(static_cast<bool>(v[i] == 42));
         } else {
-            expect(static_cast<bool>(v[i] == 0));
+            expect(static_cast<bool>(v[i] == sentinel));
         }
     }
 

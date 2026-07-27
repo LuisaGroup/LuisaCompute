@@ -36,8 +36,7 @@ using namespace luisa::compute;
 constexpr float float_eps = 1e-3f;
 
 inline bool approx_eq(float a, float b, float eps = float_eps) noexcept {
-    if (std::isinf(a) && std::isinf(b)) return (a > 0) == (b > 0);
-    if (std::isnan(a) && std::isnan(b)) return true;
+    if (!std::isfinite(a) || !std::isfinite(b)) return false;
     float diff = std::abs(a - b);
     float scale = std::max(std::abs(a), std::abs(b));
     return diff <= eps || diff <= eps * scale;
@@ -467,9 +466,25 @@ int main(int argc, char *argv[]) {
         LUISA_ASSERT(approx_eq(out_m[4][1], make_float3(0.0f, 0.0f, 1.0f)), "transpose col1 failed");
         LUISA_ASSERT(approx_eq(out_m[4][2], make_float3(2.0f, -2.0f, 1.0f)), "transpose col2 failed");
 
-        // inverse: m * inv(m) = I
-        // We just check the det is non-zero and inverse exists
+        // Validate every device-computed inverse independently by checking m * inv(m) = I.
         LUISA_ASSERT(std::abs(det) > 1e-6f, "matrix is singular");
+        for (auto i = 0u; i < 4u; ++i) {
+            auto inv = out_m[i + 8u];
+            for (auto col = 0u; col < 3u; ++col) {
+                for (auto row = 0u; row < 3u; ++row) {
+                    LUISA_ASSERT(std::isfinite(inv[col][row]),
+                                 "inverse result {}[{}][{}] is not finite: {}", i, col, row, inv[col][row]);
+                    auto product = 0.0f;
+                    for (auto k = 0u; k < 3u; ++k) {
+                        product += m[k][row] * inv[col][k];
+                    }
+                    auto expected = col == row ? 1.0f : 0.0f;
+                    LUISA_ASSERT(approx_eq(product, expected),
+                                 "inverse result {} failed identity check at [{},{}]: got {}, expected {}",
+                                 i, col, row, product, expected);
+                }
+            }
+        }
         LUISA_INFO("Matrix math functions passed.");
     }
 

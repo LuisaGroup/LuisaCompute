@@ -668,6 +668,7 @@ pub struct BindlessArrayUpdateBuffer {
     pub op: BindlessArrayUpdateOperation,
     pub handle: Buffer,
     pub offset: usize,
+    pub size: usize,
 }
 
 impl Default for BindlessArrayUpdateBuffer {
@@ -676,6 +677,7 @@ impl Default for BindlessArrayUpdateBuffer {
             op: BindlessArrayUpdateOperation::None,
             handle: Buffer(INVALID_RESOURCE_HANDLE),
             offset: 0,
+            size: usize::MAX,
         }
     }
 }

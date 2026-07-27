@@ -194,11 +194,27 @@ public:
     }
 
     void from_materialize_info(const xir::CoroMaterializeInfo &info) noexcept {
-        // Clear existing fields
         _fields.clear();
         _total_size = 0u;
 
-        // Collect user fields sorted by their frame index
+        if (!info.frame_fields.empty()) {
+            luisa::vector<const xir::CoroMaterializeInfo::FrameField *> sorted_fields;
+            sorted_fields.reserve(info.frame_fields.size());
+            for (auto &field : info.frame_fields) { sorted_fields.emplace_back(&field); }
+            luisa::sort(sorted_fields.begin(), sorted_fields.end(),
+                        [](auto *a, auto *b) noexcept { return a->index < b->index; });
+            auto expected = reserved_field_count;
+            for (auto *field : sorted_fields) {
+                if (field->type == nullptr || field->index != expected++) {
+                    _fields.clear();
+                    _total_size = 0u;
+                    return;
+                }
+                add_field(field->name, field->type);
+            }
+            return;
+        }
+
         luisa::vector<std::pair<luisa::string, size_t>> sorted_fields;
         for (const auto &[name, field_idx] : info.name_to_field) {
             sorted_fields.emplace_back(name, field_idx);
@@ -208,7 +224,6 @@ public:
                         return a.second < b.second;
                     });
 
-        // Add user fields in order
         for (const auto &[name, field_idx] : sorted_fields) {
             auto type_it = info.name_to_type.find(name);
             if (type_it != info.name_to_type.end()) {

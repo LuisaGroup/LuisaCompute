@@ -230,6 +230,35 @@ static void dispatch_str(
 				break;
 		}
 	});
+	map_type.emplace("NamedHasArgs", [build_args](vstd::StringBuilder& result) {
+		if (build_args.empty()) {
+			result << "false"sv;
+		} else {
+			bool is_first = true;
+			for (auto& arg : build_args) {
+				if (!is_first) { result << " ||\n"sv; }
+				is_first = false;
+				result << luisa::format(
+					"Name == \"{}\"",
+					arg.var_name);
+			}
+		}
+	});
+	map_type.emplace("NamedRequiredArgs", [build_args](vstd::StringBuilder& result) {
+		for (auto& arg : build_args) {
+			result << luisa::format(
+				" &&\nargument_count<\"{}\", NamedArgs...> == 1u",
+				arg.var_name);
+		}
+	});
+	map_type.emplace("NamedDispatchArgs", [build_args](vstd::StringBuilder& result) {
+		for (auto& arg : build_args) {
+			result << luisa::format(
+				",\nargument<\"{}\">(\n"
+				"::std::forward<NamedArgs>(args)...)",
+				arg.var_name);
+		}
+	});
 }
 }// namespace detail
 vstd::StringBuilder HostCodegen::codegen(

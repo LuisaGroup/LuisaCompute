@@ -8,13 +8,254 @@
 
 #include <cmath>
 #include <algorithm>
+#include <cfenv>
+#include <cstring>
 #include <limits>
+#include <type_traits>
 
 namespace luisa::compute::xir {
+
+namespace {
+
+class ScopedNearestRounding {
+private:
+    std::fenv_t _saved_environment{};
+    bool _saved{false};
+    bool _ready{true};
+
+public:
+    explicit ScopedNearestRounding(bool required) noexcept {
+        if (!required) { return; }
+        _saved = std::fegetenv(&_saved_environment) == 0;
+        _ready = _saved && std::fesetround(FE_TONEAREST) == 0;
+    }
+    ~ScopedNearestRounding() noexcept {
+        if (_saved) {
+            static_cast<void>(std::fesetenv(&_saved_environment));
+        }
+    }
+    [[nodiscard]] bool ready() const noexcept { return _ready; }
+};
+
+[[nodiscard]] bool arithmetic_uses_floating_point(
+    const ArithmeticInst *inst) noexcept {
+    if (auto *type = inst->type();
+        type != nullptr && type->is_float_or_float_vector()) {
+        return true;
+    }
+    for (size_t i = 0u; i < inst->operand_count(); ++i) {
+        if (auto *type = inst->operand(i)->type();
+            type != nullptr && type->is_float_or_float_vector()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template<typename T>
+[[nodiscard]] bool is_nonportable_float_constant(
+    const void *data, bool reject_nan) noexcept {
+    T value{};
+    std::memcpy(&value, data, sizeof(T));
+    return std::fpclassify(value) == FP_SUBNORMAL ||
+           (reject_nan && std::isnan(value));
+}
+
+// Target-neutral XIR cannot choose a denormal mode on behalf of CUDA, HIP,
+// Vulkan, or the fallback target. In addition, a NaN manufactured by ordinary
+// arithmetic has a target-specific payload that becomes observable after a
+// bitwise cast. Reject either case instead of baking the host CPU's FP mode or
+// NaN payload into the module.
+[[nodiscard]] bool contains_nonportable_float_constant(
+    const Type *type, const void *data, bool reject_nan = true) noexcept {
+    if (type == nullptr || data == nullptr) { return false; }
+    auto *element = type;
+    auto dimension = 1u;
+    if (type->is_vector()) {
+        element = type->element();
+        dimension = type->dimension();
+    }
+    if (element == nullptr ||
+        (!element->is_float32() && !element->is_float64())) {
+        return false;
+    }
+    auto element_size = element->size();
+    for (auto i = 0u; i < dimension; ++i) {
+        auto *component =
+            static_cast<const std::byte *>(data) + i * element_size;
+        if (element->is_float32() ?
+                is_nonportable_float_constant<float>(
+                    component, reject_nan) :
+                is_nonportable_float_constant<double>(
+                    component, reject_nan)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// These operations are implemented by target math libraries or extended
+// instruction sets whose accuracy and exceptional-value contracts are not
+// identical across CUDA libdevice, OCML, HLSL, GLSL.std.450, and the fallback
+// LLVM path. Evaluating them with the host C library would choose one target's
+// result before a target has even been selected.
+[[nodiscard]] bool is_target_dependent_float_operation(
+    ArithmeticOp op) noexcept {
+    switch (op) {
+        case ArithmeticOp::ACOS:
+        case ArithmeticOp::ACOSH:
+        case ArithmeticOp::ASIN:
+        case ArithmeticOp::ASINH:
+        case ArithmeticOp::ATAN:
+        case ArithmeticOp::ATAN2:
+        case ArithmeticOp::ATANH:
+        case ArithmeticOp::COS:
+        case ArithmeticOp::COSH:
+        case ArithmeticOp::SIN:
+        case ArithmeticOp::SINH:
+        case ArithmeticOp::TAN:
+        case ArithmeticOp::TANH:
+        case ArithmeticOp::EXP:
+        case ArithmeticOp::EXP2:
+        case ArithmeticOp::EXP10:
+        case ArithmeticOp::LOG:
+        case ArithmeticOp::LOG2:
+        case ArithmeticOp::LOG10:
+        case ArithmeticOp::POW:
+        case ArithmeticOp::SQRT:
+        case ArithmeticOp::RSQRT:
+        case ArithmeticOp::LERP:
+        case ArithmeticOp::SMOOTHSTEP:
+            return true;
+        default: return false;
+    }
+}
+
+template<typename T>
+[[nodiscard]] T eval_round_even(T value) noexcept {
+    if (!std::isfinite(value) || value == T{0}) { return value; }
+    auto lower = std::floor(value);
+    auto fraction = value - lower;
+    auto result = lower;
+    if (fraction > T{0.5} ||
+        (fraction == T{0.5} && std::fmod(std::abs(lower), T{2}) != T{0})) {
+        result = lower + T{1};
+    }
+    return result == T{0} ? std::copysign(T{0}, value) : result;
+}
+
+template<typename T>
+[[nodiscard]] T eval_pow_int(T base, uint64_t magnitude,
+                             bool negative) noexcept {
+    auto result = T{1};
+    auto factor = base;
+    while (magnitude != 0u) {
+        if ((magnitude & 1u) != 0u) { result *= factor; }
+        magnitude >>= 1u;
+        if (magnitude != 0u) { factor *= factor; }
+    }
+    return negative ? T{1} / result : result;
+}
+
+template<typename T>
+[[nodiscard]] bool decode_integer_exponent_value(
+    const void *data, uint64_t &magnitude, bool &negative) noexcept {
+    T value{};
+    std::memcpy(&value, data, sizeof(T));
+    if constexpr (std::is_signed_v<T>) {
+        using U = std::make_unsigned_t<T>;
+        negative = value < 0;
+        auto bits = static_cast<U>(value);
+        magnitude = negative ?
+                        static_cast<uint64_t>(static_cast<U>(U{0} - bits)) :
+                        static_cast<uint64_t>(bits);
+    } else {
+        negative = false;
+        magnitude = static_cast<uint64_t>(value);
+    }
+    return true;
+}
+
+[[nodiscard]] bool decode_integer_exponent(
+    const Type *type, const void *data,
+    uint64_t &magnitude, bool &negative) noexcept {
+    if (type == nullptr || data == nullptr) { return false; }
+    switch (type->tag()) {
+        case Type::Tag::INT8:
+            return decode_integer_exponent_value<int8_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT8:
+            return decode_integer_exponent_value<uint8_t>(
+                data, magnitude, negative);
+        case Type::Tag::INT16:
+            return decode_integer_exponent_value<int16_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT16:
+            return decode_integer_exponent_value<uint16_t>(
+                data, magnitude, negative);
+        case Type::Tag::INT32:
+            return decode_integer_exponent_value<int32_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT32:
+            return decode_integer_exponent_value<uint32_t>(
+                data, magnitude, negative);
+        case Type::Tag::INT64:
+            return decode_integer_exponent_value<int64_t>(
+                data, magnitude, negative);
+        case Type::Tag::UINT64:
+            return decode_integer_exponent_value<uint64_t>(
+                data, magnitude, negative);
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool decode_nonnegative_integer(
+    const Type *type, const void *data, uint64_t &value) noexcept {
+    bool negative = false;
+    if (!decode_integer_exponent(type, data, value, negative) || negative) {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool eval_typed_pow_int(
+    const Type *result_type, const Type *exponent_type,
+    void *data, const void *base_data,
+    const void *exponent_data) noexcept {
+    uint64_t magnitude{};
+    bool negative{};
+    if (!decode_integer_exponent(
+            exponent_type, exponent_data, magnitude, negative)) {
+        return false;
+    }
+    if (result_type->is_float32()) {
+        *static_cast<float *>(data) = eval_pow_int(
+            *static_cast<const float *>(base_data), magnitude, negative);
+        return true;
+    }
+    if (result_type->is_float64()) {
+        *static_cast<double *>(data) = eval_pow_int(
+            *static_cast<const double *>(base_data), magnitude, negative);
+        return true;
+    }
+    return false;
+}
+
+}// namespace
+
+bool eval_pow_int_op(const Type *result_type,
+                     const Type *exponent_type,
+                     void *data,
+                     const void *base_data,
+                     const void *exponent_data) noexcept {
+    return eval_typed_pow_int(result_type, exponent_type, data,
+                              base_data, exponent_data);
+}
 
 [[nodiscard]] bool eval_scalar_op(const Type *type, ArithmeticOp op,
                                   void *data,
                                   const void *op0_data,
+                                  const Type *op1_type,
                                   const void *op1_data,
                                   const void *op2_data) noexcept {
 
@@ -210,17 +451,20 @@ namespace luisa::compute::xir {
             }
         }
         case ArithmeticOp::BINARY_SHIFT_LEFT: {
+            uint64_t decoded_shift = 0u;
+            if (!decode_nonnegative_integer(
+                    op1_type, op1_data, decoded_shift) ||
+                decoded_shift >= 32u) {
+                return false;
+            }
+            auto shift = static_cast<uint32_t>(decoded_shift);
             switch (tag) {
                 case Type::Tag::INT32: {
-                    auto shift = *static_cast<const int32_t *>(op1_data);
-                    if (shift < 0 || shift >= 32) return false;
                     auto value = luisa::bit_cast<uint32_t>(*static_cast<const int32_t *>(op0_data));
                     *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(value << shift);
                     return true;
                 }
                 case Type::Tag::UINT32: {
-                    auto shift = *static_cast<const uint32_t *>(op1_data);
-                    if (shift >= 32) return false;
                     *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) << shift;
                     return true;
                 }
@@ -228,22 +472,25 @@ namespace luisa::compute::xir {
             }
         }
         case ArithmeticOp::BINARY_SHIFT_RIGHT: {
+            uint64_t decoded_shift = 0u;
+            if (!decode_nonnegative_integer(
+                    op1_type, op1_data, decoded_shift) ||
+                decoded_shift >= 32u) {
+                return false;
+            }
+            auto shift = static_cast<uint32_t>(decoded_shift);
             switch (tag) {
                 case Type::Tag::INT32: {
-                    auto shift = *static_cast<const int32_t *>(op1_data);
-                    if (shift < 0 || shift >= 32) return false;
                     auto signed_value = *static_cast<const int32_t *>(op0_data);
                     auto value = luisa::bit_cast<uint32_t>(signed_value);
                     auto shifted = value >> shift;
                     if (signed_value < 0 && shift != 0) {
-                        shifted |= ~uint32_t{0} << (32u - static_cast<uint32_t>(shift));
+                        shifted |= ~uint32_t{0} << (32u - shift);
                     }
                     *static_cast<int32_t *>(data) = luisa::bit_cast<int32_t>(shifted);
                     return true;
                 }
                 case Type::Tag::UINT32: {
-                    auto shift = *static_cast<const uint32_t *>(op1_data);
-                    if (shift >= 32) return false;
                     *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) >> shift;
                     return true;
                 }
@@ -262,8 +509,8 @@ namespace luisa::compute::xir {
                     auto value = *static_cast<const int32_t *>(op0_data);
                     auto bits = luisa::bit_cast<uint32_t>(value);
                     *static_cast<int32_t *>(data) = value < 0 ?
-                                                         luisa::bit_cast<int32_t>(uint32_t{0} - bits) :
-                                                         value;
+                                                        luisa::bit_cast<int32_t>(uint32_t{0} - bits) :
+                                                        value;
                     return true;
                 }
                 case Type::Tag::UINT32:
@@ -640,11 +887,11 @@ namespace luisa::compute::xir {
             return false;
         case ArithmeticOp::RINT:
             if (tag == Type::Tag::FLOAT32) {
-                *static_cast<float *>(data) = std::rint(*static_cast<const float *>(op0_data));
+                *static_cast<float *>(data) = eval_round_even(*static_cast<const float *>(op0_data));
                 return true;
             }
             if (tag == Type::Tag::FLOAT64) {
-                *static_cast<double *>(data) = std::rint(*static_cast<const double *>(op0_data));
+                *static_cast<double *>(data) = eval_round_even(*static_cast<const double *>(op0_data));
                 return true;
             }
             return false;
@@ -660,11 +907,11 @@ namespace luisa::compute::xir {
             return false;
         case ArithmeticOp::ROUND:
             if (tag == Type::Tag::FLOAT32) {
-                *static_cast<float *>(data) = std::trunc(*static_cast<const float *>(op0_data) + std::copysign(0.5f, *static_cast<const float *>(op0_data)));
+                *static_cast<float *>(data) = std::round(*static_cast<const float *>(op0_data));
                 return true;
             }
             if (tag == Type::Tag::FLOAT64) {
-                *static_cast<double *>(data) = std::trunc(*static_cast<const double *>(op0_data) + std::copysign(0.5, *static_cast<const double *>(op0_data)));
+                *static_cast<double *>(data) = std::round(*static_cast<const double *>(op0_data));
                 return true;
             }
             return false;
@@ -689,14 +936,6 @@ namespace luisa::compute::xir {
             }
             return false;
         case ArithmeticOp::POW_INT:
-            if (tag == Type::Tag::FLOAT32) {
-                *static_cast<float *>(data) = std::pow(*static_cast<const float *>(op0_data), static_cast<float>(*static_cast<const int32_t *>(op1_data)));
-                return true;
-            }
-            if (tag == Type::Tag::FLOAT64) {
-                *static_cast<double *>(data) = std::pow(*static_cast<const double *>(op0_data), static_cast<double>(*static_cast<const int32_t *>(op1_data)));
-                return true;
-            }
             return false;
         case ArithmeticOp::FMA:
             if (tag == Type::Tag::FLOAT32) {
@@ -769,6 +1008,10 @@ namespace detail {
         if (op_type->is_float32()) {
             auto a = *static_cast<const float *>(op0_data);
             auto b = *static_cast<const float *>(op1_data);
+            // XIR backends do not yet agree whether NOT_EQUAL is ordered or
+            // unordered. Keep all unordered comparisons in the IR until the
+            // target-independent comparison contract is made explicit.
+            if (std::isnan(a) || std::isnan(b)) { return nullptr; }
             switch (op) {
                 case ArithmeticOp::BINARY_LESS: result = a < b; break;
                 case ArithmeticOp::BINARY_GREATER: result = a > b; break;
@@ -781,6 +1024,7 @@ namespace detail {
         } else if (op_type->is_float64()) {
             auto a = *static_cast<const double *>(op0_data);
             auto b = *static_cast<const double *>(op1_data);
+            if (std::isnan(a) || std::isnan(b)) { return nullptr; }
             switch (op) {
                 case ArithmeticOp::BINARY_LESS: result = a < b; break;
                 case ArithmeticOp::BINARY_GREATER: result = a > b; break;
@@ -829,12 +1073,23 @@ namespace detail {
     luisa::vector<std::byte> result_data(size);
     std::memset(result_data.data(), 0, size);
 
-    bool ok = eval_scalar_op(type, op,
-                             result_data.data(),
-                             get_data(0),
-                             get_data(1),
-                             get_data(2));
+    auto ok = op == ArithmeticOp::POW_INT ?
+                  eval_pow_int_op(
+                      type, inst->operand(1)->type(), result_data.data(),
+                      get_data(0), get_data(1)) :
+                  eval_scalar_op(type, op,
+                                 result_data.data(),
+                                 get_data(0),
+                                 inst->operand_count() > 1u ?
+                                     inst->operand(1u)->type() :
+                                     nullptr,
+                                 get_data(1),
+                                 get_data(2));
     if (!ok) { return nullptr; }
+    if (contains_nonportable_float_constant(
+            type, result_data.data())) {
+        return nullptr;
+    }
     return module->create_constant(type, result_data.data());
 }
 
@@ -893,6 +1148,7 @@ namespace detail {
             if (op_elem_type->is_float32()) {
                 auto a = *static_cast<const float *>(static_cast<const void *>(elem0));
                 auto b = *static_cast<const float *>(static_cast<const void *>(elem1));
+                if (std::isnan(a) || std::isnan(b)) { return nullptr; }
                 switch (op) {
                     case ArithmeticOp::BINARY_LESS: v = a < b; break;
                     case ArithmeticOp::BINARY_GREATER: v = a > b; break;
@@ -953,11 +1209,27 @@ namespace detail {
 
     for (uint32_t i = 0; i < dim; ++i) {
         auto dst = result_data.data() + i * elem_size;
-        bool ok = eval_scalar_op(elem_type, op, dst,
-                                 inst->operand_count() > 0 ? get_elem(0, i) : nullptr,
-                                 inst->operand_count() > 1 ? get_elem(1, i) : nullptr,
-                                 inst->operand_count() > 2 ? get_elem(2, i) : nullptr);
+        auto exponent_type = inst->operand_count() > 1u ?
+                                 inst->operand(1)->type() :
+                                 nullptr;
+        if (exponent_type != nullptr && exponent_type->is_vector()) {
+            exponent_type = exponent_type->element();
+        }
+        auto ok = op == ArithmeticOp::POW_INT ?
+                      eval_pow_int_op(
+                          elem_type, exponent_type, dst,
+                          get_elem(0, i), get_elem(1, i)) :
+                      eval_scalar_op(
+                          elem_type, op, dst,
+                          inst->operand_count() > 0 ? get_elem(0, i) : nullptr,
+                          exponent_type,
+                          inst->operand_count() > 1 ? get_elem(1, i) : nullptr,
+                          inst->operand_count() > 2 ? get_elem(2, i) : nullptr);
         if (!ok) { return nullptr; }
+    }
+    if (contains_nonportable_float_constant(
+            type, result_data.data())) {
+        return nullptr;
     }
     return module->create_constant(type, result_data.data());
 }
@@ -966,6 +1238,26 @@ namespace detail {
 [[nodiscard]] static Constant *try_fold_arithmetic(Module *module, const ArithmeticInst *inst) noexcept {
     auto type = inst->type();
     if (type == nullptr) { return nullptr; }
+
+    if (is_target_dependent_float_operation(inst->op())) {
+        return nullptr;
+    }
+
+    // ISINF/ISNAN classify the input without manufacturing or transporting a
+    // floating result, so their answers are independent of denormal handling
+    // and NaN payload selection. Ordinary floating operations are not.
+    if (inst->op() != ArithmeticOp::ISINF &&
+        inst->op() != ArithmeticOp::ISNAN) {
+        for (auto i = size_t{0u}; i < inst->operand_count(); ++i) {
+            auto *operand = inst->operand(i);
+            if (operand->isa<Constant>() &&
+                contains_nonportable_float_constant(
+                    operand->type(),
+                    static_cast<const Constant *>(operand)->data())) {
+                return nullptr;
+            }
+        }
+    }
 
     // Don't fold aggregate/shuffle/extract/insert, reductions, matrix ops, cross/dot etc.
     switch (inst->op()) {
@@ -1005,6 +1297,16 @@ namespace detail {
     // No type means void or no result
     if (type == nullptr) { return nullptr; }
 
+    // Constant folding is part of compilation and must not depend on the
+    // embedding application's thread-local floating-point environment. Shader
+    // arithmetic uses the default round-to-nearest mode; preserve and restore
+    // the caller's environment around host evaluation. If the environment
+    // cannot be controlled, fail closed instead of emitting a host-dependent
+    // constant.
+    ScopedNearestRounding rounding{
+        arithmetic_uses_floating_point(inst)};
+    if (!rounding.ready()) { return nullptr; }
+
     if (type->is_scalar()) {
         return try_fold_scalar(module, inst);
     }
@@ -1015,14 +1317,18 @@ namespace detail {
 }
 
 static void const_fold_pass_on_function(Function *function, ConstFoldInfo &info) noexcept {
+    if (function == nullptr) { return; }
     auto def = function->definition();
-    if (def == nullptr) { return; }
+    if (def == nullptr || def->body_block() == nullptr) { return; }
     auto module = function->parent_module();
 
     luisa::vector<ArithmeticInst *> to_fold;
     def->traverse_instructions([&](Instruction *inst) noexcept {
         if (inst->isa<ArithmeticInst>()) {
             auto *ari = static_cast<ArithmeticInst *>(inst);
+            // Constants are module-uniqued and therefore cannot own
+            // instruction-local metadata for one folded use.
+            if (!ari->metadata_list().empty()) { return; }
             if (ari->type() != nullptr) {
                 // Check all operands are constants
                 bool all_const = true;
@@ -1059,6 +1365,10 @@ ConstFoldInfo const_fold_pass_run_on_function(Function *function) noexcept {
 
 ConstFoldInfo const_fold_pass_run_on_module(Module *module, PassReport *report) noexcept {
     ConstFoldInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("folded_inst", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::const_fold_pass_on_function(f, info);
     }

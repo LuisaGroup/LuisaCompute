@@ -229,7 +229,6 @@ void CallableLibrary::deser_ptr(LiteralExpr *obj, std::byte const *&ptr, DeserPa
     (void)pack;
     auto index = deser_value<size_t>(ptr, pack);
     auto literal_size = deser_value<size_t>(ptr, pack);
-#ifdef LUISA_USE_SYSTEM_STL
     using V = LiteralExpr::Value::variant_type;
     static constexpr auto n = luisa::variant_size_v<V>;
     auto emplace = [index, ptr, obj, literal_size]<size_t current>(auto &&self, std::integral_constant<size_t, current>) noexcept {
@@ -238,17 +237,13 @@ void CallableLibrary::deser_ptr(LiteralExpr *obj, std::byte const *&ptr, DeserPa
                 using T = luisa::variant_alternative_t<current, V>;
                 T value;
                 std::memcpy(&value, ptr, literal_size);
-                obj->_value.emplace<T>(value);
+                obj->_value.template emplace<T>(value);
             } else {
                 self(self, std::integral_constant<size_t, current + 1>{});
             }
         }
     };
     emplace(emplace, std::integral_constant<size_t, 0>{});
-#else
-    *reinterpret_cast<size_t *>(&obj->_value) = index;
-    std::memcpy(obj->_value.get_as<std::byte *>(), ptr, literal_size);
-#endif
     ptr += literal_size;
 }
 template<>

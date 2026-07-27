@@ -21,7 +21,6 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -30,10 +29,22 @@
 #include <luisa/xir/passes/trace_gep.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
+#include <luisa/xir/verifier.h>
 
 namespace luisa::compute::detail {
 
 namespace {
+
+void verify_coro_xir_or_error(
+    const xir::Module *module, luisa::string_view stage,
+    const xir::XIRVerificationOptions &options = {}) noexcept {
+    auto verification = xir::xir_verify_module(module, options);
+    if (!verification.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid XIR at coroutine {}: {} ({} error(s) total).",
+            stage, verification.errors.front().message, verification.errors.size());
+    }
+}
 
 [[nodiscard]] xir::PassPipeline create_coro_pre_distill_pipeline() noexcept {
     xir::PassPipeline p;
@@ -48,11 +59,12 @@ namespace {
     p.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::trace_gep_pass_run_on_module(m);
         r.set("traced_gep", i.traced_gep_count);
-        return i.traced_gep_count > 0u;
+        r.set("removed_noop_gep", i.removed_noop_gep_count);
+        return i.changed();
     });
     p.add("sroa", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::sroa_pass_run_on_module(m, {.decompose_vectors = true}, &r);
-        return i.decomposed_alloca_count > 0u;
+        return i.changed();
     });
     return p;
 }
@@ -69,6 +81,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto module = xir::ast_to_xir_translate(ast_func, config);
     LUISA_ASSERT(module != nullptr,
                  "Coroutine compilation failed: AST->XIR translation returned null module");
+    verify_coro_xir_or_error(module.get(), "AST translation");
 
     xir::Function *coro_func = nullptr;
     for (auto *f : module->function_list()) {
@@ -87,15 +100,17 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(coro_func != nullptr,
                  "Coroutine compilation failed: no coroutine function found in XIR module");
 
-    // Coro cfg distill/split/materialize intentionally accept only plain CFG.
-    // Destructure preserves SwitchInst, so lower switches explicitly first.
-    auto lower_switch_info = xir::lower_switch_pass_run_on_module(module.get());
-    LUISA_ASSERT(lower_switch_info.succeeded(),
-                 "Coroutine normalization rejected {} unsupported structured switch(es)",
-                 lower_switch_info.rejected_switch_count);
-    (void)xir::destructure_cfg_pass_run_on_module(module.get());
+    // Coro cfg distill/split/materialize intentionally accept only raw CFG.
+    // Destructure converts structured SwitchInst nodes to IndexedBranchInst.
+    auto destructure_info = xir::destructure_cfg_pass_run_on_module(module.get());
+    if (!destructure_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Coroutine destructuring failed (errors={}, leaked_blocks={}).",
+            destructure_info.error_count, destructure_info.leaked_block_count);
+    }
     auto pre_distill_pipeline = create_coro_pre_distill_pipeline();
     auto pre_distill_stats = pre_distill_pipeline.run(module.get());
+    verify_coro_xir_or_error(module.get(), "pre-distill optimization");
     pre_distill_stats.log("Coroutine pre-distill optimization");
 
     coro_func = nullptr;
@@ -115,6 +130,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(coro_func != nullptr, "coro_func lost after destructure_cfg");
 
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
+    LUISA_ASSERT(
+        cfg.succeeded(),
+        "coro-cfg-distill rejected its input (structured={}, invalid_input={}, invalid_cfg={})",
+        cfg.structured_cfg_error_count, cfg.invalid_input_error_count,
+        cfg.invalid_cfg_error_count);
     LUISA_ASSERT(!cfg.scopes.empty(), "coro-cfg-distill found no scopes");
     luisa::vector<const Type *> frame_fields;
     auto frame_alignment = Type::of<uint>()->alignment();
@@ -128,22 +148,43 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto *frame_type = Type::structure(frame_alignment, frame_fields);
 
     auto split_info = xir::coro_split_pass_run_on_module_with_cfg_and_frame_info(module.get(), cfg, frame_type);
-    LUISA_ASSERT(split_info.succeeded(),
-                 "coro-split rejected structured or ambiguous CFG after normalization");
+    if (!split_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Coroutine split rejected its input (structured={}, invalid_cfg={}).",
+            split_info.structured_cfg_error_count, split_info.invalid_cfg_error_count);
+    }
     LUISA_ASSERT(!split_info.subroutines.empty(), "coro-split produced no callables");
 
     auto materialize_info = xir::coro_materialize_pass_run_on_module_with_cfg(module.get(), cfg, split_info);
-    LUISA_ASSERT(materialize_info.succeeded(),
-                 "coro-materialize rejected structured or ambiguous CFG after normalization");
+    if (!materialize_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Coroutine materialization rejected its input (structured={}, invalid_input={}).",
+            materialize_info.structured_cfg_error_count,
+            materialize_info.invalid_input_error_count);
+    }
     LUISA_ASSERT(materialize_info.callable_count != 0u, "coro-materialize found no callables");
 
     (void)xir::coro_reg2mem_pass_run_on_split(split_info);
-    (void)xir::destructure_cfg_pass_run_on_module(module.get());
+    destructure_info = xir::destructure_cfg_pass_run_on_module(module.get());
+    if (!destructure_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Coroutine post-materialization destructuring failed (errors={}, leaked_blocks={}).",
+            destructure_info.error_count, destructure_info.leaked_block_count);
+    }
     (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
-    (void)xir::restructure_cfg_pass_run_on_module(module.get());
+    auto restructure_info = xir::restructure_cfg_pass_run_on_module(module.get());
+    if (!restructure_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Coroutine restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
+            restructure_info.irreducible_region_count,
+            restructure_info.unstructured_branch_count,
+            restructure_info.invalid_construct_count,
+            restructure_info.iteration_limit_count);
+    }
     (void)xir::dce_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
+    verify_coro_xir_or_error(module.get(), "codegen handoff", {.require_no_phi = true});
 
     result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg, split_info);
     result.frame_desc.from_materialize_info(materialize_info);

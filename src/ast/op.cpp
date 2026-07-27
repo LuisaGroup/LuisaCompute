@@ -145,15 +145,16 @@ LUISA_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Ty
                 .rhs = rhs,
                 .result = rhs};
     }
-    // otherwise, must be matrix * vector
-    LUISA_ASSERT(lhs->is_matrix() && rhs->is_vector() &&
+    // otherwise, must be matrix * vector or vector * matrix
+    LUISA_ASSERT(((lhs->is_matrix() && rhs->is_vector()) ||
+                  (lhs->is_vector() && rhs->is_matrix())) &&
                      lhs->dimension() == rhs->dimension(),
                  "Invalid operand types '{}' and '{}' "
                  "for binary operation.",
                  lhs->description(), rhs->description());
     auto v = Type::vector(Type::of<float>(), lhs->dimension());
-    return {.lhs = lhs,
-            .rhs = v,
+    return {.lhs = lhs->is_matrix() ? lhs : v,
+            .rhs = rhs->is_matrix() ? rhs : v,
             .result = v};
 }
 
@@ -388,6 +389,62 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
                   is_lvalue_expression(args[2]))) [[unlikely]] {
                 LUISA_ERROR("ASYNC_COPY argument type mismatch.");
             }
+            break;
+        }
+        case CallOp::PIPELINE_COMMIT: {
+            LUISA_ASSERT(args.empty(), "PIPELINE_COMMIT takes no arguments.");
+            break;
+        }
+        case CallOp::PIPELINE_WAIT_PRIOR: {
+            LUISA_ASSERT(args.size() == 1 && args[0]->type()->is_uint32(),
+                         "PIPELINE_WAIT_PRIOR: expected (uint prior_stages).");
+            break;
+        }
+        case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL:
+        case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST: {
+            LUISA_ASSERT(args.size() == 2 &&
+                             args[0]->type()->is_uint32() &&
+                             args[0]->type()->is_vector() &&
+                             args[0]->type()->dimension() == 4 &&
+                             args[1]->type()->is_uint64(),
+                         "CLC try_cancel: expected (uint4 result, uint64 bar).");
+            break;
+        }
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED: {
+            LUISA_ASSERT(args.size() == 1 &&
+                             args[0]->type()->is_uint32() &&
+                             args[0]->type()->dimension() == 4,
+                         "CLC query_is_canceled: expected (uint4 result).");
+            break;
+        }
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X:
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y:
+        case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z: {
+            LUISA_ASSERT(args.size() == 1 &&
+                             args[0]->type()->is_uint32() &&
+                             args[0]->type()->dimension() == 4,
+                         "CLC query_get_ctaid: expected (uint4 result).");
+            break;
+        }
+        case CallOp::MBARRIER_INIT: {
+            LUISA_ASSERT(args.size() == 2 &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_uint32(),
+                         "MBARRIER_INIT: expected (uint64 bar, uint count).");
+            break;
+        }
+        case CallOp::MBARRIER_ARRIVE_EXPECT_TX: {
+            LUISA_ASSERT(args.size() == 2 &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_uint32(),
+                         "MBARRIER_ARRIVE_EXPECT_TX: expected (uint64 bar, uint tx_bytes).");
+            break;
+        }
+        case CallOp::MBARRIER_TRY_WAIT_PARITY: {
+            LUISA_ASSERT(args.size() == 2 &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_int32(),
+                         "MBARRIER_TRY_WAIT_PARITY: expected (uint64 bar, int phase).");
             break;
         }
         default: break;
