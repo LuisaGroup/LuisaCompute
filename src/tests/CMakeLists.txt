@@ -227,6 +227,13 @@ luisa_compute_add_test(test_copy                unit/runtime/test_copy.cpp)
 luisa_compute_add_test(test_cpu_callable        unit/runtime/test_cpu_callable.cpp)
 luisa_compute_add_test(test_decoupled_look_back unit/runtime/test_decoupled_look_back.cpp)
 luisa_compute_add_test(test_complex_kernel      unit/runtime/test_complex_kernel.cpp)
+if (TARGET luisa-compute-backend-fallback)
+    # Uses two independent fallback Device instances and a shared in-memory
+    # BinaryIO to verify cold compilation, object-cache reuse, and dynamic
+    # uniform arguments. Kept out of unattended CTest because it requires the
+    # optional LLVM/Embree fallback backend at runtime.
+    luisa_compute_add_test(test_fallback_shader_cache unit/runtime/test_fallback_shader_cache.cpp)
+endif ()
 luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
 luisa_compute_add_test(test_mipmap              unit/runtime/test_mipmap.cpp)
