@@ -270,6 +270,9 @@ test_proj("test_mha_warp_reduction", "unit/runtime/test_mha_warp_reduction.cpp")
 test_proj("test_ray_query_world_ray", "unit/runtime/test_ray_query_world_ray.cpp")
 test_proj("test_buffer_io", "unit/runtime/test_buffer_io.cpp")
 test_proj("test_buffer", "unit/runtime/test_buffer.cpp")
+if has_config("lc_fallback_backend") then
+    test_proj("test_fallback_shader_cache", "unit/runtime/test_fallback_shader_cache.cpp")
+end
 test_proj("test_out_of_range", "unit/runtime/test_out_of_range.cpp")
 test_proj("test_buffer_view", "unit/runtime/test_buffer_view.cpp")
 test_proj("test_device_test", "unit/runtime/test_device.cpp")

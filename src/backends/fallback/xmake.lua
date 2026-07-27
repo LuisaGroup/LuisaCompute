@@ -53,5 +53,6 @@ after_build(function(target)
     ::END::
 end)
 add_files("*.cpp")
+add_files("../common/default_binary_io.cpp")
 add_deps("lc-runtime")
 target_end()

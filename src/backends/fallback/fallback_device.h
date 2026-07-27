@@ -7,6 +7,7 @@
 #include <luisa/runtime/device.h>
 #include <luisa/core/spin_mutex.h>
 
+#include "../common/default_binary_io.h"
 #include "fallback_embree.h"
 
 namespace llvm {
@@ -25,14 +26,17 @@ class FallbackDevice : public DeviceInterface {
 
 private:
     RTCDevice _rtc_device{nullptr};
+    luisa::unique_ptr<DefaultBinaryIO> _default_io{};
+    const BinaryIO *_io{};
 
 private:
     luisa::spin_mutex _ext_mutex;
     luisa::unique_ptr<FallbackTexCompressInterface> _tex_compress_ext{};
 
 public:
-    explicit FallbackDevice(Context &&ctx) noexcept;
+    explicit FallbackDevice(Context &&ctx, const DeviceConfig *config) noexcept;
     ~FallbackDevice() noexcept override;
+    [[nodiscard]] auto binary_io() const noexcept { return _io; }
     void *native_handle() const noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
