@@ -63,6 +63,7 @@ test_proj("test_sparse_texture_tile_plan", "unit/core/test_sparse_texture_tile_p
     add_includedirs("../runtime")
 end)
 test_proj("test_pixel_storage", "unit/core/test_pixel_storage.cpp")
+test_proj("test_eastl_allocation", "unit/core/test_eastl_allocation.cpp")
 test_proj("test_argument_block_layout", "unit/ext/test_argument_block_layout.cpp", false, function()
     add_includedirs("../backends/common")
 end)
