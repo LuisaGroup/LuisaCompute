@@ -126,35 +126,45 @@ function(luisa_compute_link_llvm_into_backend backend)
     target_include_directories(${LUISA_LINK_LLVM_TARGET} AFTER PRIVATE ${LLVM_INCLUDE_DIRS})
     llvm_map_components_to_libnames(LLVM_LIBS ${LUISA_LINK_LLVM_COMPONENTS})
     if (UNIX AND NOT APPLE)
-        # check if the libraries exist
-        # map library dirs to link directories options
-        set(LLVM_LINK_DIR_OPTIONS "")
-        foreach (dir ${LLVM_LIBRARY_DIRS})
-            list(APPEND LLVM_LINK_DIR_OPTIONS "-L${dir}")
-        endforeach ()
-        try_compile(LLVM_LIBS_EXIST
-                SOURCE_FROM_CONTENT "try_link_llvm.cpp" "int main() {}"
-                LINK_OPTIONS ${LLVM_LINK_DIR_OPTIONS}
-                LINK_LIBRARIES ${LLVM_LIBS})
-        if (LLVM_LIBS_EXIST)
-            # libzstd_shared might cause problem on Ubuntu
-            if (NOT TARGET zstd::libzstd_shared)
-                get_target_property(LLVM_SUPPORT_LINK_LIBS LLVMSupport INTERFACE_LINK_LIBRARIES)
-                list(FILTER LLVM_SUPPORT_LINK_LIBS EXCLUDE REGEX "(zstd::libzstd_shared)")
-                set_target_properties(LLVMSupport PROPERTIES INTERFACE_LINK_LIBRARIES "${LLVM_SUPPORT_LINK_LIBS}")
-            endif ()
+        if (LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
+            # Respect LLVM's exported shared-library policy. Recent official
+            # Ubuntu packages expose component archives whose transitive
+            # imported dependencies (for example zstd::libzstd_shared) cannot
+            # be reconstructed by this try_compile project, while the exported
+            # monolithic LLVM target is complete and relocatable.
+            message(STATUS "Linking with LLVM shared library.")
+            set(LLVM_LIBS LLVM)
         else ()
-            message(WARNING "LLVM libraries not found. Trying to link with LLVM shared libraries.")
-            try_compile(LLVM_DYLIB_EXISTS
-                    SOURCE_FROM_CONTENT "try_link_llvm_dylib.cpp" "int main() {}"
-                    LINK_LIBRARIES "LLVM")
-            if (LLVM_DYLIB_EXISTS)
-                message(STATUS "Linking with LLVM shared library.")
-                set(LLVM_LIBS "LLVM")
+            # check if the libraries exist
+            # map library dirs to link directories options
+            set(LLVM_LINK_DIR_OPTIONS "")
+            foreach (dir ${LLVM_LIBRARY_DIRS})
+                list(APPEND LLVM_LINK_DIR_OPTIONS "-L${dir}")
+            endforeach ()
+            try_compile(LLVM_LIBS_EXIST
+                    SOURCE_FROM_CONTENT "try_link_llvm.cpp" "int main() {}"
+                    LINK_OPTIONS ${LLVM_LINK_DIR_OPTIONS}
+                    LINK_LIBRARIES ${LLVM_LIBS})
+            if (LLVM_LIBS_EXIST)
+                # libzstd_shared might cause problem on Ubuntu
+                if (NOT TARGET zstd::libzstd_shared)
+                    get_target_property(LLVM_SUPPORT_LINK_LIBS LLVMSupport INTERFACE_LINK_LIBRARIES)
+                    list(FILTER LLVM_SUPPORT_LINK_LIBS EXCLUDE REGEX "(zstd::libzstd_shared)")
+                    set_target_properties(LLVMSupport PROPERTIES INTERFACE_LINK_LIBRARIES "${LLVM_SUPPORT_LINK_LIBS}")
+                endif ()
             else ()
-                find_library(LLVM_DYLIB LLVM REQUIRED)
-                message(STATUS "LLVM libraries found at ${LLVM_DYLIB}")
-                set(LLVM_LIBS ${LLVM_DYLIB})
+                message(WARNING "LLVM libraries not found. Trying to link with LLVM shared libraries.")
+                try_compile(LLVM_DYLIB_EXISTS
+                        SOURCE_FROM_CONTENT "try_link_llvm_dylib.cpp" "int main() {}"
+                        LINK_LIBRARIES "LLVM")
+                if (LLVM_DYLIB_EXISTS)
+                    message(STATUS "Linking with LLVM shared library.")
+                    set(LLVM_LIBS "LLVM")
+                else ()
+                    find_library(LLVM_DYLIB LLVM REQUIRED)
+                    message(STATUS "LLVM libraries found at ${LLVM_DYLIB}")
+                    set(LLVM_LIBS ${LLVM_DYLIB})
+                endif ()
             endif ()
         endif ()
     endif ()
