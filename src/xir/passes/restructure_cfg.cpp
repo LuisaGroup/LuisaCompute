@@ -29,30 +29,94 @@
 #include "helpers.h"
 
 #include <array>
+#include <cstdlib>
 #include <limits>
 
 namespace luisa::compute::xir {
 
 namespace {
 
+[[nodiscard]] bool restructure_trace_enabled() noexcept {
+    static const auto enabled = []() noexcept {
+        if (auto value = std::getenv("LUISA_XIR_TRACE_PASSES")) {
+            return luisa::string_view{value} == "1";
+        }
+        return false;
+    }();
+    return enabled;
+}
+
 struct ScopedTimer {
-#ifndef NDEBUG
     Clock clock;
     const char *name;
-#endif
     ScopedTimer(const char *n) noexcept
-#ifndef NDEBUG
-        : name(n)
-#endif
-    {
+        : name(n) {
     }
     ~ScopedTimer() noexcept {
-#ifndef NDEBUG
-        auto ms = clock.toc();
-        LUISA_VERBOSE_WITH_LOCATION("[restructure_cfg] {}: {:.3f} ms", name, ms);
-#endif
+        if (restructure_trace_enabled()) {
+            auto ms = clock.toc();
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] {}: {:.3f} ms",
+                name, ms);
+        }
     }
 };
+
+struct CFGTraceStats {
+    size_t block_count{0u};
+    size_t instruction_count{0u};
+    size_t raw_conditional_count{0u};
+    size_t raw_indexed_count{0u};
+    size_t structured_loop_count{0u};
+    size_t structured_selection_count{0u};
+};
+
+[[nodiscard]] CFGTraceStats trace_stats(
+    FunctionDefinition *def) noexcept {
+    CFGTraceStats stats;
+    if (def == nullptr) { return stats; }
+    for (auto *block : def->basic_blocks()) {
+        ++stats.block_count;
+        for (auto *instruction : block->instructions()) {
+            ++stats.instruction_count;
+        }
+        if (!block->is_terminated()) { continue; }
+        auto *terminator = block->terminator();
+        stats.raw_conditional_count +=
+            terminator->isa<ConditionalBranchInst>() ? 1u : 0u;
+        stats.raw_indexed_count +=
+            terminator->isa<IndexedBranchInst>() ? 1u : 0u;
+        stats.structured_loop_count +=
+            terminator->isa<LoopInst>() ||
+                    terminator->isa<SimpleLoopInst>() ?
+                1u :
+                0u;
+        stats.structured_selection_count +=
+            terminator->isa<IfInst>() ||
+                    terminator->isa<SwitchInst>() ?
+                1u :
+                0u;
+    }
+    return stats;
+}
+
+void trace_cfg(
+    luisa::string_view stage,
+    FunctionDefinition *def) noexcept {
+    if (!restructure_trace_enabled()) { return; }
+    auto stats = trace_stats(def);
+    LUISA_VERBOSE_WITH_LOCATION(
+        "[restructure_cfg] {}: blocks={}, instructions={}, "
+        "raw_conditional={}, raw_indexed={}, structured_loop={}, "
+        "structured_selection={}.",
+        stage,
+        stats.block_count,
+        stats.instruction_count,
+        stats.raw_conditional_count,
+        stats.raw_indexed_count,
+        stats.structured_loop_count,
+        stats.structured_selection_count);
+}
 
 // Return the number of cyclic SCCs with more than one entry block. Such a
 // region cannot be represented by XIR's structured loop form without node
@@ -543,16 +607,34 @@ canonical_exit_target(BasicBlock *target) noexcept;
         distances.emplace_back(std::move(distance));
     }
 
-    BasicBlock *best = nullptr;
-    auto best_support = size_t{0u};
-    auto best_max_distance =
-        std::numeric_limits<size_t>::max();
-    auto best_total_distance =
-        std::numeric_limits<size_t>::max();
+    struct MergeScore {
+        BasicBlock *block{nullptr};
+        size_t support{0u};
+        size_t max_distance{
+            std::numeric_limits<size_t>::max()};
+        size_t total_distance{
+            std::numeric_limits<size_t>::max()};
+    };
+    MergeScore best;
+    MergeScore boundary_proxy_best;
+    auto consider =
+        [](MergeScore &score, BasicBlock *candidate,
+           size_t support, size_t max_distance,
+           size_t total_distance) noexcept {
+            if (support > score.support ||
+                (support == score.support &&
+                 max_distance < score.max_distance) ||
+                (support == score.support &&
+                 max_distance == score.max_distance &&
+                 total_distance < score.total_distance)) {
+                score = {
+                    candidate, support,
+                    max_distance, total_distance};
+            }
+        };
     for (auto *candidate : def->basic_blocks()) {
         if (candidate == nullptr || candidate == header ||
-            boundaries.contains(candidate) ||
-            boundaries.contains(canonical_exit_target(candidate))) {
+            boundaries.contains(candidate)) {
             continue;
         }
         auto support = size_t{0u};
@@ -570,19 +652,28 @@ canonical_exit_target(BasicBlock *target) noexcept;
         if (support < std::min<size_t>(2u, entries.size())) {
             continue;
         }
-        if (support > best_support ||
-            (support == best_support &&
-             max_distance < best_max_distance) ||
-            (support == best_support &&
-             max_distance == best_max_distance &&
-             total_distance < best_total_distance)) {
-            best = candidate;
-            best_support = support;
-            best_max_distance = max_distance;
-            best_total_distance = total_distance;
+        if (boundaries.contains(
+                canonical_exit_target(candidate))) {
+            // A real convergence block immediately before an enclosing loop
+            // boundary is still a valid selection merge. Keep it as a
+            // secondary class so an ordinary in-region convergence retains
+            // the historical priority. If no ordinary convergence exists,
+            // this private proxy must win over the one-normal-arm heuristic:
+            // the latter can place the merge in front of only one arm and
+            // create a post-merge re-entry into the other.
+            consider(
+                boundary_proxy_best, candidate, support,
+                max_distance, total_distance);
+        } else {
+            consider(
+                best, candidate, support,
+                max_distance, total_distance);
         }
     }
-    if (best != nullptr) { return best; }
+    if (best.block != nullptr) { return best.block; }
+    if (boundary_proxy_best.block != nullptr) {
+        return boundary_proxy_best.block;
+    }
 
     // A selection nested inside an already-recovered selection may have only
     // one normal arm: the other arms can return or leave an enclosing loop.
@@ -614,12 +705,12 @@ canonical_exit_target(BasicBlock *target) noexcept;
                 min_distance = std::min(min_distance, iter->second);
             }
         }
-        if (min_distance < best_max_distance) {
-            best = candidate;
-            best_max_distance = min_distance;
+        if (min_distance < best.max_distance) {
+            best.block = candidate;
+            best.max_distance = min_distance;
         }
     }
-    if (best != nullptr) { return best; }
+    if (best.block != nullptr) { return best.block; }
 
     // If an arm immediately continues with a recovered structured statement,
     // place the current selection's fresh merge in front of that statement.
@@ -639,12 +730,12 @@ canonical_exit_target(BasicBlock *target) noexcept;
                 min_distance = std::min(min_distance, iter->second);
             }
         }
-        if (min_distance < best_max_distance) {
-            best = candidate;
-            best_max_distance = min_distance;
+        if (min_distance < best.max_distance) {
+            best.block = candidate;
+            best.max_distance = min_distance;
         }
     }
-    return best;
+    return best.block;
 }
 
 [[nodiscard]] SwitchInst *replace_indexed_branch_with_switch(
@@ -3304,8 +3395,8 @@ void repair_target_state_dispatch_ssa(
 }
 
 [[nodiscard]] bool try_restructure_if_batch(FunctionDefinition *def,
-                                            const DomTree &dom,
-                                            const PostDomInfo &pdom,
+                                            DomTree &dom,
+                                            PostDomInfo &pdom,
                                             RestructureCFGInfo &info,
                                             luisa::unordered_set<BasicBlock *> &all_created_structural_merges,
                                             luisa::unordered_map<BasicBlock *, BasicBlock *> &sm_to_header) noexcept {
@@ -3338,7 +3429,6 @@ void repair_target_state_dispatch_ssa(
     struct Candidate {
         BasicBlock *header;
         ConditionalBranchInst *cbr;
-        BasicBlock *merge;
         size_t depth;
     };
     luisa::vector<Candidate> candidates;
@@ -3375,7 +3465,7 @@ void repair_target_state_dispatch_ssa(
         if (!dom.strictly_dominates(bb, false_bb)) { return; }
 
         candidates.push_back(
-            {bb, cbr, merge, dom_depth(dom, bb)});
+            {bb, cbr, dom_depth(dom, bb)});
     });
 
     if (candidates.empty()) { return false; }
@@ -3395,7 +3485,6 @@ void repair_target_state_dispatch_ssa(
     for (auto &cand : candidates) {
         auto *found_header = cand.header;
         auto *found_cbr = cand.cbr;
-        auto *found_merge = cand.merge;
 
         // Re-validate: header may have been restructured by a previous candidate in this batch.
         if (!found_header->is_terminated()) { continue; }
@@ -3406,6 +3495,34 @@ void repair_target_state_dispatch_ssa(
         auto *true_bb = found_cbr->true_block();
         auto *false_bb = found_cbr->false_block();
         auto *cond = found_cbr->condition();
+        if (true_bb == nullptr || false_bb == nullptr ||
+            true_bb == false_bb ||
+            !dom.contains(found_header) ||
+            !dom.strictly_dominates(
+                found_header, true_bb) ||
+            !dom.strictly_dominates(
+                found_header, false_bb)) {
+            continue;
+        }
+        auto entries = std::array{true_bb, false_bb};
+        auto *found_merge = infer_selection_merge(
+            def, found_header,
+            luisa::span<BasicBlock *const>{
+                entries.data(), entries.size()},
+            dom);
+        if (found_merge == nullptr) {
+            auto merge_iter =
+                pdom.ipostdom.find(found_header);
+            if (merge_iter == pdom.ipostdom.end() ||
+                merge_iter->second == nullptr) {
+                continue;
+            }
+            found_merge = merge_iter->second;
+        }
+        if (found_merge == pdom.virtual_exit ||
+            found_merge == found_header) {
+            continue;
+        }
 
         // If found_merge is a structural_merge created earlier,
         // follow its unique successor chain to find the real merge point.
@@ -3546,7 +3663,31 @@ void repair_target_state_dispatch_ssa(
             // below handles non-local exits with an explicit target selector
             // and typed value transport.
             info.restructured_if_count++;
-            return true;
+            any = true;
+
+            // Keep draining the dominance snapshot. Candidates are ordered
+            // innermost first, and a successful rewrite replaces one raw
+            // ConditionalBranch with one structured If plus a transparent
+            // edge subdivision at its merge. It neither introduces a raw
+            // conditional nor changes dominance between pre-existing blocks.
+            // Therefore sibling candidates remain independent and outer
+            // candidates remain valid after following any structural-merge
+            // chain above. The per-candidate terminator identity check is the
+            // fail-closed guard for every other stale candidate.
+            //
+            // This makes the number of remaining raw conditionals a strict
+            // descent measure for the batch. Returning after one rewrite
+            // would instead rescan the complete candidate set once per
+            // conditional, turning a linear dispatch chain into quadratic
+            // (or worse, because merge inference walks the CFG) work.
+            //
+            // Refresh dominance after every mutation. Candidate discovery is
+            // the expensive all-branch scan and remains batched; updating the
+            // two linear-time trees lets each surviving candidate recompute
+            // its merge against the current CFG, exactly as separate outer
+            // iterations would, without relying on stale analysis.
+            dom = compute_dom_tree(def);
+            pdom = compute_post_dom(def);
         }
     }
 
@@ -4721,6 +4862,61 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     return count;
 }
 
+[[nodiscard]] size_t count_post_merge_selection_reentries(
+    FunctionDefinition *def) noexcept {
+    size_t count = 0u;
+    auto dom = compute_dom_tree(def);
+    for (auto *header : def->basic_blocks()) {
+        if (header == nullptr || !header->is_terminated() ||
+            !dom.contains(header)) {
+            continue;
+        }
+        auto *term = header->terminator();
+        if (!term->isa<IfInst>() &&
+            !term->isa<SwitchInst>()) {
+            continue;
+        }
+        // Loop-boundary IfInst nodes are the XIR spelling of physical
+        // break/continue guards. The SPIR-V emitter deliberately does not
+        // declare them as selection constructs, so selection re-entry rules
+        // do not apply to those provenance-checked nodes.
+        if (term->isa<IfInst>() &&
+            is_loop_boundary_selection_entry(
+                header, def)) {
+            continue;
+        }
+        auto *merge =
+            term->control_flow_merge()->merge_block();
+        if (merge == nullptr || !dom.contains(merge)) {
+            continue;
+        }
+
+        // For a structured selection (H, M), its executable interior is the
+        // H-dominated region before M. An edge from an M-dominated block back
+        // into that region is precisely a second entry after the construct
+        // has merged. SPIR-V rejects this graph even when the two declared arm
+        // entries themselves have unique predecessors.
+        auto invalid = false;
+        for (auto *block : def->basic_blocks()) {
+            if (block == nullptr || block == header ||
+                block == merge || !dom.contains(block) ||
+                !dom.dominates(header, block) ||
+                dom.dominates(merge, block)) {
+                continue;
+            }
+            block->traverse_predecessors(
+                false,
+                [&](BasicBlock *predecessor) noexcept {
+                    invalid |=
+                        dom.contains(predecessor) &&
+                        dom.dominates(merge, predecessor);
+                });
+        }
+        count += invalid ? 1u : 0u;
+    }
+    return count;
+}
+
 [[nodiscard]] RestructureCFGInfo preflight_restructure_cfg(
     FunctionDefinition *def) noexcept {
     RestructureCFGInfo info{};
@@ -4950,6 +5146,7 @@ restructure_cfg_on_definition_in_place(
     FunctionDefinition *def,
     const RestructureCFGOptions &options) noexcept {
     ScopedTimer _timer_overall("restructure_cfg_on_definition");
+    trace_cfg("input", def);
     auto info = preflight_restructure_cfg(def);
     if (info.invalid_construct_count != 0u) {
         LUISA_WARNING_WITH_LOCATION(
@@ -4985,6 +5182,11 @@ restructure_cfg_on_definition_in_place(
          iteration < options.main_iteration_limit;
          ++iteration) {
         ScopedTimer _timer_main_iter("main_loop_iteration");
+        if (restructure_trace_enabled()) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] main iteration {}.",
+                iteration);
+        }
         auto dom = compute_dom_tree(def);
         auto pdom = compute_post_dom(def);
         if (try_restructure_loop(def, dom, pdom, info)) {
@@ -5152,6 +5354,8 @@ restructure_cfg_on_definition_in_place(
     info.unstructured_branch_count =
         count_unstructured_conditional_branches(def);
     info.invalid_construct_count = count_invalid_structured_constructs(def);
+    info.invalid_construct_count +=
+        count_post_merge_selection_reentries(def);
     if (info.unstructured_branch_count == 0u &&
         info.invalid_construct_count == 0u) {
         auto verification = xir_verify_function(
@@ -5251,6 +5455,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
 RestructureCFGInfo restructure_cfg_pass_run_on_module(
     Module *module, PassReport *report,
     const RestructureCFGOptions &options) noexcept {
+    ScopedTimer _timer_module(
+        "restructure_cfg_pass_run_on_module");
     RestructureCFGInfo total{};
     auto set_report = [&](const RestructureCFGInfo &info) noexcept {
         if (report == nullptr) { return; }
@@ -5272,21 +5478,26 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         return total;
     }
     luisa::vector<FunctionDefinition *> definitions;
-    for (auto *function : module->function_list()) {
-        if (auto *def = function->definition()) {
-            if (def->body_block() == nullptr &&
-                function->derived_function_tag() ==
-                    DerivedFunctionTag::CALLABLE) {
-                continue;
+    {
+        ScopedTimer _timer_preflight(
+            "module_transaction_preflight");
+        for (auto *function : module->function_list()) {
+            if (auto *def = function->definition()) {
+                if (def->body_block() == nullptr &&
+                    function->derived_function_tag() ==
+                        DerivedFunctionTag::CALLABLE) {
+                    continue;
+                }
+                trace_cfg("module preflight input", def);
+                definitions.emplace_back(def);
+                auto info = preflight_restructure_cfg(def);
+                total.irreducible_region_count +=
+                    info.irreducible_region_count;
+                total.unstructured_branch_count +=
+                    info.unstructured_branch_count;
+                total.invalid_construct_count +=
+                    info.invalid_construct_count;
             }
-            definitions.emplace_back(def);
-            auto info = preflight_restructure_cfg(def);
-            total.irreducible_region_count +=
-                info.irreducible_region_count;
-            total.unstructured_branch_count +=
-                info.unstructured_branch_count;
-            total.invalid_construct_count +=
-                info.invalid_construct_count;
         }
     }
     // A module invocation is a single transaction. A malformed/Phi-bearing
@@ -5301,6 +5512,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
     luisa::vector<ShadowDefinition> shadows;
     shadows.reserve(definitions.size());
     for (auto *def : definitions) {
+        ScopedTimer _timer_clone(
+            "module_transaction_clone_definition");
         ShadowDefinition shadow;
         if (!clone_definition_for_transaction(def, shadow)) {
             shadows.emplace_back(std::move(shadow));

@@ -21,7 +21,23 @@
 #include <luisa/xir/passes/loop_vectorization.h>
 #include <luisa/xir/passes/slp_vectorization.h>
 
+#include <cstdlib>
+
 namespace luisa::compute::xir {
+
+namespace {
+
+[[nodiscard]] bool trace_passes_enabled() noexcept {
+    static const auto enabled = []() noexcept {
+        if (auto value = std::getenv("LUISA_XIR_TRACE_PASSES")) {
+            return luisa::string_view{value} == "1";
+        }
+        return false;
+    }();
+    return enabled;
+}
+
+}// namespace
 
 void PassReport::set(luisa::string_view key, uint64_t value) noexcept {
     for (auto &e : _entries) {
@@ -120,11 +136,14 @@ void PassPipeline::_merge_record(Stats::Record &record,
 
 PassPipeline::Stats::Record PassPipeline::_run_entry(const Entry &entry,
                                                       Module *module) noexcept {
+    if (trace_passes_enabled()) {
+        LUISA_VERBOSE("Starting XIR pass '{}'.", entry.name);
+    }
     if (!entry.is_group) {
         luisa::Clock clock;
         PassReport report;
         auto changed = entry.run(module, report);
-        return Stats::Record{
+        auto record = Stats::Record{
             .name = entry.name,
             .invocations = 1u,
             .elapsed_ms = clock.toc(),
@@ -134,6 +153,14 @@ PassPipeline::Stats::Record PassPipeline::_run_entry(const Entry &entry,
             .report = std::move(report),
             .children = {},
         };
+        if (trace_passes_enabled()) {
+            LUISA_VERBOSE(
+                "Completed XIR pass '{}' in {:.2f} ms{}.",
+                entry.name,
+                record.elapsed_ms,
+                record.changed ? " (changed)" : "");
+        }
+        return record;
     }
     Stats::Record record{
         .name = entry.name,
@@ -174,6 +201,17 @@ PassPipeline::Stats::Record PassPipeline::_run_entry(const Entry &entry,
     record.iteration_limit_reached =
         entry.requires_convergence && !record.converged;
     record.elapsed_ms = clock.toc();
+    if (trace_passes_enabled()) {
+        LUISA_VERBOSE(
+            "Completed XIR pass group '{}' in {:.2f} ms "
+            "after {} iteration(s){}.",
+            entry.name,
+            record.elapsed_ms,
+            record.invocations,
+            record.iteration_limit_reached ?
+                " (iteration limit reached)" :
+                "");
+    }
     return record;
 }
 

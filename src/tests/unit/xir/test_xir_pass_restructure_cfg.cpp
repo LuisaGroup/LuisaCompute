@@ -23,6 +23,7 @@
 #include <luisa/xir/passes/const_fold.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/dead_store_elimination.h>
+#include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/if_conversion.h>
 #include <luisa/xir/passes/local_load_elimination.h>
@@ -159,6 +160,49 @@ namespace {
     size_t n = 0u;
     for ([[maybe_unused]] auto *block : def->basic_blocks()) { ++n; }
     return n;
+}
+
+[[nodiscard]] size_t count_post_merge_selection_reentries(
+    luisa::compute::xir::Function *function) noexcept {
+    auto *def =
+        function == nullptr ? nullptr : function->definition();
+    if (def == nullptr) { return 0u; }
+    auto dom = compute_dom_tree(function);
+    auto count = size_t{0u};
+    for (auto *header : def->basic_blocks()) {
+        if (header == nullptr || !header->is_terminated() ||
+            !dom.contains(header)) {
+            continue;
+        }
+        auto *term = header->terminator();
+        if (!term->isa<IfInst>() &&
+            !term->isa<SwitchInst>()) {
+            continue;
+        }
+        auto *merge =
+            term->control_flow_merge()->merge_block();
+        if (merge == nullptr || !dom.contains(merge)) {
+            continue;
+        }
+        auto invalid = false;
+        for (auto *block : def->basic_blocks()) {
+            if (block == nullptr || block == header ||
+                block == merge || !dom.contains(block) ||
+                !dom.dominates(header, block) ||
+                dom.dominates(merge, block)) {
+                continue;
+            }
+            block->traverse_predecessors(
+                false,
+                [&](BasicBlock *predecessor) noexcept {
+                    invalid |=
+                        dom.contains(predecessor) &&
+                        dom.dominates(merge, predecessor);
+                });
+        }
+        count += invalid ? 1u : 0u;
+    }
+    return count;
 }
 
 [[nodiscard]] bool branch_chain_reaches(BasicBlock *from, BasicBlock *to) noexcept {
@@ -971,6 +1015,64 @@ void reg_restructure_cfg() {
         expect(info.restructured_if_count == 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+    };
+
+    "restructure_if_batch_consumes_a_linear_diamond_chain"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        constexpr auto diamond_count = size_t{64u};
+        XIRBuilder builder;
+        auto *header = body;
+        for (auto i = size_t{0u};
+             i < diamond_count;
+             ++i) {
+            auto *true_block =
+                kernel->create_basic_block();
+            auto *false_block =
+                kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+            builder.set_insertion_point(header);
+            builder.cond_br(
+                condition, true_block, false_block);
+            builder.set_insertion_point(true_block);
+            builder.br(merge);
+            builder.set_insertion_point(false_block);
+            builder.br(merge);
+            header = merge;
+        }
+        builder.set_insertion_point(header);
+        builder.return_void();
+
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 1u,
+             .post_iteration_limit = 64u});
+
+        // One batch is one dominance snapshot. Every successful rewrite
+        // removes one raw conditional and introduces none, so the complete
+        // candidate set must fit in a single main-loop iteration regardless
+        // of chain length.
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(info.restructured_if_count ==
+               diamond_count);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::
+                       CONDITIONAL_BRANCH) == 0u);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::IF) ==
+               diamond_count);
+        expect(xir_verify_module(
+                   &m,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets =
+                        true})
+                   .succeeded());
     };
 
     "restructure_nested_loop_does_not_capture_outer_tail"_test = [] {
@@ -1986,6 +2088,73 @@ void reg_restructure_cfg() {
         expect(nested_header->terminator() == nested);
         expect(count_terminator_kind(k->definition(), DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
         expect(verification.succeeded());
+    };
+
+    "restructure_does_not_reenter_selection_after_its_merge"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *loop_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *outer_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *inner_condition =
+            k->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *outer_header = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        auto *outer_true = def->create_basic_block();
+        auto *inner_header = def->create_basic_block();
+        auto *shared_continue = def->create_basic_block();
+
+        b.set_insertion_point(prepare);
+        b.cond_br(
+            loop_condition, outer_header, loop_merge);
+        b.set_insertion_point(outer_header);
+        b.cond_br(
+            outer_condition, outer_true, inner_header);
+        b.set_insertion_point(outer_true);
+        b.br(shared_continue);
+        b.set_insertion_point(inner_header);
+        auto *inner = b.if_(inner_condition);
+        auto *inner_true = inner->create_true_block();
+        auto *inner_false = inner->create_false_block();
+        auto *inner_merge = inner->create_merge_block();
+        b.set_insertion_point(inner_true);
+        b.br(inner_merge);
+        b.set_insertion_point(inner_false);
+        b.br(inner_merge);
+        b.set_insertion_point(inner_merge);
+        b.br(shared_continue);
+        b.set_insertion_point(shared_continue);
+        b.br(update);
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        b.return_void();
+
+        auto info =
+            restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(outer_header->terminator()->isa<IfInst>());
+        // The selection's real convergence is immediately before the
+        // enclosing loop continue. A private merge chosen in front of the
+        // nested false-arm selection must not let that post-merge path jump
+        // back into a block also reached by the true arm.
+        expect(count_post_merge_selection_reentries(k) ==
+               0u);
+        expect(xir_verify_module(
+                   &m,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets =
+                        true})
+                   .succeeded());
     };
 
     "restructure_structurizes_loop_early_exit_ladder"_test = [] {
