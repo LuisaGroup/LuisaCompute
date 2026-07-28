@@ -51,8 +51,10 @@ if (hip_FOUND)
 
     # HIPRT integration: build from source (submodule at src/ext/HIPRT)
     # Uses system hipcc for compilation
-    set(HIPRT_SOURCE_DIR "${CMAKE_SOURCE_DIR}/src/ext/HIPRT")
-    include(${CMAKE_SOURCE_DIR}/src/ext/hiprt_from_source.cmake)
+    # Resolve HIPRT from this project instead of the top-level source tree so
+    # the HIP backend also works when LuisaCompute is added as a subdirectory.
+    set(HIPRT_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../ext/HIPRT")
+    include("${CMAKE_CURRENT_LIST_DIR}/../../ext/hiprt_from_source.cmake")
 
     # Compile the motion-mesh preprocessing kernels once for the configured
     # HIPRT offload architectures and embed the resulting fat binary in the
