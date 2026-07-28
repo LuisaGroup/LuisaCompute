@@ -1472,6 +1472,77 @@ void reg_restructure_cfg() {
                    m.get(), {.require_unique_merge_blocks = true})
                    .succeeded());
     };
+
+    "restructure_many_sequential_loop_breaks_stays_linear"_test = [] {
+        constexpr auto loop_count = 32u;
+        Kernel1D kernel = [](BufferUInt limits,
+                             BufferUInt break_at,
+                             BufferUInt output) noexcept {
+            UInt checksum = 0u;
+            for (auto site = 0u; site < loop_count; ++site) {
+                UInt index = 0u;
+                $while (index < limits.read(site)) {
+                    $if (index == break_at.read(site)) {
+                        $break;
+                    };
+                    checksum += index + site;
+                    index += 1u;
+                };
+            }
+            output.write(dispatch_x(), checksum);
+        };
+
+        auto module =
+            ast_to_xir_translate(
+                kernel.function()->function(), {});
+        expect(module != nullptr);
+        run_spirv_normalize_before_restructure(
+            module.get());
+        auto *definition =
+            module->function_list().front()
+                ->definition();
+        expect(definition != nullptr);
+        const auto input_block_count =
+            count_owned_blocks(definition);
+
+        auto info =
+            restructure_cfg_pass_run_on_module(
+                module.get());
+        const auto output_block_count =
+            count_owned_blocks(definition);
+
+        expect(info.succeeded())
+            << "independent loop exits must reach a fixed point "
+               "(input blocks: "
+            << input_block_count << ", output blocks after "
+               "transaction: "
+            << output_block_count << ", iteration limits: "
+            << info.iteration_limit_count << ")";
+        expect(info.iteration_limit_count == 0u);
+        expect(info.restructured_loop_count == loop_count);
+        expect(output_block_count <=
+               input_block_count * 4u)
+            << "restructuring independent loop exits must stay linear "
+               "in input CFG size (input blocks: "
+            << input_block_count << ", output blocks: "
+            << output_block_count << ")";
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               count_canonical_conditional_loop_prepare(
+                   definition))
+            << "only canonical native loop guards may remain raw";
+        auto verification = xir_verify_module(
+            module.get(),
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets =
+                 true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
+    };
+
     "restructure_converts_remaining_divergent_conditional"_test = [] {
         Module m;
         BasicBlock *body;
