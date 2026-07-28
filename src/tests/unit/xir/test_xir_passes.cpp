@@ -4290,6 +4290,60 @@ void reg_local_load_elimination() {
         expect(store->next() == future_load);
     };
 
+    "local_load_elim_loop_fanout_keeps_analysis_storage_stable"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *header = k->create_basic_block();
+        auto *exit = k->create_basic_block();
+        std::array<BasicBlock *, 7u> branches{};
+        std::array<BasicBlock *, 8u> latches{};
+        for (auto &block : branches) {
+            block = k->create_basic_block();
+        }
+        for (auto &block : latches) {
+            block = k->create_basic_block();
+        }
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *alloca = b.alloca_local(Type::of<int>());
+        b.store(alloca, m.create_constant_zero(Type::of<int>()));
+        b.br(header);
+
+        b.set_insertion_point(header);
+        auto *value = b.load(Type::of<int>(), alloca);
+        static_cast<void>(value);
+        b.cond_br(
+            m.create_undefined(Type::of<bool>()),
+            branches.front(),
+            exit);
+
+        auto tree_block = [&](size_t index) noexcept {
+            return index < branches.size() ?
+                       branches[index] :
+                       latches[index - branches.size()];
+        };
+        for (size_t i = 0u; i < branches.size(); ++i) {
+            b.set_insertion_point(branches[i]);
+            b.cond_br(
+                m.create_undefined(Type::of<bool>()),
+                tree_block(2u * i + 1u),
+                tree_block(2u * i + 2u));
+        }
+        for (auto *latch : latches) {
+            b.set_insertion_point(latch);
+            b.br(header);
+        }
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        auto info = local_load_elimination_pass_run_on_function(k);
+        expect(info.removed_load_count == 0u);
+        expect(value->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "local_load_elim_annotated_duplicate_is_retained"_test = [] {
         Module m;
         auto *f = m.create_callable(Type::of<int>());
