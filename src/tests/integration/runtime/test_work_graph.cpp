@@ -370,7 +370,7 @@ void gpu_input_test(Device &device, Stream &stream) {
         h_gpu_records[i].data = 1024 - i;
     }
 
-    auto native_res = device.extension<NativeResourceExt>();
+    auto native_res = device.extension<DxNativeResourceExt>();
     gpu_input.entrypoint_index = 0;
     gpu_input.num_records = 1024;
     gpu_input.record_va = native_res->get_device_address(d_gpu_records);
