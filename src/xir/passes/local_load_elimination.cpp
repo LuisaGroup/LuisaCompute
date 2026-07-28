@@ -4,6 +4,7 @@
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/core/logging.h>
 
 #include "helpers.h"
 #include <luisa/xir/passes/local_load_elimination.h>
@@ -109,14 +110,23 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
     function->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
         rpo.push_back(block);
     });
+    using ReachingMap = luisa::unordered_map<Value *, LoadInst *>;
     luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> predecessors;
+    luisa::unordered_map<BasicBlock *, ReachingMap> reaching_load;
     for (auto block : rpo) {
+        auto &block_predecessors = predecessors[block];
+        reaching_load.try_emplace(block);
         block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-            predecessors[block].push_back(pred);
+            block_predecessors.push_back(pred);
+            reaching_load.try_emplace(pred);
         });
     }
-    using ReachingMap = luisa::unordered_map<Value *, LoadInst *>;
-    luisa::unordered_map<BasicBlock *, ReachingMap> reaching_load;
+
+    auto reaching_load_for = [&](BasicBlock *block) noexcept -> ReachingMap & {
+        auto iter = reaching_load.find(block);
+        LUISA_ASSERT(iter != reaching_load.end(), "Missing local-load data-flow block.");
+        return iter->second;
+    };
 
     auto block_input = [&](BasicBlock *block) noexcept {
         ReachingMap in;
@@ -124,11 +134,13 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
         // backedge to the body block must never make a value available on the
         // first invocation of the function.
         if (block == function->body_block()) { return in; }
-        auto &preds = predecessors[block];
+        auto pred_iter = predecessors.find(block);
+        LUISA_ASSERT(pred_iter != predecessors.end(), "Missing local-load predecessor block.");
+        auto &preds = pred_iter->second;
         if (!preds.empty()) {
-            in = reaching_load[preds.front()];
+            in = reaching_load_for(preds.front());
             for (size_t i = 1; i < preds.size(); ++i) {
-                auto &pred_map = reaching_load[preds[i]];
+                auto &pred_map = reaching_load_for(preds[i]);
                 for (auto it = in.begin(); it != in.end();) {
                     auto jt = pred_map.find(it->first);
                     if (jt == pred_map.end() || jt->second != it->second) {
@@ -205,7 +217,7 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
     while (changed) {
         changed = false;
         for (auto block : rpo) {
-            auto &block_reaching = reaching_load[block];
+            auto &block_reaching = reaching_load_for(block);
             auto current = transfer(block, block_input(block), nullptr);
             if (block_reaching != current) {
                 block_reaching = std::move(current);
