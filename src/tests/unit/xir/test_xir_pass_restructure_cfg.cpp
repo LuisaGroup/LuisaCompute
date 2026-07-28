@@ -10,9 +10,11 @@
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
@@ -92,6 +94,33 @@ namespace {
             cond_br->false_block() != loop->merge_block()) {
             ++n;
         }
+    });
+    return n;
+}
+
+[[nodiscard]] size_t count_canonical_conditional_loop_prepare(
+    FunctionDefinition *def) noexcept {
+    size_t n = 0u;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated() ||
+            !bb->terminator()->isa<LoopInst>()) {
+            return;
+        }
+        auto *loop =
+            static_cast<LoopInst *>(bb->terminator());
+        auto *prepare = loop->prepare_block();
+        if (prepare == nullptr || !prepare->is_terminated() ||
+            !prepare->terminator()
+                 ->isa<ConditionalBranchInst>()) {
+            return;
+        }
+        auto *branch =
+            static_cast<ConditionalBranchInst *>(
+                prepare->terminator());
+        n += branch->condition() != nullptr &&
+             branch->condition()->type() == Type::of<bool>() &&
+             branch->true_block() == loop->body_block() &&
+             branch->false_block() == loop->merge_block();
     });
     return n;
 }
@@ -976,13 +1005,12 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(
                    def,
                    DerivedInstructionTag::CONDITIONAL_BRANCH) ==
-               2u);
+               count_canonical_conditional_loop_prepare(def));
         expect(count_non_canonical_loop_prepare(def) == 0u);
         expect(count_non_canonical_loop_update(def) == 0u);
-        // LoopInst deliberately retains one raw ConditionalBranchInst in
-        // each prepare block. The pass success contract above proves those
-        // are canonical loop conditions, so the verifier must not request
-        // the stronger "no raw branch instructions at all" policy here.
+        // The only raw conditionals allowed to remain are native loop guards.
+        // A state-writing exit proxy can require the corresponding inner
+        // guard to be represented as a loop-boundary IfInst instead.
         auto verification = xir_verify_module(
             &m,
             {.require_unique_merge_blocks = true,
@@ -992,6 +1020,19 @@ void reg_restructure_cfg() {
             << (verification.errors.empty() ?
                     "unknown verification failure" :
                     verification.errors.front().message);
+        auto block_count = size_t{0u};
+        def->traverse_basic_blocks(
+            [&](BasicBlock *) noexcept { ++block_count; });
+        auto rerun = restructure_cfg_pass_run_on_function(k);
+        expect(rerun.succeeded());
+        auto rerun_block_count = size_t{0u};
+        def->traverse_basic_blocks(
+            [&](BasicBlock *) noexcept {
+                ++rerun_block_count;
+            });
+        expect(rerun_block_count == block_count);
+        expect(count_non_canonical_loop_prepare(def) == 0u);
+        expect(count_non_canonical_loop_update(def) == 0u);
     };
 
     "restructure_outer_update_path_with_inner_loop"_test = [] {
@@ -1320,6 +1361,171 @@ void reg_restructure_cfg() {
         expect(info.iteration_limit_count == 0u);
         expect(info.restructured_if_count >= 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+    };
+
+    "restructure_shared_successor_uses_single_exit_protocol"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *outer_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *inner_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *header = def->create_basic_block();
+        auto *arm = def->create_basic_block();
+        auto *local_exit = def->create_basic_block();
+        auto *shared = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *slot = b.alloca_local(Type::of<int>());
+        b.cond_br(outer_condition, header, shared);
+        b.set_insertion_point(header);
+        b.cond_br(inner_condition, arm, local_exit);
+        b.set_insertion_point(arm);
+        b.br(shared);
+        b.set_insertion_point(local_exit);
+        b.br(exit);
+        b.set_insertion_point(shared);
+        auto *original_store =
+            b.store(slot, m.create_constant_one(Type::of<int>()));
+        b.br(exit);
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.unstructured_branch_count == 0u);
+        expect(original_store->parent_block() == shared);
+        size_t writes_to_slot = 0u;
+        def->traverse_instructions([&](Instruction *instruction) noexcept {
+            if (instruction->isa<StoreInst>() &&
+                static_cast<StoreInst *>(instruction)->variable() ==
+                    slot) {
+                ++writes_to_slot;
+            }
+        });
+        // The shared block is not dominated by the inner header. Cloning its
+        // reachable subgraph would duplicate this side effect; the explicit
+        // single-exit protocol must preserve one copy instead.
+        expect(writes_to_slot == 1u);
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_state_dispatch_transports_path_local_values"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<int>());
+        auto *body = f->create_body_block();
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *true_return = f->create_basic_block();
+        auto *false_return = f->create_basic_block();
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *selection = b.if_(condition);
+        auto *true_path = selection->create_true_block();
+        auto *false_path = selection->create_false_block();
+        auto *unreachable_merge = selection->create_merge_block();
+        auto *one = m.create_constant_one(Type::of<int>());
+        b.set_insertion_point(true_path);
+        auto *path_value = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        b.br(true_return);
+        b.set_insertion_point(false_path);
+        b.br(false_return);
+        b.set_insertion_point(unreachable_merge);
+        b.unreachable_();
+        b.set_insertion_point(true_return);
+        auto *path_return = b.return_(path_value);
+        b.set_insertion_point(false_return);
+        b.return_(m.create_constant_zero(Type::of<int>()));
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(f);
+        expect(info.succeeded());
+        expect(info.unstructured_branch_count == 0u);
+        auto spills = audit_reg2mem_spills_on_function(f);
+        expect(spills.remaining_phi_spill_count == 0u);
+        expect(spills.remaining_cross_block_spill_count == 1u);
+        expect(path_return->return_value() != path_value);
+        expect(path_return->return_value()->isa<LoadInst>());
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto promoted = mem2reg_pass_run_on_function(f);
+        expect(promoted.promoted_alloca_count >= 1u);
+        expect(audit_reg2mem_spills_on_function(f).succeeded());
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_separates_structured_loop_prepare_role"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *condition =
+            k->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *old_prepare = loop->create_prepare_block();
+        auto *old_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(old_prepare);
+        auto *guard = b.if_(condition);
+        guard->set_true_target(old_body);
+        auto *exit_arm = guard->create_false_block();
+        guard->set_merge_block(exit_arm);
+        b.set_insertion_point(exit_arm);
+        b.break_(merge);
+        b.set_insertion_point(old_body);
+        b.continue_(update);
+        b.set_insertion_point(update);
+        b.br(old_prepare);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        expect(count_non_canonical_loop_prepare(
+                   k->definition()) == 1u);
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(count_non_canonical_loop_prepare(
+                   k->definition()) == 0u);
+        auto *new_prepare = loop->prepare_block();
+        expect(new_prepare != old_prepare);
+        expect(loop->body_block() == old_prepare);
+        expect(old_prepare->terminator() == guard);
+        expect(new_prepare->terminator()->isa<BranchInst>());
+        if (new_prepare->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       new_prepare->terminator())
+                       ->target_block() == old_prepare);
+        }
+        auto *canonical_update = loop->update_block();
+        expect(canonical_update->terminator()->isa<BranchInst>());
+        if (canonical_update->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       canonical_update->terminator())
+                       ->target_block() == new_prepare);
+        }
+        expect(xir_verify_module(
+                   &m,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets =
+                        true})
+                   .succeeded());
     };
 
     "restructure_routes_nested_switch_exits_through_merges"_test = [] {
