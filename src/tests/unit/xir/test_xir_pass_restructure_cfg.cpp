@@ -1543,6 +1543,120 @@ void reg_restructure_cfg() {
                     verification.errors.front().message);
     };
 
+    "restructure_routes_forwarded_loop_exits_through_declared_merge"_test = [] {
+        Kernel1D kernel = [](BufferUInt output,
+                             Bool a, Bool b,
+                             Bool c, Bool d) noexcept {
+            $loop {
+                $if (a) {
+                    $break;
+                };
+                $if (b) {
+                    $if (c) {
+                        $break;
+                    };
+                };
+                $if (d) {
+                    $continue;
+                };
+            };
+            output.write(0u, 1u);
+        };
+
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        run_spirv_normalize_before_restructure(
+            module.get());
+        auto *definition =
+            module->function_list().front()->definition();
+        expect(definition != nullptr);
+
+        auto info = restructure_cfg_pass_run_on_module(
+            module.get());
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+
+        LoopInst *recovered_loop = nullptr;
+        auto loop_count = size_t{0u};
+        definition->traverse_basic_blocks(
+            [&](BasicBlock *block) noexcept {
+                if (block->is_terminated() &&
+                    block->terminator()->isa<LoopInst>()) {
+                    recovered_loop = static_cast<LoopInst *>(
+                        block->terminator());
+                    loop_count++;
+                }
+            });
+        expect(loop_count == 1u);
+        expect(recovered_loop != nullptr);
+        if (recovered_loop == nullptr) { return; }
+
+        auto *merge = recovered_loop->merge_block();
+        expect(merge != nullptr);
+        expect(merge != nullptr && merge->is_terminated() &&
+               merge->terminator()->isa<BranchInst>());
+        if (merge == nullptr || !merge->is_terminated() ||
+            !merge->terminator()->isa<BranchInst>()) {
+            return;
+        }
+        auto *continuation =
+            static_cast<BranchInst *>(merge->terminator())
+                ->target_block();
+        expect(continuation != nullptr);
+
+        auto canonical_break_count = size_t{0u};
+        definition->traverse_basic_blocks(
+            [&](BasicBlock *block) noexcept {
+                if (!block->is_terminated() ||
+                    !block->terminator()->isa<BreakInst>()) {
+                    return;
+                }
+                canonical_break_count +=
+                    static_cast<BreakInst *>(
+                        block->terminator())
+                                ->target_block() == merge ?
+                        1u :
+                        0u;
+            });
+        expect(canonical_break_count > 0u)
+            << "an internal edge to the merge's forwarding destination "
+               "must become an explicit Break to the declared merge";
+
+        auto merge_predecessor_count = size_t{0u};
+        auto bypass_predecessor_count = size_t{0u};
+        continuation->traverse_predecessors(
+            false,
+            [&](BasicBlock *predecessor) noexcept {
+                if (predecessor == merge) {
+                    merge_predecessor_count++;
+                } else {
+                    bypass_predecessor_count++;
+                }
+            });
+        expect(merge_predecessor_count == 1u);
+        expect(bypass_predecessor_count == 0u)
+            << "the loop continuation must have no predecessor that "
+               "bypasses its declared single-exit merge";
+
+        auto block_count = count_owned_blocks(definition);
+        auto rerun = restructure_cfg_pass_run_on_module(
+            module.get());
+        expect(rerun.succeeded());
+        expect(rerun.iteration_limit_count == 0u);
+        expect(count_owned_blocks(definition) == block_count)
+            << "loop-boundary canonicalization must be idempotent";
+        auto verification = xir_verify_module(
+            module.get(),
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets =
+                 true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
+    };
+
     "restructure_converts_remaining_divergent_conditional"_test = [] {
         Module m;
         BasicBlock *body;

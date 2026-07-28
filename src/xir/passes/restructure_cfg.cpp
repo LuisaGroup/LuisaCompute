@@ -1196,15 +1196,31 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     return false;
 }
 
-[[nodiscard]] bool is_loop_break_target(BasicBlock *target,
-                                        BasicBlock *merge) noexcept {
+[[nodiscard]] bool is_canonical_loop_break_path(
+    BasicBlock *target, BasicBlock *merge) noexcept {
     if (target == nullptr || merge == nullptr) { return false; }
     auto *resolved = trivial_branch_chain_target(target);
     if (resolved == merge) { return true; }
-    if (has_only_terminator(resolved) && resolved->terminator()->isa<BreakInst>()) {
-        return static_cast<BreakInst *>(resolved->terminator())->target_block() == merge;
+    return has_only_terminator(resolved) &&
+           resolved->terminator()->isa<BreakInst>() &&
+           static_cast<BreakInst *>(resolved->terminator())
+                   ->target_block() == merge;
+}
+
+[[nodiscard]] bool is_loop_break_target(BasicBlock *target,
+                                        BasicBlock *merge) noexcept {
+    if (target == nullptr || merge == nullptr) { return false; }
+    // A loop merge may be a pure forwarding boundary M ->* T. An edge from
+    // inside the loop directly to T has the same executable continuation as
+    // Break(M), but it bypasses the declared single-exit boundary and is not
+    // legal structured control flow. Treat only side-effect-free forwarding
+    // chains as equivalent; canonical_exit_target stops at the first block
+    // containing executable payload.
+    if (canonical_exit_target(target) ==
+        canonical_exit_target(merge)) {
+        return true;
     }
-    return false;
+    return is_canonical_loop_break_path(target, merge);
 }
 
 enum struct LoopBoundaryTargetKind {
@@ -1235,11 +1251,13 @@ enum struct LoopBoundaryTargetKind {
     };
     luisa::unordered_set<BasicBlock *> visited;
     luisa::vector<BasicBlock *> work{target};
+    auto *canonical_merge = canonical_exit_target(merge);
     while (!work.empty()) {
         auto *bb = work.back();
         work.pop_back();
         if (bb == nullptr || !visited.emplace(bb).second) { continue; }
-        if (bb == merge) {
+        if (bb == merge ||
+            canonical_exit_target(bb) == canonical_merge) {
             if (!add_kind(LoopBoundaryTargetKind::BREAK)) { return LoopBoundaryTargetKind::NONE; }
             continue;
         }
@@ -1964,6 +1982,49 @@ void remove_write_only_dispatch_selectors(
             work.pop_back();
             if (cur->is_terminated() && cur->terminator()->isa<IfInst>()) {
                 auto *if_inst = static_cast<IfInst *>(cur->terminator());
+                auto true_kind = classify_loop_boundary_path(
+                    if_inst->true_block(), continue_target,
+                    loop_entry, merge);
+                auto false_kind = classify_loop_boundary_path(
+                    if_inst->false_block(), continue_target,
+                    loop_entry, merge);
+                auto canonicalize_boundary_arm =
+                    [&](BasicBlock *target,
+                        LoopBoundaryTargetKind kind) noexcept {
+                        auto break_arm =
+                            kind == LoopBoundaryTargetKind::BREAK &&
+                            is_loop_break_target(target, merge);
+                        if (!break_arm) { return target; }
+                        // A previously normalized boundary proxy may be
+                        // lowered from Break(M) to a pure branch chain ending
+                        // at M by an adjacent canonicalization phase. It
+                        // already preserves the declared single-exit
+                        // boundary. Only a chain that reaches the forwarding
+                        // destination *after* M while bypassing M needs a new
+                        // proxy.
+                        if (is_canonical_loop_break_path(
+                                target, merge)) {
+                            return target;
+                        }
+                        auto *proxy = def->create_basic_block();
+                        XIRBuilder b;
+                        b.set_insertion_point(proxy);
+                        b.break_(merge);
+                        changed = true;
+                        return proxy;
+                    };
+                auto *old_true = if_inst->true_block();
+                auto *old_false = if_inst->false_block();
+                auto *new_true = canonicalize_boundary_arm(
+                    old_true, true_kind);
+                auto *new_false = canonicalize_boundary_arm(
+                    old_false, false_kind);
+                if (new_true != old_true) {
+                    if_inst->set_true_target(new_true);
+                }
+                if (new_false != old_false) {
+                    if_inst->set_false_target(new_false);
+                }
                 if (is_loop_boundary_if(
                         if_inst, continue_target,
                         loop_entry, merge) &&
@@ -1972,7 +2033,7 @@ void remove_write_only_dispatch_selectors(
                       if_inst->merge_block() !=
                           if_inst->false_block()) ||
                      if_inst->merge_block() == merge)) {
-                    auto *old_false = if_inst->false_block();
+                    old_false = if_inst->false_block();
                     auto *new_merge = def->create_basic_block();
                     XIRBuilder b;
                     b.set_insertion_point(new_merge);
