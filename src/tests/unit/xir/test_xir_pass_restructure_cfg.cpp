@@ -520,6 +520,73 @@ void reg_restructure_cfg() {
                constant_count_before);
     };
 
+    "restructure_ignores_disconnected_construct_predecessors"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *selection_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *latch_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        auto *selection = b.if_(selection_condition);
+        auto *selection_true =
+            selection->create_true_block();
+        auto *selection_false =
+            selection->create_false_block();
+        auto *selection_merge =
+            selection->create_merge_block();
+        auto *loop_header = kernel->create_basic_block();
+        auto *loop_body = kernel->create_basic_block();
+        auto *header_exit = kernel->create_basic_block();
+        auto *latch_exit = kernel->create_basic_block();
+        auto *disconnected = kernel->create_basic_block();
+
+        b.set_insertion_point(selection_true);
+        b.br(selection_merge);
+        b.set_insertion_point(selection_false);
+        b.br(selection_merge);
+        b.set_insertion_point(selection_merge);
+        b.br(loop_header);
+        b.set_insertion_point(loop_header);
+        b.cond_br(loop_condition, loop_body, header_exit);
+        b.set_insertion_point(loop_body);
+        b.cond_br(
+            latch_condition, loop_header, latch_exit);
+        b.set_insertion_point(header_exit);
+        b.return_void();
+        b.set_insertion_point(latch_exit);
+        b.return_void();
+
+        // BasicBlock predecessor queries include this owned but unreachable
+        // edge. It is not a second dynamic entry into the reachable IfInst.
+        b.set_insertion_point(disconnected);
+        b.br(selection_true);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto block_count = count_owned_blocks(kernel);
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 1u,
+             .post_iteration_limit = 64u});
+
+        // The one-iteration budget deliberately reports only exhaustion. The
+        // disconnected use-list edge must neither be cloned nor misreported as
+        // a malformed structured construct.
+        expect(!info.succeeded());
+        expect(!info.changed());
+        expect(info.iteration_limit_count == 1u);
+        expect(info.invalid_construct_count == 0u);
+        expect(count_owned_blocks(kernel) == block_count);
+        expect(entry->terminator() == selection);
+        expect(disconnected->terminator()->isa<BranchInst>());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "restructure_module_late_failure_is_atomic_across_functions"_test = [] {
         Module m;
         BasicBlock *first_entry;
@@ -1417,6 +1484,83 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_nested_selection_exit_to_shared_continuation_converges"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *outer_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *inner_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *query_type =
+            Type::custom("LC_RayQueryAll");
+        auto *query_source =
+            k->create_reference_argument(query_type);
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *slot = b.alloca_local(Type::of<uint32_t>());
+        auto *query_slot = b.alloca_local(query_type);
+        auto *outer = b.if_(outer_condition);
+        auto *outer_true = outer->create_true_block();
+        auto *shared_continuation =
+            outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        b.set_insertion_point(outer_true);
+        auto *inner = b.if_(inner_condition);
+        auto *inner_true = inner->create_true_block();
+        auto *inner_false = inner->create_false_block();
+        auto *inner_merge = inner->create_merge_block();
+        b.set_insertion_point(inner_true);
+        b.br(shared_continuation);
+        b.set_insertion_point(inner_false);
+        b.store(
+            slot,
+            m.create_constant_one(Type::of<uint32_t>()));
+        b.br(outer_merge);
+        b.set_insertion_point(inner_merge);
+        b.unreachable_();
+        b.set_insertion_point(shared_continuation);
+        b.store(
+            slot,
+            m.create_constant_zero(Type::of<uint32_t>()));
+        auto *query_value =
+            b.load(query_type, query_source);
+        b.store(query_slot, query_value);
+        b.br(outer_merge);
+        b.set_insertion_point(outer_merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto initial_block_count = count_owned_blocks(def);
+        auto info = restructure_cfg_pass_run_on_function(
+            k, {.main_iteration_limit = 64u,
+                .post_iteration_limit = 8u});
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(info.unstructured_branch_count == 0u);
+        auto query_alloca_count = size_t{0u};
+        def->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                query_alloca_count +=
+                    instruction->isa<AllocaInst>() &&
+                    instruction->type() == query_type;
+            });
+        // Node splitting creates a second mutually exclusive initializer, so
+        // affine ray-query state must receive distinct storage on each path.
+        expect(query_alloca_count == 2u);
+        // A finite structurization may split a shared continuation, but its
+        // size must be bounded by the input graph rather than one copy per
+        // fixed-point iteration.
+        expect(count_owned_blocks(def) <=
+               initial_block_count * 4u);
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
     "restructure_state_dispatch_transports_path_local_values"_test = [] {
         Module m;
         auto *f = m.create_callable(Type::of<int>());
@@ -1520,6 +1664,83 @@ void reg_restructure_cfg() {
                        canonical_update->terminator())
                        ->target_block() == new_prepare);
         }
+        expect(xir_verify_module(
+                   &m,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets =
+                        true})
+                   .succeeded());
+    };
+
+    "restructure_preserves_nontrivial_loop_update_exit"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *condition =
+            k->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *old_update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        b.set_insertion_point(prepare);
+        b.br(loop_body);
+        b.set_insertion_point(loop_body);
+        b.continue_(old_update);
+
+        // This is the boundary shape produced when an update-region state
+        // dispatch decides between another iteration and an early exit.
+        b.set_insertion_point(old_update);
+        auto *guard = b.if_(condition);
+        auto *continue_arm = guard->create_true_block();
+        auto *break_arm = guard->create_false_block();
+        guard->set_merge_block(break_arm);
+        b.set_insertion_point(continue_arm);
+        b.continue_(old_update);
+        b.set_insertion_point(break_arm);
+        b.break_(loop_merge);
+        b.set_insertion_point(loop_merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+
+        auto *new_update = loop->update_block();
+        expect(new_update != old_update);
+        expect(new_update->terminator()->isa<BranchInst>());
+        if (new_update->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       new_update->terminator())
+                       ->target_block() == prepare);
+        }
+
+        // Entry into the old update remains executable, while completion
+        // advances through the new canonical trampoline.
+        expect(loop_body->terminator()->isa<BranchInst>());
+        if (loop_body->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       loop_body->terminator())
+                       ->target_block() == old_update);
+        }
+        expect(continue_arm->terminator()->isa<ContinueInst>());
+        if (continue_arm->terminator()->isa<ContinueInst>()) {
+            expect(static_cast<ContinueInst *>(
+                       continue_arm->terminator())
+                       ->target_block() == new_update);
+        }
+        expect(break_arm->terminator()->isa<BreakInst>());
+        if (break_arm->terminator()->isa<BreakInst>()) {
+            expect(static_cast<BreakInst *>(
+                       break_arm->terminator())
+                       ->target_block() == loop_merge);
+        }
+        expect(old_update->terminator() == guard);
         expect(xir_verify_module(
                    &m,
                    {.require_unique_merge_blocks = true,

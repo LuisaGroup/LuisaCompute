@@ -1007,6 +1007,7 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
                                                        BasicBlock *continue_target,
                                                        BasicBlock *merge) noexcept {
     auto function_blocks = collect_function_blocks(def);
+    auto dom = compute_dom_tree(def);
     auto is_live_block = [&](BasicBlock *bb) noexcept {
         return bb != nullptr && function_blocks.contains(bb);
     };
@@ -1019,6 +1020,16 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     luisa::vector<BasicBlock *> work;
     auto enqueue = [&](BasicBlock *bb) noexcept {
         if (!is_live_block(bb) || bb == merge) { return; }
+        // Reachability alone does not define lexical loop membership: an
+        // enclosing cycle may reach a path which bypasses this loop and joins
+        // at its merge. Rewriting such an edge as Break would attach it to a
+        // loop that does not dominate the source, and a later single-exit
+        // rewrite would leave a stale non-enclosing break target. Every block
+        // owned by a structured loop is dominated by its declared entry.
+        if (!dom.contains(loop_entry) || !dom.contains(bb) ||
+            !dom.dominates(loop_entry, bb)) {
+            return;
+        }
         if (!allow_loop_entry_in_region && bb == loop_entry) { return; }
         if (loop_region.emplace(bb).second) { work.emplace_back(bb); }
     };
@@ -1029,6 +1040,24 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
         work.pop_back();
         if (!is_live_block(bb)) { continue; }
         if (!bb->is_terminated()) { continue; }
+        auto *term = bb->terminator();
+        // Loop boundary normalization is local to one construct scope.
+        // Descending into a nested Loop or Switch would rewrite an edge in the
+        // child as a Break/Continue of the parent, violating the nearest-scope
+        // invariant. Treat nested break scopes as atomic and continue from
+        // their declared merge; fixup_construct_exits owns any genuine
+        // cross-hierarchy exit from the child.
+        if (term->isa<LoopInst>() ||
+            term->isa<SimpleLoopInst>() ||
+            term->isa<SwitchInst>()) {
+            if (auto *nested_merge =
+                    structured_statement_merge(term);
+                nested_merge != nullptr &&
+                nested_merge != merge) {
+                enqueue(nested_merge);
+            }
+            continue;
+        }
         traverse_structured_successors(bb, [&](BasicBlock *succ) noexcept {
             if (!is_live_block(succ) || succ == merge) { return; }
             if (!allow_loop_entry_in_region && succ == loop_entry) { return; }
@@ -1876,6 +1905,7 @@ void remove_write_only_dispatch_selectors(
         LoopInst *loop{nullptr};
         BasicBlock *old_update{nullptr};
         BasicBlock *prepare{nullptr};
+        BasicBlock *merge{nullptr};
     };
     luisa::vector<LoopSite> loops;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
@@ -1885,26 +1915,92 @@ void remove_write_only_dispatch_selectors(
         auto *loop = static_cast<LoopInst *>(term);
         auto *prepare = loop->prepare_block();
         auto *update = loop->update_block();
-        if (prepare == nullptr || update == nullptr) { return; }
+        auto *merge = loop->merge_block();
+        if (prepare == nullptr || update == nullptr ||
+            merge == nullptr) {
+            return;
+        }
         auto canonical = update->is_terminated() && update->terminator()->isa<BranchInst>() &&
                          static_cast<BranchInst *>(update->terminator())->target_block() == prepare;
-        if (!canonical) { loops.emplace_back(LoopSite{loop, update, prepare}); }
+        if (!canonical) {
+            loops.emplace_back(
+                LoopSite{loop, update, prepare, merge});
+        }
     });
     if (loops.empty()) { return false; }
     for (auto site : loops) {
+        // A non-trivial update is an executable region, not merely the
+        // structural continue label. Let R be the blocks reachable from the
+        // old update U without crossing the next-iteration prepare P or the
+        // loop merge M. Continues from outside R enter U and must still execute
+        // that region; continues in R complete the update and advance to P.
+        //
+        // Splitting U into an executable region plus a canonical trampoline U'
+        // therefore preserves edges as follows:
+        //
+        //   Continue(outside R -> U)  => Branch(outside R -> U)
+        //   Continue(inside  R -> U)  => Continue(inside R -> U')
+        //   U'                        => Branch(U' -> P)
+        //
+        // Retargeting both classes directly to U' would bypass all state
+        // updates and Break paths in R, and can turn a finite loop into an
+        // unconditional one.
+        luisa::unordered_set<BasicBlock *> update_region;
+        luisa::vector<BasicBlock *> work{site.old_update};
+        while (!work.empty()) {
+            auto *block = work.back();
+            work.pop_back();
+            if (block == nullptr || block == site.prepare ||
+                block == site.merge ||
+                !update_region.emplace(block).second ||
+                !block->is_terminated()) {
+                continue;
+            }
+            traverse_structured_successors(
+                block, [&](BasicBlock *successor) noexcept {
+                    if (successor != site.prepare &&
+                        successor != site.merge) {
+                        work.emplace_back(successor);
+                    }
+                });
+        }
+
+        luisa::vector<ContinueInst *> entering_update;
+        luisa::vector<ContinueInst *> completing_update;
+        def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+            if (!bb->is_terminated() ||
+                !bb->terminator()->isa<ContinueInst>()) {
+                return;
+            }
+            auto *cont = static_cast<ContinueInst *>(
+                bb->terminator());
+            if (cont->target_block() != site.old_update) {
+                return;
+            }
+            (update_region.contains(bb) ?
+                 completing_update :
+                 entering_update)
+                .emplace_back(cont);
+        });
+
         auto *new_update = def->create_basic_block();
         XIRBuilder b;
         b.set_insertion_point(new_update);
         b.br(site.prepare);
         site.loop->set_update_block(new_update);
-        def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-            if (!bb->is_terminated()) { return; }
-            auto *term = bb->terminator();
-            if (term->isa<ContinueInst>()) {
-                auto *cont = static_cast<ContinueInst *>(term);
-                if (cont->target_block() == site.old_update) { cont->set_target_block(new_update); }
+        for (auto *cont : completing_update) {
+            cont->set_target_block(new_update);
+        }
+        for (auto *cont : entering_update) {
+            auto *parent = cont->parent_block();
+            auto old_cont = cont->remove_self();
+            b.set_insertion_point(parent);
+            auto *branch = b.br(site.old_update);
+            for (auto *metadata : old_cont->metadata_list()) {
+                branch->metadata_list().push_front(
+                    metadata->clone());
             }
-        });
+        }
     }
     return true;
 }
@@ -3515,6 +3611,12 @@ struct CloneRemap final : public InstructionCloneValueResolver {
     }
 };
 
+[[nodiscard]] bool is_opaque_ray_query_type(
+    const Type *type) noexcept {
+    return type == Type::custom("LC_RayQueryAll") ||
+           type == Type::custom("LC_RayQueryAny");
+}
+
 // For a construct C with header H and one of its entries E, decide whether predecessor
 // P of E is "authorized" per the XIR invariant.
 [[nodiscard]] bool is_authorized_construct_pred(Instruction *header_term,
@@ -3593,17 +3695,63 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                                  BasicBlock *E, BasicBlock *P,
                                                  luisa::span<BasicBlock *const> entries,
                                                  BasicBlock *merge_bb,
-                                                 const DomTree &dom) noexcept {
+                                                 const DomTree &dom,
+                                                 bool lower_cloned_structured_branches = false) noexcept {
     luisa::unordered_set<BasicBlock *> region;
     luisa::vector<BasicBlock *> ordered;
     collect_owned_region(E, header_bb, entries, merge_bb, dom, region, ordered);
     if (region.empty()) { return false; }
-
     // Pre-create cloned BBs in deterministic order.
     CloneRemap remap;
     for (auto *B : ordered) {
         auto *NB = def->create_basic_block();
         remap.map[B] = NB;
+    }
+
+    // Ray-query objects are affine state: one direct query initializer binds
+    // one local alloca, and the object is then mutated in place. Node splitting
+    // duplicates a mutually exclusive execution path. If that path contains
+    // the binding store, sharing the original alloca would create two static
+    // initializers for one opaque object; copying the object through ordinary
+    // state is likewise undefined. Give the cloned path its own storage and
+    // remap every cloned use to it. Ordinary allocas intentionally remain
+    // shared so state-dispatch transport retains its value semantics.
+    luisa::vector<AllocaInst *> affine_allocas;
+    luisa::unordered_set<AllocaInst *> seen_affine_allocas;
+    for (auto *old_bb : ordered) {
+        for (auto *old_inst : old_bb->instructions()) {
+            if (!old_inst->isa<StoreInst>()) { continue; }
+            auto *store = static_cast<StoreInst *>(old_inst);
+            auto *variable = store->variable();
+            auto *value = store->value();
+            if (variable == nullptr ||
+                !variable->isa<AllocaInst>() ||
+                value == nullptr ||
+                !is_opaque_ray_query_type(variable->type()) ||
+                value->type() != variable->type()) {
+                continue;
+            }
+            auto *alloca =
+                static_cast<AllocaInst *>(variable);
+            if (seen_affine_allocas.emplace(alloca).second) {
+                affine_allocas.emplace_back(alloca);
+            }
+        }
+    }
+    if (!affine_allocas.empty()) {
+        XIRBuilder alloca_builder;
+        alloca_builder.set_insertion_point(
+            def->body_block()
+                ->instructions()
+                .head_sentinel());
+        for (auto *old_alloca : affine_allocas) {
+            auto *new_alloca = static_cast<AllocaInst *>(
+                old_alloca->clone_with_metadata(
+                    alloca_builder, remap));
+            new_alloca->add_comment(
+                "opaque state cloned for a split CFG path");
+            remap.map[old_alloca] = new_alloca;
+        }
     }
 
     // Clone instructions of each region block into its counterpart.
@@ -3612,7 +3760,25 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
         auto *new_bb = static_cast<BasicBlock *>(remap.map[old_bb]);
         builder.set_insertion_point(new_bb);
         for (auto *old_inst : old_bb->instructions()) {
-            auto *new_inst = old_inst->clone_with_metadata(builder, remap);
+            Instruction *new_inst = nullptr;
+            if (lower_cloned_structured_branches &&
+                (old_inst->isa<BreakInst>() ||
+                 old_inst->isa<ContinueInst>())) {
+                auto *old_branch = static_cast<
+                    BranchTerminatorInstruction *>(old_inst);
+                auto *new_target = static_cast<BasicBlock *>(
+                    remap.resolve(
+                        old_branch->target_block()));
+                new_inst = builder.br(new_target);
+                for (auto *metadata :
+                     old_inst->metadata_list()) {
+                    new_inst->metadata_list().push_front(
+                        metadata->clone());
+                }
+            } else {
+                new_inst = old_inst->clone_with_metadata(
+                    builder, remap);
+            }
             if (old_inst->type() != nullptr) {
                 remap.map[old_inst] = new_inst;
             }
@@ -3634,6 +3800,133 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
     return true;
 }
 
+struct StructuredSelectionEntryOwner {
+    BasicBlock *header{nullptr};
+    BasicBlock *merge{nullptr};
+    luisa::vector<BasicBlock *> entries;
+    size_t depth{0u};
+};
+
+// An exit-state dispatch can re-enter an arm of a selection that has already
+// merged. In graph terms, the original selection edge and the dispatch edge
+// are two entries into the newly formed cycle, so wrapping the dispatch in
+// another selection cannot be valid structured control flow. It also cannot
+// converge: single-exit canonicalization recreates the same dispatch.
+//
+// Split exactly the re-entered selection arm, using its declared merge as the
+// frontier. The copied arm is finite by construction, the dispatch becomes its
+// sole entry, and the resulting cycle has the dispatch as a natural-loop
+// header. This is the standard node-splitting reduction from a multi-entry
+// region to a reducible one; the normal loop structurizer handles it on the
+// next fixed-point iteration.
+[[nodiscard]] bool split_one_exit_dispatch_selection_reentry(
+    FunctionDefinition *def,
+    DomTree &dom,
+    PostDomInfo &pdom,
+    RestructureCFGInfo &info,
+    const luisa::unordered_set<BasicBlock *> &
+        exit_dispatch_headers) noexcept {
+    for (auto *dispatch : exit_dispatch_headers) {
+        if (dispatch == nullptr || !dispatch->is_terminated() ||
+            !dispatch->terminator()
+                 ->isa<ConditionalBranchInst>() ||
+            !dom.contains(dispatch)) {
+            continue;
+        }
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            dispatch->terminator());
+        auto targets =
+            std::array{branch->true_block(),
+                       branch->false_block()};
+        for (auto *target : targets) {
+            if (target == nullptr || !dom.contains(target) ||
+                dom.dominates(dispatch, target)) {
+                continue;
+            }
+            StructuredSelectionEntryOwner owner;
+            def->traverse_basic_blocks(
+                [&](BasicBlock *candidate_header) noexcept {
+                    if (candidate_header == nullptr ||
+                        !candidate_header->is_terminated() ||
+                        !dom.contains(candidate_header)) {
+                        return;
+                    }
+                    auto *term =
+                        candidate_header->terminator();
+                    if (!term->isa<IfInst>() &&
+                        !term->isa<SwitchInst>()) {
+                        return;
+                    }
+                    auto *merge =
+                        structured_statement_merge(term);
+                    if (merge == nullptr ||
+                        !dom.contains(merge) ||
+                        !dom.dominates(
+                            candidate_header, dispatch) ||
+                        !dom.dominates(merge, dispatch)) {
+                        return;
+                    }
+                    luisa::vector<BasicBlock *> entries;
+                    collect_construct_entries(
+                        candidate_header, entries);
+                    if (std::find(
+                            entries.begin(), entries.end(),
+                            target) == entries.end()) {
+                        return;
+                    }
+                    auto depth =
+                        dom_depth(dom, candidate_header);
+                    if (owner.header == nullptr ||
+                        depth > owner.depth) {
+                        owner = {
+                            .header = candidate_header,
+                            .merge = merge,
+                            .entries = std::move(entries),
+                            .depth = depth};
+                    }
+                });
+            if (owner.header == nullptr) { continue; }
+
+            // Cloning duplicates definitions along mutually exclusive paths.
+            // Transport cross-block values through typed local state first, so
+            // either the original arm or its clone writes the same slot before
+            // the common continuation reloads it.
+            repair_target_state_dispatch_ssa(def);
+            dom = compute_dom_tree(def);
+            pdom = compute_post_dom(def);
+            LUISA_ASSERT(
+                clone_owned_subgraph_for_edge(
+                    def, owner.header, target, dispatch,
+                    luisa::span<BasicBlock *const>{
+                        owner.entries.data(),
+                        owner.entries.size()},
+                    owner.merge, dom, true),
+                "Selection re-entry node splitting made no progress.");
+            ++info.canonicalized_cfg_count;
+            dom = compute_dom_tree(def);
+            pdom = compute_post_dom(def);
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool split_exit_dispatch_selection_reentries(
+    FunctionDefinition *def,
+    DomTree &dom,
+    PostDomInfo &pdom,
+    RestructureCFGInfo &info,
+    const luisa::unordered_set<BasicBlock *> &
+        exit_dispatch_headers) noexcept {
+    auto modified = false;
+    while (split_one_exit_dispatch_selection_reentry(
+        def, dom, pdom, info,
+        exit_dispatch_headers)) {
+        modified = true;
+    }
+    return modified;
+}
+
 // Per-construct entry-uniqueness fix. Returns true if any edges were rewritten.
 [[nodiscard]] bool enforce_construct_entries(FunctionDefinition *def,
                                              BasicBlock *header_bb,
@@ -3647,17 +3940,26 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
     bool changed_any = false;
     bool site_claimed = false;
     auto *site = header_bb->terminator();
+    DomTree dom;
+    bool dom_valid = false;
     // Iterate entries in their natural order; per Oracle's design, if the sibling-entry
     // graph is acyclic, fixing earlier entries does not create new bad edges into them.
     for (auto *E : entries) {
         luisa::unordered_set<BasicBlock *> rewritten_predecessors;
-        // Defer dom-tree computation until we know there are offenders.
-        // Recompute only after a successful clone invalidates the old tree.
-        DomTree dom;
-        bool dom_valid = false;
         for (;;) {
+            if (!dom_valid) {
+                dom = compute_dom_tree(def);
+                dom_valid = true;
+            }
+            // Structured-entry legality is defined over the executable CFG.
+            // Owned but disconnected blocks are deliberately absent from the
+            // dominance tree and cannot introduce another dynamic entry.
+            if (!dom.contains(header_bb) || !dom.contains(E)) {
+                break;
+            }
             luisa::vector<BasicBlock *> offenders;
             E->traverse_predecessors(false, [&](BasicBlock *P) noexcept {
+                if (!dom.contains(P)) { return; }
                 if (!is_authorized_construct_pred(header_bb->terminator(), E, header_bb, P)) {
                     offenders.emplace_back(P);
                 }
@@ -3672,10 +3974,6 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                     ++info.iteration_limit_count;
                     return changed_any;
                 }
-            }
-            if (!dom_valid) {
-                dom = compute_dom_tree(def);
-                dom_valid = true;
             }
             bool local_change = false;
             for (auto *P : offenders) {
@@ -4388,8 +4686,12 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_unauthorized_construct_entries(
     FunctionDefinition *def) noexcept {
     size_t count = 0u;
+    auto dom = compute_dom_tree(def);
     for (auto *header : def->basic_blocks()) {
-        if (header == nullptr || !header->is_terminated()) { continue; }
+        if (header == nullptr || !header->is_terminated() ||
+            !dom.contains(header)) {
+            continue;
+        }
         auto *term = header->terminator();
         switch (term->derived_instruction_tag()) {
             case DerivedInstructionTag::IF:
@@ -4404,7 +4706,14 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         auto invalid = false;
         for (auto *entry : entries) {
             entry->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
-                invalid |= !is_authorized_construct_pred(term, entry, header, predecessor);
+                // BasicBlock predecessor traversal follows the complete
+                // use-list, including disconnected blocks retained for stable
+                // ownership. Construct-entry legality is an executable-CFG
+                // property, so only predecessors represented in the same
+                // reachable dominance tree participate.
+                if (!dom.contains(predecessor)) { return; }
+                invalid |= !is_authorized_construct_pred(
+                    term, entry, header, predecessor);
             });
         }
         count += invalid ? 1u : 0u;
@@ -4760,6 +5069,11 @@ restructure_cfg_on_definition_in_place(
                     def, dom, pdom, info,
                     exit_dispatch_headers)) {
                 ++info.canonicalized_cfg_count;
+                local = true;
+            }
+            if (split_exit_dispatch_selection_reentries(
+                    def, dom, pdom, info,
+                    exit_dispatch_headers)) {
                 local = true;
             }
             for (auto *header : exit_dispatch_headers) {
