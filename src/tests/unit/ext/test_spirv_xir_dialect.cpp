@@ -2218,7 +2218,7 @@ int main(int argc, char *argv[]) {
         expect(has_diagnostic(validation, "kernel ABI"));
     };
 
-    "spirv_xir_used_callable_buffer_requires_specialization"_test = [] {
+    "spirv_xir_accepts_unique_readonly_callable_buffer_origin"_test = [] {
         Module module;
         auto callable = module.create_callable(Type::of<uint32_t>());
         auto buffer = callable->create_resource_argument(
@@ -2243,10 +2243,9 @@ int main(int argc, char *argv[]) {
             "the callable-buffer specialization fixture must be valid generic XIR");
         auto validation =
             lc::spirv::validate_spirv_xir_codegen_dialect(&module);
-        expect_only_diagnostic_at(
-            validation, callable, nullptr, nullptr,
-            "buffer and bindless descriptors");
-        expect(has_diagnostic(validation, "specialized at call sites"));
+        expect(validation.succeeded())
+            << "a read-only callable buffer with one kernel origin is "
+               "representable by the module-level descriptor";
     };
 
     "spirv_xir_writable_callable_accel_requires_specialization"_test = [] {

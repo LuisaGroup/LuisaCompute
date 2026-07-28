@@ -180,6 +180,8 @@ private:
     luisa::unordered_map<spv::Id, RayQueryState> _ray_query_states;
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
     SpirvFunctionArgumentAnalysisMap _function_argument_usage;
+    SpirvReadonlyResourceOriginMap
+        _readonly_resource_origins;
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
     luisa::unordered_map<const Type *, SpirvAtomicBufferStoragePlan>
         _atomic_buffer_storage_plans;

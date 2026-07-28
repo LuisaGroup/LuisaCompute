@@ -488,6 +488,170 @@ int main(int argc, char *argv[]) {
             << "an unused resource formal must not force specialization";
     };
 
+    "spirv_pointer_legalization_outlines_unique_readonly_buffer_origin"_test = [] {
+        Callable read = [](BufferUInt input, UInt index) noexcept {
+            return input.read(index);
+        };
+        Kernel1D kernel = [&read](BufferUInt input,
+                                  BufferUInt output) noexcept {
+            output.write(
+                0u, read(input, 0u) + read(input, 1u));
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "a callable read-only resource with one kernel origin must "
+               "use that module-level descriptor without call-site inlining";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(
+                module.get());
+        expect(dialect.succeeded())
+            << (dialect.diagnostics.empty() ?
+                    "unknown dialect failure" :
+                    dialect.diagnostics.front().message);
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get());
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(
+                   luisa::span{compiled.spv_bin},
+                   spv::Op::OpFunctionCall) > 0u)
+            << "the read-only callable must remain outlined";
+    };
+
+    "spirv_pointer_legalization_proves_transitive_readonly_buffer_origin"_test = [] {
+        Callable read = [](BufferUInt input, UInt index) noexcept {
+            return input.read(index);
+        };
+        Callable relay = [&read](BufferUInt input,
+                                 UInt index) noexcept {
+            return read(input, index);
+        };
+        Kernel1D kernel = [&relay](BufferUInt input,
+                                   BufferUInt output) noexcept {
+            output.write(0u, relay(input, 1u));
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "the unique kernel origin must propagate through every "
+               "read-only callable forwarding edge";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(
+                module.get());
+        expect(dialect.succeeded())
+            << (dialect.diagnostics.empty() ?
+                    "unknown dialect failure" :
+                    dialect.diagnostics.front().message);
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get());
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(
+                   luisa::span{compiled.spv_bin},
+                   spv::Op::OpFunctionCall) >= 2u)
+            << "both forwarding callables must remain outlined";
+    };
+
+    "spirv_pointer_legalization_specializes_conflicting_readonly_buffer_origins"_test = [] {
+        Callable read = [](BufferUInt input, UInt index) noexcept {
+            return input.read(index);
+        };
+        Kernel1D kernel = [&read](BufferUInt input_a,
+                                  BufferUInt input_b,
+                                  BufferUInt output) noexcept {
+            output.write(
+                0u, read(input_a, 0u) + read(input_b, 0u));
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 2u))
+            << "two distinct kernel descriptors are a conflicting origin, "
+               "never a proof that the callable ABI can omit the resource";
+        expect(eq(legalized.inline_info.inlined_call_count, 2u));
+        expect(eq(legalized.remaining_pointer_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get());
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(eq(count_opcode(
+                      luisa::span{compiled.spv_bin},
+                      spv::Op::OpFunctionCall),
+                  0u))
+            << "conflicting descriptor origins must retain the conservative "
+               "call-site specialization fallback";
+    };
+
+    "spirv_pointer_legalization_outlines_unique_readonly_bindless_origin"_test = [] {
+        Callable read = [](BindlessVar bindless,
+                           UInt index) noexcept {
+            return bindless.buffer<uint32_t>(0u).read(index);
+        };
+        Kernel1D kernel = [&read](BindlessVar bindless,
+                                  BufferUInt output) noexcept {
+            output.write(
+                0u, read(bindless, 0u) + read(bindless, 1u));
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "a uniquely rooted read-only bindless array must use its "
+               "kernel descriptor and metadata without inlining";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(
+                module.get());
+        expect(dialect.succeeded())
+            << (dialect.diagnostics.empty() ?
+                    "unknown dialect failure" :
+                    dialect.diagnostics.front().message);
+        lc::spirv::SpirvTargetFeatures features{
+            .descriptor_indexing = true,
+            .runtime_descriptor_array = true,
+            .descriptor_binding_partially_bound = true,
+            .storage_buffer_array_non_uniform_indexing = true,
+            .descriptor_binding_storage_buffer_update_after_bind = true,
+            .storage_buffer_array_dynamic_indexing = true};
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get(), features);
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(
+                   luisa::span{compiled.spv_bin},
+                   spv::Op::OpFunctionCall) > 0u)
+            << "the read-only bindless callable must remain outlined";
+    };
+
     "spirv_pointer_legalization_specializes_writable_accel_callable"_test = [] {
         Callable update = [](AccelVar accel) noexcept {
             accel.set_instance_user_id(0u, 19u);

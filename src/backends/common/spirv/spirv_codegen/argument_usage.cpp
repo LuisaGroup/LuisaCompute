@@ -422,6 +422,163 @@ analyze_spirv_function_argument_usage(
     return analysis;
 }
 
+SpirvReadonlyResourceOriginMap
+analyze_spirv_readonly_resource_origins(
+    const xir::Module *module,
+    const SpirvFunctionArgumentAnalysisMap &usage) noexcept {
+    SpirvReadonlyResourceOriginMap origins;
+    if (module == nullptr) { return origins; }
+
+    struct OriginState {
+        const xir::Argument *origin{nullptr};
+        bool conflicting{false};
+    };
+    luisa::unordered_map<const xir::Argument *, OriginState> states;
+    for (auto *function : module->function_list()) {
+        if (function == nullptr ||
+            function->derived_function_tag() !=
+                xir::DerivedFunctionTag::CALLABLE) {
+            continue;
+        }
+        for (auto *argument : function->arguments()) {
+            auto *type = argument == nullptr ? nullptr :
+                                               argument->type();
+            if (argument == nullptr || !argument->is_resource() ||
+                type == nullptr ||
+                (!type->is_buffer() &&
+                 !type->is_bindless_array()) ||
+                spirv_function_argument_usage_of(
+                    usage, function, argument) != Usage::READ) {
+                continue;
+            }
+            states.emplace(argument, OriginState{});
+        }
+    }
+    if (states.empty()) { return origins; }
+
+    luisa::unordered_map<
+        const xir::Argument *,
+        luisa::vector<const xir::Value *>>
+        actuals;
+    for (auto *function : module->function_list()) {
+        auto *definition =
+            function == nullptr ? nullptr :
+                                  function->definition();
+        if (definition == nullptr) { continue; }
+        auto closure =
+            plan_spirv_codegen_structural_closure(
+                definition);
+        if (!closure.succeeded()) { continue; }
+        for (auto *block : closure.blocks) {
+            block->traverse_instructions(
+                [&](const xir::Instruction *instruction) noexcept {
+                    if (!instruction->isa<xir::CallInst>()) {
+                        return;
+                    }
+                    auto *call =
+                        static_cast<const xir::CallInst *>(
+                            instruction);
+                    auto *callee = call->callee();
+                    if (callee == nullptr) { return; }
+                    auto argument_index = size_t{0u};
+                    for (auto *formal : callee->arguments()) {
+                        auto state_iter = states.find(formal);
+                        if (state_iter != states.end()) {
+                            if (argument_index <
+                                call->argument_count()) {
+                                actuals[formal].emplace_back(
+                                    call->argument(
+                                        argument_index));
+                            } else {
+                                state_iter->second.conflicting =
+                                    true;
+                            }
+                        }
+                        argument_index++;
+                    }
+                });
+        }
+    }
+
+    // The lattice is:
+    //   unresolved < unique(kernel argument) < conflicting.
+    // A state is promoted to unique only after every incoming edge is
+    // resolved. Therefore a published origin is a proof over all call sites,
+    // while recursion or incomplete/malformed flow remains conservatively
+    // unresolved. The SPIR-V call graph rejects recursion independently.
+    for (auto changed = true; changed;) {
+        changed = false;
+        for (auto &[formal, state] : states) {
+            if (state.conflicting || state.origin != nullptr) {
+                continue;
+            }
+            auto actual_iter = actuals.find(formal);
+            if (actual_iter == actuals.end() ||
+                actual_iter->second.empty()) {
+                continue;
+            }
+            const xir::Argument *candidate = nullptr;
+            auto unresolved = false;
+            auto conflicting = false;
+            for (auto *actual_value : actual_iter->second) {
+                if (actual_value == nullptr ||
+                    !actual_value->isa<xir::Argument>()) {
+                    conflicting = true;
+                    break;
+                }
+                auto *actual =
+                    static_cast<const xir::Argument *>(
+                        actual_value);
+                auto *owner = actual->parent_function();
+                const xir::Argument *actual_origin = nullptr;
+                if (owner != nullptr &&
+                    owner->derived_function_tag() ==
+                        xir::DerivedFunctionTag::KERNEL &&
+                    actual->is_resource()) {
+                    actual_origin = actual;
+                } else {
+                    auto dependency = states.find(actual);
+                    if (dependency == states.end() ||
+                        dependency->second.conflicting) {
+                        conflicting = true;
+                        break;
+                    }
+                    if (dependency->second.origin == nullptr) {
+                        unresolved = true;
+                        continue;
+                    }
+                    actual_origin =
+                        dependency->second.origin;
+                }
+                if (actual_origin == nullptr ||
+                    actual_origin->type() != formal->type()) {
+                    conflicting = true;
+                    break;
+                }
+                if (candidate == nullptr) {
+                    candidate = actual_origin;
+                } else if (candidate != actual_origin) {
+                    conflicting = true;
+                    break;
+                }
+            }
+            if (conflicting) {
+                state.conflicting = true;
+                changed = true;
+            } else if (!unresolved && candidate != nullptr) {
+                state.origin = candidate;
+                changed = true;
+            }
+        }
+    }
+    for (auto &&[formal, state] : states) {
+        if (!state.conflicting && state.origin != nullptr) {
+            origins.emplace(formal, state.origin);
+        }
+    }
+    return origins;
+}
+
 Usage spirv_function_argument_usage_of(
     const SpirvFunctionArgumentAnalysisMap &analysis,
     const xir::Function *function,

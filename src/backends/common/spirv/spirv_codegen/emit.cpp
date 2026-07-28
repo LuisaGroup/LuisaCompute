@@ -93,6 +93,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _global_invocation_id_var = spv::NoResult;
     _dispatch_metadata = {};
     _functions_requiring_dispatch_metadata.clear();
+    _readonly_resource_origins.clear();
 }
 
 bool SpirvCodegenEntry::_is_indirect_dispatch_type(
@@ -1340,11 +1341,18 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         auto analyzed_usage = spirv_function_argument_usage_of(
             _function_argument_usage, callable, arg);
         bool used = analyzed_usage != Usage::NONE;
-        arg_used.push_back(used);
-        if (!used && _is_kernel_resource_argument(arg)) {
+        auto module_specialized =
+            arg->is_resource() &&
+            _readonly_resource_origins.contains(arg);
+        arg_used.push_back(used && !module_specialized);
+        if ((!used || module_specialized) &&
+            _is_kernel_resource_argument(arg)) {
             // Skip unused resource arguments to avoid type mismatches
             // between kernel globals (which may be arrays or have different
-            // sampled/storage qualifiers) and callable parameters.
+            // sampled/storage qualifiers) and callable parameters. A
+            // module-specialized read-only resource is skipped for the same
+            // ABI reason and resolved to its unique kernel binding at each
+            // use inside the callable.
             continue;
         }
         auto usage = _function_argument_usage_of(callable, arg);
@@ -1490,6 +1498,9 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     auto analysis = _analyze_module_usage(module);
     _analyze_dispatch_metadata_requirements(analysis);
     _analyze_function_argument_usage(module);
+    _readonly_resource_origins =
+        analyze_spirv_readonly_resource_origins(
+            module, _function_argument_usage);
     LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
                      analysis.used_functions_post_order.back()->isa<xir::KernelFunction>(),
                  "SPIR-V module plan requires the kernel to be last in callable post-order.");

@@ -1993,7 +1993,7 @@ OpName %8 "Fma"
         }
     };
 
-    "vk_user_compute_inlines_structured_callable_after_cfg_destructure"_test = [&] {
+    "vk_user_compute_outlines_unique_readonly_resources_after_cfg_destructure"_test = [&] {
         ScopedEnvironmentVariable disable_xir_optimization{
             "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
         ScopedEnvironmentVariable disable_spirv_optimization{
@@ -2079,15 +2079,17 @@ OpName %8 "Fma"
         auto normalized_xir = std::string{
             std::istreambuf_iterator<char>{xir_stream},
             std::istreambuf_iterator<char>{}};
-        expect(normalized_xir.find("callable ") == std::string::npos)
-            << "buffer- and bindless-argument callables should each be specialized and inlined after CFG destructuring";
+        expect(count_substring(normalized_xir, "callable ") == 2u)
+            << "uniquely rooted read-only buffer and bindless callables "
+               "should remain outlined after CFG destructuring";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "Vulkan structured callable should dump exactly one native SPIR-V module";
         if (dumps.size() == 1u) {
             auto disassembly = read_text_file(dumps.front());
-            expect(count_spirv_opcode(disassembly, "FunctionCall") == 0u)
-                << "specialized buffer/bindless-argument callables must not survive as OpFunctionCall";
+            expect(count_spirv_opcode(disassembly, "FunctionCall") == 2u)
+                << "each uniquely rooted read-only resource callable must "
+                   "survive as one OpFunctionCall";
             expect(disassembly.find("VariablePointersStorageBuffer") ==
                    std::string::npos)
                 << "buffer/bindless callable specialization must not request VariablePointersStorageBuffer";

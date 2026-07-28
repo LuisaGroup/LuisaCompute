@@ -1379,6 +1379,12 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(
     if (auto it = _value_map.find(arg); it != _value_map.end()) {
         return it->second;
     }
+    if (auto origin = _readonly_resource_origins.find(arg);
+        origin != _readonly_resource_origins.end()) {
+        auto id = _resolve_resource_argument(origin->second);
+        _value_map.emplace(arg, id);
+        return id;
+    }
     auto &binding = _kernel_resource_binding(arg);
     auto property_index =
         binding.read_property_index != invalid_resource_property_index ?

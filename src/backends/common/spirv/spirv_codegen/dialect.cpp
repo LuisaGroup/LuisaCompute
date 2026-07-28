@@ -1712,6 +1712,9 @@ public:
         if (call_graph.succeeded()) {
             auto argument_analysis =
                 analyze_spirv_function_argument_usage(module);
+            auto readonly_resource_origins =
+                analyze_spirv_readonly_resource_origins(
+                    module, argument_analysis);
             // Match the emitter's hidden dispatch-metadata parameter
             // propagation exactly. The call graph is callee-before-caller.
             luisa::unordered_set<const xir::Function *>
@@ -1834,7 +1837,9 @@ public:
                                 argument_analysis, function, argument);
                         if ((type->is_buffer() ||
                              type->is_bindless_array()) &&
-                            argument_usage != Usage::NONE) {
+                            argument_usage != Usage::NONE &&
+                            !readonly_resource_origins
+                                 .contains(argument)) {
                             _error(function, nullptr, nullptr,
                                    luisa::format(
                                        "Native XIR-to-SPIR-V callable '{}' retains a used {} "
@@ -1896,7 +1901,9 @@ public:
                         auto usage = spirv_function_argument_usage_of(
                             argument_analysis, function, argument);
                         if (argument->is_resource() &&
-                            usage == Usage::NONE) {
+                            (usage == Usage::NONE ||
+                             readonly_resource_origins
+                                 .contains(argument))) {
                             continue;
                         }
                         emitted_parameter_count++;

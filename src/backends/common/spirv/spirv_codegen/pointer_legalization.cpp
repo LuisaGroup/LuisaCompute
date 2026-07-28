@@ -63,7 +63,9 @@ struct StructuredInventory {
 
 [[nodiscard]] bool call_requires_specialization(
     const xir::CallInst *call, const xir::Function *callee,
-    const SpirvFunctionArgumentAnalysisMap &usage) noexcept {
+    const SpirvFunctionArgumentAnalysisMap &usage,
+    const SpirvReadonlyResourceOriginMap
+        &readonly_resource_origins) noexcept {
     if (call == nullptr || callee == nullptr ||
         call->argument_count() != callee->arguments().count_size()) {
         return true;
@@ -82,7 +84,10 @@ struct StructuredInventory {
                 usage, callee, formal);
             if (argument_usage == Usage::NONE) { continue; }
             if (type->is_buffer() || type->is_bindless_array()) {
-                return true;
+                if (!readonly_resource_origins.contains(formal)) {
+                    return true;
+                }
+                continue;
             }
             if (type->is_accel() &&
                 (usage_contains(argument_usage, Usage::WRITE) ||
@@ -106,7 +111,9 @@ struct StructuredInventory {
 
 [[nodiscard]] luisa::vector<PointerCall> collect_pointer_calls(
     xir::Module *module,
-    const SpirvFunctionArgumentAnalysisMap &usage) noexcept {
+    const SpirvFunctionArgumentAnalysisMap &usage,
+    const SpirvReadonlyResourceOriginMap
+        &readonly_resource_origins) noexcept {
     luisa::vector<PointerCall> calls;
     for (auto *function : module->function_list()) {
         auto *definition = function->definition();
@@ -124,7 +131,9 @@ struct StructuredInventory {
                         xir::DerivedFunctionTag::CALLABLE) {
                     continue;
                 }
-                if (call_requires_specialization(call, callee, usage)) {
+                if (call_requires_specialization(
+                        call, callee, usage,
+                        readonly_resource_origins)) {
                     calls.emplace_back(PointerCall{call, callee});
                 }
             }
@@ -338,7 +347,11 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
     luisa::unordered_set<xir::Function *> blocking_functions_seen;
     for (;;) {
         auto usage = analyze_spirv_function_argument_usage(module);
-        auto pointer_calls = collect_pointer_calls(module, usage);
+        auto readonly_resource_origins =
+            analyze_spirv_readonly_resource_origins(
+                module, usage);
+        auto pointer_calls = collect_pointer_calls(
+            module, usage, readonly_resource_origins);
         if (pointer_calls.empty()) { break; }
         result.planned_pointer_call_count += pointer_calls.size();
 
@@ -432,10 +445,15 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             if (!destructured.succeeded()) {
                 result.status =
                     SpirvPointerLegalizationStatus::DESTRUCTURE_FAILED;
+                auto remaining_usage =
+                    analyze_spirv_function_argument_usage(module);
+                auto remaining_readonly_resource_origins =
+                    analyze_spirv_readonly_resource_origins(
+                        module, remaining_usage);
                 result.remaining_pointer_call_count =
                     collect_pointer_calls(
-                        module,
-                        analyze_spirv_function_argument_usage(module))
+                        module, remaining_usage,
+                        remaining_readonly_resource_origins)
                         .size();
                 result.diagnostic = luisa::format(
                     "SPIR-V pointer-argument fallback could not destructure a "
@@ -461,8 +479,14 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             inline_info.skipped_recursive_callable_count != 0u) {
             auto remaining_usage =
                 analyze_spirv_function_argument_usage(module);
+            auto remaining_readonly_resource_origins =
+                analyze_spirv_readonly_resource_origins(
+                    module, remaining_usage);
             result.remaining_pointer_call_count =
-                collect_pointer_calls(module, remaining_usage).size();
+                collect_pointer_calls(
+                    module, remaining_usage,
+                    remaining_readonly_resource_origins)
+                    .size();
             result.status =
                 SpirvPointerLegalizationStatus::INLINE_RETRY_FAILED;
             result.diagnostic = luisa::format(
