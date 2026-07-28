@@ -27,6 +27,8 @@ namespace lc::spirv {
 using namespace luisa;
 using namespace luisa::compute;
 
+struct SpirvKernelArgumentLayoutPlan;
+
 struct SpirvResult {
     using Properties = vstd::vector<Property>;
     std::vector<uint32_t> spv_bin;
@@ -262,7 +264,9 @@ private:
     void _finalize_phis() noexcept;
     void _emit_phi_inst(const xir::PhiInst *instruction) noexcept;
     void _prepare_control_flow_plan(const xir::FunctionDefinition *def) noexcept;
-    void _emit_kernel(const xir::KernelFunction *kernel) noexcept;
+    void _emit_kernel(
+        const xir::KernelFunction *kernel,
+        const SpirvKernelArgumentLayoutPlan &argument_layout) noexcept;
     void _emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept;
     void _reset_function_codegen_state() noexcept;
     void _emit_function_blocks(const xir::FunctionDefinition *def) noexcept;

@@ -2099,6 +2099,62 @@ OpName %8 "Fma"
         }
     };
 
+    "vk_user_compute_outlined_readonly_buffer_uses_frozen_kernel_argument_layout"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_outlined_buffer_metadata_layout"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+        auto backing = device.create_buffer<uint32_t>(8u);
+        auto output = device.create_buffer<uint32_t>(4u);
+
+        Callable inspect = [](BufferUInt source,
+                              UInt index) noexcept {
+            return source.read(index);
+        };
+        Kernel1D kernel = [&](BufferUInt source,
+                              BufferUInt destination,
+                              UInt salt) noexcept {
+            auto i = dispatch_x();
+            destination.write(i, inspect(source, i) + salt);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            1000u, 2000u, 11u, 22u, 33u, 44u, 3000u, 4000u};
+        std::array<uint32_t, 4u> result{};
+        stream << backing.copy_from(luisa::span{source})
+               << shader(backing.view(2u, 4u), output, 7u)
+                      .dispatch(4u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+
+        constexpr std::array expected{18u, 29u, 40u, 51u};
+        expect(result == expected)
+            << "an outlined read-only callable must use the kernel ABI's "
+               "nonzero metadata offset for the direct-buffer subview bias";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "outlined direct-buffer metadata regression should emit one "
+               "native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(disassembly, "FunctionCall") == 1u)
+                << "the regression must cross a real outlined callable boundary";
+        }
+    };
+
     "vk_user_compute_autodiff_inlines_multiblock_callable_after_cfg_destructure"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
         auto dump_dir = std::filesystem::temp_directory_path() /

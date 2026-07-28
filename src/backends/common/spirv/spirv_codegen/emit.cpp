@@ -1142,7 +1142,9 @@ void SpirvCodegenEntry::_emit_function_blocks(const xir::FunctionDefinition *def
     _finalize_phis();
 }
 
-void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept {
+void SpirvCodegenEntry::_emit_kernel(
+    const xir::KernelFunction *kernel,
+    const SpirvKernelArgumentLayoutPlan &argument_layout) noexcept {
     _reset_function_codegen_state();
     auto uniformity_blocks =
         collect_spirv_codegen_structural_closure(kernel);
@@ -1150,13 +1152,15 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
         kernel, luisa::span<const xir::BasicBlock *const>{
                     uniformity_blocks.data(), uniformity_blocks.size()});
     auto ret_type = _builder.makeVoidType();
-    auto argument_layout =
-        plan_spirv_kernel_argument_layout(kernel);
     LUISA_ASSERT(
         argument_layout.succeeded(),
-        "SPIR-V dialect validation failed to reject an invalid kernel "
-        "argument-block layout: {}",
-        argument_layout.diagnostic);
+        "SPIR-V kernel emission requires the validated module-wide argument "
+        "layout plan.");
+    LUISA_ASSERT(
+        _buffer_metadata_offset ==
+            argument_layout.buffer_metadata_offset,
+        "SPIR-V kernel emission observed a direct-buffer metadata offset "
+        "different from the layout frozen before callable emission.");
     spv::Block *entry = nullptr;
     // Entry point must have no parameters in SPIR-V
     auto func = _builder.makeFunctionEntry(spv::NoPrecision, ret_type, "main",
@@ -1185,9 +1189,6 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
             _value_map.emplace(arg, loaded);
         }
     }
-    _buffer_metadata_offset =
-        argument_layout.buffer_metadata_offset;
-
     _entry_point_inst = _builder.addEntryPoint(spv::ExecutionModel::GLCompute, func, "main");
     for (auto id : _property_ids) {
         _register_entry_point_interface(id);
@@ -1504,9 +1505,22 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
                      analysis.used_functions_post_order.back()->isa<xir::KernelFunction>(),
                  "SPIR-V module plan requires the kernel to be last in callable post-order.");
-    _kernel_block_size = static_cast<const xir::KernelFunction *>(
-                             analysis.used_functions_post_order.back())
-                             ->block_size();
+    auto *kernel = static_cast<const xir::KernelFunction *>(
+        analysis.used_functions_post_order.back());
+    auto argument_layout =
+        plan_spirv_kernel_argument_layout(kernel);
+    LUISA_ASSERT(
+        argument_layout.succeeded(),
+        "SPIR-V dialect validation failed to reject an invalid kernel "
+        "argument-block layout: {}",
+        argument_layout.diagnostic);
+    // Callables are emitted before their kernel in post-order. Any callable
+    // specialized to a direct kernel buffer may load that buffer view's
+    // offset, size, or address from the shared argument block, so the complete
+    // kernel ABI must be frozen before the first function is emitted.
+    _buffer_metadata_offset =
+        argument_layout.buffer_metadata_offset;
+    _kernel_block_size = kernel->block_size();
 
     // Storage capabilities must be fixed before function emission. Buffer
     // resources are StorageBuffer-backed; non-resource kernel arguments use the
@@ -1606,7 +1620,10 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
         if (auto def = f->definition()) {
             switch (f->derived_function_tag()) {
                 case xir::DerivedFunctionTag::KERNEL:
-                    _emit_kernel(static_cast<const xir::KernelFunction *>(f));
+                    LUISA_ASSERT(
+                        f == kernel,
+                        "SPIR-V module plan contains more than one kernel.");
+                    _emit_kernel(kernel, argument_layout);
                     break;
                 case xir::DerivedFunctionTag::CALLABLE:
                     _emit_callable(static_cast<const xir::CallableFunction *>(f), module);
