@@ -776,7 +776,13 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             auto is_ray_query_wrapper =
                 name.starts_with("luisa_ray_query_") ||
                 name.starts_with("luisa_motion_ray_query_");
-            if (is_ray_query_wrapper) {
+            auto is_stack_overflow_fallback =
+                name.starts_with(
+                    "luisa_hiprt_stack_overflow_fallback_");
+            if (is_stack_overflow_fallback) {
+                func.removeFnAttr(llvm::Attribute::AlwaysInline);
+                func.addFnAttr(llvm::Attribute::NoInline);
+            } else if (is_ray_query_wrapper) {
                 auto is_inline_wrapper = _uses_hardware_rt_stack &&
                                          (name == "luisa_ray_query_state" ||
                                           name == "luisa_ray_query_advance" ||
@@ -978,7 +984,9 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
         auto name = func.getName();
         auto preserve_noinline =
             (name.starts_with("luisa_ray_query_") ||
-             name.starts_with("luisa_motion_ray_query_")) &&
+             name.starts_with("luisa_motion_ray_query_") ||
+             name.starts_with(
+                 "luisa_hiprt_stack_overflow_fallback_")) &&
             func.hasFnAttribute(llvm::Attribute::NoInline);
         auto preserve_convergent = preserve_noinline &&
                                    func.hasFnAttribute(llvm::Attribute::Convergent);

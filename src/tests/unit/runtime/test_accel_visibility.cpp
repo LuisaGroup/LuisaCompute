@@ -153,6 +153,76 @@ void test_accel_visibility(Device &device) {
     run(updated_masks, updated_expected, {0x4u, 0x8u}, "TLAS update");
 }
 
+void test_accel_invisible_instance_padding(Device &device) {
+    auto stream = device.create_stream();
+
+    std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    std::array triangles{Triangle{0u, 1u, 2u}};
+
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+
+    // Adding instances that no ray can see is observationally equivalent to
+    // not adding them. Keep the visible instance away from either end of the
+    // array so the test also covers nonzero instance indices in a large TLAS.
+    constexpr auto instance_count = 1024u;
+    constexpr auto visible_instance = 8u;
+    auto baseline = device.create_accel();
+    baseline.emplace_back(mesh, make_float4x4(1.0f), 0x1u, false);
+    auto padded = device.create_accel();
+    for (auto i = 0u; i < instance_count; i++) {
+        auto visible = i == visible_instance;
+        padded.emplace_back(
+            mesh, make_float4x4(1.0f), visible ? 0x1u : 0u, false);
+    }
+
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << baseline.build()
+           << padded.build()
+           << synchronize();
+
+    Kernel1D trace = [](BufferUInt4 result, AccelVar accel) noexcept {
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f));
+        AccelTraceOptions options{.visibility_mask = 0x1u};
+        auto closest = accel.intersect(ray, options);
+        auto any = accel.intersect_any(ray, options);
+        auto committed = accel.traverse(ray, options)
+                             .on_surface_candidate([](SurfaceCandidate &candidate) noexcept {
+                                 candidate.commit();
+                             })
+                             .on_procedural_candidate([](ProceduralCandidate &) noexcept {})
+                             .trace();
+        result.write(0u, make_uint4(
+                             closest->inst, cast<uint>(any),
+                             committed->inst, committed->hit_type));
+    };
+    auto shader = device.compile(trace);
+    auto result = device.create_buffer<uint4>(1u);
+    auto run = [&](Accel &accel, uint expected_instance,
+                   luisa::string_view phase) {
+        std::array<uint4, 1u> host_result{};
+        stream << shader(result, accel).dispatch(1u)
+               << result.copy_to(luisa::span{host_result})
+               << synchronize();
+        auto expected = make_uint4(
+            expected_instance, 1u, expected_instance,
+            static_cast<uint>(HitType::Surface));
+        expect(static_cast<bool>(all(host_result[0] == expected)))
+            << luisa::format(
+                   "{} invisible-instance padding changed the visible hit: got {}, expected {}",
+                   phase, host_result[0], expected);
+    };
+    run(baseline, 0u, "baseline TLAS");
+    run(padded, visible_instance, "padded TLAS");
+}
+
 void test_accel_device_mutation(Device &device) {
     auto stream = device.create_stream();
 
@@ -423,6 +493,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     test_accel_visibility(dc->device);
+    test_accel_invisible_instance_padding(dc->device);
     test_accel_device_mutation(dc->device);
     test_accel_opacity(dc->device);
 }
