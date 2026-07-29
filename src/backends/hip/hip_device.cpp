@@ -53,10 +53,10 @@ namespace {
 static constexpr char hip_shader_package_magic[] = "LCHIPAOT";
 static constexpr auto hip_shader_package_version = 2u;
 static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
-static constexpr auto hip_shader_cache_artifact_version = 1u;
+static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
 // that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 1u;
+static constexpr auto hip_shader_cache_codegen_revision = 2u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -164,6 +164,10 @@ struct HIPShaderPackage {
 struct HIPShaderCacheArtifact {
     luisa::vector<std::byte> identity;
     HIPShaderPackage package;
+};
+
+enum struct HIPShaderCacheCodeKind : uint8_t {
+    AMDGPU_CODE_OBJECT = 1u,
 };
 
 [[nodiscard]] luisa::vector<std::byte> serialize_hip_shader_package(
@@ -301,6 +305,8 @@ struct HIPShaderCacheArtifact {
         hip_shader_cache_magic,
         sizeof(hip_shader_cache_magic) - 1u);
     writer.write_u32(hip_shader_cache_artifact_version);
+    writer.write_u8(static_cast<uint8_t>(
+        HIPShaderCacheCodeKind::AMDGPU_CODE_OBJECT));
     writer.write_u64(identity.size_bytes());
     writer.write_bytes(identity.data(), identity.size_bytes());
     writer.write_u64(package.size_bytes());
@@ -320,11 +326,16 @@ deserialize_hip_shader_cache_artifact(
     HIPShaderPackageReader reader{data};
     char magic[sizeof(hip_shader_cache_magic) - 1u]{};
     uint32_t version{};
+    uint8_t code_kind{};
     uint64_t identity_size{};
     if (!reader.read_bytes(magic, sizeof(magic)) ||
         std::memcmp(magic, hip_shader_cache_magic, sizeof(magic)) != 0 ||
         !reader.read_u32(version) ||
         version != hip_shader_cache_artifact_version ||
+        !reader.read_u8(code_kind) ||
+        code_kind != static_cast<uint8_t>(
+                         HIPShaderCacheCodeKind::
+                             AMDGPU_CODE_OBJECT) ||
         !reader.read_u64(identity_size) ||
         identity_size > reader.remaining()) {
         return luisa::nullopt;
@@ -387,6 +398,12 @@ namespace {
 [[nodiscard]] luisa::vector<std::byte> make_hip_shader_cache_identity(
     Function kernel, const ShaderOption &option,
     luisa::string_view amdgpu_arch, uint32_t wave_size) noexcept {
+    auto driver_version = 0;
+    auto runtime_version = 0;
+    LUISA_CHECK_HIP(
+        hipDriverGetVersion(&driver_version));
+    LUISA_CHECK_HIP(
+        hipRuntimeGetVersion(&runtime_version));
     HIPShaderPackageWriter writer;
     // This is a canonical, fixed-width encoding. The cache filename is only an
     // index derived from these bytes; a hit is accepted only after the complete
@@ -400,6 +417,10 @@ namespace {
     writer.write_u32(HIP_VERSION_MINOR);
     writer.write_u32(HIP_VERSION_PATCH);
     writer.write_string(HIP_VERSION_GITHASH);
+    writer.write_u32(
+        static_cast<uint32_t>(driver_version));
+    writer.write_u32(
+        static_cast<uint32_t>(runtime_version));
     writer.write_u32(HIPRT_MAJOR_VERSION);
     writer.write_u32(HIPRT_MINOR_VERSION);
     writer.write_u32(HIPRT_PATCH_VERSION);
@@ -1111,6 +1132,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     }
 
     luisa::optional<HIPShaderPackage> shader_package;
+    auto shader_package_is_code_object = false;
     if (uses_shader_cache) {
         auto stream = _io->read_shader_cache(cache_name);
         if (stream != nullptr && stream->length() != 0u) {
@@ -1127,6 +1149,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                         _amdgpu_arch, wave_size)) {
                     shader_package =
                         std::move(artifact->package);
+                    shader_package_is_code_object = true;
                     LUISA_INFO(
                         "Loaded HIP shader '{}' from cache ({} bytes).",
                         cache_name, bytes.size());
@@ -1293,11 +1316,26 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
             "codegen (expected={}, generated={}).",
             metadata.requires_global_rt_stack,
             codegen_result.requires_global_rt_stack);
+        luisa::string packaged_code;
+        if (uses_shader_cache) {
+            auto code_object = with_device([&] {
+                return hip_link_llvm_bitcode(
+                    codegen_result.code, "kernel_main");
+            });
+            packaged_code.assign(
+                reinterpret_cast<const char *>(
+                    code_object.data()),
+                code_object.size());
+            shader_package_is_code_object = true;
+        } else {
+            packaged_code =
+                std::move(codegen_result.code);
+        }
         shader_package.emplace(HIPShaderPackage{
             .metadata = std::move(metadata),
             .amdgpu_arch = _amdgpu_arch,
             .wave_size = wave_size,
-            .code = std::move(codegen_result.code)});
+            .code = std::move(packaged_code)});
 
         auto package = serialize_hip_shader_package(
             shader_package->code,
@@ -1344,20 +1382,58 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     if (shader_package->metadata.kind ==
         HIPShaderMetadata::Kind::RAY_TRACING) {
         auto rt_context = hiprt_context();
-        shader = with_device([&] {
-            return luisa::new_with_allocator<HIPShaderNative>(
-                this, std::move(shader_package->code),
-                "kernel_main", shader_package->metadata,
-                rt_context,
-                std::move(bound_arguments));
-        });
+        if (shader_package_is_code_object) {
+            shader = with_device([&] {
+                auto code_object =
+                    luisa::span<const std::byte>{
+                        reinterpret_cast<
+                            const std::byte *>(
+                            shader_package->code.data()),
+                        shader_package->code.size()};
+                return luisa::new_with_allocator<
+                    HIPShaderNative>(
+                    this, code_object, "kernel_main",
+                    shader_package->metadata, rt_context,
+                    std::move(bound_arguments));
+            });
+        } else {
+            shader = with_device([&] {
+                return luisa::new_with_allocator<
+                    HIPShaderNative>(
+                    this,
+                    std::move(shader_package->code),
+                    "kernel_main",
+                    shader_package->metadata,
+                    rt_context,
+                    std::move(bound_arguments));
+            });
+        }
     } else {
-        shader = with_device([&] {
-            return luisa::new_with_allocator<HIPShaderNative>(
-                this, std::move(shader_package->code),
-                "kernel_main", shader_package->metadata,
-                std::move(bound_arguments));
-        });
+        if (shader_package_is_code_object) {
+            shader = with_device([&] {
+                auto code_object =
+                    luisa::span<const std::byte>{
+                        reinterpret_cast<
+                            const std::byte *>(
+                            shader_package->code.data()),
+                        shader_package->code.size()};
+                return luisa::new_with_allocator<
+                    HIPShaderNative>(
+                    this, code_object, "kernel_main",
+                    shader_package->metadata,
+                    std::move(bound_arguments));
+            });
+        } else {
+            shader = with_device([&] {
+                return luisa::new_with_allocator<
+                    HIPShaderNative>(
+                    this,
+                    std::move(shader_package->code),
+                    "kernel_main",
+                    shader_package->metadata,
+                    std::move(bound_arguments));
+            });
+        }
     }
 
     ShaderCreationInfo info{};
