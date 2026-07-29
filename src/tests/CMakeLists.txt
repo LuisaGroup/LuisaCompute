@@ -269,6 +269,8 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
             luisa-compute-spirv
             luisa-compute-ext-volk)
     target_include_directories(test_vk_spirv_codegen_path PRIVATE ../backends/common)
+    target_compile_options(test_vk_spirv_codegen_path PRIVATE
+            $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 endif ()
 luisa_compute_add_test(test_ray_query_world_ray unit/runtime/test_ray_query_world_ray.cpp)
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)

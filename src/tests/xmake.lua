@@ -473,6 +473,7 @@ if has_config("lc_vk_backend") and
         add_includedirs("../backends/vk")
         add_includedirs("../backends/common")
         add_deps("lc-spirv", "lc-volk")
+        add_cxxflags("/bigobj", {tools = "cl"})
     end)
 end
 test_proj("test_mesh", "integration/runtime/motion_blur/test_mesh.cpp", true)
