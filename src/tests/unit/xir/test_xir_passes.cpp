@@ -300,7 +300,7 @@ void reg_pass_entry_totality() {
         check_zero_report(4u, [](PassReport *report) noexcept {
             (void)audit_reg2mem_spills_on_module(nullptr, report);
         });
-        check_zero_report(12u, [](PassReport *report) noexcept {
+        check_zero_report(13u, [](PassReport *report) noexcept {
             (void)restructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {

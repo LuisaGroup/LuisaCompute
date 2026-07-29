@@ -30,6 +30,7 @@ struct RestructureCFGInfo {
     // These are diagnostic operation counts, not change counts.
     size_t selection_exit_boundary_analysis_count{0u};
     size_t selection_exit_site_query_count{0u};
+    size_t selection_exit_enclosing_loop_query_count{0u};
     size_t irreducible_region_count{0u};
     size_t unstructured_branch_count{0u};
     size_t invalid_construct_count{0u};

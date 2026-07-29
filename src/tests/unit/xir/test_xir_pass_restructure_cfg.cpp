@@ -976,6 +976,9 @@ void reg_restructure_cfg() {
         expect(
             info.selection_exit_site_query_count ==
             construct_count);
+        expect(
+            info.selection_exit_enclosing_loop_query_count ==
+            construct_count);
     };
 
     "restructure_empty_module_noop"_test = [] {

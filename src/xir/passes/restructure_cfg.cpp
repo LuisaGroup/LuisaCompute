@@ -2582,26 +2582,112 @@ void traverse_executable_successors(BasicBlock *block,
     return changed;
 }
 
-[[nodiscard]] luisa::unordered_set<BasicBlock *> collect_enclosing_loop_exits(FunctionDefinition *def,
-                                                                              BasicBlock *header,
-                                                                              const DomTree &dom) noexcept {
-    luisa::unordered_set<BasicBlock *> exits;
+struct StructuredLoopExitInfo {
+    BasicBlock *header{nullptr};
+    luisa::vector<BasicBlock *> exits;
+};
+
+[[nodiscard]] luisa::vector<StructuredLoopExitInfo>
+collect_structured_loop_exit_info(
+    FunctionDefinition *def) noexcept {
+    luisa::vector<StructuredLoopExitInfo> loops;
+    if (def == nullptr) { return loops; }
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated() || !dom.contains(bb) || !dom.contains(header)) { return; }
-        if (!dom.dominates(bb, header)) { return; }
+        if (!bb->is_terminated()) { return; }
         auto *term = bb->terminator();
+        StructuredLoopExitInfo info{.header = bb};
         if (term->isa<LoopInst>()) {
             auto *loop = static_cast<LoopInst *>(term);
-            if (auto *prepare = loop->prepare_block(); prepare != nullptr) { exits.emplace(prepare); }
-            if (auto *update = loop->update_block(); update != nullptr) { exits.emplace(update); }
-            if (auto *merge = loop->merge_block(); merge != nullptr) { exits.emplace(merge); }
+            if (auto *prepare = loop->prepare_block();
+                prepare != nullptr) {
+                info.exits.emplace_back(prepare);
+            }
+            if (auto *update = loop->update_block();
+                update != nullptr) {
+                info.exits.emplace_back(update);
+            }
+            if (auto *merge = loop->merge_block();
+                merge != nullptr) {
+                info.exits.emplace_back(merge);
+            }
         } else if (term->isa<SimpleLoopInst>()) {
-            auto *loop = static_cast<SimpleLoopInst *>(term);
-            if (auto *body = loop->body_block(); body != nullptr) { exits.emplace(body); }
-            if (auto *merge = loop->merge_block(); merge != nullptr) { exits.emplace(merge); }
+            auto *loop =
+                static_cast<SimpleLoopInst *>(term);
+            if (auto *body = loop->body_block();
+                body != nullptr) {
+                info.exits.emplace_back(body);
+            }
+            if (auto *merge = loop->merge_block();
+                merge != nullptr) {
+                info.exits.emplace_back(merge);
+            }
+        } else {
+            return;
         }
+        loops.emplace_back(std::move(info));
     });
+    return loops;
+}
+
+[[nodiscard]] luisa::unordered_set<BasicBlock *>
+collect_enclosing_loop_exits(
+    FunctionDefinition *def,
+    BasicBlock *header,
+    const DomTree &dom) noexcept {
+    luisa::unordered_set<BasicBlock *> exits;
+    if (!dom.contains(header)) { return exits; }
+    for (auto &&loop :
+         collect_structured_loop_exit_info(def)) {
+        if (!dom.contains(loop.header) ||
+            !dom.dominates(loop.header, header)) {
+            continue;
+        }
+        for (auto *exit : loop.exits) {
+            exits.emplace(exit);
+        }
+    }
     return exits;
+}
+
+struct SelectionExitCFGRelations {
+    luisa::unordered_set<BasicBlock *>
+        loop_boundary_selection_entries;
+    luisa::unordered_map<
+        BasicBlock *,
+        luisa::unordered_set<BasicBlock *>>
+        enclosing_loop_exits;
+};
+
+// Materialize the exact CFG relations consumed by one selection-exit scan.
+// No rewrite occurs while a scan evaluates its sites. A successful rewrite
+// returns to the caller, which rebuilds dominance and rematerializes these
+// relations before observing the new CFG.
+[[nodiscard]] SelectionExitCFGRelations
+build_selection_exit_cfg_relations(
+    FunctionDefinition *def,
+    const DomTree &dom) noexcept {
+    SelectionExitCFGRelations relations;
+    relations.loop_boundary_selection_entries =
+        collect_loop_boundary_selection_entries(def);
+    auto loops = collect_structured_loop_exit_info(def);
+    def->traverse_basic_blocks(
+        [&](BasicBlock *block) noexcept {
+            if (!dom.contains(block)) { return; }
+            for (auto &&loop : loops) {
+                if (!dom.contains(loop.header) ||
+                    !dom.dominates(
+                        loop.header, block)) {
+                    continue;
+                }
+                auto &exits =
+                    relations.enclosing_loop_exits[
+                        block];
+                for (auto *exit : loop.exits) {
+                    exits.emplace(exit);
+                }
+            }
+        });
+    return relations;
 }
 
 struct SelectionExitEdge {
@@ -2653,8 +2739,8 @@ void repair_target_state_dispatch_ssa(
     Instruction *term,
     BasicBlock *merge,
     const DomTree &dom,
-    const luisa::unordered_set<BasicBlock *> &
-        loop_boundary_selection_entries,
+    const SelectionExitCFGRelations &cfg_relations,
+    RestructureCFGInfo &info,
     luisa::unordered_set<Instruction *> &rewritten_sites,
     luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
@@ -2671,12 +2757,22 @@ void repair_target_state_dispatch_ssa(
     // continue boundaries is not a SPIR-V selection at all. It is one of the
     // explicitly permitted loop-exit branch forms and must not be wrapped in
     // another state dispatch.
-    if (loop_boundary_selection_entries.contains(header)) {
+    if (cfg_relations.loop_boundary_selection_entries
+            .contains(header)) {
         return {};
     }
     auto entries = selection_entries(term);
     if (entries.empty()) { return {}; }
-    auto loop_exits = collect_enclosing_loop_exits(def, header, dom);
+    ++info.selection_exit_enclosing_loop_query_count;
+    auto loop_exit_iter =
+        cfg_relations.enclosing_loop_exits.find(header);
+    auto is_enclosing_loop_exit =
+        [&](BasicBlock *block) noexcept {
+            return loop_exit_iter !=
+                       cfg_relations
+                           .enclosing_loop_exits.end() &&
+                   loop_exit_iter->second.contains(block);
+        };
 
     luisa::vector<SelectionExitEdge> invalid_exits;
     luisa::vector<SelectionExitEdge> merge_exits;
@@ -2726,7 +2822,9 @@ void repair_target_state_dispatch_ssa(
                 structured_statement_merge(bb->terminator());
             if (nested_merge != nullptr &&
                 !exit_dispatch_headers.contains(bb) &&
-                !loop_boundary_selection_entries.contains(bb)) {
+                !cfg_relations
+                     .loop_boundary_selection_entries
+                     .contains(bb)) {
                 if (nested_merge == merge) {
                     append_unique_exit_edge(
                         merge_exits, bb, nested_merge);
@@ -2744,8 +2842,9 @@ void repair_target_state_dispatch_ssa(
                     }
                     auto *canonical_successor =
                         canonical_exit_target(succ);
-                    if (loop_exits.contains(succ) ||
-                        loop_exits.contains(canonical_successor)) {
+                    if (is_enclosing_loop_exit(succ) ||
+                        is_enclosing_loop_exit(
+                            canonical_successor)) {
                         // A break/continue edge is semantically valid XIR, but it
                         // cannot jump across a surrounding SPIR-V selection. Route
                         // it through this selection's merge; if the selection is
@@ -2806,9 +2905,9 @@ void repair_target_state_dispatch_ssa(
         targets.begin(), targets.end(),
         [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
             auto lhs_boundary =
-                loop_exits.contains(lhs);
+                is_enclosing_loop_exit(lhs);
             auto rhs_boundary =
-                loop_exits.contains(rhs);
+                is_enclosing_loop_exit(rhs);
             return lhs_boundary && !rhs_boundary;
         });
     target_ids.clear();
@@ -2916,8 +3015,8 @@ void repair_target_state_dispatch_ssa(
     luisa::unordered_set<Instruction *> &rewritten_sites,
     luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
-    auto loop_boundary_selection_entries =
-        collect_loop_boundary_selection_entries(def);
+    auto cfg_relations =
+        build_selection_exit_cfg_relations(def, dom);
     ++info.selection_exit_boundary_analysis_count;
     struct Site {
         BasicBlock *header;
@@ -2941,7 +3040,7 @@ void repair_target_state_dispatch_ssa(
         ++info.selection_exit_site_query_count;
         auto result = canonicalize_selection_exits(
             def, site.header, site.term, site.merge, dom,
-            loop_boundary_selection_entries,
+            cfg_relations, info,
             rewritten_sites, exit_dispatch_headers);
         if (result.status != SelectionExitRewriteStatus::UNCHANGED) {
             return result;
@@ -5674,6 +5773,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_site_query",
             info.selection_exit_site_query_count);
         report->set(
+            "selection_exit_enclosing_loop_query",
+            info.selection_exit_enclosing_loop_query_count);
+        report->set(
             "irreducible_region", info.irreducible_region_count);
         report->set(
             "unstructured_branch", info.unstructured_branch_count);
@@ -5752,6 +5854,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             info.selection_exit_boundary_analysis_count;
         total.selection_exit_site_query_count +=
             info.selection_exit_site_query_count;
+        total.selection_exit_enclosing_loop_query_count +=
+            info.selection_exit_enclosing_loop_query_count;
         total.irreducible_region_count += info.irreducible_region_count;
         total.unstructured_branch_count += info.unstructured_branch_count;
         total.invalid_construct_count += info.invalid_construct_count;
@@ -5790,6 +5894,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             info.selection_exit_boundary_analysis_count;
         total.selection_exit_site_query_count +=
             info.selection_exit_site_query_count;
+        total.selection_exit_enclosing_loop_query_count +=
+            info.selection_exit_enclosing_loop_query_count;
         total.irreducible_region_count +=
             info.irreducible_region_count;
         total.unstructured_branch_count +=
