@@ -21,6 +21,10 @@ struct RestructureCFGInfo {
     // Diagnostic operation count for dominance trees built while enforcing
     // unique structured-construct entries. This is not a change count.
     size_t construct_entry_dom_tree_count{0u};
+    // Post-dominator rebuilds consumed inside one if-restructuring batch.
+    // Rebuilds are lazy: a post-mutation candidate pays for one only when its
+    // merge cannot be inferred from the current dominance tree.
+    size_t if_batch_post_dom_rebuild_count{0u};
     size_t irreducible_region_count{0u};
     size_t unstructured_branch_count{0u};
     size_t invalid_construct_count{0u};

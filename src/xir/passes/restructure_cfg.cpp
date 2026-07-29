@@ -3538,6 +3538,7 @@ void repair_target_state_dispatch_ssa(
 
     bool any = false;
     auto &created_structural_merges = all_created_structural_merges;
+    auto pdom_valid = true;
 
     // Process all candidates from innermost to outermost.
     // Since we process innermost first, restructuring an inner if does not
@@ -3572,6 +3573,17 @@ void repair_target_state_dispatch_ssa(
                 entries.data(), entries.size()},
             dom);
         if (found_merge == nullptr) {
+            // Post-dominance is a fallback for candidates whose merge cannot
+            // be inferred from the current dominance tree. Rebuild it lazily
+            // after a mutation, immediately before the first query that
+            // observes the new CFG. This is equivalent to eager rebuilding
+            // after every rewrite while avoiding analyses that no candidate
+            // consumes.
+            if (!pdom_valid) {
+                pdom = compute_post_dom(def);
+                ++info.if_batch_post_dom_rebuild_count;
+                pdom_valid = true;
+            }
             auto merge_iter =
                 pdom.ipostdom.find(found_header);
             if (merge_iter == pdom.ipostdom.end() ||
@@ -3742,13 +3754,12 @@ void repair_target_state_dispatch_ssa(
             // conditional, turning a linear dispatch chain into quadratic
             // (or worse, because merge inference walks the CFG) work.
             //
-            // Refresh dominance after every mutation. Candidate discovery is
-            // the expensive all-branch scan and remains batched; updating the
-            // two linear-time trees lets each surviving candidate recompute
-            // its merge against the current CFG, exactly as separate outer
-            // iterations would, without relying on stale analysis.
+            // Refresh dominance after every mutation so subsequent scope
+            // walks include newly inserted structural merges. Mark post-dom
+            // stale; the fallback above refreshes it only if a later
+            // candidate actually requires an immediate post-dominator.
             dom = compute_dom_tree(def);
-            pdom = compute_post_dom(def);
+            pdom_valid = false;
         }
     }
 
@@ -5568,6 +5579,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "construct_entry_dom_tree",
             info.construct_entry_dom_tree_count);
         report->set(
+            "if_batch_post_dom_rebuild",
+            info.if_batch_post_dom_rebuild_count);
+        report->set(
             "irreducible_region", info.irreducible_region_count);
         report->set(
             "unstructured_branch", info.unstructured_branch_count);
@@ -5640,6 +5654,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         total.canonicalized_cfg_count += info.canonicalized_cfg_count;
         total.construct_entry_dom_tree_count +=
             info.construct_entry_dom_tree_count;
+        total.if_batch_post_dom_rebuild_count +=
+            info.if_batch_post_dom_rebuild_count;
         total.irreducible_region_count += info.irreducible_region_count;
         total.unstructured_branch_count += info.unstructured_branch_count;
         total.invalid_construct_count += info.invalid_construct_count;
@@ -5672,6 +5688,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             info.canonicalized_cfg_count;
         total.construct_entry_dom_tree_count +=
             info.construct_entry_dom_tree_count;
+        total.if_batch_post_dom_rebuild_count +=
+            info.if_batch_post_dom_rebuild_count;
         total.irreducible_region_count +=
             info.irreducible_region_count;
         total.unstructured_branch_count +=

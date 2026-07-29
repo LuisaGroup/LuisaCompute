@@ -1089,14 +1089,16 @@ void reg_restructure_cfg() {
             {.main_iteration_limit = 1u,
              .post_iteration_limit = 64u});
 
-        // One batch is one dominance snapshot. Every successful rewrite
-        // removes one raw conditional and introduces none, so the complete
-        // candidate set must fit in a single main-loop iteration regardless
-        // of chain length.
+        // Candidate discovery uses one dom/post-dom snapshot. Every diamond's
+        // merge remains inferable from the refreshed dominance tree, so no
+        // post-mutation candidate consumes a rebuilt post-dom fallback.
         expect(info.succeeded());
         expect(info.iteration_limit_count == 0u);
         expect(info.restructured_if_count ==
                diamond_count);
+        expect(
+            info.if_batch_post_dom_rebuild_count ==
+            0u);
         expect(count_terminator_kind(
                    kernel,
                    DerivedInstructionTag::
