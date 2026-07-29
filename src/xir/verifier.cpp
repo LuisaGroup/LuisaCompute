@@ -937,6 +937,9 @@ class XIRVerifier {
 private:
     const XIRVerificationOptions &_options;
     XIRVerificationResult &_result;
+    luisa::unordered_set<const Value *> _scanned_use_lists;
+    luisa::unordered_map<const Use *, const Value *>
+        _use_list_owners;
 
 private:
     void _error(const Function *function, const BasicBlock *block,
@@ -958,10 +961,30 @@ private:
         return true;
     }
 
-    [[nodiscard]] static bool _use_list_contains(const Value *value,
-                                                 const Use *use) noexcept {
-        for (auto &&candidate : value->use_list()) {
-            if (candidate == use) { return true; }
+    [[nodiscard]] bool _use_list_contains(const Value *value,
+                                          const Use *use) noexcept {
+        // A Use is an intrusive node and therefore has at most one use-list
+        // owner. Materialize the exact relation
+        //
+        //   owner(use) = value iff use is linked in value->use_list()
+        //
+        // lazily, once per referenced Value. Verification does not mutate
+        // use-lists, so subsequent membership predicates are equivalent exact
+        // lookups. This changes high-fanout validation from the sum of squared
+        // use-list degrees to a linear scan plus one lookup per operand.
+        ++_result.statistics.use_list_membership_queries;
+        auto inserted =
+            _scanned_use_lists.emplace(value).second;
+        if (inserted) {
+            ++_result.statistics.distinct_use_lists_scanned;
+            for (auto *candidate : value->use_list()) {
+                _use_list_owners.try_emplace(candidate, value);
+                ++_result.statistics.use_list_entries_scanned;
+            }
+        }
+        if (auto iter = _use_list_owners.find(use);
+            iter != _use_list_owners.end()) {
+            return iter->second == value;
         }
         return false;
     }

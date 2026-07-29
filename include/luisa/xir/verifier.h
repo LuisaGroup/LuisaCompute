@@ -29,6 +29,16 @@ struct XIRVerificationError {
 
 struct XIRVerificationResult {
     luisa::vector<XIRVerificationError> errors;
+    struct Statistics {
+        // Number of exact Use-node membership predicates evaluated while
+        // checking instruction operands.
+        size_t use_list_membership_queries{0u};
+        // A verifier invocation materializes each distinct referenced
+        // Value/use-list once. This is the operation count that guards the
+        // membership check against quadratic high-fanout behavior.
+        size_t distinct_use_lists_scanned{0u};
+        size_t use_list_entries_scanned{0u};
+    } statistics;
     [[nodiscard]] bool succeeded() const noexcept { return errors.empty(); }
 };
 

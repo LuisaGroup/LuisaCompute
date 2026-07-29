@@ -50,6 +50,68 @@ void reg_xir_verifier() {
         expect(result.succeeded());
     };
 
+    "xir_verifier_use_list_membership_is_linear_in_fanout"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *one = module.create_constant_one(Type::of<int32_t>());
+        auto *zero =
+            module.create_constant_zero(Type::of<int32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        // Put a user of `zero` before the high-fanout users of `one`. In the
+        // wrong-owner case below this makes the verifier materialize zero's
+        // use-list first, proving that cached ownership still rejects a Use
+        // node linked into a different Value's list.
+        builder.call(
+            Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+            {zero, zero});
+        constexpr auto fanout = size_t{8192u};
+        ArithmeticInst *first_fanout = nullptr;
+        for (auto i = 0u; i < fanout; ++i) {
+            auto *call = builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {one, one});
+            if (first_fanout == nullptr) { first_fanout = call; }
+        }
+        builder.return_void();
+
+        auto result = xir_verify_module(&module);
+        expect(result.succeeded());
+        expect(
+            result.statistics.use_list_membership_queries ==
+            fanout * 2u + 2u);
+        expect(
+            result.statistics.distinct_use_lists_scanned == 2u);
+        expect(
+            result.statistics.use_list_entries_scanned ==
+            result.statistics.use_list_membership_queries)
+            << "each referenced use-list must be materialized once, not "
+               "rescanned for every operand";
+
+        // Caching the exact Use-node identities must preserve the verifier's
+        // linkage semantics: a non-null operand detached from its Value's
+        // use-list remains invalid.
+        auto detached =
+            first_fanout->operand_use(0u)->remove_self();
+        auto invalid = xir_verify_module(&module);
+        expect(!invalid.succeeded());
+        expect(has_verification_error(
+            invalid, body, first_fanout,
+            "Operand use-list linkage is inconsistent."));
+
+        zero->use_list().push_front(std::move(detached));
+        auto wrong_owner = xir_verify_module(&module);
+        expect(!wrong_owner.succeeded());
+        expect(has_verification_error(
+            wrong_owner, body, first_fanout,
+            "Operand use-list linkage is inconsistent."));
+        detached =
+            first_fanout->operand_use(0u)->remove_self();
+        one->use_list().push_front(std::move(detached));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "xir_verifier_accepts_valid_type_and_category_paths"_test = [] {
         Module module;
         auto int_type = Type::of<int32_t>();

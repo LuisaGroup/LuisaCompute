@@ -4980,22 +4980,31 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 
 [[nodiscard]] RestructureCFGInfo preflight_restructure_cfg(
     FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_preflight("preflight_restructure_cfg");
     RestructureCFGInfo info{};
-    for (auto *block : def->basic_blocks()) {
-        if (block == nullptr) { continue; }
-        for (auto *inst : block->instructions()) {
-            info.invalid_construct_count +=
-                inst->isa<PhiInst>() ? 1u : 0u;
+    {
+        ScopedTimer _timer_phi("preflight_count_phi");
+        for (auto *block : def->basic_blocks()) {
+            if (block == nullptr) { continue; }
+            for (auto *inst : block->instructions()) {
+                info.invalid_construct_count +=
+                    inst->isa<PhiInst>() ? 1u : 0u;
+            }
         }
     }
-    info.invalid_construct_count +=
-        count_invalid_structured_constructs(def);
+    {
+        ScopedTimer _timer_constructs(
+            "preflight_count_invalid_structured_constructs");
+        info.invalid_construct_count +=
+            count_invalid_structured_constructs(def);
+    }
     // The bespoke count above records the transform-specific Phi/ownership
     // preconditions. The verifier closes the rest of the input contract:
     // selector types, canonical and unique indexed-branch labels, target
     // ownership, use-def linkage, and SSA dominance must all hold before the
     // first structural merge block is allocated.
     if (info.invalid_construct_count == 0u) {
+        ScopedTimer _timer_verify("preflight_verify_function");
         auto verification = xir_verify_function(
             static_cast<Function *>(def));
         if (!verification.succeeded()) {
@@ -5010,8 +5019,12 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             count_unstructured_conditional_branches(def);
         return info;
     }
-    info.irreducible_region_count =
-        count_irreducible_regions(def);
+    {
+        ScopedTimer _timer_irreducible(
+            "preflight_count_irreducible_regions");
+        info.irreducible_region_count =
+            count_irreducible_regions(def);
+    }
     if (info.irreducible_region_count != 0u) {
         info.unstructured_branch_count =
             count_unstructured_conditional_branches(def);
@@ -5412,13 +5425,27 @@ restructure_cfg_on_definition_in_place(
     if (split_shared_simple_loop_continues(def)) {
         ++info.canonicalized_cfg_count;
     }
-    info.unstructured_branch_count =
-        count_unstructured_conditional_branches(def);
-    info.invalid_construct_count = count_invalid_structured_constructs(def);
-    info.invalid_construct_count +=
-        count_post_merge_selection_reentries(def);
+    {
+        ScopedTimer _timer_unstructured(
+            "post_count_unstructured_branches");
+        info.unstructured_branch_count =
+            count_unstructured_conditional_branches(def);
+    }
+    {
+        ScopedTimer _timer_constructs(
+            "post_count_invalid_structured_constructs");
+        info.invalid_construct_count =
+            count_invalid_structured_constructs(def);
+    }
+    {
+        ScopedTimer _timer_reentries(
+            "post_count_selection_reentries");
+        info.invalid_construct_count +=
+            count_post_merge_selection_reentries(def);
+    }
     if (info.unstructured_branch_count == 0u &&
         info.invalid_construct_count == 0u) {
+        ScopedTimer _timer_verify("post_verify_function");
         auto verification = xir_verify_function(
             static_cast<Function *>(def),
             {.require_no_phi = true,
@@ -5432,6 +5459,8 @@ restructure_cfg_on_definition_in_place(
         }
     }
     if (info.iteration_limit_count != 0u) {
+        ScopedTimer _timer_entries(
+            "post_count_unauthorized_construct_entries");
         info.invalid_construct_count += count_unauthorized_construct_entries(def);
     }
     if (!info.succeeded()) {
