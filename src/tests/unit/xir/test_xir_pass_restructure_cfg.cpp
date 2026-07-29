@@ -967,6 +967,15 @@ void reg_restructure_cfg() {
         // sufficient. The count may grow only after an actual CFG mutation.
         expect(
             info.construct_entry_dom_tree_count == 1u);
+        // Selection-exit legality for all 256 sites observes the same CFG.
+        // The loop-boundary relation is materialized once, not rediscovered
+        // by a full-function scan for every site.
+        expect(
+            info.selection_exit_boundary_analysis_count ==
+            1u);
+        expect(
+            info.selection_exit_site_query_count ==
+            construct_count);
     };
 
     "restructure_empty_module_noop"_test = [] {

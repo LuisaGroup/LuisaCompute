@@ -25,6 +25,11 @@ struct RestructureCFGInfo {
     // Rebuilds are lazy: a post-mutation candidate pays for one only when its
     // merge cannot be inferred from the current dominance tree.
     size_t if_batch_post_dom_rebuild_count{0u};
+    // Selection-exit scans classify loop-boundary selections once per
+    // observed CFG version, then reuse that exact relation for every site.
+    // These are diagnostic operation counts, not change counts.
+    size_t selection_exit_boundary_analysis_count{0u};
+    size_t selection_exit_site_query_count{0u};
     size_t irreducible_region_count{0u};
     size_t unstructured_branch_count{0u};
     size_t invalid_construct_count{0u};

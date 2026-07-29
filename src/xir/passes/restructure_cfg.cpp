@@ -1559,6 +1559,8 @@ enum struct LoopBoundaryTargetKind {
                                                                     exit_dispatch_headers,
                                                                 const luisa::unordered_set<BasicBlock *> &
                                                                     generated_exit_dispatch_headers) noexcept {
+    ScopedTimer _timer_normalize_loop_boundary_conditional_branches(
+        "normalize_loop_boundary_conditional_branches");
     auto modified = false;
     // Each successful rewrite replaces one raw conditional branch with an IfInst,
     // so this phase has a finite, monotonic worklist and needs no site-count cap.
@@ -1714,6 +1716,8 @@ void remove_write_only_dispatch_selectors(
     FunctionDefinition *def,
     const luisa::unordered_set<BasicBlock *> &
         generated_exit_dispatch_headers) noexcept {
+    ScopedTimer _timer_collapse_redundant_exit_dispatches(
+        "collapse_redundant_exit_dispatches");
     auto modified = false;
     luisa::vector<Value *> dead_roots;
     luisa::vector<ManagedPtr<Instruction>> removed;
@@ -1770,6 +1774,8 @@ void remove_write_only_dispatch_selectors(
 }
 
 [[nodiscard]] bool normalize_structured_loop_continues(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_normalize_structured_loop_continues(
+        "normalize_structured_loop_continues");
     struct LoopSite {
         BasicBlock *entry{nullptr};
         BasicBlock *body{nullptr};
@@ -1894,12 +1900,13 @@ void remove_write_only_dispatch_selectors(
             singular_boundary(true_kind));
 }
 
-[[nodiscard]] bool is_loop_boundary_selection_entry(BasicBlock *entry, FunctionDefinition *def) noexcept {
-    if (entry == nullptr || !entry->is_terminated() || !entry->terminator()->isa<IfInst>()) { return false; }
-    auto *if_inst = static_cast<IfInst *>(entry->terminator());
-    bool found = false;
+template<typename F>
+[[nodiscard]] bool visit_loop_region_blocks(
+    FunctionDefinition *def, F &&visitor) noexcept {
+    if (def == nullptr) { return false; }
+    auto stopped = false;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (found || !bb->is_terminated()) { return; }
+        if (stopped || !bb->is_terminated()) { return; }
         auto *term = bb->terminator();
         BasicBlock *body = nullptr;
         BasicBlock *continue_target = nullptr;
@@ -1929,23 +1936,83 @@ void remove_write_only_dispatch_selectors(
             if (visited.emplace(candidate).second) { work.emplace_back(candidate); }
         };
         enqueue(body);
-        while (!work.empty() && !found) {
+        while (!work.empty() && !stopped) {
             auto *cur = work.back();
             work.pop_back();
-            if (cur == entry) {
-                found = is_loop_boundary_if(if_inst, continue_target, loop_entry, merge);
-                break;
+            if (visitor(
+                    cur, continue_target,
+                    loop_entry, merge)) {
+                stopped = true;
+                return;
             }
-            traverse_structured_successors(cur, [&](BasicBlock *succ) noexcept {
-                if (succ == loop_entry || succ == merge) { return; }
-                enqueue(succ);
-            });
+            traverse_structured_successors(
+                cur, [&](BasicBlock *succ) noexcept {
+                    if (succ == loop_entry ||
+                        succ == merge) {
+                        return;
+                    }
+                    enqueue(succ);
+                });
         }
     });
-    return found;
+    return stopped;
+}
+
+[[nodiscard]] bool is_loop_boundary_selection_entry(
+    BasicBlock *entry,
+    FunctionDefinition *def) noexcept {
+    if (entry == nullptr || !entry->is_terminated() ||
+        !entry->terminator()->isa<IfInst>()) {
+        return false;
+    }
+    auto *if_inst =
+        static_cast<IfInst *>(entry->terminator());
+    return visit_loop_region_blocks(
+        def, [&](BasicBlock *block,
+                 BasicBlock *continue_target,
+                 BasicBlock *loop_entry,
+                 BasicBlock *merge) noexcept {
+            return block == entry &&
+                   is_loop_boundary_if(
+                       if_inst, continue_target,
+                       loop_entry, merge);
+        });
+}
+
+// Invert is_loop_boundary_selection_entry's repeated membership query. For
+// one immutable CFG, the predicate is the exact existential relation
+//
+//   boundary(entry) iff
+//       exists loop: entry is structurally reachable inside loop and
+//                    entry's IfInst branches only across that loop boundary.
+//
+// Walking every loop once materializes the same relation for all entries.
+[[nodiscard]] luisa::unordered_set<BasicBlock *>
+collect_loop_boundary_selection_entries(
+    FunctionDefinition *def) noexcept {
+    luisa::unordered_set<BasicBlock *> entries;
+    static_cast<void>(visit_loop_region_blocks(
+        def, [&](BasicBlock *block,
+                 BasicBlock *continue_target,
+                 BasicBlock *loop_entry,
+                 BasicBlock *merge) noexcept {
+            if (block->is_terminated() &&
+                block->terminator()->isa<IfInst>() &&
+                is_loop_boundary_if(
+                    static_cast<IfInst *>(
+                        block->terminator()),
+                    continue_target, loop_entry,
+                    merge)) {
+                entries.emplace(block);
+            }
+            return false;
+        }));
+    return entries;
 }
 
 [[nodiscard]] bool canonicalize_loop_boundary_selection_merges(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_canonicalize_loop_boundary_selection_merges(
+        "canonicalize_loop_boundary_selection_merges");
     bool changed = false;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
@@ -2053,6 +2120,8 @@ void remove_write_only_dispatch_selectors(
 }
 
 [[nodiscard]] bool canonicalize_loop_update_blocks(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_canonicalize_loop_update_blocks(
+        "canonicalize_loop_update_blocks");
     struct LoopSite {
         LoopInst *loop{nullptr};
         BasicBlock *old_update{nullptr};
@@ -2176,6 +2245,8 @@ void remove_write_only_dispatch_selectors(
 // structural boundary cannot invalidate Phi predecessor labels.
 [[nodiscard]] bool canonicalize_loop_prepare_blocks(
     FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_canonicalize_loop_prepare_blocks(
+        "canonicalize_loop_prepare_blocks");
     luisa::vector<LoopInst *> loops;
     def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
         if (block != nullptr && block->is_terminated() &&
@@ -2252,6 +2323,8 @@ void remove_write_only_dispatch_selectors(
 }
 
 [[nodiscard]] bool proxy_switch_targets_to_structural_boundaries(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_proxy_switch_targets(
+        "proxy_switch_targets_to_structural_boundaries");
     luisa::unordered_set<BasicBlock *> structural_boundaries;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
@@ -2580,6 +2653,8 @@ void repair_target_state_dispatch_ssa(
     Instruction *term,
     BasicBlock *merge,
     const DomTree &dom,
+    const luisa::unordered_set<BasicBlock *> &
+        loop_boundary_selection_entries,
     luisa::unordered_set<Instruction *> &rewritten_sites,
     luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
@@ -2596,7 +2671,7 @@ void repair_target_state_dispatch_ssa(
     // continue boundaries is not a SPIR-V selection at all. It is one of the
     // explicitly permitted loop-exit branch forms and must not be wrapped in
     // another state dispatch.
-    if (is_loop_boundary_selection_entry(header, def)) {
+    if (loop_boundary_selection_entries.contains(header)) {
         return {};
     }
     auto entries = selection_entries(term);
@@ -2651,7 +2726,7 @@ void repair_target_state_dispatch_ssa(
                 structured_statement_merge(bb->terminator());
             if (nested_merge != nullptr &&
                 !exit_dispatch_headers.contains(bb) &&
-                !is_loop_boundary_selection_entry(bb, def)) {
+                !loop_boundary_selection_entries.contains(bb)) {
                 if (nested_merge == merge) {
                     append_unique_exit_edge(
                         merge_exits, bb, nested_merge);
@@ -2837,9 +2912,13 @@ void repair_target_state_dispatch_ssa(
 [[nodiscard]] SelectionExitRewriteResult canonicalize_one_selection_exit(
     FunctionDefinition *def,
     const DomTree &dom,
+    RestructureCFGInfo &info,
     luisa::unordered_set<Instruction *> &rewritten_sites,
     luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
+    auto loop_boundary_selection_entries =
+        collect_loop_boundary_selection_entries(def);
+    ++info.selection_exit_boundary_analysis_count;
     struct Site {
         BasicBlock *header;
         Instruction *term;
@@ -2859,8 +2938,10 @@ void repair_target_state_dispatch_ssa(
         return lhs.depth > rhs.depth;
     });
     for (auto site : sites) {
+        ++info.selection_exit_site_query_count;
         auto result = canonicalize_selection_exits(
             def, site.header, site.term, site.merge, dom,
+            loop_boundary_selection_entries,
             rewritten_sites, exit_dispatch_headers);
         if (result.status != SelectionExitRewriteStatus::UNCHANGED) {
             return result;
@@ -2875,11 +2956,14 @@ void repair_target_state_dispatch_ssa(
                                          RestructureCFGInfo &info,
                                          luisa::unordered_set<BasicBlock *> &
                                              exit_dispatch_headers) noexcept {
+    ScopedTimer _timer_drain_selection_exits(
+        "drain_selection_exits");
     luisa::unordered_set<Instruction *> rewritten_sites;
     auto modified = false;
     for (;;) {
         auto result = canonicalize_one_selection_exit(
-            def, dom, rewritten_sites, exit_dispatch_headers);
+            def, dom, info, rewritten_sites,
+            exit_dispatch_headers);
         if (result.status == SelectionExitRewriteStatus::UNCHANGED) { break; }
         if (result.status == SelectionExitRewriteStatus::REPEATED_SITE) {
             ++info.iteration_limit_count;
@@ -4131,6 +4215,8 @@ struct StructuredSelectionEntryOwner {
     RestructureCFGInfo &info,
     const luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
+    ScopedTimer _timer_split_exit_dispatch_selection_reentries(
+        "split_exit_dispatch_selection_reentries");
     auto modified = false;
     while (split_one_exit_dispatch_selection_reentry(
         def, dom, pdom, info,
@@ -5582,6 +5668,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "if_batch_post_dom_rebuild",
             info.if_batch_post_dom_rebuild_count);
         report->set(
+            "selection_exit_boundary_analysis",
+            info.selection_exit_boundary_analysis_count);
+        report->set(
+            "selection_exit_site_query",
+            info.selection_exit_site_query_count);
+        report->set(
             "irreducible_region", info.irreducible_region_count);
         report->set(
             "unstructured_branch", info.unstructured_branch_count);
@@ -5656,6 +5748,10 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             info.construct_entry_dom_tree_count;
         total.if_batch_post_dom_rebuild_count +=
             info.if_batch_post_dom_rebuild_count;
+        total.selection_exit_boundary_analysis_count +=
+            info.selection_exit_boundary_analysis_count;
+        total.selection_exit_site_query_count +=
+            info.selection_exit_site_query_count;
         total.irreducible_region_count += info.irreducible_region_count;
         total.unstructured_branch_count += info.unstructured_branch_count;
         total.invalid_construct_count += info.invalid_construct_count;
@@ -5690,6 +5786,10 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             info.construct_entry_dom_tree_count;
         total.if_batch_post_dom_rebuild_count +=
             info.if_batch_post_dom_rebuild_count;
+        total.selection_exit_boundary_analysis_count +=
+            info.selection_exit_boundary_analysis_count;
+        total.selection_exit_site_query_count +=
+            info.selection_exit_site_query_count;
         total.irreducible_region_count +=
             info.irreducible_region_count;
         total.unstructured_branch_count +=
