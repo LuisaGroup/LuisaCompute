@@ -20,6 +20,9 @@ on_load(function(target)
             target:add("deps", "lc-yyjson")
         end
     end
+    if target:is_plat("windows") then
+        target:add("cxxflags", "/bigobj", {tools = "cl"})
+    end
     target:add("files", path.absolute("../ast/*.cpp", os.scriptdir()), path.join(os.scriptdir(), "**.cpp"))
     if has_config("lc_enable_xir") then
         local ir_path = path.absolute("../xir", os.scriptdir())
