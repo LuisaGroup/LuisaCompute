@@ -46,6 +46,14 @@ namespace {
     return enabled;
 }
 
+[[nodiscard]] bool restructure_verify_intermediate_enabled() noexcept {
+    if (auto value =
+            std::getenv("LUISA_XIR_VERIFY_INTERMEDIATE")) {
+        return luisa::string_view{value} == "1";
+    }
+    return false;
+}
+
 struct ScopedTimer {
     Clock clock;
     const char *name;
@@ -5184,7 +5192,8 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 }
 
 [[nodiscard]] RestructureCFGInfo preflight_restructure_cfg(
-    FunctionDefinition *def) noexcept {
+    FunctionDefinition *def,
+    bool verify_intermediate) noexcept {
     ScopedTimer _timer_preflight("preflight_restructure_cfg");
     RestructureCFGInfo info{};
     {
@@ -5208,8 +5217,10 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     // selector types, canonical and unique indexed-branch labels, target
     // ownership, use-def linkage, and SSA dominance must all hold before the
     // first structural merge block is allocated.
-    if (info.invalid_construct_count == 0u) {
+    if (info.invalid_construct_count == 0u &&
+        verify_intermediate) {
         ScopedTimer _timer_verify("preflight_verify_function");
+        ++info.intermediate_verifier_count;
         auto verification = xir_verify_function(
             static_cast<Function *>(def));
         if (!verification.succeeded()) {
@@ -5423,10 +5434,12 @@ void clear_committed_change_counts(
 [[nodiscard]] RestructureCFGInfo
 restructure_cfg_on_definition_in_place(
     FunctionDefinition *def,
-    const RestructureCFGOptions &options) noexcept {
+    const RestructureCFGOptions &options,
+    bool verify_intermediate) noexcept {
     ScopedTimer _timer_overall("restructure_cfg_on_definition");
     trace_cfg("input", def);
-    auto info = preflight_restructure_cfg(def);
+    auto info = preflight_restructure_cfg(
+        def, verify_intermediate);
     if (info.invalid_construct_count != 0u) {
         LUISA_WARNING_WITH_LOCATION(
             "restructure_cfg rejected {} Phi node(s), malformed construct(s), "
@@ -5648,9 +5661,11 @@ restructure_cfg_on_definition_in_place(
         info.invalid_construct_count +=
             count_post_merge_selection_reentries(def);
     }
-    if (info.unstructured_branch_count == 0u &&
+    if (verify_intermediate &&
+        info.unstructured_branch_count == 0u &&
         info.invalid_construct_count == 0u) {
         ScopedTimer _timer_verify("post_verify_function");
+        ++info.intermediate_verifier_count;
         auto verification = xir_verify_function(
             static_cast<Function *>(def),
             {.require_no_phi = true,
@@ -5708,7 +5723,33 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
                 1u;
         return info;
     }
-    auto preflight = preflight_restructure_cfg(def);
+    const auto verify_intermediate =
+        restructure_verify_intermediate_enabled();
+
+    // The public pass contract has one complete input verifier boundary.
+    // Structural preconditions below are transform-specific analyses, not
+    // replacements for this general XIR validity check.
+    auto preflight = RestructureCFGInfo{};
+    ++preflight.boundary_verifier_count;
+    XIRVerificationResult input_verification;
+    {
+        ScopedTimer _timer_verify(
+            "pass_input_verify_function");
+        input_verification =
+            xir_verify_function(function);
+    }
+    if (!input_verification.succeeded()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "restructure_cfg input verifier rejected the function: {}",
+            input_verification.errors.front().message);
+        preflight.unstructured_branch_count =
+            count_unstructured_conditional_branches(def);
+        ++preflight.invalid_construct_count;
+        return preflight;
+    }
+    preflight = preflight_restructure_cfg(
+        def, verify_intermediate);
+    preflight.boundary_verifier_count = 1u;
     if (!preflight.succeeded()) { return preflight; }
 
     auto *module = def->parent_module();
@@ -5723,12 +5764,45 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
     }
 
     auto info = restructure_cfg_on_definition_in_place(
-        shadow.shadow, options);
+        shadow.shadow, options,
+        verify_intermediate);
+    auto intermediate_verifier_count =
+        preflight.intermediate_verifier_count +
+        info.intermediate_verifier_count;
+    if (info.succeeded()) {
+        // Verify the complete candidate output once while it still lives in
+        // the shadow definition. A successful result is invariant under the
+        // graph-isomorphic replay onto the original definition, so late
+        // rejection remains atomic without re-verifying every replay step.
+        XIRVerificationResult output_verification;
+        {
+            ScopedTimer _timer_verify(
+                "pass_output_verify_function");
+            output_verification = xir_verify_function(
+                shadow.shadow,
+                {.require_no_phi = true,
+                 .require_unique_merge_blocks = true,
+                 .require_canonical_break_continue_targets = true});
+        }
+        info.boundary_verifier_count = 2u;
+        if (!output_verification.succeeded()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "restructure_cfg output verifier rejected the function: {}",
+                output_verification.errors.front().message);
+            ++info.invalid_construct_count;
+        }
+    }
     luisa::vector shadows{std::move(shadow)};
     discard_shadow_definitions(shadows);
     rollback_new_constants(module, constant_snapshot);
     if (!info.succeeded()) {
         clear_committed_change_counts(info);
+        info.boundary_verifier_count =
+            info.boundary_verifier_count == 0u ?
+                1u :
+                info.boundary_verifier_count;
+        info.intermediate_verifier_count =
+            intermediate_verifier_count;
         return info;
     }
     // Replay the graph-isomorphic dry run on the original objects so the
@@ -5739,11 +5813,14 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
     // structure, which is an internal correctness error, not a recoverable
     // input rejection.
     auto committed = restructure_cfg_on_definition_in_place(
-        def, options);
+        def, options, verify_intermediate);
     LUISA_ASSERT(
         committed.succeeded(),
         "restructure_cfg deterministic replay diverged from "
         "its successful transactional dry run.");
+    committed.boundary_verifier_count = 2u;
+    committed.intermediate_verifier_count +=
+        intermediate_verifier_count;
     return committed;
 }
 
@@ -5767,6 +5844,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "if_batch_post_dom_rebuild",
             info.if_batch_post_dom_rebuild_count);
         report->set(
+            "boundary_verifier",
+            info.boundary_verifier_count);
+        report->set(
+            "intermediate_verifier",
+            info.intermediate_verifier_count);
+        report->set(
             "selection_exit_boundary_analysis",
             info.selection_exit_boundary_analysis_count);
         report->set(
@@ -5787,27 +5870,96 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         set_report(total);
         return total;
     }
+    const auto verify_intermediate =
+        restructure_verify_intermediate_enabled();
+    auto accumulate = [](
+                          RestructureCFGInfo &dst,
+                          const RestructureCFGInfo &src) noexcept {
+        dst.restructured_loop_count +=
+            src.restructured_loop_count;
+        dst.restructured_if_count +=
+            src.restructured_if_count;
+        dst.restructured_switch_count +=
+            src.restructured_switch_count;
+        dst.canonicalized_cfg_count +=
+            src.canonicalized_cfg_count;
+        dst.construct_entry_dom_tree_count +=
+            src.construct_entry_dom_tree_count;
+        dst.if_batch_post_dom_rebuild_count +=
+            src.if_batch_post_dom_rebuild_count;
+        dst.boundary_verifier_count +=
+            src.boundary_verifier_count;
+        dst.intermediate_verifier_count +=
+            src.intermediate_verifier_count;
+        dst.selection_exit_boundary_analysis_count +=
+            src.selection_exit_boundary_analysis_count;
+        dst.selection_exit_site_query_count +=
+            src.selection_exit_site_query_count;
+        dst.selection_exit_enclosing_loop_query_count +=
+            src.selection_exit_enclosing_loop_query_count;
+        dst.irreducible_region_count +=
+            src.irreducible_region_count;
+        dst.unstructured_branch_count +=
+            src.unstructured_branch_count;
+        dst.invalid_construct_count +=
+            src.invalid_construct_count;
+        dst.iteration_limit_count +=
+            src.iteration_limit_count;
+    };
+
+    // The complete input domain consists of every definition with a CFG.
+    // Declaration-like callables are outside a CFG transform's domain, while
+    // a bodyless kernel remains malformed and must reach the verifier.
+    luisa::vector<const Function *> input_functions;
     luisa::vector<FunctionDefinition *> definitions;
+    for (auto *function : module->function_list()) {
+        auto *def = function->definition();
+        if (def == nullptr) { continue; }
+        if (def->body_block() == nullptr &&
+            function->derived_function_tag() ==
+                DerivedFunctionTag::CALLABLE) {
+            continue;
+        }
+        input_functions.emplace_back(function);
+        if (def->body_block() != nullptr) {
+            definitions.emplace_back(def);
+        }
+    }
+
+    // Verify that complete transform domain once before any shadow definition
+    // or transform-owned constant is created.
+    ++total.boundary_verifier_count;
+    XIRVerificationResult input_verification;
+    {
+        ScopedTimer _timer_verify(
+            "pass_input_verify_module");
+        input_verification =
+            xir_verify_functions(input_functions);
+    }
+    if (!input_verification.succeeded()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "restructure_cfg input verifier rejected the module: {}",
+            input_verification.errors.front().message);
+        ++total.invalid_construct_count;
+        set_report(total);
+        return total;
+    }
+
     {
         ScopedTimer _timer_preflight(
             "module_transaction_preflight");
-        for (auto *function : module->function_list()) {
-            if (auto *def = function->definition()) {
-                if (def->body_block() == nullptr &&
-                    function->derived_function_tag() ==
-                        DerivedFunctionTag::CALLABLE) {
-                    continue;
-                }
-                trace_cfg("module preflight input", def);
-                definitions.emplace_back(def);
-                auto info = preflight_restructure_cfg(def);
-                total.irreducible_region_count +=
-                    info.irreducible_region_count;
-                total.unstructured_branch_count +=
-                    info.unstructured_branch_count;
-                total.invalid_construct_count +=
-                    info.invalid_construct_count;
-            }
+        for (auto *def : definitions) {
+            trace_cfg("module preflight input", def);
+            auto info = preflight_restructure_cfg(
+                def, verify_intermediate);
+            total.intermediate_verifier_count +=
+                info.intermediate_verifier_count;
+            total.irreducible_region_count +=
+                info.irreducible_region_count;
+            total.unstructured_branch_count +=
+                info.unstructured_branch_count;
+            total.invalid_construct_count +=
+                info.invalid_construct_count;
         }
     }
     // A module invocation is a single transaction. A malformed/Phi-bearing
@@ -5829,7 +5981,15 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             shadows.emplace_back(std::move(shadow));
             discard_shadow_definitions(shadows);
             rollback_new_constants(module, constant_snapshot);
+            auto boundary_verifier_count =
+                total.boundary_verifier_count;
+            auto intermediate_verifier_count =
+                total.intermediate_verifier_count;
             total = {};
+            total.boundary_verifier_count =
+                boundary_verifier_count;
+            total.intermediate_verifier_count =
+                intermediate_verifier_count;
             ++total.invalid_construct_count;
             set_report(total);
             return total;
@@ -5837,29 +5997,17 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         shadows.emplace_back(std::move(shadow));
     }
 
+    auto preflight_intermediate_verifier_count =
+        total.intermediate_verifier_count;
     total = {};
+    total.boundary_verifier_count = 1u;
+    total.intermediate_verifier_count =
+        preflight_intermediate_verifier_count;
     for (auto &shadow : shadows) {
         auto info = restructure_cfg_on_definition_in_place(
-            shadow.shadow, options);
-        total.restructured_loop_count += info.restructured_loop_count;
-        total.restructured_if_count += info.restructured_if_count;
-        total.restructured_switch_count +=
-            info.restructured_switch_count;
-        total.canonicalized_cfg_count += info.canonicalized_cfg_count;
-        total.construct_entry_dom_tree_count +=
-            info.construct_entry_dom_tree_count;
-        total.if_batch_post_dom_rebuild_count +=
-            info.if_batch_post_dom_rebuild_count;
-        total.selection_exit_boundary_analysis_count +=
-            info.selection_exit_boundary_analysis_count;
-        total.selection_exit_site_query_count +=
-            info.selection_exit_site_query_count;
-        total.selection_exit_enclosing_loop_query_count +=
-            info.selection_exit_enclosing_loop_query_count;
-        total.irreducible_region_count += info.irreducible_region_count;
-        total.unstructured_branch_count += info.unstructured_branch_count;
-        total.invalid_construct_count += info.invalid_construct_count;
-        total.iteration_limit_count += info.iteration_limit_count;
+            shadow.shadow, options,
+            verify_intermediate);
+        accumulate(total, info);
         if (!info.succeeded()) { break; }
     }
     if (!total.succeeded()) {
@@ -5869,41 +6017,56 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         set_report(total);
         return total;
     }
+
+    // All candidate outputs are checked together by one verifier instance.
+    // The committed replay is graph-isomorphic to these shadow definitions;
+    // therefore this certificate transfers to the replay while preserving
+    // rollback on a late verifier failure.
+    luisa::vector<const Function *> candidate_outputs;
+    candidate_outputs.reserve(shadows.size());
+    for (auto &shadow : shadows) {
+        candidate_outputs.emplace_back(shadow.shadow);
+    }
+    XIRVerificationResult output_verification;
+    {
+        ScopedTimer _timer_verify(
+            "pass_output_verify_module");
+        output_verification = xir_verify_functions(
+            candidate_outputs,
+            {.require_no_phi = true,
+             .require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+    }
+    ++total.boundary_verifier_count;
+    if (!output_verification.succeeded()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "restructure_cfg output verifier rejected the module: {}",
+            output_verification.errors.front().message);
+        ++total.invalid_construct_count;
+        discard_shadow_definitions(shadows);
+        rollback_new_constants(module, constant_snapshot);
+        clear_committed_change_counts(total);
+        set_report(total);
+        return total;
+    }
+
+    auto dry_run_intermediate_verifier_count =
+        total.intermediate_verifier_count;
     discard_shadow_definitions(shadows);
     rollback_new_constants(module, constant_snapshot);
 
     total = {};
+    total.boundary_verifier_count = 2u;
+    total.intermediate_verifier_count =
+        dry_run_intermediate_verifier_count;
     for (auto *def : definitions) {
         auto info = restructure_cfg_on_definition_in_place(
-            def, options);
+            def, options, verify_intermediate);
         LUISA_ASSERT(
             info.succeeded(),
             "restructure_cfg module replay diverged from its "
             "successful transactional dry run.");
-        total.restructured_loop_count += info.restructured_loop_count;
-        total.restructured_if_count += info.restructured_if_count;
-        total.restructured_switch_count +=
-            info.restructured_switch_count;
-        total.canonicalized_cfg_count +=
-            info.canonicalized_cfg_count;
-        total.construct_entry_dom_tree_count +=
-            info.construct_entry_dom_tree_count;
-        total.if_batch_post_dom_rebuild_count +=
-            info.if_batch_post_dom_rebuild_count;
-        total.selection_exit_boundary_analysis_count +=
-            info.selection_exit_boundary_analysis_count;
-        total.selection_exit_site_query_count +=
-            info.selection_exit_site_query_count;
-        total.selection_exit_enclosing_loop_query_count +=
-            info.selection_exit_enclosing_loop_query_count;
-        total.irreducible_region_count +=
-            info.irreducible_region_count;
-        total.unstructured_branch_count +=
-            info.unstructured_branch_count;
-        total.invalid_construct_count +=
-            info.invalid_construct_count;
-        total.iteration_limit_count +=
-            info.iteration_limit_count;
+        accumulate(total, info);
     }
     set_report(total);
     return total;

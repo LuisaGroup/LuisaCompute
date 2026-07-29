@@ -50,6 +50,24 @@ void reg_xir_verifier() {
         expect(result.succeeded());
     };
 
+    "xir_verifier_checks_one_bounded_function_set"_test = [] {
+        Module module;
+        auto *valid = module.create_kernel();
+        auto *valid_body = valid->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(valid_body);
+        builder.return_void();
+
+        auto *invalid = module.create_kernel();
+        invalid->create_body_block();
+        expect(!xir_verify_module(&module).succeeded());
+
+        luisa::vector<const Function *> selected{valid};
+        expect(xir_verify_functions(selected).succeeded());
+        selected.emplace_back(invalid);
+        expect(!xir_verify_functions(selected).succeeded());
+    };
+
     "xir_verifier_use_list_membership_is_linear_in_fanout"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

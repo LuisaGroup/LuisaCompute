@@ -46,6 +46,14 @@ struct XIRVerificationResult {
 xir_verify_function(const Function *function,
                     const XIRVerificationOptions &options = {}) noexcept;
 
+// Verifies a bounded set of functions with one verifier invocation. This is
+// useful for transactional passes whose candidate output lives in shadow
+// definitions: the complete output boundary can be checked once without
+// re-verifying unrelated input definitions one by one.
+[[nodiscard]] LUISA_XIR_API XIRVerificationResult
+xir_verify_functions(luisa::span<const Function *const> functions,
+                     const XIRVerificationOptions &options = {}) noexcept;
+
 [[nodiscard]] LUISA_XIR_API XIRVerificationResult
 xir_verify_module(const Module *module,
                   const XIRVerificationOptions &options = {}) noexcept;

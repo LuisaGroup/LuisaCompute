@@ -40,7 +40,10 @@
 #include <luisa/xir/verifier.h>
 
 #include <array>
+#include <cstdlib>
 #include <limits>
+#include <optional>
+#include <string>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -49,6 +52,44 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 namespace {
+
+void set_environment_variable(
+    const char *name, const char *value) noexcept {
+#ifdef _WIN32
+    _putenv_s(name, value == nullptr ? "" : value);
+#else
+    if (value == nullptr) {
+        unsetenv(name);
+    } else {
+        setenv(name, value, 1);
+    }
+#endif
+}
+
+struct ScopedEnvironmentVariable {
+    std::string name;
+    std::optional<std::string> previous;
+
+    explicit ScopedEnvironmentVariable(
+        const char *env_name, const char *value)
+        : name{env_name} {
+        if (auto *old_value = std::getenv(env_name)) {
+            previous.emplace(old_value);
+        }
+        set_environment_variable(name.c_str(), value);
+    }
+
+    ~ScopedEnvironmentVariable() noexcept {
+        set_environment_variable(
+            name.c_str(),
+            previous ? previous->c_str() : nullptr);
+    }
+
+    ScopedEnvironmentVariable(
+        const ScopedEnvironmentVariable &) = delete;
+    ScopedEnvironmentVariable &operator=(
+        const ScopedEnvironmentVariable &) = delete;
+};
 
 [[nodiscard]] KernelFunction *make_kernel_with_body(Module &m, BasicBlock *&body_out) noexcept {
     auto *k = m.create_kernel();
@@ -493,6 +534,8 @@ void reg_restructure_cfg() {
         auto info = restructure_cfg_pass_run_on_module(&m);
         expect(!info.succeeded());
         expect(info.irreducible_region_count == 1u);
+        expect(info.boundary_verifier_count == 1u);
+        expect(info.intermediate_verifier_count == 0u);
         expect(!info.changed());
         expect(valid->definition()->basic_blocks().count_size() ==
                valid_block_count);
@@ -986,6 +1029,90 @@ void reg_restructure_cfg() {
         auto info = restructure_cfg_pass_run_on_module(&m);
         expect(info.restructured_if_count == 0u);
         expect(info.restructured_loop_count == 0u);
+        expect(info.boundary_verifier_count == 2u);
+        expect(info.intermediate_verifier_count == 0u);
+    };
+
+    "restructure_verifies_only_complete_pass_boundaries_by_default"_test = [] {
+        ScopedEnvironmentVariable disable_intermediate_verification{
+            "LUISA_XIR_VERIFY_INTERMEDIATE", nullptr};
+        auto append_diamond = [](
+                                  Module &module) noexcept {
+            BasicBlock *body;
+            auto *kernel =
+                make_kernel_with_body(module, body);
+            auto *condition =
+                kernel->create_value_argument(
+                    Type::of<bool>());
+            auto *true_block =
+                kernel->create_basic_block();
+            auto *false_block =
+                kernel->create_basic_block();
+            auto *merge =
+                kernel->create_basic_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            builder.cond_br(
+                condition, true_block, false_block);
+            builder.set_insertion_point(true_block);
+            builder.br(merge);
+            builder.set_insertion_point(false_block);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            builder.return_void();
+            return kernel;
+        };
+
+        Module module;
+        append_diamond(module);
+        append_diamond(module);
+        auto module_info =
+            restructure_cfg_pass_run_on_module(&module);
+        expect(module_info.succeeded());
+        expect(module_info.restructured_if_count == 2u);
+        // The verifier work is a property of the pass boundary, not the
+        // number of definitions or transactional dry-run/replay phases.
+        expect(module_info.boundary_verifier_count == 2u);
+        expect(module_info.intermediate_verifier_count == 0u);
+
+        Module function_module;
+        auto *kernel = append_diamond(
+            function_module);
+        auto function_info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(function_info.succeeded());
+        expect(function_info.restructured_if_count == 1u);
+        expect(function_info.boundary_verifier_count == 2u);
+        expect(function_info.intermediate_verifier_count == 0u);
+    };
+
+    "restructure_intermediate_verification_is_explicitly_opt_in"_test = [] {
+        ScopedEnvironmentVariable enable_intermediate_verification{
+            "LUISA_XIR_VERIFY_INTERMEDIATE", "1"};
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(
+            condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.boundary_verifier_count == 2u);
+        expect(info.intermediate_verifier_count > 0u);
     };
 
     "restructure_if_preserves_true_false_blocks"_test = [] {

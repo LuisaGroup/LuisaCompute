@@ -25,6 +25,13 @@ struct RestructureCFGInfo {
     // Rebuilds are lazy: a post-mutation candidate pays for one only when its
     // merge cannot be inferred from the current dominance tree.
     size_t if_batch_post_dom_rebuild_count{0u};
+    // Full XIR verifier invocations at the transactional pass boundaries.
+    // A successful public function/module pass has exactly two: one for the
+    // complete input and one for the complete shadow output.
+    size_t boundary_verifier_count{0u};
+    // Additional per-definition verifier invocations are diagnostic only and
+    // disabled by default. Set LUISA_XIR_VERIFY_INTERMEDIATE=1 to enable them.
+    size_t intermediate_verifier_count{0u};
     // Selection-exit scans classify loop-boundary selections once per
     // observed CFG version, then reuse that exact relation for every site.
     // These are diagnostic operation counts, not change counts.

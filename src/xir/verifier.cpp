@@ -1717,6 +1717,17 @@ XIRVerificationResult xir_verify_function(
     return result;
 }
 
+XIRVerificationResult xir_verify_functions(
+    luisa::span<const Function *const> functions,
+    const XIRVerificationOptions &options) noexcept {
+    XIRVerificationResult result;
+    detail::XIRVerifier verifier{options, result};
+    for (auto *function : functions) {
+        verifier.verify(function);
+    }
+    return result;
+}
+
 XIRVerificationResult xir_verify_module(
     const Module *module,
     const XIRVerificationOptions &options) noexcept {
