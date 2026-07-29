@@ -931,6 +931,44 @@ void reg_restructure_cfg() {
         expect(second.restructured_if_count == 0u);
     };
 
+    "restructure_construct_entry_dominance_is_linear_per_cfg_version"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *cond =
+            m.create_constant_one(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        constexpr auto construct_count = size_t{256u};
+        for (auto i = 0u; i < construct_count; ++i) {
+            auto *if_inst = b.if_(cond);
+            auto *t = if_inst->create_true_block();
+            auto *f = if_inst->create_false_block();
+            auto *merge = if_inst->create_merge_block();
+            b.set_insertion_point(t);
+            b.br(merge);
+            b.set_insertion_point(f);
+            b.br(merge);
+            b.set_insertion_point(merge);
+        }
+        b.return_void();
+
+        auto info =
+            restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(!info.changed());
+        expect(
+            count_terminator_kind(
+                k->definition(),
+                DerivedInstructionTag::IF) ==
+            construct_count);
+        // Entry legality for every construct is queried against the same
+        // immutable CFG version, so one dominance tree is both necessary and
+        // sufficient. The count may grow only after an actual CFG mutation.
+        expect(
+            info.construct_entry_dom_tree_count == 1u);
+    };
+
     "restructure_empty_module_noop"_test = [] {
         Module m;
         auto info = restructure_cfg_pass_run_on_module(&m);

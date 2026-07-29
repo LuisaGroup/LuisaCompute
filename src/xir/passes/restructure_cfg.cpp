@@ -4134,6 +4134,8 @@ struct StructuredSelectionEntryOwner {
                                              BasicBlock *header_bb,
                                              BasicBlock *merge_bb,
                                              RestructureCFGInfo &info,
+                                             DomTree &dom,
+                                             bool &dom_valid,
                                              luisa::unordered_set<Instruction *> &rewritten_sites) noexcept {
     ScopedTimer _timer_enforce_entries("enforce_construct_entries");
     luisa::vector<BasicBlock *> entries;
@@ -4142,8 +4144,6 @@ struct StructuredSelectionEntryOwner {
     bool changed_any = false;
     bool site_claimed = false;
     auto *site = header_bb->terminator();
-    DomTree dom;
-    bool dom_valid = false;
     // Iterate entries in their natural order; per Oracle's design, if the sibling-entry
     // graph is acyclic, fixing earlier entries does not create new bad edges into them.
     for (auto *E : entries) {
@@ -4151,6 +4151,7 @@ struct StructuredSelectionEntryOwner {
         for (;;) {
             if (!dom_valid) {
                 dom = compute_dom_tree(def);
+                ++info.construct_entry_dom_tree_count;
                 dom_valid = true;
             }
             // Structured-entry legality is defined over the executable CFG.
@@ -4205,6 +4206,12 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                                       RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_enforce_unique("enforce_unique_construct_entries");
     luisa::unordered_set<Instruction *> rewritten_sites;
+    // The dominance tree is a function of the executable CFG, not of the
+    // construct being inspected. Reuse it across every no-change construct
+    // and fixed-point rescan. enforce_construct_entries invalidates it after
+    // each mutation batch and rebuilds it before the next dominance query.
+    DomTree dom;
+    bool dom_valid = false;
     for (;;) {
         auto changed = false;
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> construct_sites;// header_bb, merge_bb
@@ -4227,7 +4234,9 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         });
         for (auto &[hbb, mbb] : construct_sites) {
             auto limits_before = info.iteration_limit_count;
-            if (enforce_construct_entries(def, hbb, mbb, info, rewritten_sites)) {
+            if (enforce_construct_entries(
+                    def, hbb, mbb, info, dom, dom_valid,
+                    rewritten_sites)) {
                 ++info.canonicalized_cfg_count;
                 changed = true;
                 break;// restart outer loop: BB list and dominance changed
@@ -5556,6 +5565,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "restructured_switch", info.restructured_switch_count);
         report->set("canonicalized_cfg", info.canonicalized_cfg_count);
         report->set(
+            "construct_entry_dom_tree",
+            info.construct_entry_dom_tree_count);
+        report->set(
             "irreducible_region", info.irreducible_region_count);
         report->set(
             "unstructured_branch", info.unstructured_branch_count);
@@ -5626,6 +5638,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         total.restructured_switch_count +=
             info.restructured_switch_count;
         total.canonicalized_cfg_count += info.canonicalized_cfg_count;
+        total.construct_entry_dom_tree_count +=
+            info.construct_entry_dom_tree_count;
         total.irreducible_region_count += info.irreducible_region_count;
         total.unstructured_branch_count += info.unstructured_branch_count;
         total.invalid_construct_count += info.invalid_construct_count;
@@ -5656,6 +5670,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             info.restructured_switch_count;
         total.canonicalized_cfg_count +=
             info.canonicalized_cfg_count;
+        total.construct_entry_dom_tree_count +=
+            info.construct_entry_dom_tree_count;
         total.irreducible_region_count +=
             info.irreducible_region_count;
         total.unstructured_branch_count +=

@@ -18,6 +18,9 @@ struct RestructureCFGInfo {
     // rewrites do not create a new structured construct, but they still mutate
     // the IR (for example by splitting duplicate Switch case targets).
     size_t canonicalized_cfg_count{0u};
+    // Diagnostic operation count for dominance trees built while enforcing
+    // unique structured-construct entries. This is not a change count.
+    size_t construct_entry_dom_tree_count{0u};
     size_t irreducible_region_count{0u};
     size_t unstructured_branch_count{0u};
     size_t invalid_construct_count{0u};
