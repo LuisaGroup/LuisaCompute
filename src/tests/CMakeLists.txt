@@ -93,11 +93,15 @@ if (TARGET luisa-compute-backend-vk)
     target_include_directories(test_vk_indirect_dispatch PRIVATE ../backends/common ../backends/vk)
     luisa_compute_add_test(test_vk_resource_barrier_contract unit/ext/test_vk_resource_barrier_contract.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_resource_barrier_contract PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_result_contract unit/ext/test_vk_result_contract.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_result_contract PRIVATE ../backends/vk)
+    target_sources(test_vk_result_contract PRIVATE ../backends/vk/VulkanTools.cpp)
     luisa_compute_add_test(test_vk_cuda_interop_texture_plan unit/ext/test_vk_cuda_interop_texture_plan.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_cuda_interop_texture_plan PRIVATE ../backends/vk)
     foreach (_vulkan_header_test IN ITEMS
             test_vk_device_feature_plan
             test_vk_resource_barrier_contract
+            test_vk_result_contract
             test_vk_cuda_interop_texture_plan)
         # These tests consume backend planning headers that expose Vulkan
         # types. Inherit the vendored Vulkan headers from Volk instead of
