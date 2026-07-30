@@ -786,6 +786,260 @@ void test_ray_query_near_surface_resume(Device &device) {
     }
 }
 
+void test_ray_query_coincident_surface_resume(Device &device) {
+    if (device.backend_name() != "hip" &&
+        device.backend_name() != "fallback") {
+        LUISA_INFO(
+            "Skipping coincident-surface ray-query test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+
+    // Rejecting one candidate must not discard a distinct candidate at the
+    // exact same ray parameter. This is the traversal invariant required by
+    // identity-based self exclusion for intentionally coincident geometry:
+    // the callback order is unspecified, but both primitives remain separate
+    // candidates and the second one must still be eligible for commit.
+    constexpr std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f),
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    constexpr std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{3u, 4u, 5u}};
+
+    auto stream = device.create_stream();
+    auto vertex_buffer =
+        device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(
+        vertex_buffer,
+        triangle_buffer,
+        AccelOption{.allow_update = true});
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto result_buffer = device.create_buffer<uint4>(1u);
+    auto distance_buffer = device.create_buffer<float>(1u);
+    Kernel1D trace = [](
+                         AccelVar accel,
+                         BufferUInt4 result,
+                         BufferFloat distance) noexcept {
+        const auto ray = make_ray(
+            make_float3(0.0f, -0.25f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f,
+            2.0f);
+        UInt callback_count = 0u;
+        UInt first_primitive = ~0u;
+        UInt second_primitive = ~0u;
+        auto committed =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto hit = candidate.hit();
+                        $if (callback_count == 0u) {
+                            first_primitive = hit->prim;
+                        }
+                        $else {
+                            second_primitive = hit->prim;
+                            candidate.commit();
+                            candidate.terminate();
+                        };
+                        callback_count += 1u;
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        result.write(
+            0u,
+            make_uint4(
+                committed->hit_type,
+                committed->prim,
+                callback_count,
+                select(
+                    0u,
+                    1u,
+                    first_primitive == second_primitive)));
+        distance.write(0u, committed->distance());
+    };
+
+    auto shader = device.compile(
+        trace, ShaderOption{.enable_cache = false});
+    std::array<uint4, 1u> result{};
+    std::array<float, 1u> distance{};
+    stream << shader(
+                  accel, result_buffer, distance_buffer)
+                  .dispatch(1u)
+           << result_buffer.copy_to(luisa::span{result})
+           << distance_buffer.copy_to(luisa::span{distance})
+           << synchronize();
+
+    constexpr auto surface =
+        static_cast<uint>(HitType::Surface);
+    expect(result[0].x == surface)
+        << luisa::format(
+               "coincident query ({}) did not commit the sibling",
+               device.backend_name());
+    expect(result[0].y < 2u);
+    expect(result[0].z == 2u)
+        << luisa::format(
+               "coincident query ({}) observed {} callbacks",
+               device.backend_name(), result[0].z);
+    expect(result[0].w == 0u);
+    expect(std::abs(distance[0] - 1.0f) < 1.0e-6f);
+}
+
+void test_ray_query_reconstructed_coincident_surface(Device &device) {
+    if (device.backend_name() != "hip" &&
+        device.backend_name() != "fallback") {
+        LUISA_INFO(
+            "Skipping reconstructed coincident-surface test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+
+    constexpr std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f),
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    constexpr std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{3u, 4u, 5u}};
+
+    auto stream = device.create_stream();
+    auto vertex_buffer =
+        device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(
+        vertex_buffer,
+        triangle_buffer,
+        AccelOption{.allow_update = true});
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto result_buffer = device.create_buffer<uint4>(1u);
+    auto detail_buffer = device.create_buffer<float4>(1u);
+    auto callback_tmin_buffer = device.create_buffer<float>(1u);
+    Kernel1D trace = [](
+                         AccelVar accel,
+                         BufferUInt4 result,
+                         BufferFloat4 detail,
+                         BufferFloat callback_tmin_output) noexcept {
+        const auto primary_ray = make_ray(
+            make_float3(0.125f, -0.25f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f,
+            2.0f);
+        auto primary =
+            accel.traverse(primary_ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &candidate) noexcept {
+                        candidate.commit();
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        const auto p0 =
+            make_float3(-1.0f, -1.0f, 0.0f);
+        const auto p1 =
+            make_float3(1.0f, -1.0f, 0.0f);
+        const auto p2 =
+            make_float3(0.0f, 1.0f, 0.0f);
+        const auto origin =
+            p0 +
+            primary->bary.x * (p1 - p0) +
+            primary->bary.y * (p2 - p0);
+        const auto shadow_ray = make_ray(
+            origin,
+            make_float3(0.0f, 0.0f, 1.0f),
+            0.0f,
+            1.0f);
+        UInt callback_count = 0u;
+        Float callback_tmin = -1.0f;
+        auto sibling =
+            accel.traverse(shadow_ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto hit = candidate.hit();
+                        callback_tmin = candidate.ray()->t_min();
+                        callback_count += 1u;
+                        $if (hit->prim != primary->prim) {
+                            candidate.commit();
+                            candidate.terminate();
+                        };
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        result.write(
+            0u,
+            make_uint4(
+                primary->hit_type,
+                primary->prim,
+                sibling->hit_type,
+                callback_count));
+        detail.write(
+            0u,
+            make_float4(
+                primary->bary,
+                origin.z,
+                sibling->distance()));
+        callback_tmin_output.write(0u, callback_tmin);
+    };
+
+    auto shader = device.compile(
+        trace, ShaderOption{.enable_cache = false});
+    std::array<uint4, 1u> result{};
+    std::array<float4, 1u> detail{};
+    std::array<float, 1u> callback_tmin{};
+    stream << shader(
+                  accel, result_buffer, detail_buffer,
+                  callback_tmin_buffer)
+                  .dispatch(1u)
+           << result_buffer.copy_to(luisa::span{result})
+           << detail_buffer.copy_to(luisa::span{detail})
+           << callback_tmin_buffer.copy_to(
+                  luisa::span{callback_tmin})
+           << synchronize();
+
+    constexpr auto surface =
+        static_cast<uint>(HitType::Surface);
+    expect(result[0].x == surface);
+    expect(result[0].y < 2u);
+    expect(result[0].z == surface)
+        << luisa::format(
+               "reconstructed coincident query ({}) missed sibling; "
+               "callbacks {}, source {}, bary ({}, {}), origin z {}",
+               device.backend_name(), result[0].w, result[0].y,
+               detail[0].x, detail[0].y, detail[0].z);
+    expect(result[0].w >= 1u);
+    expect(std::abs(detail[0].z) < 1.0e-7f);
+    expect(std::abs(detail[0].w) < 1.0e-7f);
+    expect(callback_tmin[0] == 0.0f)
+        << luisa::format(
+               "reconstructed coincident query ({}) exposed internal tmin {}",
+               device.backend_name(), callback_tmin[0]);
+}
+
 void test_hip_ray_query_any_automatic_termination(Device &device) {
     if (device.backend_name() != "hip") {
         LUISA_INFO(
@@ -946,6 +1200,12 @@ int main(int argc, char *argv[]) {
     };
     "ray-query resumes after exact source exclusion"_test = [&] {
         test_ray_query_near_surface_resume(dc->device);
+    };
+    "ray-query resumes at a coincident sibling"_test = [&] {
+        test_ray_query_coincident_surface_resume(dc->device);
+    };
+    "ray-query sees reconstructed coincident sibling"_test = [&] {
+        test_ray_query_reconstructed_coincident_surface(dc->device);
     };
     "HIP ray-query ANY commit terminates automatically"_test = [&] {
         test_hip_ray_query_any_automatic_termination(dc->device);
