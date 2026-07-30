@@ -23,7 +23,7 @@ TEMP = Func("", Ret(),
                 Arg("const $T$*", "d_values_in"), 
                 Arg("$T$*","d_values_out"), 
                 Arg("int", "num_items"), 
-                Arg(auto_fill="::cub::Equality{}")
+                Arg(auto_fill="cub_compat::EqualityOp{}")
             ])
 TEMP.set_template(dcub)
 ExclusiveSumByKey = TEMP.rename("ExclusiveSumByKey")

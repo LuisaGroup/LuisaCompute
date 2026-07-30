@@ -1,13 +1,5 @@
-#if __has_include("ut/ut.hpp")
 #include "ut/ut.hpp"
-#else
-#include "../../ut/ut.hpp"
-#endif
-#if __has_include("test_device.h")
 #include "test_device.h"
-#else
-#include "../../test_device.h"
-#endif
 
 #include <iostream>
 #include <chrono>
@@ -157,14 +149,12 @@ void test_ast2ir_headless(Device &device) {
     }
 }
 
-static inline const auto reg = [] {
-    "test_ast2ir_headless"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_ast2ir_headless(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_ast2ir_headless(device);
+}

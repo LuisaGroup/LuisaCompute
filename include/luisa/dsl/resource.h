@@ -8,6 +8,8 @@
 #include <luisa/dsl/expr.h>
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/atomic.h>
+#include <luisa/dsl/shared.h>
+#include <luisa/dsl/builtin.h>
 
 namespace luisa::compute {
 enum struct SamplerFilter {
@@ -149,6 +151,9 @@ public:
     /// Return RefExpr
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
+    /// Read T at a byte offset satisfying Type::of<T>()->alignment().
+    /// Use a scalar array (for example std::array<float, 3>) for packed data
+    /// that does not satisfy the vector ABI alignment.
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto read(I &&byte_offset) const noexcept {
@@ -159,6 +164,7 @@ public:
              detail::extract_expression(std::forward<I>(byte_offset))});
         return def<T>(expr);
     }
+    /// Write a value at a byte offset satisfying its DSL type alignment.
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void write(I &&byte_offset, V &&value) const noexcept {
@@ -169,6 +175,7 @@ public:
              detail::extract_expression(std::forward<V>(value))});
     }
 
+    /// Volatile form of read<T>(); the same alignment requirement applies.
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto volatile_read(I &&byte_offset) const noexcept {
@@ -179,6 +186,7 @@ public:
              detail::extract_expression(std::forward<I>(byte_offset))});
         return def<T>(expr);
     }
+    /// Volatile form of write(); the same alignment requirement applies.
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void volatile_write(I &&byte_offset, V &&value) const noexcept {
@@ -364,6 +372,37 @@ public:
              detail::extract_expression(std::forward<V>(value))});
     }
 
+    /// Number of logical T elements in the bound buffer view.
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto stride = def(static_cast<uint>(sizeof(T)));
+        return def<uint>(f->call(
+            Type::of<uint>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::TYPED_BINDLESS_BUFFER_SIZE) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::BINDLESS_BUFFER_SIZE),
+            {_array, _index, stride.expression()}));
+    }
+
+    /// Device address of the first byte in the bound logical buffer view.
+    [[nodiscard]] auto device_address() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint64_t>(f->call(
+            Type::of<uint64_t>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::TYPED_BINDLESS_BUFFER_ADDRESS) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::BINDLESS_BUFFER_ADDRESS),
+            {_array, _index}));
+    }
+
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
@@ -380,6 +419,9 @@ public:
     BindlessByteBuffer(const RefExpr *array, const Expression *index, bool is_typed, bool is_uniform) noexcept
         : _array{array}, _index{index}, _is_typed{is_typed}, _is_uniform{is_uniform} {}
 
+    /// Read T at a byte offset satisfying Type::of<T>()->alignment().
+    /// Use a scalar array for packed data that does not satisfy vector
+    /// alignment.
     template<typename T, typename I>
         requires is_valid_buffer_element_v<T> && is_integral_expr_v<I>
     [[nodiscard]] auto read(I &&offset) const noexcept {
@@ -388,6 +430,37 @@ public:
             f->call(
                 Type::of<T>(), _is_typed ? (_is_uniform ? CallOp::TYPED_UNIFORM_BINDLESS_BYTE_BUFFER_READ : CallOp::TYPED_BINDLESS_BYTE_BUFFER_READ) : (_is_uniform ? CallOp::UNIFORM_BINDLESS_BYTE_BUFFER_READ : CallOp::BINDLESS_BYTE_BUFFER_READ),
                 {_array, _index, detail::extract_expression(std::forward<I>(offset))}));
+    }
+
+    /// Exact logical byte size of the bound buffer view.
+    [[nodiscard]] auto size() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto byte_stride = def(1u);
+        return def<uint>(f->call(
+            Type::of<uint>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::TYPED_BINDLESS_BUFFER_SIZE) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_SIZE :
+                     CallOp::BINDLESS_BUFFER_SIZE),
+            {_array, _index, byte_stride.expression()}));
+    }
+
+    /// Device address of the first byte in the bound logical byte-buffer view.
+    [[nodiscard]] auto device_address() const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<uint64_t>(f->call(
+            Type::of<uint64_t>(),
+            _is_typed ?
+                (_is_uniform ?
+                     CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::TYPED_BINDLESS_BUFFER_ADDRESS) :
+                (_is_uniform ?
+                     CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS :
+                     CallOp::BINDLESS_BUFFER_ADDRESS),
+            {_array, _index}));
     }
 
     /// Self-pointer to unify the interfaces with Expr<Buffer<T>>
@@ -1028,6 +1101,295 @@ inline void cooperative_vector_accumulate(
         {vector_buffer.expression(),
          vector_offset.expression(),
          input_vector.expression()});
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_load(
+    Expr<ByteBuffer> buffer,
+    CoopVectorRef const &offset) {
+    CoopVector<T> var(static_cast<uint32_t>(offset.size()));
+    detail::FunctionBuilder::current()->assign(
+        var.expression(),
+        detail::FunctionBuilder::current()->call(
+            Type::cooperative_vector(Type::of<T>(), var.size()),
+            CallOp::COOPERATIVE_VECTOR_LOAD,
+            {buffer.expression(),
+             offset.expression()}));
+    return var;
+}
+
+template<typename T>
+inline void cooperative_vector_store(
+    Expr<ByteBuffer> buffer,
+    CoopVectorRef const &offset,
+    Expr<CoopVector<T>> value) {
+    detail::FunctionBuilder::current()->call(
+        CallOp::COOPERATIVE_VECTOR_STORE,
+        {buffer.expression(),
+         offset.expression(),
+         value.expression()});
+}
+
+template<typename T>
+inline CoopVector<T> bindless_cooperative_vector_load(
+    Expr<BindlessArray> bindless_array,
+    Expr<uint> buffer_handle,
+    CoopVectorRef const &offset) {
+    CoopVector<T> var(static_cast<uint32_t>(offset.size()));
+    detail::FunctionBuilder::current()->assign(
+        var.expression(),
+        detail::FunctionBuilder::current()->call(
+            Type::cooperative_vector(Type::of<T>(), var.size()),
+            CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD,
+            {bindless_array.expression(),
+             buffer_handle.expression(),
+             offset.expression()}));
+    return var;
+}
+
+template<typename T>
+inline CoopVector<T> typed_bindless_cooperative_vector_load(
+    Expr<BindlessArray> bindless_array,
+    Expr<uint> buffer_handle,
+    CoopVectorRef const &offset) {
+    CoopVector<T> var(static_cast<uint32_t>(offset.size()));
+    detail::FunctionBuilder::current()->assign(
+        var.expression(),
+        detail::FunctionBuilder::current()->call(
+            Type::cooperative_vector(Type::of<T>(), var.size()),
+            CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD,
+            {bindless_array.expression(),
+             buffer_handle.expression(),
+             offset.expression()}));
+    return var;
+}
+
+template<typename T>
+inline void bindless_cooperative_vector_store(
+    Expr<BindlessArray> bindless_array,
+    Expr<uint> buffer_handle,
+    CoopVectorRef const &offset,
+    Expr<CoopVector<T>> value) {
+    detail::FunctionBuilder::current()->call(
+        CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE,
+        {bindless_array.expression(),
+         buffer_handle.expression(),
+         offset.expression(),
+         value.expression()});
+}
+
+template<typename T>
+inline void typed_bindless_cooperative_vector_store(
+    Expr<BindlessArray> bindless_array,
+    Expr<uint> buffer_handle,
+    CoopVectorRef const &offset,
+    Expr<CoopVector<T>> value) {
+    detail::FunctionBuilder::current()->call(
+        CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE,
+        {bindless_array.expression(),
+         buffer_handle.expression(),
+         offset.expression(),
+         value.expression()});
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_workgroup_load(
+    const Shared<T> &shared_mem,
+    Expr<uint32_t> index) {
+    auto n = static_cast<uint32_t>(shared_mem.size());
+    CoopVector<T> var(n);
+    detail::FunctionBuilder::current()->assign(
+        var.expression(),
+        detail::FunctionBuilder::current()->call(
+            Type::cooperative_vector(Type::of<T>(), n),
+            CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD,
+            {shared_mem.expression(),
+             index.expression()}));
+    return var;
+}
+
+template<typename T>
+inline void cooperative_vector_workgroup_store(
+    const Shared<T> &shared_mem,
+    Expr<uint32_t> index,
+    Expr<CoopVector<T>> value) {
+    detail::FunctionBuilder::current()->call(
+        CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE,
+        {shared_mem.expression(),
+         index.expression(),
+         value.expression()});
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_splat(Expr<T> scalar, uint32_t n) {
+    CoopVector<T> var(n);
+    detail::FunctionBuilder::current()->assign(
+        var.expression(),
+        detail::FunctionBuilder::current()->call(
+            Type::cooperative_vector(Type::of<T>(), n),
+            CallOp::COOPERATIVE_VECTOR_SPLAT,
+            {scalar.expression()}));
+    return var;
+}
+
+template<typename NewType, typename OldType>
+inline CoopVector<NewType> cooperative_vector_cast(Expr<CoopVector<OldType>> v) {
+    auto n = static_cast<uint32_t>(v.expression()->type()->dimension());
+    CoopVector<NewType> var(n);
+    detail::FunctionBuilder::current()->assign(
+        var.expression(),
+        detail::FunctionBuilder::current()->call(
+            Type::cooperative_vector(Type::of<NewType>(), n),
+            CallOp::COOPERATIVE_VECTOR_CAST,
+            {v.expression()}));
+    return var;
+}
+
+// Cooperative vector element-wise math operations.
+// These use element-wise access + DSL math functions, which DXC compiles
+// to appropriate SPIR-V GLSL.std.450 or native DX instructions.
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_min(const CoopVector<T> &a, const CoopVector<T> &b) {
+    auto n = static_cast<uint32_t>(a.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = min(a[i], b[i]);
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_max(const CoopVector<T> &a, const CoopVector<T> &b) {
+    auto n = static_cast<uint32_t>(a.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = max(a[i], b[i]);
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_clamp(const CoopVector<T> &v, const CoopVector<T> &lo, const CoopVector<T> &hi) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = clamp(v[i], lo[i], hi[i]);
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_exp(const CoopVector<T> &v) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = exp(v[i]);
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_log(const CoopVector<T> &v) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = log(v[i]);
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_tanh(const CoopVector<T> &v) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = tanh(v[i]);
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_atan(const CoopVector<T> &v) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = atan(v[i]);
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_fma(const CoopVector<T> &a, const CoopVector<T> &b, const CoopVector<T> &c) {
+    auto n = static_cast<uint32_t>(a.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = fma(a[i], b[i], c[i]);
+    }
+    return result;
+}
+
+// Cooperative vector bit operations (integer types only).
+// These use element-wise access + DSL bitwise operators.
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_bitwise_and(const CoopVector<T> &a, const CoopVector<T> &b) {
+    auto n = static_cast<uint32_t>(a.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = a[i] & b[i];
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_bitwise_or(const CoopVector<T> &a, const CoopVector<T> &b) {
+    auto n = static_cast<uint32_t>(a.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = a[i] | b[i];
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_bitwise_xor(const CoopVector<T> &a, const CoopVector<T> &b) {
+    auto n = static_cast<uint32_t>(a.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = a[i] ^ b[i];
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_bitwise_not(const CoopVector<T> &v) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = ~v[i];
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_shift_left(const CoopVector<T> &v, Expr<uint32_t> bits) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = v[i] << bits;
+    }
+    return result;
+}
+
+template<typename T>
+inline CoopVector<T> cooperative_vector_shift_right(const CoopVector<T> &v, Expr<uint32_t> bits) {
+    auto n = static_cast<uint32_t>(v.size());
+    CoopVector<T> result(n);
+    for (uint32_t i = 0u; i < n; ++i) {
+        result[i] = v[i] >> bits;
+    }
+    return result;
 }
 
 }// namespace dsl

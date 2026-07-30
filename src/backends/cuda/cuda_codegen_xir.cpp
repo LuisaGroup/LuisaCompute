@@ -5,6 +5,7 @@
 #ifdef LUISA_ENABLE_XIR
 
 #include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rtx/ray.h>
 #include <luisa/runtime/rtx/hit.h>
@@ -17,6 +18,7 @@
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/location.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 
 #include "cuda_texture.h"
 #include "cuda_codegen_xir.h"
@@ -636,6 +638,10 @@ void CUDACodegenXIR::_emit_instructions(const xir::InstructionList &inst_list, i
                 });
                 break;
             }
+            case xir::DerivedInstructionTag::INDEXED_BRANCH:
+                LUISA_ERROR_WITH_LOCATION(
+                    "CUDA XIR codegen requires structured control flow; "
+                    "run restructure_cfg before codegen.");
             case xir::DerivedInstructionTag::LOOP: {
                 _with_control_flow(inst, [&] {
                     _emit_loop_inst(static_cast<const xir::LoopInst *>(inst), indent);
@@ -881,6 +887,14 @@ void CUDACodegenXIR::_emit_metadata(const xir::MetadataList &md_list, int indent
                 }
                 break;
             }
+            case xir::DerivedMetadataTag::SIGNATURE_CONSTRAINT:
+                _scratch << "signature constraint";
+                break;
+            case xir::DerivedMetadataTag::REG2MEM_SPILL: {
+                auto spill = static_cast<const xir::Reg2MemSpillMD *>(md);
+                _scratch << "reg2mem spill: " << xir::to_string(spill->kind());
+                break;
+            }
         }
         _scratch << "\n";
     }
@@ -965,7 +979,35 @@ void CUDACodegenXIR::_emit_switch_inst(const xir::SwitchInst *inst, int indent) 
         _emit_indent(indent + 1);
         _scratch << "case static_cast<";
         _emit_type_name(value_type);
-        _scratch << ">(" << inst->case_value(i) << "): {\n";
+        _scratch << ">(";
+        auto value = inst->case_value(i);
+        switch (value_type->tag()) {
+            case Type::Tag::INT8:
+                _scratch << luisa::format(
+                    "{}", static_cast<int64_t>(luisa::bit_cast<int8_t>(
+                              static_cast<uint8_t>(value))));
+                break;
+            case Type::Tag::INT16:
+                _scratch << luisa::format(
+                    "{}", static_cast<int64_t>(luisa::bit_cast<int16_t>(
+                              static_cast<uint16_t>(value))));
+                break;
+            case Type::Tag::INT32:
+                _scratch << luisa::format(
+                    "{}", static_cast<int64_t>(luisa::bit_cast<int32_t>(
+                              static_cast<uint32_t>(value))));
+                break;
+            case Type::Tag::INT64:
+                if (value == uint64_t{0x8000000000000000ull}) {
+                    _scratch << "(-9223372036854775807ll - 1ll)";
+                } else {
+                    _scratch << luisa::format(
+                        "{}ll", luisa::bit_cast<int64_t>(value));
+                }
+                break;
+            default: _scratch << value << "ull"; break;
+        }
+        _scratch << "): {\n";
         if (auto block = inst->case_block(i); block != nullptr) {
             _emit_instructions(block->instructions(), indent + 2);
         }
@@ -1358,7 +1400,7 @@ void CUDACodegenXIR::_emit_arithmetic_inst(const xir::ArithmeticInst *inst, int 
         case xir::ArithmeticOp::FRACT: f("lc_fract"); break;
         case xir::ArithmeticOp::TRUNC: f("lc_trunc"); break;
         case xir::ArithmeticOp::ROUND: f("lc_round"); break;
-        case xir::ArithmeticOp::RINT: f("lc_round"); break;// TODO: check if this is correct
+        case xir::ArithmeticOp::RINT: f("lc_rint"); break;
         case xir::ArithmeticOp::FMA: f("lc_fma"); break;
         case xir::ArithmeticOp::COPYSIGN: f("lc_copysign"); break;
         case xir::ArithmeticOp::CROSS: f("lc_cross"); break;

@@ -286,7 +286,7 @@ struct ExprEnableBitwiseCast {
         requires concepts::bitwise_convertible<
             expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto bitcast() const noexcept {
-        return as();
+        return this->template as<Dest>();
     }
 };
 

@@ -29,6 +29,12 @@ SwitchInst *XIRBuilder::switch_(Value *value) noexcept {
     return _create_and_append_instruction<SwitchInst>(_insertion_point->parent_block(), value);
 }
 
+IndexedBranchInst *XIRBuilder::indexed_branch(Value *value) noexcept {
+    LUISA_ASSERT(value != nullptr, "Indexed branch value cannot be null.");
+    return _create_and_append_instruction<IndexedBranchInst>(
+        _insertion_point->parent_block(), value);
+}
+
 LoopInst *XIRBuilder::loop() noexcept {
     return _create_and_append_instruction<LoopInst>(_insertion_point->parent_block());
 }
@@ -189,8 +195,24 @@ OutlineInst *XIRBuilder::outline() noexcept {
     return _create_and_append_instruction<OutlineInst>(_insertion_point->parent_block());
 }
 
-AutodiffScopeInst *XIRBuilder::autodiff_scope() noexcept {
-    return _create_and_append_instruction<AutodiffScopeInst>(_insertion_point->parent_block());
+AutodiffScopeInst *XIRBuilder::autodiff_scope(bool forward, size_t n_forward_grads) noexcept {
+    return _create_and_append_instruction<AutodiffScopeInst>(_insertion_point->parent_block(), forward, n_forward_grads);
+}
+
+AutodiffScopeInst *XIRBuilder::forward_autodiff_scope(size_t n_forward_grads) noexcept {
+    return autodiff_scope(true, n_forward_grads);
+}
+
+CoroSuspendInst *XIRBuilder::coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept {
+    return _create_and_append_instruction<CoroSuspendInst>(_insertion_point->parent_block(), token, std::move(name), frame);
+}
+
+CoroResumeInst *XIRBuilder::coro_resume(uint32_t token, Value *frame) noexcept {
+    return _create_and_append_instruction<CoroResumeInst>(_insertion_point->parent_block(), token, frame);
+}
+
+CoroTerminateInst *XIRBuilder::coro_terminate() noexcept {
+    return _create_and_append_instruction<CoroTerminateInst>(_insertion_point->parent_block());
 }
 
 RayQueryLoopInst *XIRBuilder::ray_query_loop() noexcept {

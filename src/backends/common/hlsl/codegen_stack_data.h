@@ -47,7 +47,20 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool useTex2DBindless : 1 = false;
     bool useTex3DBindless : 1 = false;
     bool useBufferBindless : 1 = false;
-    bool atomicFloatToInt : 1 = false;
+    bool enable_debug_info : 1 = false;
+    bool use_8bit : 1 = false;
+    // Key: pair of (function hash, variable uid) → validate index in _validate_N array
+    struct ValidateKey {
+        uint64_t func_hash;
+        uint32_t uid;
+        bool operator==(ValidateKey const &o) const noexcept { return func_hash == o.func_hash && uid == o.uid; }
+    };
+    struct ValidateKeyHash {
+        uint64_t operator()(ValidateKey const &k) const noexcept {
+            return luisa::hash<uint64_t>{}(k.func_hash, k.uid);
+        }
+    };
+    luisa::unordered_map<ValidateKey, uint32_t, ValidateKeyHash> validate_index_map;
     uint64 count = 0;
     uint64 constCount = 0;
     uint64 funcCount = 0;
@@ -74,7 +87,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::string_view CreateStruct(Type const *t);
     std::pair<vstd::string_view, bool> CreateAliasedStruct(Type const *t);
     std::pair<uint64, bool> GetConstCount(uint64 data);
-    std::pair<uint64, luisa::string> const& GetFuncCountAndName(Function f);
+    std::pair<uint64, luisa::string> const &GetFuncCountAndName(Function f);
     uint64 GetTypeCount(Type const *t);
     ~CodegenStackData();
     static vstd::unique_ptr<CodegenStackData> Allocate(CodegenUtility *util);

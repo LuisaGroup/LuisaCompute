@@ -95,6 +95,7 @@ private:
                     auto buffer = BindlessArrayUpdateCommand::Modification::Buffer(
                         api_buffer.handle._0,
                         api_buffer.offset,
+                        api_buffer.size,
                         convert_op(api_buffer.op));
                     auto tex2d = BindlessArrayUpdateCommand::Modification::Texture(
                         api_tex2d.handle._0,
@@ -434,6 +435,7 @@ luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOpt
         .compile_only = option.compile_only,
         .max_registers = option.max_registers,
         .time_trace = option.time_trace,
+        .enable_extended_accel_limits = option.enable_extended_accel_limits,
         .name = luisa::string{option.name},
         .native_include = luisa::string{option.native_include},
     };

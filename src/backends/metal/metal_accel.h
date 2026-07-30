@@ -28,6 +28,7 @@ private:
     NS::String *_name{nullptr};
     AccelOption _option;
     bool _requires_rebuild{true};
+    bool _requires_extended_limits{false};
     spin_mutex _mutex;
 
 public:
@@ -48,6 +49,7 @@ public:
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
     [[nodiscard]] auto binding() const noexcept { return Binding{_handle->gpuResourceID(), _instance_buffer->gpuAddress()}; }
     [[nodiscard]] auto pointer_to_handle() const noexcept { return const_cast<void *>(static_cast<const void *>(&_handle)); }
+    [[nodiscard]] auto requires_extended_limits() const noexcept { return _requires_extended_limits; }
     void set_name(luisa::string_view name) noexcept;
     void mark_resource_usages(MetalCommandEncoder &encoder,
                               MTL::ComputeCommandEncoder *command_encoder,
@@ -55,4 +57,3 @@ public:
 };
 
 }// namespace luisa::compute::metal
-

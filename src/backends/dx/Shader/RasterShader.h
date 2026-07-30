@@ -58,7 +58,8 @@ private:
         ComPtr<ID3D12RootSignature> &&root_sig,
         vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
         vstd::vector<std::byte> &&vert_bin_data,
-        vstd::vector<std::byte> &&pixel_bin_data);
+        vstd::vector<std::byte> &&pixel_bin_data,
+        uint validation_count);
     std::mutex _pso_mtx;
     struct PsoValue {
         ComPtr<ID3D12PipelineState> pso{};
@@ -109,7 +110,8 @@ public:
         vstd::vector<SavedArgument> &&args,
         vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
         vstd::vector<std::byte> &&vert_bin_data,
-        vstd::vector<std::byte> &&pixel_bin_data);
+        vstd::vector<std::byte> &&pixel_bin_data,
+        uint validation_count);
 
     ~RasterShader();
 

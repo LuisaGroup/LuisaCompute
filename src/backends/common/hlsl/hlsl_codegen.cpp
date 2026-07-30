@@ -177,9 +177,16 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
     //    }
     switch (t->tag()) {
         case Type::Tag::BUFFER:
-        case Type::Tag::COOPERATIVE_VECTOR:
         case Type::Tag::VECTOR: {
             basicAccess();
+        } break;
+        case Type::Tag::COOPERATIVE_VECTOR: {
+            accessCount++;
+            expr->range()->accept(*this);
+            accessCount--;
+            str << ".Get(";
+            expr->index()->accept(*this);
+            str << ')';
         } break;
         case Type::Tag::MATRIX: {
             accessCount++;
@@ -299,11 +306,13 @@ void StringStateVisitor::visit(const CastExpr *expr) {
                     case Type::Tag::FLOAT32:
                         str << "asfloat"sv;
                         break;
+                    case Type::Tag::INT8:
                     case Type::Tag::INT16:
                     case Type::Tag::INT32:
                     case Type::Tag::INT64:
                         str << "asint"sv;
                         break;
+                    case Type::Tag::UINT8:
                     case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
                     case Type::Tag::UINT64:
@@ -555,6 +564,21 @@ void StringStateVisitor::visit(const AssignStmt *state) {
             return;
         }
     }
+    // Detect assignment to cooperative vector element: v[i] = x → v.Set(x, i)
+    auto lhs_access = state->lhs()->tag() == Expression::Tag::ACCESS ?
+                          static_cast<AccessExpr const *>(state->lhs()) : nullptr;
+    bool lhs_is_coopvec_element = lhs_access &&
+        lhs_access->range()->type()->is_cooperative_vector();
+    if (lhs_is_coopvec_element) {
+        // Generate: range.Set(rhs, index)
+        lhs_access->range()->accept(*this);
+        str << ".Set(";
+        state->rhs()->accept(*this);
+        str << ',';
+        lhs_access->index()->accept(*this);
+        str << ");\n";
+        return;
+    }
     auto rhs_is_shared = is_shared(state->rhs());
     if (!isLazyDecl) {
         lhs_is_shared = is_shared(state->lhs());
@@ -603,6 +627,8 @@ void StringStateVisitor::visit(const RayQueryStmt *stmt) {
     str << "}else{\n"sv;
     stmt->on_procedural_candidate()->accept(*this);
     str << "}}}\n"sv;
+}
+void StringStateVisitor::visit(const SuspendStmt *) {
 }
 StringStateVisitor::StringStateVisitor(
     Function f,

@@ -43,6 +43,7 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
         return op(llvm_a, llvm_b, llvm_c);
     };
     auto call_exp2 = [&](llvm::Value *v) noexcept -> llvm::Value * {
+#if LLVM_VERSION_MAJOR < 22
         if (_config.cuda_arch < nvvm_required_arch_exp2_f16 || !v->getType()->getScalarType()->isHalfTy()) {
             return _call_libdevice_unary_op(b, "exp2", v);
         }
@@ -66,6 +67,9 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
         }
         // scalar
         return b.CreateIntrinsic(llvm::Intrinsic::nvvm_ex2_approx_f16, {v});
+#else
+        return _call_libdevice_unary_op(b, "exp2", v);
+#endif
     };
     auto call_tanh = [&](llvm::Value *v) noexcept -> llvm::Value * {
 #if LLVM_VERSION_MAJOR >= 22// LLVM 22+ can correct handle llvm.nvvm.tanh.approx.f32 in libdevice
@@ -482,15 +486,140 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
             LUISA_DEBUG_ASSERT(base->getType()->isFPOrFPVectorTy() &&
                                exponent->getType()->isIntOrIntVectorTy() &&
                                inst->type()->is_float_or_float_vector());
-            // make sure that exponent is i32 or i32 vector
-            if (!exponent->getType()->getScalarType()->isIntegerTy(32)) {
-                auto i32_type = static_cast<llvm::Type *>(b.getInt32Ty());
-                if (inst->type()->is_vector()) {
-                    i32_type = llvm::VectorType::get(i32_type, inst->type()->dimension(), false);
+            // libdevice only provides i32 powi entry points. Narrowing to those
+            // entry points is not legal here: POW_INT carries the signedness
+            // and complete bit width of its XIR exponent. In particular,
+            // uint64(1) << 32 and signed minimum values must not be truncated
+            // or negated in signed arithmetic. Materialize exponentiation by
+            // squaring over the original integer width instead.
+            auto call_scalar_power_magnitude = [&](llvm::Value *scalar_base,
+                                                   llvm::Value *magnitude,
+                                                   llvm::Value *negative) noexcept {
+                auto base_type = scalar_base->getType();
+                auto exponent_type = llvm::cast<llvm::IntegerType>(magnitude->getType());
+                auto name = fmt::format("luisa.pow_int.{}.u{}",
+                                        _to_string(base_type),
+                                        exponent_type->getBitWidth());
+                auto helper = _llvm_module->getFunction(name);
+                if (helper == nullptr) {
+                    auto helper_type = llvm::FunctionType::get(
+                        base_type,
+                        {base_type, exponent_type, b.getInt1Ty()}, false);
+                    helper = llvm::Function::Create(
+                        helper_type, llvm::Function::PrivateLinkage,
+                        name, *_llvm_module);
+                    helper->addFnAttr(llvm::Attribute::AlwaysInline);
+
+                    auto entry = llvm::BasicBlock::Create(
+                        _llvm_context, "entry", helper);
+                    auto positive = llvm::BasicBlock::Create(
+                        _llvm_context, "positive", helper);
+                    auto negative_block = llvm::BasicBlock::Create(
+                        _llvm_context, "negative", helper);
+                    auto loop = llvm::BasicBlock::Create(
+                        _llvm_context, "loop", helper);
+                    auto body = llvm::BasicBlock::Create(
+                        _llvm_context, "body", helper);
+                    auto exit = llvm::BasicBlock::Create(
+                        _llvm_context, "exit", helper);
+                    IB helper_b{entry};
+                    helper_b.setFastMathFlags(b.getFastMathFlags());
+                    helper_b.CreateCondBr(
+                        helper->getArg(2), negative_block, positive);
+
+                    auto one = llvm::ConstantFP::get(base_type, 1.0);
+                    helper_b.SetInsertPoint(positive);
+                    helper_b.CreateBr(loop);
+
+                    helper_b.SetInsertPoint(negative_block);
+                    auto reciprocal_base = helper_b.CreateFDiv(
+                        one, helper->getArg(0));
+                    helper_b.CreateBr(loop);
+
+                    helper_b.SetInsertPoint(loop);
+                    auto current_magnitude = helper_b.CreatePHI(
+                        exponent_type, 3u, "magnitude");
+                    auto current_result = helper_b.CreatePHI(
+                        base_type, 3u, "result");
+                    auto current_factor = helper_b.CreatePHI(
+                        base_type, 3u, "factor");
+                    auto zero = llvm::ConstantInt::get(exponent_type, 0u);
+                    current_magnitude->addIncoming(helper->getArg(1), positive);
+                    current_magnitude->addIncoming(helper->getArg(1), negative_block);
+                    current_result->addIncoming(one, positive);
+                    current_result->addIncoming(one, negative_block);
+                    current_factor->addIncoming(helper->getArg(0), positive);
+                    current_factor->addIncoming(reciprocal_base, negative_block);
+                    auto done = helper_b.CreateICmpEQ(
+                        current_magnitude, zero);
+                    helper_b.CreateCondBr(done, exit, body);
+
+                    helper_b.SetInsertPoint(body);
+                    auto odd = helper_b.CreateTrunc(
+                        current_magnitude, helper_b.getInt1Ty());
+                    auto multiplied = helper_b.CreateFMul(
+                        current_result, current_factor);
+                    auto next_result = helper_b.CreateSelect(
+                        odd, multiplied, current_result);
+                    auto next_magnitude = helper_b.CreateLShr(
+                        current_magnitude, 1u);
+                    auto next_factor = helper_b.CreateFMul(
+                        current_factor, current_factor);
+                    helper_b.CreateBr(loop);
+                    current_magnitude->addIncoming(next_magnitude, body);
+                    current_result->addIncoming(next_result, body);
+                    current_factor->addIncoming(next_factor, body);
+
+                    helper_b.SetInsertPoint(exit);
+                    helper_b.CreateRet(current_result);
                 }
-                exponent = b.CreateIntCast(exponent, i32_type, true);
+                return b.CreateCall(
+                    helper, {scalar_base, magnitude, negative});
+            };
+            auto exponent_xir_type = inst->operand(1)->type();
+            auto exponent_element_type = exponent_xir_type->is_vector() ?
+                                             exponent_xir_type->element() :
+                                             exponent_xir_type;
+            auto exponent_is_signed = exponent_element_type->is_int();
+            auto call_scalar_power = [&](llvm::Value *scalar_base,
+                                         llvm::Value *scalar_exponent) noexcept {
+                if (!exponent_is_signed) {
+                    return call_scalar_power_magnitude(
+                        scalar_base, scalar_exponent, b.getFalse());
+                }
+                auto exponent_type = llvm::cast<llvm::IntegerType>(
+                    scalar_exponent->getType());
+                auto zero = llvm::ConstantInt::get(exponent_type, 0u);
+                auto negative = b.CreateICmpSLT(scalar_exponent, zero);
+                // This subtraction is deliberately performed in the same
+                // fixed-width bit-vector type. LLVM integer subtraction wraps
+                // without nsw/nuw, so it also yields the unsigned magnitude of
+                // the signed minimum value.
+                auto magnitude = b.CreateSelect(
+                    negative,
+                    b.CreateSub(zero, scalar_exponent),
+                    scalar_exponent);
+                return call_scalar_power_magnitude(
+                    scalar_base, magnitude, negative);
+            };
+            if (auto base_type = llvm::dyn_cast<llvm::FixedVectorType>(
+                    base->getType())) {
+                auto result = static_cast<llvm::Value *>(
+                    llvm::PoisonValue::get(base_type));
+                auto exponent_is_vector = exponent->getType()->isVectorTy();
+                for (auto i = 0u; i < base_type->getNumElements(); i++) {
+                    auto base_element = b.CreateExtractElement(base, i);
+                    auto exponent_element = exponent_is_vector ?
+                                                b.CreateExtractElement(exponent, i) :
+                                                exponent;
+                    auto element_result = call_scalar_power(
+                        base_element, exponent_element);
+                    result = b.CreateInsertElement(
+                        result, element_result, i);
+                }
+                return result;
             }
-            return _call_libdevice_binary_op(b, "powi", base, exponent);
+            return call_scalar_power(base, exponent);
         }
         case xir::ArithmeticOp::SQRT: return translate_unary([&](auto v) noexcept {
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
@@ -646,14 +775,16 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
             return b.CreateFDiv(lhs_col, rhs_col);
         });
         case xir::ArithmeticOp::MATRIX_LINALG_MUL: {
+            auto lhs_type = inst->operand(0)->type();
+            auto rhs_type = inst->operand(1)->type();
             LUISA_DEBUG_ASSERT(inst->operand_count() == 2 &&
-                                   inst->operand(0)->type()->is_matrix() &&
-                                   (inst->operand(1)->type()->is_matrix() || inst->operand(1)->type()->is_vector()) &&
-                                   inst->operand(0)->type()->dimension() == inst->operand(1)->type()->dimension() &&
-                                   inst->operand(0)->type()->element() == inst->operand(1)->type()->element(),
+                                   (lhs_type->is_matrix() || lhs_type->is_float_vector()) &&
+                                   (rhs_type->is_matrix() || rhs_type->is_float_vector()) &&
+                                   (lhs_type->is_matrix() || rhs_type->is_matrix()) &&
+                                   lhs_type->dimension() == rhs_type->dimension() &&
+                                   lhs_type->element() == rhs_type->element(),
                                "Invalid types in matrix multiply instruction: {} x {}",
-                               inst->operand(0)->type()->description(),
-                               inst->operand(1)->type()->description());
+                               lhs_type->description(), rhs_type->description());
             auto lhs = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto rhs = _get_llvm_value(b, func_ctx, inst->operand(1));
             return _translate_matrix_multiply(b, lhs, rhs);
@@ -768,6 +899,24 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_outer_product(IB &b, llvm::Value *l
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_translate_matrix_multiply(IB &b, llvm::Value *lhs, llvm::Value *rhs) noexcept {
+    if (auto lhs_type = llvm::dyn_cast<llvm::FixedVectorType>(lhs->getType())) {
+        auto rhs_type = llvm::cast<llvm::ArrayType>(rhs->getType());
+        auto dim = rhs_type->getNumElements();
+        LUISA_DEBUG_ASSERT(lhs_type == rhs_type->getElementType() &&
+                           lhs_type->getNumElements() == dim);
+        auto result = static_cast<llvm::Value *>(
+            llvm::PoisonValue::get(lhs_type));
+        for (auto i = 0u; i < dim; i++) {
+            auto rhs_col = b.CreateExtractValue(rhs, i);
+            auto product = b.CreateFMul(lhs, rhs_col);
+            auto component = b.CreateFAddReduce(
+                llvm::ConstantFP::getNegativeZero(
+                    lhs_type->getElementType()),
+                product);
+            result = b.CreateInsertElement(result, component, i);
+        }
+        return result;
+    }
     LUISA_DEBUG_ASSERT(lhs->getType()->isArrayTy());
     auto dim = lhs->getType()->getArrayNumElements();
     if (rhs->getType()->isVectorTy()) {// matrix * vector

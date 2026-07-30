@@ -1,12 +1,15 @@
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/core/logging.h>
+#include "hip_shader_printer.h"
 #include "hip_shader.h"
 #include "hip_command_encoder.h"
 
 namespace luisa::compute::hip {
 
-HIPShader::HIPShader(luisa::vector<Usage> arg_usages) noexcept
-    : _argument_usages{std::move(arg_usages)} {}
+HIPShader::HIPShader(luisa::unique_ptr<HIPShaderPrinter> printer,
+                     luisa::vector<Usage> arg_usages) noexcept
+    : _printer{std::move(printer)},
+      _argument_usages{std::move(arg_usages)} {}
 
 HIPShader::~HIPShader() noexcept = default;
 

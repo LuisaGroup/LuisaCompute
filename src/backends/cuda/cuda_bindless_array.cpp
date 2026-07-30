@@ -10,6 +10,30 @@
 
 namespace luisa::compute::cuda {
 
+namespace {
+
+// The precompiled CUDA update kernel has a stable 64-byte input ABI. Runtime
+// commands carry additional host-side view data, so marshal explicitly at this
+// boundary instead of relying on identical C++ struct layouts.
+struct alignas(16) DeviceBindlessSlotModification {
+    using Operation = BindlessArrayUpdateCommand::Operation;
+    using Texture = BindlessArrayUpdateCommand::ModifiedTexture;
+    struct Buffer {
+        uint64_t handle;
+        size_t size_bytes;
+        Operation op;
+    };
+    size_t slot;
+    Buffer buffer;
+    Texture tex2d;
+    Texture tex3d;
+};
+static_assert(sizeof(DeviceBindlessSlotModification::Buffer) == 24u);
+static_assert(sizeof(DeviceBindlessSlotModification::Texture) == 16u);
+static_assert(sizeof(DeviceBindlessSlotModification) == 64u);
+
+}// namespace
+
 CUDABindlessArray::CUDABindlessArray(size_t capacity) noexcept
     : _texture_tracker{capacity} {
     LUISA_CHECK_CUDA(cuMemAlloc(&_handle, capacity * sizeof(Slot)));
@@ -105,7 +129,16 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
 
     using Mod = BindlessArrayUpdateCommand::Modification;
     auto mods = cmd->steal_modifications();
+    luisa::vector<DeviceBindlessSlotModification> device_mods;
+    device_mods.reserve(mods.size());
     for (auto &m : mods) {
+        device_mods.emplace_back(DeviceBindlessSlotModification{
+            .slot = m.slot,
+            .buffer = DeviceBindlessSlotModification::Buffer{
+                m.buffer.handle, m.buffer.size_bytes, m.buffer.op},
+            .tex2d = m.tex2d,
+            .tex3d = m.tex3d});
+        auto &device_mod = device_mods.back();
         // process buffer
         if (m.buffer.op == Mod::Operation::EMPLACE) {
             auto buffer = reinterpret_cast<const CUDABuffer *>(m.buffer.handle);
@@ -113,15 +146,25 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
                          "Offset {} exceeds buffer size {}.",
                          m.buffer.offset_bytes, buffer->size_bytes());
             auto address = buffer->device_address() + m.buffer.offset_bytes;
-            auto size = buffer->size_bytes() - m.buffer.offset_bytes;
-            m.buffer.handle = address;
-            m.buffer.offset_bytes = size;// FIXME: reusing this field is a bit hacky
+            auto remaining_size = buffer->size_bytes() - m.buffer.offset_bytes;
+            auto size =
+                m.buffer.size_bytes ==
+                        BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size ?
+                    remaining_size :
+                    m.buffer.size_bytes;
+            LUISA_ASSERT(size > 0u && size <= remaining_size,
+                         "Bindless buffer view [{}, {}) exceeds buffer size {}.",
+                         m.buffer.offset_bytes,
+                         m.buffer.offset_bytes + size,
+                         buffer->size_bytes());
+            device_mod.buffer.handle = address;
+            device_mod.buffer.size_bytes = size;
         }
         // process tex2d
         if (m.tex2d.op == Mod::Operation::EMPLACE) {
             if (auto t = _tex2d_slots[m.slot]) { _texture_tracker.release(t); }
             auto t = create_cuda_texture_object(m.tex2d.handle, m.tex2d.sampler);
-            m.tex2d.handle = t;
+            device_mod.tex2d.handle = t;
             _tex2d_slots[m.slot] = t;
             _texture_tracker.retain(t);
         } else if (m.tex2d.op == Mod::Operation::REMOVE) {
@@ -132,7 +175,7 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
         if (m.tex3d.op == Mod::Operation::EMPLACE) {
             if (auto t = _tex3d_slots[m.slot]) { _texture_tracker.release(t); }
             auto t = create_cuda_texture_object(m.tex3d.handle, m.tex3d.sampler);
-            m.tex3d.handle = t;
+            device_mod.tex3d.handle = t;
             _tex3d_slots[m.slot] = t;
             _texture_tracker.retain(t);
         } else if (m.tex3d.op == Mod::Operation::REMOVE) {
@@ -146,10 +189,14 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
     auto cuda_stream = encoder.stream()->handle();
     auto update_buffer = 0ull;
     LUISA_CHECK_CUDA(cuMemAllocAsync(
-        &update_buffer, mods.size() * sizeof(Mod), cuda_stream));
-    auto size_bytes = mods.size() * sizeof(Mod);
+        &update_buffer,
+        device_mods.size() * sizeof(DeviceBindlessSlotModification),
+        cuda_stream));
+    auto size_bytes =
+        device_mods.size() * sizeof(DeviceBindlessSlotModification);
     encoder.with_upload_buffer(size_bytes, [&](auto host_update_buffer) noexcept {
-        std::memcpy(host_update_buffer->address(), mods.data(), size_bytes);
+        std::memcpy(
+            host_update_buffer->address(), device_mods.data(), size_bytes);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             update_buffer, host_update_buffer->address(),
             size_bytes, cuda_stream));

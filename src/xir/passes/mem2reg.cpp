@@ -5,6 +5,9 @@
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/transpose_gep.h>
 #include <luisa/xir/passes/mem2reg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/name.h>
 
 #include "helpers.h"
 
@@ -12,16 +15,64 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-[[nodiscard]] static bool is_alloca_promotable(AllocaInst *inst) noexcept {
-    // check if it's a local variable
+[[nodiscard]] static bool is_alloca_promotable(
+    AllocaInst *inst,
+    const luisa::unordered_set<BasicBlock *> &reachable_blocks) noexcept {
     if (inst->op() != AllocaOp::LOCAL) { return false; }
-    // check if it's used as reference in other instructions than load/store
+    // A reg2mem spill slot carries synthetic provenance metadata that mem2reg
+    // is specifically responsible for consuming. Other annotated allocas need
+    // a distinct storage owner and are therefore not promotable.
+    auto is_reg2mem_spill =
+        inst->find_metadata<Reg2MemSpillMD>() != nullptr;
+    const NameMD *spill_reload_name = nullptr;
+    if (!is_reg2mem_spill) {
+        for (auto *metadata : inst->metadata_list()) {
+            // AST locals carry a debug name by default. A name describes the
+            // logical variable rather than the storage operation, so it can
+            // be copied to every Phi created for that variable. Other alloca
+            // metadata has no unique SSA owner and remains a hard boundary.
+            if (!metadata->isa<NameMD>()) { return false; }
+        }
+    }
     for (auto &&use : inst->use_list()) {
         LUISA_DEBUG_ASSERT(use->user() != nullptr && use->user()->isa<Instruction>(), "Invalid user.");
-        if (auto user_inst = static_cast<Instruction *>(use->user());
-            !user_inst->isa<LoadInst>() && !user_inst->isa<StoreInst>()) {
+        auto user_inst = static_cast<Instruction *>(use->user());
+        // Disconnected blocks remain owned by the function. Removing a load or
+        // store from such a block while promoting the reachable uses can leave
+        // retained instructions there with dangling operands. Keep the alloca
+        // intact unless every direct user participates in this CFG rewrite.
+        if (auto *parent = user_inst->parent_block();
+            parent == nullptr || !reachable_blocks.contains(parent)) {
             return false;
         }
+        if (user_inst->isa<LoadInst>()) {
+            // Replacing an annotated load with a shared SSA value has no
+            // unique metadata owner. The one exception is a variable name on
+            // a synthetic reg2mem reload: it came from the lowered Phi and is
+            // copied back to every Phi reconstructed for the spill slot.
+            if (!user_inst->metadata_list().empty()) {
+                if (!is_reg2mem_spill) { return false; }
+                for (auto *metadata :
+                     user_inst->metadata_list()) {
+                    if (!metadata->isa<NameMD>()) {
+                        return false;
+                    }
+                    auto *name =
+                        static_cast<const NameMD *>(metadata);
+                    if (spill_reload_name != nullptr &&
+                        spill_reload_name->name() !=
+                            name->name()) {
+                        return false;
+                    }
+                    spill_reload_name = name;
+                }
+            }
+            continue;
+        }
+        if (!user_inst->isa<StoreInst>()) { return false; }
+        if (!user_inst->metadata_list().empty()) { return false; }
+        // Reject allocas whose pointer value escapes via being stored.
+        if (static_cast<StoreInst *>(user_inst)->value() == inst) { return false; }
     }
     return true;
 }
@@ -29,11 +80,12 @@ namespace detail {
 struct AllocaAnalysis {
 
     const DomTree &dom;
-    const luisa::unordered_map<Instruction *, uint> &inst_indices;
-    const luisa::unordered_map<BasicBlock *, uint> &block_indices;
+    const luisa::unordered_map<Instruction *, uint32_t> &inst_indices;
+    const luisa::unordered_map<BasicBlock *, uint32_t> &block_indices;
+    const luisa::unordered_set<BasicBlock *> &reachable_blocks;
 
     luisa::unordered_map<BasicBlock *, StoreInst *> def_blocks;
-    luisa::unordered_map<BasicBlock *, LoadInst *> use_blocks;
+    luisa::unordered_map<BasicBlock *, luisa::vector<LoadInst *>> use_blocks;
     luisa::unordered_set<BasicBlock *> live_in_blocks;
 
     void analyze(AllocaInst *inst) noexcept {
@@ -47,12 +99,13 @@ struct AllocaAnalysis {
                 switch (auto user_inst = static_cast<Instruction *>(user); user_inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::LOAD: {
                         LUISA_DEBUG_ASSERT(user_inst->parent_block() != nullptr, "Invalid parent.");
-                        auto [_, success] = use_blocks.try_emplace(user_inst->parent_block(), static_cast<LoadInst *>(user_inst));
-                        LUISA_DEBUG_ASSERT(success, "Invalid state.");
+                        if (!reachable_blocks.contains(user_inst->parent_block())) { break; }
+                        use_blocks[user_inst->parent_block()].emplace_back(static_cast<LoadInst *>(user_inst));
                         break;
                     }
                     case DerivedInstructionTag::STORE: {
                         LUISA_DEBUG_ASSERT(user_inst->parent_block() != nullptr, "Invalid parent.");
+                        if (!reachable_blocks.contains(user_inst->parent_block())) { break; }
                         auto [_, success] = def_blocks.try_emplace(user_inst->parent_block(), static_cast<StoreInst *>(user_inst));
                         LUISA_DEBUG_ASSERT(success, "Invalid state.");
                         break;
@@ -62,13 +115,12 @@ struct AllocaAnalysis {
             }
         }
         // compute live-in blocks
-        luisa::fixed_vector<BasicBlock *, 64u> work_list;
+        luisa::fixed_vector<BasicBlock *, 64> work_list;
         work_list.reserve(use_blocks.size());
-        for (auto [use_block, load] : use_blocks) {
-            if (auto def_iter = def_blocks.find(use_block); def_iter != def_blocks.end()) {
-                // make sure the store is after the load
-                LUISA_ASSERT(inst_indices.at(def_iter->second) > inst_indices.at(load), "Invalid state.");
-            }
+        for (auto &[use_block, loads] : use_blocks) {
+            // For loads before the store, the store must come after.
+            // Loads after the store read the store's value directly and
+            // are handled in place_phi_nodes.
             work_list.emplace_back(use_block);
         }
         // extend the live-in block set by adding all non-defining predecessors of the known live-in blocks
@@ -144,8 +196,24 @@ struct PhiInsertionAndRenaming {
         // insert new phi nodes by traversing the closure of dominance frontiers of the def blocks
         block_to_phi.clear();
         auto type = inst->type();
+        const NameMD *logical_name = nullptr;
+        if (inst->find_metadata<Reg2MemSpillMD>() ==
+            nullptr) {
+            logical_name = inst->find_metadata<NameMD>();
+        } else {
+            for (auto &[_, loads] : analysis.use_blocks) {
+                for (auto *load : loads) {
+                    if (auto *name =
+                            load->find_metadata<NameMD>()) {
+                        logical_name = name;
+                        break;
+                    }
+                }
+                if (logical_name != nullptr) { break; }
+            }
+        }
         {
-            luisa::fixed_vector<BasicBlock *, 64u> work_list;
+            luisa::fixed_vector<BasicBlock *, 64> work_list;
             work_list.reserve(analysis.def_blocks.size());
             for (auto [def_block, _] : analysis.def_blocks) {
                 work_list.emplace_back(def_block);
@@ -153,13 +221,19 @@ struct PhiInsertionAndRenaming {
             while (!work_list.empty()) {
                 auto block = work_list.back();
                 work_list.pop_back();
-                for (auto frontier : analysis.dom.node(block)->frontiers()) {
+                auto block_node = analysis.dom.node_or_null(block);
+                if (block_node == nullptr) { continue; }
+                for (auto frontier : block_node->frontiers()) {
                     if (auto fb = frontier->block(); analysis.live_in_blocks.contains(fb)) {
                         if (auto iter = block_to_phi.try_emplace(fb, nullptr).first; iter->second == nullptr) {
                             // insert the phi node
                             XIRBuilder b;
                             b.set_insertion_point(fb->instructions().head_sentinel());
                             auto phi = b.phi(type);
+                            if (logical_name != nullptr) {
+                                phi->metadata_list().push_front(
+                                    logical_name->clone());
+                            }
                             iter->second = phi;
                             inserted.emplace_back(phi);
                             // add the block to the work list to compute the closure
@@ -170,25 +244,34 @@ struct PhiInsertionAndRenaming {
             }
         }
         // other loads must be dominated by some def/phi block, or it must contain undefined value
-        for (auto [use_block, load_inst] : analysis.use_blocks) {
-            LUISA_DEBUG_ASSERT(!ctx.removed.contains(load_inst), "Invalid state.");
-            if (auto phi_iter = block_to_phi.find(use_block); phi_iter != block_to_phi.end()) {
-                // if we have a phi node in the use block, we can replace the load with it
-                replace_load_with_value(load_inst, phi_iter->second, ctx, info);
-            } else if (auto parent = analysis.dom.immediate_dominator(use_block)) {
-                // otherwise, we walk the dom tree to find the value that dominates the use block
-                auto dom_value = find_dom_value_from_block(parent, type, analysis);
-                replace_load_with_value(load_inst, dom_value, ctx, info);
-            } else {
-                // otherwise we have to use an undefined value
-                auto undef = use_block->parent_module()->create_undefined(type);
-                replace_load_with_value(load_inst, undef, ctx, info);
+        for (auto &[use_block, loads] : analysis.use_blocks) {
+            for (auto load_inst : loads) {
+                LUISA_DEBUG_ASSERT(!ctx.removed.contains(load_inst), "Invalid state.");
+                Value *replacement = nullptr;
+                // Check if there is a store in this block that comes before this load.
+                // If so, this load reads the store's value directly.
+                if (auto def_iter = analysis.def_blocks.find(use_block);
+                    def_iter != analysis.def_blocks.end() &&
+                    analysis.inst_indices.at(def_iter->second) < analysis.inst_indices.at(load_inst)) {
+                    replacement = def_iter->second->value();
+                } else if (auto phi_iter = block_to_phi.find(use_block); phi_iter != block_to_phi.end()) {
+                    replacement = phi_iter->second;
+                } else if (auto parent = analysis.dom.immediate_dominator(use_block)) {
+                    replacement = find_dom_value_from_block(parent, type, analysis);
+                } else {
+                    replacement = use_block->parent_module()->create_undefined(type);
+                }
+                replace_load_with_value(load_inst, replacement, ctx, info);
             }
         }
         // now the alloca should have no load uses but only store uses, check it
         for (auto &&use : inst->use_list()) {
             if (auto user = use->user()) {
-                LUISA_ASSERT(user->isa<StoreInst>(), "Invalid user.");
+                if (user->isa<Instruction>() &&
+                    analysis.reachable_blocks.contains(static_cast<Instruction *>(user)->parent_block()) &&
+                    !static_cast<Instruction *>(user)->isa<StoreInst>()) {
+                    LUISA_ERROR("Invalid user.");
+                }
             }
         }
         // now we fill the incoming values of the phi nodes
@@ -226,7 +309,8 @@ using AllocaStoreLoadSequence = luisa::unordered_map<BasicBlock *, std::vector<I
 // after this function, for each block, the must be at most one store and one load instruction for an
 // alloca, and the load instruction must precede the store instruction if both exist
 static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSequence &seq,
-                                             const luisa::unordered_map<Instruction *, uint> &inst_indices,
+                                             const luisa::unordered_map<Instruction *, uint32_t> &inst_indices,
+                                             const luisa::unordered_set<BasicBlock *> &reachable_blocks,
                                              Mem2RegPassContext &ctx, Mem2RegInfo &info) noexcept {
     // collect load/store instructions concerning the alloca
     seq.clear();
@@ -236,6 +320,7 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
                 auto user_inst = static_cast<Instruction *>(user);
                 auto parent_block = user_inst->parent_block();
                 LUISA_DEBUG_ASSERT(parent_block != nullptr, "Invalid parent.");
+                if (!reachable_blocks.contains(parent_block)) { continue; }
                 seq[parent_block].emplace_back(user_inst);
             }
         }
@@ -259,14 +344,19 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
                     break;
                 }
                 case DerivedInstructionTag::STORE: {
-                    // we have overwritten the last store so remove it if any
+                    // A direct StoreInst to this alloca always replaces the whole
+                    // object, independently of whether its value is scalar or an
+                    // aggregate. Partial field/element stores use a GEP pointer and
+                    // make the alloca non-promotable unless transpose_gep first turns
+                    // them into an explicit load/insert/full-store sequence. In both
+                    // cases, forwarding the direct store value is exact.
                     if (last_store != nullptr) {
                         remove_store(last_store, ctx, info);
                     }
+                    last_value = static_cast<StoreInst *>(store_or_load)->value();
+                    LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
                     // record this store
                     last_store = static_cast<StoreInst *>(store_or_load);
-                    last_value = last_store->value();
-                    LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
                     break;
                 }
                 default: LUISA_ERROR_WITH_LOCATION("Invalid instruction.");
@@ -292,44 +382,54 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
 }
 
 static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &info) noexcept {
+    if (f == nullptr) { return; }
     if (auto def = f->definition()) {
-        // run the transpose GEP pass first so we can possibly handle more aggregates
-        if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
-            transpose_gep_info.transposed_load_count != 0u ||
-            transpose_gep_info.transposed_store_count != 0u) {
-            LUISA_VERBOSE("Transposed {} load instruction(s) and {} store instruction(s) in mem2reg pass.",
-                          transpose_gep_info.transposed_load_count,
-                          transpose_gep_info.transposed_store_count);
-        }
+        if (def->body_block() == nullptr) { return; }
+
+        // run the transpose GEP pass first so we can possibly handle more aggregates (EDIT: disabled for better performance on CUDA)
+        // if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
+        //     transpose_gep_info.transposed_load_count != 0 ||
+        //     transpose_gep_info.transposed_store_count != 0) {
+        //     LUISA_VERBOSE("Transposed {} load instruction(s) and {} store instruction(s) in mem2reg pass.",
+        //                   transpose_gep_info.transposed_load_count,
+        //                   transpose_gep_info.transposed_store_count);
+        // }
+        
         // collect local alloca instructions that can be promoted
+        luisa::vector<AllocaInst *> local_allocas;
         luisa::vector<AllocaInst *> promotable;
-        luisa::unordered_map<Instruction *, uint> inst_indices;
-        luisa::unordered_map<BasicBlock *, uint> block_indices;
+        luisa::unordered_map<Instruction *, uint32_t> inst_indices;
+        luisa::unordered_map<BasicBlock *, uint32_t> block_indices;
+        luisa::unordered_set<BasicBlock *> reachable_blocks;
         def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
-            block_indices.emplace(block, static_cast<uint>(block_indices.size()));
+            reachable_blocks.emplace(block);
+            block_indices.emplace(block, static_cast<uint32_t>(block_indices.size()));
             block->traverse_instructions([&](Instruction *inst) noexcept {
                 switch (inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::ALLOCA: {
-                        if (auto alloca_inst = static_cast<AllocaInst *>(inst); is_alloca_promotable(alloca_inst)) {
-                            promotable.emplace_back(alloca_inst);
-                        }
+                        local_allocas.emplace_back(static_cast<AllocaInst *>(inst));
                         break;
                     }
                     case DerivedInstructionTag::LOAD: [[fallthrough]];
                     case DerivedInstructionTag::STORE: {
-                        inst_indices.emplace(inst, static_cast<uint>(inst_indices.size()));
+                        inst_indices.emplace(inst, static_cast<uint32_t>(inst_indices.size()));
                         break;
                     }
                     default: break;
                 }
             });
         });
+        for (auto *alloca_inst : local_allocas) {
+            if (is_alloca_promotable(alloca_inst, reachable_blocks)) {
+                promotable.emplace_back(alloca_inst);
+            }
+        }
         // do some simplification first
         Mem2RegPassContext ctx;
         if (!promotable.empty()) {
             AllocaStoreLoadSequence seq;
             for (auto inst : promotable) {
-                simplify_single_block_store_load(inst, seq, inst_indices, ctx, info);
+                simplify_single_block_store_load(inst, seq, inst_indices, reachable_blocks, ctx, info);
             }
             // erase the alloca instructions that are already removed
             promotable.erase(
@@ -343,9 +443,28 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
             auto dom = compute_dom_tree(def);
             AllocaAnalysis analysis{.dom = dom,
                                     .inst_indices = inst_indices,
-                                    .block_indices = block_indices};
+                                    .block_indices = block_indices,
+                                    .reachable_blocks = reachable_blocks};
             PhiInsertionAndRenaming insertion{.ctx = ctx};
             for (auto inst : promotable) {
+                // The local simplifier above must leave at most one direct store
+                // per block. Keep this defensive boundary check: the SSA rewrite's
+                // per-block definition map cannot represent more than one.
+                luisa::unordered_map<BasicBlock *, uint32_t> block_store_count;
+                bool has_multiple_stores = false;
+                for (auto &&use : inst->use_list()) {
+                    if (auto user = use->user(); user != nullptr && user->isa<StoreInst>()) {
+                        auto block = static_cast<Instruction *>(user)->parent_block();
+                        auto [_, inserted] = block_store_count.try_emplace(block, 1u);
+                        if (!inserted) {
+                            has_multiple_stores = true;
+                            break;
+                        }
+                    }
+                }
+                if (has_multiple_stores) {
+                    continue;
+                }
                 // analyze and insert phi nodes
                 analysis.analyze(inst);
                 insertion.place_phi_nodes(inst, analysis, info);
@@ -359,14 +478,24 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
 
 Mem2RegInfo mem2reg_pass_run_on_function(Function *function) noexcept {
     Mem2RegInfo info;
-    detail::promote_alloca_instructions_in_function(function, info);
+    if (function != nullptr) {
+        detail::promote_alloca_instructions_in_function(function, info);
+    }
     return info;
 }
 
-Mem2RegInfo mem2reg_pass_run_on_module(Module *module) noexcept {
+Mem2RegInfo mem2reg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     Mem2RegInfo info;
-    for (auto f : module->function_list()) {
-        detail::promote_alloca_instructions_in_function(f, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            detail::promote_alloca_instructions_in_function(f, info);
+        }
+    }
+    if (report != nullptr) {
+        report->set("promoted_alloca", info.promoted_alloca_count);
+        report->set("removed_store", info.removed_store_count);
+        report->set("removed_load", info.removed_load_count);
+        report->set("inserted_phi", info.inserted_phi_count);
     }
     return info;
 }

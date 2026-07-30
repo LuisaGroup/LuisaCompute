@@ -861,6 +861,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "FRACT" => Func::Fract,
             "TRUNC" => Func::Trunc,
             "ROUND" => Func::Round,
+            "RINT" => Func::Rint,
             "FMA" => Func::Fma,
             "COPYSIGN" => Func::Copysign,
             "CROSS" => Func::Cross,
@@ -1138,8 +1139,8 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             }
             "ACOS" | "ACOSH" | "ASIN" | "ASINH" | "ATAN" | "ATANH" | "COS" | "COSH" | "SIN"
             | "SINH" | "TAN" | "TANH" | "EXP" | "EXP2" | "EXP10" | "LOG" | "LOG2" | "LOG10"
-            | "CEIL" | "FLOOR" | "FRACT" | "TRUNC" | "ROUND" | "SQRT" | "RSQRT" | "SATURATE"
-            | "NORMALIZE" => {
+            | "CEIL" | "FLOOR" | "FRACT" | "TRUNC" | "ROUND" | "RINT" | "SQRT" | "RSQRT"
+            | "SATURATE" | "NORMALIZE" => {
                 // (floatN) -> floatN
                 let args = convert_args(&[false]);
                 check_same_types!(t, args[0].type_());

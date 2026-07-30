@@ -29,7 +29,15 @@ Accel Device::create_accel(const AccelOption &option) noexcept {
 }
 
 Accel::Accel(DeviceInterface *device, const AccelOption &option) noexcept
-    : Resource{device, Resource::Tag::ACCEL, device->create_accel(option)} {}
+    : Resource{device, Resource::Tag::ACCEL, [&] {
+                   auto info = device->create_accel(option);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                   if (!info.valid()) {
+                       LUISA_ERROR("Failed to create acceleration structure.");
+                   }
+#endif
+                   return info;
+               }()} {}
 
 Accel::Accel(Accel &&rhs) noexcept
     : Resource{std::move(rhs)},

@@ -9,6 +9,8 @@
 // - Additive blending for glow effects
 // - Interactive wind influence
 
+#include <array>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -50,23 +52,120 @@ struct FireParticle {
 
 LUISA_STRUCT(FireParticle, position, lifetime, velocity, temperature, size, pad) {};
 
+namespace {
+
+[[nodiscard]] bool fire_particle_is_finite(const FireParticle &p) noexcept {
+    return std::isfinite(p.position.x) &&
+           std::isfinite(p.position.y) &&
+           std::isfinite(p.position.z) &&
+           std::isfinite(p.lifetime) &&
+           std::isfinite(p.velocity.x) &&
+           std::isfinite(p.velocity.y) &&
+           std::isfinite(p.velocity.z) &&
+           std::isfinite(p.temperature) &&
+           std::isfinite(p.size) &&
+           std::isfinite(p.pad[0]) &&
+           std::isfinite(p.pad[1]) &&
+           std::isfinite(p.pad[2]);
+}
+
+[[nodiscard]] bool validate_offline_particle(
+    uint index,
+    const FireParticle &initial,
+    const FireParticle &after_first_frame,
+    const FireParticle &final,
+    float dt,
+    float gravity) noexcept {
+    static constexpr float tolerance = 1e-4f;
+    auto close = [](float a, float b) noexcept {
+        return std::abs(a - b) <= tolerance;
+    };
+    if (!fire_particle_is_finite(after_first_frame) ||
+        !fire_particle_is_finite(final)) {
+        LUISA_ERROR("Offline fire particle {} contains non-finite state.", index);
+        return false;
+    }
+    if (initial.lifetime <= dt) {
+        LUISA_ERROR(
+            "Offline fire particle {} is not a valid first-frame integration probe: "
+            "initial lifetime {} must exceed dt {}.",
+            index, initial.lifetime, dt);
+        return false;
+    }
+
+    auto first_frame_is_valid =
+        close(after_first_frame.lifetime, initial.lifetime - dt) &&
+        close(after_first_frame.temperature, initial.temperature - dt * 0.3f) &&
+        close(after_first_frame.velocity.y, initial.velocity.y + gravity * dt) &&
+        close(after_first_frame.position.x, initial.position.x + after_first_frame.velocity.x * dt) &&
+        close(after_first_frame.position.y, initial.position.y + after_first_frame.velocity.y * dt) &&
+        close(after_first_frame.position.z, initial.position.z + after_first_frame.velocity.z * dt) &&
+        std::abs(after_first_frame.velocity.x - initial.velocity.x) <= 0.5f * dt + tolerance &&
+        std::abs(after_first_frame.velocity.z - initial.velocity.z) <= 0.5f * dt + tolerance &&
+        close(after_first_frame.size, initial.size) &&
+        after_first_frame.pad[0] == 0.0f &&
+        after_first_frame.pad[1] == 0.0f &&
+        after_first_frame.pad[2] == 0.0f;
+    if (!first_frame_is_valid) {
+        LUISA_ERROR("Offline fire particle {} failed first-frame integration checks.", index);
+        return false;
+    }
+
+    auto final_position_is_plausible =
+        std::abs(final.position.x) <= 16.0f &&
+        std::abs(final.position.y) <= 16.0f &&
+        std::abs(final.position.z) <= 16.0f;
+    auto final_velocity_is_plausible =
+        std::abs(final.velocity.x) <= 8.0f &&
+        std::abs(final.velocity.y) <= 8.0f &&
+        std::abs(final.velocity.z) <= 8.0f;
+    auto final_scalars_are_plausible =
+        final.lifetime >= -dt - tolerance && final.lifetime <= 3.0f + tolerance &&
+        final.temperature >= -tolerance && final.temperature <= 1.0f + tolerance &&
+        final.size >= 0.02f - tolerance && final.size <= 0.07f + tolerance;
+    auto padding_is_preserved =
+        final.pad[0] == 0.0f &&
+        final.pad[1] == 0.0f &&
+        final.pad[2] == 0.0f;
+    auto position_delta = final.position - after_first_frame.position;
+    auto position_evolved = dot(position_delta, position_delta) > 1e-4f;
+    auto lifetime_or_temperature_evolved =
+        std::abs(final.lifetime - after_first_frame.lifetime) > 1e-3f ||
+        std::abs(final.temperature - after_first_frame.temperature) > 1e-3f;
+    if (!final_position_is_plausible ||
+        !final_velocity_is_plausible ||
+        !final_scalars_are_plausible ||
+        !padding_is_preserved ||
+        !position_evolved ||
+        !lifetime_or_temperature_evolved) {
+        LUISA_ERROR(
+            "Offline fire particle {} failed final-state checks: "
+            "position=({}, {}, {}), velocity=({}, {}, {}), lifetime={}, temperature={}, size={}.",
+            index,
+            final.position.x, final.position.y, final.position.z,
+            final.velocity.x, final.velocity.y, final.velocity.z,
+            final.lifetime, final.temperature, final.size);
+        return false;
+    }
+    return true;
+}
+
+}// namespace
+
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--update-reference]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-            force_offline = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
 #if !ENABLE_DISPLAY
     if (!force_offline) {
         LUISA_ERROR("GUI support is disabled. Use --offline.");
@@ -82,6 +181,13 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 1024u;
     static constexpr float dt = 0.016f;
     static constexpr float gravity = -2.0f;
+    // Rendering every particle in every pixel is prohibitively expensive. The
+    // visualization intentionally samples one particle out of every 256; the
+    // offline state probes below independently cover both sampled and skipped
+    // particle indices.
+    static constexpr uint render_particle_stride = 256u;
+    static_assert(n_particles % render_particle_stride == 0u);
+    static constexpr uint rendered_particle_count = n_particles / render_particle_stride;
 
     // Create particle buffers
     Buffer<FireParticle> particles = device.create_buffer<FireParticle>(n_particles);
@@ -91,24 +197,39 @@ int main(int argc, char *argv[]) {
     // Initialize particles
     std::mt19937 rng{force_offline ? 42u : std::random_device{}()};
     luisa::vector<FireParticle> host_particles(n_particles);
+    auto next_unit_float = [&rng]() noexcept {
+        return static_cast<float>(rng()) / static_cast<float>(UINT32_MAX);
+    };
 
     for (uint i = 0u; i < n_particles; i++) {
-        float angle = (rng() / float(UINT32_MAX)) * 2.0f * 3.14159f;
-        float radius = (rng() / float(UINT32_MAX)) * 0.1f;
-        float speed = (rng() / float(UINT32_MAX)) * 2.0f + 1.0f;
+        // Keep the legacy draw order, including z before x for velocity. The
+        // old make_float3 call relied on compiler-selected argument evaluation
+        // order; naming every draw makes the offline seed portable without
+        // changing the checked-in reference image.
+        auto angle_sample = next_unit_float();
+        auto radius_sample = next_unit_float();
+        auto speed_sample = next_unit_float();
+        auto height_sample = next_unit_float();
+        auto lifetime_sample = next_unit_float();
+        auto velocity_z_sample = next_unit_float();
+        auto velocity_x_sample = next_unit_float();
+        auto size_sample = next_unit_float();
+        auto angle = angle_sample * 2.0f * 3.14159f;
+        auto radius = radius_sample * 0.1f;
+        auto speed = speed_sample * 2.0f + 1.0f;
 
         host_particles[i] = FireParticle{
             .position = make_float3(
                 radius * cosf(angle),
-                (rng() / float(UINT32_MAX)) * 0.5f,
+                height_sample * 0.5f,
                 radius * sinf(angle)),
-            .lifetime = (rng() / float(UINT32_MAX)) * 3.0f,
+            .lifetime = lifetime_sample * 3.0f,
             .velocity = make_float3(
-                (rng() / float(UINT32_MAX) - 0.5f) * 0.5f,
+                (velocity_x_sample - 0.5f) * 0.5f,
                 speed,
-                (rng() / float(UINT32_MAX) - 0.5f) * 0.5f),
+                (velocity_z_sample - 0.5f) * 0.5f),
             .temperature = 1.0f,
-            .size = (rng() / float(UINT32_MAX)) * 0.05f + 0.02f,
+            .size = size_sample * 0.05f + 0.02f,
             .pad = {0.0f, 0.0f, 0.0f}};
     }
     stream << particles.copy_from(luisa::span{host_particles}) << synchronize();
@@ -181,8 +302,9 @@ int main(int argc, char *argv[]) {
         // Accumulate particle contributions
         Var color = make_float3(0.0f);
 
-        // Process particles in chunks for performance
-        for (uint i = 0u; i < n_particles; i += 256u) {
+        // Draw the documented 1/256 subset for performance.
+        for (uint sample_index = 0u; sample_index < rendered_particle_count; sample_index++) {
+            auto i = sample_index * render_particle_stride;
             Var p = particle_buf.read(i);
 
             // Skip dead particles
@@ -272,23 +394,56 @@ int main(int argc, char *argv[]) {
 
     if (force_offline) {
         static constexpr uint offline_frames = 200u;
+        static constexpr std::array<uint, 4u> probe_indices{
+            0u, 1u,
+            render_particle_stride,
+            render_particle_stride + 1u};
+        std::array<FireParticle, probe_indices.size()> after_first_frame_particles{};
+        std::array<FireParticle, probe_indices.size()> final_particles{};
         for (uint frame = 0u; frame < offline_frames; frame++) {
             float time = static_cast<float>(frame) * dt;
             stream << update_shader(particles, time, wind_strength).dispatch(n_particles)
                    << render_shader(particles, display, time).dispatch(width, height);
+            if (frame == 0u) {
+                for (size_t probe = 0u; probe < probe_indices.size(); probe++) {
+                    stream << particles.view(probe_indices[probe], 1u).copy_to(luisa::span{&after_first_frame_particles[probe], 1u});
+                }
+            }
         }
         luisa::vector<uint8_t> host_image(width * height * 4u);
-        stream << display.copy_to(luisa::span{host_image}) << synchronize();
-        stbi_write_png("test_fire_simulation.png", width, height, 4, host_image.data(), 0);
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            width, height, 4,
-            "test_fire_simulation",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        stream << display.copy_to(luisa::span{host_image});
+        for (size_t probe = 0u; probe < probe_indices.size(); probe++) {
+            stream << particles.view(probe_indices[probe], 1u).copy_to(luisa::span{&final_particles[probe], 1u});
+        }
+        stream << synchronize();
+        if (stbi_write_png("test_fire_simulation.png", width, height, 4, host_image.data(), 0) == 0) {
+            LUISA_ERROR("Failed to write test_fire_simulation.png.");
+            return 1;
+        }
+        for (size_t probe = 0u; probe < probe_indices.size(); probe++) {
+            auto index = probe_indices[probe];
+            if (!validate_offline_particle(
+                    index,
+                    host_particles[index],
+                    after_first_frame_particles[probe],
+                    final_particles[probe],
+                    dt, gravity)) {
+                return 1;
+            }
+        }
+        LUISA_INFO(
+            "Offline fire state validation: PASSED (rendered indices {}, {}; "
+            "non-rendered indices {}, {}).",
+            probe_indices[0], probe_indices[2],
+            probe_indices[1], probe_indices[3]);
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                width, height, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     } else {
 #if ENABLE_DISPLAY
         while (!window->should_close()) {

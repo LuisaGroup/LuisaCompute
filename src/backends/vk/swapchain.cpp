@@ -162,6 +162,11 @@ void _create_surface(
         create_info_wl.display = display_handle ? reinterpret_cast<wl_display *>(display_handle) : wl_display_connect(nullptr);
         create_info_wl.surface = reinterpret_cast<wl_surface *>(window_handle);
         auto vkCreateWaylandSurfaceKHR = (PFN_vkCreateWaylandSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR");
+        if (!vkCreateWaylandSurfaceKHR) {
+            LUISA_WARNING_WITH_LOCATION("vkCreateWaylandSurfaceKHR not available, falling back to Xlib surface.");
+            create_surface_xlib();
+            return;
+        }
         VK_CHECK_RESULT(vkCreateWaylandSurfaceKHR(instance, &create_info_wl, Device::alloc_callbacks(), &surface));
     } else {// X uses 32-bit IDs
         create_surface_xlib();
@@ -351,8 +356,10 @@ void _create_vertex_buffer(
         vertex_copy_dst_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         vertex_copy_dst_barrier.srcAccessMask = VK_ACCESS_2_NONE;
         vertex_copy_dst_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        vertex_copy_dst_barrier.srcQueueFamilyIndex = cmdbuffer.resource_barrier->queue_index;
-        vertex_copy_dst_barrier.dstQueueFamilyIndex = vertex_copy_dst_barrier.srcQueueFamilyIndex;
+        // This is an ordinary memory dependency on a graphics-local buffer,
+        // not a queue-family ownership transfer.
+        vertex_copy_dst_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vertex_copy_dst_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vertex_copy_dst_barrier.buffer = vertex_buffer;
         vertex_copy_dst_barrier.offset = 0;
         vertex_copy_dst_barrier.size = buffer_size;
@@ -371,8 +378,8 @@ void _create_vertex_buffer(
         vertex_copy_dst_barrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
         vertex_copy_dst_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         vertex_copy_dst_barrier.dstAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-        vertex_copy_dst_barrier.srcQueueFamilyIndex = cmdbuffer.resource_barrier->queue_index;
-        vertex_copy_dst_barrier.dstQueueFamilyIndex = vertex_copy_dst_barrier.srcQueueFamilyIndex;
+        vertex_copy_dst_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vertex_copy_dst_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vertex_copy_dst_barrier.buffer = vertex_buffer;
         vertex_copy_dst_barrier.offset = 0;
         vertex_copy_dst_barrier.size = buffer_size;
@@ -637,7 +644,7 @@ void Swapchain::create_swapchain(
             display_handle,
             window_handle,
             _surface,
-            Device::instance());
+            device()->instance());
     }
 
     auto support = _query_swapchain_support(
@@ -883,7 +890,7 @@ Swapchain::~Swapchain() {
     vkDeviceWaitIdle(device);
     _destroy_swapchain();
     vkDestroySurfaceKHR(
-        Device::instance(),
+        this->device()->instance(),
         _surface,
         Device::alloc_callbacks());
     for (auto &i : _image_available_semaphores) {

@@ -46,7 +46,7 @@ struct [[builtin("image")]] Image<float, CacheFlags::ReadOnly> {
 	[[callop("TEXTURE_READ")]] float4 load(uint2 coord);
 	[[callop("TEXTURE_SIZE")]] uint2 size();
 	[[callop("TEXTURE2D_SAMPLE")]] float4 sample(float2 uv, uint filter, uint address);
-	[[callop("TEXTURE2D_SAMPLE_LEVEL")]] float4 sample_level(float2 uv, uint level, uint filter, uint address);
+	[[callop("TEXTURE2D_SAMPLE_LEVEL")]] float4 sample_level(float2 uv, float level, uint filter, uint address);
 	[[callop("TEXTURE2D_SAMPLE_GRAD")]] float4 sample_grad(float2 uv, float2 ddx, float2 ddy, uint filter, uint address);
 	[[callop("TEXTURE2D_SAMPLE_GRAD_LEVEL")]] float4 sample_grad_level(float2 uv, float2 ddx, float2 ddy, float min_mip_level, uint filter, uint address);
 	[[ignore]] Image() = delete;
@@ -59,7 +59,7 @@ struct [[builtin("volume")]] Volume<float, CacheFlags::ReadOnly> {
 	[[callop("TEXTURE_READ")]] float4 load(uint3 coord);
 	[[callop("TEXTURE_SIZE")]] uint3 size();
 	[[callop("TEXTURE3D_SAMPLE")]] float4 sample(float3 uv, uint filter, uint address);
-	[[callop("TEXTURE3D_SAMPLE_LEVEL")]] float4 sample_level(float3 uv, uint level, uint filter, uint address);
+	[[callop("TEXTURE3D_SAMPLE_LEVEL")]] float4 sample_level(float3 uv, float level, uint filter, uint address);
 	[[callop("TEXTURE3D_SAMPLE_GRAD")]] float4 sample_grad(float3 uv, float3 ddx, float3 ddy, uint filter, uint address);
 	[[callop("TEXTURE3D_SAMPLE_GRAD_LEVEL")]] float4 sample_grad_level(float3 uv, float3 ddx, float3 ddy, float min_mip_level, uint filter, uint address);
 	[[ignore]] Volume() = delete;

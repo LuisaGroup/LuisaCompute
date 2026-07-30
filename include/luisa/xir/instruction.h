@@ -23,6 +23,9 @@ enum struct DerivedInstructionTag {
     CONTINUE,          // basic block terminator: continue (removed after control flow normalization)
     RETURN,            // basic block terminator: return (early returns are removed after control flow normalization)
     RASTER_DISCARD,    // basic block terminator: raster discard
+    CORO_SUSPEND,      // basic block terminator: coroutine suspension
+    CORO_RESUME,       // basic block beginning: coroutine resumption
+    CORO_TERMINATE,    // basic block terminator: coroutine termination
 
     /* PHI nodes */
     PHI,// basic block beginning: phi nodes
@@ -43,7 +46,7 @@ enum struct DerivedInstructionTag {
     THREAD_GROUP,// volatile, may involve synchronization and cannot be moved/eliminated
 
     /* resource instructions */
-    RESOURCE_QUERY,// query resource properties, free to move and eliminate
+    RESOURCE_QUERY,// query resource state; memory effects depend on ResourceQueryOp
     RESOURCE_READ, // read from resources, may be eliminated if not used, but can be volatile to code motion
     RESOURCE_WRITE,// write to resources, may be volatile to code elimination and motion
 
@@ -69,6 +72,9 @@ enum struct DerivedInstructionTag {
     ASSUME,// assumption
 
     OUTLINE,// mark that the body might be outlined (e.g., for faster compilation)
+
+    // Appended to preserve the numeric values of all existing public tags.
+    INDEXED_BRANCH,// basic block terminator: raw multi-way branches
 };
 
 [[nodiscard]] constexpr luisa::string_view to_string(DerivedInstructionTag tag) noexcept {
@@ -76,6 +82,7 @@ enum struct DerivedInstructionTag {
     switch (tag) {
         case DerivedInstructionTag::IF: return "if"sv;
         case DerivedInstructionTag::SWITCH: return "switch"sv;
+        case DerivedInstructionTag::INDEXED_BRANCH: return "indexed_branch"sv;
         case DerivedInstructionTag::LOOP: return "loop"sv;
         case DerivedInstructionTag::SIMPLE_LOOP: return "simple_loop"sv;
         case DerivedInstructionTag::BRANCH: return "branch"sv;
@@ -111,6 +118,9 @@ enum struct DerivedInstructionTag {
         case DerivedInstructionTag::OUTLINE: return "outline"sv;
         case DerivedInstructionTag::AUTODIFF_SCOPE: return "autodiff_scope"sv;
         case DerivedInstructionTag::AUTODIFF_INTRINSIC: return "autodiff_intrinsic"sv;
+        case DerivedInstructionTag::CORO_SUSPEND: return "coro_suspend"sv;
+        case DerivedInstructionTag::CORO_RESUME: return "coro_resume"sv;
+        case DerivedInstructionTag::CORO_TERMINATE: return "coro_terminate"sv;
     }
     return "unknown"sv;
 }
@@ -215,7 +225,7 @@ public:
     [[nodiscard]] const BasicBlock *false_block() const noexcept;
 };
 
-template<typename Derived, DerivedInstructionTag tag, typename Base = Instruction>
+template<typename Derived, DerivedInstructionTag Tag, typename Base = Instruction>
     requires std::derived_from<Base, Instruction>
 class DerivedInstruction : public Base {
 public:
@@ -224,7 +234,7 @@ public:
     using Base::Base;
 
     [[nodiscard]] static constexpr DerivedInstructionTag
-    static_derived_instruction_tag() noexcept { return tag; }
+    static_derived_instruction_tag() noexcept { return Tag; }
 
     [[nodiscard]] DerivedInstructionTag
     derived_instruction_tag() const noexcept final {
@@ -232,25 +242,25 @@ public:
     }
 };
 
-template<typename Derived, DerivedInstructionTag tag>
-class DerivedTerminatorInstruction : public DerivedInstruction<Derived, tag, TerminatorInstruction> {
+template<typename Derived, DerivedInstructionTag Tag>
+class DerivedTerminatorInstruction : public DerivedInstruction<Derived, Tag, TerminatorInstruction> {
 public:
     using Super = DerivedTerminatorInstruction;
-    using DerivedInstruction<Derived, tag, TerminatorInstruction>::DerivedInstruction;
+    using DerivedInstruction<Derived, Tag, TerminatorInstruction>::DerivedInstruction;
 };
 
-template<typename Derived, DerivedInstructionTag tag>
-class DerivedBranchInstruction : public DerivedInstruction<Derived, tag, BranchTerminatorInstruction> {
+template<typename Derived, DerivedInstructionTag Tag>
+class DerivedBranchInstruction : public DerivedInstruction<Derived, Tag, BranchTerminatorInstruction> {
 public:
     using Super = DerivedBranchInstruction;
-    using DerivedInstruction<Derived, tag, BranchTerminatorInstruction>::DerivedInstruction;
+    using DerivedInstruction<Derived, Tag, BranchTerminatorInstruction>::DerivedInstruction;
 };
 
-template<typename Derived, DerivedInstructionTag tag>
-class DerivedConditionalBranchInstruction : public DerivedInstruction<Derived, tag, ConditionalBranchTerminatorInstruction> {
+template<typename Derived, DerivedInstructionTag Tag>
+class DerivedConditionalBranchInstruction : public DerivedInstruction<Derived, Tag, ConditionalBranchTerminatorInstruction> {
 public:
     using Super = DerivedConditionalBranchInstruction;
-    using DerivedInstruction<Derived, tag, ConditionalBranchTerminatorInstruction>::DerivedInstruction;
+    using DerivedInstruction<Derived, Tag, ConditionalBranchTerminatorInstruction>::DerivedInstruction;
 };
 
 class LUISA_XIR_API ControlFlowMerge : luisa::concepts::Noncopyable {

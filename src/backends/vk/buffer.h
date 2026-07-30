@@ -1,4 +1,5 @@
 #pragma once
+#include "../common/storage_buffer_metadata.h"
 #include "resource.h"
 #include <volk.h>
 namespace lc::vk {
@@ -12,20 +13,65 @@ struct BufferFlusher {
 void vma_defragment(Device *device);
 class Buffer : public Resource {
     size_t _byte_size;
+    size_t _addressable_byte_size;
+    bool _device_address_capable;
 
 public:
-    Buffer(Device *device, size_t byte_size)
+    Buffer(Device *device, size_t byte_size,
+           size_t addressable_byte_size = 0u,
+           bool device_address_capable = false)
         : Resource{device},
-          _byte_size{byte_size} {}
+          _byte_size{byte_size},
+          _addressable_byte_size{addressable_byte_size == 0u ?
+                                     byte_size :
+                                     addressable_byte_size},
+          _device_address_capable{device_address_capable} {}
     Buffer(Buffer &&) = default;
+    // `byte_size` is the API-visible logical size. `addressable_byte_size`
+    // is the physical range that may legally appear in a Vulkan descriptor.
+    // They differ for owned buffers with a padded final storage word.
     auto byte_size() const { return _byte_size; }
+    auto addressable_byte_size() const { return _addressable_byte_size; }
+    [[nodiscard]] bool device_address_capable() const noexcept {
+        return _device_address_capable;
+    }
     virtual ~Buffer() = default;
     virtual VkBuffer vk_buffer() const = 0;
     Tag tag() const override { return Tag::kBuffer; }
     uint64_t get_device_address() const;
     virtual bool flush_host() const { return false; }
     virtual void flush_range(size_t begin, size_t end) {}
+    [[nodiscard]] virtual bool is_indirect_dispatch_buffer() const noexcept {
+        return false;
+    }
+    [[nodiscard]] virtual size_t indirect_dispatch_capacity() const noexcept {
+        return 0u;
+    }
+    [[nodiscard]] virtual bool claim_indirect_header_initialization() const noexcept {
+        return false;
+    }
+    [[nodiscard]] virtual bool indirect_header_initialization_claimed() const noexcept {
+        return false;
+    }
 };
+
+struct StorageBufferDescriptorRange {
+    VkDeviceSize offset;
+    VkDeviceSize range;
+    StorageBufferMetadata metadata;
+};
+
+// Computes a Vulkan-valid storage-buffer descriptor for a logical buffer
+// view. The descriptor base is moved down to satisfy both Vulkan's descriptor
+// alignment and the shader-visible storage element alignment; `metadata`
+// carries the resulting descriptor-relative bias and the exact logical size.
+// A non-zero `logical_element_stride` additionally proves that a typed view is
+// made of whole elements. Pass zero for byte-addressed/word-backed views.
+[[nodiscard]] StorageBufferDescriptorRange storage_buffer_descriptor_range(
+    const Buffer *buffer, size_t view_offset, size_t view_size,
+    size_t logical_element_stride = 0u,
+    bool include_device_address = false);
+
 class ExternalBuffer : public Buffer {
     VkBuffer _buffer{};
 

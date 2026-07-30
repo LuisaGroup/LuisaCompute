@@ -16,7 +16,8 @@ __device__ void lc_assume(bool) noexcept {}
 
 [[noreturn]] void lc_trap() noexcept { asm volatile("trap;"); }
 
-void lc_debug_break() noexcept { /* currently do nothing */ }
+void lc_debug_break() noexcept { /* currently do nothing */
+}
 
 template<typename T = void>
 [[noreturn]] __device__ T lc_unreachable(
@@ -223,7 +224,10 @@ enum struct LCPixelStorage {
 
 struct alignas(16) LCSurface {
     unsigned long long handle;
-    unsigned long long storage;
+    unsigned long long storage;// packed: [0:15]=w, [16:31]=h, [32:47]=d, [48:55]=pixel_storage
+    [[nodiscard]] __device__ auto pixel_storage() const noexcept {
+        return static_cast<LCPixelStorage>((storage >> 48u) & 0xFFu);
+    }
 };
 
 static_assert(sizeof(LCSurface) == 16);
@@ -369,7 +373,7 @@ using lc_vec4_t = typename lc_vec4<T>::type;
 template<typename T>
 [[nodiscard]] __device__ auto lc_surf2d_read(LCSurface surf, lc_uint2 p) noexcept {
     lc_vec4_t<T> result{0, 0, 0, 0};
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int x;
             asm("suld.b.2d.b8.zero %0, [%1, {%2, %3}];"
@@ -532,7 +536,7 @@ template<typename T>
 
 template<typename T, typename V>
 __device__ void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noexcept {
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int v = lc_texel_write_convert<char>(value.x);
             asm volatile("sust.b.2d.b8.zero [%0, {%1, %2}], %3;"
@@ -680,7 +684,7 @@ __device__ void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noexcept {
 template<typename T>
 [[nodiscard]] __device__ auto lc_surf3d_read(LCSurface surf, lc_uint3 p) noexcept {
     lc_vec4_t<T> result{0, 0, 0, 0};
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int x;
             asm("suld.b.3d.b8.zero %0, [%1, {%2, %3, %4, %5}];"
@@ -843,7 +847,7 @@ template<typename T>
 
 template<typename T, typename V>
 __device__ void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noexcept {
-    switch (static_cast<LCPixelStorage>(surf.storage)) {
+    switch (surf.pixel_storage()) {
         case LCPixelStorage::BYTE1: {
             int v = lc_texel_write_convert<char>(value.x);
             asm volatile("sust.b.3d.b8.zero [%0, {%1, %2, %3, %4}], %5;"
@@ -1000,28 +1004,22 @@ struct LCTexture3D {
 
 template<typename T>
 [[nodiscard]] __device__ auto lc_texture_size(LCTexture2D<T> tex) noexcept {
+    // size is packed in the storage field: [0:15]=w, [16:31]=h, [32:47]=d, [48:55]=pixel_storage
+    auto packed = tex.surface.storage;
     lc_uint2 size;
-    asm("suq.width.b32 %0, [%1];"
-        : "=r"(size.x)
-        : "l"(tex.surface.handle));
-    asm("suq.height.b32 %0, [%1];"
-        : "=r"(size.y)
-        : "l"(tex.surface.handle));
+    size.x = static_cast<lc_uint>(packed & 0xFFFFu);
+    size.y = static_cast<lc_uint>((packed >> 16u) & 0xFFFFu);
     return size;
 }
 
 template<typename T>
 [[nodiscard]] __device__ auto lc_texture_size(LCTexture3D<T> tex) noexcept {
+    // size is packed in the storage field: [0:15]=w, [16:31]=h, [32:47]=d, [48:55]=pixel_storage
+    auto packed = tex.surface.storage;
     lc_uint3 size;
-    asm("suq.width.b32 %0, [%1];"
-        : "=r"(size.x)
-        : "l"(tex.surface.handle));
-    asm("suq.height.b32 %0, [%1];"
-        : "=r"(size.y)
-        : "l"(tex.surface.handle));
-    asm("suq.depth.b32 %0, [%1];"
-        : "=r"(size.z)
-        : "l"(tex.surface.handle));
+    size.x = static_cast<lc_uint>(packed & 0xFFFFu);
+    size.y = static_cast<lc_uint>((packed >> 16u) & 0xFFFFu);
+    size.z = static_cast<lc_uint>((packed >> 32u) & 0xFFFFu);
     return size;
 }
 
@@ -2437,6 +2435,122 @@ void lc_shader_execution_reorder(lc_uint hint, lc_uint hint_bits) noexcept {
 
 __device__ void lc_synchronize_block() noexcept {
     __syncthreads();
+}
+
+// === Cluster Launch Control (CUDA Blackwell SM 10.0+) ===
+
+// Initialize mbarrier with arrival count
+__device__ inline void lc_mbarrier_init(lc_ulong *bar, lc_uint count) noexcept {
+    asm("mbarrier.init.shared.b64 [%0], %1;"
+        :: "l"(bar), "r"(count));
+}
+
+// Arrive on mbarrier with expected transaction count
+__device__ inline void lc_mbarrier_arrive_expect_tx(
+    lc_ulong *bar, lc_uint tx_bytes) noexcept {
+    asm("mbarrier.arrive.expect_tx.shared.b64 _, [%0], %1;"
+        :: "l"(bar), "r"(tx_bytes));
+}
+
+// Try-wait on mbarrier with parity
+__device__ inline bool lc_mbarrier_try_wait_parity(
+    lc_ulong *bar, lc_uint phase) noexcept {
+    lc_uint result;
+    asm("mbarrier.try_wait.parity.shared.b64 %0, [%1], %2;"
+        : "=r"(result) : "l"(bar), "r"(phase));
+    return result != 0;
+}
+
+// Proxy fence acquire (before cancellation)
+__device__ inline void lc_fence_proxy_async_acquire() noexcept {
+    asm("fence.proxy.async.acquire;");
+}
+
+// Proxy fence release (after reading result)
+__device__ inline void lc_fence_proxy_async_release() noexcept {
+    asm("fence.proxy.async.release;");
+}
+
+// Try cancel — single thread block via invoke_one
+__device__ inline void lc_clc_try_cancel(lc_uint4 *result, lc_ulong *bar) noexcept {
+    asm("clusterlaunchcontrol.try_cancel.shared.b64 [%0], [%1];"
+        :: "l"(result), "l"(bar));
+}
+
+// Try cancel — multicast (cluster-wide)
+__device__ inline void lc_clc_try_cancel_multicast(lc_uint4 *result, lc_ulong *bar) noexcept {
+    asm("clusterlaunchcontrol.try_cancel.multicast.shared.b64 [%0], [%1];"
+        :: "l"(result), "l"(bar));
+}
+
+// Query — is canceled
+__device__ inline bool lc_clc_query_is_canceled(lc_uint4 result) noexcept {
+    lc_uint r;
+    asm("clusterlaunchcontrol.query_cancel.is_canceled.b32 %0, [%1];"
+        : "=r"(r) : "l"(&result));
+    return r != 0;
+}
+
+// Query — get first ctaid x/y/z
+__device__ inline int lc_clc_query_get_ctaid_x(lc_uint4 result) noexcept {
+    int bx;
+    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_x.s32 %0, [%1];"
+        : "=r"(bx) : "l"(&result));
+    return bx;
+}
+__device__ inline int lc_clc_query_get_ctaid_y(lc_uint4 result) noexcept {
+    int by;
+    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_y.s32 %0, [%1];"
+        : "=r"(by) : "l"(&result));
+    return by;
+}
+__device__ inline int lc_clc_query_get_ctaid_z(lc_uint4 result) noexcept {
+    int bz;
+    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_z.s32 %0, [%1];"
+        : "=r"(bz) : "l"(&result));
+    return bz;
+}
+
+// Async copy wrappers (optional thin wrappers for NVRTC compatibility)
+extern "C" __device__ lc_uint __nvvm_get_smem_pointer(void *);
+
+__device__ inline void lc_pipeline_memcpy_async(
+    void *dst, const void *src, size_t size) noexcept {
+    auto shared_dst = __nvvm_get_smem_pointer(dst);
+    switch (size) {
+        case 4u:
+            asm volatile("cp.async.ca.shared.global [%0], [%1], 4;"
+                         :: "r"(shared_dst), "l"(src)
+                         : "memory");
+            return;
+        case 8u:
+            asm volatile("cp.async.ca.shared.global [%0], [%1], 8;"
+                         :: "r"(shared_dst), "l"(src)
+                         : "memory");
+            return;
+        case 16u:
+            asm volatile("cp.async.cg.shared.global [%0], [%1], 16;"
+                         :: "r"(shared_dst), "l"(src)
+                         : "memory");
+            return;
+        default: lc_unreachable(__FILE__, __LINE__);
+    }
+}
+__device__ inline void lc_pipeline_commit() noexcept {
+    asm volatile("cp.async.commit_group;" ::: "memory");
+}
+__device__ inline void lc_pipeline_wait_prior(lc_uint n) noexcept {
+    switch (n) {
+        case 0u: asm volatile("cp.async.wait_group 0;" ::: "memory"); return;
+        case 1u: asm volatile("cp.async.wait_group 1;" ::: "memory"); return;
+        case 2u: asm volatile("cp.async.wait_group 2;" ::: "memory"); return;
+        case 3u: asm volatile("cp.async.wait_group 3;" ::: "memory"); return;
+        case 4u: asm volatile("cp.async.wait_group 4;" ::: "memory"); return;
+        case 5u: asm volatile("cp.async.wait_group 5;" ::: "memory"); return;
+        case 6u: asm volatile("cp.async.wait_group 6;" ::: "memory"); return;
+        case 7u: asm volatile("cp.async.wait_group 7;" ::: "memory"); return;
+        default: asm volatile("cp.async.wait_group 8;" ::: "memory"); return;
+    }
 }
 
 #endif

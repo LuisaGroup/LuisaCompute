@@ -6,7 +6,7 @@ local function example_proj(name, source, gui_dep, callable, project_kind)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
     _config_project({project_kind = project_kind or "binary"})
     add_files(source)
-    add_includedirs("$(projectdir)/src/tests/", "$(projectdir)/examples/")
+    add_includedirs("$(projectdir)/src/tests/", "$(projectdir)/src/tests/common/", "$(projectdir)/examples/")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
     if lc_enable_gui then add_deps("lc-gui") end
     if gui_dep then add_defines("LUISA_ENABLE_GUI") end
@@ -21,7 +21,11 @@ example_proj("example_path_tracing_cutout", "rendering/path_tracing_cutout.cpp",
 example_proj("example_path_tracing_hdr", "rendering/path_tracing_hdr.cpp", true)
 example_proj("example_path_tracing_nested_callable", "rendering/path_tracing_nested_callable.cpp", true)
 example_proj("example_path_tracing_ray_masks", "rendering/path_tracing_ray_masks.cpp", true)
-example_proj("example_path_tracing_spectrum", "rendering/path_tracing_spectrum.cpp", true)
+example_proj("example_path_tracing_spectrum", "rendering/path_tracing_spectrum.cpp", true, function()
+    add_rules("utils.bin2obj", {extensions = {".dat"}})
+    add_files("$(projectdir)/src/tests/SRGBToFourierEvenPacked.dat")
+    add_defines("LUISA_BIN_2_OBJ")
+end)
 example_proj("example_photon_mapping", "rendering/photon_mapping.cpp", true)
 example_proj("example_sdf_renderer", "rendering/sdf_renderer.cpp", true)
 example_proj("example_blackhole", "rendering/blackhole.cpp", true)
@@ -33,6 +37,10 @@ example_proj("example_shader_visuals_present", "rendering/shader_visuals_present
 if has_config("lc_enable_ir") then
     example_proj("example_path_tracing_ir", "rendering/path_tracing_ir.cpp", true)
     example_proj("example_sdf_renderer_ir", "rendering/sdf_renderer_ir.cpp", true)
+end
+if has_config("lc_enable_xir") then
+    example_proj("example_path_tracing_xir2ast", "rendering/path_tracing_xir2ast.cpp", true)
+    example_proj("example_sdf_renderer_xir2ast", "rendering/sdf_renderer_xir2ast.cpp", true)
 end
 
 -- simulation
@@ -52,9 +60,28 @@ example_proj("example_swapchain", "gui/swapchain.cpp", true)
 example_proj("example_swapchain_static", "gui/swapchain_static.cpp", true)
 example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
--- compute
-example_proj("example_helloworld", "compute/helloworld.cpp", false)
-example_proj("example_image_processing", "compute/image_processing.cpp", true)
+    -- compute
+    example_proj("example_helloworld", "compute/helloworld.cpp", false)
+    example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
+    example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
+    example_proj("example_image_processing", "compute/image_processing.cpp", true)
+    if has_config("lc_enable_xir") then
+        local function coro_example_proj(name, source, gui_dep, callable)
+            example_proj(name, source, gui_dep, function()
+                add_deps("lc-coro")
+                if callable then callable() end
+            end)
+        end
+        coro_example_proj("example_coro_sdf_renderer", "rendering/coro_sdf_renderer.cpp", false)
+        coro_example_proj("example_coro_path_tracing", "rendering/coro_path_tracing.cpp", false)
+        coro_example_proj("example_coro_path_tracing_wavefront", "rendering/coro_path_tracing.cpp", false, function()
+            add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
+        end)
+    end
+    example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false, function()
+        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
+    end)
+    includes("compute/tokenize")
 
 -- extension
 if has_config("lc_dx_backend") then

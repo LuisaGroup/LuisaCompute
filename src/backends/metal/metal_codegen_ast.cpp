@@ -940,6 +940,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::FRACT: _scratch << "fract"; break;
         case CallOp::TRUNC: _scratch << "trunc"; break;
         case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::RINT: _scratch << "rint"; break;
         case CallOp::FMA: _scratch << "fma"; break;
         case CallOp::COPYSIGN: _scratch << "copysign"; break;
         case CallOp::CROSS: _scratch << "cross"; break;
@@ -1529,6 +1530,9 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _scratch << "}\n";
     _emit_indention();
     _scratch << "/* ray query end */\n";
+}
+
+void MetalCodegenAST::visit(const SuspendStmt *) noexcept {
 }
 
 void MetalCodegenAST::visit(const AutoDiffStmt *stmt) noexcept {

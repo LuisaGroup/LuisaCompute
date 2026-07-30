@@ -1,7 +1,11 @@
 #include <luisa/core/logging.h>
+#include <luisa/ast/type.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
+
+#include <algorithm>
+#include <cstring>
 
 namespace luisa::compute::xir {
 
@@ -21,12 +25,20 @@ ExternalFunction *Module::create_external_function(const Type *ret_type) noexcep
 }
 
 Constant *Module::_get_or_create_constant(const Constant &temp) noexcept {
-    auto [iter, success] = _hash_to_constant.try_emplace(temp.hash(), nullptr);
-    if (success) {
-        auto pooled_const = luisa::make_managed<Constant>(this, temp.type(), temp.data(), temp.hash());
-        iter->second = _constant_list.push_back(std::move(pooled_const));
+    auto iter = _hash_to_constants.try_emplace(temp.hash()).first;
+    for (auto *constant : iter->second) {
+        if (constant->type() == temp.type() &&
+            std::memcmp(constant->data(), temp.data(),
+                        temp.type()->size()) == 0) {
+            return constant;
+        }
     }
-    return iter->second;
+    auto pooled = luisa::make_managed<Constant>(
+        this, temp.type(), temp.data(), temp.hash());
+    auto *constant = static_cast<Constant *>(
+        _constant_list.push_back(std::move(pooled)));
+    iter->second.emplace_back(constant);
+    return constant;
 }
 
 Module::Module() noexcept
@@ -48,6 +60,24 @@ Constant *Module::create_constant_zero(const Type *type) noexcept {
 Constant *Module::create_constant_one(const Type *type) noexcept {
     Constant temp{this, type, Constant::ctor_tag_one{}};
     return _get_or_create_constant(temp);
+}
+
+bool Module::remove_constant_if_unused(Constant *constant) noexcept {
+    if (constant == nullptr || constant->parent_module() != this ||
+        !constant->is_linked() || !constant->use_list().empty()) {
+        return false;
+    }
+    auto bucket = _hash_to_constants.find(constant->hash());
+    LUISA_ASSERT(bucket != _hash_to_constants.end(),
+                 "Interned constant is missing from its hash bucket.");
+    auto &constants = bucket->second;
+    auto iter = std::find(constants.begin(), constants.end(), constant);
+    LUISA_ASSERT(iter != constants.end(),
+                 "Interned constant is missing from its hash bucket.");
+    constants.erase(iter);
+    if (constants.empty()) { _hash_to_constants.erase(bucket); }
+    constant->remove_self();
+    return true;
 }
 
 Undefined *Module::create_undefined(const Type *type) noexcept {

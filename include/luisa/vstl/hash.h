@@ -64,43 +64,49 @@ struct hash {
 template<>
 struct hash<int8_t> {
     size_t operator()(int8_t const &value) const noexcept {
-        hash<uint64_t> hs;
-        return hs(value);
+        return static_cast<size_t>(value);
     };
 };
 template<>
 struct hash<uint8_t> {
     size_t operator()(uint8_t const &value) const noexcept {
-        hash<uint64_t> hs;
-        return hs(value);
+        return static_cast<size_t>(value);
     };
 };
 template<>
 struct hash<int16_t> {
     size_t operator()(int16_t const &value) const noexcept {
-        hash<uint64_t> hs;
-        return hs(value);
+        return static_cast<size_t>(value);
     };
 };
 template<>
 struct hash<uint16_t> {
     size_t operator()(uint16_t const &value) const noexcept {
-        hash<uint64_t> hs;
-        return hs(value);
+        return static_cast<size_t>(value);
     };
 };
 template<>
 struct hash<int32_t> {
     size_t operator()(int32_t const &value) const noexcept {
-        hash<uint64_t> hs;
-        return hs(value);
+        return static_cast<size_t>(value);
     };
 };
 template<>
 struct hash<uint32_t> {
     size_t operator()(uint32_t const &value) const noexcept {
-        hash<uint64_t> hs;
-        return hs(value);
+        return static_cast<size_t>(value);
+    };
+};
+template<>
+struct hash<int64_t> {
+    size_t operator()(int64_t const &value) const noexcept {
+        return static_cast<size_t>(value);
+    };
+};
+template<>
+struct hash<uint64_t> {
+    size_t operator()(uint64_t const &value) const noexcept {
+        return static_cast<size_t>(value);
     };
 };
 template<typename A, typename B>

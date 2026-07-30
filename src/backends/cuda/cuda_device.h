@@ -2,6 +2,7 @@
 
 #include <cuda.h>
 
+#include <luisa/core/stl/functional.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 #include "cuda_error.h"
@@ -18,6 +19,7 @@ class CUDAOldDenoiserExt;
 class CUDADenoiserExt;
 class CUDADStorageExt;
 class CUDAPinnedMemoryExt;
+class CudaGraphExtImpl;
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 class CUDATexCompressExt;
@@ -108,6 +110,7 @@ private:
     luisa::unique_ptr<DeviceConfigExt> _device_config_ext;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
     luisa::unique_ptr<CUDAPinnedMemoryExt> _pinned_memory_ext;
+    luisa::unique_ptr<CudaGraphExtImpl> _cuda_graph_ext;
     luisa::unique_ptr<CUDAExternalExt> _external_ext;
 #if LUISA_BACKEND_ENABLE_OIDN
     luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
@@ -124,7 +127,7 @@ private:
         luisa::span<const char *const> nvrtc_options,
         const CUDAShaderMetadata &expected_metadata,
         luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
-        luisa::string force_ptx = {}) noexcept;
+        luisa::function<luisa::string()> generate_ptx = {}) noexcept;
 
 public:
     CUDADevice(Context &&ctx, size_t device_id, const BinaryIO *io, bool use_lmdb,

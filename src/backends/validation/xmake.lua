@@ -5,6 +5,7 @@ _config_project({
 })
 lc_set_pcxxheader("lc_validation_pch.h")
 add_deps("lc-runtime", "lc-vstl")
+add_includedirs("../../runtime")
 add_files("**.cpp")
 add_headerfiles("**.h")
 target_end()

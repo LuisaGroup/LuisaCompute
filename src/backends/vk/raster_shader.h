@@ -69,7 +69,10 @@ public:
         vstd::vector<uint> &&pixel_spv_code,
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
-        bool use_buffer_bindless);
+        bool use_buffer_bindless,
+        uint validation_count = 0,
+        detail::ShaderCodegenDialect codegen_dialect =
+            detail::ShaderCodegenDialect::HLSL_SPIRV);
     Pipeline create_pipeline(
         luisa::span<Argument::Texture const> rtv_textures,
         Argument::Texture dsv_textures,

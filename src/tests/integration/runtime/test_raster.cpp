@@ -1,7 +1,7 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 
@@ -80,7 +80,6 @@ void test_raster(Device &device) {
         {VertexAttributeType::Color, PixelFormat::RG32F},
     };
     mesh_format.emplace_vertex_stream(attributes);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
 
     Vertex vertices[6];
     vertices[0].pos = {-0.5f, 0.5f, 0.5f};
@@ -139,38 +138,44 @@ void test_raster(Device &device) {
         stream << synchronize();
         return;
     } else {
-        Image<float> out_img = device.create_image<float>(PixelStorage::BYTE4, width, height, 1, false, true);
-        luisa::vector<std::byte> pixels(out_img.view().size_bytes());
+        // Render into a nonzero color mip whose extent matches the depth
+        // attachment. This exercises attachment-view levels, framebuffer
+        // extent derivation, and per-mip layout tracking without changing the
+        // reference image dimensions.
+        Image<float> out_img = device.create_image<float>(
+            PixelStorage::BYTE4, width * 2u, height * 2u,
+            2u, false, true);
+        auto out_view = out_img.view(1u);
+        luisa::vector<std::byte> pixels(out_view.size_bytes());
         luisa::vector<RasterMesh> meshes;
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 114514);
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 1919810, 3);
         stream
-            << clear_shader(out_img).dispatch(width, height)
+            << clear_shader(out_view).dispatch(width, height)
             << depth_buffer.clear(1.0)
-            << shader(0.0f, 0.0f).draw(std::move(meshes), mesh_format, Viewport{0, 0, width, height}, state, &depth_buffer, out_img)
-            << out_img.copy_to(luisa::span{pixels})
+            << shader(0.0f, 0.0f).draw(std::move(meshes), mesh_format, Viewport{0, 0, width, height}, state, &depth_buffer, out_view)
+            << out_view.copy_to(luisa::span{pixels})
             << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
-            "test_raster", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_raster: {}", result.message);
-            boost::ut::expect(false) << result.message;
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_raster]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }
 }
 
-static inline const auto reg = [] {
-    "test_raster"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_raster(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_raster(device);
+}

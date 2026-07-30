@@ -476,7 +476,7 @@ impl KernelSerializer {
             Func::WarpReadLaneAt => SerializedFunc::WarpReadLaneAt,
             Func::WarpReadFirstLane => SerializedFunc::WarpReadFirstLane,
             Func::ShaderExecutionReorder => SerializedFunc::ShaderExecutionReorder,
-            Func::Unknown0 => todo!(),
+            Func::Rint => SerializedFunc::Rint,
             Func::Unknown1 => todo!(),
             _ => todo!(),
         }

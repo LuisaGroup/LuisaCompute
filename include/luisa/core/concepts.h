@@ -52,9 +52,15 @@ template<typename T>
 concept non_cvref = !((std::is_const_v<T>) || (std::is_reference_v<T>) || (std::is_volatile_v<T>));
 
 template<typename Src, typename Dest>
-concept static_convertible = requires(Src s) {
-    static_cast<Dest>(s);
-};
+concept static_convertible =
+    requires(Src s) {
+        static_cast<Dest>(s);
+    } ||
+    (is_vector_v<Src> && is_vector_v<Dest> &&
+     vector_dimension_v<Src> == vector_dimension_v<Dest> &&
+     requires(vector_element_t<Src> s) {
+         static_cast<vector_element_t<Dest>>(s);
+     });
 
 template<typename Src, typename Dest>
 concept bitwise_convertible = sizeof(Src) >= sizeof(Dest);
@@ -204,4 +210,3 @@ template<typename... T>
 concept vector_same_dimension = is_vector_same_dimension_v<T...>;
 
 }// namespace luisa::concepts
-

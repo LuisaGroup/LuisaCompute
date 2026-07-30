@@ -5,6 +5,9 @@
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/autodiff.h>
+#include <luisa/xir/instructions/outline.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/passes/lex_scope_analysis.h>
 
 namespace luisa::compute::xir {
@@ -82,7 +85,7 @@ static void walk_lexical_scopes_recursively(const BasicBlock *block,
             case DerivedInstructionTag::SWITCH: {
                 auto switch_inst = static_cast<const SwitchInst *>(inst);
                 // scopes of the case blocks
-                for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                for (size_t i = 0; i < switch_inst->case_count(); i++) {
                     stack.with_scope([&] {
                         walk_lexical_scopes_recursively(switch_inst->case_block(i), config, stack, info);
                     });
@@ -125,6 +128,48 @@ static void walk_lexical_scopes_recursively(const BasicBlock *block,
                 walk_lexical_scopes_recursively(simple_loop_inst->merge_block(), config, stack, info);
                 break;
             }
+            case DerivedInstructionTag::RAY_QUERY_LOOP: {
+                auto ray_query_loop = static_cast<const RayQueryLoopInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        ray_query_loop->dispatch_block(), config, stack, info);
+                });
+                walk_lexical_scopes_recursively(
+                    ray_query_loop->merge_block(), config, stack, info);
+                break;
+            }
+            case DerivedInstructionTag::RAY_QUERY_DISPATCH: {
+                auto dispatch = static_cast<const RayQueryDispatchInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        dispatch->on_surface_candidate_block(), config, stack, info);
+                });
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        dispatch->on_procedural_candidate_block(), config, stack, info);
+                });
+                break;
+            }
+            case DerivedInstructionTag::AUTODIFF_SCOPE: {
+                auto scope = static_cast<const AutodiffScopeInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        scope->entry_block(), config, stack, info);
+                });
+                walk_lexical_scopes_recursively(
+                    scope->merge_block(), config, stack, info);
+                break;
+            }
+            case DerivedInstructionTag::OUTLINE: {
+                auto outline = static_cast<const OutlineInst *>(inst);
+                stack.with_scope([&] {
+                    walk_lexical_scopes_recursively(
+                        outline->target_block(), config, stack, info);
+                });
+                walk_lexical_scopes_recursively(
+                    outline->merge_block(), config, stack, info);
+                break;
+            }
             default: {
                 LUISA_ASSERT(inst->control_flow_merge() == nullptr,
                              "Unexpected control flow {:?} in lexical scope analysis.",
@@ -138,7 +183,9 @@ static void walk_lexical_scopes_recursively(const BasicBlock *block,
 static void analyze_lexical_scopes_in_function(const Function *function,
                                                const LexScopeAnalysisConfig &config,
                                                LexScopeInfo &info) noexcept {
-    if (auto def = function->definition()) {
+    if (function == nullptr) { return; }
+    if (auto def = function->definition();
+        def != nullptr && def->body_block() != nullptr) {
         LexScopeStack stack;
         stack.with_scope([&] {
             walk_lexical_scopes_recursively(def->body_block(), config, stack, info);

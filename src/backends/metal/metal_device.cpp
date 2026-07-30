@@ -459,7 +459,13 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         }
 
         // create shader
-        auto pipeline = _compiler->compile(scratch.string_view(), option, metadata);
+        luisa::string source;
+        if (option.enable_extended_accel_limits) {
+            source = luisa::format("#define LUISA_ENABLE_EXTENDED_LIMITS\n{}", scratch.string_view());
+        } else {
+            source = luisa::string{scratch.string_view()};
+        }
+        auto pipeline = _compiler->compile(source, option, metadata);
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline),
             std::move(metadata.argument_usages),

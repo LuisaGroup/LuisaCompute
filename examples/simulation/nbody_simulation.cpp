@@ -7,13 +7,16 @@
 // - Double buffering for position updates
 // - Real-time 3D visualization
 // - Softening parameter to prevent numerical singularities
+// - Deterministic depth-resolved particle glow rasterization
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <random>
 #include <string_view>
 
+#include "../common/nbody_render_plan.h"
 #include "../common/reference_compare.h"
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -47,23 +50,28 @@ struct Particle {
 
 LUISA_STRUCT(Particle, position, velocity, mass, pad) {};
 
+struct ParticleProjection {
+    int2 pixel;
+    float distance;
+    uint visible;
+};
+
+LUISA_STRUCT(ParticleProjection, pixel, distance, visible) {};
+
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--update-reference]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-            force_offline = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
 #if !ENABLE_DISPLAY
     if (!force_offline) {
         LUISA_ERROR("GUI support is disabled. Use --offline.");
@@ -79,6 +87,7 @@ int main(int argc, char *argv[]) {
     static constexpr float dt = 0.0005f;
     static constexpr float softening = 0.05f;// Prevents division by zero
     static constexpr float G = 0.5f;         // Gravitational constant (scaled down)
+    static_assert(n_particles <= ref::NBodyWinnerEncoding::kMaxParticleCount);
 
     // Create particle buffers (double buffering)
     Buffer<Particle> particles_read = device.create_buffer<Particle>(n_particles);
@@ -226,26 +235,24 @@ int main(int argc, char *argv[]) {
 #endif
         return device.create_image<float>(PixelStorage::BYTE4, make_uint2(width, height));
     }();
+    Buffer<uint> particle_winners = device.create_buffer<uint>(width * height);
+    Buffer<ParticleProjection> particle_projections = device.create_buffer<ParticleProjection>(n_particles);
 
-    // Clear display kernel
-    Kernel2D clear_kernel = [](ImageFloat image) noexcept {
-        set_block_size(16, 16, 1);
-        image.write(dispatch_id().xy(), make_float4(0.02f, 0.02f, 0.05f, 1.0f));
+    // Positive floating-point distances preserve their ordering when viewed as
+    // unsigned integers. The winner key replaces the low mantissa bits with the
+    // particle index, so atomic-min is deterministic even when particles overlap.
+    Callable encode_winner = [](Float distance, UInt particle_index) noexcept {
+        return (as<uint>(distance) & ref::NBodyWinnerEncoding::kDepthMask) |
+               particle_index;
     };
-    auto clear = device.compile(clear_kernel);
 
-    // Particle render kernel - draw particles as points
-    Kernel1D render_particles = [&](BufferVar<Particle> particles, ImageFloat image, Float rot_x, Float rot_y, Float zoom, UInt2 image_size) noexcept {
-        set_block_size(256);
-        Var idx = dispatch_id().x;
-        Var p = particles.read(idx);
-
+    Callable camera_space = [](Float3 position, Float rot_x, Float rot_y) noexcept {
         // Rotation around Y axis
         Var cos_y = cos(rot_y);
         Var sin_y = sin(rot_y);
-        Var x1 = p.position.x * cos_y - p.position.z * sin_y;
-        Var z1 = p.position.x * sin_y + p.position.z * cos_y;
-        Var y1 = p.position.y;
+        Var x1 = position.x * cos_y - position.z * sin_y;
+        Var z1 = position.x * sin_y + position.z * cos_y;
+        Var y1 = position.y;
 
         // Rotation around X axis
         Var cos_x = cos(rot_x);
@@ -256,45 +263,93 @@ int main(int argc, char *argv[]) {
         // Perspective projection
         Var view_distance = 4.0f;
         Var distance = view_distance + z2;
+        return compose(make_float2(x1, y2), distance);
+    };
 
-        // Skip particles behind camera
-        $if (distance > 0.1f) {
+    Kernel1D clear_particle_winners = [](BufferUInt winners) noexcept {
+        set_block_size(256u);
+        winners.write(dispatch_x(), ref::NBodyWinnerEncoding::kInvalid);
+    };
+    auto clear_winners = device.compile(clear_particle_winners);
+
+    // Rasterize each 5x5 footprint into a packed per-pixel winner. The only
+    // contended operation is unsigned integer atomic-min; color is resolved in
+    // a separate image-parallel pass after all winners are final.
+    Kernel1D rasterize_particles = [&](BufferVar<Particle> particles, BufferVar<ParticleProjection> projections, BufferUInt winners, Float rot_x, Float rot_y, Float zoom, UInt2 image_size) noexcept {
+        set_block_size(256u);
+        Var idx = dispatch_x();
+        Var particle = particles.read(idx);
+        Var<ParticleProjection> projection{make_int2(0), 0.0f, 0u};
+        Var camera = camera_space(particle.position, rot_x, rot_y);
+        Var camera_xy = camera.get<0>();
+        Var distance = camera.get<1>();
+        Var finite_projection = !luisa::compute::isnan(distance) &
+                                !luisa::compute::isinf(distance) &
+                                !luisa::compute::isnan(camera_xy.x) &
+                                !luisa::compute::isinf(camera_xy.x) &
+                                !luisa::compute::isnan(camera_xy.y) &
+                                !luisa::compute::isinf(camera_xy.y);
+
+        // Skip particles behind the camera or with invalid projected state.
+        $if ((distance > ref::NBodyWinnerEncoding::kMinimumVisibleDistance) & finite_projection) {
             Var scale = 1.5f / distance;
-            Var screen_x = (x1 * scale) * cast<float>(image_size.x) * 0.5f + cast<float>(image_size.x) * 0.5f;
-            Var screen_y = (y2 * scale) * cast<float>(image_size.y) * 0.5f + cast<float>(image_size.y) * 0.5f;
-
-            // Check bounds
-            Int2 ipos = make_int2(cast<int>(screen_x), cast<int>(screen_y));
-
-            $if ((ipos.x >= 0) & (ipos.x < cast<int>(image_size.x)) &
-                 (ipos.y >= 0) & (ipos.y < cast<int>(image_size.y))) {
-
-                // Color based on particle index and depth
-                Var depth_factor = 1.0f / (1.0f + distance * 0.1f);
-                Var r = 0.5f + 0.5f * sin(cast<float>(idx) * 0.1f);
-                Var g = 0.5f + 0.5f * sin(cast<float>(idx) * 0.13f + 2.0f);
-                Var b = 0.8f + 0.2f * sin(cast<float>(idx) * 0.07f + 4.0f);
-
-                Var color = make_float3(r, g, b) * depth_factor;
-
-                // Draw a larger 5x5 glow around the particle for better visibility
-                for (int dy = -2; dy <= 2; dy++) {
-                    for (int dx = -2; dx <= 2; dx++) {
+            Var screen_x = (camera_xy.x * scale) * cast<float>(image_size.x) * 0.5f + cast<float>(image_size.x) * 0.5f;
+            Var screen_y = (camera_xy.y * scale) * cast<float>(image_size.y) * 0.5f + cast<float>(image_size.y) * 0.5f;
+            Var finite_screen = !luisa::compute::isnan(screen_x) &
+                                !luisa::compute::isinf(screen_x) &
+                                !luisa::compute::isnan(screen_y) &
+                                !luisa::compute::isinf(screen_y);
+            Var center_in_bounds = (screen_x > -1.0f) &
+                                   (screen_x < cast<float>(image_size.x)) &
+                                   (screen_y > -1.0f) &
+                                   (screen_y < cast<float>(image_size.y));
+            $if (finite_screen & center_in_bounds) {
+                Int2 ipos = make_int2(cast<int>(screen_x), cast<int>(screen_y));
+                projection.pixel = ipos;
+                projection.distance = distance;
+                projection.visible = 1u;
+                Var winner = encode_winner(distance, idx);
+                for (int dy = -ref::kNBodyGlowRadius; dy <= ref::kNBodyGlowRadius; dy++) {
+                    for (int dx = -ref::kNBodyGlowRadius; dx <= ref::kNBodyGlowRadius; dx++) {
                         Int2 offset = make_int2(Int(dx), Int(dy));
-                        Int2 p = ipos + offset;
-                        $if ((p.x >= 0) & (p.x < cast<int>(image_size.x)) &
-                             (p.y >= 0) & (p.y < cast<int>(image_size.y))) {
-                            Var d = sqrt(cast<float>(dx * dx + dy * dy));
-                            Var intensity = exp(-d * 0.8f) * 0.9f;
-                            image.write(make_uint2(cast<uint>(p.x), cast<uint>(p.y)), make_float4(color * intensity, 1.0f));
+                        Int2 pixel = ipos + offset;
+                        $if ((pixel.x >= 0) & (pixel.x < cast<int>(image_size.x)) &
+                             (pixel.y >= 0) & (pixel.y < cast<int>(image_size.y))) {
+                            Var pixel_index = cast<uint>(pixel.y) * image_size.x + cast<uint>(pixel.x);
+                            winners.atomic(pixel_index).fetch_min(winner);
                         };
                     }
                 }
             };
         };
+        projections.write(idx, projection);
     };
+    auto rasterize = device.compile(rasterize_particles);
 
-    auto render_shader = device.compile(render_particles);
+    Kernel2D resolve_particles = [](BufferVar<ParticleProjection> projections, BufferUInt winners, ImageFloat image, UInt2 image_size) noexcept {
+        set_block_size(16u, 16u, 1u);
+        Var pixel = dispatch_id().xy();
+        Var pixel_index = pixel.y * image_size.x + pixel.x;
+        Var winner = winners.read(pixel_index);
+        Float4 output = make_float4(0.02f, 0.02f, 0.05f, 1.0f);
+        $if (winner != ref::NBodyWinnerEncoding::kInvalid) {
+            Var idx = winner & ref::NBodyWinnerEncoding::kParticleIndexMask;
+            Var projection = projections.read(idx);
+            $if (projection.visible != 0u) {
+                Int2 delta = make_int2(cast<int>(pixel.x), cast<int>(pixel.y)) - projection.pixel;
+                Var depth_factor = 1.0f / (1.0f + projection.distance * 0.1f);
+                Var r = 0.5f + 0.5f * sin(cast<float>(idx) * 0.1f);
+                Var g = 0.5f + 0.5f * sin(cast<float>(idx) * 0.13f + 2.0f);
+                Var b = 0.8f + 0.2f * sin(cast<float>(idx) * 0.07f + 4.0f);
+                Var color = make_float3(r, g, b) * depth_factor;
+                Var footprint_distance = sqrt(cast<float>(delta.x * delta.x + delta.y * delta.y));
+                Var intensity = exp(-footprint_distance * 0.8f) * 0.9f;
+                output = make_float4(color * intensity, 1.0f);
+            };
+        };
+        image.write(pixel, output);
+    };
+    auto resolve = device.compile(resolve_particles);
 
     // Main simulation loop
     uint frame = 0u;
@@ -302,24 +357,58 @@ int main(int argc, char *argv[]) {
     if (force_offline) {
         static constexpr uint offline_frames = 100u;
         for (uint i = 0u; i < offline_frames; i++) {
-            stream << clear(display).dispatch(width, height)
+            stream << clear_winners(particle_winners).dispatch(width * height)
                    << nbody_shader(particles_read, particles_write).dispatch(n_particles);
             std::swap(particles_read, particles_write);
-            stream << render_shader(particles_read, display, rot_x, rot_y, zoom, make_uint2(width, height)).dispatch(n_particles);
+            stream << rasterize(particles_read, particle_projections, particle_winners, rot_x, rot_y, zoom, make_uint2(width, height)).dispatch(n_particles)
+                   << resolve(particle_projections, particle_winners, display, make_uint2(width, height)).dispatch(width, height);
             frame++;
         }
         luisa::vector<uint8_t> host_image(width * height * 4u);
         stream << display.copy_to(luisa::span{host_image}) << synchronize();
-        stbi_write_png("test_nbody_simulation.png", width, height, 4, host_image.data(), 0);
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            width, height, 4,
-            "test_nbody_simulation",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        static constexpr uint feature_tile_size = 32u;
+        luisa::vector<uint8_t> feature_tiles(
+            (width / feature_tile_size) * (height / feature_tile_size), 0u);
+        size_t bright_pixel_count = 0u;
+        size_t active_pixel_count = 0u;
+        for (auto i = 0u; i < width * height; i++) {
+            auto offset = static_cast<size_t>(i) * 4u;
+            auto peak = std::max({host_image[offset + 0u],
+                                  host_image[offset + 1u],
+                                  host_image[offset + 2u]});
+            if (peak >= 32u) { active_pixel_count++; }
+            if (peak >= 128u) {
+                bright_pixel_count++;
+                auto x = i % width;
+                auto y = i / width;
+                auto tile_x = x / feature_tile_size;
+                auto tile_y = y / feature_tile_size;
+                feature_tiles[tile_y * (width / feature_tile_size) + tile_x] = 1u;
+            }
+        }
+        auto feature_tile_count = static_cast<size_t>(std::count(feature_tiles.cbegin(), feature_tiles.cend(), uint8_t{1u}));
+        auto scene_is_valid = active_pixel_count >= 3000u && active_pixel_count <= 20000u &&
+                              bright_pixel_count >= 200u && bright_pixel_count <= 2000u &&
+                              feature_tile_count >= 20u && feature_tile_count <= 100u;
+        if (!scene_is_valid) {
+            LUISA_ERROR(
+                "N-body output failed feature checks: {} active pixels (expected 3000-20000), "
+                "{} bright pixels (expected 200-2000), {} occupied feature tiles (expected 20-100).",
+                active_pixel_count, bright_pixel_count, feature_tile_count);
+            return 1;
+        }
+        if (stbi_write_png("test_nbody_simulation.png", width, height, 4, host_image.data(), 0) == 0) {
+            LUISA_ERROR("Failed to write test_nbody_simulation.png.");
+            return 1;
+        }
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                width, height, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     } else {
 #if ENABLE_DISPLAY
         while (!window->should_close()) {
@@ -343,15 +432,16 @@ int main(int argc, char *argv[]) {
                 zoom = max(zoom, 0.1f);
             }
 
-            // Clear display
-            stream << clear(display).dispatch(width, height);
+            // Reset the deterministic per-pixel arbitration buffer.
+            stream << clear_winners(particle_winners).dispatch(width * height);
 
             // Update physics
             stream << nbody_shader(particles_read, particles_write).dispatch(n_particles);
             std::swap(particles_read, particles_write);
 
-            // Render particles
-            stream << render_shader(particles_read, display, rot_x, rot_y, zoom, make_uint2(width, height)).dispatch(n_particles)
+            // Rasterize winners, then resolve each pixel exactly once.
+            stream << rasterize(particles_read, particle_projections, particle_winners, rot_x, rot_y, zoom, make_uint2(width, height)).dispatch(n_particles)
+                   << resolve(particle_projections, particle_winners, display, make_uint2(width, height)).dispatch(width, height)
                    << swap_chain->present(display);
 
             frame++;

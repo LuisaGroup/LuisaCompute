@@ -473,6 +473,19 @@ private:
         LUISA_ERROR_WITH_LOCATION("Invalid value.");
     }
 
+    [[nodiscard]] static llvm::Value *_broadcast_like(IRBuilder &b, llvm::Value *value,
+                                                      llvm::Value *shape) noexcept {
+        LUISA_ASSERT(value != nullptr && shape != nullptr, "Cannot broadcast null LLVM values.");
+        if (value->getType() == shape->getType()) {
+            return value;
+        }
+        auto shape_type = llvm::dyn_cast<llvm::FixedVectorType>(shape->getType());
+        LUISA_ASSERT(shape_type != nullptr &&
+                         value->getType() == shape_type->getElementType(),
+                     "Cannot broadcast an LLVM value to the requested vector shape.");
+        return b.CreateVectorSplat(shape_type->getNumElements(), value);
+    }
+
     [[nodiscard]] llvm::Constant *_translate_string_or_null(IRBuilder &b, luisa::string_view s) noexcept {
         if (s.empty()) {
             auto ptr_type = llvm::PointerType::get(_llvm_context, 0);
@@ -1305,7 +1318,7 @@ private:
                            "Unexpected intrinsic operation.");
         auto llvm_cmp = op == xir::ArithmeticOp::ISINF ?
                             b.CreateICmpEQ(llvm_and, llvm_test) :
-                            b.CreateICmpUGE(llvm_and, llvm_test);
+                            b.CreateICmpUGT(llvm_and, llvm_test);
         return _zext_i1_to_i8(b, llvm_cmp);
     }
 
@@ -1324,13 +1337,35 @@ private:
         );
     }
 
+    void _validate_static_byte_buffer_alignment(
+        CurrentFunction &current, IRBuilder &b, const xir::Value *offset,
+        const Type *access_type) noexcept {
+        auto llvm_offset = _lookup_value(current, b, offset);
+        if (auto constant = llvm::dyn_cast<llvm::ConstantInt>(llvm_offset)) {
+            auto alignment = _get_type_alignment(access_type);
+            auto byte_offset = constant->getZExtValue();
+            if (byte_offset % alignment != 0u) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Misaligned fallback byte-buffer access: type {} at byte "
+                    "offset {} requires {}-byte alignment. Use an aligned "
+                    "offset or a packed scalar array type (for example "
+                    "std::array<float, 3> instead of float3).",
+                    access_type->description(), byte_offset, alignment);
+            }
+        }
+    }
+
     [[nodiscard]] llvm::Value *_translate_buffer_write(CurrentFunction &current, IRBuilder &b,
                                                        const xir::ResourceWriteInst *inst,
                                                        bool is_volatile, bool byte_address = false) noexcept {
         auto buffer = inst->operand(0u);
         auto slot = inst->operand(1u);
-        auto llvm_elem_ptr = _get_buffer_element_ptr(current, b, buffer, slot, byte_address);
         auto value = inst->operand(2u);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, slot, value->type());
+        }
+        auto llvm_elem_ptr = _get_buffer_element_ptr(current, b, buffer, slot, byte_address);
         auto llvm_value = _lookup_value(current, b, value);// Get the value to write
         auto alignment = _get_type_alignment(value->type());
         return b.CreateAlignedStore(llvm_value, llvm_elem_ptr, llvm::MaybeAlign{alignment}, is_volatile);
@@ -1341,6 +1376,10 @@ private:
                                                       bool is_volatile, bool byte_address = false) noexcept {
         auto buffer = inst->operand(0u);
         auto slot = inst->operand(1u);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, slot, inst->type());
+        }
         auto llvm_elem_ptr = _get_buffer_element_ptr(current, b, buffer, slot, byte_address);
         auto alignment = _get_type_alignment(inst->type());
         auto llvm_element_type = _translate_type(inst->type(), true);// Type of the value being read
@@ -1533,6 +1572,10 @@ private:
         auto bindless = inst->operand(0);
         auto slot_index = inst->operand(1);
         auto index_or_offset = inst->operand(2);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, index_or_offset, result_type);
+        }
         auto llvm_slot = _load_bindless_array_slot(current, b, llvm_slot_type, bindless, slot_index);
         auto llvm_buffer_ptr = b.CreateExtractValue(llvm_slot, {0});
         auto llvm_offset = _lookup_value(current, b, index_or_offset);
@@ -1552,6 +1595,10 @@ private:
         auto slot_index = inst->operand(1);
         auto index_or_offset = inst->operand(2);
         auto value = inst->operand(3);
+        if (byte_address) {
+            _validate_static_byte_buffer_alignment(
+                current, b, index_or_offset, value->type());
+        }
         auto llvm_slot = _load_bindless_array_slot(current, b, llvm_slot_type, bindless, slot_index);
         auto llvm_buffer_ptr = b.CreateExtractValue(llvm_slot, {0});
         auto llvm_offset = _lookup_value(current, b, index_or_offset);
@@ -1643,22 +1690,52 @@ private:
                                                                  const xir::ArithmeticInst *inst) noexcept {
         auto lhs = inst->operand(0u);
         auto rhs = inst->operand(1u);
-        LUISA_ASSERT(lhs->type()->is_matrix(), "Matrix expected.");
-        auto llvm_func_name = [&] {
-            if (rhs->type()->is_vector()) {
-                LUISA_ASSERT(lhs->type()->dimension() == rhs->type()->dimension() &&
-                                 lhs->type()->element() == rhs->type()->element(),
-                             "Matrix and vector dimension mismatch.");
-                return luisa::format("luisa.matrix{}d.mul.vector", lhs->type()->dimension());
-            }
-            LUISA_ASSERT(rhs->type()->is_matrix() &&
-                             lhs->type()->dimension() == rhs->type()->dimension() &&
-                             lhs->type()->element() == rhs->type()->element(),
-                         "Matrix dimension mismatch.");
-            return luisa::format("luisa.matrix{}d.mul.matrix", lhs->type()->dimension());
-        }();
+        auto lhs_type = lhs->type();
+        auto rhs_type = rhs->type();
+        LUISA_ASSERT(lhs_type != nullptr && rhs_type != nullptr &&
+                         (lhs_type->is_matrix() || lhs_type->is_float_vector()) &&
+                         (rhs_type->is_matrix() || rhs_type->is_float_vector()) &&
+                         (lhs_type->is_matrix() || rhs_type->is_matrix()) &&
+                         lhs_type->dimension() == rhs_type->dimension() &&
+                         lhs_type->element() == rhs_type->element(),
+                     "Invalid matrix multiplication operands.");
         auto llvm_lhs = _lookup_value(current, b, lhs);
         auto llvm_rhs = _lookup_value(current, b, rhs);
+        if (lhs_type->is_float_vector()) {
+            LUISA_ASSERT(rhs_type->is_matrix() && inst->type() == lhs_type,
+                         "Invalid vector-matrix multiplication result.");
+            auto dim = lhs_type->dimension();
+            auto llvm_result = static_cast<llvm::Value *>(
+                llvm::PoisonValue::get(llvm_lhs->getType()));
+            auto llvm_zero = llvm::ConstantFP::getNegativeZero(
+                llvm_lhs->getType()->getScalarType());
+            for (auto i = 0u; i < dim; i++) {
+                auto llvm_rhs_storage_column =
+                    b.CreateExtractValue(llvm_rhs, {i});
+                auto llvm_rhs_column = static_cast<llvm::Value *>(
+                    llvm::PoisonValue::get(llvm_lhs->getType()));
+                for (auto j = 0u; j < dim; j++) {
+                    auto llvm_element =
+                        b.CreateExtractValue(llvm_rhs_storage_column, {j});
+                    llvm_rhs_column = b.CreateInsertElement(
+                        llvm_rhs_column, llvm_element, j);
+                }
+                auto llvm_product = b.CreateFMul(llvm_lhs, llvm_rhs_column);
+                auto llvm_component = b.CreateFAddReduce(llvm_zero, llvm_product);
+                llvm_result = b.CreateInsertElement(llvm_result, llvm_component, i);
+            }
+            return llvm_result;
+        }
+        auto llvm_func_name = [&] {
+            if (rhs_type->is_float_vector()) {
+                LUISA_ASSERT(inst->type() == rhs_type,
+                             "Invalid matrix-vector multiplication result.");
+                return luisa::format("luisa.matrix{}d.mul.vector", lhs_type->dimension());
+            }
+            LUISA_ASSERT(rhs_type->is_matrix() && inst->type() == lhs_type,
+                         "Invalid matrix-matrix multiplication result.");
+            return luisa::format("luisa.matrix{}d.mul.matrix", lhs_type->dimension());
+        }();
         auto llvm_lhs_alloca = b.CreateAlloca(llvm_lhs->getType());
         auto llvm_rhs_alloca = b.CreateAlloca(llvm_rhs->getType());
         b.CreateStore(llvm_lhs, llvm_lhs_alloca);
@@ -2218,13 +2295,18 @@ private:
             }
             case xir::ArithmeticOp::LERP: {
                 // lerp(a, b, t) = (b - a) * t + a = fma(t, b - a, a)
+                auto type = inst->type();
                 auto va_type = inst->operand(0u)->type();
                 auto vb_type = inst->operand(1u)->type();
                 auto t_type = inst->operand(2u)->type();
-                LUISA_ASSERT(va_type != nullptr && va_type == vb_type && va_type == t_type, "Type mismatch for lerp.");
+                LUISA_ASSERT(type != nullptr && va_type == type && vb_type == type &&
+                                 (t_type == type ||
+                                  (type->is_vector() && t_type == type->element())),
+                             "Type mismatch for lerp.");
                 auto llvm_va = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_vb = _lookup_value(current, b, inst->operand(1u));
-                auto llvm_t = _lookup_value(current, b, inst->operand(2u));
+                auto llvm_t = _broadcast_like(
+                    b, _lookup_value(current, b, inst->operand(2u)), llvm_va);
                 LUISA_ASSERT(llvm_va->getType()->isFPOrFPVectorTy(), "Invalid operand type for lerp operation.");
                 auto llvm_diff = b.CreateFSub(llvm_vb, llvm_va);
                 return b.CreateIntrinsic(llvm_va->getType(), llvm::Intrinsic::fma, {llvm_t, llvm_diff, llvm_va});
@@ -2233,16 +2315,22 @@ private:
                 // smoothstep(edge0, edge1, x) = t * t * (3.0 - 2.0 * t), where t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
                 auto type = inst->type();
                 LUISA_ASSERT(type != nullptr &&
-                                 type == inst->operand(0u)->type() &&
-                                 type == inst->operand(1u)->type() &&
-                                 type == inst->operand(2u)->type(),
+                                 type == inst->operand(2u)->type() &&
+                                 (type == inst->operand(0u)->type() ||
+                                  (type->is_vector() &&
+                                   type->element() == inst->operand(0u)->type())) &&
+                                 (type == inst->operand(1u)->type() ||
+                                  (type->is_vector() &&
+                                   type->element() == inst->operand(1u)->type())),
                              "Type mismatch for smoothstep.");
                 auto elem_type = type->is_vector() ? type->element() : type;
                 LUISA_ASSERT(elem_type->is_float16() || elem_type->is_float32() || elem_type->is_float64(),
                              "Invalid operand type for smoothstep operation.");
-                auto llvm_edge0 = _lookup_value(current, b, inst->operand(0u));
-                auto llvm_edge1 = _lookup_value(current, b, inst->operand(1u));
                 auto llvm_x = _lookup_value(current, b, inst->operand(2u));
+                auto llvm_edge0 = _broadcast_like(
+                    b, _lookup_value(current, b, inst->operand(0u)), llvm_x);
+                auto llvm_edge1 = _broadcast_like(
+                    b, _lookup_value(current, b, inst->operand(1u)), llvm_x);
                 // constant 0, 1, -2, and 3
                 auto llvm_elem_type = _translate_type(elem_type, false);
                 auto llvm_zero = llvm::ConstantFP::get(llvm_elem_type, 0.);
@@ -2269,11 +2357,21 @@ private:
                 return b.CreateFMul(llvm_tt, llvm_three_minus_two_t);
             }
             case xir::ArithmeticOp::STEP: {
-                // step(edge, x) = x < edge ? 0 : 1 = uitofp(x >= edge)
-                auto llvm_edge = _lookup_value(current, b, inst->operand(0u));
+                // step(edge, x) = x < edge ? 0 : 1
+                auto type = inst->type();
+                auto edge_type = inst->operand(0u)->type();
+                LUISA_ASSERT(type != nullptr && inst->operand(1u)->type() == type &&
+                                 (edge_type == type ||
+                                  (type->is_vector() &&
+                                   edge_type == type->element())),
+                             "Type mismatch for step.");
                 auto llvm_x = _lookup_value(current, b, inst->operand(1u));
-                auto llvm_cmp = b.CreateFCmpOGT(llvm_x, llvm_edge);
-                return b.CreateUIToFP(llvm_cmp, llvm_x->getType());
+                auto llvm_edge = _broadcast_like(
+                    b, _lookup_value(current, b, inst->operand(0u)), llvm_x);
+                auto llvm_cmp = b.CreateFCmpOLT(llvm_x, llvm_edge);
+                auto llvm_zero = llvm::Constant::getNullValue(llvm_x->getType());
+                auto llvm_one = llvm::ConstantFP::get(llvm_x->getType(), 1.);
+                return b.CreateSelect(llvm_cmp, llvm_zero, llvm_one);
             }
             case xir::ArithmeticOp::ABS: {
                 auto llvm_x = _lookup_value(current, b, inst->operand(0u));
@@ -2463,20 +2561,158 @@ private:
             case xir::ArithmeticOp::POW: return _translate_binary_fp_math_operation(current, b, inst->operand(0u), inst->operand(1u), llvm::Intrinsic::pow);
             case xir::ArithmeticOp::POW_INT: {
                 auto base = inst->operand(0u);
-                auto index = inst->operand(1u);
+                auto exponent = inst->operand(1u);
                 auto llvm_base = _lookup_value(current, b, base);
-                auto llvm_index = _lookup_value(current, b, index);
+                auto llvm_exponent = _lookup_value(current, b, exponent);
                 LUISA_ASSERT(llvm_base->getType()->isFPOrFPVectorTy() &&
-                                 llvm_index->getType()->isIntOrIntVectorTy() &&
-                                 !llvm_index->getType()->isIntOrIntVectorTy(1),
+                                 llvm_exponent->getType()->isIntOrIntVectorTy() &&
+                                 !llvm_exponent->getType()->isIntOrIntVectorTy(1),
                              "Invalid operand type for pow_int operation.");
-                if (llvm_base->getType()->isVectorTy() || llvm_index->getType()->isVectorTy()) {
-                    LUISA_ASSERT(llvm_base->getType()->isVectorTy() && llvm_index->getType()->isVectorTy() &&
-                                     llvm::cast<llvm::VectorType>(llvm_base->getType())->getElementCount() ==
-                                         llvm::cast<llvm::VectorType>(llvm_index->getType())->getElementCount(),
-                                 "pow_int operation requires both operands to be vectors of the same dimension.");
+                // llvm.powi interprets its integer operand as signed, while
+                // XIR POW_INT preserves the exponent's declared signedness and
+                // full bit width. It also permits a scalar exponent to be
+                // broadcast over a vector base. Implement the XIR contract
+                // explicitly instead of relying on the target-dependent
+                // intrinsic lowering.
+                auto call_scalar_power_magnitude = [&](llvm::Value *scalar_base,
+                                                       llvm::Value *magnitude,
+                                                       llvm::Value *negative) noexcept {
+                    auto base_type = scalar_base->getType();
+                    auto exponent_type = llvm::cast<llvm::IntegerType>(
+                        magnitude->getType());
+                    auto base_code = base_type->isHalfTy() ? "f16" :
+                                         base_type->isFloatTy() ? "f32" :
+                                                                 "f64";
+                    auto name = fmt::format(
+                        "luisa.fallback.pow_int.{}.u{}",
+                        base_code, exponent_type->getBitWidth());
+                    auto helper = _llvm_module->getFunction(name);
+                    if (helper == nullptr) {
+                        auto helper_type = llvm::FunctionType::get(
+                            base_type,
+                            {base_type, exponent_type, b.getInt1Ty()}, false);
+                        helper = llvm::Function::Create(
+                            helper_type, llvm::Function::PrivateLinkage,
+                            name, _llvm_module);
+                        helper->addFnAttr(llvm::Attribute::AlwaysInline);
+
+                        auto entry = llvm::BasicBlock::Create(
+                            _llvm_context, "entry", helper);
+                        auto positive = llvm::BasicBlock::Create(
+                            _llvm_context, "positive", helper);
+                        auto negative_block = llvm::BasicBlock::Create(
+                            _llvm_context, "negative", helper);
+                        auto loop = llvm::BasicBlock::Create(
+                            _llvm_context, "loop", helper);
+                        auto body = llvm::BasicBlock::Create(
+                            _llvm_context, "body", helper);
+                        auto exit = llvm::BasicBlock::Create(
+                            _llvm_context, "exit", helper);
+                        IRBuilder helper_b{entry};
+                        helper_b.setFastMathFlags(b.getFastMathFlags());
+                        helper_b.CreateCondBr(
+                            helper->getArg(2), negative_block, positive);
+
+                        auto one = llvm::ConstantFP::get(base_type, 1.0);
+                        helper_b.SetInsertPoint(positive);
+                        helper_b.CreateBr(loop);
+
+                        helper_b.SetInsertPoint(negative_block);
+                        auto reciprocal_base = helper_b.CreateFDiv(
+                            one, helper->getArg(0));
+                        helper_b.CreateBr(loop);
+
+                        helper_b.SetInsertPoint(loop);
+                        auto current_magnitude = helper_b.CreatePHI(
+                            exponent_type, 3u, "magnitude");
+                        auto current_result = helper_b.CreatePHI(
+                            base_type, 3u, "result");
+                        auto current_factor = helper_b.CreatePHI(
+                            base_type, 3u, "factor");
+                        auto zero = llvm::ConstantInt::get(
+                            exponent_type, 0u);
+                        current_magnitude->addIncoming(
+                            helper->getArg(1), positive);
+                        current_magnitude->addIncoming(
+                            helper->getArg(1), negative_block);
+                        current_result->addIncoming(one, positive);
+                        current_result->addIncoming(one, negative_block);
+                        current_factor->addIncoming(
+                            helper->getArg(0), positive);
+                        current_factor->addIncoming(
+                            reciprocal_base, negative_block);
+                        auto done = helper_b.CreateICmpEQ(
+                            current_magnitude, zero);
+                        helper_b.CreateCondBr(done, exit, body);
+
+                        helper_b.SetInsertPoint(body);
+                        auto odd = helper_b.CreateTrunc(
+                            current_magnitude, helper_b.getInt1Ty());
+                        auto multiplied = helper_b.CreateFMul(
+                            current_result, current_factor);
+                        auto next_result = helper_b.CreateSelect(
+                            odd, multiplied, current_result);
+                        auto next_magnitude = helper_b.CreateLShr(
+                            current_magnitude, 1u);
+                        auto next_factor = helper_b.CreateFMul(
+                            current_factor, current_factor);
+                        helper_b.CreateBr(loop);
+                        current_magnitude->addIncoming(
+                            next_magnitude, body);
+                        current_result->addIncoming(next_result, body);
+                        current_factor->addIncoming(next_factor, body);
+
+                        helper_b.SetInsertPoint(exit);
+                        helper_b.CreateRet(current_result);
+                    }
+                    return b.CreateCall(
+                        helper, {scalar_base, magnitude, negative});
+                };
+                auto exponent_element_type = exponent->type()->is_vector() ?
+                                                 exponent->type()->element() :
+                                                 exponent->type();
+                auto exponent_is_signed = exponent_element_type->is_int();
+                auto call_scalar_power = [&](llvm::Value *scalar_base,
+                                             llvm::Value *scalar_exponent) noexcept {
+                    if (!exponent_is_signed) {
+                        return call_scalar_power_magnitude(
+                            scalar_base, scalar_exponent, b.getFalse());
+                    }
+                    auto exponent_type = llvm::cast<llvm::IntegerType>(
+                        scalar_exponent->getType());
+                    auto zero = llvm::ConstantInt::get(
+                        exponent_type, 0u);
+                    auto negative = b.CreateICmpSLT(
+                        scalar_exponent, zero);
+                    auto magnitude = b.CreateSelect(
+                        negative,
+                        b.CreateSub(zero, scalar_exponent),
+                        scalar_exponent);
+                    return call_scalar_power_magnitude(
+                        scalar_base, magnitude, negative);
+                };
+                if (auto base_type = llvm::dyn_cast<llvm::FixedVectorType>(
+                        llvm_base->getType())) {
+                    auto result = static_cast<llvm::Value *>(
+                        llvm::PoisonValue::get(base_type));
+                    auto exponent_is_vector =
+                        llvm_exponent->getType()->isVectorTy();
+                    for (auto i = 0u;
+                         i < base_type->getNumElements(); i++) {
+                        auto base_element = b.CreateExtractElement(
+                            llvm_base, i);
+                        auto exponent_element = exponent_is_vector ?
+                                                    b.CreateExtractElement(
+                                                        llvm_exponent, i) :
+                                                    llvm_exponent;
+                        auto element_result = call_scalar_power(
+                            base_element, exponent_element);
+                        result = b.CreateInsertElement(
+                            result, element_result, i);
+                    }
+                    return result;
                 }
-                return b.CreateBinaryIntrinsic(llvm::Intrinsic::powi, llvm_base, llvm_index);
+                return call_scalar_power(llvm_base, llvm_exponent);
             }
             case xir::ArithmeticOp::SQRT: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::sqrt);
             case xir::ArithmeticOp::RSQRT: {
@@ -3004,7 +3240,8 @@ private:
                 auto llvm_inst = b.CreateSwitch(llvm_condition, llvm_default_block, switch_inst->case_count());
                 for (auto i = 0u; i < switch_inst->case_count(); i++) {
                     auto case_value = switch_inst->case_value(i);
-                    auto llvm_case_value = b.getInt32(case_value);
+                    auto llvm_case_value = b.getIntN(
+                        llvm_condition->getType()->getIntegerBitWidth(), case_value);
                     auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
                     llvm_inst->addCase(llvm_case_value, llvm_case_block);
                 }
@@ -3017,6 +3254,10 @@ private:
                 _translate_instructions_in_basic_block(current, llvm_merge_block, switch_inst->merge_block());
                 return llvm_inst;
             }
+            case xir::DerivedInstructionTag::INDEXED_BRANCH:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Fallback XIR codegen requires structured control flow; "
+                    "run restructure_cfg before codegen.");
             case xir::DerivedInstructionTag::LOOP: {
                 auto loop_inst = static_cast<const xir::LoopInst *>(inst);
                 auto llvm_merge_block = _find_or_create_basic_block(current, loop_inst->merge_block());
@@ -3046,7 +3287,10 @@ private:
                 llvm_condition = b.CreateICmpNE(llvm_condition, llvm_false);
                 auto llvm_true_block = _find_or_create_basic_block(current, cond_br_inst->true_block());
                 auto llvm_false_block = _find_or_create_basic_block(current, cond_br_inst->false_block());
-                return b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
+                auto llvm_inst = b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
+                _translate_instructions_in_basic_block(current, llvm_true_block, cond_br_inst->true_block());
+                _translate_instructions_in_basic_block(current, llvm_false_block, cond_br_inst->false_block());
+                return llvm_inst;
             }
             case xir::DerivedInstructionTag::UNREACHABLE: {
                 LUISA_ASSERT(inst->type() == nullptr, "Unreachable instruction should not have a type.");
@@ -3057,7 +3301,9 @@ private:
             case xir::DerivedInstructionTag::CONTINUE: {
                 auto br_inst = static_cast<const xir::BranchTerminatorInstruction *>(inst);
                 auto llvm_target_block = _find_or_create_basic_block(current, br_inst->target_block());
-                return b.CreateBr(llvm_target_block);
+                auto llvm_inst = b.CreateBr(llvm_target_block);
+                _translate_instructions_in_basic_block(current, llvm_target_block, br_inst->target_block());
+                return llvm_inst;
             }
             case xir::DerivedInstructionTag::RETURN: {
                 auto return_inst = static_cast<const xir::ReturnInst *>(inst);

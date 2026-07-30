@@ -229,7 +229,6 @@ void CallableLibrary::deser_ptr(LiteralExpr *obj, std::byte const *&ptr, DeserPa
     (void)pack;
     auto index = deser_value<size_t>(ptr, pack);
     auto literal_size = deser_value<size_t>(ptr, pack);
-#ifdef LUISA_USE_SYSTEM_STL
     using V = LiteralExpr::Value::variant_type;
     static constexpr auto n = luisa::variant_size_v<V>;
     auto emplace = [index, ptr, obj, literal_size]<size_t current>(auto &&self, std::integral_constant<size_t, current>) noexcept {
@@ -238,17 +237,13 @@ void CallableLibrary::deser_ptr(LiteralExpr *obj, std::byte const *&ptr, DeserPa
                 using T = luisa::variant_alternative_t<current, V>;
                 T value;
                 std::memcpy(&value, ptr, literal_size);
-                obj->_value.emplace<T>(value);
+                obj->_value.template emplace<T>(value);
             } else {
                 self(self, std::integral_constant<size_t, current + 1>{});
             }
         }
     };
     emplace(emplace, std::integral_constant<size_t, 0>{});
-#else
-    *reinterpret_cast<size_t *>(&obj->_value) = index;
-    std::memcpy(obj->_value.get_as<std::byte *>(), ptr, literal_size);
-#endif
     ptr += literal_size;
 }
 template<>
@@ -556,6 +551,17 @@ void CallableLibrary::deser_ptr(CommentStmt *obj, std::byte const *&ptr, DeserPa
     obj->_comment = deser_value<luisa::string>(ptr, pack);
 }
 template<>
+void CallableLibrary::ser_value(SuspendStmt const &t, luisa::vector<std::byte> &vec) noexcept {
+    ser_value(t._token, vec);
+    ser_value(t._name, vec);
+}
+template<>
+void CallableLibrary::deser_ptr(SuspendStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
+    (void)pack;
+    obj->_token = deser_value<uint32_t>(ptr, pack);
+    obj->_name = deser_value<luisa::string>(ptr, pack);
+}
+template<>
 void CallableLibrary::ser_value(AutoDiffStmt const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value<Statement>(t._body, vec);
 }
@@ -653,6 +659,9 @@ void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &ve
         case Statement::Tag::AUTO_DIFF:
             ser_value(*static_cast<AutoDiffStmt const *>(&t), vec);
             break;
+        case Statement::Tag::SUSPEND:
+            ser_value(*static_cast<SuspendStmt const *>(&t), vec);
+            break;
         case Statement::Tag::PRINT:
             ser_value(*static_cast<PrintStmt const *>(&t), vec);
             break;
@@ -711,6 +720,8 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
             return create_stmt.template operator()<RayQueryStmt>();
         case Statement::Tag::AUTO_DIFF:
             return create_stmt.template operator()<AutoDiffStmt>();
+        case Statement::Tag::SUSPEND:
+            return create_stmt.template operator()<SuspendStmt>();
         case Statement::Tag::PRINT:
             return create_stmt.template operator()<PrintStmt>();
         case Statement::Tag::DEBUG_BREAK:
@@ -775,6 +786,9 @@ void CallableLibrary::deser_ptr(Statement *obj, std::byte const *&ptr, DeserPack
             break;
         case Statement::Tag::AUTO_DIFF:
             create_stmt.template operator()<AutoDiffStmt>();
+            break;
+        case Statement::Tag::SUSPEND:
+            create_stmt.template operator()<SuspendStmt>();
             break;
         case Statement::Tag::PRINT:
             create_stmt.template operator()<PrintStmt>();

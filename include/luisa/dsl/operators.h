@@ -111,7 +111,12 @@ dsl_binary_op_return_type_helper() noexcept {
     } else if constexpr (op == BinaryOp::MOD) {
         static_assert(lhs_is_integral && rhs_is_integral,
                       "Modulo operator requires integral operands.");
-        return std::make_tuple(decltype(lhs % rhs){}, lhs, rhs);
+        if constexpr (lhs_is_scalar && rhs_is_scalar) {
+            auto ret = decltype(lhs % rhs){};
+            return std::make_tuple(ret, ret, ret);
+        } else {
+            return std::make_tuple(decltype(lhs % rhs){}, lhs, rhs);
+        }
     } else if constexpr (op == BinaryOp::EQUAL ||
                          op == BinaryOp::NOT_EQUAL ||
                          op == BinaryOp::LESS ||
@@ -140,7 +145,12 @@ dsl_binary_op_return_type_helper() noexcept {
                            rhs_is_scalar && rhs_is_boolean),
                       "Bitwise operator requires integral or boolean operands.");
         if constexpr (lhs_is_integral) {
-            return std::make_tuple(decltype(lhs & rhs){}, lhs, rhs);
+            if constexpr (lhs_is_scalar && rhs_is_scalar) {
+                auto ret = decltype(lhs & rhs){};
+                return std::make_tuple(ret, ret, ret);
+            } else {
+                return std::make_tuple(decltype(lhs & rhs){}, lhs, rhs);
+            }
         } else {
             return std::make_tuple(decltype(lhs && rhs){}, lhs, rhs);
         }
@@ -159,7 +169,11 @@ dsl_binary_op_return_type_helper() noexcept {
         if constexpr (rhs_is_scalar) {
             auto rhs_cast = lhs_elem{};
             auto ret = decltype(lhs << rhs_cast){};
-            return std::make_tuple(ret, lhs, rhs_cast);
+            if constexpr (lhs_is_scalar) {
+                return std::make_tuple(ret, ret, ret);
+            } else {
+                return std::make_tuple(ret, lhs, rhs_cast);
+            }
         } else {
             auto ret = decltype(lhs << rhs){};
             return std::make_tuple(ret, lhs, rhs);

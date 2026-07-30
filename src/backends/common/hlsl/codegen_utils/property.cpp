@@ -148,8 +148,9 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
                     }
                 };
                 if (auto t = v->GetType(); t->is_structure() || t->is_array()) {
-                    finalResult << luisa::format("void _accum_grad_{:016X}(inout {} x_grad, {} dx){{\n",
-                                                 t->hash(), v->GetStructName(), v->GetStructName());
+                    auto vk_ref = opt->isSpirv ? "[[vk::ext_reference]] "sv : ""sv;
+                    finalResult << luisa::format("void _accum_grad_{:016X}({}inout {} x_grad, {} dx){{\n",
+                                                 t->hash(), vk_ref, v->GetStructName(), v->GetStructName());
                     if (t->is_structure()) {
                         for (auto i = 0u; i < t->members().size(); i++) {
                             if (auto m = t->members()[i]; detail::can_accum_grad(m)) {
@@ -209,14 +210,25 @@ void CodegenUtility::CodegenProperties(
     auto args = kernel.arguments();
     auto globally_coherent_iter = opt->globallyCoherentBuffers.find(kernel.builder());
     for (auto &&i : vstd::ptr_range(args.data() + offset, args.size() - offset)) {
-        auto print = [&] {
-            auto usage = kernel.variable_usage(i.uid());
+        auto usage = kernel.variable_usage(i.uid());
+        auto usage_bits = luisa::to_underlying(usage);
+        auto reads = (usage_bits & luisa::to_underlying(Usage::READ)) != 0u ||
+                     usage == Usage::NONE;
+        auto writes = (usage_bits & luisa::to_underlying(Usage::WRITE)) != 0u;
+        auto split_texture_views =
+            opt->isSpirv && i.type()->is_texture() && reads && writes;
+        auto print = [&](ShaderVariableType property_type) {
+            auto declaration_usage = split_texture_views ?
+                                         (property_type == ShaderVariableType::UAVTextureHeap ?
+                                              Usage::WRITE :
+                                              Usage::READ) :
+                                         usage;
             if (i.type()->is_buffer() || i.type()->is_texture()) {
                 bool use_globallycoherent = false;
                 auto attris = i.type()->member_attributes();
                 if (!attris.empty()) {
                     for (auto &a : attris) {
-                        if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0) {
+                        if ((to_underlying(declaration_usage) & to_underlying(Usage::WRITE)) != 0) {
                             if (a.key == "cache"sv) {
                                 if (a.value == "coherent"sv) {
                                     use_globallycoherent = true;
@@ -225,15 +237,23 @@ void CodegenUtility::CodegenProperties(
                         }
                     }
                 }
-                use_globallycoherent |= (globally_coherent_iter && globally_coherent_iter.value().contains(i.uid()));
+                use_globallycoherent |=
+                    (globally_coherent_iter &&
+                     globally_coherent_iter.value().contains(i.uid()));
 
-                if (use_globallycoherent && (luisa::to_underlying(kernel.variable_usage(i.uid())) & luisa::to_underlying(Usage::WRITE)) != 0) {
+                if (use_globallycoherent &&
+                    (luisa::to_underlying(declaration_usage) &
+                     luisa::to_underlying(Usage::WRITE)) != 0u) {
                     varData << "globallycoherent "sv;
                 }
             }
-            GetTypeName(*i.type(), varData, usage);
+            GetTypeName(*i.type(), varData, declaration_usage);
             varData << ' ';
             GetVariableName(kernel, i, varData);
+            if (split_texture_views &&
+                property_type == ShaderVariableType::UAVTextureHeap) {
+                varData << "_rw"sv;
+            }
         };
         auto printInstBuffer = [&]<bool writable>() {
             if constexpr (writable)
@@ -254,7 +274,7 @@ void CodegenUtility::CodegenProperties(
                 printInstBuffer.operator()<writable>();
                 properties.emplace_back(prop);
             } else {
-                print();
+                print(sT);
                 properties.emplace_back(prop);
             }
             if (!opt->noRegister) {
@@ -269,6 +289,8 @@ void CodegenUtility::CodegenProperties(
                 case ShaderVariableType::ConstantBuffer:
                 case ShaderVariableType::StructuredBuffer:
                 case ShaderVariableType::RWStructuredBuffer:
+                case ShaderVariableType::SPIRVAccelInstance:
+                case ShaderVariableType::SPIRVAccelInstanceRW:
                 case ShaderVariableType::ConstantValue:
                 case ShaderVariableType::SamplerHeap:
                     bind_count += 2;
@@ -286,7 +308,15 @@ void CodegenUtility::CodegenProperties(
         };
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
-                if (Writable(i)) {
+                if (split_texture_views) {
+                    // Vulkan uses distinct sampled and storage descriptors for
+                    // a texture that is both read and written. Keep them
+                    // adjacent and in runtime-consumption order.
+                    genArg.operator()<RegisterType::SRV>(
+                        ShaderVariableType::SRVTextureHeap, 't');
+                    genArg.operator()<RegisterType::UAV>(
+                        ShaderVariableType::UAVTextureHeap, 'u');
+                } else if (writes) {
                     genArg.operator()<RegisterType::UAV>(ShaderVariableType::UAVTextureHeap, 'u');
                 } else {
                     genArg.operator()<RegisterType::SRV>(ShaderVariableType::SRVTextureHeap, 't');
@@ -302,14 +332,36 @@ void CodegenUtility::CodegenProperties(
             case Type::Tag::BINDLESS_ARRAY:
                 genArg.operator()<RegisterType::SRV>(ShaderVariableType::StructuredBuffer, 't');
                 break;
-            case Type::Tag::ACCEL:
-                if (Writable(i)) {
-                    genArg.operator()<RegisterType::UAV, true, true>(ShaderVariableType::RWStructuredBuffer, 'u');
+            case Type::Tag::ACCEL: {
+                if (!opt->isSpirv) {
+                    // Keep the established DXIL ABI: its command encoder
+                    // currently binds either the traversal resource plus the
+                    // instance buffer, or only the writable instance buffer.
+                    // The dual-role contract below is Vulkan/SPIR-V-specific.
+                    if (Writable(i)) {
+                        genArg.operator()<RegisterType::UAV, true, true>(
+                            ShaderVariableType::RWStructuredBuffer, 'u');
+                    } else {
+                        genArg.operator()<RegisterType::SRV>(
+                            ShaderVariableType::StructuredBuffer, 't');
+                        genArg.operator()<RegisterType::SRV, true>(
+                            ShaderVariableType::StructuredBuffer, 't');
+                    }
+                    break;
+                }
+                if (reads) {
+                    genArg.operator()<RegisterType::SRV>(
+                        ShaderVariableType::SPIRVAccel, 't');
+                }
+                if (writes) {
+                    genArg.operator()<RegisterType::UAV, true, true>(
+                        ShaderVariableType::SPIRVAccelInstanceRW, 'u');
                 } else {
-                    genArg.operator()<RegisterType::SRV>(opt->isSpirv ? ShaderVariableType::SPIRVAccel : ShaderVariableType::StructuredBuffer, 't');
-                    genArg.operator()<RegisterType::SRV, true>(ShaderVariableType::StructuredBuffer, 't');
+                    genArg.operator()<RegisterType::SRV, true>(
+                        ShaderVariableType::SPIRVAccelInstance, 't');
                 }
                 break;
+            }
             case Type::Tag::CUSTOM: {
                 if (i.type()->description() == "LC_IndirectDispatchBuffer"sv) {
                     genArg.operator()<RegisterType::UAV>(ShaderVariableType::RWStructuredBuffer, 'u');

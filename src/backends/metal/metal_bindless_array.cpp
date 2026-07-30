@@ -7,6 +7,30 @@
 
 namespace luisa::compute::metal {
 
+namespace {
+
+// The Metal update kernel consumes the original compact, 64-byte wire record.
+// Keep that device ABI explicit instead of memcpy'ing the evolving runtime
+// command object into device memory.
+struct alignas(16) DeviceBindlessSlotModification {
+    using Operation = BindlessArrayUpdateCommand::Operation;
+    using Texture = BindlessArrayUpdateCommand::ModifiedTexture;
+    struct Buffer {
+        uint64_t handle;
+        size_t size_bytes;
+        Operation op;
+    };
+    size_t slot;
+    Buffer buffer;
+    Texture tex2d;
+    Texture tex3d;
+};
+static_assert(sizeof(DeviceBindlessSlotModification::Buffer) == 24u);
+static_assert(sizeof(DeviceBindlessSlotModification::Texture) == 16u);
+static_assert(sizeof(DeviceBindlessSlotModification) == 64u);
+
+}// namespace
+
 MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcept
     : _array{device->handle()->newBuffer(
           size * sizeof(Slot), MTL::ResourceStorageModePrivate |
@@ -41,15 +65,37 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
 
     using Mod = BindlessArrayUpdateCommand::Modification;
     auto mods = cmd->steal_modifications();
+    luisa::vector<DeviceBindlessSlotModification> device_mods;
+    device_mods.reserve(mods.size());
     for (auto &m : mods) {
+        device_mods.emplace_back(DeviceBindlessSlotModification{
+            .slot = m.slot,
+            .buffer = DeviceBindlessSlotModification::Buffer{
+                m.buffer.handle, m.buffer.size_bytes, m.buffer.op},
+            .tex2d = m.tex2d,
+            .tex3d = m.tex3d});
+        auto &device_mod = device_mods.back();
         // update buffer slot
         if (m.buffer.op == Mod::Operation::EMPLACE) {
             auto buffer = reinterpret_cast<MetalBuffer *>(m.buffer.handle)->handle();
+            auto buffer_length = static_cast<size_t>(buffer->length());
+            LUISA_ASSERT(m.buffer.offset_bytes < buffer_length,
+                         "Bindless buffer offset {} exceeds buffer size {}.",
+                         m.buffer.offset_bytes, buffer_length);
             auto buffer_address = buffer->gpuAddress() + m.buffer.offset_bytes;
-            auto buffer_size = buffer->length() - m.buffer.offset_bytes;
-            // reuse the buffer slot
-            m.buffer.handle = buffer_address;
-            m.buffer.offset_bytes = buffer_size;
+            auto remaining_size = buffer_length - m.buffer.offset_bytes;
+            auto buffer_size =
+                m.buffer.size_bytes ==
+                        BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size ?
+                    remaining_size :
+                    m.buffer.size_bytes;
+            LUISA_ASSERT(buffer_size > 0u && buffer_size <= remaining_size,
+                         "Bindless buffer view [{}, {}) exceeds buffer size {}.",
+                         m.buffer.offset_bytes,
+                         m.buffer.offset_bytes + buffer_size,
+                         buffer_length);
+            device_mod.buffer.handle = buffer_address;
+            device_mod.buffer.size_bytes = buffer_size;
             if (auto old_buffer = _buffer_slots[m.slot];
                 old_buffer != buffer) {
                 _buffer_tracker.release(reinterpret_cast<uint64_t>(old_buffer));
@@ -66,7 +112,7 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
         if (m.tex2d.op == Mod::Operation::EMPLACE) {
             auto texture = reinterpret_cast<MetalTexture *>(m.tex2d.handle)->handle();
             auto texture_id = texture->gpuResourceID();
-            m.tex2d.handle = luisa::bit_cast<uint64_t>(texture_id);
+            device_mod.tex2d.handle = luisa::bit_cast<uint64_t>(texture_id);
             if (auto old_texture = _tex2d_slots[m.slot];
                 old_texture != texture) {
                 _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
@@ -83,7 +129,7 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
         if (m.tex3d.op == Mod::Operation::EMPLACE) {
             auto texture = reinterpret_cast<MetalTexture *>(m.tex3d.handle)->handle();
             auto texture_id = texture->gpuResourceID();
-            m.tex3d.handle = luisa::bit_cast<uint64_t>(texture_id);
+            device_mod.tex3d.handle = luisa::bit_cast<uint64_t>(texture_id);
             if (auto old_texture = _tex3d_slots[m.slot];
                 old_texture != texture) {
                 _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
@@ -101,9 +147,9 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
     _texture_tracker.commit();
 
     // update the buffer
-    auto size_bytes = luisa::span{mods}.size_bytes();
+    auto size_bytes = luisa::span{device_mods}.size_bytes();
     encoder.with_upload_buffer(size_bytes, [&](auto upload_buffer) noexcept {
-        std::memcpy(upload_buffer->data(), mods.data(), size_bytes);
+        std::memcpy(upload_buffer->data(), device_mods.data(), size_bytes);
         auto command_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
         command_encoder->setComputePipelineState(_update);
         command_encoder->setBuffer(_array, 0u, 0u);
@@ -132,4 +178,3 @@ void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encode
 }
 
 }// namespace luisa::compute::metal
-

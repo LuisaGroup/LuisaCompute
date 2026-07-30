@@ -393,6 +393,7 @@ typedef struct LCBindlessArrayUpdateBuffer {
     enum LCBindlessArrayUpdateOperation op;
     struct LCBuffer handle;
     size_t offset;
+    size_t size;
 } LCBindlessArrayUpdateBuffer;
 
 typedef struct LCBindlessArrayUpdateTexture {
@@ -521,6 +522,7 @@ typedef struct LCShaderOption {
     bool enable_debug_info;
     bool compile_only;
     bool time_trace;
+    bool enable_extended_accel_limits;
     uint32_t max_registers;
     const char *name;
     const char *native_include;

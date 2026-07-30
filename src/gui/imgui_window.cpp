@@ -631,7 +631,7 @@ private:
             _clip_rects.reserve(64u);
             auto accum_clip_min = make_float2(std::numeric_limits<float>::max());
             auto accum_clip_max = make_float2(-std::numeric_limits<float>::max());
-            for (auto i = 0u; i < draw_data->CmdListsCount; i++) {
+            for (auto i = 0u; i < draw_data->CmdLists.Size; i++) {
                 auto cmd_list = draw_data->CmdLists[i];
                 for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
                     auto cmd = &cmd_list->CmdBuffer[j];

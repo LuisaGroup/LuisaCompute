@@ -16,6 +16,18 @@
 using namespace luisa;
 using namespace luisa::compute;
 
+struct SceneEvaluation {
+    float distance;
+    float d1;
+    float d2;
+    float d3;
+    float lazors;
+    float doodad;
+    float3 p2;
+};
+
+LUISA_STRUCT(SceneEvaluation, distance, d1, d2, d3, lazors, doodad, p2) {};
+
 #ifndef ENABLE_DISPLAY
 #ifdef LUISA_ENABLE_GUI
 #define ENABLE_DISPLAY 1
@@ -30,19 +42,16 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--update-reference]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-            force_offline = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto force_offline = opts.offline;
+    auto compare_path = opts.compare_path;
 #if !ENABLE_DISPLAY
     if (!force_offline) {
         LUISA_ERROR("GUI support is disabled. Use --offline.");
@@ -68,37 +77,49 @@ int main(int argc, char *argv[]) {
         return make_float4(dot(p, make_float4(1.f)), p.yzw() + p.zwy() - p.wyz() - p.xxx()) * .5f;
     };
 
+    static constexpr auto bpm = 125.f;
+    Callable evaluate_scene = [&comp, &erot, &smin, &wrot](Float3 p, Float t, Float time) noexcept {
+        auto evaluated_p2 = erot(p, make_float3(0.f, 1.f, 0.f), t);
+        evaluated_p2 = erot(evaluated_p2, make_float3(0.f, 0.f, 1.f), t / 3.f);
+        evaluated_p2 = erot(evaluated_p2, make_float3(1.f, 0.f, 0.f), t / 5.f);
+        auto bpt = time / 60.f * bpm;
+        auto p4 = make_float4(evaluated_p2, 0.f);
+        p4 = lerp(p4, wrot(p4), smoothstep(-.5f, .5f, sin(bpt / 4.f)));
+        p4 = abs(p4);
+        p4 = lerp(p4, wrot(p4), smoothstep(-.5f, .5f, sin(bpt)));
+        auto fctr = smoothstep(-.5f, .5f, sin(bpt / 2.f));
+        auto fctr2 = smoothstep(.9f, 1.f, sin(bpt / 16.f));
+        auto evaluated_doodad = length(max(abs(p4) - lerp(0.05f, 0.07f, fctr), 0.f) + lerp(-0.1f, .2f, fctr)) - lerp(.15f, .55f, fctr * fctr) + fctr2;
+        auto repeated_p = p + make_float3(asin(sin(t / 80.f) * .99f) * 80.f, 0.f, 0.f);
+        auto evaluated_lazors = length(asin(sin(erot(repeated_p, make_float3(1.f, 0.f, 0.f), t * .2f).yz() * .5f + 1.f)) / .5f) - .1f;
+        auto evaluated_d1 = comp(repeated_p);
+        auto evaluated_d2 = comp(erot(repeated_p + 5.f, normalize(make_float3(1.f, 3.f, 4.f)), .4f));
+        auto evaluated_d3 = comp(erot(repeated_p + 10.f, normalize(make_float3(3.f, 2.f, 1.f)), 1.f));
+        auto distance = min(evaluated_doodad, min(evaluated_lazors, .3f - smin(smin(evaluated_d1, evaluated_d2, .05f), evaluated_d3, .05f)));
+        return def<SceneEvaluation>(distance, evaluated_d1, evaluated_d2, evaluated_d3, evaluated_lazors, evaluated_doodad, evaluated_p2);
+    };
+
+    Callable scene_distance = [&evaluate_scene](Float3 p, Float t, Float time) noexcept {
+        Var<SceneEvaluation> evaluation = evaluate_scene(p, t, time);
+        return evaluation.distance;
+    };
+
+    Callable scene_normal = [&scene_distance](Float3 p, Float t, Float time) noexcept {
+        auto precis = ite(length(p) < 1.f, .005f, .01f);
+        auto k = make_float3x3(p, p, p) - make_float3x3(precis, 0.f, 0.f, 0.f, precis, 0.f, 0.f, 0.f, precis);
+        // Keep the four distance-only probes explicitly sequenced in the recorded AST.
+        Float center_distance = scene_distance(p, t, time);
+        Float x_distance = scene_distance(k[0], t, time);
+        Float y_distance = scene_distance(k[1], t, time);
+        Float z_distance = scene_distance(k[2], t, time);
+        return normalize(center_distance - make_float3(x_distance, y_distance, z_distance));
+    };
+
     Kernel2D render_kernel = [&](ImageFloat image, Float time) noexcept {
         Float d1, d2, d3;
         Float t;
         Float lazors, doodad;
         Float3 p2;
-        static constexpr auto bpm = 125.f;
-        auto scene = [&](Float3 p) noexcept {
-            p2 = erot(p, make_float3(0.f, 1.f, 0.f), t);
-            p2 = erot(p2, make_float3(0.f, 0.f, 1.f), t / 3.f);
-            p2 = erot(p2, make_float3(1.f, 0.f, 0.f), t / 5.f);
-            auto bpt = time / 60.f * bpm;
-            auto p4 = make_float4(p2, 0.f);
-            p4 = lerp(p4, wrot(p4), smoothstep(-.5f, .5f, sin(bpt / 4.f)));
-            p4 = abs(p4);
-            p4 = lerp(p4, wrot(p4), smoothstep(-.5f, .5f, sin(bpt)));
-            auto fctr = smoothstep(-.5f, .5f, sin(bpt / 2.f));
-            auto fctr2 = smoothstep(.9f, 1.f, sin(bpt / 16.f));
-            doodad = length(max(abs(p4) - lerp(0.05f, 0.07f, fctr), 0.f) + lerp(-0.1f, .2f, fctr)) - lerp(.15f, .55f, fctr * fctr) + fctr2;
-            p.x += asin(sin(t / 80.f) * .99f) * 80.f;
-            lazors = length(asin(sin(erot(p, make_float3(1.f, 0.f, 0.f), t * .2f).yz() * .5f + 1.f)) / .5f) - .1f;
-            d1 = comp(p);
-            d2 = comp(erot(p + 5.f, normalize(make_float3(1.f, 3.f, 4.f)), .4f));
-            d3 = comp(erot(p + 10.f, normalize(make_float3(3.f, 2.f, 1.f)), 1.f));
-            return min(doodad, min(lazors, .3f - smin(smin(d1, d2, .05f), d3, .05f)));
-        };
-
-        auto norm = [&](Float3 p) noexcept {
-            auto precis = ite(length(p) < 1.f, .005f, .01f);
-            auto k = make_float3x3(p, p, p) - make_float3x3(precis, 0.f, 0.f, 0.f, precis, 0.f, 0.f, 0.f, precis);
-            return normalize(scene(p) - make_float3(scene(k[0]), scene(k[1]), scene(k[2])));
-        };
 
         auto fragCoord = make_float2(dispatch_id().xy());
         auto iResolution = make_float2(dispatch_size().xy());
@@ -122,14 +143,22 @@ int main(int argc, char *argv[]) {
         auto trg = def(false);
         auto dist = def(0.f);
         $for (i, 80) {
-            dist = scene(p);
+            // Only the primary ray sample commits auxiliaries used by glow and material shading.
+            Var<SceneEvaluation> primary_evaluation = evaluate_scene(p, t, time);
+            dist = primary_evaluation.distance;
+            d1 = primary_evaluation.d1;
+            d2 = primary_evaluation.d2;
+            d3 = primary_evaluation.d3;
+            lazors = primary_evaluation.lazors;
+            doodad = primary_evaluation.doodad;
+            p2 = primary_evaluation.p2;
             auto hit = dist * dist < 1e-6f;
             glo += .2f / (1.f + lazors * lazors * 20.f) * atten;
             dlglo += .2f / (1.f + doodad * doodad * 20.f) * atten;
             $if (hit & ((sin(d3 * 45.f) < -0.4f & (dist != doodad)) | (dist == doodad & sin(pow(length(p2 * p2 * p2), .3f) * 120.f) > .4f)) & dist != lazors) {
                 trg = trg | dist == doodad;
                 hit = false;
-                auto n = norm(p);
+                auto n = scene_normal(p, t, time);
                 atten *= 1.f - abs(dot(cam, n)) * .98f;
                 cam = reflect(cam, n);
                 dist = .1f;
@@ -143,9 +172,9 @@ int main(int argc, char *argv[]) {
         auto lz = lazors == dist;
         auto dl = doodad == dist;
         auto fogcol = lerp(make_float3(.5f, .8f, 1.2f), make_float3(.4f, .6f, .9f), length(uv));
-        auto n = norm(p);
+        auto n = scene_normal(p, t, time);
         auto r = reflect(cam, n);
-        auto ss = smoothstep(-.3f, .3f, scene(p + make_float3(.3f))) + .5f;
+        auto ss = smoothstep(-.3f, .3f, scene_distance(p + make_float3(.3f), t, time)) + .5f;
         auto fact = length(sin(r * (ite(dl, 4.f, 3.f))) * .5f + .5f) / sqrt(3.f) * .7f + .3f;
         auto matcol = lerp(make_float3(.9f, .4f, .3f), make_float3(.3f, .4f, .8f), smoothstep(-1.f, 1.f, sin(d1 * 5.f + time * 2.f)));
         matcol = lerp(matcol, make_float3(.5f, .4f, 1.f), smoothstep(0.f, 1.f, sin(d2 * 5.f + time * 2.f)));
@@ -206,15 +235,14 @@ int main(int argc, char *argv[]) {
         luisa::vector<uint8_t> host_image(width * height * 4u);
         stream << device_image.copy_to(luisa::span{host_image}) << synchronize();
         stbi_write_png("test_shader_visuals_present.png", width, height, 4, host_image.data(), 0);
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            width, height, 4,
-            "test_shader_visuals_present",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                width, height, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     } else {
 #if ENABLE_DISPLAY
         while (!window->should_close()) {

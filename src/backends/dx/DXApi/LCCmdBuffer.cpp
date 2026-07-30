@@ -9,6 +9,7 @@
 #include "../../common/command_reorder_visitor.h"
 #include <Shader/RasterShader.h>
 #include <luisa/core/stl/variant.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/core/logging.h>
@@ -128,11 +129,13 @@ public:
         EnhancedBarrierTracker::Usage uav_usage;
         EnhancedBarrierTracker::Usage read_usage;
         EnhancedBarrierTracker::Usage accel_read_usage;
+        uint validation_count = 0;
         Visitor(
             LCPreProcessVisitor *self,
             SavedArgument const *arg,
             ShaderDispatchCommandBase const &cmd,
-            bool is_raster) : self(self), arg(arg), cmd(cmd) {
+            bool is_raster,
+            uint validation_count = 0) : self(self), arg(arg), cmd(cmd), validation_count(validation_count) {
             if (is_raster) {
                 uav_usage = EnhancedBarrierTracker::Usage::RasterUAV;
                 read_usage = EnhancedBarrierTracker::Usage::RasterRead;
@@ -161,6 +164,15 @@ public:
                         read_usage);
                 else {
                     LUISA_ASSERT(res->get_tag() == Resource::Tag::UploadBuffer, "Only upload-buffer allowed as shader's resource.");
+                }
+            }
+            // Emplace buffer validation size (element count) when debug info is enabled
+            if (bf.handle != 0 && validation_count > 0) {
+                auto element_size = arg->struct_size;
+                if (element_size > 0) {
+                    self->emplace_data(static_cast<uint>(bf.size / element_size), /*alignment=*/4);
+                } else {
+                    self->emplace_data(static_cast<uint>(bf.size), /*alignment=*/4);
                 }
             }
             ++arg;
@@ -208,6 +220,11 @@ public:
                 BufferView(arr->BindlessBuffer()),
                 read_usage);
             ++arg;
+            // Emplace bindless array validation size when debug info is enabled
+            if (bf.handle != 0 && validation_count > 0) {
+                auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
+                self->emplace_data(static_cast<uint>(arr->size()), /*alignment=*/4);
+            }
         }
         void operator()(Argument::Uniform const &a) {
             auto bf = cmd.uniform(a);
@@ -356,7 +373,7 @@ public:
         auto cs = reinterpret_cast<ComputeShader *>(cmd->handle());
         uniform_align(32);
         size_t beforeSize = arg_buffer->size();
-        Visitor visitor{this, cs->args().data(), *cmd, false};
+        Visitor visitor{this, cs->args().data(), *cmd, false, cs->validation_count()};
         decode_cmd(cs->arg_bindings(), visitor);
         decode_cmd(cmd->arguments(), visitor);
         size_t afterSize = arg_buffer->size();
@@ -456,7 +473,7 @@ public:
         size_t beforeSize = arg_buffer->size();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
-        decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true});
+        decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true, cs->validation_count()});
         size_t afterSize = arg_buffer->size();
         arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
 
@@ -495,6 +512,25 @@ inline DWORD get_pix_color() {
     return ~0;
 }
 #endif
+struct PendingCopy {
+    struct BufferPair {
+        ID3D12Resource *src;
+        ID3D12Resource *dst;
+        bool operator==(BufferPair const &rhs) const noexcept {
+            return src == rhs.src && dst == rhs.dst;
+        }
+        uint64_t hash() const noexcept {
+            return luisa::hash_combine({luisa::hash_value(src), luisa::hash_value(dst)});
+        }
+    };
+    struct CopyRegion {
+        uint64 src_offset;
+        uint64 dst_offset;
+        uint64 size;
+    };
+    vstd::unordered_map<BufferPair, vstd::vector<CopyRegion>> copies;
+};
+
 class LCCmdVisitor : public CommandVisitor {
 public:
     Device *device{};
@@ -511,6 +547,31 @@ public:
     BottomAccelData *bottom_accel_data{};
     vstd::func_ptr_t<void(Device *, CommandBufferBuilder *)>
         after_custom_cmd{};
+    PendingCopy pending_upload;
+    PendingCopy pending_download;
+
+    void flush_pending_upload() {
+        auto cmdList = bd->get_cb()->cmd_list();
+        for (auto &[pair, regions] : pending_upload.copies) {
+            for (auto &r : regions) {
+                cmdList->CopyBufferRegion(pair.dst, r.dst_offset, pair.src, r.src_offset, r.size);
+            }
+        }
+        pending_upload.copies.clear();
+    }
+    void flush_pending_download() {
+        auto cmdList = bd->get_cb()->cmd_list();
+        for (auto &[pair, regions] : pending_download.copies) {
+            for (auto &r : regions) {
+                cmdList->CopyBufferRegion(pair.dst, r.dst_offset, pair.src, r.src_offset, r.size);
+            }
+        }
+        pending_download.copies.clear();
+    }
+    void flush_all_pending() {
+        flush_pending_upload();
+        flush_pending_download();
+    }
 
     void visit(const BufferUploadCommand *cmd) noexcept override {
 #ifdef LCDX_ENABLE_WINPIX
@@ -519,11 +580,15 @@ public:
             PIXEndEvent(bd->get_cb()->cmd_list());
         });
 #endif
-        BufferView bf(
-            reinterpret_cast<Buffer const *>(cmd->handle()),
-            cmd->offset(),
-            cmd->size());
-        bd->upload(bf, cmd->data());
+        auto bf = reinterpret_cast<Buffer const *>(cmd->handle());
+        auto alloc = bd->get_cb()->get_alloc();
+        auto chunk = alloc->get_temp_upload_buffer(cmd->size(), 16u);
+        static_cast<UploadBuffer const *>(chunk.buffer)
+            ->CopyData(chunk.offset, {reinterpret_cast<uint8_t const *>(cmd->data()), cmd->size()});
+        auto srcRes = chunk.buffer->GetResource();
+        auto dstRes = bf->GetResource();
+        auto &regions = pending_upload.copies[{srcRes, dstRes}];
+        regions.push_back({chunk.offset, cmd->offset(), cmd->size()});
     }
 
     void visit(const BufferDownloadCommand *cmd) noexcept override {
@@ -533,15 +598,20 @@ public:
             PIXEndEvent(bd->get_cb()->cmd_list());
         });
 #endif
-        BufferView bf(
-            reinterpret_cast<Buffer const *>(cmd->handle()),
-            cmd->offset(),
-            cmd->size());
-        bd->readback(
-            bf,
-            cmd->data());
+        auto bf = reinterpret_cast<Buffer const *>(cmd->handle());
+        auto alloc = bd->get_cb()->get_alloc();
+        auto chunk = alloc->get_temp_readback_buffer(cmd->size(), 16u);
+        alloc->execute_after_complete([chunk, data = cmd->data(), size = cmd->size()]() {
+            static_cast<ReadbackBuffer const *>(chunk.buffer)
+                ->CopyData(chunk.offset, {reinterpret_cast<uint8_t *>(data), size});
+        });
+        auto srcRes = bf->GetResource();
+        auto dstRes = chunk.buffer->GetResource();
+        auto &regions = pending_download.copies[{srcRes, dstRes}];
+        regions.push_back({cmd->offset(), chunk.offset, cmd->size()});
     }
     void visit(const BufferCopyCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Buffer copy");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -558,6 +628,7 @@ public:
             cmd->size());
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Buffer copy to texture");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -631,6 +702,7 @@ public:
         }
     };
     void visit(const ShaderDispatchCommand *cmd) noexcept override {
+        flush_all_pending();
         GraphicsCmdlistBarrierCallback barrier_callback(*bd);
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Shader dispatch");
@@ -752,6 +824,7 @@ public:
         }
     }
     void visit(const TextureUploadCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Texture upload");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -831,6 +904,7 @@ public:
         cmdList->ClearRenderTargetView(rtvHandle, values, 0, nullptr);
     }
     void visit(const TextureDownloadCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Texture download");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -883,6 +957,7 @@ public:
             false);
     }
     void visit(const TextureCopyCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Texture copy");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -900,6 +975,7 @@ public:
             cmd->dst_level());
     }
     void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Texture copy to buffer");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -918,6 +994,7 @@ public:
             true);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Accel build");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -942,6 +1019,7 @@ public:
             scratch.has_value() ? scratch.ptr() : nullptr);
     }
     void bottom_build(uint64 handle) {
+        flush_all_pending();
         auto accel = reinterpret_cast<BottomAccel *>(handle);
         accel->UpdateStates(
             *state_tracker,
@@ -979,6 +1057,7 @@ public:
         bottom_build(cmd->handle());
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
+        flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Bindless-array update");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -986,20 +1065,11 @@ public:
         });
 #endif
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
-        cmd->visit_modifications([&]<typename T>(T const &t) {
-            if constexpr (std::is_same_v<T, luisa::vector<BindlessArrayUpdateCommand::Texture3DModification>>) {
-                arr->UpdateStates(
-                    *bd,
-                    *state_tracker,
-                    luisa::span{
-                        reinterpret_cast<BindlessArrayUpdateCommand::Texture2DModification const *>(t.data()),
-                        t.size()});
-            } else {
-                arr->UpdateStates(
-                    *bd,
-                    *state_tracker,
-                    luisa::span{t});
-            }
+        cmd->visit_modifications([&](auto const &t) {
+            arr->UpdateStates(
+                *bd,
+                *state_tracker,
+                luisa::span{t});
         });
     }
     void visit(const DXCustomCmd *cmd) noexcept {
@@ -1011,6 +1081,7 @@ public:
         after_custom_cmd(device, bd);
     }
     void visit(const CustomCommand *cmd) noexcept override {
+        flush_all_pending();
         switch (cmd->custom_cmd_uuid()) {
             case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
                 visit(static_cast<ClearDepthCommand const *>(cmd));
@@ -1257,14 +1328,22 @@ void LCCmdBuffer::Execute(
                     for (auto &&i : c->arguments()) {
                         add_size(*c, i);
                     }
+                    // Account for validation data (_validate_* fields) in cbuffer
+                    if (cs->validation_count() > 0) {
+                        uniform_size += cs->validation_count() * sizeof(uint);
+                    }
                 } break;
                 case Command::Tag::ECustomCommand: {
                     if (static_cast<CustomCommand const *>(command.get())->custom_cmd_uuid() ==
                         to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE)) {
                         auto c = static_cast<DrawRasterSceneCommand const *>(command.get());
+                        auto rs = reinterpret_cast<RasterShader *>(c->handle());
                         uniform_size = CalcAlign(uniform_size, 32);
                         for (auto &&i : c->arguments()) {
                             add_size(*c, i);
+                        }
+                        if (rs->validation_count() > 0) {
+                            uniform_size += rs->validation_count() * sizeof(uint);
                         }
                     }
                 } break;
@@ -1331,6 +1410,7 @@ void LCCmdBuffer::Execute(
             for (auto i = lst; i != nullptr; i = i->p_next) {
                 i->cmd->accept(visitor);
             }
+            visitor.flush_all_pending();
             // command->accept(visitor);
 
             if (!updateAccel.empty()) {

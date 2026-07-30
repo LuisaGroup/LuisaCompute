@@ -2,6 +2,7 @@
 
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/special_register.h>
@@ -24,7 +25,10 @@ private:
     SpecialRegisterList _special_register_list;
 
     // maps for uniquifying
-    luisa::unordered_map<uint64_t, Constant *> _hash_to_constant;
+    // Hashes select a bucket only. Constant identity is exact type-and-byte
+    // equality, so a 64-bit hash collision can never alias two XIR values.
+    luisa::unordered_map<uint64_t, luisa::vector<Constant *>>
+        _hash_to_constants;
     luisa::unordered_map<const Type *, Undefined *> _type_to_undefined;
     luisa::unordered_map<DerivedSpecialRegisterTag, SpecialRegister *> _tag_to_special_register;
 
@@ -44,6 +48,10 @@ public:
     [[nodiscard]] Constant *create_constant(const Type *type, const void *data = nullptr) noexcept;
     [[nodiscard]] Constant *create_constant_zero(const Type *type) noexcept;
     [[nodiscard]] Constant *create_constant_one(const Type *type) noexcept;
+    // Removes an interned constant only when it belongs to this module and has
+    // no users. This is primarily used to roll back constants created by a
+    // failed transactional transform.
+    [[nodiscard]] bool remove_constant_if_unused(Constant *constant) noexcept;
     [[nodiscard]] auto &constant_list() noexcept { return _constant_list; }
     [[nodiscard]] auto &constant_list() const noexcept { return _constant_list; }
 

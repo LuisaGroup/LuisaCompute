@@ -3,6 +3,24 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
     luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
     target_link_libraries(luisa-compute-backend-vk PUBLIC luisa-compute-ext-volk luisa-compute-hlsl-codegen)
+    if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV AND LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+        message(FATAL_ERROR "Vulkan compute shader codegen options are mutually exclusive. "
+                "Use LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV for the default native SPIR-V path, "
+                "or LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV for the experimental LLVM SPIR-V path.")
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
+        target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-spirv)
+        target_compile_definitions(luisa-compute-backend-vk PRIVATE LUISA_XIR_TO_SPIRV)
+    endif ()
+    # AST LLVM → SPIR-V codegen path
+    if (LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+        # The backend still uses the native SPIR-V support library for its
+        # disassembler/validation utilities in the LLVM configuration.
+        target_link_libraries(luisa-compute-backend-vk PRIVATE
+                luisa-compute-spirv
+                luisa-compute-spirv-llvm)
+        target_compile_definitions(luisa-compute-backend-vk PRIVATE LUISA_AST_LLVM_TO_SPIRV)
+    endif ()
     if (APPLE)
         enable_language(OBJC)
         enable_language(OBJCXX)
@@ -26,14 +44,15 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         if (LUISA_COMPUTE_VK_SDK_DIR)
             cmake_path(IS_RELATIVE LUISA_COMPUTE_VK_SDK_DIR LUISA_COMPUTE_VK_SDK_DIR_is_relative)
             if (LUISA_COMPUTE_VK_SDK_DIR_is_relative)
-                set(LUISA_COMPUTE_VK_SDK_DIR "${CMAKE_SOURCE_DIR}/${LUISA_COMPUTE_VK_SDK_DIR}")
+                set(LUISA_COMPUTE_VK_SDK_DIR
+                        "${PROJECT_SOURCE_DIR}/${LUISA_COMPUTE_VK_SDK_DIR}")
             endif ()
             cmake_path(NORMAL_PATH LUISA_COMPUTE_VK_SDK_DIR OUTPUT_VARIABLE LUISA_COMPUTE_VK_SDK_DIR)
             message(STATUS "Vulkan(DXC) SDK directory: ${LUISA_COMPUTE_VK_SDK_DIR}")
         endif ()
         if (NOT LUISA_COMPUTE_VK_SDK_DIR OR NOT EXISTS "${LUISA_COMPUTE_VK_SDK_DIR}")
-            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_2025_07_14.x86_64.zip")
-            set(LUISA_COMPUTE_VK_SDK_SHA256 "9ba3197dcc58d0613afd183757102dd87466223a84f5ad5095c8598ca7f91adc")
+            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_2026_07_29.x86_64.zip")
+            set(LUISA_COMPUTE_VK_SDK_SHA256 "4BF754C2E2692276F20BE50FEDF1E02A3FFBE1461D4EA233BB39A9C01BDFF713")
             message(STATUS "Downloading Vulkan(DXC) SDK from ${LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL}")
             include(FetchContent)
             FetchContent_Declare(luisa_compute_vk_sdk

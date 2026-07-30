@@ -9,6 +9,7 @@ namespace luisa::compute::xir {
 class Function;
 class FunctionDefinition;
 class CallInst;
+class Module;
 
 class LUISA_XIR_API CallGraph {
 
@@ -25,6 +26,7 @@ public:
     [[nodiscard]] luisa::span<CallInst *const> call_edges(FunctionDefinition *f) const noexcept;
 };
 
+/// Total analysis entry point: a null module yields an empty graph.
 [[nodiscard]] LUISA_XIR_API CallGraph compute_call_graph(Module *module) noexcept;
 
 }// namespace luisa::compute::xir

@@ -34,7 +34,7 @@ build_list = [
     "device_run_length_encode",
     "device_select",
     "device_partition",
-    "device_spmv"
+    # "device_spmv"  // removed in CCCL 3.0; stub returns cudaErrorNotSupported
     # "device_adjacent_difference",
     ]
 

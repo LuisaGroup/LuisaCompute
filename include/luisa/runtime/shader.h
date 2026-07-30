@@ -5,6 +5,7 @@
 #endif
 
 #include <luisa/core/basic_types.h>
+#include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/device.h>
@@ -299,7 +300,15 @@ public:
     Shader(DeviceInterface *device,
            Function kernel,
            const ShaderOption &option) noexcept
-        : ShaderBase{device, device->create_shader(option, kernel),
+        : ShaderBase{device, [&] {
+                         auto info = device->create_shader(option, kernel);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                         if (!info.valid() && !option.compile_only) {
+                             LUISA_ERROR("Failed to create shader.");
+                         }
+#endif
+                         return info;
+                     }(),
                      ShaderDispatchCmdEncoder::compute_uniform_size(kernel.unbound_arguments())} {}
 
 #ifdef LUISA_ENABLE_IR
@@ -313,7 +322,15 @@ public:
     // AOT shader
     Shader(DeviceInterface *device, string_view file_path) noexcept
         : ShaderBase{device,
-                     device->load_shader(file_path, detail::shader_argument_types<Args...>()),
+                     [&] {
+                         auto info = device->load_shader(file_path, detail::shader_argument_types<Args...>());
+#ifdef LUISA_ENABLE_SAFE_MODE
+                         if (!info.valid()) {
+                             LUISA_ERROR("Failed to load shader from '{}'.", file_path);
+                         }
+#endif
+                         return info;
+                     }(),
                      ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>())} {}
 
     using ShaderBase::release;

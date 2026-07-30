@@ -36,6 +36,8 @@ private:
     hipStream_t _stream{};
     HIPStageBufferPool _upload_pool;
     HIPStageBufferPool _download_pool;
+    hipDeviceptr_t _rt_scratch_buffer{};
+    size_t _rt_scratch_capacity{};
     std::thread _callback_thread;
     std::mutex _callback_mutex;
     std::condition_variable _callback_cv;
@@ -45,6 +47,9 @@ private:
     std::atomic_uint64_t _finished_ticket{0u};
     luisa::queue<CallbackPackage> _callback_lists{};
     spin_mutex _dispatch_mutex;
+    using LogCallback = DeviceInterface::StreamLogCallback;
+    mutable std::mutex _log_callback_mutex;
+    LogCallback _log_callback;
     bool _profiling_enabled{false};
     double _total_gpu_time_ms{0.0};
     uint64_t _dispatch_count{0u};
@@ -62,9 +67,14 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _stream; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
     [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
+    // Temporary acceleration-structure builders on one stream are totally
+    // ordered, so they share one allocation whose lifetime is the stream.
+    [[nodiscard]] hipDeviceptr_t rt_scratch_buffer(size_t required_size) noexcept;
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
     void callback(CallbackContainer &&callbacks) noexcept;
+    [[nodiscard]] LogCallback log_callback() const noexcept;
+    void set_log_callback(LogCallback callback) noexcept;
 };
 
 }// namespace luisa::compute::hip

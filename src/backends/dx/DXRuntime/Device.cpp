@@ -128,9 +128,27 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         file_io = ser_visitor.get();
     }
     if (use_runtime) {
+        bool experimental_features_enabled = false;
         if (use_experimental) {
-            UUID Features[] = {D3D12ExperimentalShaderModels, D3D12CooperativeVectorExperiment};
-            ThrowIfFailed(D3D12EnableExperimentalFeatures(_countof(Features), Features, nullptr, nullptr));
+            // Enable experimental features individually.  If one is not supported
+            // by the current OS/runtime we log a warning and continue without it
+            // instead of aborting device creation.
+            auto try_enable = [](UUID const &feature, const char *name) {
+                HRESULT hr = D3D12EnableExperimentalFeatures(1, &feature, nullptr, nullptr);
+                if (FAILED(hr)) {
+                    LUISA_WARNING(
+                        "Failed to enable D3D12 experimental feature '{}': {:#08x}. "
+                        "Continuing without experimental features.",
+                        name, static_cast<uint32_t>(hr));
+                    return false;
+                }
+                return true;
+            };
+            experimental_features_enabled =
+                try_enable(D3D12ExperimentalShaderModels, "ExperimentalShaderModels");
+        }
+        if (device_settings) {
+            device_settings->SetExperimentalFeaturesEnabled(experimental_features_enabled);
         }
         auto gen_adapter_guid = [](DXGI_ADAPTER_DESC1 const &desc) {
             struct AdapterInfo {
@@ -300,12 +318,13 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         }
         {
             auto adapter_id_stream = file_io->read_shader_cache("dx_adapterid");
-            bool same_adaptor = false;
+            bool same_adapter = false;
             if (adapter_id_stream) {
                 auto blob = adapter_id_stream->read(~0ull);
-                same_adaptor = blob.size() == sizeof(vstd::MD5) && std::memcmp(blob.data(), &adapter_id, sizeof(vstd::MD5)) == 0;
+                same_adapter = blob.size() == sizeof(vstd::MD5) && std::memcmp(blob.data(), &adapter_id, sizeof(vstd::MD5)) == 0;
             }
-            if (!same_adaptor) {
+            adapter_id_stream.reset();
+            if (!same_adapter) {
                 LUISA_INFO("Adapter mismatch, shader cache cleared.");
                 file_io->clear_shader_cache();
             }
@@ -358,10 +377,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         }
         feature_check.check(this);
         {
-
-            if (use_experimental && (!feature_check.flags().cooperative_vector_supported)) {
-                LUISA_ERROR("Experimental not supported.");
-            }
             feature_check.flags().enhanced_barriers_supported = (device_settings && device_settings->UseEnhancedBarrier()) && feature_check.flags().enhanced_barriers_supported;
         }
     } else {

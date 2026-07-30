@@ -1,3 +1,4 @@
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -7,6 +8,7 @@
 #include <stb/stb_image_write.h>
 
 #include "common/reference_compare.h"
+#include "common/path_tracing_sample_plan.h"
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
@@ -14,6 +16,8 @@
 #include "cornell_box.h"
 
 #include "spectrum_data.h"
+
+#include "srgb_to_fourier_embedded.hpp"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
@@ -249,14 +253,10 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
     Device device = context.create_device(argv[1]);
 
@@ -286,7 +286,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     stream.set_log_callback([](string_view s) {
         fmt::println("{}", s);
     });
@@ -330,18 +330,17 @@ int main(int argc, char *argv[]) {
     constexpr auto fourier_cmin = -inv_pi;
     constexpr auto fourier_cmax = inv_pi;
     {
-        std::ifstream lut_file{"SRGBToFourierEvenPacked.dat", std::ios_base::binary};
+        auto *lut_ptr = reinterpret_cast<const char *>(luisa_compute_SRGBToFourierEvenPacked);
         struct {
             size_t version, x, y, z;
         } header;
-        lut_file.read(reinterpret_cast<char *>(&header), sizeof(header));
+        std::memcpy(&header, lut_ptr, sizeof(header));
         assert(header.version == 0);
         auto lut_resolution = make_uint3(header.x, header.y, header.z);
         auto buffer_size = sizeof(uint) * lut_resolution.x * lut_resolution.y * lut_resolution.z;
-        auto lut_data = std::make_unique_for_overwrite<char[]>(buffer_size);
-        lut_file.read(reinterpret_cast<char *>(lut_data.get()), buffer_size);
+        auto lut_data = lut_ptr + sizeof(header);
         srgb_to_fourier_even = device.create_volume<float>(PixelStorage::R10G10B10A2, lut_resolution);
-        stream << lut_heap.emplace_on_update(SRGB_TO_FOURIER_EVEN, srgb_to_fourier_even, Sampler::linear_linear_mirror()).update() << srgb_to_fourier_even.copy_from(luisa::span{lut_data.get(), static_cast<size_t>(buffer_size)})
+        stream << lut_heap.emplace_on_update(SRGB_TO_FOURIER_EVEN, srgb_to_fourier_even, Sampler::linear_linear_mirror()).update() << srgb_to_fourier_even.copy_from(luisa::span{lut_data, static_cast<size_t>(buffer_size)})
                << synchronize();
     }
 
@@ -514,23 +513,27 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
-    bool infinite_render = !force_offline;
-    uint total_spp = force_offline ? 256u : 0u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
+    bool infinite_render = !opts.offline;
+    auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
+        .total_spp = opts.offline ? (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp) : 0u,
+        .max_spp_per_dispatch = max_spp_per_dispatch,
+        .infinite = infinite_render,
+    };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_name("raytracing_kernel");
         set_block_size(16u, 16u, 1u);
         UInt2 coord = dispatch_id().xy();
         Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
-        Float rx = lcg(state);
-        Float ry = lcg(state);
-        Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
         Bool use_spectrum = (block_id().x / 4 + block_id().y / 4) % 2 == 1;
 
-        $for (i, spp_per_dispatch) {
+        $for (i, dispatch_spp) {
+            Float rx = lcg(state);
+            Float ry = lcg(state);
+            Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
 
             Float3 lambda = sample_xyz(lcg(state));
@@ -625,7 +628,7 @@ int main(int argc, char *argv[]) {
                 beta *= 1.0f / q;
             };
         };
-        radiance /= static_cast<float>(spp_per_dispatch);
+        radiance /= dispatch_spp.cast<float>();
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
 
@@ -638,15 +641,15 @@ int main(int argc, char *argv[]) {
             radiance = XYZtoRGB_Rec709 * radiance;
         };
 
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), dispatch_spp.cast<float>()));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         set_name("accumulate_kernel");
         UInt2 p = dispatch_id().xy();
         Float4 accum = accum_image.read(p);
-        Float3 curr = curr_image.read(p).xyz();
-        accum_image.write(p, accum + make_float4(curr, 1.f));
+        Float4 curr = curr_image.read(p);
+        accum_image.write(p, accum + make_float4(curr.xyz() * curr.w, curr.w));
     };
 
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
@@ -680,7 +683,7 @@ int main(int argc, char *argv[]) {
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -695,44 +698,44 @@ int main(int argc, char *argv[]) {
     }
 
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
-    uint frame_count = 0u;
+    uint64_t frame_count = 0u;
     Clock clock;
 
-    while (infinite_render || frame_count < total_spp) {
-        stream << raytracing_shader(framebuffer, seed_image, accel, resolution)
+    while (sample_plan.has_next(frame_count)) {
+        auto dispatch_spp = sample_plan.next_dispatch_spp(frame_count);
+        stream << raytracing_shader(framebuffer, seed_image, accel, resolution, dispatch_spp)
                       .dispatch(resolution)
                << accumulate_shader(accum_image, framebuffer)
                       .dispatch(resolution)
                << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution);
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             stream << swap_chain->present(ldr_image)
                    << synchronize();
             window->poll_events();
             if (window->should_close()) { break; }
         }
         double dt = clock.toc() - last_time;
-        LUISA_INFO("dt = {:.2f}ms ({:.2f} spp/s)", dt, spp_per_dispatch / dt * 1000);
+        LUISA_INFO("dt = {:.2f}ms ({:.2f} spp/s)", dt, dispatch_spp / dt * 1000);
         last_time = clock.toc();
-        frame_count += spp_per_dispatch;
+        frame_count += dispatch_spp;
     }
     stream
         << ldr_image.copy_to(luisa::span{host_image})
         << synchronize();
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing_spectrum.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            resolution.x, resolution.y, 4,
-            "test_path_tracing_spectrum",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+    if (opts.offline) {
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

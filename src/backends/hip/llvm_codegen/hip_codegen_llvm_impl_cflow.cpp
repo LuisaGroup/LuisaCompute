@@ -18,7 +18,8 @@ void HIPCodegenLLVMImpl::_translate_switch_inst(IB &b, const FunctionContext &fu
     auto llvm_default_block = func_ctx.get_local_value<llvm::BasicBlock>(inst->default_block());
     auto llvm_switch = b.CreateSwitch(llvm_value, llvm_default_block, inst->case_count());
     for (auto i = 0u; i < inst->case_count(); i++) {
-        auto llvm_case_value = b.getInt32(inst->case_value(i));
+        auto llvm_case_value = b.getIntN(
+            llvm_value->getType()->getIntegerBitWidth(), inst->case_value(i));
         auto llvm_case_block = func_ctx.get_local_value<llvm::BasicBlock>(inst->case_block(i));
         llvm_switch->addCase(llvm_case_value, llvm_case_block);
     }

@@ -21,9 +21,29 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
+#if LUISA_RENDERING_USE_XIR_TO_AST
+#include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
+
+#if LUISA_RENDERING_USE_XIR_TO_AST
+namespace {
+
+[[nodiscard]] auto build_xir_to_ast_kernel(const Function &function) noexcept {
+    auto module = xir::ast_to_xir_translate(function, {});
+    for (auto *f : module->function_list()) {
+        if (f->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
+            return xir::xir_to_ast_translate(*static_cast<xir::FunctionDefinition *>(f), {});
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION("XIR-to-AST translation did not produce a kernel definition.");
+}
+
+}// namespace
+#endif
 
 #ifndef ENABLE_DISPLAY
 #ifdef LUISA_ENABLE_GUI
@@ -190,20 +210,22 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--update-reference]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    bool update_reference = false;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
-            force_offline = true;
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
     }
+    auto force_offline = opts.offline;
+    auto user_spp = opts.spp;
+    auto compare_path = opts.compare_path;
     Device device = context.create_device(argv[1]);
+#if LUISA_RENDERING_USE_XIR_TO_AST
+    auto render_ast = build_xir_to_ast_kernel(render_kernel.function()->function());
+    auto render = device.compile(Kernel<2, Image<uint>, Image<float>, uint>{render_ast});
+#else
     //    auto render = device.compile(render_kernel);
     auto render_kernel_ir = AST2IR::build_kernel(render_kernel.function()->function());
     auto ppl = ir::luisa_compute_ir_transform_pipeline_new();
@@ -211,6 +233,7 @@ int main(int argc, char *argv[]) {
     auto m = ir::luisa_compute_ir_transform_pipeline_transform(ppl, render_kernel_ir->get()->module);
     render_kernel_ir->get()->module = m;
     auto render = device.compile<2, Image<uint>, Image<float>, uint>(render_kernel_ir->get());
+#endif
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
@@ -234,14 +257,14 @@ int main(int argc, char *argv[]) {
             }));
     }
     static constexpr auto interval = 4u;
-    static constexpr auto total_spp = 16384u;
+    auto total_spp = user_spp == 0u ? 1024u : user_spp;
     auto ldr_image = device.create_image<float>(
         (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         width, height);
 #else
     Stream stream = device.create_stream(StreamTag::COMPUTE);
     static constexpr auto interval = 64u;
-    static constexpr auto total_spp = 16384u;
+    auto total_spp = user_spp == 0u ? 1024u : user_spp;
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
 #endif
     auto linear_to_srgb = [](Var<float3> x) noexcept {
@@ -297,15 +320,14 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
     if (force_offline) {
-        auto exe_dir = std::filesystem::path{argv[0]}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            reinterpret_cast<const uint8_t *>(host_image.data()),
-            width, height, 4,
-            "sdf-renderer",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) { return 1; }
+        if (compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                width, height, 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     }
     return 0;
 }

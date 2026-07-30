@@ -14,7 +14,11 @@ enum class ShaderVariableType : uint8_t {
     RWStructuredBuffer,// e.g. RWStructuredBuffer<MyStruct> : register(u0)
     ConstantValue,     // e.g. uint value : register(b0)
     // spirv-only
-    SPIRVAccel         // accel type for only spirv
+    SPIRVAccel,          // acceleration-structure descriptor
+    SPIRVAccelInstance,  // read-only acceleration-structure instance buffer
+    SPIRVAccelInstanceRW, // writable acceleration-structure instance buffer
+    SPIRVBindlessBufferMetadata, // per-slot descriptor bias and logical size
+    SPIRVIndirectDispatch // GPU-authored logical dispatch metadata
 };
 struct Property {
     ShaderVariableType type;

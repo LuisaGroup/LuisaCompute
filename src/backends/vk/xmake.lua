@@ -11,7 +11,7 @@ lc_set_pcxxheader("lc_vk_pch.h")
 
 on_load(function(target)
     if target:is_plat("windows") then
-        target:add("defines", "VK_USE_PLATFORM_WIN32_KHR")
+        target:add("defines", "NOMINMAX", "VK_USE_PLATFORM_WIN32_KHR")
     elseif target:is_plat("linux") then
         target:add("defines", "VK_USE_PLATFORM_XCB_KHR", "VK_USE_PLATFORM_XLIB_KHR")
     end
@@ -30,5 +30,16 @@ on_load(function(target)
         target:add("links", "nvrtc_static", "cudart_static", "cuda")
         target:add('deps', '_lc_cuda_base')
     end
+    if has_config('lc_vk_backend_use_ast_llvm_spirv')  or has_config('lc_vk_backend_use_xir_spirv') then
+        target:add('deps', 'lc-spirv')
+    end
 end)
+if has_config('lc_vk_backend_use_xir_spirv') then
+    add_defines('LUISA_XIR_TO_SPIRV')
+end
+-- AST LLVM → SPIR-V codegen path
+if has_config('lc_vk_backend_use_ast_llvm_spirv') then
+    add_deps('lc-spirv-llvm')
+    add_defines('LUISA_AST_LLVM_TO_SPIRV')
+end
 target_end()

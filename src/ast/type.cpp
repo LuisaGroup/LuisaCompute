@@ -1,5 +1,6 @@
-#include <bit>
+#include <cctype>
 #include <charconv>
+#include <limits>
 #include <utility>
 #include <algorithm>
 
@@ -35,7 +36,7 @@ struct TypeImpl final : public Type {
     Tag tag{};
     uint size{};
     uint16_t alignment{};
-    uint16_t dimension{};
+    uint dimension{};
     uint index{};
     luisa::string description{};
     luisa::fixed_vector<const Type *, 1> members{};
@@ -78,6 +79,9 @@ private:
         return hash_value(desc, seed);
     };
     [[nodiscard]] auto _register(TypeImpl *type) noexcept {
+        LUISA_ASSERT(_types.size() <= std::numeric_limits<uint>::max(),
+                     "Too many types registered (maximum is {}).",
+                     std::numeric_limits<uint>::max());
         type->index = static_cast<uint32_t>(_types.size());
         auto ret = _type_set.emplace(type);
         if (ret.second) [[likely]] {
@@ -140,6 +144,8 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
                      name != "float" &&
                      name != "half" &&
                      name != "double" &&
+                     name != "float8e4m3" &&
+                     name != "float8e5m2" &&
                      name != "bool" &&
                      !name.starts_with("vector<") &&
                      !name.starts_with("coopvec<") &&
@@ -152,10 +158,12 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
                      !name.starts_with("coopmat_ref<") &&
                      name != "accel" &&
                      name != "bindless_array" &&
-                     !isdigit(name.front() /* already checked not empty */),
+                     !std::isdigit(static_cast<unsigned char>(name.front() /* already checked not empty */)),
                  "Invalid custom type name: {}", name);
     LUISA_ASSERT(std::all_of(name.cbegin(), name.cend(),
-                             [](char c) { return isalnum(c) || c == '_'; }),
+                             [](char c) {
+                                 return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+                             }),
                  "Invalid custom type name: {}", name);
     std::lock_guard lock{_mutex};
     auto h = _compute_hash(name);
@@ -195,14 +203,17 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     using namespace std::string_view_literals;
     auto read_identifier = [&desc]() noexcept {
         auto i = 0u;
-        for (; i < desc.size() && (isalpha(desc[i]) || isdigit(desc[i]) || desc[i] == '_'); i++) {}
+        for (; i < desc.size(); i++) {
+            auto c = static_cast<unsigned char>(desc[i]);
+            if (!std::isalpha(c) && !std::isdigit(c) && c != '_') { break; }
+        }
         auto t = desc.substr(0u, i);
         desc = desc.substr(i);
         return t;
     };
 
     auto read_number = [&desc]() noexcept {
-        size_t number;
+        size_t number{};
         auto result = std::from_chars(desc.data(), desc.data() + desc.size(), number);
         if (result.ec != std::errc{}) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
@@ -260,6 +271,49 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     info->description = desc;
     info->hash = hash;
 
+    auto checked_dimension = [&info](size_t value, luisa::string_view kind) noexcept {
+        if (value > std::numeric_limits<uint>::max()) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "{} {} is not representable in type '{}'.",
+                kind, value, info->description);
+        }
+        return static_cast<uint>(value);
+    };
+
+    auto checked_layout_product = [&info](size_t lhs, size_t rhs) noexcept {
+        constexpr auto max_type_size = static_cast<size_t>(std::numeric_limits<uint>::max());
+        if (lhs != 0u && rhs > max_type_size / lhs) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Type layout size overflow in '{}'.",
+                info->description);
+        }
+        return static_cast<uint>(lhs * rhs);
+    };
+
+    auto checked_layout_append = [&info](uint offset, size_t alignment, size_t size) noexcept {
+        constexpr auto max_type_size = static_cast<size_t>(std::numeric_limits<uint>::max());
+        if (alignment == 0u || alignment > max_type_size) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid member alignment {} in type '{}'.",
+                alignment, info->description);
+        }
+        auto wide_offset = static_cast<size_t>(offset);
+        auto remainder = wide_offset % alignment;
+        auto padding = remainder == 0u ? 0u : alignment - remainder;
+        if (padding > max_type_size - wide_offset) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Type layout alignment overflow in '{}'.",
+                info->description);
+        }
+        auto aligned_offset = wide_offset + padding;
+        if (size > max_type_size - aligned_offset) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Type layout size overflow in '{}'.",
+                info->description);
+        }
+        return static_cast<uint>(aligned_offset + size);
+    };
+
     auto type_identifier = read_identifier();
 #define TRY_PARSE_SCALAR_TYPE(T, TAG, s) \
     if (type_identifier == #T##sv) {     \
@@ -280,27 +334,28 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     TRY_PARSE_SCALAR_TYPE(half, FLOAT16, 2u)
     TRY_PARSE_SCALAR_TYPE(float, FLOAT32, 4u)
     TRY_PARSE_SCALAR_TYPE(double, FLOAT64, 8u)
+    TRY_PARSE_SCALAR_TYPE(float8e4m3, FLOAT8_E4M3, 1u)
+    TRY_PARSE_SCALAR_TYPE(float8e5m2, FLOAT8_E5M2, 1u)
 #undef TRY_PARSE_SCALAR_TYPE
     if (type_identifier == "vector"sv) {
         info->tag = Type::Tag::VECTOR;
         match('<');
         info->members.emplace_back(_decode(split()));
         match(',');
-        info->dimension = read_number();
+        auto dimension = read_number();
         match('>');
         auto elem = info->members.front();
-        if (!elem->is_scalar()) [[unlikely]] {
+        if (elem == nullptr || !elem->is_scalar()) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid vector element: {}.",
-                elem->description());
+                "Invalid vector element in type '{}'.",
+                info->description);
         }
-        if (info->dimension != 2 &&
-            info->dimension != 3 &&
-            info->dimension != 4) [[unlikely]] {
+        if (dimension != 2u && dimension != 3u && dimension != 4u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid vector dimension: {}.",
-                info->dimension);
+                dimension);
         }
+        info->dimension = static_cast<uint>(dimension);
         info->alignment = std::min(
             elem->size() * (info->dimension == 3 ? 4 : info->dimension),
             static_cast<size_t>(16u));
@@ -308,77 +363,96 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     } else if (type_identifier == "matrix"sv) {
         info->tag = Type::Tag::MATRIX;
         match('<');
-        info->dimension = read_number();
+        auto dimension = read_number();
         match('>');
         info->members.emplace_back(_decode("float"sv));
-        if (info->dimension == 2) {
+        if (dimension == 2u) {
+            info->dimension = 2u;
             info->size = sizeof(float2x2);
             info->alignment = alignof(float2x2);
-        } else if (info->dimension == 3) {
+        } else if (dimension == 3u) {
+            info->dimension = 3u;
             info->size = sizeof(float3x3);
             info->alignment = alignof(float3x3);
-        } else if (info->dimension == 4) {
+        } else if (dimension == 4u) {
+            info->dimension = 4u;
             info->size = sizeof(float4x4);
             info->alignment = alignof(float4x4);
         } else [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid matrix dimension: {}.",
-                info->dimension);
+                dimension);
         }
     } else if (type_identifier == "array"sv) {
         info->tag = Type::Tag::ARRAY;
         match('<');
         info->members.emplace_back(_decode(split()));
         match(',');
-        info->dimension = read_number();
+        auto dimension = read_number();
         match('>');
         auto m = info->members.back();
-        if (m->is_buffer() ||
-            m->is_texture()) [[unlikely]] {
+        if (m == nullptr || m->is_resource() || m->is_custom() ||
+            m->is_cooperative_vector_ref() || m->is_cooperative_matrix_ref()) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Arrays are not allowed to "
-                "hold buffers or images.");
+                "Invalid array element in type '{}'.",
+                info->description);
         }
-        info->alignment = info->members.front()->alignment();
-        info->size = info->members.front()->size() * info->dimension;
+        info->dimension = checked_dimension(dimension, "Array dimension");
+        info->alignment = m->alignment();
+        info->size = checked_layout_product(m->size(), dimension);
     } else if (type_identifier == "coopvec"sv) {
         info->tag = Type::Tag::COOPERATIVE_VECTOR;
         match('<');
         info->members.emplace_back(_decode(split()));
         match(',');
-        info->dimension = read_number();
+        auto dimension = read_number();
         match('>');
         auto m = info->members.back();
-        if (!m->is_scalar()) [[unlikely]] {
+        if (m == nullptr || !m->is_scalar()) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Arrays are not allowed to "
-                "hold buffers or images.");
+                "Invalid cooperative vector element in type '{}'.",
+                info->description);
         }
-        info->alignment = info->members.front()->alignment();
-        info->size = info->members.front()->size() * info->dimension;
+        info->dimension = checked_dimension(dimension, "Cooperative vector dimension");
+        info->alignment = m->alignment();
+        info->size = checked_layout_product(m->size(), dimension);
     } else if (type_identifier == "coopvec_ref"sv) {
         info->tag = Type::Tag::COOPERATIVE_VECTOR_REF;
         match('<');
-        info->dimension = read_number();
+        auto dimension = read_number();
         match(',');
-        info->alignment = read_number();
-        LUISA_ASSERT(info->alignment < Type::coop_ref_type_size, "Cooperative vector type enum out of range.");
+        auto element_type = read_number();
+        if (element_type >= Type::coop_ref_type_size) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Cooperative vector type enum {} is out of range.", element_type);
+        }
         match('>');
+        info->dimension = checked_dimension(dimension, "Cooperative vector reference dimension");
+        info->alignment = static_cast<uint16_t>(element_type);
     } else if (type_identifier == "coopmat_ref"sv) {
         // coopmat_ref<N, M, type>
         info->tag = Type::Tag::COOPERATIVE_MATRIX_REF;
         match('<');
-        info->dimension = read_number();// N
+        auto n = read_number();
         match(',');
-        info->size = read_number();// M
+        auto m = read_number();
         match(',');
-        info->alignment = read_number();// type
-        LUISA_ASSERT(info->alignment < Type::coop_ref_type_size, "Cooperative vector type enum out of range.");
+        auto element_type = read_number();
+        if (element_type >= Type::coop_ref_type_size) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Cooperative matrix type enum {} is out of range.", element_type);
+        }
         match('>');
+        info->dimension = checked_dimension(n, "Cooperative matrix row count");
+        info->size = checked_dimension(m, "Cooperative matrix column count");
+        info->alignment = static_cast<uint16_t>(element_type);
     } else if (type_identifier == "struct"sv) {
         info->tag = Type::Tag::STRUCTURE;
         match('<');
-        info->alignment = read_number();
+        auto alignment = read_number();
+        if (alignment != 1u && alignment != 4u &&
+            alignment != 8u && alignment != 16u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Invalid structure alignment {}.", alignment);
+        }
+        info->alignment = static_cast<uint16_t>(alignment);
         while (desc.starts_with(',')) {
             desc = desc.substr(1);
             if (try_match('[')) {
@@ -399,25 +473,25 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
             info->member_attributes.resize(info->members.size());
         }
         match('>');
-        info->size = 0u;
+        auto layout_size = 0u;
         auto max_member_alignment = static_cast<size_t>(0u);
         for (auto member : info->members) {
-            if (member->is_buffer() || member->is_texture()) [[unlikely]] {
+            if (member == nullptr || member->is_resource() || member->is_custom() ||
+                member->is_cooperative_vector_ref() || member->is_cooperative_matrix_ref()) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION(
-                    "Structures are not allowed to have buffers or images as members.");
+                    "Invalid structure member in type '{}'.",
+                    info->description);
             }
             auto ma = member->alignment();
             max_member_alignment = std::max(ma, max_member_alignment);
-            info->size = (info->size + ma - 1u) / ma * ma + member->size();
+            layout_size = checked_layout_append(layout_size, ma, member->size());
         }
-        if (auto a = info->alignment; a > 16u || std::bit_floor(a) != a) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Invalid structure alignment {}.", a);
-        } else if (a < max_member_alignment && a != 0u) [[unlikely]] {
+        if (alignment < max_member_alignment) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Struct alignment {} is smaller than the largest member alignment {}.",
-                info->alignment, max_member_alignment);
+                alignment, max_member_alignment);
         }
-        info->size = (info->size + info->alignment - 1u) / info->alignment * info->alignment;
+        info->size = checked_layout_append(layout_size, alignment, 0u);
     } else if (type_identifier == "buffer"sv) {
         info->tag = Type::Tag::BUFFER;
         while (try_match('[')) {
@@ -434,14 +508,17 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         auto m = info->members.emplace_back(_decode(split()));
         match('>');
         if (m) {
-            if (m->is_buffer() || m->is_texture()) [[unlikely]]
+            if (m->is_resource() || m->is_cooperative_vector() ||
+                m->is_cooperative_vector_ref() || m->is_cooperative_matrix_ref()) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION(
-                    "Buffers are not allowed to "
-                    "hold buffers or images.");
-            if (m->is_structure() && !m->member_attributes().empty())
+                    "Invalid buffer element in type '{}'.",
+                    info->description);
+            }
+            if (m->is_structure() && !m->member_attributes().empty()) {
                 LUISA_ERROR_WITH_LOCATION(
                     "Buffers are not allowed to "
                     "hold structure with attributes.");
+            }
         }
         info->alignment = 8u;
         info->size = 8u;
@@ -458,10 +535,16 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
             info->member_attributes.emplace_back(luisa::string{attr_key}, luisa::string{attr_value});
         }
         match('<');
-        info->dimension = read_number();
+        auto dimension = read_number();
         match(',');
         auto m = info->members.emplace_back(_decode(split()));
         match('>');
+        if (dimension != 2u && dimension != 3u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Invalid texture dimension: {}.", dimension);
+        }
+        if (m == nullptr) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Invalid texture element in type '{}'.", info->description);
+        }
         if (auto t = m->tag();
             t != Type::Tag::INT32 &&
             t != Type::Tag::UINT32 &&
@@ -469,6 +552,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
             LUISA_ERROR_WITH_LOCATION(
                 "Images can only hold int32, uint32, or float32.");
         }
+        info->dimension = static_cast<uint>(dimension);
         info->size = 8u;
         info->alignment = 8u;
     } else if (type_identifier == "bindless_array"sv) {
@@ -614,6 +698,8 @@ bool Type::is_scalar() const noexcept {
         case Tag::FLOAT16:
         case Tag::FLOAT32:
         case Tag::FLOAT64:
+        case Tag::FLOAT8_E4M3:
+        case Tag::FLOAT8_E5M2:
             return true;
         default:
             return false;
@@ -625,6 +711,8 @@ bool Type::is_arithmetic() const noexcept {
         case Tag::FLOAT16:
         case Tag::FLOAT32:
         case Tag::FLOAT64:
+        case Tag::FLOAT8_E4M3:
+        case Tag::FLOAT8_E5M2:
         case Tag::INT8:
         case Tag::UINT8:
         case Tag::INT16:
@@ -657,24 +745,40 @@ bool Type::is_accel() const noexcept { return tag() == Tag::ACCEL; }
 bool Type::is_custom() const noexcept { return tag() == Tag::CUSTOM; }
 
 const Type *Type::array(const Type *elem, size_t n) noexcept {
+    LUISA_ASSERT(elem != nullptr && !elem->is_resource() && !elem->is_custom() &&
+                     !elem->is_cooperative_vector_ref() && !elem->is_cooperative_matrix_ref(),
+                 "Array element must be a data type.");
+    LUISA_ASSERT(n <= std::numeric_limits<uint>::max(),
+                 "Array dimension {} is too large.", n);
     return from(luisa::format("array<{},{}>", elem->description(), n));
 }
 
 const Type *Type::cooperative_vector(const Type *elem, size_t n) noexcept {
+    LUISA_ASSERT(elem != nullptr && elem->is_scalar(),
+                 "Cooperative vector element must be a scalar type.");
+    LUISA_ASSERT(n <= std::numeric_limits<uint>::max(),
+                 "Cooperative vector dimension {} is too large.", n);
     return from(luisa::format("coopvec<{},{}>", elem->description(), n));
 }
 const Type *Type::cooperative_vector_ref(CoopRefVecType type, size_t n) noexcept {
-    LUISA_DEBUG_ASSERT(luisa::to_underlying(type) < Type::coop_ref_type_size, "Cooperative vector type enum out of range.");
+    LUISA_ASSERT(luisa::to_underlying(type) < Type::coop_ref_type_size,
+                 "Cooperative vector type enum out of range.");
+    LUISA_ASSERT(n <= std::numeric_limits<uint>::max(),
+                 "Cooperative vector reference dimension {} is too large.", n);
     return from(luisa::format("coopvec_ref<{},{}>", n, luisa::to_underlying(type)));
 }
 const Type *Type::cooperative_matrix_ref(CoopRefVecType type, size_t n, size_t m) noexcept {
-    LUISA_DEBUG_ASSERT(luisa::to_underlying(type) < Type::coop_ref_type_size, "Cooperative vector type enum out of range.");
+    LUISA_ASSERT(luisa::to_underlying(type) < Type::coop_ref_type_size,
+                 "Cooperative matrix type enum out of range.");
+    LUISA_ASSERT(n <= std::numeric_limits<uint>::max() &&
+                     m <= std::numeric_limits<uint>::max(),
+                 "Cooperative matrix dimensions {} x {} are too large.", n, m);
     return from(luisa::format("coopmat_ref<{},{},{}>", n, m, luisa::to_underlying(type)));
 }
 
 const Type *Type::vector(const Type *elem, size_t n) noexcept {
     LUISA_ASSERT(n >= 2 && n <= 4, "Invalid vector dimension.");
-    LUISA_ASSERT(elem->is_scalar(), "Vector element must be a scalar.");
+    LUISA_ASSERT(elem != nullptr && elem->is_scalar(), "Vector element must be a scalar.");
     return from(luisa::format("vector<{},{}>", elem->description(), n));
 }
 
@@ -684,9 +788,16 @@ const Type *Type::matrix(size_t n) noexcept {
 }
 
 const Type *Type::buffer(const Type *elem, luisa::span<const Attribute> attributes) noexcept {
-    LUISA_ASSERT(!elem->is_buffer() && !elem->is_texture(), "Buffer cannot hold buffers or images.");
-    LUISA_ASSERT(!elem->is_cooperative_vector(), "Buffer cannot hold cooperative data-structure.");
-    LUISA_ASSERT(!elem->is_structure() || elem->member_attributes().empty(), "Buffer cannot hold structure with custom attributes.");
+    LUISA_ASSERT(elem == nullptr || !elem->is_resource(),
+                 "Buffer element cannot be a resource type.");
+    LUISA_ASSERT(elem == nullptr ||
+                     (!elem->is_cooperative_vector() &&
+                      !elem->is_cooperative_vector_ref() &&
+                      !elem->is_cooperative_matrix_ref()),
+                 "Buffer cannot hold cooperative data-structure.");
+    LUISA_ASSERT(elem == nullptr || !elem->is_structure() || elem->member_attributes().empty(),
+                 "Buffer cannot hold structure with custom attributes.");
+    auto element_description = elem == nullptr ? luisa::string_view{"void"} : elem->description();
     if (!attributes.empty()) [[unlikely]] /*usually would not use attribute*/ {
         luisa::string r{"buffer"};
         for (auto &attr : attributes) {
@@ -697,17 +808,18 @@ const Type *Type::buffer(const Type *elem, luisa::span<const Attribute> attribut
                 r.append(luisa::format("[{}({})]", attr.key, attr.value));
             }
         }
-        r.append(luisa::format("<{}>", elem->description()));
+        r.append(luisa::format("<{}>", element_description));
         return from(r);
     } else {
-        return from(luisa::format("buffer<{}>", elem->description()));
+        return from(luisa::format("buffer<{}>", element_description));
     }
 }
 
 const Type *Type::texture(const Type *elem, size_t dimension, luisa::span<const Attribute> attributes) noexcept {
+    LUISA_ASSERT(elem != nullptr, "Texture element must not be void.");
     if (elem->is_vector()) { elem = elem->element(); }
-    LUISA_ASSERT(elem->is_arithmetic(),
-                 "Texture element must be an arithmetic, but got {}.",
+    LUISA_ASSERT(elem->is_int32() || elem->is_uint32() || elem->is_float32(),
+                 "Texture element must be int32, uint32, or float32, but got {}.",
                  elem->description());
     LUISA_ASSERT(dimension == 2u || dimension == 3u, "Texture dimension must be 2 or 3");
     if (!attributes.empty()) [[unlikely]] /*usually would not use attribute*/ {
@@ -729,11 +841,16 @@ const Type *Type::texture(const Type *elem, size_t dimension, luisa::span<const 
 
 const Type *Type::structure(size_t alignment, luisa::span<Type const *const> members, luisa::span<const Attribute> attributes) noexcept {
     LUISA_ASSERT(alignment == 1 || alignment == 4u || alignment == 8u || alignment == 16u,
-                 "Invalid structure alignment {} (must be 4, 8 or 16).",
+                 "Invalid structure alignment {} (must be 1, 4, 8 or 16).",
                  alignment);
     LUISA_ASSERT(attributes.empty() || attributes.size() == members.size(),
                  "Invalid attribute size (must be empty or same as members' size");
     auto desc = luisa::format("struct<{}", alignment);
+    for (auto member : members) {
+        LUISA_ASSERT(member != nullptr && !member->is_resource() && !member->is_custom() &&
+                         !member->is_cooperative_vector_ref() && !member->is_cooperative_matrix_ref(),
+                     "Structure members must be data types.");
+    }
     if (!attributes.empty()) [[unlikely]] /*usually would not use attribute*/ {
         for (size_t i = 0; i < members.size(); ++i) {
             desc.append(",");
@@ -759,7 +876,12 @@ const Type *Type::structure(size_t alignment, luisa::span<Type const *const> mem
 
 const Type *Type::structure(luisa::span<Type const *const> members, luisa::span<const Attribute> attributes) noexcept {
     auto alignment = 4u;
-    for (auto m : members) { alignment = std::max<size_t>(m->alignment(), alignment); }
+    for (auto m : members) {
+        LUISA_ASSERT(m != nullptr && !m->is_resource() && !m->is_custom() &&
+                         !m->is_cooperative_vector_ref() && !m->is_cooperative_matrix_ref(),
+                     "Structure members must be data types.");
+        alignment = std::max<size_t>(m->alignment(), alignment);
+    }
     return structure(alignment, members, attributes);
 }
 
@@ -781,6 +903,9 @@ bool Type::is_uint32() const noexcept { return tag() == Tag::UINT32; }
 bool Type::is_float16() const noexcept { return tag() == Tag::FLOAT16; }
 bool Type::is_float32() const noexcept { return tag() == Tag::FLOAT32; }
 bool Type::is_float64() const noexcept { return tag() == Tag::FLOAT64; }
+bool Type::is_float8_e4m3() const noexcept { return tag() == Tag::FLOAT8_E4M3; }
+bool Type::is_float8_e5m2() const noexcept { return tag() == Tag::FLOAT8_E5M2; }
+bool Type::is_float8() const noexcept { return is_float8_e4m3() || is_float8_e5m2(); }
 bool Type::is_int8() const noexcept { return tag() == Tag::INT8; }
 bool Type::is_uint8() const noexcept { return tag() == Tag::UINT8; }
 bool Type::is_int16() const noexcept { return tag() == Tag::INT16; }
@@ -812,7 +937,7 @@ bool Type::is_uint16_vector() const noexcept { return is_vector() && element()->
 bool Type::is_int64_vector() const noexcept { return is_vector() && element()->is_int64(); }
 bool Type::is_uint64_vector() const noexcept { return is_vector() && element()->is_uint64(); }
 
-bool Type::is_float() const noexcept { return is_float16() || is_float32() || is_float64(); }
+bool Type::is_float() const noexcept { return is_float16() || is_float32() || is_float64() || is_float8(); }
 bool Type::is_int() const noexcept { return is_int8() || is_int16() || is_int32() || is_int64(); }
 bool Type::is_uint() const noexcept { return is_uint8() || is_uint16() || is_uint32() || is_uint64(); }
 

@@ -155,6 +155,21 @@ struct ShaderOption {
     uint32_t max_registers{0};
     /// \brief Whether to measure time spent on each compilation phase.
     bool time_trace{false};
+    /// \brief Whether to enable extended acceleration structure limits.
+    /// \details If set to true, the shader will be compiled with support for
+    ///   massive instance counts (>2^24) in acceleration structures. Only has
+    ///   effect on the Metal backend; other backends ignore this option.
+    bool enable_extended_accel_limits{false};
+    /// \brief Whether to enable the XIR scalarizer in the SPIR-V optimization
+    ///   pipeline.
+    /// \details The scalarizer decomposes vector operations into scalar
+    ///   components. It is disabled by default: measurements on the Vulkan
+    ///   backend show that keeping vectors intact preserves GVN/CSE
+    ///   effectiveness and produces ~10% smaller SPIR-V modules. Only has
+    ///   effect on backends compiling through the XIR-to-SPIR-V pipeline.
+    ///   The `LUISA_XIR_ENABLE_SCALARIZER` environment variable, when set,
+    ///   overrides this field.
+    bool enable_scalarizer{false};
     /// \brief A user-defined name for the shader.
     /// \details If provided, the shader will be read from or written to disk
     ///   via the `BinaryIO` object (passed to backends on device creation)
@@ -163,9 +178,11 @@ struct ShaderOption {
     /// \sa DeviceConfig
     /// \sa BinaryIO
     luisa::string name;
-    /// \brief Include code written in the native shading language.
-    /// \details If provided, backend will include this string into the generated
-    ///   shader code. This field is useful for interoperation with external callables.
+    /// \brief Include code in the backend's native shader representation.
+    /// \details If provided, the backend incorporates this string into the generated
+    ///   shader module. The accepted representation is backend-specific (for example,
+    ///   source code for source-generating backends and LLVM IR/bitcode for the direct
+    ///   LLVM HIP backend). This field is useful for interoperation with external callables.
     /// \sa ExternalCallable
     luisa::string native_include;
 };
@@ -272,10 +289,12 @@ struct hash<compute::ShaderOption> {
         constexpr auto enable_fast_math_shift = 1u;
         constexpr auto enable_debug_info_shift = 2u;
         constexpr auto compile_only_shift = 3u;
+        constexpr auto enable_extended_accel_limits_shift = 4u;
         auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
                                        (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
                                        (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
-                                       (static_cast<uint>(option.compile_only) << compile_only_shift),
+                                       (static_cast<uint>(option.compile_only) << compile_only_shift) |
+                                       (static_cast<uint>(option.enable_extended_accel_limits) << enable_extended_accel_limits_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
         return hash_combine({opt_hash, name_hash}, seed);

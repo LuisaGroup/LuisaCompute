@@ -2,6 +2,7 @@
 
 #include <luisa/core/constants.h>
 #include <luisa/dsl/var.h>
+#include <luisa/dsl/shared.h>
 #include <luisa/dsl/operators.h>
 #include <luisa/dsl/expr_traits.h>
 #include <luisa/dsl/local.h>
@@ -1971,6 +1972,108 @@ template<typename T>
 inline void sync_block() noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::SYNCHRONIZE_BLOCK, {});
+}
+
+// async copy (CUDA LDGSTS, CC 8.0+)
+
+/// Initiate an async copy from global to shared memory (CUDA: LDGSTS via cp.async).
+/// Returns a dummy uint (event handle in SPIR-V, zero in CUDA).
+/// Signature: async_copy(scope, dst, src, elem_bytes, num, stride, event) -> uint
+inline void async_copy(Expr<uint> scope, Expr<uint> dst, Expr<uint> src,
+                       Expr<uint> elem_bytes, Expr<uint> num,
+                       Expr<uint> stride, Expr<uint> event) noexcept {
+    static_cast<void>(detail::FunctionBuilder::current()->call(
+        Type::of<uint>(), CallOp::ASYNC_COPY,
+        {scope.expression(), dst.expression(), src.expression(),
+         elem_bytes.expression(), num.expression(),
+         stride.expression(), event.expression()}));
+}
+
+/// Commit pending async copies in the pipeline (CUDA).
+inline void pipeline_commit() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::PIPELINE_COMMIT, {});
+}
+
+/// Wait for all but the last N pipeline stages (CUDA).
+inline void pipeline_wait_prior(Expr<uint> prior) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::PIPELINE_WAIT_PRIOR, {prior.expression()});
+}
+
+// cluster launch control (CUDA Blackwell, SM 10.0+)
+
+/// Initialize mbarrier in shared memory (call from thread 0 only).
+inline void mbarrier_init(const Shared<ulong> &bar, Expr<uint> count) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::MBARRIER_INIT, {bar.expression(), count.expression()});
+}
+
+/// Arrive on mbarrier with expected transaction bytes.
+inline void mbarrier_arrive_expect_tx(const Shared<ulong> &bar, Expr<uint> tx_bytes) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::MBARRIER_ARRIVE_EXPECT_TX,
+        {bar.expression(), tx_bytes.expression()});
+}
+
+/// Try-wait on mbarrier parity. Returns true when barrier phase matches.
+inline Bool mbarrier_try_wait_parity(const Shared<ulong> &bar, Expr<int> phase) noexcept {
+    return def<bool>(detail::FunctionBuilder::current()->call(
+        Type::of<bool>(), CallOp::MBARRIER_TRY_WAIT_PARITY,
+        {bar.expression(), phase.expression()}));
+}
+
+/// Proxy fence acquire (before cancel request).
+inline void fence_proxy_async_acquire() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::FENCE_PROXY_ASYNC_ACQUIRE, {});
+}
+
+/// Proxy fence release (after reading cancel result).
+inline void fence_proxy_async_release() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::FENCE_PROXY_ASYNC_RELEASE, {});
+}
+
+/// Submit cluster launch control try_cancel (from thread 0 via invoke_one equivalent).
+inline void clc_try_cancel(const Shared<uint4> &result, const Shared<ulong> &bar) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL,
+        {result.expression(), bar.expression()});
+}
+
+/// Submit cluster launch control try_cancel multicast (cluster-wide).
+inline void clc_try_cancel_multicast(const Shared<uint4> &result, const Shared<ulong> &bar) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST,
+        {result.expression(), bar.expression()});
+}
+
+/// Query if cancellation succeeded.
+inline Bool clc_query_is_canceled(const Shared<uint4> &result) noexcept {
+    return def<bool>(detail::FunctionBuilder::current()->call(
+        Type::of<bool>(), CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED,
+        {result.expression()}));
+}
+
+/// Get the x-index of cancelled thread block.
+inline Int clc_query_get_ctaid_x(const Shared<uint4> &result) noexcept {
+    return def<int>(detail::FunctionBuilder::current()->call(
+        Type::of<int>(), CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X,
+        {result.expression()}));
+}
+
+/// Get the y-index of cancelled thread block.
+inline Int clc_query_get_ctaid_y(const Shared<uint4> &result) noexcept {
+    return def<int>(detail::FunctionBuilder::current()->call(
+        Type::of<int>(), CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y,
+        {result.expression()}));
+}
+
+/// Get the z-index of cancelled thread block.
+inline Int clc_query_get_ctaid_z(const Shared<uint4> &result) noexcept {
+    return def<int>(detail::FunctionBuilder::current()->call(
+        Type::of<int>(), CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z,
+        {result.expression()}));
 }
 
 // warp intrinsics

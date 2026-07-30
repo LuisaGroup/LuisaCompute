@@ -9,7 +9,7 @@ namespace detail {
 
 template<typename T>
 void append_to_string(luisa::string &s, T x) noexcept {
-    if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (luisa::is_floating_point_v<T>) {
         fmt::format_to(std::back_inserter(s), FMT_STRING("{:a}"), x);
     } else {
         fmt::format_to(std::back_inserter(s), FMT_STRING("{}"), x);

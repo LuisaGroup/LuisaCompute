@@ -13,7 +13,7 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 #include <luisa/luisa-compute.h>
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 
@@ -213,7 +213,6 @@ void test_curve(Device &device) {
         };
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     });
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
 
     // Setup window
     if (!opts.offline) {
@@ -249,27 +248,32 @@ void test_curve(Device &device) {
         stream << hdr2ldr(hdr_image, ldr_image, false).dispatch(resolution)
                << ldr_image.copy_to(luisa::span{pixels})
                << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_curve", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_curve: {}", result.message);
-            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-            return;
+        auto output_path = std::filesystem::path{opts.output_dir} / "test_curve.png";
+        auto saved = stbi_write_png(output_path.string().c_str(),
+                                    resolution.x, resolution.y, 4,
+                                    pixels.data(), resolution.x * 4u);
+        boost::ut::expect(static_cast<bool>(saved != 0)) << "Failed to save output image.";
+        if (!saved) { return; }
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_curve]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+                boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+                return;
+            }
         }
         return;
     }
 }
 
-static inline const auto reg = [] {
-    "test_curve"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_curve(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_curve(device);
+}

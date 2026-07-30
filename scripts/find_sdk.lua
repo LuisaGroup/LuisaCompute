@@ -4,10 +4,10 @@ import("lib.detect.find_file")
 import("core.project.config")
 local _sdks = {
     dx_sdk = {
-        name = 'dx_sdk_20250816.zip'
+        name = 'dx_sdk_20260714.zip'
     },
     vk_sdk = {
-        name = 'linux_dxc_2025_07_14.x86_64.zip'
+        name = 'linux_dxc_2026_07_29.x86_64.zip'
     }
 }
 

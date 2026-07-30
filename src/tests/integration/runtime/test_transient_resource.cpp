@@ -2,12 +2,16 @@
 #include "test_device.h"
 
 #include "transient_resource_device/transient_resource_device.h"
-#include "../../reference_image.h"
+#include "reference_image.h"
+
+#include <cmath>
 #include <filesystem>
+
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/gui/window.h>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
@@ -26,12 +30,17 @@ void test_transient_resource(Device &device) {
         auto uv = (make_float2(dispatch_id().xy()) + 0.5f) / make_float2(dispatch_size().xy());
         img.write(dispatch_id().xy() + offset, make_float4(uv, z_value, 1.0f));
     });
-    auto write_buffer = device.compile<1>([](BufferVar<float> buffer, BufferVar<float> buffer1) {
-        buffer.write(dispatch_id().x, dispatch_id().x.cast<float>());
-        buffer1.write(dispatch_id().x, dispatch_id().x.cast<float>());
+    auto write_buffer = device.compile<1>([](BufferVar<float> buffer, UInt buffer_size,
+                                             BufferVar<float> buffer1, UInt buffer1_size) {
+        UInt index = dispatch_id().x;
+        $if (index < buffer_size) {
+            buffer.write(index, index.cast<float>());
+        };
+        $if (index < buffer1_size) {
+            buffer1.write(index, index.cast<float>());
+        };
     });
     static constexpr uint2 resolution = make_uint2(1024u);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
     if (!opts.offline) {
         Window window{"path tracing", resolution};
         Swapchain swap_chain = device.create_swapchain(
@@ -76,9 +85,13 @@ void test_transient_resource(Device &device) {
                 auto buffer1 = managed_scope.create_transient_buffer<float>("MyBuffer1", 256);
                 auto buffer2 = managed_scope.create_transient_buffer<float>("MyBuffer2", 384);
                 managed_scope.cmdlist
-                    << write_buffer(buffer, buffer1).dispatch(buffer.size())
+                    << write_buffer(buffer, static_cast<uint>(buffer.size()),
+                                    buffer1, static_cast<uint>(buffer1.size()))
+                           .dispatch(buffer.size())
                     // buffer2 will reuse buffer's memory
-                    << write_buffer(buffer1, buffer2).dispatch(buffer.size());
+                    << write_buffer(buffer1, static_cast<uint>(buffer1.size()),
+                                    buffer2, static_cast<uint>(buffer2.size()))
+                           .dispatch(buffer2.size());
             }
             // dispatch to stream after scope
         }
@@ -92,6 +105,9 @@ void test_transient_resource(Device &device) {
         luisa::compute::Device transient_res_device{luisa::make_unique<utils::TransientResourceDevice>(Context{context}, device.impl())};
         auto storage = PixelStorage::BYTE4;
         auto dst_tex = device.create_image<float>(storage, resolution);
+        auto buffer_readback = device.create_buffer<float>(512u);
+        auto buffer1_readback = device.create_buffer<float>(256u);
+        auto buffer2_readback = device.create_buffer<float>(384u);
         {
             utils::TransientResourceDeviceScope managed_scope{
                 stream,
@@ -114,33 +130,92 @@ void test_transient_resource(Device &device) {
                 auto buffer1 = managed_scope.create_transient_buffer<float>("MyBuffer1", 256);
                 auto buffer2 = managed_scope.create_transient_buffer<float>("MyBuffer2", 384);
                 managed_scope.cmdlist
-                    << write_buffer(buffer, buffer1).dispatch(buffer.size())
-                    << write_buffer(buffer1, buffer2).dispatch(buffer.size());
+                    << write_buffer(buffer, static_cast<uint>(buffer.size()),
+                                    buffer1, static_cast<uint>(buffer1.size()))
+                           .dispatch(buffer.size())
+                    // Copy before buffer2's first use, so buffer and buffer2
+                    // retain non-overlapping lifetimes and may alias.
+                    << buffer.view().copy_to(buffer_readback.view())
+                    << write_buffer(buffer1, static_cast<uint>(buffer1.size()),
+                                    buffer2, static_cast<uint>(buffer2.size()))
+                           .dispatch(buffer2.size())
+                    << buffer1.view().copy_to(buffer1_readback.view())
+                    << buffer2.view().copy_to(buffer2_readback.view());
             }
         }
         luisa::vector<std::byte> pixels(dst_tex.view().size_bytes());
-        stream << dst_tex.copy_to(luisa::span{pixels}) << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_transient_resource", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_transient_resource: {}", result.message);
-            boost::ut::expect(false) << result.message;
-            return;
+        luisa::vector<float> buffer_values(buffer_readback.size());
+        luisa::vector<float> buffer1_values(buffer1_readback.size());
+        luisa::vector<float> buffer2_values(buffer2_readback.size());
+        stream << dst_tex.copy_to(luisa::span{pixels})
+               << buffer_readback.copy_to(luisa::span{buffer_values})
+               << buffer1_readback.copy_to(luisa::span{buffer1_values})
+               << buffer2_readback.copy_to(luisa::span{buffer2_values})
+               << synchronize();
+
+        auto validate_buffer = [](luisa::span<const float> values, luisa::string_view name) noexcept {
+            for (size_t i = 0u; i < values.size(); i++) {
+                if (values[i] != static_cast<float>(i)) {
+                    LUISA_WARNING("{} mismatch at {}: expected {}, got {}.",
+                                  name, i, static_cast<float>(i), values[i]);
+                    return false;
+                }
+            }
+            return true;
+        };
+        expect(validate_buffer(buffer_values, "MyBuffer")) << "first transient buffer contents";
+        expect(validate_buffer(buffer1_values, "MyBuffer1")) << "shared-lifetime transient buffer contents";
+        expect(validate_buffer(buffer2_values, "MyBuffer2")) << "aliased transient buffer contents";
+
+        auto pixel_data = reinterpret_cast<const uint8_t *>(pixels.data());
+        auto unorm8 = [](float x) noexcept {
+            return static_cast<int>(std::lround(x * 255.0f));
+        };
+        bool image_valid = true;
+        for (uint y = 0u; y < resolution.y && image_valid; y++) {
+            auto local_y = y % (resolution.y / 2u);
+            int expected[4]{
+                unorm8((0.5f) / static_cast<float>(resolution.x)),
+                unorm8((static_cast<float>(local_y) + 0.5f) / static_cast<float>(resolution.y / 2u)),
+                y < resolution.y / 2u ? 0 : 255,
+                255};
+            for (uint x = 0u; x < resolution.x; x++) {
+                expected[0] = unorm8((static_cast<float>(x) + 0.5f) / static_cast<float>(resolution.x));
+                auto offset = (static_cast<size_t>(y) * resolution.x + x) * 4u;
+                for (uint channel = 0u; channel < 4u; channel++) {
+                    auto actual = static_cast<int>(pixel_data[offset + channel]);
+                    if (std::abs(actual - expected[channel]) > 1) {
+                        LUISA_WARNING("Transient image mismatch at ({}, {}), channel {}: expected {}, got {}.",
+                                      x, y, channel, expected[channel], actual);
+                        image_valid = false;
+                        break;
+                    }
+                }
+                if (!image_valid) { break; }
+            }
+        }
+        expect(image_valid) << "transient image pass composition";
+
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_transient_resource]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+                boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+                return;
+            }
         }
         return;
     }
 }
 
-static inline const auto reg = [] {
-    "test_transient_resource"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_transient_resource(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_transient_resource(device);
+}

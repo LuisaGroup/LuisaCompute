@@ -69,6 +69,7 @@ pl.v3=2;
 pl.v4=q.CommittedRayT();
 break;
 default:
+pl.v0=~0u;
 pl.v3=0;
 break;
 }

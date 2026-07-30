@@ -6,7 +6,16 @@ AccessChain::AccessChain(
     Variable const &root_var,
     luisa::span<Expression const *const> exprs,
     bool isSpirv)
-    : _op{op}, _root_var{root_var}, _nodes{nodes_from_exprs(exprs, isSpirv)} {
+    : _op{op}, _root_var{root_var} {
+    auto [nodes, elem_type] = nodes_from_exprs(exprs, isSpirv);
+    _nodes = std::move(nodes);
+    if (_op == CallOp::ATOMIC_COMPARE_EXCHANGE &&
+        _root_var.is_shared() &&
+        elem_type->is_float32()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Atomic compare-and-exchange (CAS) on groupshared float is not supported by the HLSL backend. "
+            "Please use an integer representation (e.g., bit-cast via asuint/asfloat) or avoid groupshared float CAS.");
+    }
     _hash = _get_hash();
 }
 void AccessChain::init_name() {
@@ -79,7 +88,7 @@ bool AccessChain::operator==(AccessChain const &node) const {
     }
     return true;
 }
-vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expression const *const> args, bool isSpirv) {
+std::pair<vstd::vector<AccessChain::Node>, Type const *> AccessChain::nodes_from_exprs(luisa::span<Expression const *const> args, bool isSpirv) {
     vstd::vector<Node> nodes;
     auto type = args.front()->type();
     nodes.reserve(args.size());
@@ -87,22 +96,27 @@ vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expres
     for (auto index : luisa::span{args}.subspan(1)) {
         switch (type->tag()) {
             case Type::Tag::BUFFER:
-                nodes.emplace_back(AccessNode{false, false});
+                nodes.emplace_back(AccessNode{false, false, false, false});
                 last_is_covered_vector = true;
                 type = type->element();
                 break;
             case Type::Tag::VECTOR:
-                nodes.emplace_back(AccessNode{false, type->dimension() == 3 && (!last_is_covered_vector)});
+                nodes.emplace_back(AccessNode{false, type->dimension() == 3 && (!last_is_covered_vector), false});
+                last_is_covered_vector = false;
+                type = type->element();
+                break;
+            case Type::Tag::COOPERATIVE_VECTOR:
+                nodes.emplace_back(AccessNode{false, false, false, true});
                 last_is_covered_vector = false;
                 type = type->element();
                 break;
             case Type::Tag::MATRIX:
-                nodes.emplace_back(AccessNode{true, false});
+                nodes.emplace_back(AccessNode{true, false, false, false});
                 type = Type::vector(type->element(), type->dimension());
                 last_is_covered_vector = true;
                 break;
             case Type::Tag::ARRAY:
-                nodes.emplace_back(AccessNode{false, true, true});
+                nodes.emplace_back(AccessNode{false, true, true, false});
                 type = type->element();
                 last_is_covered_vector = false;
                 break;
@@ -121,10 +135,10 @@ vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expres
                                           type->description());
         }
     }
-    if (isSpirv && type->is_float() && nodes.size() > 1) [[unlikely]] {
-        LUISA_ERROR("Spirv currently do not support complex-type atomic-float chain.");
-    }
-    return nodes;
+    // if (isSpirv && type->is_float() && nodes.size() > 1) [[unlikely]] {
+    //     LUISA_ERROR("Spirv currently do not support complex-type atomic-float chain.");
+    // }
+    return {std::move(nodes), type};
 }
 void AccessChain::gen_func_impl(Function f, CodegenUtility *util, TemplateFunction const &tmp, luisa::span<Expression const *const> args, vstd::StringBuilder &builder) {
     size_t arg_start;
@@ -135,16 +149,22 @@ void AccessChain::gen_func_impl(Function f, CodegenUtility *util, TemplateFuncti
         for (auto &&i : _nodes) {
             i.multi_visit(
                 [&](AccessNode const &n) {
-                    if (n.is_matrix) {
-                        chain_str << ".m"sv;
-                    } else if (n.is_covered_class && (!is_shared)) {
-                        chain_str << ".v"sv;
+                    if (n.is_cooperative_vector) {
+                        chain_str << ".Get(a"sv;
+                        vstd::to_string(arg_idx, chain_str);
+                        chain_str << ')';
+                    } else {
+                        if (n.is_matrix) {
+                            chain_str << ".m"sv;
+                        } else if (n.is_covered_class && (!is_shared)) {
+                            chain_str << ".v"sv;
+                        }
+                        chain_str << "[a"sv;
+                        vstd::to_string(arg_idx, chain_str);
+                        chain_str << ']';
+                        if (arg_idx > 1 && n.is_array)
+                            is_shared = false;
                     }
-                    chain_str << "[a"sv;
-                    vstd::to_string(arg_idx, chain_str);
-                    chain_str << ']';
-                    if (arg_idx > 1 && n.is_array)
-                        is_shared = false;
                     ++arg_idx;
                 },
                 [&](MemberNode const &m) {
