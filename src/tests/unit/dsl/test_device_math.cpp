@@ -1,6 +1,7 @@
 // Device-side math builtins test.
 // Computes math functions on GPU, reads results back, compares against CPU reference.
 
+#include <array>
 #include <cmath>
 #include <numbers>
 #include <luisa/luisa-compute.h>
@@ -332,6 +333,15 @@ int test_device_math(Device &device) {
     Stream stream = device.create_stream();
 
     Buffer<float> result_buf = device.create_buffer<float>(SLOT_COUNT);
+    constexpr std::array strict_asin_inputs{
+        -0.514011800289154f,
+        0.40226224064826965f,
+        -0.22944584488868713f,
+        0.2931865155696869f};
+    Buffer<float> strict_asin_input_buf =
+        device.create_buffer<float>(strict_asin_inputs.size());
+    Buffer<float> strict_asin_result_buf =
+        device.create_buffer<float>(strict_asin_inputs.size() + 1u);
 
     Kernel1D kernel = [&] {
         auto write = [&](uint idx, Float v) { result_buf->write(static_cast<UInt>(idx), v); };
@@ -696,10 +706,43 @@ int test_device_math(Device &device) {
     };
 
     auto shader = device.compile(kernel);
+    Kernel1D strict_asin_kernel = [](
+                                      BufferFloat input,
+                                      BufferFloat output) noexcept {
+        // These four terms are representative of the internal-angle sum
+        // used to sample a grazing rectangle by solid angle. An inaccurate
+        // native asin is amplified when the alternating terms cancel.
+        const auto a0 = asin(input.read(0u));
+        const auto a1 = asin(input.read(1u));
+        const auto a2 = asin(input.read(2u));
+        const auto a3 = asin(input.read(3u));
+        output.write(0u, a0);
+        output.write(1u, a1);
+        output.write(2u, a2);
+        output.write(3u, a3);
+        output.write(
+            4u,
+            ((a0 + a1) + a2) + a3);
+    };
+    auto strict_asin_shader = device.compile(
+        strict_asin_kernel,
+        ShaderOption{
+            .enable_cache = false,
+            .enable_fast_math = false});
 
     luisa::vector<float> results(SLOT_COUNT);
+    std::array<float, strict_asin_inputs.size() + 1u>
+        strict_asin_results{};
     stream << shader().dispatch(1u)
            << result_buf.copy_to(luisa::span{results})
+           << strict_asin_input_buf.copy_from(
+                  luisa::span{strict_asin_inputs})
+           << strict_asin_shader(
+                  strict_asin_input_buf,
+                  strict_asin_result_buf)
+                  .dispatch(1u)
+           << strict_asin_result_buf.copy_to(
+                  luisa::span{strict_asin_results})
            << synchronize();
 
     auto approx = [](float a, float b, float eps = 1e-4f) {
@@ -760,6 +803,86 @@ int test_device_math(Device &device) {
     check(ACOS_N1, std::acos(-1.0f), "acos_n1");
     check(ASIN_N0P5, std::asin(-0.5f), "asin_n0p5");
     check(ACOS_N0P5, std::acos(-0.5f), "acos_n0p5");
+    auto check_strict_asin_results =
+        [&](const auto &candidate,
+            luisa::string_view route) noexcept {
+            float strict_asin_sum = 0.0f;
+            for (auto i = 0u;
+                 i < strict_asin_inputs.size();
+                 ++i) {
+                const auto expected =
+                    std::asin(strict_asin_inputs[i]);
+                strict_asin_sum += expected;
+                expect(
+                    std::abs(
+                        candidate[i] -
+                        expected) <= 2.5e-7f)
+                    << route
+                    << " strict asin cancellation input "
+                    << i << ": got " << candidate[i]
+                    << " expected " << expected;
+            }
+            expect(
+                std::abs(
+                    candidate[
+                        strict_asin_inputs.size()] -
+                    strict_asin_sum) <= 5.0e-7f)
+                << route
+                << " strict asin cancellation sum: got "
+                << candidate[
+                       strict_asin_inputs.size()]
+                << " expected " << strict_asin_sum;
+        };
+    check_strict_asin_results(
+        strict_asin_results, "native");
+    if (device.backend_name() == "vk") {
+        auto hlsl_result_buf =
+            device.create_buffer<float>(
+                strict_asin_inputs.size() + 1u);
+        Kernel1D hlsl_strict_asin_kernel = [](
+                                                   BufferFloat input,
+                                                   BufferFloat output) noexcept {
+            const auto a0 = asin(input.read(0u));
+            const auto a1 = asin(input.read(1u));
+            const auto a2 = asin(input.read(2u));
+            const auto a3 = asin(input.read(3u));
+            const auto sum =
+                ((a0 + a1) + a2) + a3;
+            output.write(0u, a0);
+            output.write(1u, a1);
+            output.write(2u, a2);
+            output.write(3u, a3);
+            output.write(4u, sum);
+            // Printing deliberately selects Vulkan's HLSL-to-SPIR-V
+            // fallback, which must implement the same strict asin contract
+            // as the native XIR-to-SPIR-V route.
+            device_log(
+                "strict asin HLSL fallback sum={}",
+                sum);
+        };
+        auto hlsl_strict_asin_shader =
+            device.compile(
+                hlsl_strict_asin_kernel,
+                ShaderOption{
+                    .enable_cache = false,
+                    .enable_fast_math = false});
+        std::array<
+            float,
+            strict_asin_inputs.size() + 1u>
+            hlsl_strict_asin_results{};
+        stream
+            << hlsl_strict_asin_shader(
+                   strict_asin_input_buf,
+                   hlsl_result_buf)
+                   .dispatch(1u)
+            << hlsl_result_buf.copy_to(
+                   luisa::span{
+                       hlsl_strict_asin_results})
+            << synchronize();
+        check_strict_asin_results(
+            hlsl_strict_asin_results,
+            "HLSL-to-SPIR-V");
+    }
     check(ATAN_0, std::atan(0.0f), "atan_0");
     check(ATAN_0P5, std::atan(0.5f), "atan_0p5");
     check(ATAN_1, std::atan(1.0f), "atan_1");

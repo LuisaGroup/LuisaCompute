@@ -2656,7 +2656,7 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
         (static_cast<uint64_t>(option.enable_scalarizer) << 3u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v13"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v14"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),
@@ -2699,7 +2699,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
 
     auto code = hlsl::CodegenUtility{}.Codegen(
         kernel, option.native_include, mask, true, false,
-        option.enable_debug_info);
+        option.enable_debug_info, option.enable_fast_math);
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(
                              code.result.data() + code.immutableHeaderSize),
                          code.result.size() - code.immutableHeaderSize});

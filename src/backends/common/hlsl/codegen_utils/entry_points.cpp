@@ -186,11 +186,12 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
+    opt->enable_fast_math = enable_fast_math;
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -300,12 +301,13 @@ uint4 v;
 
 // Ray tracing pipeline codegen for motion blur
 // Generates a lib_6_5 HLSL with raygen/miss/closesthit entry points
-CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info) {
+CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
     opt->enable_debug_info = enable_debug_info;
+    opt->enable_fast_math = enable_fast_math;
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -396,10 +398,12 @@ CodegenResult CodegenUtility::RasterCodegen(
     uint custom_mask,
     bool isSpirV,
     bool noRegister,
-    bool enable_debug_info) {
+    bool enable_debug_info,
+    bool enable_fast_math) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->enable_debug_info = enable_debug_info;
+    opt->enable_fast_math = enable_fast_math;
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = vertFunc;
     opt->noRegister = noRegister;

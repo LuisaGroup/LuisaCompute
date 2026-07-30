@@ -414,7 +414,15 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_acosh"sv;
             break;
         case CallOp::ASIN:
-            str << "asin"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_asin"sv;
+            } else {
+                str << "asin"sv;
+            }
             break;
         case CallOp::ASINH:
             str << "_asinh"sv;

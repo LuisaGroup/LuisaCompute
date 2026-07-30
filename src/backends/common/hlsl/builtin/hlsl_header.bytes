@@ -7,6 +7,24 @@ template<typename T>
 T _asinh(T v){return log(v+sqrt(v*v+1.0));}
 template<typename T>
 T _atanh(T v){return 0.5*log((1.0+v)/(1.0-v));}
+// Float32 asin with explicit range reduction for strict SPIR-V shaders.
+// Native extended instructions have no portable error bound across drivers.
+template<typename T>
+T _lc_strict_asin(T x){
+precise T magnitude=abs(x);
+precise T reduced_complement=sqrt(((T)1.0-magnitude)*(T)0.5);
+precise T reduced=select(magnitude>(T)0.5,reduced_complement,magnitude);
+precise T squared=reduced*reduced;
+precise T polynomial=(T)4.2163199048e-2;
+polynomial=polynomial*squared+(T)2.4181311049e-2;
+polynomial=polynomial*squared+(T)4.5470025998e-2;
+polynomial=polynomial*squared+(T)7.4953002686e-2;
+polynomial=polynomial*squared+(T)1.6666752422e-1;
+precise T reduced_result=reduced+(reduced*squared)*polynomial;
+precise T complement_result=(T)1.57079632679489661923-(T)2.0*reduced_result;
+precise T result_magnitude=select(magnitude>(T)0.5,complement_result,reduced_result);
+return asfloat((asuint(result_magnitude)&0x7fffffffu)|(asuint(x)&0x80000000u));
+}
 template<typename T>
 T _exp10(T v){return pow(10,v);};
 template<typename T>
