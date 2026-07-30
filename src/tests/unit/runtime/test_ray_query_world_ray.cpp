@@ -41,12 +41,20 @@ void test_ray_query_world_ray(Device &device) {
     auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     auto accel = device.create_accel();
+    const auto transform = make_float4x4(
+        make_float4(1.0f, 0.0f, 0.0f, 0.0f),
+        make_float4(0.0f, 1.0f, 0.0f, 0.0f),
+        make_float4(0.0f, 0.0f, 2.0f, 0.0f),
+        make_float4(0.0f, 0.0f, 1.0f, 1.0f));
     // Non-opaque is intentional: the callback must observe the no-commit state.
-    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    // The non-identity instance is intentional: Embree invokes geometry
+    // callbacks with an object-space ray, while Luisa's candidate.ray()
+    // contract exposes the immutable world-space ray on every backend.
+    accel.emplace_back(mesh, transform, 0xffu, false);
 
     auto result_buffer = device.create_buffer<float4>(5u);
     Kernel1D trace = [](AccelVar accel, BufferFloat4 results) noexcept {
-        constexpr auto initial_origin = make_float3(0.125f, -0.125f, 2.0f);
+        constexpr auto initial_origin = make_float3(0.125f, -0.125f, 3.0f);
         constexpr auto initial_direction = make_float3(0.0f, 0.0f, -2.0f);
         constexpr auto initial_t_min = 0.25f;
         constexpr auto initial_t_max = 7.5f;
@@ -96,7 +104,7 @@ void test_ray_query_world_ray(Device &device) {
                                           luisa::string_view phase) noexcept {
         expect_near(origin_tmin.x, 0.125f, luisa::format("{} origin.x", phase));
         expect_near(origin_tmin.y, -0.125f, luisa::format("{} origin.y", phase));
-        expect_near(origin_tmin.z, 2.0f, luisa::format("{} origin.z", phase));
+        expect_near(origin_tmin.z, 3.0f, luisa::format("{} origin.z", phase));
         expect_near(origin_tmin.w, 0.25f, luisa::format("{} t_min", phase));
         expect_near(direction_tmax.x, 0.0f, luisa::format("{} direction.x", phase));
         expect_near(direction_tmax.y, 0.0f, luisa::format("{} direction.y", phase));
@@ -113,6 +121,158 @@ void test_ray_query_world_ray(Device &device) {
     expect(static_cast<uint>(host_results[4].z) == 1u);
 }
 
+void test_procedural_ray_query_world_ray(Device &device) {
+    auto stream = device.create_stream();
+
+    const std::array bounds{
+        AABB{
+            .packed_min = {-0.5f, -0.5f, -0.1f},
+            .packed_max = {0.5f, 0.5f, 0.1f}}};
+    auto bounds_buffer =
+        device.create_buffer<AABB>(bounds.size());
+    auto procedural =
+        device.create_procedural_primitive(bounds_buffer);
+    auto accel = device.create_accel();
+    const auto transform = make_float4x4(
+        make_float4(1.0f, 0.0f, 0.0f, 0.0f),
+        make_float4(0.0f, 1.0f, 0.0f, 0.0f),
+        make_float4(0.0f, 0.0f, 2.0f, 0.0f),
+        make_float4(0.0f, 0.0f, 1.0f, 1.0f));
+    accel.emplace_back(procedural, transform, 0xffu);
+
+    auto result_buffer = device.create_buffer<float4>(5u);
+    Kernel1D trace = [](AccelVar accel,
+                        BufferFloat4 results) noexcept {
+        constexpr auto initial_origin =
+            make_float3(0.125f, -0.125f, 3.0f);
+        constexpr auto initial_direction =
+            make_float3(0.0f, 0.0f, -2.0f);
+        auto ray = make_ray(
+            initial_origin,
+            initial_direction,
+            0.25f,
+            7.5f);
+        UInt callback_count = 0u;
+        auto committed =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &) noexcept {})
+                .on_procedural_candidate(
+                    [&](ProceduralCandidate
+                            &candidate) noexcept {
+                        auto before = candidate.ray();
+                        results.write(
+                            0u,
+                            make_float4(
+                                before->origin(),
+                                before->t_min()));
+                        results.write(
+                            1u,
+                            make_float4(
+                                before->direction(),
+                                before->t_max()));
+                        callback_count += 1u;
+                        candidate.commit(1.0f);
+                        auto after = candidate.ray();
+                        results.write(
+                            2u,
+                            make_float4(
+                                after->origin(),
+                                after->t_min()));
+                        results.write(
+                            3u,
+                            make_float4(
+                                after->direction(),
+                                after->t_max()));
+                    })
+                .trace();
+        results.write(
+            4u,
+            make_float4(
+                committed->distance(),
+                cast<float>(committed->hit_type),
+                cast<float>(callback_count),
+                0.0f));
+    };
+
+    auto shader = device.compile(trace);
+    std::array<float4, 5u> host_results{};
+    stream
+        << bounds_buffer.copy_from(luisa::span{bounds})
+        << procedural.build()
+        << accel.build()
+        << shader(accel, result_buffer).dispatch(1u)
+        << result_buffer.copy_to(
+               luisa::span{host_results})
+        << synchronize();
+
+    auto check_immutable_ray_fields =
+        [&](const float4 &origin_tmin,
+            const float4 &direction_tmax,
+            luisa::string_view phase) noexcept {
+            expect_near(
+                origin_tmin.x,
+                0.125f,
+                luisa::format(
+                    "{} origin.x", phase));
+            expect_near(
+                origin_tmin.y,
+                -0.125f,
+                luisa::format(
+                    "{} origin.y", phase));
+            expect_near(
+                origin_tmin.z,
+                3.0f,
+                luisa::format(
+                    "{} origin.z", phase));
+            expect_near(
+                origin_tmin.w,
+                0.25f,
+                luisa::format(
+                    "{} t_min", phase));
+            expect_near(
+                direction_tmax.x,
+                0.0f,
+                luisa::format(
+                    "{} direction.x", phase));
+            expect_near(
+                direction_tmax.y,
+                0.0f,
+                luisa::format(
+                    "{} direction.y", phase));
+            expect_near(
+                direction_tmax.z,
+                -2.0f,
+                luisa::format(
+                    "{} direction.z", phase));
+        };
+    check_immutable_ray_fields(
+        host_results[0],
+        host_results[1],
+        "procedural before commit");
+    check_immutable_ray_fields(
+        host_results[2],
+        host_results[3],
+        "procedural after commit");
+    expect_near(
+        host_results[1].w,
+        7.5f,
+        "procedural pre-commit t_max");
+    expect_near(
+        host_results[3].w,
+        1.0f,
+        "procedural post-commit t_max");
+    expect_near(
+        host_results[4].x,
+        1.0f,
+        "procedural committed distance");
+    expect(
+        static_cast<uint>(host_results[4].y) ==
+        static_cast<uint>(HitType::Procedural));
+    expect(
+        static_cast<uint>(host_results[4].z) == 1u);
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -121,4 +281,5 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     test_ray_query_world_ray(dc->device);
+    test_procedural_ray_query_world_ray(dc->device);
 }

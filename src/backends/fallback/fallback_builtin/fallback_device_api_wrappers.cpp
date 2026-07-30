@@ -478,6 +478,7 @@ struct alignas(16) LC_RayQueryObject {
     AccelView accel;
     RayQueryCandidate candidate;
     EmbreeRayHit ray_hit;
+    Ray world_ray;
 };
 
 LUISA_FALLBACK_INTERNAL void luisa_fallback_create_embree_ray(EmbreeRay *embree_ray, const Ray *ray, float time, uint mask) noexcept {
@@ -513,6 +514,7 @@ LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *c
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse_motion(const AccelView *handle, const Ray *ray, float time, uint mask, LC_RayQueryObject *out) noexcept {
     out->accel = *handle;
+    out->world_ray = *ray;
     luisa_fallback_create_embree_ray(&out->ray_hit.ray, ray, time, mask);
     luisa_fallback_create_embree_hit(&out->ray_hit.hit);
 }
@@ -522,10 +524,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse(const AccelVie
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_world_space_ray(const LC_RayQueryObject *q, Ray *out) noexcept {
-    auto v = reinterpret_cast<llvm_float4 *>(out);
-    v[0] = q->ray_hit.ray.org_tnear;
-    v[1] = q->ray_hit.ray.dir_time;
-    v[1].w = q->ray_hit.ray.extra.tfar;
+    *out = q->world_ray;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_procedural_candidate_hit(const LC_RayQueryObject *q, AABBHit *out) noexcept {
@@ -546,11 +545,16 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_committed_hi
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_surface_hit(LC_RayQueryObject *q) noexcept {
     q->candidate.committed = true;
+    q->world_ray.t_max = q->candidate.t;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_procedural_hit(LC_RayQueryObject *q, float t) noexcept {
     q->candidate.t = t;
-    q->candidate.committed = true;
+    if (t >= q->world_ray.t_min &&
+        t <= q->world_ray.t_max) {
+        q->candidate.committed = true;
+        q->world_ray.t_max = t;
+    }
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_terminate(LC_RayQueryObject *q) noexcept {

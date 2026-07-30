@@ -319,6 +319,7 @@ struct alignas(16) RayQueryObject {
     AccelView accel;
     RayQueryCandidate candidate;
     RTCRayHit ray_hit;
+    Ray world_ray;
 };
 
 struct alignas(16) RayQueryContext {
@@ -410,6 +411,7 @@ size_t luisa_fallback_ray_query_object_alignment() noexcept {
 
 static void ray_query_update_current_t(RayQueryContextEx *ctx, float new_t) noexcept {
     ctx->current_t = std::min(ctx->current_t, new_t);
+    ctx->base.q->world_ray.t_max = ctx->current_t;
 }
 
 // Luisa ray queries use a closed lower bound, as do the hardware backends.
@@ -625,7 +627,7 @@ void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, cons
 #endif
     ctx.base.q = q;
     ctx.capture = capture;
-    ctx.current_t = std::numeric_limits<float>::max();
+    ctx.current_t = q->world_ray.t_max;
     ctx.original_tnear = q->ray_hit.ray.tnear;
     ctx.on_surface = on_surface;
     ctx.on_procedural = on_procedural;
@@ -661,7 +663,7 @@ void luisa_fallback_ray_query_pipeline_any(LC_RayQueryObject *query_object, cons
 #endif
     ctx.base.q = q;
     ctx.capture = capture;
-    ctx.current_t = std::numeric_limits<float>::max();
+    ctx.current_t = q->world_ray.t_max;
     ctx.original_tnear = q->ray_hit.ray.tnear;
     ctx.on_surface = on_surface;
     ctx.on_procedural = on_procedural;
