@@ -4204,9 +4204,11 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
     return true;
 }
 
-struct StructuredSelectionEntryOwner {
+struct PostMergeSelectionReentry {
     BasicBlock *header{nullptr};
     BasicBlock *merge{nullptr};
+    BasicBlock *reentered_block{nullptr};
+    BasicBlock *reentry_predecessor{nullptr};
     luisa::vector<BasicBlock *> entries;
     size_t depth{0u};
 };
@@ -4217,12 +4219,20 @@ struct StructuredSelectionEntryOwner {
 // another selection cannot be valid structured control flow. It also cannot
 // converge: single-exit canonicalization recreates the same dispatch.
 //
-// Split exactly the re-entered selection arm, using its declared merge as the
-// frontier. The copied arm is finite by construction, the dispatch becomes its
-// sole entry, and the resulting cycle has the dispatch as a natural-loop
-// header. This is the standard node-splitting reduction from a multi-entry
-// region to a reducible one; the normal loop structurizer handles it on the
-// next fixed-point iteration.
+// For every edge (P, E) on a side-effect-free forwarding chain starting at a
+// dispatch arm, find the deepest selection (H, M) for which H and M dominate
+// P, H dominates E, and M does not dominate E. This dominance predicate is
+// exactly the definition of crossing from the post-merge region back into the
+// selection interior; it does not depend on E being a declared arm entry.
+//
+// Split the E-owned subgraph with H, M, and sibling entries as its frontier,
+// then retarget P to the copy. The copy is dominated by M, while the original
+// interior loses this post-merge predecessor. Thus the offending boundary edge
+// is removed instead of being hidden behind another selection. Forwarding
+// chains and owned subgraphs are finite and cycle-guarded, and selecting the
+// deepest owner applies the standard inner-to-outer node-splitting reduction
+// for a multi-entry region. The normal loop structurizer handles any resulting
+// natural loop on the next fixed-point iteration.
 [[nodiscard]] bool split_one_exit_dispatch_selection_reentry(
     FunctionDefinition *def,
     DomTree &dom,
@@ -4239,57 +4249,92 @@ struct StructuredSelectionEntryOwner {
         }
         auto *branch = static_cast<ConditionalBranchInst *>(
             dispatch->terminator());
-        auto targets =
+        auto arm_entries =
             std::array{branch->true_block(),
                        branch->false_block()};
-        for (auto *target : targets) {
-            if (target == nullptr || !dom.contains(target) ||
-                dom.dominates(dispatch, target)) {
-                continue;
+        for (auto *arm_entry : arm_entries) {
+            if (arm_entry == nullptr) { continue; }
+            PostMergeSelectionReentry reentry;
+            auto *reentry_predecessor = dispatch;
+            auto *reentered_block = arm_entry;
+            luisa::unordered_set<BasicBlock *> path;
+            while (reentered_block != nullptr &&
+                   path.emplace(reentered_block).second) {
+                if (dom.contains(reentry_predecessor) &&
+                    dom.contains(reentered_block) &&
+                    terminator_targets(
+                        reentry_predecessor->terminator(),
+                        reentered_block)) {
+                    def->traverse_basic_blocks(
+                        [&](BasicBlock *candidate_header) noexcept {
+                            if (candidate_header == nullptr ||
+                                !candidate_header->is_terminated() ||
+                                !dom.contains(candidate_header) ||
+                                candidate_header ==
+                                    reentered_block ||
+                                exit_dispatch_headers.contains(
+                                    candidate_header) ||
+                                is_loop_boundary_selection_entry(
+                                    candidate_header, def)) {
+                                return;
+                            }
+                            auto *term =
+                                candidate_header->terminator();
+                            if (!term->isa<IfInst>() &&
+                                !term->isa<SwitchInst>()) {
+                                return;
+                            }
+                            auto *merge =
+                                structured_statement_merge(term);
+                            // An edge (P, E) is a post-merge re-entry exactly
+                            // when H and M dominate P while H, but not M,
+                            // dominates E. Searching each edge of the
+                            // side-effect-free proxy chain finds the first
+                            // actual boundary crossing rather than assuming
+                            // the dispatch directly names a declared arm.
+                            if (merge == nullptr ||
+                                !dom.contains(merge) ||
+                                !dom.dominates(
+                                    candidate_header,
+                                    reentry_predecessor) ||
+                                !dom.dominates(
+                                    merge,
+                                    reentry_predecessor) ||
+                                !dom.dominates(
+                                    candidate_header,
+                                    reentered_block) ||
+                                dom.dominates(
+                                    merge,
+                                    reentered_block)) {
+                                return;
+                            }
+                            auto depth =
+                                dom_depth(dom, candidate_header);
+                            if (reentry.header != nullptr &&
+                                depth <= reentry.depth) {
+                                return;
+                            }
+                            luisa::vector<BasicBlock *> entries;
+                            collect_construct_entries(
+                                candidate_header, entries);
+                            reentry = {
+                                .header = candidate_header,
+                                .merge = merge,
+                                .reentered_block =
+                                    reentered_block,
+                                .reentry_predecessor =
+                                    reentry_predecessor,
+                                .entries = std::move(entries),
+                                .depth = depth};
+                        });
+                }
+                auto *next =
+                    trivial_branch_target(reentered_block);
+                if (next == nullptr) { break; }
+                reentry_predecessor = reentered_block;
+                reentered_block = next;
             }
-            StructuredSelectionEntryOwner owner;
-            def->traverse_basic_blocks(
-                [&](BasicBlock *candidate_header) noexcept {
-                    if (candidate_header == nullptr ||
-                        !candidate_header->is_terminated() ||
-                        !dom.contains(candidate_header)) {
-                        return;
-                    }
-                    auto *term =
-                        candidate_header->terminator();
-                    if (!term->isa<IfInst>() &&
-                        !term->isa<SwitchInst>()) {
-                        return;
-                    }
-                    auto *merge =
-                        structured_statement_merge(term);
-                    if (merge == nullptr ||
-                        !dom.contains(merge) ||
-                        !dom.dominates(
-                            candidate_header, dispatch) ||
-                        !dom.dominates(merge, dispatch)) {
-                        return;
-                    }
-                    luisa::vector<BasicBlock *> entries;
-                    collect_construct_entries(
-                        candidate_header, entries);
-                    if (std::find(
-                            entries.begin(), entries.end(),
-                            target) == entries.end()) {
-                        return;
-                    }
-                    auto depth =
-                        dom_depth(dom, candidate_header);
-                    if (owner.header == nullptr ||
-                        depth > owner.depth) {
-                        owner = {
-                            .header = candidate_header,
-                            .merge = merge,
-                            .entries = std::move(entries),
-                            .depth = depth};
-                    }
-                });
-            if (owner.header == nullptr) { continue; }
+            if (reentry.header == nullptr) { continue; }
 
             // Cloning duplicates definitions along mutually exclusive paths.
             // Transport cross-block values through typed local state first, so
@@ -4300,11 +4345,13 @@ struct StructuredSelectionEntryOwner {
             pdom = compute_post_dom(def);
             LUISA_ASSERT(
                 clone_owned_subgraph_for_edge(
-                    def, owner.header, target, dispatch,
+                    def, reentry.header,
+                    reentry.reentered_block,
+                    reentry.reentry_predecessor,
                     luisa::span<BasicBlock *const>{
-                        owner.entries.data(),
-                        owner.entries.size()},
-                    owner.merge, dom, true),
+                        reentry.entries.data(),
+                        reentry.entries.size()},
+                    reentry.merge, dom, true),
                 "Selection re-entry node splitting made no progress.");
             ++info.canonicalized_cfg_count;
             dom = compute_dom_tree(def);
@@ -5540,34 +5587,47 @@ restructure_cfg_on_definition_in_place(
              iteration < options.post_iteration_limit;
              ++iteration) {
             ScopedTimer _timer_post_iter("post_restructure_iteration");
+            auto stats_before = restructure_trace_enabled() ?
+                                    trace_stats(def) :
+                                    CFGTraceStats{};
             bool local = false;
-            if (try_restructure_loop(def, dom, pdom, info)) {
+            auto loop_changed =
+                try_restructure_loop(def, dom, pdom, info);
+            if (loop_changed) {
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
-            if (add_headers_to_remaining_divergent(
+            auto header_changed =
+                add_headers_to_remaining_divergent(
                     def, dom, pdom, info,
-                    exit_dispatch_headers)) {
+                    exit_dispatch_headers);
+            if (header_changed) {
                 local = true;
                 // dom/pdom are recomputed after every rewrite in the drained phase.
             }
-            if (proxy_switch_targets_to_structural_boundaries(def)) {
+            auto switch_proxy_changed =
+                proxy_switch_targets_to_structural_boundaries(def);
+            if (switch_proxy_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
             auto limits_before_selection_exits = info.iteration_limit_count;
-            if (drain_selection_exits(
+            auto selection_exit_changed =
+                drain_selection_exits(
                     def, dom, pdom, info,
-                    exit_dispatch_headers)) {
+                    exit_dispatch_headers);
+            if (selection_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
             }
-            if (split_exit_dispatch_selection_reentries(
+            auto selection_reentry_changed =
+                split_exit_dispatch_selection_reentries(
                     def, dom, pdom, info,
-                    exit_dispatch_headers)) {
+                    exit_dispatch_headers);
+            if (selection_reentry_changed) {
                 local = true;
             }
             for (auto *header : exit_dispatch_headers) {
@@ -5578,42 +5638,54 @@ restructure_cfg_on_definition_in_place(
                 post_last_modified = false;
                 break;
             }
-            if (canonicalize_loop_boundary_selection_merges(def)) {
+            auto boundary_merge_changed =
+                canonicalize_loop_boundary_selection_merges(def);
+            if (boundary_merge_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
-            if (normalize_loop_boundary_conditional_branches(
+            auto boundary_branch_changed =
+                normalize_loop_boundary_conditional_branches(
                     def, exit_dispatch_headers,
-                    generated_exit_dispatch_headers)) {
+                    generated_exit_dispatch_headers);
+            if (boundary_branch_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
-            if (canonicalize_loop_prepare_blocks(def)) {
+            auto loop_prepare_changed =
+                canonicalize_loop_prepare_blocks(def);
+            if (loop_prepare_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
-            if (normalize_structured_loop_continues(def)) {
+            auto loop_continue_changed =
+                normalize_structured_loop_continues(def);
+            if (loop_continue_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
-            if (canonicalize_loop_update_blocks(def)) {
+            auto loop_update_changed =
+                canonicalize_loop_update_blocks(def);
+            if (loop_update_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
             auto limits_before_fixup = info.iteration_limit_count;
-            if (fixup_construct_exits(
+            auto construct_exit_changed =
+                fixup_construct_exits(
                     def, dom, pdom, info,
-                    exit_dispatch_headers)) {
+                    exit_dispatch_headers);
+            if (construct_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
@@ -5623,13 +5695,43 @@ restructure_cfg_on_definition_in_place(
                 generated_exit_dispatch_headers.emplace(
                     header);
             }
-            if (collapse_redundant_exit_dispatches(
+            auto dispatch_collapse_changed =
+                collapse_redundant_exit_dispatches(
                     def,
-                    generated_exit_dispatch_headers)) {
+                    generated_exit_dispatch_headers);
+            if (dispatch_collapse_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
+            }
+            if (restructure_trace_enabled()) {
+                auto stats_after = trace_stats(def);
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] post iteration {}: "
+                    "blocks {} -> {}, instructions {} -> {}; "
+                    "loop={}, header={}, switch_proxy={}, "
+                    "selection_exit={}, selection_reentry={}, "
+                    "boundary_merge={}, boundary_branch={}, "
+                    "loop_prepare={}, loop_continue={}, loop_update={}, "
+                    "construct_exit={}, dispatch_collapse={}.",
+                    iteration,
+                    stats_before.block_count,
+                    stats_after.block_count,
+                    stats_before.instruction_count,
+                    stats_after.instruction_count,
+                    loop_changed,
+                    header_changed,
+                    switch_proxy_changed,
+                    selection_exit_changed,
+                    selection_reentry_changed,
+                    boundary_merge_changed,
+                    boundary_branch_changed,
+                    loop_prepare_changed,
+                    loop_continue_changed,
+                    loop_update_changed,
+                    construct_exit_changed,
+                    dispatch_collapse_changed);
             }
             if (info.iteration_limit_count != limits_before_fixup) {
                 post_last_modified = false;

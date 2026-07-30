@@ -2027,6 +2027,112 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_splits_dispatch_reentry_through_fallback_proxy"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *selector =
+            k->create_value_argument(Type::of<uint32_t>());
+        auto *nested_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *query_type =
+            Type::custom("LC_RayQueryAll");
+        auto *query_source =
+            k->create_reference_argument(query_type);
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *query_slot = b.alloca_local(query_type);
+        auto *selection = b.switch_(selector);
+        auto *first_return_arm =
+            selection->create_case_block(1u);
+        auto *second_return_arm =
+            selection->create_case_block(2u);
+        auto *cross_arm =
+            selection->create_case_block(3u);
+        auto *nested_header =
+            selection->create_default_block();
+        auto *original_merge =
+            selection->create_merge_block();
+        auto *nested_merge =
+            def->create_basic_block();
+        auto *first_return =
+            def->create_basic_block();
+        auto *second_return =
+            def->create_basic_block();
+
+        b.set_insertion_point(first_return_arm);
+        b.br(first_return);
+        b.set_insertion_point(second_return_arm);
+        b.br(second_return);
+        b.set_insertion_point(cross_arm);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_header);
+        auto *nested = b.if_(nested_condition);
+        auto *nested_true = nested->create_true_block();
+        auto *nested_false = nested->create_false_block();
+        nested->set_merge_block(nested_merge);
+        b.set_insertion_point(nested_true);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_false);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_merge);
+        auto *query_value =
+            b.load(query_type, query_source);
+        b.store(query_slot, query_value);
+        b.return_void();
+        b.set_insertion_point(original_merge);
+        b.unreachable_();
+        b.set_insertion_point(first_return);
+        b.return_void();
+        b.set_insertion_point(second_return);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto initial_block_count = count_owned_blocks(def);
+        auto first = restructure_cfg_pass_run_on_function(
+            k, {.main_iteration_limit = 64u,
+                .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.unstructured_branch_count == 0u);
+        expect(count_post_merge_selection_reentries(k) ==
+               0u);
+        auto query_alloca_count = size_t{0u};
+        def->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                query_alloca_count +=
+                    instruction->isa<AllocaInst>() &&
+                    instruction->type() == query_type;
+            });
+        // The outer switch sees three non-local targets: two returns and the
+        // nested selection's merge. Its generated state-dispatch ladder
+        // reaches the last target through an unconditional fallback proxy.
+        // The nested arms retain their original paths to that merge, so the
+        // outer header still dominates it while the switch's new merge does
+        // not. Node splitting must follow the proxy and split the exact edge
+        // that crosses this post-merge selection boundary.
+        expect(query_alloca_count == 2u);
+        expect(count_owned_blocks(def) <=
+               initial_block_count * 5u);
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto block_count = count_owned_blocks(def);
+        auto second = restructure_cfg_pass_run_on_function(
+            k, {.main_iteration_limit = 64u,
+                .post_iteration_limit = 8u});
+        expect(second.succeeded());
+        expect(second.iteration_limit_count == 0u);
+        expect(count_owned_blocks(def) == block_count);
+        expect(count_post_merge_selection_reentries(k) ==
+               0u);
+    };
+
     "restructure_state_dispatch_transports_path_local_values"_test = [] {
         Module m;
         auto *f = m.create_callable(Type::of<int>());
