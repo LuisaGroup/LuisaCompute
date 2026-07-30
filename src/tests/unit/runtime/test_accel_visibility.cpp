@@ -442,12 +442,9 @@ void test_accel_opacity(Device &device) {
     auto mutate_shader = device.compile(mutate);
     auto results = device.create_buffer<uint4>(2u);
 
-    auto run = [&](uint expected_callback_count,
-                   luisa::string_view phase) {
-        std::array<uint4, 2u> host_results{};
-        stream << trace_shader(results, accel).dispatch(1u)
-               << results.copy_to(luisa::span{host_results})
-               << synchronize();
+    auto verify_results = [&](const std::array<uint4, 2u> &host_results,
+                              uint expected_callback_count,
+                              luisa::string_view phase) {
         for (auto query = 0u; query < 2u; query++) {
             auto result = host_results[query];
             auto query_name = query == 0u ? "closest" : "any";
@@ -465,26 +462,49 @@ void test_accel_opacity(Device &device) {
                                  phase, query_name, result.w, expected_callback_count);
         }
     };
+    auto run = [&](auto &target_accel,
+                   uint expected_callback_count,
+                   luisa::string_view phase) {
+        std::array<uint4, 2u> host_results{};
+        stream << trace_shader(results, target_accel).dispatch(1u)
+               << results.copy_to(luisa::span{host_results})
+               << synchronize();
+        verify_results(host_results, expected_callback_count, phase);
+    };
 
     // Opaque hits must commit in traversal and skip user filtering.
-    run(0u, "initial host opaque");
+    run(accel, 0u, "initial host opaque");
+
+    // Shader arguments are encoded when commands are submitted. Building a
+    // fresh accel and tracing it in the same stream must not depend on a
+    // pre-build instance-array pointer.
+    auto same_stream_accel = device.create_accel();
+    same_stream_accel.emplace_back(
+        mesh, make_float4x4(1.0f), 0xffu, true);
+    std::array<uint4, 2u> same_stream_results{};
+    stream << same_stream_accel.build()
+           << trace_shader(results, same_stream_accel).dispatch(1u)
+           << results.copy_to(luisa::span{same_stream_results})
+           << synchronize();
+    verify_results(
+        same_stream_results, 0u, "same-stream host opaque build");
 
     accel.set_opaque_on_update(0u, false);
     stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(1u, "host non-opaque update");
+    run(accel, 1u, "host non-opaque update");
 
     accel.set_opaque_on_update(0u, true);
     stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(0u, "host opaque update");
+    run(accel, 0u, "host opaque update");
 
     // Device-side mutation must use the same opacity bit as host updates.
     stream << mutate_shader(accel, false).dispatch(1u)
            << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(1u, "device non-opaque update");
+    run(accel, 1u, "device non-opaque update");
 
     stream << mutate_shader(accel, true).dispatch(1u)
            << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(0u, "device opaque update");
+    run(accel, 0u, "device opaque update");
 }
 
 int main(int argc, char *argv[]) {

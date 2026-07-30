@@ -452,13 +452,21 @@ static void ray_query_decode_procedural_candidate(RayQueryCandidate *out, const 
     out->terminated = false;
 }
 
-[[nodiscard]] static const AccelInstance &ray_query_surface_instance(
+[[nodiscard]] static uint64_t ray_query_surface_instance_flags(
     const RayQueryContextEx *ctx, const RTCHit *hit) noexcept {
+    auto scene = static_cast<RTCScene>(
+        ctx->base.q->accel.embree_scene);
     auto inst = hit->instID[0];
     LUISA_DEBUG_ASSERT(
         inst != RTC_INVALID_GEOMETRY_ID,
         "Ray query surface hit is missing its top-level instance ID.");
-    return ctx->base.q->accel.instances[inst];
+#if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
+    return reinterpret_cast<uint64_t>(
+        rtcGetGeometryUserData(rtcGetGeometry(scene, inst)));
+#else
+    return reinterpret_cast<uint64_t>(
+        rtcGetGeometryUserDataFromScene(scene, inst));
+#endif
 }
 
 void luisa_fallback_ray_query_terminate_ray(RTCRay *ray) noexcept {
@@ -545,15 +553,15 @@ static void luisa_fallback_ray_query_surface_intersect_filter_function(const RTC
     auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
     auto ray = reinterpret_cast<RTCRay *>(args->ray);
     auto hit = reinterpret_cast<RTCHit *>(args->hit);
-    auto &&instance = ray_query_surface_instance(ctx, hit);
-    if (instance.is_curve) {// curve
+    auto flags = ray_query_surface_instance_flags(ctx, hit);
+    if (flags & luisa_fallback_embree_accel_user_data_flags_curve) {// curve
         hit->v = -1.f;
     }
     if (!ray_query_candidate_in_range(ctx, ray->tfar)) {
         args->valid[0] = 0;
         return;
     }
-    if (instance.opaque) {// opaque, always commit
+    if (flags & luisa_fallback_embree_accel_user_data_flags_opaque) {// opaque, always commit
         ray_query_update_current_t(ctx, ray->tfar);
     } else if (auto on_surface = ctx->on_surface) {
         auto q = ctx->base.q;
@@ -592,8 +600,8 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
     auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
     auto ray = reinterpret_cast<RTCRay *>(args->ray);
     auto hit = reinterpret_cast<RTCHit *>(args->hit);
-    auto &&instance = ray_query_surface_instance(ctx, hit);
-    if (instance.is_curve) {// curve
+    auto flags = ray_query_surface_instance_flags(ctx, hit);
+    if (flags & luisa_fallback_embree_accel_user_data_flags_curve) {// curve
         hit->v = -1.f;
     }
     if (!ray_query_candidate_in_range(ctx, ray->tfar)) {
@@ -601,7 +609,7 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
         return;
     }
     auto q = ctx->base.q;
-    if (instance.opaque) {// opaque
+    if (flags & luisa_fallback_embree_accel_user_data_flags_opaque) {// opaque
         record_hit_data(q, ray, hit);
     } else if (auto on_surface = ctx->on_surface) {
         auto candidate = &q->candidate;
