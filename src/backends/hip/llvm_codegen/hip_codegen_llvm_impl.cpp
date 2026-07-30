@@ -28,6 +28,7 @@
 #include <algorithm>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
 #include "hiprt_device_wrapper.hip"
@@ -43,6 +44,51 @@
 #undef None
 
 namespace luisa::compute::hip {
+
+namespace {
+
+[[nodiscard]] luisa::span<const std::byte>
+hip_codegen_llvm_embedded_rt_wrapper(
+    luisa::string_view amdgpu_arch) noexcept {
+    const unsigned char *data = nullptr;
+    size_t size = 0u;
+    if (amdgpu_arch == "gfx1030") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1030;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1030_size;
+    } else if (amdgpu_arch == "gfx1100") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1100;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1100_size;
+    } else if (amdgpu_arch == "gfx1200") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1200;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1200_size;
+    } else if (amdgpu_arch == "gfx1201") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1201;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1201_size;
+    } else {
+        LUISA_ERROR_WITH_LOCATION(
+            "HIP ray tracing does not have an embedded wrapper for "
+            "AMDGPU architecture '{}'.",
+            amdgpu_arch);
+    }
+    LUISA_ASSERT(
+        data != nullptr && size != 0u,
+        "HIPRT wrapper bitcode is empty for architecture '{}'.",
+        amdgpu_arch);
+    return {
+        reinterpret_cast<const std::byte *>(data),
+        size};
+}
+
+}// namespace
+
+uint64_t hip_codegen_llvm_embedded_rt_wrapper_hash(
+    luisa::string_view amdgpu_arch) noexcept {
+    constexpr auto seed = 0x4849505254575241ull;
+    const auto wrapper =
+        hip_codegen_llvm_embedded_rt_wrapper(amdgpu_arch);
+    return luisa::hash64(
+        wrapper.data(), wrapper.size_bytes(), seed);
+}
 
 HIPCodegenLLVMImpl::FunctionContext::FunctionContext(llvm::Function *f) noexcept
     : llvm_func{f},
@@ -499,30 +545,12 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
     if (!_rt_analysis.uses_ray_tracing) { return; }
 
     // Step 1: Link the per-arch RT wrapper bitcode (hiprt traversal wrappers)
-    const unsigned char *wrapper_data = nullptr;
-    unsigned long long wrapper_size = 0;
-    if (_config.amdgpu_arch == "gfx1030") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1030;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1030_size;
-    } else if (_config.amdgpu_arch == "gfx1100") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1100;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1100_size;
-    } else if (_config.amdgpu_arch == "gfx1200") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1200;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1200_size;
-    } else if (_config.amdgpu_arch == "gfx1201") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1201;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1201_size;
-    } else {
-        LUISA_ERROR_WITH_LOCATION(
-            "HIP ray tracing does not have an embedded wrapper for AMDGPU architecture '{}'.",
+    const auto wrapper =
+        hip_codegen_llvm_embedded_rt_wrapper(
             _config.amdgpu_arch);
-    }
-    LUISA_ASSERT(wrapper_data != nullptr && wrapper_size > 0,
-                 "HIPRT wrapper bitcode is empty for architecture '{}'.", _config.amdgpu_arch);
-
-    llvm::StringRef wrapper_bc{reinterpret_cast<const char *>(wrapper_data),
-                               static_cast<size_t>(wrapper_size)};
+    llvm::StringRef wrapper_bc{
+        reinterpret_cast<const char *>(wrapper.data()),
+        wrapper.size_bytes()};
     auto wrapper_buf = llvm::MemoryBuffer::getMemBuffer(wrapper_bc, "hiprt_wrapper", false);
     auto wrapper_module = llvm::parseBitcodeFile(*wrapper_buf, _llvm_context);
     if (!wrapper_module) {

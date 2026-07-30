@@ -53,4 +53,10 @@ struct HIPCodegenLLVMResult {
     const xir::Module &xir_module,
     const HIPCodegenLLVMConfig &config) noexcept;
 
+// Fingerprint the exact per-architecture device wrapper linked into ray
+// tracing kernels. Shader-cache identities must include this value because
+// changes to the wrapper do not alter the user kernel's AST hash.
+[[nodiscard]] uint64_t hip_codegen_llvm_embedded_rt_wrapper_hash(
+    luisa::string_view amdgpu_arch) noexcept;
+
 }// namespace luisa::compute::hip

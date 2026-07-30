@@ -397,7 +397,8 @@ namespace {
 
 [[nodiscard]] luisa::vector<std::byte> make_hip_shader_cache_identity(
     Function kernel, const ShaderOption &option,
-    luisa::string_view amdgpu_arch, uint32_t wave_size) noexcept {
+    luisa::string_view amdgpu_arch, uint32_t wave_size,
+    bool requires_hiprt) noexcept {
     auto driver_version = 0;
     auto runtime_version = 0;
     LUISA_CHECK_HIP(
@@ -427,6 +428,11 @@ namespace {
     writer.write_u32(HIPRT_HASH_VERSION);
     writer.write_u64(kernel.hash());
     writer.write_string(amdgpu_arch);
+    writer.write_u64(
+        requires_hiprt ?
+            hip_codegen_llvm_embedded_rt_wrapper_hash(
+                amdgpu_arch) :
+            0u);
     writer.write_u32(wave_size);
     writer.write_u32(option.max_registers);
     writer.write_u32(static_cast<uint32_t>(
@@ -1127,7 +1133,8 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     luisa::string cache_name;
     if (uses_shader_cache) {
         cache_identity = make_hip_shader_cache_identity(
-            kernel, option, _amdgpu_arch, wave_size);
+            kernel, option, _amdgpu_arch, wave_size,
+            requires_hiprt);
         cache_name = make_hip_shader_cache_name(cache_identity);
     }
 
