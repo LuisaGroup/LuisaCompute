@@ -125,7 +125,11 @@ void FallbackAccel::build(luisa::unique_ptr<AccelBuildCommand> cmd) noexcept {
             instance.user_id = m.user_id;
         }
         if (m.flags & Mod::flag_opaque) {
-            instance.opaque = m.flags & Mod::flag_opaque_on;
+            // AccelInstance::opaque is a one-bit field. Assign a normalized
+            // boolean instead of the flag mask itself, whose low bit may be
+            // zero and would therefore be truncated to false.
+            instance.opaque =
+                (m.flags & Mod::flag_opaque_on) != 0u;
         }
         instance.dirty = true;
     }

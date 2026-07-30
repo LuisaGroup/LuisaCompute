@@ -1919,6 +1919,8 @@ private:
     [[nodiscard]] llvm::Value *_translate_accel_access(CurrentFunction &current, IRBuilder &b,
                                                        llvm::StringRef llvm_func_name,
                                                        const xir::Instruction *inst) noexcept {
+        auto llvm_func = _llvm_module->getFunction(llvm_func_name);
+        LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         auto llvm_accel = _lookup_value(current, b, inst->operand(0u));
         auto llvm_accel_alloca = b.CreateAlloca(llvm_accel->getType());
         b.CreateStore(llvm_accel, llvm_accel_alloca);
@@ -1926,11 +1928,19 @@ private:
         for (auto arg_use : inst->operand_uses().subspan(1)) {
             auto arg = arg_use->value();
             auto llvm_arg = _lookup_value(current, b, arg);
-            if (llvm_arg->getType()->isIntegerTy() && !arg->type()->is_bool()) {
-                // cast non-bool integer to i32
-                llvm_arg = b.CreateZExtOrTrunc(llvm_arg, b.getInt32Ty());
-            }
             if (arg->type()->is_scalar()) {
+                // Scalar ABI types in the embedded device library are
+                // target-dependent (notably C++ bool may be i1 while XIR
+                // bool is represented as i8). Match the declared callee
+                // parameter instead of assuming an i32 integer ABI.
+                auto llvm_parameter_type =
+                    llvm_func->getFunctionType()->getParamType(
+                        llvm_args.size());
+                if (llvm_arg->getType()->isIntegerTy() &&
+                    llvm_parameter_type->isIntegerTy()) {
+                    llvm_arg = b.CreateZExtOrTrunc(
+                        llvm_arg, llvm_parameter_type);
+                }
                 llvm_args.emplace_back(llvm_arg);
             } else {
                 auto llvm_arg_alloca = b.CreateAlloca(llvm_arg->getType());
@@ -1940,8 +1950,6 @@ private:
                 llvm_args.emplace_back(llvm_arg_alloca);
             }
         }
-        auto llvm_func = _llvm_module->getFunction(llvm_func_name);
-        LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         if (auto result_type = inst->type()) {
             auto llvm_result_type = _translate_type(result_type, true);
             auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
