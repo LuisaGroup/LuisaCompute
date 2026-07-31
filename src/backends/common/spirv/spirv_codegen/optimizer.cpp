@@ -9,6 +9,7 @@
 #include <spirv-tools/libspirv.hpp>
 #include <spirv/unified1/spirv.hpp11>
 
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 
@@ -311,12 +312,24 @@ SpirvOptimizerReport optimize_spirv(
     }
 
     report.attempted = true;
+    luisa::Clock optimizer_clock;
     std::vector<uint32_t> optimized;
     report.succeeded =
         optimizer.Run(words.data(), words.size(), &optimized);
+    if (std::getenv("LUISA_VULKAN_PROFILE_COMPILATION")) {
+        LUISA_INFO(
+            "Vulkan native SPIR-V optimizer execution: {:.3f} ms",
+            optimizer_clock.toc());
+    }
     if (!report.succeeded) { return report; }
+    optimizer_clock.tic();
     auto commit = validate_and_commit_spirv_transform(
         words, std::move(optimized));
+    if (std::getenv("LUISA_VULKAN_PROFILE_COMPILATION")) {
+        LUISA_INFO(
+            "Vulkan native SPIR-V optimizer commit validation: {:.3f} ms",
+            optimizer_clock.toc());
+    }
     report.succeeded = commit.succeeded;
     report.output_validated = commit.output_validated;
     report.changed = commit.changed;

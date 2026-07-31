@@ -4,6 +4,7 @@
 #include "sampler_anisotropy.h"
 #include "user_compute_codegen_route.h"
 #include <luisa/ast/op.h>
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include "log.h"
 #include <luisa/vstl/config.h>
@@ -2912,6 +2913,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     LUISA_ASSERT(target_features.enabled_mask() == enabled_spirv_features,
                  "Vulkan SPIR-V target-feature mask did not round-trip.");
     vstd::optional<lc::spirv::SpirvResult> spv_result;
+    auto profile = std::getenv(
+                       "LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
     auto shader_md5 = compute_shader_cache_md5(
         kernel, option, target_features);
     auto require_print_code = print_code();
@@ -2923,6 +2926,18 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         LUISA_ERROR("Vulkan compile-only shader requires a non-empty shader name.");
     }
     luisa::string shader_name = uses_user_path ? option.name : luisa::format("{}.spv", shader_md5.to_string(false));
+    auto compile_native_spirv = [&] {
+        Clock codegen_clock;
+        auto result =
+            lc::spirv::SpirvCodegenEntry::compile_spirv(
+                kernel, option, target_features);
+        if (profile) {
+            LUISA_INFO(
+                "Vulkan native AST-to-SPIR-V total: {:.3f} ms",
+                codegen_clock.toc());
+        }
+        return result;
+    };
 
     if (require_print_code || !use_binary_io ||
         ShaderSerializer::require_recompile(
@@ -2932,8 +2947,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
              .codegen_dialect =
                  detail::ShaderCodegenDialect::XIR_SPIRV},
             serde_type, _binary_io)) {
-        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(
-            kernel, option, target_features);
+        spv_result = compile_native_spirv();
     }
 
     if (!spv_result && !option.compile_only && use_binary_io) {
@@ -2955,8 +2969,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             info.block_size = shader->block_size();
             return info;
         }
-        spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(
-            kernel, option, target_features);
+        spv_result = compile_native_spirv();
     }
 
     if (spv_result) {
@@ -2982,6 +2995,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             LUISA_VERBOSE("SPIRV printed to {}.", filename);
         }
         if (use_binary_io) {
+            Clock serialization_clock;
             ShaderSerializer::serialize_bytecode(
                 spv_result->properties,
                 ShaderSerializer::serialize_saved_args(
@@ -3003,6 +3017,11 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 kernel.allowed_warp_size(),
                 artifact_requirements,
                 detail::ShaderCodegenDialect::XIR_SPIRV);
+            if (profile) {
+                LUISA_INFO(
+                    "Vulkan native shader-artifact serialization: {:.3f} ms",
+                    serialization_clock.toc());
+            }
         }
     }
     if (option.compile_only) {
@@ -3010,6 +3029,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.invalidate();
     } else {
         LUISA_ASSERT(spv_result, "Vulkan SPIR-V cache load failed without recompilation.");
+        Clock pipeline_clock;
         auto shader = new ComputeShader(
             this,
             kernel.block_size(),
@@ -3029,6 +3049,21 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             kernel.allowed_warp_size(),
             32u,
             detail::ShaderCodegenDialect::XIR_SPIRV);
+        if (profile) {
+            LUISA_INFO(
+                "Vulkan native ComputeShader construction: {:.3f} ms",
+                pipeline_clock.toc());
+        }
+        if (use_binary_io) {
+            Clock pso_serialization_clock;
+            ShaderSerializer::serialize_pso(
+                this, shader, shader_md5, _binary_io);
+            if (profile) {
+                LUISA_INFO(
+                    "Vulkan native pipeline-cache serialization: {:.3f} ms",
+                    pso_serialization_clock.toc());
+            }
+        }
         LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();

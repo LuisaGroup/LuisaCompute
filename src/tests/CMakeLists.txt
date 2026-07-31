@@ -266,6 +266,7 @@ luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduc
 if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
+    luisa_compute_add_test(test_vk_shader_cache unit/runtime/test_vk_shader_cache.cpp)
     luisa_compute_add_test(test_vk_spirv_codegen_path unit/runtime/test_vk_spirv_codegen_path.cpp)
     target_link_libraries(test_vk_spirv_codegen_path PRIVATE
             luisa-compute-spirv

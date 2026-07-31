@@ -469,6 +469,7 @@ test_proj("test_motion_blur", "integration/runtime/test_motion_blur.cpp", true)
 test_proj("test_motion_blur_vk", "integration/runtime/test_motion_blur_vk.cpp", true)
 if has_config("lc_vk_backend") and
    has_config("lc_vk_backend_use_xir_spirv") then
+    test_proj("test_vk_shader_cache", "unit/runtime/test_vk_shader_cache.cpp")
     test_proj("test_vk_spirv_codegen_path", "unit/runtime/test_vk_spirv_codegen_path.cpp", false, function()
         add_includedirs("../backends/vk")
         add_includedirs("../backends/common")

@@ -4,8 +4,10 @@
 #include "../common/hlsl/hlsl_codegen.h"
 #include <luisa/core/stl/filesystem.h>
 #include "shader_serializer.h"
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include "../common/hlsl/shader_compiler.h"
+#include <cstdlib>
 
 namespace lc::vk {
 
@@ -27,6 +29,9 @@ ComputeShader::ComputeShader(
     uint32_t push_constant_size,
     detail::ShaderCodegenDialect codegen_dialect)
     : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect}, _block_size(block_size) {
+    auto profile = std::getenv(
+                       "LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
+    Clock phase_clock;
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     if (!cache_code.empty()) {
@@ -35,12 +40,24 @@ ComputeShader::ComputeShader(
     }
     VkPipelineCache pipe_cache{VK_NULL_HANDLE};
     VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &pipe_cache));
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan compute pipeline-cache creation: {:.3f} ms",
+            phase_clock.toc());
+    }
+    phase_clock.tic();
     VkShaderModuleCreateInfo module_create_info{
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = spv_code.size_bytes(),
         .pCode = spv_code.data()};
     VkShaderModule shader_module;
     VK_CHECK_RESULT(vkCreateShaderModule(device->logic_device(), &module_create_info, Device::alloc_callbacks(), &shader_module));
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan compute shader-module creation: {:.3f} ms",
+            phase_clock.toc());
+    }
+    phase_clock.tic();
     auto dispose_module = vstd::scope_exit([&] {
         vkDestroyShaderModule(device->logic_device(), shader_module, Device::alloc_callbacks());
     });
@@ -76,6 +93,11 @@ ComputeShader::ComputeShader(
 
     VkPipeline pipeline;
     VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), pipe_cache, 1, &pipe_ci, Device::alloc_callbacks(), &pipeline));
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan compute pipeline creation: {:.3f} ms",
+            phase_clock.toc());
+    }
     _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, pipe_cache, Device::alloc_callbacks());
 }
 bool ComputeShader::serialize_pso(vstd::vector<std::byte> &result) const {

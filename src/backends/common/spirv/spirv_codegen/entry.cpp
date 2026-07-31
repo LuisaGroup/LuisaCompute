@@ -6,6 +6,7 @@
 #include "utils.h"
 #include "../../backend_print_code.h"
 #include <SPIRV/disassemble.h>
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <fstream>
 #include <sstream>
@@ -276,6 +277,17 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     Function kernel, const xir::Module *xir_module,
     const ShaderOption &opt,
     SpirvTargetFeatures target_features) {
+    auto profile = std::getenv(
+                       "LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
+    Clock phase_clock;
+    auto report_phase = [&](const char *phase) noexcept {
+        if (profile) {
+            LUISA_INFO(
+                "Vulkan native SPIR-V phase '{}': {:.3f} ms",
+                phase, phase_clock.toc());
+        }
+        phase_clock.tic();
+    };
     LUISA_ASSERT(xir_module != nullptr,
                  "Cannot compile a null XIR module to SPIR-V.");
     auto kernel_abi = validate_spirv_xir_kernel_abi(kernel, xir_module);
@@ -295,6 +307,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             dialect.diagnostics.front().message,
             dialect.diagnostics.size());
     }
+    report_phase("handoff validation");
     StringScratch scratch;
     SpirvCodegenEntry codegen{scratch, true};
     codegen._enable_fast_math = opt.enable_fast_math;
@@ -359,6 +372,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
         kernel, xir_module);
     auto argument_roles = codegen._collect_kernel_argument_roles(
         kernel, xir_module);
+    report_phase("module and target analysis");
 
     for (auto c : analysis.used_constants) {
         if (auto t = c->type();
@@ -387,9 +401,12 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     auto *xir_kernel = static_cast<const xir::KernelFunction *>(
         analysis.used_functions_post_order.back());
     codegen.generate_binding(kernel, argument_usages, xir_kernel);
+    report_phase("binding planning");
     codegen.emit(xir_module, kernel.bound_arguments(), {}, opt.native_include);
+    report_phase("SPIR-V emission");
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
+    report_phase("SPIR-V serialization");
     if (luisa::compute::backend_print_code_enabled()) {
         std::ostringstream disasm;
         spv::Disassemble(disasm, words);
@@ -404,8 +421,10 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
     }
     luisa_spirv_validate(words, "pre-optimization");
+    report_phase("pre-optimization validation");
     auto optimizer_report = optimize_spirv(
         words, spirv_optimizer_options_from_environment());
+    report_phase("SPIR-V optimization");
     if (!optimizer_report.attempted) {
         LUISA_INFO("SPIR-V optimization skipped (preset={})",
                    optimizer_report.effective_preset);
@@ -428,6 +447,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             optimizer_report.changed ? " (changed)" : " (unchanged)");
     }
     luisa_spirv_validate(words, "post-optimization");
+    report_phase("post-optimization validation");
     codegen._required_target_features = reconcile_spirv_target_features(
         words.data(), words.size(), codegen._required_target_features);
     auto feature_check = check_spirv_target_feature_requirements(
@@ -446,6 +466,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             "feature '{}', but it is not enabled for this logical device.",
             missing.features.front().name);
     }
+    report_phase("target-feature reconciliation");
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());
     if (luisa::compute::backend_print_code_enabled()) {
