@@ -76,6 +76,10 @@ void FallbackAccel::build(luisa::unique_ptr<AccelBuildCommand> cmd) noexcept {
             _geometries.emplace_back(geometry);
         }
     }
+    // Views captured by already-submitted shader commands point to this
+    // stable descriptor field. Publish the vector's current storage only
+    // after all operations which can reallocate it.
+    _instance_data = _instances.data();
     for (auto m : cmd->modifications()) {
         using Mod = AccelBuildCommand::Modification;
         auto &instance = _instances[m.index];

@@ -593,7 +593,8 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_trace_any(const AccelVi
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_transform(const AccelView *handle, uint instance_id, float4x4 *out) noexcept {
-    auto rows = reinterpret_cast<const llvm_float4 *>(handle->instances[instance_id].affine);
+    auto instances = *handle->instances;
+    auto rows = reinterpret_cast<const llvm_float4 *>(instances[instance_id].affine);
     auto r0 = rows[0];
     auto r1 = rows[1];
     auto r2 = rows[2];
@@ -605,15 +606,15 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_transform(cons
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_user_id(const AccelView *handle, uint instance_id, uint *out) noexcept {
-    *out = handle->instances[instance_id].user_id;
+    *out = (*handle->instances)[instance_id].user_id;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_visibility_mask(const AccelView *handle, uint instance_id, uint *out) noexcept {
-    *out = handle->instances[instance_id].mask;
+    *out = (*handle->instances)[instance_id].mask;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_transform(AccelView *handle, uint instance_id, const float4x4 *transform) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     auto rows = reinterpret_cast<llvm_float4 *>(instance.affine);
     auto m = *reinterpret_cast<const llvm_float4x4 *>(transform);
     rows[0] = {m.cols[0].x, m.cols[1].x, m.cols[2].x, m.cols[3].x};
@@ -623,19 +624,19 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_transform(
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_visibility_mask(AccelView *handle, uint instance_id, uint mask) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     instance.mask = mask;
     instance.dirty = true;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_user_id(AccelView *handle, uint instance_id, uint user_id) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     instance.user_id = user_id;
     instance.dirty = true;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_opacity(AccelView *handle, uint instance_id, bool opacity) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     instance.opaque = opacity;
     instance.dirty = true;
 }

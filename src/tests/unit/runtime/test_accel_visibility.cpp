@@ -478,16 +478,71 @@ void test_accel_opacity(Device &device) {
     // Shader arguments are encoded when commands are submitted. Building a
     // fresh accel and tracing it in the same stream must not depend on a
     // pre-build instance-array pointer.
+    constexpr auto same_stream_visibility = 0x5au;
+    constexpr auto same_stream_user_id = 0x00c0ffeeu;
+    const auto same_stream_transform = make_float4x4(
+        float4{2.0f, 0.0f, 0.0f, 0.0f},
+        float4{0.0f, 3.0f, 0.0f, 0.0f},
+        float4{0.0f, 0.0f, 1.0f, 0.0f},
+        float4{0.0f, 0.0f, 0.0f, 1.0f});
     auto same_stream_accel = device.create_accel();
     same_stream_accel.emplace_back(
-        mesh, make_float4x4(1.0f), 0xffu, true);
+        mesh, same_stream_transform,
+        same_stream_visibility, true,
+        same_stream_user_id);
+    Kernel1D inspect = [](
+                           BufferUInt2 metadata,
+                           BufferFloat4x4 transforms,
+                           AccelVar accel) noexcept {
+        metadata.write(
+            0u,
+            make_uint2(
+                accel.instance_visibility_mask(0u),
+                accel.instance_user_id(0u)));
+        transforms.write(
+            0u, accel.instance_transform(0u));
+    };
+    auto inspect_shader = device.compile(inspect);
+    auto metadata = device.create_buffer<uint2>(1u);
+    auto transforms =
+        device.create_buffer<float4x4>(1u);
     std::array<uint4, 2u> same_stream_results{};
+    std::array<uint2, 1u> same_stream_metadata{};
+    std::array<float4x4, 1u> same_stream_transforms{};
     stream << same_stream_accel.build()
-           << trace_shader(results, same_stream_accel).dispatch(1u)
+           << trace_shader(
+                  results, same_stream_accel)
+                  .dispatch(1u)
+           << inspect_shader(
+                  metadata, transforms,
+                  same_stream_accel)
+                  .dispatch(1u)
            << results.copy_to(luisa::span{same_stream_results})
+           << metadata.copy_to(
+                  luisa::span{same_stream_metadata})
+           << transforms.copy_to(
+                  luisa::span{same_stream_transforms})
            << synchronize();
     verify_results(
         same_stream_results, 0u, "same-stream host opaque build");
+    expect(static_cast<bool>(
+        all(
+            same_stream_metadata[0] ==
+            make_uint2(
+                same_stream_visibility,
+                same_stream_user_id))))
+        << luisa::format(
+               "same-stream accel metadata view is stale: got {}",
+               same_stream_metadata[0]);
+    for (auto column = 0u; column < 4u; column++) {
+        expect(static_cast<bool>(
+            all(
+                same_stream_transforms[0][column] ==
+                same_stream_transform[column])))
+            << luisa::format(
+                   "same-stream accel transform column {} is stale",
+                   column);
+    }
 
     accel.set_opaque_on_update(0u, false);
     stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);

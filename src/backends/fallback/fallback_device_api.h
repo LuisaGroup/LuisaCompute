@@ -191,7 +191,12 @@ static_assert(sizeof(AccelInstance) == 64u);
 
 struct alignas(16) AccelView {
     void *embree_scene;
-    AccelInstance *instances;
+    // The instance vector is populated and may be reallocated by an
+    // asynchronous accel-build command. Shader arguments are encoded when
+    // they are submitted, before that command necessarily runs, so retain a
+    // stable pointer to the backend-owned data pointer rather than snapshotting
+    // the current (possibly null or soon stale) vector address.
+    AccelInstance **instances;
 };
 
 void luisa_fallback_accel_trace_closest(void *handle, EmbreeRayHit *ray_hit) noexcept;
