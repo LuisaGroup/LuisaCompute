@@ -25,9 +25,14 @@ struct RestructureCFGInfo {
     // Rebuilds are lazy: a post-mutation candidate pays for one only when its
     // merge cannot be inferred from the current dominance tree.
     size_t if_batch_post_dom_rebuild_count{0u};
-    // Full XIR verifier invocations at the transactional pass boundaries.
+    // Physical invocations of the per-definition mutating transform. A
+    // successful transactional pass invokes it twice per definition (shadow
+    // validation plus identity-preserving replay); an in-place pass invokes
+    // it once. This is a diagnostic operation count, not a change count.
+    size_t definition_transform_invocation_count{0u};
+    // Full XIR verifier invocations at the public pass boundaries.
     // A successful public function/module pass has exactly two: one for the
-    // complete input and one for the complete shadow output.
+    // complete input and one for the complete candidate output.
     size_t boundary_verifier_count{0u};
     // Additional per-definition verifier invocations are diagnostic only and
     // disabled by default. Set LUISA_XIR_VERIFY_INTERMEDIATE=1 to enable them.
@@ -63,19 +68,36 @@ struct RestructureCFGInfo {
     }
 };
 
+enum struct RestructureCFGMutationMode {
+    // Preserve the input on every failure. The pass transforms and validates
+    // shadow definitions, then deterministically replays the successful
+    // transformation onto the original definitions to preserve object
+    // identity.
+    TRANSACTIONAL,
+    // Transform the original definitions exactly once. Boundary verification
+    // is unchanged, but a transform or output-verifier failure may leave a
+    // partially rewritten input. This mode is only valid when the caller has
+    // exclusive ownership and will discard the whole module on failure.
+    IN_PLACE_DISCARDABLE,
+};
+
 struct RestructureCFGOptions {
     // These are safety bounds, not semantic tuning knobs. Exhaustion rejects
-    // the transaction and leaves the input function/module unchanged.
+    // the pass; whether the input is preserved is selected by mutation_mode.
     size_t main_iteration_limit{10000u};
     size_t post_iteration_limit{64u};
+    RestructureCFGMutationMode mutation_mode{
+        RestructureCFGMutationMode::TRANSACTIONAL};
 };
 
 // Converts reducible plain CFG regions into structured control flow. A function
 // containing an irreducible (multi-entry) cyclic SCC is rejected before any IR
-// mutation and reported through irreducible_region_count. The complete pass is
-// transactional: any late failure, including an exhausted safety bound or
-// output-verifier rejection, discards the shadow CFG. Declaration-like
-// callables with no body own no CFG and are successful no-ops.
+// mutation and reported through irreducible_region_count. The default mutation
+// mode is transactional: any late failure, including an exhausted safety bound
+// or output-verifier rejection, discards the shadow CFG. The explicitly
+// selected in-place mode may mutate on failure and therefore requires a
+// disposable, exclusively owned input. Declaration-like callables with no body
+// own no CFG and are successful no-ops.
 [[nodiscard]] LUISA_XIR_API RestructureCFGInfo restructure_cfg_pass_run_on_function(
     Function *function,
     const RestructureCFGOptions &options = {}) noexcept;

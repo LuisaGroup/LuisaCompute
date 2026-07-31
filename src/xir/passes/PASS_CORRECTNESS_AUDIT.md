@@ -375,3 +375,30 @@ Incremental validation evidence on 2026-08-01:
   `EASTL@d9d9a86560f5fe23d1eb559b20ae89e9e3676f5f`. It is recorded as a
   separate baseline defect and is not reported as passing validation for this
   XIR change.
+- `restructure_cfg` now models mutation ownership explicitly. Its default
+  `TRANSACTIONAL` mode retains shadow validation plus identity-preserving replay
+  and leaves the input unchanged on every failure.
+  `IN_PLACE_DISCARDABLE` retains the complete input/output verifier boundaries
+  but invokes the mutating definition transform once; it is valid only for an
+  exclusively owned module that the caller discards on failure. Native SPIR-V
+  legalization satisfies that ownership contract and aborts code generation
+  on any failed pass.
+- On the same 15-definition, 6.83 MB Lone Monk path kernel,
+  `restructure-cfg` fell from `34,336.31 ms` to `17,684.16 ms`, XIR
+  legalization from `59,494.996 ms` to `42,961.471 ms`, and complete native
+  AST-to-SPIR-V compilation from `75,476.640 ms` to `58,758.916 ms`.
+  `definition_transform_invocation` reported 15 rather than 30 while
+  `boundary_verifier` remained 2. The resulting SPIR-V artifact is
+  byte-identical to the transactional baseline
+  (`SHA-256`
+  `10840657fcb78b5e5ba5e759ddf8987dc29de717af1e606976f5c4412f872cc7`).
+- The same first cold compile immediately persisted both the 6.83 MB SPIR-V
+  artifact and its 6.85 MB Vulkan pipeline cache. A second process with Mesa's
+  disk shader cache explicitly disabled created the large compute pipeline in
+  `1.702 ms` and completed shader JIT in `1.396 s`; before first-compile PSO
+  persistence, the corresponding path took `41,287.313 ms` and `42.710 s`.
+- The complete 32-thread build and `ctest -L unit_xir -j32` passed 48/48.
+  `test_xir_pass_restructure_cfg` passed 57 tests/1,076 assertions,
+  `test_xir_pass_mutation_safety` passed 26 tests/172 assertions,
+  `test_vk_shader_cache vk` passed 1 test/8 assertions, and
+  `test_vk_spirv_codegen_path vk` passed 86 tests/2,029 assertions.

@@ -431,7 +431,15 @@ void add_reg2mem(xir::PassPipeline &pipeline, luisa::string name) noexcept {
 
 void add_restructure_cfg(xir::PassPipeline &pipeline) noexcept {
     pipeline.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+        // AST-to-XIR produces a fresh, exclusively owned legalization module.
+        // A failed pass terminates code generation below, so the module is
+        // discarded and does not need transactional shadow/replay. Successful
+        // inputs still receive the same complete pre/post boundary checks.
+        auto i = xir::restructure_cfg_pass_run_on_module(
+            m, &r,
+            {.mutation_mode =
+                 xir::RestructureCFGMutationMode::
+                     IN_PLACE_DISCARDABLE});
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "SPIR-V XIR restructuring failed (irreducible={}, "

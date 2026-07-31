@@ -5491,6 +5491,7 @@ restructure_cfg_on_definition_in_place(
     trace_cfg("input", def);
     auto info = preflight_restructure_cfg(
         def, verify_intermediate);
+    info.definition_transform_invocation_count = 1u;
     if (info.invalid_construct_count != 0u) {
         LUISA_WARNING_WITH_LOCATION(
             "restructure_cfg rejected {} Phi node(s), malformed construct(s), "
@@ -5858,6 +5859,38 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
     preflight.boundary_verifier_count = 1u;
     if (!preflight.succeeded()) { return preflight; }
 
+    if (options.mutation_mode ==
+        RestructureCFGMutationMode::IN_PLACE_DISCARDABLE) {
+        // The caller has declared the input disposable on failure, so run the
+        // mutating engine once on the original definition. The same complete
+        // boundary verification contract still applies on success.
+        auto info = restructure_cfg_on_definition_in_place(
+            def, options, verify_intermediate);
+        info.boundary_verifier_count = 1u;
+        info.intermediate_verifier_count +=
+            preflight.intermediate_verifier_count;
+        if (info.succeeded()) {
+            XIRVerificationResult output_verification;
+            {
+                ScopedTimer _timer_verify(
+                    "pass_output_verify_function");
+                output_verification = xir_verify_function(
+                    function,
+                    {.require_no_phi = true,
+                     .require_unique_merge_blocks = true,
+                     .require_canonical_break_continue_targets = true});
+            }
+            ++info.boundary_verifier_count;
+            if (!output_verification.succeeded()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "restructure_cfg output verifier rejected the function: {}",
+                    output_verification.errors.front().message);
+                ++info.invalid_construct_count;
+            }
+        }
+        return info;
+    }
+
     auto *module = def->parent_module();
     auto constant_snapshot = snapshot_constants(module);
     ShadowDefinition shadow;
@@ -5927,6 +5960,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
     committed.boundary_verifier_count = 2u;
     committed.intermediate_verifier_count +=
         intermediate_verifier_count;
+    committed.definition_transform_invocation_count +=
+        info.definition_transform_invocation_count;
     return committed;
 }
 
@@ -5949,6 +5984,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         report->set(
             "if_batch_post_dom_rebuild",
             info.if_batch_post_dom_rebuild_count);
+        report->set(
+            "definition_transform_invocation",
+            info.definition_transform_invocation_count);
         report->set(
             "boundary_verifier",
             info.boundary_verifier_count);
@@ -6002,6 +6040,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.construct_entry_dom_tree_count;
         dst.if_batch_post_dom_rebuild_count +=
             src.if_batch_post_dom_rebuild_count;
+        dst.definition_transform_invocation_count +=
+            src.definition_transform_invocation_count;
         dst.boundary_verifier_count +=
             src.boundary_verifier_count;
         dst.intermediate_verifier_count +=
@@ -6091,6 +6131,52 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         return total;
     }
 
+    if (options.mutation_mode ==
+        RestructureCFGMutationMode::IN_PLACE_DISCARDABLE) {
+        // This module is exclusively owned and will be discarded by the
+        // caller on failure. Preserve the one-input/one-output verifier
+        // boundary contract while avoiding the shadow/replay double transform.
+        auto preflight_intermediate_verifier_count =
+            total.intermediate_verifier_count;
+        total = {};
+        total.boundary_verifier_count = 1u;
+        total.intermediate_verifier_count =
+            preflight_intermediate_verifier_count;
+        for (auto *def : definitions) {
+            auto info = restructure_cfg_on_definition_in_place(
+                def, options, verify_intermediate);
+            accumulate(total, info);
+            if (!info.succeeded()) { break; }
+        }
+        if (total.succeeded()) {
+            luisa::vector<const Function *> candidate_outputs;
+            candidate_outputs.reserve(definitions.size());
+            for (auto *def : definitions) {
+                candidate_outputs.emplace_back(
+                    static_cast<const Function *>(def));
+            }
+            XIRVerificationResult output_verification;
+            {
+                ScopedTimer _timer_verify(
+                    "pass_output_verify_module");
+                output_verification = xir_verify_functions(
+                    candidate_outputs,
+                    {.require_no_phi = true,
+                     .require_unique_merge_blocks = true,
+                     .require_canonical_break_continue_targets = true});
+            }
+            ++total.boundary_verifier_count;
+            if (!output_verification.succeeded()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "restructure_cfg output verifier rejected the module: {}",
+                    output_verification.errors.front().message);
+                ++total.invalid_construct_count;
+            }
+        }
+        set_report(total);
+        return total;
+    }
+
     auto constant_snapshot = snapshot_constants(module);
     luisa::vector<ShadowDefinition> shadows;
     shadows.reserve(definitions.size());
@@ -6173,6 +6259,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
 
     auto dry_run_intermediate_verifier_count =
         total.intermediate_verifier_count;
+    auto dry_run_transform_invocation_count =
+        total.definition_transform_invocation_count;
     discard_shadow_definitions(shadows);
     rollback_new_constants(module, constant_snapshot);
 
@@ -6189,6 +6277,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "successful transactional dry run.");
         accumulate(total, info);
     }
+    total.definition_transform_invocation_count +=
+        dry_run_transform_invocation_count;
     set_report(total);
     return total;
 }
