@@ -217,7 +217,7 @@ invitation to approximate the transformation.
 | Area | Acceptance argument | Rejection / transaction boundary | Representative regressions |
 | --- | --- | --- | --- |
 | Structured versus raw CFG | `SwitchInst` owns a merge role; its selector and case/default operands are executable edges. `IndexedBranchInst` has the same executable multi-way edges and deliberately has no merge role. Destructuring changes only that role distinction. | Plain-CFG-only passes scan every owned block before mutation. `restructure_cfg` runs on a shadow module and commits only verifier-valid output. | `destructure_switch_preserves_multiway_edges_as_indexed_branch`, `restructure_rebuilds_switch_from_indexed_branch`, `restructure_roundtrips_loop_switch_nested_break_continue` |
-| Post-merge selection re-entry | For a selection `(H, M)`, an edge `(P, E)` crosses back into its interior exactly when `H` and `M` dominate `P`, `H` dominates `E`, and `M` does not dominate `E`. Exit-dispatch arms are searched through finite, side-effect-free forwarding chains, so a fallback proxy cannot hide the crossing. The deepest owning selection is split first; the `E`-owned region is cloned with `H`, `M`, and sibling entries as its frontier, and `P` is retargeted to the `M`-dominated copy. This removes the offending edge rather than recreating it behind another merge. | Forwarding walks and clone discovery are cycle-guarded. Node splitting is applied one boundary edge at a time and the enclosing fixed point retains its hard bound; the shadow-module transaction rejects rather than commits any graph that still has a post-merge re-entry. | `restructure_nested_selection_exit_to_shared_continuation_converges`, `restructure_splits_dispatch_reentry_through_fallback_proxy`, `restructure_does_not_reenter_selection_after_its_merge` |
+| Post-merge selection re-entry | For a selection `(H, M)`, an edge `(P, E)` crosses back into its interior exactly when `H` and `M` dominate `P`, `H` dominates `E`, and `M` does not dominate `E`. The possible `H` values are exactly the dominator-tree ancestors of `E`; walking them deepest-first therefore selects the same deepest owner as an all-block scan. Loop-boundary membership is materialized once for each immutable CFG version. Exit-dispatch arms are searched through finite, side-effect-free forwarding chains, so a fallback proxy cannot hide the crossing. The `E`-owned region is cloned with `H`, `M`, and sibling entries as its frontier, and `P` is retargeted to the `M`-dominated copy. | Forwarding walks and clone discovery are cycle-guarded. Node splitting is applied one boundary edge at a time and the enclosing fixed point retains its hard bound; after every mutation, dominance and the exact loop-boundary relation are rebuilt before the next query. The shadow-module transaction rejects rather than commits any graph that still has a post-merge re-entry. | `restructure_nested_selection_exit_to_shared_continuation_converges`, `restructure_splits_dispatch_reentry_through_fallback_proxy` (including 128 reachable sibling selections outside the owner chain), `restructure_does_not_reenter_selection_after_its_merge` |
 | Dominance, loops, and SSA | Dominance is computed over executable successors. Natural loops are reachable dominated back-edge closures; counted-loop consumers additionally require one preheader, one latch, one header-owned exit edge, a matching Phi recurrence, and a no-wrap trip count. | Multiple latches/exits, irreducible SCCs, malformed Phis, and exhausted restructuring bounds are rejected before commit. | `natural_loop_discovers_multiple_latches_but_rejects_canonical_bounds`, `natural_loop_rejects_multiple_exit_edges_to_one_block`, `restructure_irreducible_scc_rejected_atomically` |
 | SSA storage metadata | `NameMD` is non-semantic storage identity. `mem2reg` may promote an alloca whose only annotation is one consistent name and transfers that name to every inserted Phi. A `reg2mem` spill reload with that same single name may recover the original Phi name. | Any other alloca/load/store metadata, or conflicting spill names, blocks promotion. If no replacement Phi exists, a storage-only name is deliberately dropped with the removed storage. | `mem2reg_promotes_named_alloca_and_names_inserted_phi`, `reg2mem_mem2reg_roundtrip_recovers_phi_name`, annotated load/store retention tests |
 | Scalar and arithmetic rewrites | Replacements preserve the complete scalar/vector/matrix type. Integer evaluation uses declared widths and unsigned bit arithmetic where C++ signed overflow would be undefined. Strict floating-point rewrites preserve NaN, infinity, subnormal, and signed-zero behavior. | Target-dependent transcendental results and rewrites requiring reassociation remain in IR unless fast math explicitly authorizes them. Division by zero, `INT_MIN / -1`, and out-of-range shifts are not folded. | `constfold_signed_overflow_wraps_without_ub`, `constfold_shift_count_uses_its_declared_integer_width`, `algsimpl_float_mul_zero_keeps_nan_inf_semantics`, `constfold_rint_is_host_rounding_mode_independent` |
@@ -262,6 +262,13 @@ invitation to approximate the transformation.
   domain. Multi-target exit dispatches now follow their final unconditional
   fallback proxy and split the exact dominance boundary when it re-enters a
   selection after that selection's new merge.
+- Post-merge re-entry discovery no longer scans every owned block and
+  re-traverses every loop region for each forwarding edge. Candidate owners
+  are the exact dominator-ancestor relation of the edge destination, ordered
+  deepest-first, and loop-boundary membership is materialized once per
+  immutable CFG version. The pass report exposes relation-build, edge-query,
+  and owner-query counts so scale regressions can distinguish structural
+  nesting from unrelated graph width.
 - The SPIR-V structural closure no longer omits raw indexed-branch targets, and
   final codegen fails closed if an un-restructured indexed branch survives.
 - Vulkan bindless-property validation now compares the unbounded
@@ -344,3 +351,27 @@ Incremental validation evidence on 2026-07-31:
   iterations (`155 -> 317 -> 370 -> 371 -> 371` blocks), passed SPIR-V
   validation, and compiled successfully on RADV GFX1201. The restructure phase
   took 420 ms of 526 ms XIR legalization; complete shader JIT took 0.805 s.
+
+Incremental validation evidence on 2026-08-01:
+
+- A production Psycles volume-path cache miss exposed a width-scaling defect
+  in post-merge selection re-entry discovery. Across the same six native
+  XIR-to-SPIR-V module passes, `split_exit_dispatch_selection_reentries`
+  consumed `30,399.418 ms` before the fix and `168.987 ms` after it.
+- The complete `restructure_cfg_pass_run_on_module` time fell from
+  `36,533.716 ms` to `6,269.162 ms`; whole-process wall time fell from
+  `40.49 s` to `9.86 s`. Both measurements used
+  `LUISA_XIR_TRACE_PASSES=1`, `LUISA_SPIRV_OPT_LEVEL=2`, an isolated empty
+  cache, the same generated kernels, and the same RADV device.
+- `test_xir_pass_restructure_cfg`: 57 tests and 1,076 assertions passed. Its
+  fallback-proxy fixture now includes 128 reachable sibling selections that
+  cannot dominate the re-entered block and pins owner queries to the
+  destination's dominator-ancestor chain.
+- A complete configured 32-thread build succeeded in `112.58 s`;
+  `ctest -L unit_xir -j32` passed `48/48` tests in `0.46 s`.
+- The wider `unit` label passed `115/116`; the deterministic unrelated
+  `test_eastl_allocation` failure is confined to eight `fixed_vector`
+  assumptions against the currently pinned
+  `EASTL@d9d9a86560f5fe23d1eb559b20ae89e9e3676f5f`. It is recorded as a
+  separate baseline defect and is not reported as passing validation for this
+  XIR change.

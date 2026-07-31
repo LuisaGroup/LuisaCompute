@@ -4210,7 +4210,6 @@ struct PostMergeSelectionReentry {
     BasicBlock *reentered_block{nullptr};
     BasicBlock *reentry_predecessor{nullptr};
     luisa::vector<BasicBlock *> entries;
-    size_t depth{0u};
 };
 
 // An exit-state dispatch can re-enter an arm of a selection that has already
@@ -4240,6 +4239,13 @@ struct PostMergeSelectionReentry {
     RestructureCFGInfo &info,
     const luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
+    if (exit_dispatch_headers.empty()) { return false; }
+    // Loop-boundary membership is a relation of the current immutable CFG.
+    // Materialize it once rather than traversing every loop region for every
+    // selection considered by every dispatch edge.
+    ++info.selection_reentry_boundary_analysis_count;
+    const auto loop_boundary_selection_entries =
+        collect_loop_boundary_selection_entries(def);
     for (auto *dispatch : exit_dispatch_headers) {
         if (dispatch == nullptr || !dispatch->is_terminated() ||
             !dispatch->terminator()
@@ -4265,68 +4271,66 @@ struct PostMergeSelectionReentry {
                     terminator_targets(
                         reentry_predecessor->terminator(),
                         reentered_block)) {
-                    def->traverse_basic_blocks(
-                        [&](BasicBlock *candidate_header) noexcept {
-                            if (candidate_header == nullptr ||
-                                !candidate_header->is_terminated() ||
-                                !dom.contains(candidate_header) ||
-                                candidate_header ==
-                                    reentered_block ||
-                                exit_dispatch_headers.contains(
-                                    candidate_header) ||
-                                is_loop_boundary_selection_entry(
-                                    candidate_header, def)) {
-                                return;
-                            }
-                            auto *term =
-                                candidate_header->terminator();
-                            if (!term->isa<IfInst>() &&
-                                !term->isa<SwitchInst>()) {
-                                return;
-                            }
-                            auto *merge =
-                                structured_statement_merge(term);
-                            // An edge (P, E) is a post-merge re-entry exactly
-                            // when H and M dominate P while H, but not M,
-                            // dominates E. Searching each edge of the
-                            // side-effect-free proxy chain finds the first
-                            // actual boundary crossing rather than assuming
-                            // the dispatch directly names a declared arm.
-                            if (merge == nullptr ||
-                                !dom.contains(merge) ||
-                                !dom.dominates(
-                                    candidate_header,
-                                    reentry_predecessor) ||
-                                !dom.dominates(
-                                    merge,
-                                    reentry_predecessor) ||
-                                !dom.dominates(
-                                    candidate_header,
-                                    reentered_block) ||
-                                dom.dominates(
-                                    merge,
-                                    reentered_block)) {
-                                return;
-                            }
-                            auto depth =
-                                dom_depth(dom, candidate_header);
-                            if (reentry.header != nullptr &&
-                                depth <= reentry.depth) {
-                                return;
-                            }
-                            luisa::vector<BasicBlock *> entries;
-                            collect_construct_entries(
-                                candidate_header, entries);
-                            reentry = {
-                                .header = candidate_header,
-                                .merge = merge,
-                                .reentered_block =
-                                    reentered_block,
-                                .reentry_predecessor =
-                                    reentry_predecessor,
-                                .entries = std::move(entries),
-                                .depth = depth};
-                        });
+                    ++info.selection_reentry_edge_query_count;
+                    // H dominates E iff H is an ancestor of E in the
+                    // dominator tree. Walk those ancestors from deepest to
+                    // shallowest: the first selection satisfying the other
+                    // three dominance predicates is therefore exactly the
+                    // deepest owner chosen by the former all-block scan.
+                    for (auto *candidate_node =
+                             dom.node(reentered_block)->parent();
+                         candidate_node != nullptr;
+                         candidate_node =
+                             candidate_node->parent()) {
+                        auto *candidate_header =
+                            candidate_node->block();
+                        if (candidate_header == nullptr ||
+                            !candidate_header->is_terminated() ||
+                            exit_dispatch_headers.contains(
+                                candidate_header) ||
+                            loop_boundary_selection_entries.contains(
+                                candidate_header)) {
+                            continue;
+                        }
+                        auto *term =
+                            candidate_header->terminator();
+                        if (!term->isa<IfInst>() &&
+                            !term->isa<SwitchInst>()) {
+                            continue;
+                        }
+                        ++info.selection_reentry_owner_query_count;
+                        auto *merge =
+                            structured_statement_merge(term);
+                        // An edge (P, E) is a post-merge re-entry exactly
+                        // when H and M dominate P while H, but not M,
+                        // dominates E. H dominates E by construction of this
+                        // ancestor walk.
+                        if (merge == nullptr ||
+                            !dom.contains(merge) ||
+                            !dom.dominates(
+                                candidate_header,
+                                reentry_predecessor) ||
+                            !dom.dominates(
+                                merge,
+                                reentry_predecessor) ||
+                            dom.dominates(
+                                merge,
+                                reentered_block)) {
+                            continue;
+                        }
+                        luisa::vector<BasicBlock *> entries;
+                        collect_construct_entries(
+                            candidate_header, entries);
+                        reentry = {
+                            .header = candidate_header,
+                            .merge = merge,
+                            .reentered_block =
+                                reentered_block,
+                            .reentry_predecessor =
+                                reentry_predecessor,
+                            .entries = std::move(entries)};
+                        break;
+                    }
                 }
                 auto *next =
                     trivial_branch_target(reentered_block);
@@ -5961,6 +5965,15 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_enclosing_loop_query",
             info.selection_exit_enclosing_loop_query_count);
         report->set(
+            "selection_reentry_boundary_analysis",
+            info.selection_reentry_boundary_analysis_count);
+        report->set(
+            "selection_reentry_edge_query",
+            info.selection_reentry_edge_query_count);
+        report->set(
+            "selection_reentry_owner_query",
+            info.selection_reentry_owner_query_count);
+        report->set(
             "irreducible_region", info.irreducible_region_count);
         report->set(
             "unstructured_branch", info.unstructured_branch_count);
@@ -5999,6 +6012,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_site_query_count;
         dst.selection_exit_enclosing_loop_query_count +=
             src.selection_exit_enclosing_loop_query_count;
+        dst.selection_reentry_boundary_analysis_count +=
+            src.selection_reentry_boundary_analysis_count;
+        dst.selection_reentry_edge_query_count +=
+            src.selection_reentry_edge_query_count;
+        dst.selection_reentry_owner_query_count +=
+            src.selection_reentry_owner_query_count;
         dst.irreducible_region_count +=
             src.irreducible_region_count;
         dst.unstructured_branch_count +=

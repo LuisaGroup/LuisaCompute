@@ -2034,6 +2034,8 @@ void reg_restructure_cfg() {
         auto *def = k->definition();
         auto *selector =
             k->create_value_argument(Type::of<uint32_t>());
+        auto *root_condition =
+            k->create_value_argument(Type::of<bool>());
         auto *nested_condition =
             k->create_value_argument(Type::of<bool>());
         auto *query_type =
@@ -2044,6 +2046,14 @@ void reg_restructure_cfg() {
 
         b.set_insertion_point(body);
         auto *query_slot = b.alloca_local(query_type);
+        auto *root = b.if_(root_condition);
+        auto *scenario_body =
+            root->create_true_block();
+        auto *noise_body =
+            root->create_false_block();
+        auto *root_merge =
+            root->create_merge_block();
+        b.set_insertion_point(scenario_body);
         auto *selection = b.switch_(selector);
         auto *first_return_arm =
             selection->create_case_block(1u);
@@ -2088,6 +2098,29 @@ void reg_restructure_cfg() {
         b.return_void();
         b.set_insertion_point(second_return);
         b.return_void();
+        constexpr auto noise_selection_count =
+            size_t{128u};
+        b.set_insertion_point(noise_body);
+        for (auto i = size_t{0u};
+             i < noise_selection_count;
+             ++i) {
+            auto *noise =
+                b.if_(nested_condition);
+            auto *noise_true =
+                noise->create_true_block();
+            auto *noise_false =
+                noise->create_false_block();
+            auto *noise_merge =
+                noise->create_merge_block();
+            b.set_insertion_point(noise_true);
+            b.br(noise_merge);
+            b.set_insertion_point(noise_false);
+            b.br(noise_merge);
+            b.set_insertion_point(noise_merge);
+        }
+        b.return_void();
+        b.set_insertion_point(root_merge);
+        b.unreachable_();
 
         expect(xir_verify_module(&m).succeeded());
         auto initial_block_count = count_owned_blocks(def);
@@ -2099,6 +2132,23 @@ void reg_restructure_cfg() {
         expect(first.unstructured_branch_count == 0u);
         expect(count_post_merge_selection_reentries(k) ==
                0u);
+        expect(
+            first.selection_reentry_boundary_analysis_count >
+            0u);
+        expect(
+            first.selection_reentry_edge_query_count >
+            0u);
+        // The 128 structured selections in the sibling root arm are
+        // reachable but cannot dominate the re-entered block. Owner queries
+        // therefore follow only the destination's dominator ancestors and
+        // remain independent of that unrelated graph width.
+        expect(
+            first.selection_reentry_owner_query_count <
+            noise_selection_count);
+        expect(
+            first.selection_reentry_owner_query_count <=
+            first.selection_reentry_edge_query_count *
+                8u);
         auto query_alloca_count = size_t{0u};
         def->traverse_instructions(
             [&](Instruction *instruction) noexcept {

@@ -38,6 +38,13 @@ struct RestructureCFGInfo {
     size_t selection_exit_boundary_analysis_count{0u};
     size_t selection_exit_site_query_count{0u};
     size_t selection_exit_enclosing_loop_query_count{0u};
+    // Post-merge selection re-entry scans materialize loop-boundary
+    // membership once per immutable CFG version, then inspect only dominator
+    // ancestors of each forwarding edge destination. These operation counts
+    // make that complexity contract observable to scale regressions.
+    size_t selection_reentry_boundary_analysis_count{0u};
+    size_t selection_reentry_edge_query_count{0u};
+    size_t selection_reentry_owner_query_count{0u};
     size_t irreducible_region_count{0u};
     size_t unstructured_branch_count{0u};
     size_t invalid_construct_count{0u};
