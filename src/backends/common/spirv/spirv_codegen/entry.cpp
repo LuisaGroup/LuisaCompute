@@ -188,7 +188,8 @@ SpirvCodegenEntry::_collect_kernel_argument_usages(Function kernel, const xir::M
         auto ast_arg = ast_args[i];
         auto usage = kernel.variable_usage(ast_arg.uid());
         if (i < xir_args.size()) {
-            auto xir_usage = _function_argument_usage_of(xir_kernel, xir_args[i]);
+            auto xir_usage = spirv_function_argument_usage_of(
+                _function_argument_usage, xir_kernel, xir_args[i]);
             if (ast_arg.type()->is_accel()) {
                 // Native accel descriptors are an exact optimized-XIR plan.
                 // Keeping dead AST reads here would make Usage disagree with

@@ -42,6 +42,7 @@ struct CompiledSpirv {
     std::vector<uint32_t> words;
     lc::spirv::SpirvTargetFeatureMask required_features{};
     std::vector<lc::hlsl::ShaderVariableType> property_types;
+    vstd::vector<Usage> argument_usages;
     vstd::vector<lc::spirv::SpirvKernelArgumentRoleMask> argument_roles;
 };
 
@@ -106,11 +107,18 @@ template<typename Kernel>
     for (auto property : result.properties) {
         property_types.emplace_back(property.type);
     }
+    vstd::vector<Usage> argument_usages;
+    argument_usages.reserve(result.argument_usages.size());
+    for (auto &&[argument, usage] : result.argument_usages) {
+        static_cast<void>(argument);
+        argument_usages.emplace_back(usage);
+    }
     return {
         .text = std::move(text),
         .words = std::move(result.spv_bin),
         .required_features = result.required_target_features,
         .property_types = std::move(property_types),
+        .argument_usages = std::move(argument_usages),
         .argument_roles = std::move(result.argument_roles)};
 }
 
@@ -1118,6 +1126,10 @@ int main(int argc, char *argv[]) {
         expect(eq(
             dead.argument_roles.front(),
             lc::spirv::kernel_argument_role::none));
+        expect(!dead.argument_usages.empty());
+        expect(dead.argument_usages.front() == Usage::NONE)
+            << "optimized-away accel traversal must not retain a synthetic "
+               "read usage beside its exact zero-role mask";
 
         Kernel1D unused_accel = [](AccelVar, BufferUInt output) noexcept {
             output.write(0u, 7u);
@@ -1136,6 +1148,9 @@ int main(int argc, char *argv[]) {
         expect(eq(
             unused.argument_roles.front(),
             lc::spirv::kernel_argument_role::none));
+        expect(!unused.argument_usages.empty());
+        expect(unused.argument_usages.front() == Usage::NONE)
+            << "unused accel must preserve the optimized XIR usage exactly";
 
         Kernel1D read_instance = [](AccelVar accel,
                                     BufferUInt output) noexcept {
@@ -1157,6 +1172,8 @@ int main(int argc, char *argv[]) {
         expect(eq(
             read.argument_roles.front(),
             lc::spirv::kernel_argument_role::accel_instance));
+        expect(!read.argument_usages.empty());
+        expect(read.argument_usages.front() == Usage::READ);
 
         Kernel1D write_instance = [](AccelVar accel) noexcept {
             accel.set_instance_visibility(0u, 0xa5u);
@@ -1177,6 +1194,8 @@ int main(int argc, char *argv[]) {
         expect(eq(
             write.argument_roles.front(),
             lc::spirv::kernel_argument_role::accel_instance));
+        expect(!write.argument_usages.empty());
+        expect(write.argument_usages.front() == Usage::WRITE);
     };
 
     "spirv_target_features_sampler_selectors_are_exact"_test = [] {
