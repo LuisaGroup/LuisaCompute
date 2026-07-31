@@ -11,10 +11,14 @@ class DomTree;
 class LUISA_XIR_API DomTreeNode : public concepts::Noncopyable {
 
 private:
+    friend class DomTree;
+
     BasicBlock *_block;
     const DomTreeNode *_parent;
     luisa::vector<const DomTreeNode *> _children;
     luisa::vector<const DomTreeNode *> _frontiers;
+    size_t _preorder_index;
+    size_t _subtree_end_index;
 
 public:
     explicit DomTreeNode(BasicBlock *block) noexcept;
@@ -38,6 +42,7 @@ public: /* for internal usage only */
     DomTree() noexcept;
     DomTreeNode *add_or_get_node(BasicBlock *block) noexcept;
     void set_root(DomTreeNode *root) noexcept;
+    void compute_ancestry_intervals() noexcept;
     void compute_dominance_frontiers() noexcept;
 
 public:

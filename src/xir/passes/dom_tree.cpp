@@ -4,7 +4,10 @@
 namespace luisa::compute::xir {
 
 inline DomTreeNode::DomTreeNode(BasicBlock *block) noexcept
-    : _block{block}, _parent{nullptr} {}
+    : _block{block},
+      _parent{nullptr},
+      _preorder_index{SIZE_MAX},
+      _subtree_end_index{SIZE_MAX} {}
 
 inline void DomTreeNode::add_child(DomTreeNode *child) noexcept {
     LUISA_DEBUG_ASSERT(child != nullptr && child->_parent == nullptr && child != this, "Invalid child.");
@@ -33,6 +36,38 @@ inline void DomTree::set_root(DomTreeNode *root) noexcept {
     LUISA_DEBUG_ASSERT(_root == nullptr, "Root already exists.");
     LUISA_DEBUG_ASSERT(root != nullptr, "Invalid root.");
     _root = root;
+}
+
+inline void DomTree::compute_ancestry_intervals() noexcept {
+    LUISA_DEBUG_ASSERT(_root != nullptr, "Root not found.");
+    struct StackFrame {
+        DomTreeNode *node;
+        size_t next_child_index;
+    };
+    auto next_preorder_index = size_t{0u};
+    auto root = const_cast<DomTreeNode *>(_root);
+    root->_preorder_index = next_preorder_index++;
+    luisa::vector<StackFrame> stack;
+    stack.emplace_back(root, 0u);
+    while (!stack.empty()) {
+        auto &frame = stack.back();
+        if (frame.next_child_index < frame.node->_children.size()) {
+            auto child = const_cast<DomTreeNode *>(
+                frame.node->_children[frame.next_child_index++]);
+            LUISA_DEBUG_ASSERT(
+                child->_preorder_index == SIZE_MAX &&
+                    child->_subtree_end_index == SIZE_MAX,
+                "Dominator tree node visited more than once.");
+            child->_preorder_index = next_preorder_index++;
+            stack.emplace_back(child, 0u);
+        } else {
+            frame.node->_subtree_end_index = next_preorder_index;
+            stack.pop_back();
+        }
+    }
+    LUISA_DEBUG_ASSERT(
+        next_preorder_index == _nodes.size(),
+        "Dominator tree contains nodes unreachable from its root.");
 }
 
 inline void DomTree::compute_dominance_frontiers() noexcept {
@@ -77,15 +112,19 @@ bool DomTree::contains(BasicBlock *block) const noexcept {
 
 bool DomTree::dominates(BasicBlock *src, BasicBlock *dst) const noexcept {
     if (!contains(src) || !contains(dst)) { return false; }
-    if (src == dst) { return true; }
     auto src_node = node(src);
     auto dst_node = node(dst);
-    if (src_node == _root) { return true; }
-    while (dst_node != _root) {
-        if (dst_node == src_node) { return true; }
-        dst_node = dst_node->parent();
-    }
-    return false;
+    LUISA_DEBUG_ASSERT(
+        src_node->_preorder_index != SIZE_MAX &&
+            src_node->_subtree_end_index != SIZE_MAX &&
+            dst_node->_preorder_index != SIZE_MAX &&
+            dst_node->_subtree_end_index != SIZE_MAX,
+        "Dominator tree ancestry intervals have not been computed.");
+    // In a rooted tree, a node is an ancestor of another node iff the
+    // descendant's DFS preorder index lies in the ancestor's half-open
+    // subtree interval. Dominance is precisely ancestry in the dominator tree.
+    return src_node->_preorder_index <= dst_node->_preorder_index &&
+           dst_node->_preorder_index < src_node->_subtree_end_index;
 }
 
 bool DomTree::strictly_dominates(BasicBlock *src, BasicBlock *dst) const noexcept {
@@ -209,6 +248,7 @@ DomTree compute_dom_tree(Function *function) noexcept {
         parent_node->add_child(block_node);
     }
     tree.set_root(tree.add_or_get_node(root_block));
+    tree.compute_ancestry_intervals();
     tree.compute_dominance_frontiers();
     return tree;
 }

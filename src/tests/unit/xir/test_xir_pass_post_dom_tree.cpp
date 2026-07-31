@@ -130,6 +130,43 @@ void register_post_dom_tree_tests() {
         expect(std::find(frontiers.begin(), frontiers.end(), tree.root()) != frontiers.end());
     };
 
+    "dom_tree_ancestry_queries_cover_deep_and_sibling_subtrees"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *left = kernel->create_basic_block();
+        auto *left_inner = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *tail = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(left_inner);
+        b.set_insertion_point(left_inner);
+        b.br(merge);
+        b.set_insertion_point(right);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.br(tail);
+        b.set_insertion_point(tail);
+        b.return_void();
+
+        auto tree = compute_dom_tree(kernel);
+        expect(tree.dominates(body, body));
+        expect(tree.dominates(body, left_inner));
+        expect(tree.dominates(left, left_inner));
+        expect(!tree.dominates(left_inner, left));
+        expect(!tree.dominates(left, right));
+        expect(!tree.dominates(right, left));
+        expect(!tree.dominates(left, merge));
+        expect(tree.dominates(merge, tail));
+        expect(tree.strictly_dominates(merge, tail));
+        expect(!tree.strictly_dominates(merge, merge));
+    };
+
     "dom_trees_ignore_unreachable_predecessors"_test = [] {
         Module m;
         BasicBlock *body;
