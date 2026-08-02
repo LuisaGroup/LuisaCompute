@@ -4189,7 +4189,15 @@ private:
     }
 
     [[nodiscard]] llvm::Function *_translate_callable_function(const xir::CallableFunction *f) noexcept {
-        return _translate_function_definition(f, llvm::Function::PrivateLinkage, "callable", false);
+        auto llvm_func = _translate_function_definition(
+            f, llvm::Function::PrivateLinkage, "callable", false);
+        // Device callables frequently carry large aggregate values by value.
+        // Keeping such a private callable as a machine-level function can
+        // exceed target ABI legalization limits (notably for three-lane
+        // vectors on AArch64). XIR callables are non-recursive, so eliminate
+        // that internal ABI boundary before machine lowering.
+        llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
+        return llvm_func;
     }
 
     [[nodiscard]] llvm::Function *_translate_function(const xir::Function *f) noexcept {
