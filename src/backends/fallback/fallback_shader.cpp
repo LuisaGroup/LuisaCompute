@@ -104,7 +104,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 2u;
+static constexpr auto fallback_shader_cache_abi = 3u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -723,12 +723,39 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     ::llvm::CGSCCAnalysisManager CGAM;
     ::llvm::ModuleAnalysisManager MAM;
     ::llvm::PipelineTuningOptions PTO;
+    std::size_t largest_function_instruction_count = 0u;
+    for (const auto &function : *llvm_module) {
+        std::size_t instruction_count = 0u;
+        for (const auto &block : function) {
+            instruction_count += block.size();
+        }
+        largest_function_instruction_count = std::max(
+            largest_function_instruction_count,
+            instruction_count);
+    }
+    // LLVM's O3 pipeline has superlinear compile-time behavior on very large
+    // generated dispatch functions (notably in SROA and SLP vectorization).
+    // Keep it for normal kernels, but use the minimal O0 pipeline once a
+    // single function is large enough that optimization time and memory
+    // dominate execution-time savings.
+    static constexpr std::size_t optimization_instruction_limit = 250'000u;
+    const auto use_minimal_optimization =
+        largest_function_instruction_count > optimization_instruction_limit;
+    if (use_minimal_optimization) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Fallback LLVM function has {} instructions; using the minimal "
+            "O0 pipeline and fast code generation above the "
+            "{}-instruction scalability limit.",
+            largest_function_instruction_count,
+            optimization_instruction_limit);
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::None);
+    }
     PTO.LoopInterleaving = true;
 #if LLVM_VERSION_MAJOR >= 21
     PTO.LoopInterchange = true;
 #endif
     PTO.LoopVectorization = true;
-    PTO.SLPVectorization = true;
+    PTO.SLPVectorization = !use_minimal_optimization;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
     ::llvm::PassBuilder PB{_target_machine.get(), PTO};
@@ -744,7 +771,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
 #endif
     Clock clk;
     clk.tic();
-    auto MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
+    auto MPM = use_minimal_optimization
+                   ? PB.buildO0DefaultPipeline(::llvm::OptimizationLevel::O0)
+                   : PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
     MPM.run(*llvm_module, MAM);
 
     LUISA_VERBOSE("Optimized LLVM module in {} ms.", clk.toc());
