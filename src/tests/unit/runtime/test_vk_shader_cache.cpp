@@ -231,4 +231,32 @@ int main(int argc, char *argv[]) {
         expect(binary_io.entry_count_with_suffix(".spv") == 1u);
         expect(binary_io.entry_count_with_suffix(".vk") == 1u);
     };
+
+    "Vulkan driver optimization policy has an isolated PSO cache identity"_test = [&] {
+        auto writes_before_fast_compile = binary_io.cache_write_count;
+        auto fast_compile_option = option;
+        fast_compile_option.enable_driver_optimization = false;
+        auto cold_fast = device.compile(kernel, fast_compile_option);
+        expect(execute(device, cold_fast, 13) == 40);
+        expect(binary_io.entry_count_with_suffix(".spv") == 1u)
+            << "driver policy must reuse the identical SPIR-V artifact";
+        expect(binary_io.entry_count_with_suffix(".vk") == 2u)
+            << "optimized and bounded-compilation pipelines must not alias";
+        expect(binary_io.cache_write_count ==
+               writes_before_fast_compile + 1u)
+            << "only the policy-specific PSO should be added";
+
+        auto writes_after_fast_compile = binary_io.cache_write_count;
+        auto hot_fast = device.compile(kernel, fast_compile_option);
+        expect(execute(device, hot_fast, 17) == 52);
+        expect(binary_io.cache_write_count ==
+               writes_after_fast_compile)
+            << "the bounded-compilation PSO should be reused on a hot load";
+
+        auto hot_optimized = device.compile(kernel, option);
+        expect(execute(device, hot_optimized, 19) == 58);
+        expect(binary_io.cache_write_count ==
+               writes_after_fast_compile)
+            << "adding the alternate policy must preserve the optimized PSO";
+    };
 }

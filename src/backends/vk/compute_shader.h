@@ -19,11 +19,21 @@ using namespace luisa::compute;
 class ComputeShader : public Shader {
     PipelineRef *_pipeline_ref{};
     uint3 _block_size;
+    VkPipelineCreateFlags _pipeline_create_flags{};
 public:
+    [[nodiscard]] static constexpr VkPipelineCreateFlags
+    pipeline_create_flags(bool enable_driver_optimization) noexcept {
+        return enable_driver_optimization ?
+                   VkPipelineCreateFlags{0u} :
+                   VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+    }
     auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
     auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
     PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
     bool serialize_pso(vstd::vector<std::byte> &result) const override;
+    [[nodiscard]] uint64_t pipeline_cache_identity() const noexcept override {
+        return _pipeline_create_flags;
+    }
     auto block_size() const { return _block_size; }
     ComputeShader(
         Device *device,
@@ -42,7 +52,8 @@ public:
         luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
         uint32_t push_constant_size = 32u,
         detail::ShaderCodegenDialect codegen_dialect =
-            detail::ShaderCodegenDialect::HLSL_SPIRV);
+            detail::ShaderCodegenDialect::HLSL_SPIRV,
+        bool enable_driver_optimization = true);
     ~ComputeShader();
     static ComputeShader *compile(
         BinaryIO const *bin_io,
@@ -62,7 +73,8 @@ public:
         bool requires_sampler_anisotropy = false,
         uint32_t push_constant_size = 32u,
         detail::ShaderCodegenDialect codegen_dialect =
-            detail::ShaderCodegenDialect::HLSL_SPIRV);
+            detail::ShaderCodegenDialect::HLSL_SPIRV,
+        bool enable_driver_optimization = true);
     static ComputeShader *compile_builtin_hlsl_to_spirv(
         BinaryIO const *bin_io,
         Device *device,

@@ -27,8 +27,12 @@ ComputeShader::ComputeShader(
     uint validation_count,
     luisa::optional<uint8_t> required_subgroup_size,
     uint32_t push_constant_size,
-    detail::ShaderCodegenDialect codegen_dialect)
-    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect}, _block_size(block_size) {
+    detail::ShaderCodegenDialect codegen_dialect,
+    bool enable_driver_optimization)
+    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect},
+      _block_size(block_size),
+      _pipeline_create_flags{
+          pipeline_create_flags(enable_driver_optimization)} {
     auto profile = std::getenv(
                        "LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
     Clock phase_clock;
@@ -81,7 +85,7 @@ ComputeShader::ComputeShader(
     }
     VkComputePipelineCreateInfo pipe_ci{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-        .flags = 0,
+        .flags = _pipeline_create_flags,
         .stage = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .pNext = stage_next,
@@ -135,7 +139,8 @@ ComputeShader *ComputeShader::compile(
     luisa::optional<uint8_t> required_subgroup_size,
     bool requires_sampler_anisotropy,
     uint32_t push_constant_size,
-    detail::ShaderCodegenDialect codegen_dialect) {
+    detail::ShaderCodegenDialect codegen_dialect,
+    bool enable_driver_optimization) {
 
     auto required_spirv_features =
         device->enabled_spirv_artifact_features();
@@ -165,7 +170,8 @@ ComputeShader *ComputeShader::compile(
                            .type_md5 = expected_type_md5,
                            .codegen_dialect = codegen_dialect},
                           std::move(bindings), file_name, serde_type, bin_io,
-                          push_constant_size);
+                          push_constant_size,
+                          enable_driver_optimization);
     // cache invalid, need compile
     bool write_cache = !required_subgroup_size && !file_name.empty();
     if (!result.shader) {
@@ -231,7 +237,8 @@ ComputeShader *ComputeShader::compile(
                     validation_count,
                     required_subgroup_size,
                     push_constant_size,
-                    codegen_dialect);
+                    codegen_dialect,
+                    enable_driver_optimization);
                 if (write_cache) {
                     ShaderSerializer::serialize_bytecode(
                         shader->binds(),

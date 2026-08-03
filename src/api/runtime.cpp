@@ -436,6 +436,7 @@ luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOpt
         .max_registers = option.max_registers,
         .time_trace = option.time_trace,
         .enable_extended_accel_limits = option.enable_extended_accel_limits,
+        .enable_driver_optimization = option.enable_driver_optimization,
         .name = luisa::string{option.name},
         .native_include = luisa::string{option.native_include},
     };

@@ -523,6 +523,7 @@ typedef struct LCShaderOption {
     bool compile_only;
     bool time_trace;
     bool enable_extended_accel_limits;
+    bool enable_driver_optimization;
     uint32_t max_registers;
     const char *name;
     const char *native_include;

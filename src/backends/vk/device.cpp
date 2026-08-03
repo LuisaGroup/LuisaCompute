@@ -2742,7 +2742,9 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             hlsl::binding_to_arg(kernel.bound_arguments()),
             option.name,
             SerdeType::kByteCode,
-            _binary_io);
+            _binary_io,
+            32u,
+            option.enable_driver_optimization);
         if (cache_result.shader) {
             delete static_cast<ComputeShader *>(cache_result.shader);
             LUISA_VERBOSE("ComputeShader (HLSL compile-only) loaded from cache.");
@@ -2816,7 +2818,8 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             kernel.allowed_warp_size(),
             requires_sampler_anisotropy,
             32u,
-            detail::ShaderCodegenDialect::HLSL_SPIRV);
+            detail::ShaderCodegenDialect::HLSL_SPIRV,
+            option.enable_driver_optimization);
         LUISA_VERBOSE(
             "ComputeShader (HLSL) created, pipeline: {}",
             reinterpret_cast<void *>(shader->pipeline()));
@@ -2960,7 +2963,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             hlsl::binding_to_arg(kernel.bound_arguments()),
             shader_name,
             serde_type,
-            _binary_io);
+            _binary_io,
+            32u,
+            option.enable_driver_optimization);
         if (deser.shader) {
             auto shader = static_cast<ComputeShader *>(deser.shader);
             LUISA_VERBOSE("ComputeShader loaded successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
@@ -3048,7 +3053,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             0,
             kernel.allowed_warp_size(),
             32u,
-            detail::ShaderCodegenDialect::XIR_SPIRV);
+            detail::ShaderCodegenDialect::XIR_SPIRV,
+            option.enable_driver_optimization);
         if (profile) {
             LUISA_INFO(
                 "Vulkan native ComputeShader construction: {:.3f} ms",
@@ -3141,7 +3147,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             0,
             kernel.allowed_warp_size(),
             32u,
-            detail::ShaderCodegenDialect::LLVM_SPIRV);
+            detail::ShaderCodegenDialect::LLVM_SPIRV,
+            option.enable_driver_optimization);
         LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
                       reinterpret_cast<void *>(shader->pipeline()));
         info.handle = reinterpret_cast<uint64_t>(shader);
