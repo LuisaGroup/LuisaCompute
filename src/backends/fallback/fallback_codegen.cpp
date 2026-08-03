@@ -1019,6 +1019,7 @@ private:
 
         llvm::Value *result = nullptr;
         switch (elem_type->tag()) {
+            case Type::Tag::BOOL: [[fallthrough]];
             case Type::Tag::INT8: [[fallthrough]];
             case Type::Tag::INT16: [[fallthrough]];
             case Type::Tag::INT32: [[fallthrough]];
@@ -1048,6 +1049,7 @@ private:
 
         llvm::Value *result = nullptr;
         switch (elem_type->tag()) {
+            case Type::Tag::BOOL: [[fallthrough]];
             case Type::Tag::INT8: [[fallthrough]];
             case Type::Tag::INT16: [[fallthrough]];
             case Type::Tag::INT32: [[fallthrough]];

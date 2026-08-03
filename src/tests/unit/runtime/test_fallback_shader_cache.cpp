@@ -1,5 +1,6 @@
 #include "ut/ut.hpp"
 
+#include <array>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -135,6 +136,41 @@ public:
     return result;
 }
 
+[[nodiscard]] std::array<uint4, 4u>
+run_boolean_comparison_kernel(const char *program_path) noexcept {
+    Context context{program_path};
+    auto device = context.create_device("fallback");
+    auto output = device.create_buffer<uint4>(4u);
+    Kernel1D kernel = [](BufferUInt4 result) noexcept {
+        const auto index = dispatch_x();
+        const auto lhs = (index & 1u) != 0u;
+        const auto rhs = index >= 2u;
+        const auto scalar_equal = lhs == rhs;
+        const auto scalar_not_equal = lhs != rhs;
+        const auto vector_equal =
+            make_bool2(lhs, !lhs) == make_bool2(rhs, !rhs);
+        const auto vector_not_equal =
+            make_bool2(lhs, !lhs) != make_bool2(rhs, !rhs);
+        const auto pack = [](Bool2 value) noexcept {
+            return select(0u, 1u, value.x) |
+                   (select(0u, 1u, value.y) << 1u);
+        };
+        result->write(index,
+                      make_uint4(select(0u, 1u, scalar_equal),
+                                 select(0u, 1u, scalar_not_equal),
+                                 pack(vector_equal),
+                                 pack(vector_not_equal)));
+    };
+    auto shader = device.compile(
+        kernel, ShaderOption{.enable_cache = false});
+    auto stream = device.create_stream();
+    std::array<uint4, 4u> result{};
+    stream << shader(output).dispatch(4u)
+           << output.copy_to(result.data())
+           << synchronize();
+    return result;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -175,4 +211,14 @@ int main(int argc, char *argv[]) {
                 binary_io.cache_write_count ==
                 writes_before_disabled);
         };
+
+    "fallback lowers scalar and vector boolean equality"_test = [&] {
+        const auto actual = run_boolean_comparison_kernel(program_path);
+        constexpr std::array expected{
+            make_uint4(1u, 0u, 3u, 0u),
+            make_uint4(0u, 1u, 0u, 3u),
+            make_uint4(0u, 1u, 0u, 3u),
+            make_uint4(1u, 0u, 3u, 0u)};
+        expect(std::memcmp(actual.data(), expected.data(), sizeof(expected)) == 0);
+    };
 }
