@@ -88,6 +88,10 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_callable_function(const xir::C
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, 0,
                                             func->name().value_or("callable"), _llvm_module.get());
     llvm_func->addFnAttr("amdgpu-unsafe-fp-atomics", "true");
+    // Keep the provenance of DSL callables across native bitcode linking.
+    // The module optimizer uses this marker to apply its ordinary inlining
+    // cost model instead of forcing every callable into every call site.
+    llvm_func->addFnAttr(llvm_generated_callable_attribute);
     return llvm_func;
 }
 

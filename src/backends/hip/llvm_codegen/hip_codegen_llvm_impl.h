@@ -37,6 +37,8 @@ public:
     static constexpr auto amdgpu_address_space_shared = 3u;
     static constexpr auto amdgpu_address_space_constant = 4u;
     static constexpr auto amdgpu_address_space_local = 5u;
+    static constexpr auto llvm_generated_callable_attribute =
+        "luisa-generated-callable";
 
     struct LLVMTypeInfo {
         llvm::Type *mem_type;

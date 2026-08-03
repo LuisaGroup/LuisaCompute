@@ -807,7 +807,18 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             auto is_stack_overflow_fallback =
                 name.starts_with(
                     "luisa_hiprt_stack_overflow_fallback_");
-            if (is_stack_overflow_fallback) {
+            auto is_generated_callable =
+                func.hasFnAttribute(
+                    llvm_generated_callable_attribute);
+            if (is_generated_callable) {
+                // Luisa Callable is an intentional DSL/JIT-stage function
+                // boundary. Let LLVM's inliner make its normal whole-module
+                // cost decision: single-use and small callables still fold,
+                // while large shared components are not multiplied into a
+                // megakernel merely because they originated in the DSL.
+                func.removeFnAttr(llvm::Attribute::AlwaysInline);
+                func.removeFnAttr(llvm::Attribute::NoInline);
+            } else if (is_stack_overflow_fallback) {
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
                 func.addFnAttr(llvm::Attribute::NoInline);
             } else if (is_ray_query_wrapper) {
@@ -1003,19 +1014,23 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     auto max_vgpr_count = std::min(_config.max_register_count, 256u);
     auto max_vgpr_count_string = std::to_string(max_vgpr_count);
     for (auto &func : *_llvm_module) {
-        // The optimization pipeline deliberately keeps mutating ray-query
-        // wrappers out of line. In particular, the gfx12 proceed helper is a
-        // large resumable traversal state machine; letting the backend inline
-        // it after the IR optimization pipeline has finished causes severe
-        // register pressure and scratch spills. Preserve these two semantic
-        // attributes across the ABI-attribute cleanup below.
+        // Preserve every function boundary deliberately retained by the
+        // module optimizer across the ABI-attribute cleanup below. This
+        // includes large shared DSL callables and mutating ray-query wrappers.
+        // In particular, the gfx12 proceed helper is a large resumable
+        // traversal state machine; letting the downstream compiler inline it
+        // causes severe register pressure and scratch spills.
         auto name = func.getName();
+        auto preserve_generated_callable =
+            func.hasFnAttribute(
+                llvm_generated_callable_attribute);
         auto preserve_noinline =
-            (name.starts_with("luisa_ray_query_") ||
-             name.starts_with("luisa_motion_ray_query_") ||
-             name.starts_with(
-                 "luisa_hiprt_stack_overflow_fallback_")) &&
-            func.hasFnAttribute(llvm::Attribute::NoInline);
+            preserve_generated_callable ||
+            ((name.starts_with("luisa_ray_query_") ||
+              name.starts_with("luisa_motion_ray_query_") ||
+              name.starts_with(
+                  "luisa_hiprt_stack_overflow_fallback_")) &&
+             func.hasFnAttribute(llvm::Attribute::NoInline));
         auto preserve_convergent = preserve_noinline &&
                                    func.hasFnAttribute(llvm::Attribute::Convergent);
 
@@ -1073,6 +1088,13 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
                 func.addFnAttr("amdgpu-num-vgpr", max_vgpr_count_string);
             }
         }
+    }
+
+    if (dump_ir) {
+        auto final_filename = fmt::format(
+            "hip_kernel_final_{}.ll", dump_idx);
+        _dump_module(final_filename);
+        LUISA_INFO("Dumped final LLVM IR to: {}", final_filename);
     }
 
     static auto print_ir = [] {

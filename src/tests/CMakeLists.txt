@@ -226,6 +226,7 @@ luisa_compute_add_test(test_accel_build_modes   unit/runtime/test_accel_build_mo
 luisa_compute_add_test(test_accel_visibility    unit/runtime/test_accel_visibility.cpp)
 luisa_compute_add_test(test_hip_rt_scratch_reuse unit/runtime/test_hip_rt_scratch_reuse.cpp)
 luisa_compute_add_test(test_hip_shader_cache    unit/runtime/test_hip_shader_cache.cpp)
+luisa_compute_add_test(test_hip_callable_boundary unit/runtime/test_hip_callable_boundary.cpp)
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
 luisa_compute_add_test(test_atomic_queue        unit/runtime/test_atomic_queue.cpp)
 luisa_compute_add_test(test_byte_buffer         unit/runtime/test_byte_buffer.cpp)
