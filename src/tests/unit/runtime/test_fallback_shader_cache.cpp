@@ -184,7 +184,7 @@ run_minimal_codegen_vector_kernel(const char *program_path) noexcept {
         // This is the reduced form of the large material-dispatch kernel that
         // exposed FastISel folding four-byte-aligned spills into aligned
         // vector loads. The forced optimization limit below exercises the
-        // same minimal-codegen policy without a production-sized shader.
+        // same O0-IR/O1-machine policy without a production-sized shader.
         constexpr auto kernel_lane_count = 1024u;
         const auto index = dispatch_x();
         luisa::vector<Float> lanes;

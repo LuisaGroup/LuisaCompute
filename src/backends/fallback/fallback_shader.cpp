@@ -123,7 +123,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 4u;
+static constexpr auto fallback_shader_cache_abi = 5u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -756,23 +756,22 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     // generated dispatch functions (notably in SROA and SLP vectorization).
     // Keep it for normal kernels, but use the minimal O0 pipeline once a
     // single function is large enough that optimization time and memory
-    // dominate execution-time savings. O0 normally enables FastISel, which
-    // may fold four-byte-aligned scalar spill slots into aligned vector loads
-    // on x86. Keep SelectionDAG so the generated memory instruction preserves
-    // the LLVM IR alignment contract.
+    // dominate execution-time savings. Keep the IR pipeline at O0, but retain
+    // the O1 machine-code pipeline: LLVM's x86 O0 code generator can fold
+    // four-byte-aligned scalar spill slots into aligned vector loads in very
+    // large functions. O1 uses SelectionDAG with the optimizing register
+    // allocator while avoiding the superlinear IR transforms above.
     const auto use_minimal_optimization =
         largest_function_instruction_count >
         LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT;
     if (use_minimal_optimization) {
         LUISA_WARNING_WITH_LOCATION(
             "Fallback LLVM function has {} instructions; using the minimal "
-            "O0 pipeline and SelectionDAG code generation above the "
+            "O0 IR pipeline and O1 machine-code generation above the "
             "{}-instruction scalability limit.",
             largest_function_instruction_count,
             LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT);
-        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::None);
-        _target_machine->setO0WantsFastISel(false);
-        _target_machine->setFastISel(false);
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Less);
     }
     PTO.LoopInterleaving = true;
 #if LLVM_VERSION_MAJOR >= 21
