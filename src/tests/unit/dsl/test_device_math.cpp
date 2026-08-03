@@ -15,6 +15,8 @@ using namespace luisa::compute::dsl;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+constexpr uint strict_acos_input_count = 9u;
+
 enum Slot : uint {
     SIN_0,
     COS_0,
@@ -342,6 +344,22 @@ int test_device_math(Device &device) {
         device.create_buffer<float>(strict_asin_inputs.size());
     Buffer<float> strict_asin_result_buf =
         device.create_buffer<float>(strict_asin_inputs.size() + 1u);
+    constexpr std::array strict_acos_inputs{
+        1.0f,
+        0.9999999403953552f,
+        0.875f,
+        0.5f,
+        0.0f,
+        -0.5f,
+        -0.875f,
+        -0.9999999403953552f,
+        -1.0f};
+    static_assert(
+        strict_acos_inputs.size() == strict_acos_input_count);
+    Buffer<float> strict_acos_input_buf =
+        device.create_buffer<float>(strict_acos_inputs.size());
+    Buffer<float> strict_acos_result_buf =
+        device.create_buffer<float>(strict_acos_inputs.size());
 
     Kernel1D kernel = [&] {
         auto write = [&](uint idx, Float v) { result_buf->write(static_cast<UInt>(idx), v); };
@@ -729,10 +747,24 @@ int test_device_math(Device &device) {
         ShaderOption{
             .enable_cache = false,
             .enable_fast_math = false});
+    Kernel1D strict_acos_kernel = [](
+                                      BufferFloat input,
+                                      BufferFloat output) noexcept {
+        for (auto i = 0u; i < strict_acos_input_count; ++i) {
+            output.write(i, acos(input.read(i)));
+        }
+    };
+    auto strict_acos_shader = device.compile(
+        strict_acos_kernel,
+        ShaderOption{
+            .enable_cache = false,
+            .enable_fast_math = false});
 
     luisa::vector<float> results(SLOT_COUNT);
     std::array<float, strict_asin_inputs.size() + 1u>
         strict_asin_results{};
+    std::array<float, strict_acos_inputs.size()>
+        strict_acos_results{};
     stream << shader().dispatch(1u)
            << result_buf.copy_to(luisa::span{results})
            << strict_asin_input_buf.copy_from(
@@ -743,6 +775,14 @@ int test_device_math(Device &device) {
                   .dispatch(1u)
            << strict_asin_result_buf.copy_to(
                   luisa::span{strict_asin_results})
+           << strict_acos_input_buf.copy_from(
+                  luisa::span{strict_acos_inputs})
+           << strict_acos_shader(
+                  strict_acos_input_buf,
+                  strict_acos_result_buf)
+                  .dispatch(1u)
+           << strict_acos_result_buf.copy_to(
+                  luisa::span{strict_acos_results})
            << synchronize();
 
     auto approx = [](float a, float b, float eps = 1e-4f) {
@@ -835,6 +875,30 @@ int test_device_math(Device &device) {
         };
     check_strict_asin_results(
         strict_asin_results, "native");
+    auto check_strict_acos_results =
+        [&](const auto &candidate,
+            luisa::string_view route) noexcept {
+            for (auto i = 0u;
+                 i < strict_acos_inputs.size();
+                 ++i) {
+                const auto expected =
+                    std::acos(strict_acos_inputs[i]);
+                const auto tolerance =
+                    i == 0u ||
+                            i + 1u == strict_acos_inputs.size()
+                        ? 1.0e-7f
+                        : 1.0e-6f;
+                expect(
+                    std::abs(candidate[i] - expected) <=
+                    tolerance)
+                    << route
+                    << " strict acos input " << i
+                    << ": got " << candidate[i]
+                    << " expected " << expected;
+            }
+        };
+    check_strict_acos_results(
+        strict_acos_results, "native");
     if (device.backend_name() == "vk") {
         auto hlsl_result_buf =
             device.create_buffer<float>(
@@ -881,6 +945,41 @@ int test_device_math(Device &device) {
             << synchronize();
         check_strict_asin_results(
             hlsl_strict_asin_results,
+            "HLSL-to-SPIR-V");
+
+        auto hlsl_acos_result_buf =
+            device.create_buffer<float>(
+                strict_acos_inputs.size());
+        Kernel1D hlsl_strict_acos_kernel = [](
+                                                   BufferFloat input,
+                                                   BufferFloat output) noexcept {
+            for (auto i = 0u; i < strict_acos_input_count; ++i) {
+                output.write(i, acos(input.read(i)));
+            }
+            // Printing selects Vulkan's HLSL-to-SPIR-V fallback.
+            device_log(
+                "strict acos HLSL fallback endpoint={}",
+                output.read(0u));
+        };
+        auto hlsl_strict_acos_shader =
+            device.compile(
+                hlsl_strict_acos_kernel,
+                ShaderOption{
+                    .enable_cache = false,
+                    .enable_fast_math = false});
+        std::array<float, strict_acos_inputs.size()>
+            hlsl_strict_acos_results{};
+        stream
+            << hlsl_strict_acos_shader(
+                   strict_acos_input_buf,
+                   hlsl_acos_result_buf)
+                   .dispatch(1u)
+            << hlsl_acos_result_buf.copy_to(
+                   luisa::span{
+                       hlsl_strict_acos_results})
+            << synchronize();
+        check_strict_acos_results(
+            hlsl_strict_acos_results,
             "HLSL-to-SPIR-V");
     }
     check(ATAN_0, std::atan(0.0f), "atan_0");

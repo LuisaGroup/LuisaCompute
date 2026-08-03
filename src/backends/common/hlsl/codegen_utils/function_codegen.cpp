@@ -408,7 +408,15 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "isnan"sv;
             break;
         case CallOp::ACOS:
-            str << "acos"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_acos"sv;
+            } else {
+                str << "acos"sv;
+            }
             break;
         case CallOp::ACOSH:
             str << "_acosh"sv;

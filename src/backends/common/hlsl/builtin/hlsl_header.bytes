@@ -25,6 +25,17 @@ precise T complement_result=(T)1.57079632679489661923-(T)2.0*reduced_result;
 precise T result_magnitude=select(magnitude>(T)0.5,complement_result,reduced_result);
 return asfloat((asuint(result_magnitude)&0x7fffffffu)|(asuint(x)&0x80000000u));
 }
+// Cancellation-free float32 acos for strict SPIR-V shaders. Reuse the
+// bounded asin polynomial after reducing both halves of [-1, 1] to
+// [0, 1/sqrt(2)].
+template<typename T>
+T _lc_strict_acos(T x){
+precise T magnitude=abs(x);
+precise T reduced=sqrt(((T)1.0-magnitude)*(T)0.5);
+precise T positive_result=(T)2.0*_lc_strict_asin(reduced);
+precise T negative_result=(T)3.14159265358979323846-positive_result;
+return select(x<(T)0.0,negative_result,positive_result);
+}
 template<typename T>
 T _exp10(T v){return pow(10,v);};
 template<typename T>

@@ -279,6 +279,113 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         return _builder.createUnaryOp(
             spv::Op::OpBitcast, type, copied);
     };
+    auto strict_float32_constant = [&](double value) noexcept {
+        auto scalar = make_float_scalar_constant(elem, value);
+        return is_scalar ?
+                   scalar :
+                   _builder.smearScalar(
+                       spv::NoPrecision,
+                       scalar,
+                       type);
+    };
+    auto strict_float32_mul =
+        [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(
+                _builder.createBinOp(
+                    spv::Op::OpFMul,
+                    type,
+                    lhs,
+                    rhs));
+        };
+    auto strict_float32_add =
+        [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(
+                _builder.createBinOp(
+                    spv::Op::OpFAdd,
+                    type,
+                    lhs,
+                    rhs));
+        };
+    auto strict_float32_sub =
+        [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(
+                _builder.createBinOp(
+                    spv::Op::OpFSub,
+                    type,
+                    lhs,
+                    rhs));
+        };
+    auto strict_float32_asin = [&](spv::Id x) noexcept {
+        LUISA_ASSERT(
+            elem->is_float32(),
+            "Strict SPIR-V asin requires float32 operands.");
+        auto magnitude = glsl(GLSLstd450FAbs, x);
+        auto half = strict_float32_constant(0.5);
+        auto one = strict_float32_constant(1.0);
+        auto two = strict_float32_constant(2.0);
+        auto half_pi = strict_float32_constant(
+            1.57079632679489661923);
+        auto bool_type = is_scalar ?
+                             _builder.makeBoolType() :
+                             _builder.makeVectorType(
+                                 _builder.makeBoolType(),
+                                 t->dimension());
+        auto use_complement =
+            _builder.createBinOp(
+                spv::Op::OpFOrdGreaterThan,
+                bool_type,
+                magnitude,
+                half);
+        auto complement =
+            strict_float32_mul(
+                half,
+                strict_float32_sub(one, magnitude));
+        auto reduced_complement =
+            glsl(GLSLstd450Sqrt, complement);
+        auto reduced =
+            _builder.createTriOp(
+                spv::Op::OpSelect,
+                type,
+                use_complement,
+                reduced_complement,
+                magnitude);
+        auto squared =
+            strict_float32_mul(reduced, reduced);
+
+        auto polynomial =
+            strict_float32_constant(4.2163199048e-2);
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(2.4181311049e-2));
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(4.5470025998e-2));
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(7.4953002686e-2));
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(1.6666752422e-1));
+
+        auto reduced_result =
+            strict_float32_add(
+                reduced,
+                strict_float32_mul(
+                    strict_float32_mul(reduced, squared),
+                    polynomial));
+        auto complement_result =
+            strict_float32_sub(
+                half_pi,
+                strict_float32_mul(two, reduced_result));
+        auto result_magnitude =
+            _builder.createTriOp(
+                spv::Op::OpSelect,
+                type,
+                use_complement,
+                complement_result,
+                reduced_result);
+        return copy_float_sign(result_magnitude, x);
+    };
     LUISA_ASSERT(
         !spirv_glsl_transcendental_rejects_float64(inst->op()) ||
             !elem->is_float64(),
@@ -637,135 +744,58 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = unary(spv::Op::OpIsNan);
             break;
         case xir::ArithmeticOp::ACOS:
-            id = glsl(GLSLstd450Acos, operand(0));
-            break;
-        case xir::ArithmeticOp::ACOSH:
-            id = glsl(GLSLstd450Acosh, operand(0));
-            break;
-        case xir::ArithmeticOp::ASIN:
             if (!_enable_fast_math && elem->is_float32()) {
-                // GLSL.std.450 does not prescribe an accuracy bound for
-                // Asin. Some Vulkan drivers use a low-accuracy native
-                // approximation even when the shader requested strict
-                // floating-point contraction semantics. Cancellation-heavy
-                // constructions such as solid-angle sums amplify that error.
-                //
-                // Use a float32 minimax approximation for strict shaders.
-                // Range reduction maps |x| > 1/2 through
-                // asin(x) = pi/2 - 2 asin(sqrt((1 - x) / 2)); the reduced
-                // interval is evaluated as x + x^3 P(x^2). Only ordinary
-                // IEEE operations and sqrt remain driver-dependent.
-                auto make_constant = [&](double value) noexcept {
-                    auto scalar =
-                        make_float_scalar_constant(elem, value);
-                    return is_scalar ?
-                               scalar :
-                               _builder.smearScalar(
-                                   spv::NoPrecision,
-                                   scalar,
-                                   type);
-                };
-                auto strict_mul =
-                    [&](spv::Id lhs, spv::Id rhs) noexcept {
-                        return mark_no_contraction(
-                            _builder.createBinOp(
-                                spv::Op::OpFMul,
-                                type,
-                                lhs,
-                                rhs));
-                    };
-                auto strict_add =
-                    [&](spv::Id lhs, spv::Id rhs) noexcept {
-                        return mark_no_contraction(
-                            _builder.createBinOp(
-                                spv::Op::OpFAdd,
-                                type,
-                                lhs,
-                                rhs));
-                    };
-                auto strict_sub =
-                    [&](spv::Id lhs, spv::Id rhs) noexcept {
-                        return mark_no_contraction(
-                            _builder.createBinOp(
-                                spv::Op::OpFSub,
-                                type,
-                                lhs,
-                                rhs));
-                    };
-
+                // Keep strict acos stable at both endpoints. Expressing it
+                // as pi/2 - asin(x) loses every significant bit near +1;
+                // range-reduce by magnitude instead, then select the
+                // negative half of the domain without cancellation.
                 auto x = operand(0);
-                auto magnitude =
-                    glsl(GLSLstd450FAbs, x);
-                auto half = make_constant(0.5);
-                auto one = make_constant(1.0);
-                auto two = make_constant(2.0);
-                auto half_pi = make_constant(
-                    1.57079632679489661923);
+                auto magnitude = glsl(GLSLstd450FAbs, x);
+                auto zero = strict_float32_constant(0.0);
+                auto half = strict_float32_constant(0.5);
+                auto one = strict_float32_constant(1.0);
+                auto two = strict_float32_constant(2.0);
+                auto pi = strict_float32_constant(
+                    3.14159265358979323846);
                 auto bool_type = is_scalar ?
                                      _builder.makeBoolType() :
                                      _builder.makeVectorType(
                                          _builder.makeBoolType(),
                                          t->dimension());
-                auto use_complement =
+                auto negative =
                     _builder.createBinOp(
-                        spv::Op::OpFOrdGreaterThan,
+                        spv::Op::OpFOrdLessThan,
                         bool_type,
-                        magnitude,
-                        half);
-                auto complement =
-                    strict_mul(
+                        x,
+                        zero);
+                auto reduced = glsl(
+                    GLSLstd450Sqrt,
+                    strict_float32_mul(
                         half,
-                        strict_sub(one, magnitude));
-                auto reduced_complement =
-                    glsl(GLSLstd450Sqrt, complement);
-                auto reduced =
-                    _builder.createTriOp(
-                        spv::Op::OpSelect,
-                        type,
-                        use_complement,
-                        reduced_complement,
-                        magnitude);
-                auto squared =
-                    strict_mul(reduced, reduced);
-
-                auto polynomial =
-                    make_constant(4.2163199048e-2);
-                polynomial = strict_add(
-                    strict_mul(polynomial, squared),
-                    make_constant(2.4181311049e-2));
-                polynomial = strict_add(
-                    strict_mul(polynomial, squared),
-                    make_constant(4.5470025998e-2));
-                polynomial = strict_add(
-                    strict_mul(polynomial, squared),
-                    make_constant(7.4953002686e-2));
-                polynomial = strict_add(
-                    strict_mul(polynomial, squared),
-                    make_constant(1.6666752422e-1));
-
-                auto reduced_result =
-                    strict_add(
-                        reduced,
-                        strict_mul(
-                            strict_mul(reduced, squared),
-                            polynomial));
-                auto complement_result =
-                    strict_sub(
-                        half_pi,
-                        strict_mul(two, reduced_result));
-                auto result_magnitude =
-                    _builder.createTriOp(
-                        spv::Op::OpSelect,
-                        type,
-                        use_complement,
-                        complement_result,
-                        reduced_result);
-                id = copy_float_sign(
-                    result_magnitude, x);
+                        strict_float32_sub(one, magnitude)));
+                auto positive_result =
+                    strict_float32_mul(
+                        two,
+                        strict_float32_asin(reduced));
+                auto negative_result =
+                    strict_float32_sub(pi, positive_result);
+                id = _builder.createTriOp(
+                    spv::Op::OpSelect,
+                    type,
+                    negative,
+                    negative_result,
+                    positive_result);
             } else {
-                id = glsl(
-                    GLSLstd450Asin, operand(0));
+                id = glsl(GLSLstd450Acos, operand(0));
             }
+            break;
+        case xir::ArithmeticOp::ACOSH:
+            id = glsl(GLSLstd450Acosh, operand(0));
+            break;
+        case xir::ArithmeticOp::ASIN:
+            id = !_enable_fast_math && elem->is_float32() ?
+                     strict_float32_asin(operand(0)) :
+                     glsl(GLSLstd450Asin, operand(0));
             break;
         case xir::ArithmeticOp::ASINH:
             id = glsl(GLSLstd450Asinh, operand(0));
