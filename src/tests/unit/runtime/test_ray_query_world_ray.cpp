@@ -121,6 +121,80 @@ void test_ray_query_world_ray(Device &device) {
     expect(static_cast<uint>(host_results[4].z) == 1u);
 }
 
+void test_ray_query_commits_closest_surface(Device &device) {
+    auto stream = device.create_stream();
+
+    // A ray exactly on a shared sloped edge exercises the watertight ownership
+    // rule. The values are reduced from a smooth sphere cap where the fallback
+    // backend previously skipped both front triangles and returned the rear
+    // cap. Candidate visitation/edge ownership is backend-defined, but the
+    // closest committed distance is not.
+    const std::array vertices{
+        make_float3(0.026116198f, 0.031822680f, 0.41797757f),
+        make_float3(0.0f, 0.0f, 0.42f),
+        make_float3(0.029109610f, 0.029109610f, 0.41797757f),
+        make_float3(0.031822680f, 0.026116198f, 0.41797757f),
+        make_float3(0.026116198f, 0.031822680f, -0.41797757f),
+        make_float3(0.0f, 0.0f, -0.42f),
+        make_float3(0.029109610f, 0.029109610f, -0.41797757f),
+        make_float3(0.031822680f, 0.026116198f, -0.41797757f)};
+    const std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{2u, 1u, 3u},
+        Triangle{5u, 4u, 6u},
+        Triangle{5u, 6u, 7u}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+
+    auto result_buffer = device.create_buffer<float4>(1u);
+    Kernel1D trace = [](AccelVar accel, BufferFloat4 results) noexcept {
+        auto ray = make_ray(make_float3(0.017204285f, 0.017204285f, 2.9f),
+                            make_float3(0.0f, 0.0f, -1.0f));
+        UInt source_instance = ~0u;
+        UInt source_primitive = ~0u;
+        UInt callback_count = 0u;
+        auto committed = accel.traverse(ray, {})
+                             .on_surface_candidate(
+                                 [&](SurfaceCandidate &candidate) noexcept {
+                                     const auto hit = candidate.hit();
+                                     callback_count += 1u;
+                                     $if(!((hit->inst == source_instance) &
+                                           (hit->prim == source_primitive))) {
+                                         candidate.commit();
+                                     };
+                                 })
+                             .on_procedural_candidate(
+                                 [](ProceduralCandidate &) noexcept {})
+                             .trace();
+        results.write(0u,
+                      make_float4(committed->committed_ray_t,
+                                  cast<float>(committed->prim),
+                                  cast<float>(committed->hit_type),
+                                  cast<float>(callback_count)));
+    };
+
+    auto shader = device.compile(trace);
+    std::array<float4, 1u> host_results{};
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << shader(accel, result_buffer).dispatch(1u)
+           << result_buffer.copy_to(luisa::span{host_results})
+           << synchronize();
+
+    expect_near(host_results[0].x, 2.4811954f, "closest committed distance");
+    expect(static_cast<uint>(host_results[0].y) < 2u)
+        << luisa::format("closest committed primitive: got {}, expected near quad",
+                         host_results[0].y);
+    expect(static_cast<uint>(host_results[0].z) ==
+           static_cast<uint>(HitType::Surface));
+    expect(host_results[0].w >= 1.0f);
+}
+
 void test_procedural_ray_query_world_ray(Device &device) {
     auto stream = device.create_stream();
 
@@ -281,5 +355,6 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     test_ray_query_world_ray(dc->device);
+    test_ray_query_commits_closest_surface(dc->device);
     test_procedural_ray_query_world_ray(dc->device);
 }
