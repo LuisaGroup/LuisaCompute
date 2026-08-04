@@ -402,3 +402,35 @@ Incremental validation evidence on 2026-08-01:
   `test_xir_pass_mutation_safety` passed 26 tests/172 assertions,
   `test_vk_shader_cache vk` passed 1 test/8 assertions, and
   `test_vk_spirv_codegen_path vk` passed 86 tests/2,029 assertions.
+
+Incremental validation evidence on 2026-08-04:
+
+- A production Random Walk subsurface kernel reduced the failure to a raw
+  three-block indexed branch whose five case labels shared one return block
+  while the default label selected an unreachable block. Duplicate-label
+  normalization left one direct case entry and four forwarding proxies.
+- Single-exit canonicalization rerouted the four proxy edges through a fresh
+  merge but left the equivalent direct header edge untouched. The shared
+  return consequently became both a pre-merge arm entry and a post-merge
+  continuation, which is exactly one post-merge selection re-entry.
+- The fix treats the collected selection-exit edges as a graph cut and closes
+  it over canonical-target equivalence classes. A declared arm is added only
+  when its forwarding path has no existing cut edge; this moves the missing
+  zero-length header-to-exit path without collapsing the distinct switch case
+  proxies. The rule is independent of case count, value, return type, or
+  shader provenance.
+- `restructure_rebuilds_terminal_indexed_branch_with_aliased_cases` reproduces
+  the reduced graph, failed before the fix, and now checks structured success,
+  absence of post-merge re-entry, unique arm entries, target reachability, and
+  second-pass idempotence.
+- `test_xir_pass_restructure_cfg` passed 58 tests and 1,096 assertions. A
+  complete 32-thread Psycles build also passed.
+- With `PSYCLES_DISABLE_SHADER_CACHE=1`, the original RADV GFX1201 kernel
+  completed the entire cold XIR-to-SPIR-V path: optimization reduced 243,328
+  words to 229,290 words, shader JIT completed in 4.779 s, and the Vulkan
+  backend rendered the 64x64 Random Walk probe and wrote its multilayer EXR.
+- `LUISA_XIR_TRACE_PASSES=1` now reports stable module-definition ordinals and,
+  for a small failed definition, a bounded function dump identifying the
+  offending construct. This is trace-only diagnostics; default verification
+  remains exactly once at pass input and once at pass output, with intermediate
+  checks still controlled solely by `LUISA_XIR_VERIFY_INTERMEDIATE=1`.

@@ -2964,6 +2964,64 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_rebuilds_terminal_indexed_branch_with_aliased_cases"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        auto *definition = kernel->definition();
+        auto *shared_return = definition->create_basic_block();
+        auto *default_unreachable = definition->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *indexed_branch = builder.indexed_branch(selector);
+        indexed_branch->set_default_block(default_unreachable);
+        for (auto case_value = uint64_t{0u};
+             case_value < 5u; ++case_value) {
+            indexed_branch->add_case(
+                case_value, shared_return);
+        }
+        builder.set_insertion_point(shared_return);
+        builder.return_void();
+        builder.set_insertion_point(default_unreachable);
+        builder.unreachable_();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_switch_count == 1u);
+        expect(info.iteration_limit_count == 0u);
+        expect(count_post_merge_selection_reentries(kernel) ==
+               0u);
+        expect(body->terminator()->isa<SwitchInst>());
+        auto *switch_inst =
+            static_cast<SwitchInst *>(body->terminator());
+        luisa::unordered_set<BasicBlock *> arm_entries;
+        arm_entries.emplace(switch_inst->default_block());
+        for (auto i = size_t{0u};
+             i < switch_inst->case_count(); ++i) {
+            auto *case_entry = switch_inst->case_block(i);
+            expect(arm_entries.emplace(case_entry).second);
+            expect(branch_chain_reaches(
+                case_entry, shared_return));
+        }
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto block_count = count_owned_blocks(definition);
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) == block_count);
+    };
+
     "restructure_roundtrips_loop_switch_nested_break_continue"_test = [] {
         Module m;
         BasicBlock *body;

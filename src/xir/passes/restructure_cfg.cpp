@@ -5,6 +5,7 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
@@ -124,6 +125,18 @@ void trace_cfg(
         stats.raw_indexed_count,
         stats.structured_loop_count,
         stats.structured_selection_count);
+}
+
+void trace_module_definition(
+    luisa::string_view stage,
+    size_t index,
+    FunctionDefinition *def) noexcept {
+    if (!restructure_trace_enabled() || def == nullptr) { return; }
+    auto name = def->name();
+    LUISA_VERBOSE_WITH_LOCATION(
+        "[restructure_cfg] {} definition {}: tag={}, name={}.",
+        stage, index, to_string(def->derived_function_tag()),
+        name ? *name : luisa::string_view{"<unnamed>"});
 }
 
 // Return the number of cyclic SCCs with more than one entry block. Such a
@@ -2878,10 +2891,64 @@ void repair_target_state_dispatch_ssa(
         }
     }
     if (invalid_exits.empty()) { return {}; }
+
+    // A declared arm may itself be the canonical target of an exit reached
+    // from another arm. This is common after duplicate switch labels are
+    // split through forwarding proxies: one label still names the shared
+    // target directly, while the other labels reach it through their proxies.
+    //
+    // Once the shared target is moved behind a new single-exit merge, leaving
+    // that direct header edge in place would make the target both an arm entry
+    // before the merge and a continuation after it. In dominance terms this is
+    // exactly a post-merge selection re-entry.
+    //
+    // The collected boundary edges form a cut between each arm and its exit.
+    // Close that cut over canonical-target equivalence classes, but only for an
+    // entry whose forwarding path is not already cut. This preserves distinct
+    // switch proxies (and therefore distinct case entries) while adding the
+    // missing zero-length header-to-exit path of a directly named sink.
     luisa::vector<SelectionExitEdge> reroute_edges;
-    reroute_edges.reserve(invalid_exits.size() + merge_exits.size());
-    for (auto edge : invalid_exits) { reroute_edges.emplace_back(edge); }
-    for (auto edge : merge_exits) { reroute_edges.emplace_back(edge); }
+    reroute_edges.reserve(invalid_exits.size() +
+                          merge_exits.size() + entries.size());
+    for (auto edge : invalid_exits) {
+        reroute_edges.emplace_back(edge);
+    }
+    for (auto edge : merge_exits) {
+        reroute_edges.emplace_back(edge);
+    }
+    luisa::unordered_set<BasicBlock *> reroute_sources;
+    reroute_sources.reserve(reroute_edges.size());
+    for (auto edge : reroute_edges) {
+        reroute_sources.emplace(edge.src);
+    }
+    luisa::unordered_set<BasicBlock *> invalid_targets;
+    invalid_targets.reserve(invalid_exits.size());
+    for (auto edge : invalid_exits) {
+        invalid_targets.emplace(
+            canonical_exit_target(edge.dst));
+    }
+    auto forwarding_path_is_cut =
+        [&](BasicBlock *entry) noexcept {
+            luisa::unordered_set<BasicBlock *> visited;
+            auto *block = entry;
+            while (block != nullptr &&
+                   visited.emplace(block).second) {
+                if (reroute_sources.contains(block)) {
+                    return true;
+                }
+                block = trivial_branch_target(block);
+            }
+            return false;
+        };
+    for (auto *entry : entries) {
+        if (entry == nullptr || entry == merge) { continue; }
+        if (invalid_targets.contains(
+                canonical_exit_target(entry)) &&
+            !forwarding_path_is_cut(entry)) {
+            append_unique_exit_edge(
+                reroute_edges, header, entry);
+        }
+    }
 
     struct RerouteEdge {
         BasicBlock *src;
@@ -5762,11 +5829,30 @@ restructure_cfg_on_definition_in_place(
         info.invalid_construct_count =
             count_invalid_structured_constructs(def);
     }
+    auto selection_reentry_count = size_t{0u};
     {
         ScopedTimer _timer_reentries(
             "post_count_selection_reentries");
-        info.invalid_construct_count +=
+        selection_reentry_count =
             count_post_merge_selection_reentries(def);
+        info.invalid_construct_count += selection_reentry_count;
+    }
+    if (restructure_trace_enabled() &&
+        selection_reentry_count != 0u) {
+        auto stats = trace_stats(def);
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] detected {} post-merge selection "
+            "re-entry construct(s).",
+            selection_reentry_count);
+        if (stats.block_count <= 128u &&
+            stats.instruction_count <= 4096u) {
+            luisa::string dump;
+            XIRDebugPrinter printer;
+            printer.emit_function(dump, def);
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] failing function dump:\n{}",
+                dump);
+        }
     }
     if (verify_intermediate &&
         info.unstructured_branch_count == 0u &&
@@ -6109,7 +6195,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
     {
         ScopedTimer _timer_preflight(
             "module_transaction_preflight");
-        for (auto *def : definitions) {
+        for (auto definition_index = size_t{0u};
+             definition_index < definitions.size();
+             ++definition_index) {
+            auto *def = definitions[definition_index];
+            trace_module_definition(
+                "preflight", definition_index, def);
             trace_cfg("module preflight input", def);
             auto info = preflight_restructure_cfg(
                 def, verify_intermediate);
@@ -6142,7 +6233,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         total.boundary_verifier_count = 1u;
         total.intermediate_verifier_count =
             preflight_intermediate_verifier_count;
-        for (auto *def : definitions) {
+        for (auto definition_index = size_t{0u};
+             definition_index < definitions.size();
+             ++definition_index) {
+            auto *def = definitions[definition_index];
+            trace_module_definition(
+                "in-place transform", definition_index, def);
             auto info = restructure_cfg_on_definition_in_place(
                 def, options, verify_intermediate);
             accumulate(total, info);
@@ -6210,7 +6306,13 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
     total.boundary_verifier_count = 1u;
     total.intermediate_verifier_count =
         preflight_intermediate_verifier_count;
-    for (auto &shadow : shadows) {
+    for (auto definition_index = size_t{0u};
+         definition_index < shadows.size();
+         ++definition_index) {
+        auto &shadow = shadows[definition_index];
+        trace_module_definition(
+            "transactional dry run", definition_index,
+            shadow.shadow);
         auto info = restructure_cfg_on_definition_in_place(
             shadow.shadow, options,
             verify_intermediate);
@@ -6268,7 +6370,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
     total.boundary_verifier_count = 2u;
     total.intermediate_verifier_count =
         dry_run_intermediate_verifier_count;
-    for (auto *def : definitions) {
+    for (auto definition_index = size_t{0u};
+         definition_index < definitions.size();
+         ++definition_index) {
+        auto *def = definitions[definition_index];
+        trace_module_definition(
+            "transactional replay", definition_index, def);
         auto info = restructure_cfg_on_definition_in_place(
             def, options, verify_intermediate);
         LUISA_ASSERT(
