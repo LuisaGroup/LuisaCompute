@@ -757,6 +757,15 @@ void MetalCodegenAST::visit(const UnaryExpr *expr) noexcept {
 }
 
 void MetalCodegenAST::visit(const BinaryExpr *expr) noexcept {
+    if (expr->op() == BinaryOp::MOD &&
+        expr->type()->is_float_or_float_vector()) {
+        _scratch << "fmod(";
+        expr->lhs()->accept(*this);
+        _scratch << ", ";
+        expr->rhs()->accept(*this);
+        _scratch << ")";
+        return;
+    }
     _scratch << "(";
     expr->lhs()->accept(*this);
     _scratch << ")";

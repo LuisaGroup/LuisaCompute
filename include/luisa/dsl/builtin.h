@@ -1360,13 +1360,38 @@ template<typename X, typename Y>
     return x - y * floor(x / y);
 }
 
-/// Fmod. x - y * trunc(x/y)
+/// Floating-point remainder with the sign of x, equivalent to std::fmod.
+///
+/// This must remain a primitive remainder operation in the recorded AST.
+/// Expanding it to x - y * trunc(x / y) is only equivalent over the reals:
+/// forming a large floating-point quotient can discard every bit needed to
+/// recover the remainder.
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_floating_point_or_vector_expr_v<X> && is_floating_point_or_vector_expr_v<Y>
 [[nodiscard]] inline auto fmod(X &&x_in, Y &&y_in) noexcept {
-    auto x = def(std::forward<X>(x_in));
-    auto y = def(std::forward<Y>(y_in));
-    return x - y * trunc(x / y);
+    using Lhs = expr_value_t<X>;
+    using Rhs = expr_value_t<Y>;
+    auto [ret, lhs_cast, rhs_cast] =
+        detail::dsl_binary_op_return_type_helper<
+            BinaryOp::DIV, Lhs, Rhs>();
+    using Ret = decltype(ret);
+    using LhsCast = decltype(lhs_cast);
+    using RhsCast = decltype(rhs_cast);
+    auto lhs_expr = detail::extract_expression(
+        std::forward<X>(x_in));
+    auto rhs_expr = detail::extract_expression(
+        std::forward<Y>(y_in));
+    auto fb = detail::FunctionBuilder::current();
+    if constexpr (!std::is_same_v<LhsCast, Lhs>) {
+        lhs_expr = fb->cast(
+            Type::of<LhsCast>(), CastOp::STATIC, lhs_expr);
+    }
+    if constexpr (!std::is_same_v<RhsCast, Rhs>) {
+        rhs_expr = fb->cast(
+            Type::of<RhsCast>(), CastOp::STATIC, rhs_expr);
+    }
+    return def<Ret>(fb->binary(
+        Type::of<Ret>(), BinaryOp::MOD, lhs_expr, rhs_expr));
 }
 
 /// Min.

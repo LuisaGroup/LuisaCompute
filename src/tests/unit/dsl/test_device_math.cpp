@@ -2,7 +2,10 @@
 // Computes math functions on GPU, reads results back, compares against CPU reference.
 
 #include <array>
+#include <bit>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <numbers>
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
@@ -16,6 +19,41 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 constexpr uint strict_acos_input_count = 9u;
+
+struct StrictFmodCase {
+    float dividend;
+    float multiplier;
+    float divisor;
+    bool multiply_dividend;
+};
+
+constexpr std::array strict_fmod_cases{
+    StrictFmodCase{5.2f, 1.0f, 2.0f, true},
+    StrictFmodCase{-5.2f, 1.0f, 2.0f, true},
+    StrictFmodCase{1.0e20f, 1.0e-3f,
+                   6.28318530717958647692f, true},
+    StrictFmodCase{-1.0e20f, 1.0e-3f,
+                   6.28318530717958647692f, true},
+    StrictFmodCase{std::numeric_limits<float>::max(),
+                   1.0f, 3.14159265358979323846f, true},
+    // Avoid a preceding floating-point operation here. Device execution
+    // modes may flush subnormal arithmetic independently of fmod.
+    StrictFmodCase{
+        std::numeric_limits<float>::denorm_min() * 17.0f,
+        1.0f,
+        std::numeric_limits<float>::denorm_min() * 3.0f,
+        false},
+    StrictFmodCase{0.75f, 1.0f, 2.0f, true},
+    StrictFmodCase{6.0f, 1.0f, 3.0f, true},
+    StrictFmodCase{-6.0f, 1.0f, 3.0f, true},
+    StrictFmodCase{-0.0f, 1.0f, 3.0f, true},
+    StrictFmodCase{1.0f, 1.0f,
+                   std::numeric_limits<float>::infinity(), true},
+    StrictFmodCase{1.0f, 1.0f, 0.0f, true},
+    StrictFmodCase{std::numeric_limits<float>::infinity(),
+                   1.0f, 1.0f, true}};
+
+constexpr uint strict_fmod_vector_width = 12u;
 
 enum Slot : uint {
     SIN_0,
@@ -360,6 +398,21 @@ int test_device_math(Device &device) {
         device.create_buffer<float>(strict_acos_inputs.size());
     Buffer<float> strict_acos_result_buf =
         device.create_buffer<float>(strict_acos_inputs.size());
+    std::array<float, strict_fmod_cases.size() * 3u>
+        strict_fmod_inputs{};
+    for (auto i = 0u; i < strict_fmod_cases.size(); ++i) {
+        strict_fmod_inputs[i * 3u] =
+            strict_fmod_cases[i].dividend;
+        strict_fmod_inputs[i * 3u + 1u] =
+            strict_fmod_cases[i].multiplier;
+        strict_fmod_inputs[i * 3u + 2u] =
+            strict_fmod_cases[i].divisor;
+    }
+    Buffer<float> strict_fmod_input_buf =
+        device.create_buffer<float>(strict_fmod_inputs.size());
+    Buffer<float> strict_fmod_result_buf =
+        device.create_buffer<float>(
+            strict_fmod_cases.size() + strict_fmod_vector_width);
 
     Kernel1D kernel = [&] {
         auto write = [&](uint idx, Float v) { result_buf->write(static_cast<UInt>(idx), v); };
@@ -759,12 +812,82 @@ int test_device_math(Device &device) {
         ShaderOption{
             .enable_cache = false,
             .enable_fast_math = false});
+    auto make_strict_fmod_kernel = [](bool force_hlsl) {
+        return Kernel1D{[force_hlsl](
+                            BufferFloat input,
+                            BufferFloat output) noexcept {
+            for (auto i = 0u; i < strict_fmod_cases.size(); ++i) {
+                const auto dividend = input.read(i * 3u);
+                Float evaluated_dividend = dividend;
+                if (strict_fmod_cases[i].multiply_dividend) {
+                    evaluated_dividend =
+                        dividend * input.read(i * 3u + 1u);
+                }
+                output.write(
+                    i,
+                    fmod(
+                        evaluated_dividend,
+                        input.read(i * 3u + 2u)));
+            }
+            auto scaled = [&](uint i) noexcept {
+                return input.read(i * 3u) *
+                       input.read(i * 3u + 1u);
+            };
+            const auto vector_result = fmod(
+                make_float4(
+                    scaled(0u), scaled(1u),
+                    scaled(2u), scaled(3u)),
+                make_float4(
+                    input.read(2u), input.read(5u),
+                    input.read(8u), input.read(11u)));
+            constexpr auto vector_base =
+                static_cast<uint>(strict_fmod_cases.size());
+            output.write(vector_base, vector_result.x);
+            output.write(vector_base + 1u, vector_result.y);
+            output.write(vector_base + 2u, vector_result.z);
+            output.write(vector_base + 3u, vector_result.w);
+            const auto vector_scalar_result = fmod(
+                make_float4(
+                    scaled(0u), scaled(1u),
+                    scaled(2u), scaled(3u)),
+                input.read(2u));
+            output.write(vector_base + 4u, vector_scalar_result.x);
+            output.write(vector_base + 5u, vector_scalar_result.y);
+            output.write(vector_base + 6u, vector_scalar_result.z);
+            output.write(vector_base + 7u, vector_scalar_result.w);
+            const auto scalar_vector_result = fmod(
+                scaled(2u),
+                make_float4(
+                    input.read(2u), input.read(5u),
+                    input.read(8u), input.read(11u)));
+            output.write(vector_base + 8u, scalar_vector_result.x);
+            output.write(vector_base + 9u, scalar_vector_result.y);
+            output.write(vector_base + 10u, scalar_vector_result.z);
+            output.write(vector_base + 11u, scalar_vector_result.w);
+            if (force_hlsl) {
+                // Printing deliberately selects Vulkan's HLSL-to-SPIR-V
+                // fallback, whose fmod contract must match native XIR SPIR-V.
+                device_log(
+                    "strict fmod HLSL fallback large={}",
+                    vector_result.z);
+            }
+        }};
+    };
+    auto strict_fmod_shader = device.compile(
+        make_strict_fmod_kernel(false),
+        ShaderOption{
+            .enable_cache = false,
+            .enable_fast_math = false});
 
     luisa::vector<float> results(SLOT_COUNT);
     std::array<float, strict_asin_inputs.size() + 1u>
         strict_asin_results{};
     std::array<float, strict_acos_inputs.size()>
         strict_acos_results{};
+    std::array<
+        float,
+        strict_fmod_cases.size() + strict_fmod_vector_width>
+        strict_fmod_results{};
     stream << shader().dispatch(1u)
            << result_buf.copy_to(luisa::span{results})
            << strict_asin_input_buf.copy_from(
@@ -783,6 +906,14 @@ int test_device_math(Device &device) {
                   .dispatch(1u)
            << strict_acos_result_buf.copy_to(
                   luisa::span{strict_acos_results})
+           << strict_fmod_input_buf.copy_from(
+                  luisa::span{strict_fmod_inputs})
+           << strict_fmod_shader(
+                  strict_fmod_input_buf,
+                  strict_fmod_result_buf)
+                  .dispatch(1u)
+           << strict_fmod_result_buf.copy_to(
+                  luisa::span{strict_fmod_results})
            << synchronize();
 
     auto approx = [](float a, float b, float eps = 1e-4f) {
@@ -899,7 +1030,92 @@ int test_device_math(Device &device) {
         };
     check_strict_acos_results(
         strict_acos_results, "native");
+    auto check_strict_fmod_results =
+        [&](const auto &candidate,
+            luisa::string_view route) noexcept {
+            auto matches = [](float actual, float expected) noexcept {
+                return std::isnan(expected) ?
+                           std::isnan(actual) :
+                           std::bit_cast<uint32_t>(actual) ==
+                               std::bit_cast<uint32_t>(expected);
+            };
+            for (auto i = 0u; i < strict_fmod_cases.size(); ++i) {
+                const auto &test = strict_fmod_cases[i];
+                const auto dividend = test.multiply_dividend ?
+                                          test.dividend * test.multiplier :
+                                          test.dividend;
+                const auto expected =
+                    std::fmod(dividend, test.divisor);
+                expect(matches(candidate[i], expected))
+                    << route << " strict fmod scalar input " << i
+                    << ": got " << candidate[i]
+                    << " expected " << expected;
+            }
+            constexpr auto vector_base =
+                strict_fmod_cases.size();
+            for (auto i = 0u; i < 4u; ++i) {
+                const auto &test = strict_fmod_cases[i];
+                const auto expected = std::fmod(
+                    test.dividend * test.multiplier,
+                    test.divisor);
+                expect(matches(
+                    candidate[vector_base + i], expected))
+                    << route << " strict fmod vector lane " << i
+                    << ": got " << candidate[vector_base + i]
+                    << " expected " << expected;
+            }
+            for (auto i = 0u; i < 4u; ++i) {
+                const auto &test = strict_fmod_cases[i];
+                const auto expected = std::fmod(
+                    test.dividend * test.multiplier,
+                    strict_fmod_cases[0u].divisor);
+                expect(matches(
+                    candidate[vector_base + 4u + i], expected))
+                    << route << " strict fmod vector-scalar lane " << i
+                    << ": got " << candidate[vector_base + 4u + i]
+                    << " expected " << expected;
+            }
+            const auto scalar_dividend =
+                strict_fmod_cases[2u].dividend *
+                strict_fmod_cases[2u].multiplier;
+            for (auto i = 0u; i < 4u; ++i) {
+                const auto expected = std::fmod(
+                    scalar_dividend,
+                    strict_fmod_cases[i].divisor);
+                expect(matches(
+                    candidate[vector_base + 8u + i], expected))
+                    << route << " strict fmod scalar-vector lane " << i
+                    << ": got " << candidate[vector_base + 8u + i]
+                    << " expected " << expected;
+            }
+        };
+    check_strict_fmod_results(
+        strict_fmod_results, "native");
     if (device.backend_name() == "vk") {
+        auto hlsl_fmod_result_buf =
+            device.create_buffer<float>(
+                strict_fmod_cases.size() + strict_fmod_vector_width);
+        auto hlsl_strict_fmod_shader = device.compile(
+            make_strict_fmod_kernel(true),
+            ShaderOption{
+                .enable_cache = false,
+                .enable_fast_math = false});
+        std::array<
+            float,
+            strict_fmod_cases.size() + strict_fmod_vector_width>
+            hlsl_strict_fmod_results{};
+        stream
+            << hlsl_strict_fmod_shader(
+                   strict_fmod_input_buf,
+                   hlsl_fmod_result_buf)
+                   .dispatch(1u)
+            << hlsl_fmod_result_buf.copy_to(
+                   luisa::span{hlsl_strict_fmod_results})
+            << synchronize();
+        check_strict_fmod_results(
+            hlsl_strict_fmod_results,
+            "HLSL-to-SPIR-V");
+
         auto hlsl_result_buf =
             device.create_buffer<float>(
                 strict_asin_inputs.size() + 1u);

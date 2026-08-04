@@ -631,6 +631,15 @@ void CUDACodegenAST::visit(const UnaryExpr *expr) {
 }
 
 void CUDACodegenAST::visit(const BinaryExpr *expr) {
+    if (expr->op() == BinaryOp::MOD &&
+        expr->type()->is_float_or_float_vector()) {
+        _scratch << "lc_fmod(";
+        expr->lhs()->accept(*this);
+        _scratch << ", ";
+        expr->rhs()->accept(*this);
+        _scratch << ")";
+        return;
+    }
     _scratch << "(";
     expr->lhs()->accept(*this);
     switch (expr->op()) {

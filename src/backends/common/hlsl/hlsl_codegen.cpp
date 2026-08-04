@@ -45,6 +45,20 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         expr->rhs()->accept(*this);//Reverse matrix
         str << ')';
 
+    } else if (op == BinaryOp::MOD &&
+               (expr->type()->is_float() ||
+                (expr->type()->is_vector() &&
+                 expr->type()->element()->is_float()))) {
+        auto element = expr->type()->is_vector() ?
+                           expr->type()->element() :
+                           expr->type();
+        str << (util->opt->isSpirv && element->is_float32() ?
+                    "_lc_fmod("sv :
+                    "fmod("sv);
+        expr->lhs()->accept(*this);
+        str << ',';
+        expr->rhs()->accept(*this);
+        str << ')';
     } else if (op == BinaryOp::AND) {
         str << "and(";
         expr->lhs()->accept(*this);

@@ -1327,7 +1327,13 @@ void CUDACodegenXIR::_emit_arithmetic_inst(const xir::ArithmeticInst *inst, int 
         case xir::ArithmeticOp::BINARY_SUB: b("-"); break;
         case xir::ArithmeticOp::BINARY_MUL: b("*"); break;
         case xir::ArithmeticOp::BINARY_DIV: b("/"); break;
-        case xir::ArithmeticOp::BINARY_MOD: b("%"); break;
+        case xir::ArithmeticOp::BINARY_MOD:
+            if (inst->type()->is_float_or_float_vector()) {
+                f("lc_fmod");
+            } else {
+                b("%");
+            }
+            break;
         case xir::ArithmeticOp::BINARY_BIT_AND: {
             if (auto t = inst->type(); t->is_bool() || t->is_bool_vector()) {
                 b("&&");

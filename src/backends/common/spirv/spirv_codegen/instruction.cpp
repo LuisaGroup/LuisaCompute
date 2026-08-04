@@ -315,6 +315,275 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     lhs,
                     rhs));
         };
+    auto exact_float32_fmod =
+        [&](spv::Id x, spv::Id y) noexcept {
+            LUISA_ASSERT(
+                elem->is_float32() &&
+                    (t->is_scalar() || t->is_vector()),
+                "Exact SPIR-V fmod requires float32 scalar/vector operands.");
+
+            // For a finite binary32 value, write the magnitude as
+            //
+            //   significand * 2^(scale - 149),
+            //
+            // where scale is max(biased_exponent - 1, 0). If |x| >= |y|,
+            // the exact remainder is therefore
+            //
+            //   ((sig_x * 2^(scale_x - scale_y)) mod sig_y)
+            //       * 2^(scale_y - 149).
+            //
+            // Compute the integer modulus with exponentiation by squaring.
+            // The significands have at most 24 bits, so every intermediate
+            // product fits in 48 bits. This avoids forming the enormous,
+            // rounded floating-point quotient used by common OpFRem lowering.
+            auto uint_scalar_type = _builder.makeUintType(32);
+            auto uint_type = is_scalar ?
+                                 uint_scalar_type :
+                                 _builder.makeVectorType(
+                                     uint_scalar_type, t->dimension());
+            auto wide_uint_scalar_type = _builder.makeUintType(64);
+            auto wide_uint_type = is_scalar ?
+                                      wide_uint_scalar_type :
+                                      _builder.makeVectorType(
+                                          wide_uint_scalar_type,
+                                          t->dimension());
+            auto bool_type = is_scalar ?
+                                 _builder.makeBoolType() :
+                                 _builder.makeVectorType(
+                                     _builder.makeBoolType(),
+                                     t->dimension());
+            auto make_u32 = [&](uint32_t value) noexcept {
+                auto scalar = _builder.makeIntConstant(
+                    uint_scalar_type, value, false);
+                return is_scalar ?
+                           scalar :
+                           _builder.smearScalar(
+                               spv::NoPrecision, scalar, uint_type);
+            };
+            auto make_u64 = [&](uint64_t value) noexcept {
+                auto scalar = _builder.makeInt64Constant(
+                    wide_uint_scalar_type, value, false);
+                return is_scalar ?
+                           scalar :
+                           _builder.smearScalar(
+                               spv::NoPrecision, scalar, wide_uint_type);
+            };
+            auto select_u32 = [&](spv::Id condition,
+                                  spv::Id when_true,
+                                  spv::Id when_false) noexcept {
+                return _builder.createTriOp(
+                    spv::Op::OpSelect, uint_type,
+                    condition, when_true, when_false);
+            };
+            auto select_u64 = [&](spv::Id condition,
+                                  spv::Id when_true,
+                                  spv::Id when_false) noexcept {
+                return _builder.createTriOp(
+                    spv::Op::OpSelect, wide_uint_type,
+                    condition, when_true, when_false);
+            };
+
+            auto zero = make_u32(0u);
+            auto one = make_u32(1u);
+            auto exponent_mask = make_u32(0xffu);
+            auto fraction_mask = make_u32(0x007fffffu);
+            auto magnitude_mask = make_u32(0x7fffffffu);
+            auto sign_mask = make_u32(0x80000000u);
+            auto hidden_bit = make_u32(0x00800000u);
+            auto infinity_bits = make_u32(0x7f800000u);
+            auto quiet_nan_bits = make_u32(0x7fc00000u);
+
+            auto x_bits = _builder.createUnaryOp(
+                spv::Op::OpBitcast, uint_type, x);
+            auto y_bits = _builder.createUnaryOp(
+                spv::Op::OpBitcast, uint_type, y);
+            auto x_magnitude = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                x_bits, magnitude_mask);
+            auto y_magnitude = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                y_bits, magnitude_mask);
+            auto x_exponent = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpShiftRightLogical, uint_type,
+                    x_magnitude, make_u32(23u)),
+                exponent_mask);
+            auto y_exponent = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpShiftRightLogical, uint_type,
+                    y_magnitude, make_u32(23u)),
+                exponent_mask);
+            auto x_is_normal = _builder.createBinOp(
+                spv::Op::OpINotEqual, bool_type, x_exponent, zero);
+            auto y_is_normal = _builder.createBinOp(
+                spv::Op::OpINotEqual, bool_type, y_exponent, zero);
+            auto x_significand = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    x_magnitude, fraction_mask),
+                select_u32(x_is_normal, hidden_bit, zero));
+            auto y_significand = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    y_magnitude, fraction_mask),
+                select_u32(y_is_normal, hidden_bit, zero));
+            auto x_scale = select_u32(
+                x_is_normal,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, x_exponent, one),
+                zero);
+            auto y_scale = select_u32(
+                y_is_normal,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, y_exponent, one),
+                zero);
+            auto scales_ordered = _builder.createBinOp(
+                spv::Op::OpUGreaterThanEqual, bool_type,
+                x_scale, y_scale);
+            auto exponent_delta = select_u32(
+                scales_ordered,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, x_scale, y_scale),
+                zero);
+
+            auto y_significand_is_zero = _builder.createBinOp(
+                spv::Op::OpIEqual, bool_type, y_significand, zero);
+            auto safe_y_significand = select_u32(
+                y_significand_is_zero, one, y_significand);
+            auto wide_x_significand = _builder.createUnaryOp(
+                spv::Op::OpUConvert, wide_uint_type, x_significand);
+            auto wide_y_significand = _builder.createUnaryOp(
+                spv::Op::OpUConvert, wide_uint_type,
+                safe_y_significand);
+            auto remainder = _builder.createBinOp(
+                spv::Op::OpUMod, wide_uint_type,
+                wide_x_significand, wide_y_significand);
+            auto factor = _builder.createBinOp(
+                spv::Op::OpUMod, wide_uint_type,
+                make_u64(2u), wide_y_significand);
+            for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                auto bit_mask = make_u32(1u << bit);
+                auto bit_set = _builder.createBinOp(
+                    spv::Op::OpINotEqual, bool_type,
+                    _builder.createBinOp(
+                        spv::Op::OpBitwiseAnd, uint_type,
+                        exponent_delta, bit_mask),
+                    zero);
+                auto multiplied = _builder.createBinOp(
+                    spv::Op::OpIMul, wide_uint_type,
+                    remainder, factor);
+                auto reduced = _builder.createBinOp(
+                    spv::Op::OpUMod, wide_uint_type,
+                    multiplied, wide_y_significand);
+                remainder = select_u64(bit_set, reduced, remainder);
+                if (bit + 1u < 8u) {
+                    factor = _builder.createBinOp(
+                        spv::Op::OpUMod, wide_uint_type,
+                        _builder.createBinOp(
+                            spv::Op::OpIMul, wide_uint_type,
+                            factor, factor),
+                        wide_y_significand);
+                }
+            }
+            auto remainder_bits = _builder.createUnaryOp(
+                spv::Op::OpUConvert, uint_type, remainder);
+
+            // Re-encode remainder * 2^(scale_y - 149) without performing a
+            // floating-point operation, so subnormal results are preserved.
+            auto remainder_is_zero = _builder.createBinOp(
+                spv::Op::OpIEqual, bool_type, remainder_bits, zero);
+            auto remainder_msb = _builder.createBuiltinCall(
+                uint_type, _glsl450, GLSLstd450FindUMsb,
+                {remainder_bits});
+            auto safe_msb = select_u32(
+                remainder_is_zero, zero, remainder_msb);
+            auto exponent_sum = _builder.createBinOp(
+                spv::Op::OpIAdd, uint_type,
+                safe_msb, y_exponent);
+            auto normal_result = _builder.createBinOp(
+                spv::Op::OpLogicalAnd, bool_type,
+                _builder.createUnaryOp(
+                    spv::Op::OpLogicalNot, bool_type,
+                    remainder_is_zero),
+                _builder.createBinOp(
+                    spv::Op::OpUGreaterThanEqual, bool_type,
+                    exponent_sum, make_u32(24u)));
+            auto normalized_significand = _builder.createBinOp(
+                spv::Op::OpShiftLeftLogical, uint_type,
+                remainder_bits,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type,
+                    make_u32(23u), safe_msb));
+            auto normal_bits = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpShiftLeftLogical, uint_type,
+                    _builder.createBinOp(
+                        spv::Op::OpISub, uint_type,
+                        exponent_sum, make_u32(23u)),
+                    make_u32(23u)),
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    normalized_significand, fraction_mask));
+            auto subnormal_shift = select_u32(
+                y_is_normal,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, y_exponent, one),
+                zero);
+            auto clamped_subnormal_shift = select_u32(
+                _builder.createBinOp(
+                    spv::Op::OpUGreaterThan, bool_type,
+                    subnormal_shift, make_u32(23u)),
+                make_u32(23u), subnormal_shift);
+            auto subnormal_bits = _builder.createBinOp(
+                spv::Op::OpShiftLeftLogical, uint_type,
+                remainder_bits, clamped_subnormal_shift);
+            auto magnitude_result = select_u32(
+                normal_result, normal_bits, subnormal_bits);
+            auto signed_result = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                magnitude_result,
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    x_bits, sign_mask));
+
+            auto invalid = _builder.createBinOp(
+                spv::Op::OpLogicalOr, bool_type,
+                _builder.createBinOp(
+                    spv::Op::OpUGreaterThanEqual, bool_type,
+                    x_magnitude, infinity_bits),
+                _builder.createBinOp(
+                    spv::Op::OpLogicalOr, bool_type,
+                    _builder.createBinOp(
+                        spv::Op::OpUGreaterThan, bool_type,
+                        y_magnitude, infinity_bits),
+                    _builder.createBinOp(
+                        spv::Op::OpIEqual, bool_type,
+                        y_magnitude, zero)));
+            auto compute_remainder = _builder.createBinOp(
+                spv::Op::OpLogicalAnd, bool_type,
+                _builder.createUnaryOp(
+                    spv::Op::OpLogicalNot, bool_type, invalid),
+                _builder.createBinOp(
+                    spv::Op::OpLogicalAnd, bool_type,
+                    _builder.createBinOp(
+                        spv::Op::OpULessThan, bool_type,
+                        y_magnitude, infinity_bits),
+                    _builder.createBinOp(
+                        spv::Op::OpUGreaterThanEqual, bool_type,
+                        x_magnitude, y_magnitude)));
+            auto result_bits = select_u32(
+                invalid,
+                quiet_nan_bits,
+                select_u32(
+                    compute_remainder, signed_result, x_bits));
+            return _builder.createUnaryOp(
+                spv::Op::OpBitcast, type, result_bits);
+        };
     auto strict_float32_asin = [&](spv::Id x) noexcept {
         LUISA_ASSERT(
             elem->is_float32(),
@@ -451,7 +720,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 id = binary(spv::Op::OpUDiv);
             break;
         case xir::ArithmeticOp::BINARY_MOD:
-            if (is_float)
+            if (elem->is_float32())
+                id = exact_float32_fmod(operand(0), operand(1));
+            else if (is_float)
                 id = binary(spv::Op::OpFRem);
             else if (is_signed_int)
                 id = binary(spv::Op::OpSRem);

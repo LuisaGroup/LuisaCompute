@@ -527,6 +527,9 @@ luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(BinaryOp op, Type cons
             } else if (right_type->is_scalar()) {
                 make_vec(right_type, left_type->dimension(), left_type_name, right_name);
             }
+            auto element_type = left_type->element();
+            auto floating_mod =
+                op == BinaryOp::MOD && element_type->is_float();
             decl_sb << "static ";
             bool ret_is_boolvec = (luisa::to_underlying(op) >= luisa::to_underlying(BinaryOp::LESS));
             if (ret_is_boolvec) {
@@ -537,6 +540,20 @@ luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(BinaryOp op, Type cons
             decl_sb << ' ' << func_name << '(' << left_type_name << " a, "sv << right_type_name << " b){\n"sv << temp_sb;
             luisa::string_view name;
             if (!ret_is_boolvec) {
+                if (floating_mod) {
+                    decl_sb << "return "sv;
+                    auto function = element_type->is_float64() ?
+                                        "fmod"sv :
+                                        "fmodf"sv;
+                    gen_vec_function(
+                        decl_sb,
+                        luisa::format(
+                            "{}({}.#, {}.#)",
+                            function, left_name, right_name),
+                        left_type);
+                    decl_sb << ";\n}\n"sv;
+                    return;
+                }
                 switch (op) {
                     case BinaryOp::ADD:
                         name = "+"sv;

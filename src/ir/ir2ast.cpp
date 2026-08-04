@@ -641,18 +641,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::Sub: return binary_op(BinaryOp::SUB);
         case ir::Func::Tag::Mul: return binary_op(BinaryOp::MUL);
         case ir::Func::Tag::Div: return binary_op(BinaryOp::DIV);
-        case ir::Func::Tag::Rem: {
-            if (type->is_float32() || type->is_float32_vector()) {
-                // implemented as x - y * trunc(x / y)
-                auto x = _convert_node(args[0]);
-                auto y = _convert_node(args[1]);
-                auto div = detail::FunctionBuilder::current()->binary(type, BinaryOp::DIV, x, y);
-                auto trunc = detail::FunctionBuilder::current()->call(type, CallOp::TRUNC, {div});
-                auto mul = detail::FunctionBuilder::current()->binary(type, BinaryOp::MUL, y, trunc);
-                return detail::FunctionBuilder::current()->binary(type, BinaryOp::SUB, x, mul);
-            }
-            return binary_op(BinaryOp::MOD);
-        }
+        case ir::Func::Tag::Rem: return binary_op(BinaryOp::MOD);
         case ir::Func::Tag::BitAnd: return binary_op(BinaryOp::BIT_AND);
         case ir::Func::Tag::BitOr: return binary_op(BinaryOp::BIT_OR);
         case ir::Func::Tag::BitXor: return binary_op(BinaryOp::BIT_XOR);

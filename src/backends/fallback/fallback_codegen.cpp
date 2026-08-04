@@ -768,6 +768,9 @@ private:
             case Type::Tag::UINT16: [[fallthrough]];
             case Type::Tag::UINT32: [[fallthrough]];
             case Type::Tag::UINT64: return b.CreateURem(llvm_lhs, llvm_rhs);// Unsigned integer remainder
+            case Type::Tag::FLOAT16: [[fallthrough]];
+            case Type::Tag::FLOAT32: [[fallthrough]];
+            case Type::Tag::FLOAT64: return b.CreateFRem(llvm_lhs, llvm_rhs);// IEEE floating-point remainder (fmod)
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Invalid binary mod operand type: {}.", elem_type->description());
