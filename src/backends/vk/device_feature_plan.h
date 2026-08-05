@@ -23,6 +23,7 @@ inline constexpr uint32_t local_per_stage_descriptor_budget = 256u;
 inline constexpr uint32_t fixed_sampler_descriptor_count = 16u;
 
 struct BindlessHeapLimits {
+    uint32_t max_per_set_descriptors{};
     uint32_t max_per_stage_update_after_bind_samplers{};
     uint32_t max_descriptor_set_update_after_bind_samplers{};
     uint32_t max_per_stage_update_after_bind_storage_buffers{};
@@ -54,6 +55,7 @@ struct BindlessHeapLimits {
     // local storage + C, local sampled + 2C, and local resources + 3C. The
     // all-pools limit covers only the three persistent update-after-bind pools.
     return std::min({requested_capacity,
+                     limits.max_per_set_descriptors,
                      reserve_local_descriptors(
                          limits.max_per_stage_update_after_bind_storage_buffers),
                      reserve_local_descriptors(
@@ -68,6 +70,36 @@ struct BindlessHeapLimits {
                          limits.max_per_stage_update_after_bind_resources) /
                          3u,
                      limits.max_update_after_bind_descriptors_in_all_pools / 3u});
+}
+
+template<typename F>
+[[nodiscard]] uint32_t negotiate_bindless_heap_capacity(
+    uint32_t upper_bound, F &&supports_capacity) noexcept {
+    auto lower = 0u;
+    while (lower < upper_bound) {
+        auto capacity = lower + (upper_bound - lower + 1u) / 2u;
+        if (supports_capacity(capacity)) {
+            lower = capacity;
+        } else {
+            upper_bound = capacity - 1u;
+        }
+    }
+    return lower;
+}
+
+struct DefaultDeviceCandidate {
+    bool supports_graphics_compute{false};
+    uint32_t bindless_heap_capacity{};
+};
+
+[[nodiscard]] constexpr bool prefer_default_device_candidate(
+    DefaultDeviceCandidate candidate, DefaultDeviceCandidate current,
+    bool require_bindless) noexcept {
+    auto usable = [require_bindless](DefaultDeviceCandidate value) noexcept {
+        return value.supports_graphics_compute &&
+               (!require_bindless || value.bindless_heap_capacity != 0u);
+    };
+    return usable(candidate) && !usable(current);
 }
 
 // robustBufferAccess and storage-buffer update-after-bind can only be enabled
