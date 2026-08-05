@@ -230,6 +230,7 @@ luisa_compute_add_test(test_hip_callable_boundary unit/runtime/test_hip_callable
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
 luisa_compute_add_test(test_atomic_queue        unit/runtime/test_atomic_queue.cpp)
 luisa_compute_add_test(test_byte_buffer         unit/runtime/test_byte_buffer.cpp)
+luisa_compute_add_test(test_dynamic_buffer      unit/runtime/test_dynamic_buffer.cpp)
 luisa_compute_add_test(test_context             unit/runtime/test_context.cpp)
 luisa_compute_add_test(test_copy                unit/runtime/test_copy.cpp)
 luisa_compute_add_test(test_cpu_callable        unit/runtime/test_cpu_callable.cpp)

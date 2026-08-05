@@ -28,6 +28,7 @@ class IndirectDispatchBuffer;
 class SparseBufferHeap;
 class SparseTextureHeap;
 class ByteBuffer;
+class DynamicBuffer;
 
 template<typename T>
 class SOA;
@@ -232,6 +233,7 @@ public:
     [[nodiscard]] SparseTextureHeap allocate_sparse_texture_heap(size_t byte_size) noexcept;
 
     [[nodiscard]] ByteBuffer create_byte_buffer(size_t byte_size) const noexcept;
+    [[nodiscard]] DynamicBuffer create_dynamic_buffer(size_t byte_size) noexcept;
 
     [[nodiscard]] ByteBuffer import_external_byte_buffer(void *external_memory, size_t byte_size) const noexcept;
 

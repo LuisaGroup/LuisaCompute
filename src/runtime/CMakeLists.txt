@@ -29,6 +29,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         context.cpp
         device.cpp
         dispatch_buffer.cpp
+        dynamic_buffer.cpp
         event.cpp
         image.cpp
         mipmap.cpp

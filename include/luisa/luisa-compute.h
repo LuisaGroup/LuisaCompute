@@ -73,6 +73,7 @@
 #include <luisa/dsl/raster/raster_kernel.h>
 #include <luisa/dsl/ref.h>
 #include <luisa/dsl/resource.h>
+#include <luisa/dsl/dynamic_buffer.h>
 #include <luisa/dsl/rtx/aabb.h>
 #include <luisa/dsl/rtx/accel.h>
 #include <luisa/dsl/rtx/curve.h>
@@ -116,6 +117,7 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/buffer_arena.h>
 #include <luisa/runtime/byte_buffer.h>
+#include <luisa/runtime/dynamic_buffer.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/depth_format.h>
