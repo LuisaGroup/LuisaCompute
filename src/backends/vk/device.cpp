@@ -407,11 +407,11 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
             }
         }
 
-#if (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK)) && defined(VK_KHR_portability_enumeration)
-        // SRS - When running on iOS/macOS with MoltenVK and VK_KHR_portability_enumeration is defined and supported by the instance, enable the extension and the flag
-        if (supported_instance_exts.find(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == supported_instance_exts.end()) {
+#if defined(LUISA_PLATFORM_APPLE) && defined(VK_KHR_portability_enumeration)
+        // MoltenVK requires portability enumeration to expose all conformant physical devices.
+        if (supported_instance_exts.find(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) != supported_instance_exts.end()) {
             emplace_instance_ext(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-            instance_create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+            instance_create_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
         }
 #endif
         if (settings.validation) {
@@ -843,6 +843,31 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         // Defaults to the first device unless specified by command line
         VkPhysicalDeviceProperties device_properties;
         if (selected_device == -1) {
+#if defined(LUISA_PLATFORM_APPLE)
+            selected_device = 0;
+            for (uint32_t i = 0u; i < gpu_count; i++) {
+                uint32_t queue_family_count = 0u;
+                vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_count, nullptr);
+                vstd::vector<VkQueueFamilyProperties> queue_families;
+                luisa::enlarge_by(queue_families, queue_family_count);
+                vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_count, queue_families.data());
+                auto supports_graphics_compute = std::any_of(
+                    queue_families.begin(), queue_families.end(),
+                    [](auto &&queue_family) noexcept {
+                        constexpr auto required = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
+                        return queue_family.queueCount > 0u &&
+                               (queue_family.queueFlags & required) == required;
+                    });
+                if (supports_graphics_compute) {
+                    selected_device = i;
+                    vkGetPhysicalDeviceProperties(physical_devices[i], &device_properties);
+                    LUISA_INFO("Select device: {} (device ID: {:#010x})",
+                               device_properties.deviceName,
+                               device_properties.deviceID);
+                    break;
+                }
+            }
+#else
             selected_device = 0;
             for (auto &&i : physical_devices) {
                 vkGetPhysicalDeviceProperties(i, &device_properties);
@@ -855,6 +880,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 }
                 selected_device++;
             }
+#endif
         }
         physical_device = physical_devices[std::min<uint32_t>(selected_device, physical_devices.size() - 1)];
     }
