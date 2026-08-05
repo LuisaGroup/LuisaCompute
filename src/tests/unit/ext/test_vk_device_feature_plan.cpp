@@ -2319,6 +2319,7 @@ int main(int argc, char *argv[]) {
     "vk_bindless_heap_capacity_reserves_local_budget_before_per_stage_clamps"_test = [] {
         using namespace lc::vk::detail;
         constexpr BindlessHeapLimits generous{
+            .max_per_set_descriptors = 1'000'000u,
             .max_per_stage_update_after_bind_samplers = 1'000'000u,
             .max_descriptor_set_update_after_bind_samplers = 1'000'000u,
             .max_per_stage_update_after_bind_storage_buffers = 1'000'000u,
@@ -2366,6 +2367,7 @@ int main(int argc, char *argv[]) {
     "vk_bindless_heap_capacity_applies_set_pool_and_request_limits_exactly"_test = [] {
         using namespace lc::vk::detail;
         constexpr BindlessHeapLimits generous{
+            .max_per_set_descriptors = 1'000'000u,
             .max_per_stage_update_after_bind_samplers = 1'000'000u,
             .max_descriptor_set_update_after_bind_samplers = 1'000'000u,
             .max_per_stage_update_after_bind_storage_buffers = 1'000'000u,
@@ -2376,6 +2378,13 @@ int main(int argc, char *argv[]) {
             .max_update_after_bind_descriptors_in_all_pools = 1'000'000u};
         expect(eq(plan_bindless_heap_capacity(generous),
                   requested_bindless_heap_capacity));
+
+        constexpr auto per_set_limited = [=] {
+            auto limits = generous;
+            limits.max_per_set_descriptors = 1212u;
+            return plan_bindless_heap_capacity(limits);
+        }();
+        expect(eq(per_set_limited, 1212u));
 
         constexpr auto sampled_set_limited = [=] {
             auto limits = generous;
@@ -2410,6 +2419,43 @@ int main(int argc, char *argv[]) {
         }();
         expect(eq(sampler_limited, 0u))
             << "the fixed ordinary sampler set participates in UAB aggregates";
+    };
+
+    "vk_bindless_heap_capacity_negotiates_layout_support"_test = [] {
+        using namespace lc::vk::detail;
+        auto queries = 0u;
+        auto capacity = negotiate_bindless_heap_capacity(
+            requested_bindless_heap_capacity,
+            [&queries](uint32_t value) noexcept {
+                ++queries;
+                return value <= 1211u;
+            });
+        expect(eq(capacity, 1211u));
+        expect(queries < 20u);
+        expect(eq(negotiate_bindless_heap_capacity(
+                      16u, [](uint32_t) noexcept { return false; }),
+                  0u));
+    };
+
+    "vk_default_device_selection_requires_usable_bindless_when_enabled"_test = [] {
+        using namespace lc::vk::detail;
+        constexpr DefaultDeviceCandidate no_bindless{
+            .supports_graphics_compute = true,
+            .bindless_heap_capacity = 0u};
+        constexpr DefaultDeviceCandidate molten_vk{
+            .supports_graphics_compute = true,
+            .bindless_heap_capacity = 1212u};
+        constexpr DefaultDeviceCandidate large_heap{
+            .supports_graphics_compute = true,
+            .bindless_heap_capacity = requested_bindless_heap_capacity};
+        static_assert(prefer_default_device_candidate(
+            molten_vk, no_bindless, true));
+        static_assert(!prefer_default_device_candidate(
+            large_heap, molten_vk, true));
+        static_assert(!prefer_default_device_candidate(
+            no_bindless, molten_vk, true));
+        static_assert(prefer_default_device_candidate(
+            no_bindless, {}, false));
     };
 
     "vk_required_features_use_core_without_redundant_extensions"_test = [] {

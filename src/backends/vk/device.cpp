@@ -76,6 +76,53 @@ namespace {
     return false;
 }
 
+[[nodiscard]] uint32_t query_bindless_heap_capacity(
+    VkPhysicalDevice physical_device) noexcept {
+    VkPhysicalDeviceVulkan12Features features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 features2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &features};
+    vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+    if (features.descriptorIndexing != VK_TRUE ||
+        features.shaderSampledImageArrayNonUniformIndexing != VK_TRUE ||
+        features.shaderStorageBufferArrayNonUniformIndexing != VK_TRUE ||
+        features.descriptorBindingSampledImageUpdateAfterBind != VK_TRUE ||
+        features.descriptorBindingStorageBufferUpdateAfterBind != VK_TRUE ||
+        features.descriptorBindingPartiallyBound != VK_TRUE ||
+        features.runtimeDescriptorArray != VK_TRUE) {
+        return 0u;
+    }
+    VkPhysicalDeviceMaintenance3Properties maintenance3_properties{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES};
+    VkPhysicalDeviceDescriptorIndexingProperties descriptor_indexing_properties{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES,
+        .pNext = &maintenance3_properties};
+    VkPhysicalDeviceProperties2 properties2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &descriptor_indexing_properties};
+    vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+    return detail::plan_bindless_heap_capacity(
+        {.max_per_set_descriptors =
+             maintenance3_properties.maxPerSetDescriptors,
+         .max_per_stage_update_after_bind_samplers =
+             descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSamplers,
+         .max_descriptor_set_update_after_bind_samplers =
+             descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSamplers,
+         .max_per_stage_update_after_bind_storage_buffers =
+             descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers,
+         .max_descriptor_set_update_after_bind_storage_buffers =
+             descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageBuffers,
+         .max_per_stage_update_after_bind_sampled_images =
+             descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSampledImages,
+         .max_descriptor_set_update_after_bind_sampled_images =
+             descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSampledImages,
+         .max_per_stage_update_after_bind_resources =
+             descriptor_indexing_properties.maxPerStageUpdateAfterBindResources,
+         .max_update_after_bind_descriptors_in_all_pools =
+             descriptor_indexing_properties.maxUpdateAfterBindDescriptorsInAllPools});
+}
+
 #ifdef LUISA_XIR_TO_SPIRV
 [[nodiscard]] luisa::string describe_hlsl_fallback_reasons(
     detail::UserComputeCodegenRoute route) noexcept {
@@ -845,6 +892,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         if (selected_device == -1) {
 #if defined(LUISA_PLATFORM_APPLE)
             selected_device = 0;
+            detail::DefaultDeviceCandidate selected_candidate{};
             for (uint32_t i = 0u; i < gpu_count; i++) {
                 uint32_t queue_family_count = 0u;
                 vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_count, nullptr);
@@ -858,15 +906,24 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                         return queue_family.queueCount > 0u &&
                                (queue_family.queueFlags & required) == required;
                     });
-                if (supports_graphics_compute) {
+                auto candidate = detail::DefaultDeviceCandidate{
+                    .supports_graphics_compute = supports_graphics_compute,
+                    .bindless_heap_capacity =
+                        bindless_enabled ?
+                            query_bindless_heap_capacity(physical_devices[i]) :
+                            0u};
+                if (detail::prefer_default_device_candidate(
+                        candidate, selected_candidate, bindless_enabled)) {
                     selected_device = i;
-                    vkGetPhysicalDeviceProperties(physical_devices[i], &device_properties);
-                    LUISA_INFO("Select device: {} (device ID: {:#010x})",
-                               device_properties.deviceName,
-                               device_properties.deviceID);
-                    break;
+                    selected_candidate = candidate;
                 }
             }
+            vkGetPhysicalDeviceProperties(
+                physical_devices[selected_device], &device_properties);
+            LUISA_INFO(
+                "Select device: {} (device ID: {:#010x}, bindless capacity: {})",
+                device_properties.deviceName, device_properties.deviceID,
+                selected_candidate.bindless_heap_capacity);
 #else
             selected_device = 0;
             for (auto &&i : physical_devices) {
@@ -1415,9 +1472,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             VkPhysicalDeviceProperties2 properties2{
                 .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
                 .pNext = &_descriptor_indexing_properties};
+            VkPhysicalDeviceMaintenance3Properties maintenance3_properties{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES};
+            _descriptor_indexing_properties.pNext = &maintenance3_properties;
             vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+            _descriptor_indexing_properties.pNext = nullptr;
             _bindless_heap_capacity =
-                detail::plan_bindless_heap_capacity({.max_per_stage_update_after_bind_samplers =
+                detail::plan_bindless_heap_capacity({.max_per_set_descriptors =
+                                                         maintenance3_properties.maxPerSetDescriptors,
+                                                     .max_per_stage_update_after_bind_samplers =
                                                          _descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSamplers,
                                                      .max_descriptor_set_update_after_bind_samplers =
                                                          _descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSamplers,
@@ -2077,19 +2140,36 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 .bindingCount = 1u,
                 .pBindings = &global_bindless_bindings[i]};
         }
-        // Query every persistent global layout before creating the first pool
-        // or layout. This keeps device initialization atomic with respect to
-        // implementation-specific update-after-bind layout restrictions.
-        for (auto i = 0u; i < global_bindless_layouts.size(); ++i) {
-            VkDescriptorSetLayoutSupport support{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_SUPPORT};
-            vkGetDescriptorSetLayoutSupport(
-                logic_device(), &global_bindless_layouts[i], &support);
-            LUISA_ASSERT(
-                support.supported == VK_TRUE,
-                "Vulkan device rejected global bindless descriptor layout {} "
-                "at capacity {}.",
-                i, _bindless_heap_capacity);
+        // Some implementations apply additional per-layout restrictions not
+        // reflected by descriptor-indexing properties. Negotiate one capacity
+        // accepted by all three persistent global layouts before creating any
+        // descriptor pool or layout.
+        auto planned_capacity = _bindless_heap_capacity;
+        _bindless_heap_capacity = detail::negotiate_bindless_heap_capacity(
+            planned_capacity, [&](uint32_t capacity) noexcept {
+                for (auto i = 0u; i < global_bindless_layouts.size(); ++i) {
+                    global_bindless_bindings[i].descriptorCount = capacity;
+                    VkDescriptorSetLayoutSupport support{
+                        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_SUPPORT};
+                    vkGetDescriptorSetLayoutSupport(
+                        logic_device(), &global_bindless_layouts[i], &support);
+                    if (support.supported != VK_TRUE) { return false; }
+                }
+                return true;
+            });
+        LUISA_ASSERT(
+            _bindless_heap_capacity != 0u,
+            "Vulkan device does not support any usable global bindless "
+            "descriptor layout capacity (planned upper bound: {}).",
+            planned_capacity);
+        for (auto &binding : global_bindless_bindings) {
+            binding.descriptorCount = _bindless_heap_capacity;
+        }
+        if (_bindless_heap_capacity < planned_capacity) {
+            LUISA_INFO(
+                "Vulkan bindless heap capacity negotiated from {} to {} by "
+                "descriptor-set layout support.",
+                planned_capacity, _bindless_heap_capacity);
         }
     }
     // bindless buffer desc_pool
