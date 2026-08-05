@@ -23,6 +23,7 @@ public:
 private:
     MetalShaderHandle _handle;
     luisa::vector<Usage> _argument_usages{};
+    luisa::vector<uint8_t> _argument_sampled{};
     luisa::vector<Argument> _bound_arguments{};
     uint _block_size[3];
     mutable spin_mutex _name_mutex;
@@ -35,6 +36,7 @@ public:
     MetalShader(MetalDevice *device,
                 MetalShaderHandle handle,
                 luisa::vector<Usage> argument_usages,
+                luisa::vector<uint8_t> argument_sampled,
                 luisa::vector<Argument> bound_arguments,
                 luisa::span<const std::pair<luisa::string, luisa::string>> print_formats,
                 uint3 block_size) noexcept;
@@ -46,4 +48,3 @@ public:
 };
 
 }// namespace luisa::compute::metal
-

@@ -254,6 +254,7 @@ test_proj("test_decoupled_look_back", "unit/runtime/test_decoupled_look_back.cpp
 test_proj("test_complex_kernel", "unit/runtime/test_complex_kernel.cpp")
 test_proj("test_bindless_mip", "unit/runtime/test_bindless_mip.cpp")
 test_proj("test_direct_texture_sampling", "unit/runtime/test_direct_texture_sampling.cpp")
+test_proj("test_metal_codegen_regressions", "unit/runtime/test_metal_codegen_regressions.cpp")
 test_proj("test_mipmap", "unit/runtime/test_mipmap.cpp")
 test_proj("test_motion_instance_keyframes", "unit/runtime/test_motion_instance_keyframes.cpp")
 test_proj("test_pinned_mem", "unit/runtime/test_pinned_mem.cpp")

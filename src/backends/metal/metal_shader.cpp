@@ -13,11 +13,13 @@ namespace luisa::compute::metal {
 MetalShader::MetalShader(MetalDevice *device,
                          MetalShaderHandle handle,
                          luisa::vector<Usage> argument_usages,
+                         luisa::vector<uint8_t> argument_sampled,
                          luisa::vector<Argument> bound_arguments,
                          luisa::span<const std::pair<luisa::string, luisa::string>> print_formats,
                          uint3 block_size) noexcept
     : _handle{std::move(handle)},
       _argument_usages{std::move(argument_usages)},
+      _argument_sampled{std::move(argument_sampled)},
       _bound_arguments{std::move(bound_arguments)},
       _block_size{block_size.x, block_size.y, block_size.z},
       _prepare_indirect{device->builtin_prepare_indirect_dispatches()} {
@@ -82,7 +84,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         return argument_offset += size;
     };
 
-    auto encode = [&](Argument arg) mutable noexcept {
+    auto encode = [&](Argument arg, bool split_sampled_texture) mutable noexcept {
         switch (arg.tag) {
             case Argument::Tag::BUFFER: {
                 if (reinterpret_cast<const MetalBufferBase *>(arg.buffer.handle)->is_indirect()) {
@@ -100,6 +102,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                 auto texture = reinterpret_cast<const MetalTexture *>(arg.texture.handle);
                 auto binding = texture->binding(arg.texture.level);
                 copy(&binding, sizeof(binding));
+                if (split_sampled_texture) { copy(&binding, sizeof(binding)); }
                 break;
             }
             case Argument::Tag::BINDLESS_ARRAY: {
@@ -122,15 +125,24 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         }
     };
 
-    auto mtl_usage = [](Usage usage) noexcept {
+    auto mtl_usage = [](Usage usage, bool sampled = false) noexcept {
         auto u = 0u;
         if (to_underlying(usage) & to_underlying(Usage::READ)) { u |= MTL::ResourceUsageRead; }
         if (to_underlying(usage) & to_underlying(Usage::WRITE)) { u |= MTL::ResourceUsageWrite; }
+        if (sampled) { u |= MTL::ResourceUsageSample; }
         return u;
     };
 
-    auto mark_usage = [&, index = 0u](MTL::ComputeCommandEncoder *compute_encoder, Argument arg) mutable noexcept {
-        auto usage = mtl_usage(_argument_usages[index++]);
+    auto split_sampled_texture = [&](size_t index, Argument arg) noexcept {
+        return arg.tag == Argument::Tag::TEXTURE &&
+               _argument_sampled[index] &&
+               (to_underlying(_argument_usages[index]) &
+                to_underlying(Usage::WRITE)) != 0u;
+    };
+
+    auto mark_usage = [&](MTL::ComputeCommandEncoder *compute_encoder,
+                          Argument arg, size_t index) noexcept {
+        auto usage = mtl_usage(_argument_usages[index], _argument_sampled[index]);
         switch (arg.tag) {
             case Argument::Tag::BUFFER: {
                 if (reinterpret_cast<const MetalBufferBase *>(arg.buffer.handle)->is_indirect()) {
@@ -181,8 +193,13 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         auto indirect_buffer = reinterpret_cast<MetalIndirectDispatchBuffer *>(indirect.handle);
         auto indirect_binding = indirect_buffer->binding(indirect.offset, indirect.max_dispatch_size);
 
-        for (auto arg : _bound_arguments) { encode(arg); }
-        for (auto arg : command->arguments()) { encode(arg); }
+        auto argument_index = 0u;
+        for (auto arg : _bound_arguments) {
+            encode(arg, split_sampled_texture(argument_index++, arg));
+        }
+        for (auto arg : command->arguments()) {
+            encode(arg, split_sampled_texture(argument_index++, arg));
+        }
         MTL::Buffer *printer_buffer{nullptr};
         if (_printer != nullptr) {
             auto info = _printer->encode(encoder);
@@ -237,8 +254,9 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         compute_encoder->executeCommandsInBuffer(indirect_buffer->command_buffer(),
                                                  NS::Range::Make(indirect_binding.offset,
                                                                  indirect_binding.capacity - indirect_binding.offset));
-        for (auto arg : _bound_arguments) { mark_usage(compute_encoder, arg); }
-        for (auto arg : command->arguments()) { mark_usage(compute_encoder, arg); }
+        argument_index = 0u;
+        for (auto arg : _bound_arguments) { mark_usage(compute_encoder, arg, argument_index++); }
+        for (auto arg : command->arguments()) { mark_usage(compute_encoder, arg, argument_index++); }
         if (printer_buffer != nullptr) { compute_encoder->useResource(printer_buffer, mtl_usage(Usage::READ_WRITE)); }
         compute_encoder->endEncoding();
 
@@ -269,13 +287,14 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         }
         compute_encoder->setComputePipelineState(_handle.entry.get());
 
+        auto argument_index = 0u;
         for (auto arg : _bound_arguments) {
-            encode(arg);
-            mark_usage(compute_encoder, arg);
+            encode(arg, split_sampled_texture(argument_index, arg));
+            mark_usage(compute_encoder, arg, argument_index++);
         }
         for (auto arg : command->arguments()) {
-            encode(arg);
-            mark_usage(compute_encoder, arg);
+            encode(arg, split_sampled_texture(argument_index, arg));
+            mark_usage(compute_encoder, arg, argument_index++);
         }
 
         // printer

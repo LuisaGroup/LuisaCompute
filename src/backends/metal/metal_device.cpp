@@ -451,6 +451,8 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         StringScratch scratch;
         MetalCodegenAST codegen{scratch};
         codegen.emit(kernel, option.native_include);
+        metadata.argument_sampled.assign(
+            codegen.argument_sampled().begin(), codegen.argument_sampled().end());
 
         // kernel printing
         metadata.format_types.reserve(codegen.print_formats().size());
@@ -469,6 +471,7 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline),
             std::move(metadata.argument_usages),
+            std::move(metadata.argument_sampled),
             std::move(bound_arguments),
             std::move(metadata.format_types),
             kernel.block_size());
@@ -515,6 +518,7 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
         auto shader = new_with_allocator<MetalShader>(
             this, std::move(pipeline),
             std::move(metadata.argument_usages),
+            std::move(metadata.argument_sampled),
             luisa::vector<MetalShader::Argument>{},
             std::move(metadata.format_types),
             metadata.block_size);

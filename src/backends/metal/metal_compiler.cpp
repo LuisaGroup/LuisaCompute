@@ -200,6 +200,7 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     }
     metadata.argument_types = std::move(file_metadata->argument_types);
     metadata.argument_usages = std::move(file_metadata->argument_usages);
+    metadata.argument_sampled = std::move(file_metadata->argument_sampled);
     metadata.format_types = std::move(file_metadata->format_types);
 
     // load library
