@@ -71,8 +71,10 @@ endif ()
 if (LUISA_COMPUTE_USE_SYSTEM_SPDLOG)
     # A package being discoverable does not make it usable. Ubuntu 24.04's
     # spdlog 1.12/external fmt 9 pair, for example, fails in FMT_STRING's
-    # consteval parser with Clang 20. Probe in an isolated CMake directory so a
-    # rejected imported target cannot collide with the bundled spdlog aliases.
+    # consteval parser with Clang 20, and other packaged fmt releases have
+    # differed in their handling of Luisa's public half-vector formatter.
+    # Probe the real public formatting contract in an isolated CMake directory
+    # so a rejected imported target cannot collide with bundled spdlog aliases.
     _luisa_compute_try_system_dependency(
             _luisa_compute_dependency_found
             spdlog

@@ -135,10 +135,27 @@ LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
 #endif
 #endif
 
+template<size_t N>
+[[nodiscard]] bool check_half_formatters() {
+    auto vector_text = luisa::to_string(luisa::Vector<luisa::half, N>{});
+    auto matrix_text = luisa::to_string(luisa::Matrix<luisa::half, N>{});
+    return !vector_text.empty() && !matrix_text.empty();
+}
+
 int main(int argc, char *argv[]) {
     static_assert(LUISA_COMPUTE_VERSION_MAJOR == LUISA_PACKAGE_VERSION_MAJOR);
     static_assert(LUISA_COMPUTE_VERSION_MINOR == LUISA_PACKAGE_VERSION_MINOR);
     static_assert(LUISA_COMPUTE_VERSION_PATCH == LUISA_PACKAGE_VERSION_PATCH);
+
+    // Compile and execute formatters whose behavior depends on the exported
+    // spdlog/fmt selection and LUISA_USE_SYSTEM_SPDLOG definition. This caught
+    // a real mismatch between packaged fmt releases and Luisa's half types.
+    if (!check_half_formatters<2u>() ||
+        !check_half_formatters<3u>() ||
+        !check_half_formatters<4u>()) {
+        std::fprintf(stderr, "The exported half formatters returned no text.\n");
+        return 3;
+    }
 
     luisa::compute::Context context{argc > 0 ? argv[0] : ""};
     auto installed = context.installed_backends();
