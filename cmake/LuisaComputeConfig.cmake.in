@@ -1,0 +1,58 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Threads)
+
+if (@LUISA_COMPUTE_USE_SYSTEM_SPDLOG@)
+    find_dependency(spdlog)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_XXHASH@)
+    find_package(xxHash CONFIG QUIET)
+    if (NOT TARGET xxHash::xxhash)
+        find_dependency(PkgConfig)
+        pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)
+    endif ()
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM@)
+    find_dependency(magic_enum)
+endif ()
+
+if (@LUISA_COMPUTE_ENABLE_GUI@ AND @LUISA_COMPUTE_USE_SYSTEM_GLFW@)
+    find_dependency(glfw3)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_REPROC@)
+    find_dependency(reproc)
+    find_dependency(reproc++)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_YYJSON@)
+    find_dependency(yyjson)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_MARL@)
+    find_dependency(marl CONFIG)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_LMDB@)
+    find_package(unofficial-lmdb CONFIG QUIET)
+    if (NOT TARGET unofficial::lmdb::lmdb)
+        find_dependency(PkgConfig)
+        pkg_check_modules(LMDB REQUIRED IMPORTED_TARGET lmdb)
+    endif ()
+endif ()
+
+if (@LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB@)
+    find_dependency(CUDAToolkit 12)
+endif ()
+
+set(LuisaCompute_WITH_DSL "@LUISA_COMPUTE_ENABLE_DSL@")
+set(LuisaCompute_WITH_GUI "@LUISA_COMPUTE_ENABLE_GUI@")
+set(LuisaCompute_WITH_RUST "@LUISA_COMPUTE_ENABLE_RUST@")
+
+include("${CMAKE_CURRENT_LIST_DIR}/LuisaComputeTargets.cmake")
+
+check_required_components(LuisaCompute)

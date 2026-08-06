@@ -94,6 +94,25 @@ cmake -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release # if you want a debug buil
 cmake --build <build-dir> # when building on Windows using Visual Studio Generators, add `--config=Release` in a release build
 ```
 
+### CMake Install and Package Consumption
+
+For a reusable prebuilt installation, configure without the developer test
+targets, build, and install into a dedicated prefix:
+
+```bash
+cmake -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release -D LUISA_COMPUTE_BUILD_TESTS=OFF
+cmake --build <build-dir> --config Release
+cmake --install <build-dir> --config Release --prefix <install-dir>
+```
+
+The install tree contains a relocatable CMake package. Point consumers at the
+prefix with `-D CMAKE_PREFIX_PATH=<install-dir>` and link the exported target:
+
+```cmake
+find_package(LuisaCompute 0 CONFIG REQUIRED)
+target_link_libraries(my_target PRIVATE luisa::compute)
+```
+
 ### CMake Flags
 
 All backends are enabled by default if the corresponding required

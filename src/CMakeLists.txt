@@ -79,7 +79,6 @@ add_library(luisa::compute ALIAS compute)
 function(luisa_compute_add_executable name)
     add_executable(${name} ${ARGN})
     target_link_libraries(${name} PRIVATE luisa::compute)
-    install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endfunction()
 
 if (LUISA_COMPUTE_BUILD_TESTS)
@@ -100,5 +99,5 @@ if (NOT SKBUILD)
     install(EXPORT LuisaComputeTargets
             FILE LuisaComputeTargets.cmake
             NAMESPACE luisa::
-            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute)
+            DESTINATION ${LUISA_COMPUTE_INSTALL_CMAKEDIR})
 endif ()

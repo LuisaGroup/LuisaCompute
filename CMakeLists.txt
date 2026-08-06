@@ -151,6 +151,10 @@ if (SKBUILD)
     set(CMAKE_INSTALL_BINDIR ${SKBUILD_PLATLIB_DIR}/luisa/dylibs)
 else ()
     include(GNUInstallDirs)
+    set(LUISA_COMPUTE_INSTALL_CMAKEDIR
+            "${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute"
+            CACHE STRING "Installation directory for LuisaCompute CMake package files")
+    mark_as_advanced(LUISA_COMPUTE_INSTALL_CMAKEDIR)
 endif ()
 
 install(FILES README.md LICENSE
@@ -162,7 +166,8 @@ file(GLOB_RECURSE LUISA_COMPUTE_HEADERS CONFIGURE_DEPENDS
         "include/luisa/*.hpp")
 add_library(luisa-compute-include INTERFACE ${LUISA_COMPUTE_HEADERS})
 target_include_directories(luisa-compute-include INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
@@ -216,6 +221,22 @@ endif ()
 
 add_subdirectory(utils)
 add_subdirectory(src)
+
+if (NOT SKBUILD)
+    include(CMakePackageConfigHelpers)
+    configure_package_config_file(
+            cmake/LuisaComputeConfig.cmake.in
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfig.cmake"
+            INSTALL_DESTINATION "${LUISA_COMPUTE_INSTALL_CMAKEDIR}")
+    write_basic_package_version_file(
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfigVersion.cmake"
+            VERSION "${PROJECT_VERSION}"
+            COMPATIBILITY SameMajorVersion)
+    install(FILES
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfig.cmake"
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfigVersion.cmake"
+            DESTINATION "${LUISA_COMPUTE_INSTALL_CMAKEDIR}")
+endif ()
 
 if (LUISA_COMPUTE_BUILD_TESTS)
     enable_testing()

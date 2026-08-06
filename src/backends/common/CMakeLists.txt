@@ -83,10 +83,6 @@ if (LUISA_COMPUTE_DOWNLOAD_OIDN)
                 "${oidn_RUNTIME_LIB}"
                 "$<TARGET_FILE_DIR:luisa-compute-core>")
     endforeach ()
-    install(TARGETS luisa-compute-oidn-ext EXPORT LuisaComputeTargets
-            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES ${oidn_RUNTIME_LIBS} DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 endif ()
@@ -228,10 +224,6 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
     luisa_compute_link_wayland_if_enabled(luisa-compute-vulkan-swapchain)
     set_target_properties(luisa-compute-vulkan-swapchain PROPERTIES
             OUTPUT_NAME luisa-vulkan-swapchain)
-    install(TARGETS luisa-compute-vulkan-swapchain EXPORT LuisaComputeTargets
-            LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-
 endif ()
 
 add_subdirectory(hlsl)

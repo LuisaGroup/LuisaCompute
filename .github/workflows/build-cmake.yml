@@ -68,6 +68,23 @@ jobs:
           if [ "${{ matrix.config }}" = "Release" ]; then
             cmake --install build --prefix dist -v
           fi
+      - name: "Verify Installed Package"
+        if: matrix.config == 'Release'
+        run: |
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            export LUISA_CXX=g++
+            export LUISA_FLAGS=""
+          else
+            export LUISA_CXX=clang++-20
+            export LUISA_FLAGS="-stdlib=libc++"
+          fi
+          cmake -S cmake/tests/package -B package-consumer -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_CXX_COMPILER=${LUISA_CXX} \
+            -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" \
+            -D CMAKE_PREFIX_PATH="$PWD/dist"
+          cmake --build package-consumer
+          ./package-consumer/luisa_compute_package_consumer
 
   build-macos:
     strategy:
@@ -105,6 +122,21 @@ jobs:
           if [ "${{ matrix.config }}" = "Release" ]; then
             cmake --install build --prefix dist -v
           fi
+      - name: "Verify Installed Package"
+        if: matrix.config == 'Release'
+        run: |
+          export PATH="$PATH:/opt/homebrew/opt/llvm/bin"
+          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
+            export CXX=/opt/homebrew/opt/llvm/bin/clang++
+          else
+            export CXX=/usr/bin/clang++
+          fi
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          cmake -S cmake/tests/package -B package-consumer -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_PREFIX_PATH="$PWD/dist"
+          cmake --build package-consumer
+          ./package-consumer/luisa_compute_package_consumer
 
   build-windows:
     strategy:
@@ -156,3 +188,16 @@ jobs:
       - name: "Install"
         run: |
           cmake --install build --prefix dist -v
+      - name: "Verify Installed Package"
+        if: matrix.config == 'Release'
+        shell: cmd
+        run: |
+          IF "${{ matrix.compiler }}"=="clang" (
+            set CXX=clang++
+          ) ELSE (
+            set CXX=${{ matrix.compiler }}
+          )
+          cmake -S cmake/tests/package -B package-consumer -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=%CXX% -D CMAKE_PREFIX_PATH=%CD%/dist
+          cmake --build package-consumer
+          set PATH=%CD%\dist\bin;%PATH%
+          package-consumer\luisa_compute_package_consumer.exe
