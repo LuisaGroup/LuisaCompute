@@ -27,6 +27,43 @@ function(_luisa_compute_resolve_system_dependency option_name display_name found
             "incompatible; using bundled copy")
 endfunction()
 
+# Probe template-heavy or API-version-sensitive packages in a separate CMake
+# project. Imported targets are directory-scoped, so a rejected system package
+# never collides with the bundled target of the same name in LuisaCompute.
+function(_luisa_compute_try_system_dependency result display_name project_name
+        source_dir target_name)
+    set(_luisa_compute_probe_flags)
+    foreach (_luisa_compute_probe_variable IN ITEMS
+            CMAKE_BUILD_TYPE
+            CMAKE_PREFIX_PATH
+            CMAKE_FIND_ROOT_PATH
+            CMAKE_SYSROOT
+            CMAKE_OSX_SYSROOT
+            CMAKE_OSX_ARCHITECTURES
+            ${ARGN})
+        if (DEFINED ${_luisa_compute_probe_variable} AND
+                NOT "${${_luisa_compute_probe_variable}}" STREQUAL "")
+            string(REPLACE ";" "\\;" _luisa_compute_probe_value
+                    "${${_luisa_compute_probe_variable}}")
+            list(APPEND _luisa_compute_probe_flags
+                    "-D${_luisa_compute_probe_variable}:STRING=${_luisa_compute_probe_value}")
+        endif ()
+    endforeach ()
+    try_compile(_luisa_compute_probe_result
+            PROJECT "${project_name}"
+            SOURCE_DIR "${source_dir}"
+            TARGET "${target_name}"
+            NO_CACHE
+            CMAKE_FLAGS ${_luisa_compute_probe_flags}
+            OUTPUT_VARIABLE _luisa_compute_probe_output)
+    if (NOT _luisa_compute_probe_result)
+        message(VERBOSE
+                "System ${display_name} compatibility probe failed:\n"
+                "${_luisa_compute_probe_output}")
+    endif ()
+    set("${result}" "${_luisa_compute_probe_result}" PARENT_SCOPE)
+endfunction()
+
 if (LUISA_COMPUTE_USE_SYSTEM_STL)
     message(STATUS "Package distribution: using the system C++ standard library")
 endif ()
@@ -36,37 +73,16 @@ if (LUISA_COMPUTE_USE_SYSTEM_SPDLOG)
     # spdlog 1.12/external fmt 9 pair, for example, fails in FMT_STRING's
     # consteval parser with Clang 20. Probe in an isolated CMake directory so a
     # rejected imported target cannot collide with the bundled spdlog aliases.
-    set(_luisa_compute_spdlog_probe_flags)
-    foreach (_luisa_compute_probe_variable IN ITEMS
-            CMAKE_PREFIX_PATH CMAKE_FIND_ROOT_PATH spdlog_DIR fmt_DIR)
-        if (DEFINED ${_luisa_compute_probe_variable} AND
-                NOT "${${_luisa_compute_probe_variable}}" STREQUAL "")
-            string(REPLACE ";" "\\;" _luisa_compute_probe_value
-                    "${${_luisa_compute_probe_variable}}")
-            list(APPEND _luisa_compute_spdlog_probe_flags
-                    "-D${_luisa_compute_probe_variable}:STRING=${_luisa_compute_probe_value}")
-        endif ()
-    endforeach ()
-    try_compile(_luisa_compute_dependency_found
-            PROJECT LuisaComputeSystemSpdlogProbe
-            SOURCE_DIR
+    _luisa_compute_try_system_dependency(
+            _luisa_compute_dependency_found
+            spdlog
+            LuisaComputeSystemSpdlogProbe
             "${CMAKE_CURRENT_LIST_DIR}/probes/spdlog"
-            TARGET luisa-compute-system-spdlog-probe
-            NO_CACHE
-            CMAKE_FLAGS ${_luisa_compute_spdlog_probe_flags}
-            OUTPUT_VARIABLE _luisa_compute_spdlog_probe_output)
-    if (NOT _luisa_compute_dependency_found)
-        message(VERBOSE
-                "System spdlog compatibility probe failed:\n"
-                "${_luisa_compute_spdlog_probe_output}")
-    endif ()
+            luisa-compute-system-spdlog-probe
+            spdlog_DIR fmt_DIR)
     _luisa_compute_resolve_system_dependency(
             LUISA_COMPUTE_USE_SYSTEM_SPDLOG spdlog
             ${_luisa_compute_dependency_found})
-    unset(_luisa_compute_probe_value)
-    unset(_luisa_compute_probe_variable)
-    unset(_luisa_compute_spdlog_probe_flags)
-    unset(_luisa_compute_spdlog_probe_output)
 endif ()
 
 if (LUISA_COMPUTE_USE_SYSTEM_XXHASH)
@@ -101,12 +117,17 @@ if (LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_GUI AND LUISA_COMPUTE_USE_SYSTEM_GLFW)
-    find_package(glfw3 CONFIG QUIET)
-    if (TARGET glfw OR TARGET glfw3::glfw)
-        set(_luisa_compute_dependency_found TRUE)
-    else ()
-        set(_luisa_compute_dependency_found FALSE)
-    endif ()
+    # Luisa's GUI needs GLFW 3.4's runtime-platform API. In particular,
+    # Ubuntu 24.04 exposes a valid glfw target from 3.3.10 that is too old to
+    # compile glfwGetPlatform()/GLFW_PLATFORM_WAYLAND. Test the actual API, not
+    # only package discovery or an unreliable downstream version variable.
+    _luisa_compute_try_system_dependency(
+            _luisa_compute_dependency_found
+            GLFW
+            LuisaComputeSystemGLFWProbe
+            "${CMAKE_CURRENT_LIST_DIR}/probes/glfw"
+            luisa-compute-system-glfw-probe
+            glfw3_DIR)
     _luisa_compute_resolve_system_dependency(
             LUISA_COMPUTE_USE_SYSTEM_GLFW GLFW
             ${_luisa_compute_dependency_found})
