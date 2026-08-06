@@ -494,6 +494,7 @@ void luisa_fallback_ray_query_procedural_intersect_function(const RayQueryInters
                 args->valid[0] = -1;
                 ray_hit->ray.tfar = candidate->t;
                 ray_query_update_current_t(ctx, candidate->t);
+                candidate->committed_hit_type = HitType::Procedural;
                 ray_hit->hit = {
                     .Ng_x = 0.f,
                     .Ng_y = 0.f,
@@ -532,6 +533,7 @@ void luisa_fallback_ray_query_procedural_occluded_function(const RayQueryOcclude
                 candidate->t <= ray->tfar) {
                 args->valid[0] = -1;
                 ray->tfar = candidate->t;
+                candidate->committed_hit_type = HitType::Procedural;
                 q->ray_hit.hit = {
                     .Ng_z = candidate->t,
                     .u = -1.f,
@@ -563,6 +565,7 @@ static void luisa_fallback_ray_query_surface_intersect_filter_function(const RTC
     }
     if (flags & luisa_fallback_embree_accel_user_data_flags_opaque) {// opaque, always commit
         ray_query_update_current_t(ctx, ray->tfar);
+        ctx->base.q->candidate.committed_hit_type = HitType::Surface;
     } else if (auto on_surface = ctx->on_surface) {
         auto q = ctx->base.q;
         auto candidate = &q->candidate;
@@ -573,6 +576,7 @@ static void luisa_fallback_ray_query_surface_intersect_filter_function(const RTC
         ray->tnear = embree_tnear;
         if (candidate->committed) {
             ray_query_update_current_t(ctx, ray->tfar);
+            candidate->committed_hit_type = HitType::Surface;
         } else {
             args->valid[0] = 0;
         }
@@ -588,6 +592,7 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
     LUISA_DEBUG_ASSERT(args->N == 1u, "Only single ray is support.");
     LUISA_DEBUG_ASSERT(args->valid[0] == -1, "Only valid ray is support.");
     static constexpr auto record_hit_data = [](RayQueryObject *q, const RTCRay *ray, const RTCHit *hit) noexcept {
+        q->candidate.committed_hit_type = HitType::Surface;
         q->ray_hit.hit.Ng_x = 0.f;
         q->ray_hit.hit.Ng_y = 0.f;
         q->ray_hit.hit.Ng_z = ray->tfar;

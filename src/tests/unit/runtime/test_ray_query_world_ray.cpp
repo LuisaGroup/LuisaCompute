@@ -10,6 +10,7 @@
 #include "test_device.h"
 
 #include <array>
+#include <bit>
 #include <cmath>
 
 #include <luisa/luisa-compute.h>
@@ -195,6 +196,73 @@ void test_ray_query_commits_closest_surface(Device &device) {
     expect(host_results[0].w >= 1.0f);
 }
 
+void test_negative_surface_barycentric_hit_type(Device &device) {
+    auto stream = device.create_stream();
+
+    // Reduced from a real shared-edge hit in Blender's Monster Under the Bed
+    // scene. Embree's watertight intersector can legitimately report a tiny
+    // negative barycentric coordinate for the triangle that owns the edge.
+    // Hit identity must therefore be carried independently of barycentrics.
+    const std::array vertices{
+        make_float3(std::bit_cast<float>(0x3fc545ffu),
+                    std::bit_cast<float>(0x3ddc59cbu),
+                    std::bit_cast<float>(0x3f68f44fu)),
+        make_float3(std::bit_cast<float>(0x3fc56935u),
+                    std::bit_cast<float>(0x3df097c8u),
+                    std::bit_cast<float>(0x3f66331eu)),
+        make_float3(std::bit_cast<float>(0x3fc3cad4u),
+                    std::bit_cast<float>(0x3e020697u),
+                    std::bit_cast<float>(0x3f67c6feu)),
+        make_float3(std::bit_cast<float>(0x3fc38515u),
+                    std::bit_cast<float>(0x3ded2a7eu),
+                    std::bit_cast<float>(0x3f6a9e9au))};
+    const std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{0u, 2u, 3u}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, true);
+
+    auto result_buffer = device.create_buffer<float4>(1u);
+    Kernel1D trace = [](AccelVar accel, BufferFloat4 results) noexcept {
+        auto ray = make_ray(
+            make_float3(0x1.889388p+0f, 0x1.afaaa4p-4f,
+                        0x1.c64612p-1f),
+            make_float3(0x1.7312ep-5f, 0x1.19d2e4p-1f,
+                        0x1.aad3c4p-1f),
+            0.0f, 0x1.0a6f96p-5f);
+        auto committed = accel.traverse(ray, {})
+                             .on_surface_candidate(
+                                 [](SurfaceCandidate &) noexcept {})
+                             .on_procedural_candidate(
+                                 [](ProceduralCandidate &) noexcept {})
+                             .trace();
+        results.write(0u, make_float4(
+                              cast<float>(committed->hit_type),
+                              committed->bary.x, committed->bary.y,
+                              committed->committed_ray_t));
+    };
+
+    auto shader = device.compile(trace);
+    std::array<float4, 1u> host_results{};
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << shader(accel, result_buffer).dispatch(1u)
+           << result_buffer.copy_to(luisa::span{host_results})
+           << synchronize();
+
+    expect(static_cast<uint>(host_results[0].x) ==
+           static_cast<uint>(HitType::Surface))
+        << luisa::format(
+               "shared-edge hit type: got {}, bary=({}, {}), t={}",
+               host_results[0].x, host_results[0].y,
+               host_results[0].z, host_results[0].w);
+}
+
 void test_procedural_ray_query_world_ray(Device &device) {
     auto stream = device.create_stream();
 
@@ -356,5 +424,6 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     test_ray_query_world_ray(dc->device);
     test_ray_query_commits_closest_surface(dc->device);
+    test_negative_surface_barycentric_hit_type(dc->device);
     test_procedural_ray_query_world_ray(dc->device);
 }
