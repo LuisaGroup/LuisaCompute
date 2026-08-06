@@ -112,8 +112,9 @@ cmake --install <build-dir> --config Release --prefix <install-dir>
 
 Distribution mode prefers supported system dependencies and falls back to the
 bundled submodule implementation when a usable system package is unavailable.
-Set `LUISA_COMPUTE_PACKAGE_REQUIRE_SYSTEM_LIBS=ON` to make missing preferred
-dependencies a configuration error. The CPU, remote, and fallback backends have
+Set `LUISA_COMPUTE_PACKAGE_REQUIRE_SYSTEM_LIBS=ON` to make a missing or
+toolchain-incompatible preferred dependency a configuration error. The CPU,
+remote, and fallback backends have
 additional toolchain/runtime distribution requirements and are opt-in in this
 mode. Rust integration is always disabled for CPack distributions, including
 when `LUISA_COMPUTE_ENABLE_RUST=ON` is passed; Rust headers and libraries are

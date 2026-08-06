@@ -15,14 +15,16 @@ function(_luisa_compute_resolve_system_dependency option_name display_name found
     if (LUISA_COMPUTE_PACKAGE_REQUIRE_SYSTEM_LIBS)
         message(FATAL_ERROR
                 "Package distribution requires system ${display_name}, but it "
-                "was not found (${option_name}=ON).")
+                "was not found or failed its compatibility probe "
+                "(${option_name}=ON).")
     endif ()
     # Keep the user's cache preference intact so installing a system package
     # and reconfiguring can select it without clearing the build tree. The
     # normal directory-scope value controls this configure pass only.
     set("${option_name}" OFF PARENT_SCOPE)
     message(STATUS
-            "Package distribution: system ${display_name} not found; using bundled copy")
+            "Package distribution: system ${display_name} is unavailable or "
+            "incompatible; using bundled copy")
 endfunction()
 
 if (LUISA_COMPUTE_USE_SYSTEM_STL)
@@ -30,15 +32,41 @@ if (LUISA_COMPUTE_USE_SYSTEM_STL)
 endif ()
 
 if (LUISA_COMPUTE_USE_SYSTEM_SPDLOG)
-    find_package(spdlog CONFIG QUIET)
-    if (TARGET spdlog::spdlog_header_only)
-        set(_luisa_compute_dependency_found TRUE)
-    else ()
-        set(_luisa_compute_dependency_found FALSE)
+    # A package being discoverable does not make it usable. Ubuntu 24.04's
+    # spdlog 1.12/external fmt 9 pair, for example, fails in FMT_STRING's
+    # consteval parser with Clang 20. Probe in an isolated CMake directory so a
+    # rejected imported target cannot collide with the bundled spdlog aliases.
+    set(_luisa_compute_spdlog_probe_flags)
+    foreach (_luisa_compute_probe_variable IN ITEMS
+            CMAKE_PREFIX_PATH CMAKE_FIND_ROOT_PATH spdlog_DIR fmt_DIR)
+        if (DEFINED ${_luisa_compute_probe_variable} AND
+                NOT "${${_luisa_compute_probe_variable}}" STREQUAL "")
+            string(REPLACE ";" "\\;" _luisa_compute_probe_value
+                    "${${_luisa_compute_probe_variable}}")
+            list(APPEND _luisa_compute_spdlog_probe_flags
+                    "-D${_luisa_compute_probe_variable}:STRING=${_luisa_compute_probe_value}")
+        endif ()
+    endforeach ()
+    try_compile(_luisa_compute_dependency_found
+            PROJECT LuisaComputeSystemSpdlogProbe
+            SOURCE_DIR
+            "${CMAKE_CURRENT_LIST_DIR}/probes/spdlog"
+            TARGET luisa-compute-system-spdlog-probe
+            NO_CACHE
+            CMAKE_FLAGS ${_luisa_compute_spdlog_probe_flags}
+            OUTPUT_VARIABLE _luisa_compute_spdlog_probe_output)
+    if (NOT _luisa_compute_dependency_found)
+        message(VERBOSE
+                "System spdlog compatibility probe failed:\n"
+                "${_luisa_compute_spdlog_probe_output}")
     endif ()
     _luisa_compute_resolve_system_dependency(
             LUISA_COMPUTE_USE_SYSTEM_SPDLOG spdlog
             ${_luisa_compute_dependency_found})
+    unset(_luisa_compute_probe_value)
+    unset(_luisa_compute_probe_variable)
+    unset(_luisa_compute_spdlog_probe_flags)
+    unset(_luisa_compute_spdlog_probe_output)
 endif ()
 
 if (LUISA_COMPUTE_USE_SYSTEM_XXHASH)
