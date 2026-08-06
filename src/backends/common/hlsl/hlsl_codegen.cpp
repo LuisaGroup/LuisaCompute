@@ -152,7 +152,9 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 
         if (t->is_vector() && t->dimension() == 3 && !t->element()->is_bool()) {
             auto self_type = expr->self()->type();
-            if (!(self_type->is_structure() && !self_type->member_attributes().empty())) [[likely]] {
+            // Internal raster structs (_mesh, v2p) emit raw vectors — no .v wrapper
+            bool is_internal = (util->opt->internalStruct.find(self_type) != util->opt->internalStruct.end());
+            if (!is_internal && !(self_type->is_structure() && !self_type->member_attributes().empty())) [[likely]] {
                 str << ".v"sv;
             }
         }

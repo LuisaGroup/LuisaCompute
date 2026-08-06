@@ -189,8 +189,8 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::get_state(
         blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
         blend.SrcBlend = GetBlendState(v.prim_op);
         blend.DestBlend = GetBlendState(v.img_op);
-        blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
-        blend.DestBlendAlpha = D3D12_BLEND_ONE;
+        blend.SrcBlendAlpha = GetBlendState(v.prim_op);
+        blend.DestBlendAlpha = GetBlendState(v.img_op);
         blend.LogicOp = D3D12_LOGIC_OP_NOOP;
 
         result.BlendState = {
