@@ -2,7 +2,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     message(STATUS "Build with Vulkan backend")
     file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
     luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
-    target_link_libraries(luisa-compute-backend-vk PUBLIC luisa-compute-ext-volk luisa-compute-hlsl-codegen)
+    target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen)
     if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV AND LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
         message(FATAL_ERROR "Vulkan compute shader codegen options are mutually exclusive. "
                 "Use LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV for the default native SPIR-V path, "
@@ -34,7 +34,9 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     if (WIN32)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_WIN32_KHR)
     elseif (UNIX AND NOT APPLE)
+        find_package(X11 REQUIRED)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_XCB_KHR VK_USE_PLATFORM_XLIB_KHR)
+        target_link_libraries(luisa-compute-backend-vk PRIVATE X11::X11)
         luisa_compute_link_wayland_if_enabled(luisa-compute-backend-vk)
     endif ()
 
@@ -51,8 +53,11 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
             message(STATUS "Vulkan(DXC) SDK directory: ${LUISA_COMPUTE_VK_SDK_DIR}")
         endif ()
         if (NOT LUISA_COMPUTE_VK_SDK_DIR OR NOT EXISTS "${LUISA_COMPUTE_VK_SDK_DIR}")
-            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_2026_07_29.x86_64.zip")
-            set(LUISA_COMPUTE_VK_SDK_SHA256 "4BF754C2E2692276F20BE50FEDF1E02A3FFBE1461D4EA233BB39A9C01BDFF713")
+            # The 2026-07-29 binary requires GLIBC 2.43 and cannot load on
+            # supported Ubuntu 24.04 package builders. Keep the compatible
+            # baseline until the newer SDK is rebuilt against an older glibc.
+            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_2025_07_14.x86_64.zip")
+            set(LUISA_COMPUTE_VK_SDK_SHA256 "9ba3197dcc58d0613afd183757102dd87466223a84f5ad5095c8598ca7f91adc")
             message(STATUS "Downloading Vulkan(DXC) SDK from ${LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL}")
             include(FetchContent)
             FetchContent_Declare(luisa_compute_vk_sdk
@@ -77,5 +82,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${LUISA_COMPUTE_VK_SDK_DIR}/libdxcompiler.so"
                 "$<TARGET_FILE_DIR:luisa-compute-backend-vk>")
+        install(FILES "${LUISA_COMPUTE_VK_SDK_DIR}/libdxcompiler.so"
+                DESTINATION ${CMAKE_INSTALL_BINDIR})
     endif ()
 endif ()

@@ -19,7 +19,7 @@
 
 ### C++ with CMake
 
-- [CMake](https://cmake.org/) 3.23+
+- [CMake](https://cmake.org/) 3.26+
 - [Ninja](https://ninja-build.org) is the recommended generator and is required for the Rust frontend
 
 ### Rust (IR module / Rust frontend)
@@ -105,13 +105,28 @@ cmake --build <build-dir> --config Release
 cmake --install <build-dir> --config Release --prefix <install-dir>
 ```
 
+Use a separate build and install prefix for each configuration. LuisaCompute's
+Debug and Release runtime libraries intentionally use the same filenames and
+must not be installed over one another.
+
 The install tree contains a relocatable CMake package. Point consumers at the
-prefix with `-D CMAKE_PREFIX_PATH=<install-dir>` and link the exported target:
+prefix with `-D CMAKE_PREFIX_PATH=<install-dir>`, link the exported target, and
+deploy the backend/runtime payload beside every executable that creates a
+`Context`:
 
 ```cmake
-find_package(LuisaCompute 0 CONFIG REQUIRED)
+find_package(LuisaCompute CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE luisa::compute)
+luisa_compute_deploy_runtime(TARGET my_target)
 ```
+
+The deploy helper copies the installed backend modules, support files, and
+shared-library closure to the target's output directory. This matches
+`Context`'s runtime discovery contract and makes the staged executable
+independent of the SDK prefix. Consumers may require a backend as a package
+component, for example `find_package(LuisaCompute CONFIG REQUIRED COMPONENTS
+dx)`. Optional public feature components are named `dsl`, `gui`, and `rust`;
+the available backend names are reported in `LuisaCompute_BACKENDS`.
 
 ### CMake Flags
 

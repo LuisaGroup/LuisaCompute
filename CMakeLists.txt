@@ -128,7 +128,10 @@ set(CMAKE_MACOSX_RPATH ON)
 set(CMAKE_SKIP_BUILD_RPATH OFF)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+# Keep installed binaries relocatable. Appending linker search directories here
+# leaks dependency build paths into RUNPATH (for example, a locally built
+# libuuid directory) even when the exported CMake targets themselves are clean.
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH OFF)
 
 if (APPLE)
     set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../bin;@loader_path/../lib")
@@ -224,14 +227,28 @@ add_subdirectory(src)
 
 if (NOT SKBUILD)
     include(CMakePackageConfigHelpers)
+    get_property(LUISA_COMPUTE_BUILT_BACKENDS
+            GLOBAL PROPERTY LUISA_COMPUTE_BUILT_BACKENDS)
+    if (NOT LUISA_COMPUTE_BUILT_BACKENDS)
+        set(LUISA_COMPUTE_BUILT_BACKENDS "")
+    endif ()
+    if (PROJECT_VERSION_MAJOR EQUAL 0)
+        set(LUISA_COMPUTE_VERSION_COMPATIBILITY SameMinorVersion)
+    else ()
+        set(LUISA_COMPUTE_VERSION_COMPATIBILITY SameMajorVersion)
+    endif ()
     configure_package_config_file(
             cmake/LuisaComputeConfig.cmake.in
             "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfig.cmake"
-            INSTALL_DESTINATION "${LUISA_COMPUTE_INSTALL_CMAKEDIR}")
+            INSTALL_DESTINATION "${LUISA_COMPUTE_INSTALL_CMAKEDIR}"
+            PATH_VARS
+            CMAKE_INSTALL_BINDIR
+            CMAKE_INSTALL_LIBDIR
+            CMAKE_INSTALL_INCLUDEDIR)
     write_basic_package_version_file(
             "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfigVersion.cmake"
             VERSION "${PROJECT_VERSION}"
-            COMPATIBILITY SameMajorVersion)
+            COMPATIBILITY ${LUISA_COMPUTE_VERSION_COMPATIBILITY})
     install(FILES
             "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfig.cmake"
             "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfigVersion.cmake"
