@@ -132,7 +132,7 @@ public:
     auto stream = device.create_stream();
     auto result = 0;
     stream << shader(output, value).dispatch(1u)
-           << output.copy_to(&result)
+           << output.copy_to(luisa::span{&result, 1})
            << synchronize();
     return result;
 }
