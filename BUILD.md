@@ -96,14 +96,48 @@ cmake --build <build-dir> # when building on Windows using Visual Studio Generat
 
 ### CMake Install and Package Consumption
 
-For a reusable prebuilt installation, configure without the developer test
-targets, build, and install into a dedicated prefix:
+For a reusable prebuilt installation, enable distribution mode and use either
+the generated CPack archive or a direct install prefix:
 
 ```bash
-cmake -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release -D LUISA_COMPUTE_BUILD_TESTS=OFF
+cmake -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release \
+    -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=ON
 cmake --build <build-dir> --config Release
+cmake --build <build-dir> --config Release --target package
+# The archive is written to <build-dir>/package/.
+
+# A direct install remains supported:
 cmake --install <build-dir> --config Release --prefix <install-dir>
 ```
+
+Distribution mode prefers supported system dependencies and falls back to the
+bundled submodule implementation when a usable system package is unavailable.
+Set `LUISA_COMPUTE_PACKAGE_REQUIRE_SYSTEM_LIBS=ON` to make missing preferred
+dependencies a configuration error. The CPU, remote, and fallback backends have
+additional toolchain/runtime distribution requirements and are opt-in in this
+mode. Rust integration is always disabled for CPack distributions, including
+when `LUISA_COMPUTE_ENABLE_RUST=ON` is passed; Rust headers and libraries are
+not included in the archive. The native GPU backends remain enabled according
+to platform support.
+DirectX/CUDA interop is also opt-in for distributions because it introduces a
+hard dependency on the NVIDIA driver DLL; enable it explicitly with
+`LUISA_COMPUTE_ENABLE_DX_CUDA_INTEROP=ON` when that dependency is intentional.
+These defaults do not affect ordinary developer builds.
+
+The default CPack generator produces a `.tar.gz` archive on Linux/macOS and a
+`.zip` archive on Windows. Run the same isolated package-consumer test used by
+CI with:
+
+```bash
+cmake --build <build-dir> --config Release \
+    --target luisa-compute-package-e2e
+```
+
+This target extracts the archive, audits it for producer paths, configures and
+builds a separate `find_package` consumer, removes the extracted SDK, and then
+loads the deployed native backend. System libraries selected during packaging
+remain external runtime/development prerequisites and are rediscovered by the
+installed package config.
 
 Use a separate build and install prefix for each configuration. LuisaCompute's
 Debug and Release runtime libraries intentionally use the same filenames and
@@ -121,12 +155,19 @@ luisa_compute_deploy_runtime(TARGET my_target)
 ```
 
 The deploy helper copies the installed backend modules, support files, and
-shared-library closure to the target's output directory. This matches
+LuisaCompute shared libraries to the target's output directory. This matches
 `Context`'s runtime discovery contract and makes the staged executable
-independent of the SDK prefix. Consumers may require a backend as a package
-component, for example `find_package(LuisaCompute CONFIG REQUIRED COMPONENTS
-dx)`. Optional public feature components are named `dsl`, `gui`, and `rust`;
-the available backend names are reported in `LuisaCompute_BACKENDS`.
+independent of the SDK prefix; system dependencies are intentionally not
+vendored. Consumers may require a backend as a package component, for example
+`find_package(LuisaCompute CONFIG REQUIRED COMPONENTS dx)`. Optional public
+distribution components are named `dsl` and `gui`; the available backend names
+are reported in `LuisaCompute_BACKENDS`.
+
+As with other prebuilt C++ SDKs, producer and consumer toolchains must use a
+compatible compiler ABI and C++ runtime. The package exports LuisaCompute's
+required C++ standard, definitions, include paths, link interface, and public
+compile options; it intentionally does not replay arbitrary producer-wide
+`CMAKE_CXX_FLAGS` in downstream projects.
 
 ### CMake Flags
 

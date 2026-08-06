@@ -10,6 +10,51 @@ if (NOT IS_DIRECTORY "${LUISA_COMPUTE_PACKAGE_ROOT}")
             "${LUISA_COMPUTE_PACKAGE_ROOT}")
 endif ()
 
+if (IS_DIRECTORY "${LUISA_COMPUTE_PACKAGE_ROOT}/include/luisa/rust")
+    message(FATAL_ERROR
+            "Distribution package unexpectedly contains Rust public headers")
+endif ()
+file(GLOB_RECURSE _LuisaCompute_RUST_ARTIFACTS LIST_DIRECTORIES FALSE
+        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa_compute_ir_static*"
+        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa_compute_api_types*"
+        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa_compute_backend_impl*"
+        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa-ir.*"
+        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa-api.*")
+if (_LuisaCompute_RUST_ARTIFACTS)
+    message(FATAL_ERROR
+            "Distribution package unexpectedly contains Rust artifacts: "
+            "${_LuisaCompute_RUST_ARTIFACTS}")
+endif ()
+
+function(_luisa_compute_reject_forbidden_runtime_path binary kind value)
+    if (NOT IS_ABSOLUTE "${value}")
+        return()
+    endif ()
+    cmake_path(CONVERT "${value}" TO_CMAKE_PATH_LIST
+            _luisa_compute_value NORMALIZE)
+    if (WIN32)
+        string(TOLOWER "${_luisa_compute_value}" _luisa_compute_value)
+    endif ()
+    foreach (_luisa_compute_forbidden IN LISTS LUISA_COMPUTE_FORBIDDEN_PATHS)
+        if (NOT _luisa_compute_forbidden)
+            continue()
+        endif ()
+        cmake_path(CONVERT "${_luisa_compute_forbidden}" TO_CMAKE_PATH_LIST
+                _luisa_compute_forbidden NORMALIZE)
+        if (WIN32)
+            string(TOLOWER "${_luisa_compute_forbidden}"
+                    _luisa_compute_forbidden)
+        endif ()
+        string(FIND "${_luisa_compute_value}"
+                "${_luisa_compute_forbidden}" _luisa_compute_match)
+        if (_luisa_compute_match EQUAL 0)
+            message(FATAL_ERROR
+                    "Installed binary ${binary} contains ${kind} path ${value}, "
+                    "which refers to producer path ${_luisa_compute_forbidden}")
+        endif ()
+    endforeach ()
+endfunction()
+
 # Exported package files must not refer back to the producer checkout, build
 # tree, or the pre-relocation install prefix. Scan both slash conventions so
 # the same check works for Windows-generated files.
@@ -72,9 +117,9 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
         foreach (_LuisaCompute_NEEDED_LINE IN LISTS _LuisaCompute_NEEDED_LINES)
             if (_LuisaCompute_NEEDED_LINE MATCHES "\\[([^]]*)\\]" AND
                 IS_ABSOLUTE "${CMAKE_MATCH_1}")
-                message(FATAL_ERROR
-                        "Installed binary ${_LuisaCompute_RUNTIME_FILE} "
-                        "contains absolute DT_NEEDED entry ${CMAKE_MATCH_1}")
+                _luisa_compute_reject_forbidden_runtime_path(
+                        "${_LuisaCompute_RUNTIME_FILE}" "DT_NEEDED"
+                        "${CMAKE_MATCH_1}")
             endif ()
         endforeach ()
         string(REGEX MATCHALL
@@ -88,12 +133,9 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
             string(REPLACE ":" ";" _LuisaCompute_RPATH_ENTRIES
                     "${CMAKE_MATCH_1}")
             foreach (_LuisaCompute_RPATH IN LISTS _LuisaCompute_RPATH_ENTRIES)
-                if (IS_ABSOLUTE "${_LuisaCompute_RPATH}")
-                    message(FATAL_ERROR
-                            "Installed binary ${_LuisaCompute_RUNTIME_FILE} "
-                            "contains absolute RPATH entry "
-                            "${_LuisaCompute_RPATH}")
-                endif ()
+                _luisa_compute_reject_forbidden_runtime_path(
+                        "${_LuisaCompute_RUNTIME_FILE}" "RPATH"
+                        "${_LuisaCompute_RPATH}")
             endforeach ()
         endforeach ()
     endforeach ()
@@ -119,11 +161,9 @@ elseif (APPLE)
             elseif (_LuisaCompute_EXPECT_RPATH AND
                     _LuisaCompute_LOAD_LINE MATCHES "^path ([^ ]+)")
                 set(_LuisaCompute_EXPECT_RPATH FALSE)
-                if (IS_ABSOLUTE "${CMAKE_MATCH_1}")
-                    message(FATAL_ERROR
-                            "Installed binary ${_LuisaCompute_RUNTIME_FILE} "
-                            "contains absolute LC_RPATH entry ${CMAKE_MATCH_1}")
-                endif ()
+                _luisa_compute_reject_forbidden_runtime_path(
+                        "${_LuisaCompute_RUNTIME_FILE}" "LC_RPATH"
+                        "${CMAKE_MATCH_1}")
             endif ()
         endforeach ()
 
@@ -146,13 +186,9 @@ elseif (APPLE)
                     continue()
                 endif ()
                 set(_LuisaCompute_LOAD_NAME "${CMAKE_MATCH_1}")
-                if (NOT _LuisaCompute_LOAD_NAME MATCHES
-                    "^(/usr/lib/|/System/Library/|/Library/Apple/System/Library/)")
-                    message(FATAL_ERROR
-                            "Installed binary ${_LuisaCompute_RUNTIME_FILE} "
-                            "contains non-system absolute Mach-O load name "
-                            "${_LuisaCompute_LOAD_NAME}")
-                endif ()
+                _luisa_compute_reject_forbidden_runtime_path(
+                        "${_LuisaCompute_RUNTIME_FILE}" "Mach-O load-name"
+                        "${_LuisaCompute_LOAD_NAME}")
             endforeach ()
         endif ()
     endforeach ()

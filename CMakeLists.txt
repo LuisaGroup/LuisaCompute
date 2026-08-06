@@ -42,6 +42,19 @@ else ()
     set(LUISA_COMPUTE_MASTER_PROJECT OFF)
 endif ()
 
+option(LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION
+        "Configure a relocatable CPack distribution build" OFF)
+
+set(_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES ON)
+set(_LUISA_COMPUTE_DEFAULT_BUILD_TESTS ${LUISA_COMPUTE_MASTER_PROJECT})
+if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
+    # CPU, remote, and fallback have additional toolchain/runtime distribution
+    # requirements. They remain opt-in for a binary SDK while the native GPU
+    # backend for the host platform is packaged and tested end to end.
+    set(_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES OFF)
+    set(_LUISA_COMPUTE_DEFAULT_BUILD_TESTS OFF)
+endif ()
+
 if (NOT SKBUILD AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/options.cmake")
     message(STATUS "Loading bootstrap options from \"scripts/options.cmake\"")
     include(scripts/options.cmake)
@@ -54,12 +67,12 @@ else ()
     option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
     option(LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB "Enable CUDA extension: LCUB" OFF)
     option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" ON)
-    option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" ON)
-    option(LUISA_COMPUTE_ENABLE_FALLBACK "Enable Fallback backend" ON)
-    option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" ON)
+    option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
+    option(LUISA_COMPUTE_ENABLE_FALLBACK "Enable Fallback backend" ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
+    option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
     option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
     option(LUISA_COMPUTE_ENABLE_CLANG_CXX "Enable ClangTooling-based C++ shading language" OFF)
-    option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
+    option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${_LUISA_COMPUTE_DEFAULT_BUILD_TESTS})
     option(LUISA_COMPUTE_ENABLE_SAFE_MODE "Enable safe mode for runtime" OFF)
     option(LUISA_COMPUTE_EMBREE_ZIP_PATH "Path to embree zip file. Use this if embree fails to download" "")
 endif ()
@@ -72,7 +85,15 @@ if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV AND LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV
             "or LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV for the experimental LLVM SPIR-V path.")
 endif ()
 
-option(LUISA_COMPUTE_USE_SYSTEM_LIBS "Prefer system libraries over bundled ones" OFF)
+option(LUISA_COMPUTE_USE_SYSTEM_LIBS "Prefer system libraries over bundled ones"
+        ${LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION})
+
+option(LUISA_COMPUTE_PACKAGE_REQUIRE_SYSTEM_LIBS
+        "Fail a distribution build when a preferred system library is unavailable" OFF)
+
+option(LUISA_COMPUTE_ENABLE_DX_CUDA_INTEROP
+        "Enable CUDA interop in the DirectX backend when CUDAToolkit is available"
+        ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
 
 option(LUISA_COMPUTE_USE_SYSTEM_STL "Use system STL instead of the bundled EASTL" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
 option(LUISA_COMPUTE_USE_SYSTEM_GLFW "Use system GLFW instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
@@ -85,12 +106,28 @@ option(LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM "Use system magic enum instead of the
 option(LUISA_COMPUTE_USE_SYSTEM_MARL "Use system marl instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
 option(LUISA_COMPUTE_DISABLE_WIN_MESSAGE_BOX "Disable windows message box" ${LUISA_COMPUTE_DISABLE_WIN_MESSAGE_BOX})
 
+if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION AND
+        LUISA_COMPUTE_USE_SYSTEM_LIBS)
+    include(cmake/LuisaComputeSystemDependencies.cmake)
+endif ()
+
 option(LUISA_COMPUTE_ENABLE_SANITIZERS "Enable sanitizers" OFF)
 option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build (which might accelerate the compilation but could break VS Code's clangd indexing)" OFF)
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
 if (UNIX AND NOT APPLE)
     option(LUISA_COMPUTE_ENABLE_WAYLAND "Enable Wayland support in GUI and Vulkan swapchains" OFF)
+else ()
+    set(LUISA_COMPUTE_ENABLE_WAYLAND OFF)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
+    if (LUISA_COMPUTE_ENABLE_RUST)
+        message(STATUS
+                "Package distribution: disabling Rust IR and API integration")
+    endif ()
+    set(LUISA_COMPUTE_ENABLE_RUST OFF CACHE BOOL
+            "Enable Rust IR and API integration" FORCE)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_HIP)
@@ -167,6 +204,9 @@ install(FILES README.md LICENSE
 file(GLOB_RECURSE LUISA_COMPUTE_HEADERS CONFIGURE_DEPENDS
         "include/luisa/*.h"
         "include/luisa/*.hpp")
+if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
+    list(FILTER LUISA_COMPUTE_HEADERS EXCLUDE REGEX "/luisa/rust/")
+endif ()
 add_library(luisa-compute-include INTERFACE ${LUISA_COMPUTE_HEADERS})
 target_include_directories(luisa-compute-include INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -211,9 +251,18 @@ endif ()
 install(TARGETS luisa-compute-include
         EXPORT LuisaComputeTargets)
 
-install(DIRECTORY include/luisa
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
+    install(DIRECTORY include/luisa
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+            FILES_MATCHING
+            PATTERN "*.h"
+            PATTERN "*.hpp"
+            PATTERN "rust" EXCLUDE)
+else ()
+    install(DIRECTORY include/luisa
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+            FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+endif ()
 
 # Global definition to avoid MSVC ABI break.
 # See https://github.com/microsoft/STL/releases/tag/vs-2022-17.10 for details.
@@ -231,6 +280,11 @@ if (NOT SKBUILD)
             GLOBAL PROPERTY LUISA_COMPUTE_BUILT_BACKENDS)
     if (NOT LUISA_COMPUTE_BUILT_BACKENDS)
         set(LUISA_COMPUTE_BUILT_BACKENDS "")
+    endif ()
+    get_property(LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED
+            GLOBAL PROPERTY LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED)
+    if (NOT LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED)
+        set(LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED OFF)
     endif ()
     if (PROJECT_VERSION_MAJOR EQUAL 0)
         set(LUISA_COMPUTE_VERSION_COMPATIBILITY SameMinorVersion)
@@ -260,3 +314,7 @@ if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(examples)
     add_subdirectory(tutorials)
 endif()
+
+if (NOT SKBUILD AND LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
+    include(cmake/LuisaComputeCPack.cmake)
+endif ()

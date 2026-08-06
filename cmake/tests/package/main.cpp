@@ -1,9 +1,139 @@
 #include <luisa/luisa-compute.h>
-#if LUISA_PACKAGE_WITH_RUST
-#include <luisa/rust/ir.hpp>
-#endif
 
 #include <cstdio>
+
+#if __cplusplus < 202002L
+#error "luisa::compute must export a C++20 compile requirement"
+#endif
+
+#if LUISA_PACKAGE_WITH_DSL && !defined(LUISA_ENABLE_DSL)
+#error "The installed target lost LUISA_ENABLE_DSL"
+#endif
+#if !LUISA_PACKAGE_WITH_DSL && defined(LUISA_ENABLE_DSL)
+#error "The installed target unexpectedly defines LUISA_ENABLE_DSL"
+#endif
+
+#if LUISA_PACKAGE_WITH_GUI && !defined(LUISA_ENABLE_GUI)
+#error "The installed target lost LUISA_ENABLE_GUI"
+#endif
+#if !LUISA_PACKAGE_WITH_GUI && defined(LUISA_ENABLE_GUI)
+#error "The installed target unexpectedly defines LUISA_ENABLE_GUI"
+#endif
+
+#if defined(LUISA_ENABLE_IR)
+#error "The installed target unexpectedly defines LUISA_ENABLE_IR"
+#endif
+
+#if LUISA_PACKAGE_WITH_WAYLAND && !defined(LUISA_ENABLE_WAYLAND)
+#error "The installed target lost LUISA_ENABLE_WAYLAND"
+#endif
+#if !LUISA_PACKAGE_WITH_WAYLAND && defined(LUISA_ENABLE_WAYLAND)
+#error "The installed target unexpectedly defines LUISA_ENABLE_WAYLAND"
+#endif
+
+#if LUISA_PACKAGE_WITH_SAFE_MODE && !defined(LUISA_ENABLE_SAFE_MODE)
+#error "The installed target lost LUISA_ENABLE_SAFE_MODE"
+#endif
+#if !LUISA_PACKAGE_WITH_SAFE_MODE && defined(LUISA_ENABLE_SAFE_MODE)
+#error "The installed target unexpectedly defines LUISA_ENABLE_SAFE_MODE"
+#endif
+
+#if LUISA_PACKAGE_WITH_CLANG_CXX && !defined(LUISA_ENABLE_CLANGCXX)
+#error "The installed target lost LUISA_ENABLE_CLANGCXX"
+#endif
+#if !LUISA_PACKAGE_WITH_CLANG_CXX && defined(LUISA_ENABLE_CLANGCXX)
+#error "The installed target unexpectedly defines LUISA_ENABLE_CLANGCXX"
+#endif
+
+#ifndef LUISA_ENABLE_XIR
+#error "The installed target lost LUISA_ENABLE_XIR"
+#endif
+
+#define LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(expect, definition) \
+    static_assert((expect) == (definition),                         \
+                  "Exported system-dependency definition mismatch")
+
+#ifdef LUISA_USE_SYSTEM_STL
+#define LUISA_PACKAGE_HAS_SYSTEM_STL 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_STL 0
+#endif
+#ifdef LUISA_USE_SYSTEM_GLFW
+#define LUISA_PACKAGE_HAS_SYSTEM_GLFW 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_GLFW 0
+#endif
+#ifdef LUISA_USE_SYSTEM_LMDB
+#define LUISA_PACKAGE_HAS_SYSTEM_LMDB 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_LMDB 0
+#endif
+#ifdef LUISA_USE_SYSTEM_REPROC
+#define LUISA_PACKAGE_HAS_SYSTEM_REPROC 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_REPROC 0
+#endif
+#ifdef LUISA_USE_SYSTEM_SPDLOG
+#define LUISA_PACKAGE_HAS_SYSTEM_SPDLOG 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_SPDLOG 0
+#endif
+#ifdef LUISA_USE_SYSTEM_XXHASH
+#define LUISA_PACKAGE_HAS_SYSTEM_XXHASH 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_XXHASH 0
+#endif
+#ifdef LUISA_USE_SYSTEM_YYJSON
+#define LUISA_PACKAGE_HAS_SYSTEM_YYJSON 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_YYJSON 0
+#endif
+#ifdef LUISA_USE_SYSTEM_MAGIC_ENUM
+#define LUISA_PACKAGE_HAS_SYSTEM_MAGIC_ENUM 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_MAGIC_ENUM 0
+#endif
+#ifdef LUISA_USE_SYSTEM_MARL
+#define LUISA_PACKAGE_HAS_SYSTEM_MARL 1
+#else
+#define LUISA_PACKAGE_HAS_SYSTEM_MARL 0
+#endif
+
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_STL, LUISA_PACKAGE_HAS_SYSTEM_STL);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_GLFW, LUISA_PACKAGE_HAS_SYSTEM_GLFW);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_LMDB, LUISA_PACKAGE_HAS_SYSTEM_LMDB);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_REPROC, LUISA_PACKAGE_HAS_SYSTEM_REPROC);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_SPDLOG, LUISA_PACKAGE_HAS_SYSTEM_SPDLOG);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_XXHASH, LUISA_PACKAGE_HAS_SYSTEM_XXHASH);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_YYJSON, LUISA_PACKAGE_HAS_SYSTEM_YYJSON);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_MAGIC_ENUM,
+    LUISA_PACKAGE_HAS_SYSTEM_MAGIC_ENUM);
+LUISA_PACKAGE_CHECK_SYSTEM_DEFINITION(
+    LUISA_PACKAGE_USE_SYSTEM_MARL, LUISA_PACKAGE_HAS_SYSTEM_MARL);
+
+#if defined(_WIN32)
+#ifndef LUISA_PLATFORM_WINDOWS
+#error "The installed target lost LUISA_PLATFORM_WINDOWS"
+#endif
+#ifndef _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR
+#error "The installed target lost its required MSVC ABI definition"
+#endif
+#else
+#ifndef LUISA_PLATFORM_UNIX
+#error "The installed target lost LUISA_PLATFORM_UNIX"
+#endif
+#if defined(__APPLE__) && !defined(LUISA_PLATFORM_APPLE)
+#error "The installed target lost LUISA_PLATFORM_APPLE"
+#endif
+#endif
 
 int main(int argc, char *argv[]) {
     static_assert(LUISA_COMPUTE_VERSION_MAJOR == LUISA_PACKAGE_VERSION_MAJOR);
@@ -46,13 +176,6 @@ int main(int argc, char *argv[]) {
     if (!dxc || dxc.address("DxcCreateInstance") == nullptr) {
         std::fprintf(stderr, "The deployed DXC runtime could not be loaded.\n");
         return 4;
-    }
-#endif
-
-#if LUISA_PACKAGE_WITH_RUST
-    if (luisa::compute::ir::luisa_compute_ir_new_module_pools() == nullptr) {
-        std::fprintf(stderr, "The installed Rust IR API returned a null pool.\n");
-        return 3;
     }
 #endif
 

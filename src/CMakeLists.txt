@@ -55,6 +55,7 @@ add_subdirectory(api)
 add_subdirectory(clangcxx)
 
 add_library(compute INTERFACE)
+target_compile_features(compute INTERFACE cxx_std_20)
 
 target_link_libraries(compute INTERFACE
         luisa-compute-core

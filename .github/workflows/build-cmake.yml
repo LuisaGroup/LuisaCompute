@@ -33,15 +33,12 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 20 all
-          sudo apt-get -y install build-essential wget cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libembree-dev libvulkan-dev libembree-dev
+          sudo apt-get -y install build-essential wget cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libembree-dev libvulkan-dev libglfw3-dev libspdlog-dev libxxhash-dev liblmdb-dev libwayland-dev wayland-protocols
       - name: "Install CUDA Keyring"
         run: |
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${{ matrix.platform.cuda-keyring }}/cuda-keyring_1.1-1_all.deb
           sudo apt-get -y remove --purge -s '*cuda*' '*nvidia*'
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
-      - name: "Setup Rust package coverage"
-        if: matrix.config == 'Release' && matrix.compiler == 'gcc' && matrix.platform.arch == 'x86_64'
-        uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
       - name: "Setup CUDA"
         run: |
           sudo apt-get update
@@ -64,48 +61,28 @@ jobs:
             export LUISA_CXX=clang++-20
             export LUISA_FLAGS="-stdlib=libc++"
           fi
-          export LUISA_RUST=OFF
-          if [ "${{ matrix.config }}" = "Release" ] && [ "${{ matrix.compiler }}" = "gcc" ] && [ "${{ matrix.platform.arch }}" = "x86_64" ]; then
-            export LUISA_RUST=ON
-          fi
-          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_RUST=${LUISA_RUST} -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=${{ matrix.platform.unity }} -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
-          cmake --build build -j ${{ matrix.platform.jobs }}
-      - name: "Install"
-        run: |
+          export LUISA_PACKAGE=OFF
           if [ "${{ matrix.config }}" = "Release" ]; then
-            cmake --install build --prefix dist -v
+            export LUISA_PACKAGE=ON
+            # A distribution consumer must not need an unexported global flag.
+            # Use Clang's platform-default system C++ runtime for the archive.
+            export LUISA_FLAGS=""
           fi
-      - name: "Verify Installed Package"
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=${{ matrix.platform.unity }} -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
+          cmake --build build -j ${{ matrix.platform.jobs }}
+      - name: "Build and Verify Distribution Package"
         if: matrix.config == 'Release'
         run: |
-          set -euo pipefail
-          if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            export LUISA_CXX=g++
-            export LUISA_FLAGS=""
-          else
-            export LUISA_CXX=clang++-20
-            export LUISA_FLAGS="-stdlib=libc++"
-          fi
-          export LUISA_PACKAGE_PREFIX="$RUNNER_TEMP/luisa-compute-package"
-          export LUISA_CONSUMER_SOURCE="$RUNNER_TEMP/luisa-compute-consumer-source"
-          export LUISA_CONSUMER_BUILD="$RUNNER_TEMP/luisa-compute-consumer-build"
-          cmake -E rename "$PWD/dist" "$LUISA_PACKAGE_PREFIX"
-          cmake \
-            -D "LUISA_COMPUTE_PACKAGE_ROOT=$LUISA_PACKAGE_PREFIX" \
-            -D "LUISA_COMPUTE_FORBIDDEN_PATHS=$PWD;$PWD/build;$PWD/dist" \
-            -P cmake/tests/package/audit_install.cmake
-          cmake -E copy_directory cmake/tests/package "$LUISA_CONSUMER_SOURCE"
-          cmake -S "$LUISA_CONSUMER_SOURCE" -B "$LUISA_CONSUMER_BUILD" -G Ninja \
-            -D CMAKE_BUILD_TYPE=Release \
-            -D CMAKE_CXX_COMPILER=${LUISA_CXX} \
-            -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" \
-            -D CMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
-            -D CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
-            -D LuisaCompute_DIR="$LUISA_PACKAGE_PREFIX/lib/cmake/LuisaCompute" \
-            -D LUISA_COMPUTE_PACKAGE_EXPECT_BACKEND=vk
-          cmake --build "$LUISA_CONSUMER_BUILD"
-          cmake -E remove_directory "$LUISA_PACKAGE_PREFIX"
-          "$LUISA_CONSUMER_BUILD/luisa_compute_package_consumer"
+          cmake --build build --target luisa-compute-package-e2e
+      - name: "Upload Distribution Package"
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuisaCompute-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.compiler }}
+          path: |
+            build/package/LuisaCompute-*.tar.gz
+            build/package/LuisaCompute-*.tar.gz.sha256
+          if-no-files-found: error
 
   build-macos:
     strategy:
@@ -122,8 +99,7 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew reinstall cmake
-          brew install llvm molten-vk ninja embree vulkan-headers vulkan-loader
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          brew install llvm molten-vk ninja embree vulkan-headers vulkan-loader glfw spdlog xxhash lmdb
       - name: "Configure and Build"
         run: |
           export LUISA_LLVM_PREFIX="$(brew --prefix llvm)"
@@ -137,44 +113,25 @@ jobs:
             export CXX=/usr/bin/clang++
           fi
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_VULKAN=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
-          cmake --build build
-      - name: "Install"
-        run: |
+          export LUISA_PACKAGE=OFF
           if [ "${{ matrix.config }}" = "Release" ]; then
-            cmake --install build --prefix dist -v
+            export LUISA_PACKAGE=ON
           fi
-      - name: "Verify Installed Package"
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_VULKAN=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
+          cmake --build build
+      - name: "Build and Verify Distribution Package"
         if: matrix.config == 'Release'
         run: |
-          set -euo pipefail
-          export LUISA_LLVM_PREFIX="$(brew --prefix llvm)"
-          export PATH="$PATH:$LUISA_LLVM_PREFIX/bin"
-          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
-            export CXX="$LUISA_LLVM_PREFIX/bin/clang++"
-          else
-            export CXX=/usr/bin/clang++
-          fi
-          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-          export LUISA_PACKAGE_PREFIX="$RUNNER_TEMP/luisa-compute-package"
-          export LUISA_CONSUMER_SOURCE="$RUNNER_TEMP/luisa-compute-consumer-source"
-          export LUISA_CONSUMER_BUILD="$RUNNER_TEMP/luisa-compute-consumer-build"
-          cmake -E rename "$PWD/dist" "$LUISA_PACKAGE_PREFIX"
-          cmake \
-            -D "LUISA_COMPUTE_PACKAGE_ROOT=$LUISA_PACKAGE_PREFIX" \
-            -D "LUISA_COMPUTE_FORBIDDEN_PATHS=$PWD;$PWD/build;$PWD/dist" \
-            -P cmake/tests/package/audit_install.cmake
-          cmake -E copy_directory cmake/tests/package "$LUISA_CONSUMER_SOURCE"
-          cmake -S "$LUISA_CONSUMER_SOURCE" -B "$LUISA_CONSUMER_BUILD" -G Ninja \
-            -D CMAKE_BUILD_TYPE=Release \
-            -D CMAKE_CXX_COMPILER="$CXX" \
-            -D CMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
-            -D CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
-            -D LuisaCompute_DIR="$LUISA_PACKAGE_PREFIX/lib/cmake/LuisaCompute" \
-            -D LUISA_COMPUTE_PACKAGE_EXPECT_BACKEND=metal
-          cmake --build "$LUISA_CONSUMER_BUILD"
-          cmake -E remove_directory "$LUISA_PACKAGE_PREFIX"
-          "$LUISA_CONSUMER_BUILD/luisa_compute_package_consumer"
+          cmake --build build --target luisa-compute-package-e2e
+      - name: "Upload Distribution Package"
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuisaCompute-macos-${{ matrix.compiler }}
+          path: |
+            build/package/LuisaCompute-*.tar.gz
+            build/package/LuisaCompute-*.tar.gz.sha256
+          if-no-files-found: error
 
   build-windows:
     strategy:
@@ -197,8 +154,6 @@ jobs:
         with:
           cuda: 12.8.1
           sub-packages: '[ "cudart", "nvrtc", "nvrtc_dev", "nvjitlink", "nvcc", "nvtx" ]'
-      - name: "Setup Rust"
-        uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
       - name: "Setup Vulkan"
         uses: johnnynunez/setup-vulkan-sdk@v1
         with:
@@ -221,29 +176,21 @@ jobs:
             set CC=${{ matrix.compiler }}
             set CXX=${{ matrix.compiler }}
           )
-          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
+          set LUISA_PACKAGE=OFF
+          IF "${{ matrix.config }}" == "Release" set LUISA_PACKAGE=ON
+          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=%LUISA_PACKAGE% -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
           cmake --build build
-      - name: "Install"
-        run: |
-          cmake --install build --prefix dist -v
-      - name: "Verify Installed Package"
+      - name: "Build and Verify Distribution Package"
         if: matrix.config == 'Release'
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $PSNativeCommandUseErrorActionPreference = $true
-          if ("${{ matrix.compiler }}" -eq "clang") {
-            $LuisaCxx = "clang++"
-          } else {
-            $LuisaCxx = "${{ matrix.compiler }}"
-          }
-          $PackagePrefix = Join-Path $env:RUNNER_TEMP "luisa-compute-package"
-          $ConsumerSource = Join-Path $env:RUNNER_TEMP "luisa-compute-consumer-source"
-          $ConsumerBuild = Join-Path $env:RUNNER_TEMP "luisa-compute-consumer-build"
-          cmake -E rename "$PWD/dist" $PackagePrefix
-          cmake "-DLUISA_COMPUTE_PACKAGE_ROOT=$PackagePrefix" "-DLUISA_COMPUTE_FORBIDDEN_PATHS=$PWD;$PWD/build;$PWD/dist" -P cmake/tests/package/audit_install.cmake
-          cmake -E copy_directory cmake/tests/package $ConsumerSource
-          cmake -S $ConsumerSource -B $ConsumerBuild -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_CXX_COMPILER=$LuisaCxx" "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF" "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF" "-DLuisaCompute_DIR=$PackagePrefix/lib/cmake/LuisaCompute" "-DLUISA_COMPUTE_PACKAGE_EXPECT_BACKEND=dx"
-          cmake --build $ConsumerBuild
-          cmake -E remove_directory $PackagePrefix
-          & "$ConsumerBuild/luisa_compute_package_consumer.exe"
+          cmake --build build --target luisa-compute-package-e2e
+      - name: "Upload Distribution Package"
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuisaCompute-windows-${{ matrix.compiler }}
+          path: |
+            build/package/LuisaCompute-*.zip
+            build/package/LuisaCompute-*.zip.sha256
+          if-no-files-found: error
