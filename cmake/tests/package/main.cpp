@@ -1,6 +1,7 @@
 #include <luisa/luisa-compute.h>
 
 #include <cstdio>
+#include <vector>
 
 #if __cplusplus < 202002L
 #error "luisa::compute must export a C++20 compile requirement"
@@ -155,6 +156,12 @@ int main(int argc, char *argv[]) {
         !check_half_formatters<4u>()) {
         std::fprintf(stderr, "The exported half formatters returned no text.\n");
         return 3;
+    }
+    auto range_text = luisa::format(
+        FMT_STRING("{}"), std::vector<size_t>{1u, 2u, 3u});
+    if (range_text.empty()) {
+        std::fprintf(stderr, "The exported range formatter returned no text.\n");
+        return 5;
     }
 
     luisa::compute::Context context{argc > 0 ? argv[0] : ""};

@@ -10,8 +10,10 @@
 #include <algorithm>// for std::copy
 
 #if LUISA_USE_SYSTEM_SPDLOG
+#include <spdlog/fmt/ranges.h>
 #include <spdlog/fmt/xchar.h>
 #else
+#include <spdlog/fmt/bundled/ranges.h>
 #include <spdlog/fmt/bundled/xchar.h>
 #endif
 

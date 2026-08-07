@@ -1,3 +1,9 @@
+#if defined(LUISA_COMPUTE_SYSTEM_DEPENDENCY_MISSING)
+#error "The system spdlog package is unavailable"
+#else
+
+#include <vector>
+
 #include <luisa/core/stl/format.h>
 #include <spdlog/spdlog.h>
 
@@ -17,5 +23,10 @@ int main() {
     probe_half_formatters<2u>();
     probe_half_formatters<3u>();
     probe_half_formatters<4u>();
+    auto range_text = luisa::format(
+        FMT_STRING("{}"), std::vector<size_t>{1u, 2u, 3u});
+    spdlog::info("LuisaCompute range formatter probe: {}", range_text);
     return 0;
 }
+
+#endif

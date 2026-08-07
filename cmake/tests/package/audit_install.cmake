@@ -179,10 +179,12 @@ elseif (APPLE)
             foreach (_LuisaCompute_LINK_LINE IN LISTS _LuisaCompute_LINKED_LIBRARIES)
                 string(STRIP "${_LuisaCompute_LINK_LINE}"
                         _LuisaCompute_LINK_LINE)
-                if (_LuisaCompute_LINK_LINE MATCHES ":$")
-                    continue()
-                endif ()
-                if (NOT _LuisaCompute_LINK_LINE MATCHES "^(/[^ ]+)")
+                # otool may exit successfully for a non-Mach-O input while
+                # printing a diagnostic that begins with the input filename.
+                # Accept only the actual load-name grammar emitted by `-L`;
+                # this also supports valid dependency paths containing spaces.
+                if (NOT _LuisaCompute_LINK_LINE MATCHES
+                        "^(/.+) \\(compatibility version .+\\)$")
                     continue()
                 endif ()
                 set(_LuisaCompute_LOAD_NAME "${CMAKE_MATCH_1}")
