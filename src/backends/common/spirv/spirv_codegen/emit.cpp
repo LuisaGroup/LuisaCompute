@@ -423,7 +423,12 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
         auto ptr = _create_access_chain(
             spv::StorageClass::Uniform, _constant_ubo_var,
             std::vector<spv::Id>{_builder.makeUintConstant(ubo_it->second)});
-        return _builder.createLoad(ptr, spv::NoPrecision);
+        auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
+        auto logical_type = _convert_type(c->type(), Usage::READ);
+        return _builder.getTypeId(loaded) == logical_type ?
+                   loaded :
+                   _builder.createUnaryOp(
+                       spv::Op::OpCopyLogical, logical_type, loaded);
     }
     auto id = _emit_literal(c->type(), c->data());
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit constant.");
