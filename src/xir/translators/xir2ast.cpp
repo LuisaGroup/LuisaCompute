@@ -675,11 +675,29 @@ private:
         const ConditionalBranchInst *br, const BasicBlock *stop) noexcept {
         auto true_block = br->true_block();
         auto false_block = br->false_block();
-        auto branch_target = [](const BasicBlock *block) noexcept -> const BasicBlock * {
+        // The continuation of a block is where control resumes after the
+        // block ends: the target of a plain branch, or the merge of an
+        // IfInst. A block may also end in a nested conditional branch
+        // (restructure-cfg emits plain cond_brs for structured ifs), whose
+        // continuation is the nested branch's own merge, resolved
+        // recursively. Without this the post-dominator fallback below fails
+        // inside loops with backedges and the translation aborts on valid
+        // structured CFGs emitted by simplify-cfg/restructure-cfg.
+        auto continuation = [&](auto &&self, const BasicBlock *block, int depth) -> const BasicBlock * {
+            if (block == nullptr || depth > 16) { return nullptr; }
             auto term = block->terminator();
-            return term != nullptr && term->isa<BranchInst>() ?
-                       static_cast<const BranchInst *>(term)->target_block() :
-                       nullptr;
+            if (term == nullptr) { return nullptr; }
+            if (term->isa<BranchInst>()) { return static_cast<const BranchInst *>(term)->target_block(); }
+            if (term->isa<IfInst>()) { return static_cast<const IfInst *>(term)->merge_block(); }
+            if (term->isa<ConditionalBranchInst>()) {
+                auto nested = _find_conditional_branch_merge(
+                    static_cast<const ConditionalBranchInst *>(term), stop);
+                return nested.has_value() ? *nested : nullptr;
+            }
+            return nullptr;
+        };
+        auto branch_target = [&](const BasicBlock *block) noexcept -> const BasicBlock * {
+            return continuation(continuation, block, 0);
         };
         auto true_target = true_block == stop ? stop : branch_target(true_block);
         auto false_target = false_block == stop ? stop : branch_target(false_block);
@@ -687,6 +705,23 @@ private:
         if (true_target != nullptr && true_target == false_block) { return false_block; }
         if (false_target != nullptr && false_target == true_block) { return true_block; }
         if (true_target == false_target) { return luisa::optional<const BasicBlock *>{true_target}; }
+        // The post-dominator fallback below cannot find a join for
+        // conditional branches inside loops with backedges: infinite
+        // executions have no post-dominator by construction, so any loop
+        // body branch whose arms converge after the backedge aborts the
+        // translation here. Walk the branch chains from both arms instead;
+        // this converges on the join of any structured if/else.
+        {
+            auto t = true_target;
+            auto f = false_target;
+            for (auto i = 0u; i < 32u; ++i) {
+                if (t == nullptr || f == nullptr) { break; }
+                if (t == stop || f == stop) { return stop; }
+                if (t == f) { return luisa::optional<const BasicBlock *>{t}; }
+                t = branch_target(t);
+                f = branch_target(f);
+            }
+        }
         auto *function = const_cast<Function *>(br->parent_function());
         auto pdom = compute_post_dom_tree(function);
         auto *parent = const_cast<BasicBlock *>(br->parent_block());
