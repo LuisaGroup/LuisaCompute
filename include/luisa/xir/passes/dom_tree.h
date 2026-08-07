@@ -57,6 +57,10 @@ public:
 };
 
 /// Null and declaration-only functions yield an empty tree.
-[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(Function *function) noexcept;
+/// When \p compute_frontiers is false, the dominance frontiers are not
+/// computed; callers that never query them (e.g. structural passes that
+/// rebuild dominance frequently) avoid the potentially quadratic cost.
+[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(Function *function,
+                                                     bool compute_frontiers = true) noexcept;
 
 }// namespace luisa::compute::xir

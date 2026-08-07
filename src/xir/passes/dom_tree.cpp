@@ -138,7 +138,8 @@ auto DomTree::immediate_dominator(BasicBlock *block) const noexcept -> BasicBloc
 }
 
 // Reference: A Simple, Fast Dominance Algorithm [Cooper et al. 2001]
-DomTree compute_dom_tree(Function *function) noexcept {
+DomTree compute_dom_tree(Function *function,
+                           bool compute_frontiers) noexcept {
     auto definition =
         function == nullptr ? nullptr : function->definition();
     if (definition == nullptr || definition->body_block() == nullptr) {
@@ -217,28 +218,43 @@ DomTree compute_dom_tree(Function *function) noexcept {
         return finger1;
     };
 
-    // fixed-point iteration
-    for (;;) {
-        auto changed = false;
-        for (auto block : reverse_postorder) {
-            auto new_idom = static_cast<BasicBlock *>(nullptr);
-            block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                auto dom_of_pred = get_dom(pred);
-                if (dom_of_pred != nullptr) {
-                    if (new_idom == nullptr) {
-                        new_idom = pred;
-                    } else {
-                        new_idom = intersect(pred, new_idom);
-                    }
-                }
-            });
-            auto &dom = doms_vec[block_id[block]];
-            if (dom != new_idom) {
-                dom = new_idom;
-                changed = true;
+    // Worklist-driven fixed point from the top. The naive full-scan loop is
+    // O(N^2) in the block count on deep chains (N passes, each walking every
+    // block's predecessors), which makes repeated rebuilds pathological on
+    // large functions. Seeding the worklist with the root's successors and
+    // re-processing only the successors of blocks whose idom changed converges
+    // to the same (unique) dominator solution while doing a small, practically
+    // linear amount of work. A null idom means "undefined/top" during
+    // iteration: it contributes nothing to the intersection, and a block whose
+    // predecessors are all undefined stays undefined until one of them is
+    // refined and re-pushes it.
+    luisa::vector<BasicBlock *> worklist;
+    root_block->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+        if (block_id.contains(succ)) { worklist.emplace_back(succ); }
+    });
+    while (!worklist.empty()) {
+        auto *block = worklist.back();
+        worklist.pop_back();
+        if (block == root_block) { continue; }// the entry dominates itself only
+        auto new_idom = static_cast<BasicBlock *>(nullptr);
+        block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            auto dom_of_pred = get_dom(pred);
+            if (dom_of_pred == nullptr) { return; }
+            // Mirror the historical Cooper iteration exactly: the candidate
+            // chain starts at the predecessor block itself, not at its idom.
+            if (new_idom == nullptr) {
+                new_idom = pred;
+            } else {
+                new_idom = intersect(pred, new_idom);
             }
+        });
+        if (new_idom == nullptr) { continue; }
+        if (get_dom(block) != new_idom) {
+            doms_vec[block_id[block]] = new_idom;
+            block->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (block_id.contains(succ)) { worklist.emplace_back(succ); }
+            });
         }
-        if (!changed) { break; }
     }
     // create the dom tree
     DomTree tree;
@@ -249,7 +265,7 @@ DomTree compute_dom_tree(Function *function) noexcept {
     }
     tree.set_root(tree.add_or_get_node(root_block));
     tree.compute_ancestry_intervals();
-    tree.compute_dominance_frontiers();
+    if (compute_frontiers) { tree.compute_dominance_frontiers(); }
     return tree;
 }
 

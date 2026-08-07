@@ -404,32 +404,41 @@ struct PostDomInfo {
         return f1;
     };
 
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (auto it = rpo.rbegin(); it != rpo.rend(); ++it) {
-            auto *bb = *it;
-            if (bb == virt) { continue; }
+    // Worklist-driven post-dominator fixed point. The naive full-scan loop is
+    // O(N^3) in the block count (N passes, each re-intersecting successor
+    // chains for every block); re-processing only the predecessors of blocks
+    // whose immediate post-dominator changed converges from the top (nullptr)
+    // to the identical maximum fixed point while doing a small, practically
+    // linear amount of work.
+    luisa::vector<BasicBlock *> worklist;
+    for (auto *bb : rpo) {
+        if (bb == virt) { continue; }
+        if (is_sink(bb)) { worklist.emplace_back(bb); }
+    }
+    while (!worklist.empty()) {
+        auto *bb = worklist.back();
+        worklist.pop_back();
 
-            luisa::vector<BasicBlock *> succs;
-            if (is_sink(bb)) {
-                succs.emplace_back(virt);
-            } else {
-                bb->traverse_successors(false, [&](BasicBlock *s) noexcept { succs.emplace_back(s); });
-            }
-
-            BasicBlock *new_ipostdom = nullptr;
-            for (auto *s : succs) {
-                if (is_processed(s)) {
-                    new_ipostdom = intersect(new_ipostdom, s);
-                }
-            }
-            if (get_ipostdom(bb) != new_ipostdom) {
-                set_ipostdom(bb, new_ipostdom);
-                changed = true;
-            }
-            if (new_ipostdom != nullptr) { set_processed(bb); }
+        luisa::vector<BasicBlock *> succs;
+        if (is_sink(bb)) {
+            succs.emplace_back(virt);
+        } else {
+            bb->traverse_successors(false, [&](BasicBlock *s) noexcept { succs.emplace_back(s); });
         }
+
+        BasicBlock *new_ipostdom = nullptr;
+        for (auto *s : succs) {
+            if (is_processed(s)) {
+                new_ipostdom = intersect(new_ipostdom, s);
+            }
+        }
+        if (get_ipostdom(bb) != new_ipostdom) {
+            set_ipostdom(bb, new_ipostdom);
+            bb->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                worklist.emplace_back(pred);
+            });
+        }
+        if (new_ipostdom != nullptr) { set_processed(bb); }
     }
 
     // Convert dense results back to hash map for API compatibility.
@@ -563,10 +572,14 @@ bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
 
 void fix_degenerate_terminator(BasicBlock *bb) noexcept;
 
+struct StructuredLoopExitInfo;
+
 [[nodiscard]] luisa::unordered_set<BasicBlock *>
 collect_enclosing_loop_exits(FunctionDefinition *def,
                              BasicBlock *header,
-                             const DomTree &dom) noexcept;
+                             const DomTree &dom,
+                             const luisa::vector<StructuredLoopExitInfo> *
+                                 precomputed_loops = nullptr) noexcept;
 [[nodiscard]] BasicBlock *
 structured_statement_merge(Instruction *term) noexcept;
 [[nodiscard]] BasicBlock *
@@ -580,7 +593,9 @@ canonical_exit_target(BasicBlock *target) noexcept;
     FunctionDefinition *def,
     BasicBlock *header,
     luisa::span<BasicBlock *const> entries,
-    const DomTree &dom) noexcept {
+    const DomTree &dom,
+    const luisa::vector<StructuredLoopExitInfo> *precomputed_loops =
+        nullptr) noexcept {
     if (def == nullptr || header == nullptr || entries.empty()) {
         return nullptr;
     }
@@ -589,7 +604,7 @@ canonical_exit_target(BasicBlock *target) noexcept;
     // its raw selection is rebuilt with a synthetic merge by the caller.
     if (!dom.contains(header)) { return nullptr; }
     auto boundaries =
-        collect_enclosing_loop_exits(def, header, dom);
+        collect_enclosing_loop_exits(def, header, dom, precomputed_loops);
     luisa::vector<luisa::unordered_map<BasicBlock *, size_t>>
         distances;
     distances.reserve(entries.size());
@@ -653,7 +668,12 @@ canonical_exit_target(BasicBlock *target) noexcept;
                     max_distance, total_distance};
             }
         };
-    for (auto *candidate : def->basic_blocks()) {
+    // Only blocks actually reached by at least one BFS can score. A candidate
+    // with support >= 2 must appear in every entry's distance map, so the
+    // first map's key set is a superset of all plausible merge blocks; scoring
+    // the whole function here would make inference O(blocks x entries) per
+    // selection header, which is quadratic in the module size.
+    for (auto &&[candidate, _] : distances.front()) {
         if (candidate == nullptr || candidate == header ||
             boundaries.contains(candidate)) {
             continue;
@@ -801,7 +821,7 @@ canonical_exit_target(BasicBlock *target) noexcept;
 void restructure_indexed_branches(
     FunctionDefinition *def, RestructureCFGInfo &info) noexcept {
     for (;;) {
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_dom_tree(def, false);
         auto pdom = compute_post_dom(def);
         BasicBlock *header = nullptr;
         IndexedBranchInst *indexed_branch = nullptr;
@@ -1119,7 +1139,7 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
                                                        BasicBlock *continue_target,
                                                        BasicBlock *merge) noexcept {
     auto function_blocks = collect_function_blocks(def);
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_dom_tree(def, false);
     auto is_live_block = [&](BasicBlock *bb) noexcept {
         return bb != nullptr && function_blocks.contains(bb);
     };
@@ -1324,7 +1344,7 @@ enum struct LoopBoundaryTargetKind {
                                                                       exit_dispatch_headers,
                                                                   const luisa::unordered_set<BasicBlock *> &
                                                                       generated_exit_dispatch_headers) noexcept {
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_dom_tree(def, false);
     struct LoopSite {
         BasicBlock *owner{nullptr};
         BasicBlock *entry{nullptr};
@@ -2654,11 +2674,18 @@ collect_structured_loop_exit_info(
 collect_enclosing_loop_exits(
     FunctionDefinition *def,
     BasicBlock *header,
-    const DomTree &dom) noexcept {
+    const DomTree &dom,
+    const luisa::vector<StructuredLoopExitInfo> *precomputed_loops) noexcept {
     luisa::unordered_set<BasicBlock *> exits;
     if (!dom.contains(header)) { return exits; }
-    for (auto &&loop :
-         collect_structured_loop_exit_info(def)) {
+    // Re-scanning the whole CFG for structured loops per call makes
+    // selection-merge inference quadratic in the block count (every candidate
+    // re-walks every loop). Callers that infer merges for many candidates
+    // precompute the loop set once and pass it in.
+    const auto &loops = precomputed_loops != nullptr
+                            ? *precomputed_loops
+                            : collect_structured_loop_exit_info(def);
+    for (auto &&loop : loops) {
         if (!dom.contains(loop.header) ||
             !dom.dominates(loop.header, header)) {
             continue;
@@ -3144,7 +3171,7 @@ void repair_target_state_dispatch_ssa(
             break;
         }
         modified = true;
-        dom = compute_dom_tree(def);
+        dom = compute_dom_tree(def, false);
         pdom = compute_post_dom(def);
     }
     return modified;
@@ -3750,6 +3777,62 @@ void repair_target_state_dispatch_ssa(
         ConditionalBranchInst *cbr;
         size_t depth;
     };
+    // Merges of constructs that are already structured before this batch runs
+    // (loops, previously restructured selections). Their interiors are
+    // excluded from candidate scopes; the set is fixed for the whole batch
+    // because restructuring retargets terminators but never creates
+    // structured constructs. Precompute the interior as a plain set so the
+    // per-block scope test stays O(1) during candidate processing.
+    luisa::unordered_set<BasicBlock *> structured_merges;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated()) { return; }
+        if (auto *m = structured_statement_merge(bb->terminator());
+            m != nullptr) {
+            structured_merges.emplace(m);
+        }
+    });
+    luisa::unordered_set<BasicBlock *> structured_interior;
+    for (auto *m : structured_merges) {
+        auto *merge_node = dom.node_or_null(m);
+        if (merge_node == nullptr) { continue; }
+        luisa::vector<const DomTreeNode *> stack{merge_node};
+        while (!stack.empty()) {
+            auto *node = stack.back();
+            stack.pop_back();
+            auto *inner = node->block();
+            // Merge blocks themselves remain part of the enclosing scope
+            // (mirroring the historical worklist that pushed a nested
+            // construct's merge without descending into its interior).
+            if (inner != m && !structured_merges.contains(inner)) {
+                structured_interior.emplace(inner);
+            }
+            for (auto *child : node->children()) {
+                stack.emplace_back(child);
+            }
+        }
+    }
+
+    // Structured loops are immutable during this batch (restructuring only
+    // retargets terminators), so collect them once and reuse for every merge
+    // inference instead of re-scanning the CFG per candidate.
+    auto structured_loops = collect_structured_loop_exit_info(def);
+
+    // Blocks whose terminators may need retargeting (unstructured branches).
+    // Retargeting only changes terminator targets and never turns a block into
+    // or out of this class, and newly created structural merges are appended
+    // below, so this snapshot stays complete for the whole batch. Walking the
+    // dominator subtree per candidate instead would be quadratic in the block
+    // count on chains of conditional branches.
+    luisa::vector<BasicBlock *> unstructured_blocks;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated()) { return; }
+        auto *term = bb->terminator();
+        if (term->isa<ConditionalBranchInst>() ||
+            term->isa<BranchInst>()) {
+            unstructured_blocks.emplace_back(bb);
+        }
+    });
+
     luisa::vector<Candidate> candidates;
 
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
@@ -3764,18 +3847,36 @@ void repair_target_state_dispatch_ssa(
         if (true_bb == false_bb) { return; }
 
         auto entries = std::array{true_bb, false_bb};
-        auto *merge = infer_selection_merge(
-            def, bb,
-            luisa::span<BasicBlock *const>{
-                entries.data(), entries.size()},
-            dom);
-        if (merge == nullptr) {
+        // Fast path: the immediate post-dominator is the merge for ordinary
+        // single-exit selections, and is exactly what the historical fallback
+        // accepted. Computing it is O(1), while the distance-scoring BFS below
+        // re-walks the candidate's whole dominated tail, which is quadratic in
+        // the block count for chains of conditional branches. Fall back to the
+        // BFS only when no post-dominator exists.
+        BasicBlock *merge = nullptr;
+        {
             auto ipm_it = pdom.ipostdom.find(bb);
-            if (ipm_it == pdom.ipostdom.end() ||
-                ipm_it->second == nullptr) {
-                return;
+            if (ipm_it != pdom.ipostdom.end() &&
+                ipm_it->second != nullptr &&
+                ipm_it->second != pdom.virtual_exit &&
+                ipm_it->second != bb) {
+                merge = ipm_it->second;
             }
-            merge = ipm_it->second;
+        }
+        if (merge == nullptr) {
+            merge = infer_selection_merge(
+                def, bb,
+                luisa::span<BasicBlock *const>{
+                    entries.data(), entries.size()},
+                dom, &structured_loops);
+            if (merge == nullptr) {
+                auto ipm_it = pdom.ipostdom.find(bb);
+                if (ipm_it == pdom.ipostdom.end() ||
+                    ipm_it->second == nullptr) {
+                    return;
+                }
+                merge = ipm_it->second;
+            }
         }
         if (merge == pdom.virtual_exit) { return; }
         if (merge == bb) { return; }
@@ -3825,11 +3926,24 @@ void repair_target_state_dispatch_ssa(
             continue;
         }
         auto entries = std::array{true_bb, false_bb};
-        auto *found_merge = infer_selection_merge(
-            def, found_header,
-            luisa::span<BasicBlock *const>{
-                entries.data(), entries.size()},
-            dom);
+        // Same O(1) post-dominator fast path as candidate collection.
+        BasicBlock *found_merge = nullptr;
+        if (pdom_valid) {
+            auto merge_iter = pdom.ipostdom.find(found_header);
+            if (merge_iter != pdom.ipostdom.end() &&
+                merge_iter->second != nullptr &&
+                merge_iter->second != pdom.virtual_exit &&
+                merge_iter->second != found_header) {
+                found_merge = merge_iter->second;
+            }
+        }
+        if (found_merge == nullptr) {
+            found_merge = infer_selection_merge(
+                def, found_header,
+                luisa::span<BasicBlock *const>{
+                    entries.data(), entries.size()},
+                dom, &structured_loops);
+        }
         if (found_merge == nullptr) {
             // Post-dominance is a fallback for candidates whose merge cannot
             // be inferred from the current dominance tree. Rebuild it lazily
@@ -3876,6 +3990,7 @@ void repair_target_state_dispatch_ssa(
             structural_merge = def->create_basic_block();
             created_structural_merges.emplace(structural_merge);
             sm_to_header.emplace(structural_merge, found_header);
+            unstructured_blocks.emplace_back(structural_merge);
             {
                 XIRBuilder mb;
                 mb.set_insertion_point(structural_merge);
@@ -3903,50 +4018,32 @@ void repair_target_state_dispatch_ssa(
             }
         }
 
-        // Compute the set of blocks inside the current if's scope.
-        luisa::unordered_set<BasicBlock *> if_scope_blocks;
-        {
-            luisa::vector<BasicBlock *> scope_work;
-            if (true_bb != found_merge && true_bb != structural_merge) {
-                scope_work.push_back(true_bb);
-            }
-            if (false_bb != found_merge && false_bb != structural_merge) {
-                scope_work.push_back(false_bb);
-            }
-            while (!scope_work.empty()) {
-                auto *bb = scope_work.back();
-                scope_work.pop_back();
-                if (bb == found_merge || bb == structural_merge) { continue; }
-                if (!if_scope_blocks.emplace(bb).second) { continue; }
-                if (!bb->is_terminated()) { continue; }
-                if (auto *nested_merge =
-                        structured_statement_merge(bb->terminator());
-                    nested_merge != nullptr &&
-                    nested_merge != found_merge &&
-                    nested_merge != structural_merge) {
-                    scope_work.push_back(nested_merge);
-                    continue;
-                }
-                bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                    scope_work.emplace_back(succ);
-                });
-            }
-        }
+        // The scope of (header, merge) is characterized by dominance: blocks
+        // dominated by the header, not dominated by the merge, and not inside
+        // an already-structured inner construct. After destructuring, such
+        // constructs are rare (loops, previously restructured selections), so
+        // testing membership against their merge subtrees directly is cheap.
+        // Building a reachability set per candidate with a worklist is
+        // quadratic in the block count for chains of conditional branches
+        // (each candidate re-walks the whole tail of the chain).
+        auto in_scope = [&](BasicBlock *bb) noexcept -> bool {
+            if (!dom.dominates(found_header, bb)) { return false; }
+            if (bb == found_merge || bb == structural_merge) { return false; }
+            if (dom.dominates(found_merge, bb)) { return false; }
+            if (structured_interior.contains(bb)) { return false; }
+            return true;
+        };
 
-        // Walk the dominator-tree subtree rooted at found_header.
         // Only retarget unstructured cbr/br blocks that are actually inside
         // the if's scope. Skip IfInst/SwitchInst/LoopInst terminators to avoid
-        // corrupting already-structured inner constructs.
-        auto header_node = dom.node_or_null(found_header);
-        if (header_node != nullptr) {
-            luisa::vector<const DomTreeNode *> work;
-            work.push_back(header_node);
-            while (!work.empty()) {
-                auto *node = work.back();
-                work.pop_back();
-                auto *bb = node->block();
+        // corrupting already-structured inner constructs. Equivalent to the
+        // historical dominator-subtree walk for every block that can be
+        // retargeted (the snapshot above stays complete), but linear in the
+        // number of such blocks per candidate instead of the whole subtree.
+        {
+            for (auto *bb : unstructured_blocks) {
                 if (bb != structural_merge && bb != found_header && bb != found_merge &&
-                    bb->is_terminated() && if_scope_blocks.contains(bb) &&
+                    bb->is_terminated() && in_scope(bb) &&
                     !allowed_outside_targets.contains(bb)) {
                     auto *term = bb->terminator();
                     if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
@@ -3964,9 +4061,6 @@ void repair_target_state_dispatch_ssa(
                         }
                         fix_degenerate_terminator(bb);
                     }
-                }
-                for (auto *child : node->children()) {
-                    work.push_back(child);
                 }
             }
         }
@@ -4016,7 +4110,7 @@ void repair_target_state_dispatch_ssa(
             // walks include newly inserted structural merges. Mark post-dom
             // stale; the fallback above refreshes it only if a later
             // candidate actually requires an immediate post-dominator.
-            dom = compute_dom_tree(def);
+            dom = compute_dom_tree(def, false);
             pdom_valid = false;
         }
     }
@@ -4412,7 +4506,7 @@ struct PostMergeSelectionReentry {
             // either the original arm or its clone writes the same slot before
             // the common continuation reloads it.
             repair_target_state_dispatch_ssa(def);
-            dom = compute_dom_tree(def);
+            dom = compute_dom_tree(def, false);
             pdom = compute_post_dom(def);
             LUISA_ASSERT(
                 clone_owned_subgraph_for_edge(
@@ -4425,7 +4519,7 @@ struct PostMergeSelectionReentry {
                     reentry.merge, dom, true),
                 "Selection re-entry node splitting made no progress.");
             ++info.canonicalized_cfg_count;
-            dom = compute_dom_tree(def);
+            dom = compute_dom_tree(def, false);
             pdom = compute_post_dom(def);
             return true;
         }
@@ -4472,7 +4566,7 @@ struct PostMergeSelectionReentry {
         luisa::unordered_set<BasicBlock *> rewritten_predecessors;
         for (;;) {
             if (!dom_valid) {
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 ++info.construct_entry_dom_tree_count;
                 dom_valid = true;
             }
@@ -4786,7 +4880,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     info.restructured_if_count++;
 
     // Invalidate analyses after CFG mutation.
-    dom = compute_dom_tree(def);
+    dom = compute_dom_tree(def, false);
     pdom = compute_post_dom(def);
     return true;
 }
@@ -4833,6 +4927,13 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     static_cast<void>(info);
     auto modified = false;
 
+    // Loop-boundary IfInst nodes are spelled once per immutable CFG; fixup
+    // only retargets exits and never changes them, so the membership set is
+    // stable for the whole call. The per-header predicate would re-walk every
+    // loop region for every construct (quadratic in the block count).
+    auto loop_boundary_entries =
+        collect_loop_boundary_selection_entries(def);
+
     for (;;) {
         struct Construct {
             BasicBlock *header{nullptr};
@@ -4847,7 +4948,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             if (header == nullptr || !header->is_terminated() ||
                 !dom.contains(header) ||
                 exit_dispatch_headers.contains(header) ||
-                is_loop_boundary_selection_entry(header, def)) {
+                loop_boundary_entries.contains(header)) {
                 return;
             }
             auto *term = header->terminator();
@@ -5085,7 +5186,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 
         // LLVM Splitter::invalidate(): all containment and exit facts above are
         // stale after one rewrite.
-        dom = compute_dom_tree(def);
+        dom = compute_dom_tree(def, false);
         pdom = compute_post_dom(def);
     }
     return modified;
@@ -5219,7 +5320,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_unauthorized_construct_entries(
     FunctionDefinition *def) noexcept {
     size_t count = 0u;
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_dom_tree(def, false);
     for (auto *header : def->basic_blocks()) {
         if (header == nullptr || !header->is_terminated() ||
             !dom.contains(header)) {
@@ -5257,7 +5358,9 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_post_merge_selection_reentries(
     FunctionDefinition *def) noexcept {
     size_t count = 0u;
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_dom_tree(def, false);
+    auto loop_boundary_entries =
+        collect_loop_boundary_selection_entries(def);
     for (auto *header : def->basic_blocks()) {
         if (header == nullptr || !header->is_terminated() ||
             !dom.contains(header)) {
@@ -5273,8 +5376,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         // declare them as selection constructs, so selection re-entry rules
         // do not apply to those provenance-checked nodes.
         if (term->isa<IfInst>() &&
-            is_loop_boundary_selection_entry(
-                header, def)) {
+            loop_boundary_entries.contains(header)) {
             continue;
         }
         auto *merge =
@@ -5598,7 +5700,7 @@ restructure_cfg_on_definition_in_place(
                 "[restructure_cfg] main iteration {}.",
                 iteration);
         }
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_dom_tree(def, false);
         auto pdom = compute_post_dom(def);
         if (try_restructure_loop(def, dom, pdom, info)) {
             main_last_modified = true;
@@ -5653,7 +5755,7 @@ restructure_cfg_on_definition_in_place(
     bool post_last_modified = false;
     {
         ScopedTimer _timer_post("post_restructure_fixed_point");
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_dom_tree(def, false);
         auto pdom = compute_post_dom(def);
         for (size_t iteration = 0u;
              iteration < options.post_iteration_limit;
@@ -5667,7 +5769,7 @@ restructure_cfg_on_definition_in_place(
                 try_restructure_loop(def, dom, pdom, info);
             if (loop_changed) {
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             auto header_changed =
@@ -5683,7 +5785,7 @@ restructure_cfg_on_definition_in_place(
             if (switch_proxy_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             auto limits_before_selection_exits = info.iteration_limit_count;
@@ -5715,7 +5817,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_merge_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             auto boundary_branch_changed =
@@ -5725,7 +5827,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_branch_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             auto loop_prepare_changed =
@@ -5733,7 +5835,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_prepare_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             auto loop_continue_changed =
@@ -5741,7 +5843,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_continue_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             auto loop_update_changed =
@@ -5749,7 +5851,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_update_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             auto limits_before_fixup = info.iteration_limit_count;
@@ -5760,7 +5862,7 @@ restructure_cfg_on_definition_in_place(
             if (construct_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             for (auto *header : exit_dispatch_headers) {
@@ -5774,7 +5876,7 @@ restructure_cfg_on_definition_in_place(
             if (dispatch_collapse_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_dom_tree(def, false);
                 pdom = compute_post_dom(def);
             }
             if (restructure_trace_enabled()) {

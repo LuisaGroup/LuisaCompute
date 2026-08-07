@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <bit>
+#include <cstring>
 #include <type_traits>
 
 #include <luisa/ast/type_registry.h>
@@ -940,6 +942,10 @@ private:
     luisa::unordered_set<const Value *> _scanned_use_lists;
     luisa::unordered_map<const Use *, const Value *>
         _use_list_owners;
+    void reserve_scan_tables(size_t capacity) noexcept {
+        _scanned_use_lists.reserve(capacity);
+        _use_list_owners.reserve(capacity * 2u);
+    }
 
 private:
     void _error(const Function *function, const BasicBlock *block,
@@ -1032,16 +1038,25 @@ public:
                 _error(function, block, nullptr, "Basic block has the wrong parent function.");
             }
         }
+        reserve_scan_tables(blocks.size() * 8u);
         if (!block_set.contains(definition->body_block())) {
             _error(function, definition->body_block(), nullptr,
                    "Function body block is not owned by the function.");
             return;
         }
+        // Reserve dense collections up front: these maps grow to one entry per
+        // instruction/block/edge, and rehashing a large table on every growth
+        // step turns verification quadratic on big generated modules.
         luisa::unordered_map<const Instruction *, size_t> instruction_order;
         luisa::unordered_map<const Instruction *, const BasicBlock *> instruction_blocks;
         luisa::unordered_map<const BasicBlock *, BlockSet> successors;
         luisa::unordered_map<const BasicBlock *, BlockSet> predecessors;
         luisa::unordered_map<const BasicBlock *, const Instruction *> merge_owners;
+        instruction_order.reserve(blocks.size() * 8u);
+        instruction_blocks.reserve(blocks.size() * 8u);
+        successors.reserve(blocks.size());
+        predecessors.reserve(blocks.size());
+        merge_owners.reserve(blocks.size());
 
         for (auto *block : blocks) {
             auto terminated = block->is_terminated();
@@ -1153,52 +1168,95 @@ public:
             }
         }
 
-        luisa::unordered_map<const BasicBlock *, BlockSet> dominators;
+        // Dominator analysis via worklist-driven data-flow iteration. The naive
+        // full-scan fixed-point loop is O(N^3) in the block count (N full passes,
+        // each copying/intersecting O(N)-element block sets for every block),
+        // which makes verification pathological on large generated functions.
+        // Because a dominator set only ever shrinks during iteration, seeding a
+        // worklist from the entry block's successors and re-processing only the
+        // successors of changed blocks converges to the same fixed point while
+        // doing a small, practically linear amount of work.
+        // Dominator analysis via worklist-driven data-flow iteration over
+        // bit-set dominator sets. The naive full-scan fixed-point loop is
+        // O(N^3) in the block count (N full passes, each copying and
+        // intersecting O(N)-element hash sets for every block), and even a
+        // worklist variant pays an O(N^2) hash-set copy during initialization;
+        // both make verification pathological on large generated functions.
+        // Bit-sets turn the initialization into a linear memset and each
+        // intersection into a word-wise AND, converging to the identical
+        // fixed point while doing a small, practically linear amount of work.
+        luisa::unordered_map<const BasicBlock *, uint32_t> block_ids;
+        block_ids.reserve(reachable.size());
+        uint32_t next_block_id = 0u;
         for (auto *block : reachable) {
-            if (block == definition->body_block()) {
-                dominators[block].emplace(block);
-            } else {
-                dominators[block] = reachable;
+            block_ids.emplace(block, next_block_id++);
+        }
+        const auto word_count = (reachable.size() + 63u) / 64u;
+        luisa::vector<luisa::vector<uint64_t>> dominators(
+            reachable.size(), luisa::vector<uint64_t>(word_count, ~uint64_t{0u}));
+        {
+            auto entry_index = block_ids[definition->body_block()];
+            auto &entry_dom = dominators[entry_index];
+            std::fill(entry_dom.begin(), entry_dom.end(), uint64_t{0u});
+            entry_dom[entry_index / 64u] |= uint64_t{1u} << (entry_index % 64u);
+        }
+        BlockSet pending;
+        if (auto entry_successors = successors.find(definition->body_block());
+            entry_successors != successors.end()) {
+            for (auto *successor : entry_successors->second) {
+                if (reachable.contains(successor)) { pending.emplace(successor); }
             }
         }
-        for (;;) {
-            auto changed = false;
-            for (auto *block : reachable) {
-                if (block == definition->body_block()) { continue; }
-                BlockSet next;
-                auto first = true;
-                if (auto pred_iter = predecessors.find(block);
-                    pred_iter != predecessors.end()) {
-                    for (auto *predecessor : pred_iter->second) {
-                        if (!reachable.contains(predecessor)) { continue; }
-                        if (first) {
-                            next = dominators[predecessor];
-                            first = false;
-                        } else {
-                            BlockSet intersection;
-                            for (auto *candidate : next) {
-                                if (dominators[predecessor].contains(candidate)) {
-                                    intersection.emplace(candidate);
-                                }
-                            }
-                            next = std::move(intersection);
+        luisa::vector<uint64_t> next(word_count);
+        while (!pending.empty()) {
+            auto *block = *pending.begin();
+            pending.erase(pending.begin());
+            auto block_index = block_ids[block];
+            auto first = true;
+            if (auto pred_iter = predecessors.find(block);
+                pred_iter != predecessors.end()) {
+                for (auto *predecessor : pred_iter->second) {
+                    if (!reachable.contains(predecessor)) { continue; }
+                    auto pred_index = block_ids[predecessor];
+                    if (first) {
+                        std::memcpy(next.data(), dominators[pred_index].data(),
+                                    word_count * sizeof(uint64_t));
+                        first = false;
+                    } else {
+                        auto *pred_dom = dominators[pred_index].data();
+                        for (size_t w = 0u; w < word_count; ++w) {
+                            next[w] &= pred_dom[w];
                         }
                     }
                 }
-                next.emplace(block);
-                if (!_same_set(next, dominators[block])) {
-                    dominators[block] = std::move(next);
-                    changed = true;
+            }
+            if (first) {
+                std::fill(next.begin(), next.end(), ~uint64_t{0u});
+            }
+            next[block_index / 64u] |= uint64_t{1u} << (block_index % 64u);
+            if (std::memcmp(next.data(), dominators[block_index].data(),
+                            word_count * sizeof(uint64_t)) != 0) {
+                std::memcpy(dominators[block_index].data(), next.data(),
+                            word_count * sizeof(uint64_t));
+                if (auto succ_iter = successors.find(block);
+                    succ_iter != successors.end()) {
+                    for (auto *successor : succ_iter->second) {
+                        if (reachable.contains(successor)) {
+                            pending.emplace(successor);
+                        }
+                    }
                 }
             }
-            if (!changed) { break; }
         }
 
         auto block_dominates = [&](const BasicBlock *definition_block,
                                    const BasicBlock *use_block) noexcept {
             if (!reachable.contains(use_block)) { return true; }
             if (!reachable.contains(definition_block)) { return false; }
-            return dominators[use_block].contains(definition_block);
+            auto use_index = block_ids[use_block];
+            auto def_index = block_ids[definition_block];
+            return (dominators[use_index][def_index / 64u] &
+                    (uint64_t{1u} << (def_index % 64u))) != 0u;
         };
         auto is_owned_block = [&](const Value *value) noexcept {
             if (value == nullptr || !value->isa<BasicBlock>()) { return false; }
@@ -1260,7 +1318,10 @@ public:
                          block_dominates(scope.merge, block))) {
                         continue;
                     }
-                    auto depth = dominators[scope.parent].size();
+                    auto depth = 0u;
+                    for (auto word : dominators[block_ids[scope.parent]]) {
+                        depth += std::popcount(word);
+                    }
                     auto *target = is_continue ? scope.continue_target : scope.merge;
                     if (!result.found || depth > best_depth) {
                         result = {.target = target, .found = true, .ambiguous = false};
