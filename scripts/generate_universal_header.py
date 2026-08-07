@@ -14,7 +14,7 @@ if __name__ == "__main__":
     base = realpath(dirname(realpath(__file__)) + "/../include/luisa").replace("\\", "/")
     # glob all headers
     headers = []
-    modules = [f for f in listdir(base) if isdir(f"{base}/{f}") and f not in ["api", "backends", "ir_v2"]]
+    modules = [f for f in listdir(base) if isdir(f"{base}/{f}") and f != "backends"]
     for module in modules:
         glob_headers(headers, f"{base}/{module}")
     headers = [relpath(header, base).replace("\\", "/") for header in headers if
@@ -28,7 +28,7 @@ if __name__ == "__main__":
             header_groups[group] = []
         header_groups[group].append(header)
 
-    optional_modules = ["dsl", "gui", "xir", "ir", "rust", "tensor", "clangcxx"]
+    optional_modules = ["dsl", "gui", "xir", "tensor", "clangcxx"]
     with open(f"{base}/luisa-compute.h", "w", encoding="utf8") as f:
         f.write("#pragma once\n\n")
         f.write("#include <luisa/version.h>\n\n")
@@ -41,4 +41,5 @@ if __name__ == "__main__":
                 f.write(f"#include <luisa/{header}>\n")
             if group in optional_modules:
                 f.write(f"#endif\n")
-            f.write("\n")
+            if group != group_keys[-1]:
+                f.write("\n")

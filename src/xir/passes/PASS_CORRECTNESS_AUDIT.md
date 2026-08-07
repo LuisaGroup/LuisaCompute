@@ -335,9 +335,6 @@ Measured validation evidence on 2026-07-25:
   optimization integration executables passed. The nested-callable path tracer
   passed on VK with explicit `--offline --spp 1`; its default remains the
   interactive window path and was not launched in the headless test session.
-- `cargo check --workspace` and `cargo test --workspace` succeeded; the Rust
-  workspace ran 12 tests with no failures.
-
 Incremental validation evidence on 2026-07-31:
 
 - The minimal three-target exit-dispatch regression fails with one illegal

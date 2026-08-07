@@ -21,10 +21,6 @@
 #error "The installed target unexpectedly defines LUISA_ENABLE_GUI"
 #endif
 
-#if defined(LUISA_ENABLE_IR)
-#error "The installed target unexpectedly defines LUISA_ENABLE_IR"
-#endif
-
 #if LUISA_PACKAGE_WITH_WAYLAND && !defined(LUISA_ENABLE_WAYLAND)
 #error "The installed target lost LUISA_ENABLE_WAYLAND"
 #endif

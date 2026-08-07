@@ -1,8 +1,5 @@
 #pragma once
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#endif
 #include <luisa/ast/type_registry.h>
 #include <luisa/runtime/rhi/device_interface.h>
 
@@ -303,14 +300,6 @@ public:
             .name = luisa::string{name}};
         static_cast<void>(this->compile<N>(std::forward<Kernel>(kernel), option));
     }
-
-#ifdef LUISA_ENABLE_IR
-    template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const ir::KernelModule *const module,
-                               const ShaderOption &option = {}) noexcept {
-        return _create<Shader<N, Args...>>(module, option);
-    }
-#endif
 
     template<typename V, typename P>
     [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(

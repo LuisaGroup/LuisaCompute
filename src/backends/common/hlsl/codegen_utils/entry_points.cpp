@@ -20,29 +20,6 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) { return {};
 }// namespace lc_hlsl
 #endif
 namespace lc::hlsl {
-#ifdef LUISA_ENABLE_IR
-void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
-    if (f.requires_autodiff())
-        traverse_expressions<true>(
-            f.body(),
-            [&](auto expr) noexcept {
-                if (expr->tag() == Expression::Tag::CALL) {
-                    if (auto call = static_cast<const CallExpr *>(expr);
-                        call->op() == CallOp::GRADIENT ||
-                        call->op() == CallOp::GRADIENT_MARKER ||
-                        call->op() == CallOp::REQUIRES_GRADIENT) {
-                        LUISA_ASSERT(!call->arguments().empty() &&
-                                         call->arguments().front()->tag() == Expression::Tag::REF,
-                                     "Invalid gradient function call.");
-                        auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
-                        gradient_variables.emplace(v);
-                    }
-                }
-            },
-            [](auto) noexcept {},
-            [](auto) noexcept {});
-}
-#endif
 vstd::string_view CodegenUtility::ReadInternalHLSLFile(vstd::string_view name) {
     auto data = lc_hlsl::get_hlsl_builtin(name);
     return {static_cast<char const *>(data.ptr), data.size};
@@ -655,10 +632,6 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             i.decode(printer);
             result << ";\n"sv;
         }
-#ifdef LUISA_ENABLE_IR
-        vstd::unordered_set<Variable> grad_vars;
-        glob_variables_with_grad(func, grad_vars);
-#endif
         if (func.tag() == Function::Tag::KERNEL) {
             opt->funcType = CodegenStackData::FuncType::Kernel;
             if (opt->isRayTracing) {
@@ -728,11 +701,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
 
             StringStateVisitor vis(func, result, this);
             vis.sharedVariables = &opt->sharedVariable;
-            vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-                grad_vars,
-#endif
-                func);
+            vis.VisitFunction(func);
         }
         result << "}\n"sv;
     };

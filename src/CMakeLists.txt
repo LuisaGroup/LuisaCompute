@@ -42,16 +42,13 @@ add_subdirectory(core)
 add_subdirectory(vstl)
 add_subdirectory(ast)
 add_subdirectory(xir)
-add_subdirectory(rust)
 add_subdirectory(runtime)
-add_subdirectory(ir)
 add_subdirectory(dsl)
 add_subdirectory(coro)
 # add_subdirectory(tensor)
 add_subdirectory(osl)
 add_subdirectory(gui)
 add_subdirectory(backends)
-add_subdirectory(api)
 add_subdirectory(clangcxx)
 
 add_library(compute INTERFACE)
@@ -65,10 +62,8 @@ target_link_libraries(compute INTERFACE
         luisa-compute-osl
         luisa-compute-runtime
         luisa-compute-gui
-        luisa-compute-api
         luisa-compute-backends
         luisa-compute-coro
-        luisa-compute-ir
         luisa-compute-clangcxx)
 
 if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)

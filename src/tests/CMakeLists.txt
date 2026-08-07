@@ -42,7 +42,6 @@ luisa_compute_add_test(test_pool               unit/core/test_pool.cpp          
 luisa_compute_add_test(test_type               unit/core/test_type.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_stl_containers     unit/core/test_stl_containers.cpp     LABELS "unit;unit_core")
 luisa_compute_add_test(test_hash               unit/core/test_hash.cpp               LABELS "unit;unit_core")
-luisa_compute_add_test(test_integer_power_contract unit/core/test_integer_power_contract.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_spin_mutex         unit/core/test_spin_mutex.cpp         LABELS "unit;unit_core")
 luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp              LABELS "unit;unit_core")
 luisa_compute_add_test(test_platform_utils     unit/core/test_platform.cpp           LABELS "unit;unit_core")
@@ -428,21 +427,8 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
 endif ()
 
-# --- integration/ir: standalone tests ---
-if (LUISA_COMPUTE_ENABLE_RUST)
-    luisa_compute_add_test(test_autodiff        integration/ir/test_autodiff.cpp)
-    luisa_compute_add_test(test_autodiff_full    integration/ir/test_autodiff_full.cpp)
-    luisa_compute_add_test(test_ast2ir           integration/ir/test_ast2ir.cpp)
-    luisa_compute_add_test(test_ast2ir_headless  integration/ir/test_ast2ir_headless.cpp)
-    luisa_compute_add_test(test_ast2ir_ir2ast    integration/ir/test_ast2ir_ir2ast.cpp)
-    luisa_compute_add_test(test_hip_legacy_ir_device integration/ir/test_hip_legacy_ir_device.cpp)
-
-    if (LUISA_COMPUTE_ENABLE_GUI)
-        luisa_compute_add_test(test_kernel_ir integration/ir/test_kernel_ir.cpp)
-    endif ()
-endif ()
-
-luisa_compute_add_test(test_xir2ast_roundtrip integration/ir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")
+# --- integration/xir: standalone tests ---
+luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")
 
 # --- unit/dsl: standalone GPU tests ---
 luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cpp)

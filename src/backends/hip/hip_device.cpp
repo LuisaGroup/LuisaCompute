@@ -25,10 +25,6 @@
 #include "hip_pinned_memory.h"
 #include "hip_device.h"
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#endif
-
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/passes/destructure_cfg.h>
@@ -813,10 +809,6 @@ void HIPDevice::set_stream_log_callback(uint64_t stream_handle, const StreamLogC
     reinterpret_cast<HIPStream *>(stream_handle)->set_log_callback(callback);
 }
 
-ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
-    LUISA_NOT_IMPLEMENTED();
-}
-
 ResourceCreationInfo HIPDevice::create_curve(const AccelOption &option) noexcept {
     auto context = hiprt_context();
     auto curve = with_device([&] {
@@ -978,16 +970,6 @@ BufferCreationInfo HIPDevice::create_buffer(const Type *element, size_t elem_cou
     info.element_stride = elem_stride;
     info.total_size_bytes = size_bytes;
     return info;
-}
-
-BufferCreationInfo HIPDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count, external_memory);
-#else
-    LUISA_ERROR_WITH_LOCATION("HIP backend was compiled without legacy IR support.");
-    return BufferCreationInfo::make_invalid();
-#endif
 }
 
 void HIPDevice::destroy_buffer(uint64_t handle) noexcept {
@@ -1450,18 +1432,6 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     return info;
 #else
     LUISA_ERROR_WITH_LOCATION("HIP backend requires LLVM to be enabled.");
-    return ShaderCreationInfo::make_invalid();
-#endif
-}
-
-ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-#ifdef LUISA_ENABLE_IR
-    Clock clk;
-    auto function = IR2AST::build(kernel);
-    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-    return create_shader(option, function->function());
-#else
-    LUISA_ERROR_WITH_LOCATION("HIP backend was compiled without legacy IR support.");
     return ShaderCreationInfo::make_invalid();
 #endif
 }

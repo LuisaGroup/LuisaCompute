@@ -68,7 +68,7 @@ jobs:
             # Use Clang's platform-default system C++ runtime for the archive.
             export LUISA_FLAGS=""
           fi
-          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=${{ matrix.platform.unity }} -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=${{ matrix.platform.unity }} -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
           cmake --build build -j ${{ matrix.platform.jobs }}
       - name: "Build and Verify Distribution Package"
         if: matrix.config == 'Release'
@@ -117,7 +117,7 @@ jobs:
           if [ "${{ matrix.config }}" = "Release" ]; then
             export LUISA_PACKAGE=ON
           fi
-          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_VULKAN=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_VULKAN=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
           cmake --build build
       - name: "Build and Verify Distribution Package"
         if: matrix.config == 'Release'
@@ -178,7 +178,7 @@ jobs:
           )
           set LUISA_PACKAGE=OFF
           IF "${{ matrix.config }}" == "Release" set LUISA_PACKAGE=ON
-          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=%LUISA_PACKAGE% -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
+          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=%LUISA_PACKAGE% -D CMAKE_BUILD_TYPE=${{ matrix.config }}
           cmake --build build
       - name: "Build and Verify Distribution Package"
         if: matrix.config == 'Release'

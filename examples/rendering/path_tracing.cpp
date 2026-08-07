@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
 
@@ -225,7 +225,7 @@ int main(int argc, char *argv[]) {
     };
 
     // Adjust samples per dispatch based on backend capabilities
-    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "fallback" ? 1u : 64u;
     bool infinite_render = opts.spp == 0u && !opts.offline;
     auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
         .total_spp = infinite_render ? 0u : (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp),

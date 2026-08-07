@@ -10,22 +10,6 @@ if (NOT IS_DIRECTORY "${LUISA_COMPUTE_PACKAGE_ROOT}")
             "${LUISA_COMPUTE_PACKAGE_ROOT}")
 endif ()
 
-if (IS_DIRECTORY "${LUISA_COMPUTE_PACKAGE_ROOT}/include/luisa/rust")
-    message(FATAL_ERROR
-            "Distribution package unexpectedly contains Rust public headers")
-endif ()
-file(GLOB_RECURSE _LuisaCompute_RUST_ARTIFACTS LIST_DIRECTORIES FALSE
-        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa_compute_ir_static*"
-        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa_compute_api_types*"
-        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa_compute_backend_impl*"
-        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa-ir.*"
-        "${LUISA_COMPUTE_PACKAGE_ROOT}/*luisa-api.*")
-if (_LuisaCompute_RUST_ARTIFACTS)
-    message(FATAL_ERROR
-            "Distribution package unexpectedly contains Rust artifacts: "
-            "${_LuisaCompute_RUST_ARTIFACTS}")
-endif ()
-
 function(_luisa_compute_reject_forbidden_runtime_path binary kind value)
     if (NOT IS_ABSOLUTE "${value}")
         return()

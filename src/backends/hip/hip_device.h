@@ -56,7 +56,6 @@ public:
     [[nodiscard]] uint compute_warp_size() const noexcept override;
     [[nodiscard]] uint64_t memory_granularity() const noexcept override;
     [[nodiscard]] BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
-    [[nodiscard]] BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, void *external_native_handle, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
@@ -70,7 +69,6 @@ public:
     void destroy_swapchain(uint64_t handle) noexcept override;
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
     [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     [[nodiscard]] ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<Type const *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
@@ -88,7 +86,6 @@ public:
     void destroy_accel(uint64_t handle) noexcept override;
     void set_name(Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
     void set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept override;
-    [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_curve(const AccelOption &option) noexcept override;
     void destroy_curve(uint64_t handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_motion_instance(const AccelMotionOption &option) noexcept override;

@@ -20,10 +20,6 @@ endif ()
 if (LuisaCompute_WITH_GUI)
     list(APPEND _package_components gui)
 endif ()
-if (LuisaCompute_WITH_RUST OR rust IN_LIST LuisaCompute_COMPONENTS)
-    message(FATAL_ERROR
-            "CPack distributions must not contain Rust integration")
-endif ()
 if (LUISA_COMPUTE_PACKAGE_EXPECT_BACKEND)
     list(APPEND _package_components "${LUISA_COMPUTE_PACKAGE_EXPECT_BACKEND}")
 endif ()
@@ -51,7 +47,6 @@ endif ()
 foreach (_public_option IN ITEMS
         LUISA_COMPUTE_ENABLE_DSL
         LUISA_COMPUTE_ENABLE_GUI
-        LUISA_COMPUTE_ENABLE_RUST
         LUISA_COMPUTE_ENABLE_WAYLAND
         LUISA_COMPUTE_ENABLE_SAFE_MODE
         LUISA_COMPUTE_ENABLE_CLANG_CXX

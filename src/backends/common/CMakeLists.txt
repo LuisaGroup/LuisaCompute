@@ -181,9 +181,7 @@ function(luisa_compute_link_llvm_into_backend backend)
 
 endfunction()
 
-if (LUISA_COMPUTE_ENABLE_CPU OR
-        LUISA_COMPUTE_ENABLE_CUDA OR
-        LUISA_COMPUTE_ENABLE_REMOTE OR
+if (LUISA_COMPUTE_ENABLE_CUDA OR
         LUISA_COMPUTE_ENABLE_FALLBACK OR
         LUISA_COMPUTE_ENABLE_HIP)
 

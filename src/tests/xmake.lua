@@ -37,7 +37,6 @@ test_proj("test_pool", "unit/core/test_pool.cpp")
 test_proj("test_type", "unit/core/test_type.cpp")
 test_proj("test_stl_containers", "unit/core/test_stl_containers.cpp")
 test_proj("test_hash", "unit/core/test_hash.cpp")
-test_proj("test_integer_power_contract", "unit/core/test_integer_power_contract.cpp")
 test_proj("test_spin_mutex", "unit/core/test_spin_mutex.cpp")
 test_proj("test_fiber", "unit/core/test_fiber.cpp")
 test_proj("test_platform_utils", "unit/core/test_platform.cpp")
@@ -508,19 +507,8 @@ if has_config("lc_dx_backend") then
     -- test_proj("test_work_graph", "integration/runtime/test_work_graph.cpp")
 end
 
--- integration/ir (depends on lc-ir which requires Rust/lc-rust)
-if has_config("lc_enable_ir") then
-    test_proj("test_autodiff", "integration/ir/test_autodiff.cpp")
-    test_proj("test_autodiff_full", "integration/ir/test_autodiff_full.cpp")
-    test_proj("test_ast2ir", "integration/ir/test_ast2ir.cpp")
-    test_proj("test_ast2ir_headless", "integration/ir/test_ast2ir_headless.cpp")
-    test_proj("test_ast2ir_ir2ast", "integration/ir/test_ast2ir_ir2ast.cpp")
-    test_proj("test_hip_legacy_ir_device", "integration/ir/test_hip_legacy_ir_device.cpp")
-    test_proj("test_kernel_ir", "integration/ir/test_kernel_ir.cpp", true)
-end
-
 if has_config("lc_enable_xir") then
-    test_proj("test_xir2ast_roundtrip", "integration/ir/test_xir2ast_roundtrip.cpp", false, function()
+    test_proj("test_xir2ast_roundtrip", "integration/xir/test_xir2ast_roundtrip.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
 end

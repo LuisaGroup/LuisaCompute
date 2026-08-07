@@ -24,11 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
 
 # Default CMake flags matching CI workflow
-CMAKE_FLAGS = [
-    "-D", "LUISA_COMPUTE_ENABLE_RUST=OFF",
-    "-D", "LUISA_COMPUTE_ENABLE_REMOTE=OFF",
-    "-D", "LUISA_COMPUTE_ENABLE_CPU=OFF",
-]
+CMAKE_FLAGS = []
 
 # Key output files to verify after build
 VERIFY_FILES = [

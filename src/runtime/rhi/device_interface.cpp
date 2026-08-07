@@ -19,10 +19,6 @@ void DeviceInterface::set_stream_log_callback(uint64_t stream_handle,
                                 "implemented. Calls to this method are ignored.");
 }
 
-ShaderCreationInfo DeviceInterface::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
-    LUISA_NOT_IMPLEMENTED("DeviceInterface::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) is not implemented.");
-}
-
 ResourceCreationInfo DeviceInterface::create_curve(const AccelOption &option) noexcept {
     LUISA_NOT_IMPLEMENTED();
 }

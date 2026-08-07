@@ -152,11 +152,6 @@ public:
         LUISA_ERROR("Not supported.");
         return {};
     }
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
-                                     size_t elem_count,
-                                     void *external_memory /* nullptr if now imported from external memory */) noexcept override {
-        LUISA_ERROR("Not supported.");
-    }
     void destroy_buffer(uint64_t handle) noexcept override {
         LUISA_ERROR("Not supported.");
     }
@@ -199,10 +194,6 @@ public:
         auto kernel_name = luisa::to_string(luisa::filesystem::path{option.name}.filename().replace_extension());
         codegen.codegen(option.name, kernel_name, kernel);
         return ShaderCreationInfo::make_invalid();
-    }
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override {
-        LUISA_ERROR("Not supported.");
-        return {};
     }
     ResourceCreationInfo create_mesh(
         const AccelOption &option) noexcept override {

@@ -190,13 +190,6 @@ BufferCreationInfo Device::create_buffer(const Type *element,
                is_indirect_dispatch ? elem_count : 0u};
     return buffer;
 }
-BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element,
-                                         size_t elem_count,
-                                         void *external_memory) noexcept {
-    auto buffer = _native->create_buffer(element, elem_count, external_memory);
-    new Buffer{buffer.handle, 0};
-    return buffer;
-}
 void Device::destroy_buffer(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_buffer(handle);
@@ -349,12 +342,6 @@ void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchai
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
     auto shader = _native->create_shader(option, kernel);
     new Shader(shader.handle, kernel.bound_arguments());
-    return shader;
-}
-ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    auto shader = _native->create_shader(option, kernel);
-    // TODO: IR binding test
-    //
     return shader;
 }
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {

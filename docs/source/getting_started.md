@@ -6,14 +6,14 @@ This guide will help you get up and running with LuisaCompute, from installation
 
 LuisaCompute is a high-performance cross-platform computing framework designed for modern graphics and general-purpose GPU computing. It balances three key goals:
 
-- **Unification**: Write code once, run on CUDA, DirectX, Metal, or CPU
+- **Unification**: Write code once, run on CUDA, DirectX, Metal, Vulkan, HIP, or the fallback backend
 - **Programmability**: Modern C++ embedded DSL with intuitive syntax
 - **Performance**: Optimized backends with automatic command scheduling
 
 The framework consists of three major components:
 1. **Embedded DSL**: Write GPU kernels directly in C++ using `Var<T>`, `Kernel`, and `Callable`
 2. **Unified Runtime**: Resource management and command scheduling with `Context`, `Device`, and `Stream`
-3. **Multiple Backends**: CUDA, DirectX, Metal, and CPU implementations
+3. **Multiple Backends**: CUDA, DirectX, Metal, Vulkan, HIP, and fallback implementations
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ The framework consists of three major components:
 | CUDA | NVIDIA GPU with RTX support (RTX 20 series or newer recommended) |
 | DirectX | DirectX 12.1 & Shader Model 6.5 compatible GPU |
 | Metal | macOS device with Metal support |
-| CPU | Any modern x86_64 or ARM64 processor |
+| Fallback | A platform supported by the configured LLVM and Embree packages |
 
 ### Software Requirements
 
@@ -38,6 +38,7 @@ The framework consists of three major components:
 - **CUDA**: CUDA Toolkit 11.7+, NVIDIA driver R535+
 - **DirectX**: Windows SDK 10.0.19041.0+
 - **Metal**: Xcode 14+ (macOS)
+- **Fallback**: LLVM and Embree development packages
 
 ## Building from Source
 
@@ -70,7 +71,6 @@ python bootstrap.py cmake -f cuda -c -o cmake-build-release
 
 Install missing dependencies:
 ```bash
-python bootstrap.py -i rust      # Install Rust (for CPU backend)
 python bootstrap.py -i cmake     # Install/upgrade CMake
 python bootstrap.py -i xmake     # Install XMake
 ```
@@ -202,7 +202,7 @@ Context context{argv[0]};
 Device cuda_device = context.create_device("cuda");
 Device dx_device = context.create_device("dx");     // Windows only
 Device metal_device = context.create_device("metal"); // macOS only
-Device cpu_device = context.create_device("cpu");
+Device fallback_device = context.create_device("fallback");
 
 // Or use the default available backend
 Device device = context.create_default_device();
@@ -383,7 +383,7 @@ To specify a particular backend, pass its name to `init()`:
 init(backend_name="cuda")   # NVIDIA GPU
 init(backend_name="dx")     # DirectX (Windows)
 init(backend_name="metal")  # Metal (macOS)
-init(backend_name="cpu")    # CPU fallback
+init(backend_name="fallback") # Native C++ LLVM/Embree fallback
 ```
 
 You can also set the `LUISA_BACKEND` environment variable to select the backend without modifying code.

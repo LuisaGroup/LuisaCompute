@@ -48,8 +48,8 @@ option(LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION
 set(_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES ON)
 set(_LUISA_COMPUTE_DEFAULT_BUILD_TESTS ${LUISA_COMPUTE_MASTER_PROJECT})
 if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
-    # CPU, remote, and fallback have additional toolchain/runtime distribution
-    # requirements. They remain opt-in for a binary SDK while the native GPU
+    # The fallback backend has additional toolchain/runtime distribution
+    # requirements. It remains opt-in for a binary SDK while the native GPU
     # backend for the host platform is packaged and tested end to end.
     set(_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES OFF)
     set(_LUISA_COMPUTE_DEFAULT_BUILD_TESTS OFF)
@@ -67,14 +67,11 @@ else ()
     option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
     option(LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB "Enable CUDA extension: LCUB" OFF)
     option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" ON)
-    option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
     option(LUISA_COMPUTE_ENABLE_FALLBACK "Enable Fallback backend" ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
-    option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
     option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
     option(LUISA_COMPUTE_ENABLE_CLANG_CXX "Enable ClangTooling-based C++ shading language" OFF)
     option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${_LUISA_COMPUTE_DEFAULT_BUILD_TESTS})
     option(LUISA_COMPUTE_ENABLE_SAFE_MODE "Enable safe mode for runtime" OFF)
-    option(LUISA_COMPUTE_EMBREE_ZIP_PATH "Path to embree zip file. Use this if embree fails to download" "")
 endif ()
 
 option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
@@ -119,15 +116,6 @@ if (UNIX AND NOT APPLE)
     option(LUISA_COMPUTE_ENABLE_WAYLAND "Enable Wayland support in GUI and Vulkan swapchains" OFF)
 else ()
     set(LUISA_COMPUTE_ENABLE_WAYLAND OFF)
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
-    if (LUISA_COMPUTE_ENABLE_RUST)
-        message(STATUS
-                "Package distribution: disabling Rust IR and API integration")
-    endif ()
-    set(LUISA_COMPUTE_ENABLE_RUST OFF CACHE BOOL
-            "Enable Rust IR and API integration" FORCE)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_HIP)
@@ -204,18 +192,11 @@ install(FILES README.md LICENSE
 file(GLOB_RECURSE LUISA_COMPUTE_HEADERS CONFIGURE_DEPENDS
         "include/luisa/*.h"
         "include/luisa/*.hpp")
-if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
-    list(FILTER LUISA_COMPUTE_HEADERS EXCLUDE REGEX "/luisa/rust/")
-endif ()
 add_library(luisa-compute-include INTERFACE ${LUISA_COMPUTE_HEADERS})
 target_include_directories(luisa-compute-include INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
-
-if (LUISA_COMPUTE_ENABLE_RUST)
-    target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_IR=1)
-endif ()
 
 if (UNIX AND NOT APPLE AND LUISA_COMPUTE_ENABLE_WAYLAND)
     target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_WAYLAND=1)
@@ -251,18 +232,9 @@ endif ()
 install(TARGETS luisa-compute-include
         EXPORT LuisaComputeTargets)
 
-if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
-    install(DIRECTORY include/luisa
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-            FILES_MATCHING
-            PATTERN "*.h"
-            PATTERN "*.hpp"
-            PATTERN "rust" EXCLUDE)
-else ()
-    install(DIRECTORY include/luisa
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-            FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
-endif ()
+install(DIRECTORY include/luisa
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 
 # Global definition to avoid MSVC ABI break.
 # See https://github.com/microsoft/STL/releases/tag/vs-2022-17.10 for details.
