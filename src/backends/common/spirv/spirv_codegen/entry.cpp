@@ -17,6 +17,15 @@ namespace lc::spirv {
 
 namespace {
 
+[[nodiscard]] bool trace_native_spirv() noexcept {
+    if (auto *value = std::getenv("LUISA_VULKAN_PROFILE_COMPILATION")) {
+        auto flag = luisa::string_view{value};
+        return flag == "1" || flag == "true" || flag == "TRUE" ||
+               flag == "on" || flag == "ON";
+    }
+    return false;
+}
+
 [[nodiscard]] bool is_constant_ubo_element_layout_supported(
     const Type *type) noexcept {
     // The upload path below serializes one host value into each std140 array
@@ -268,7 +277,13 @@ SpirvCodegenEntry::_collect_kernel_argument_roles(
 SpirvResult SpirvCodegenEntry::compile_spirv(
     Function kernel, const ShaderOption &opt,
     SpirvTargetFeatures target_features) {
+    if (trace_native_spirv()) {
+        LUISA_INFO("Vulkan native AST-to-XIR begin for kernel '{}'", kernel.name());
+    }
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
+    if (trace_native_spirv()) {
+        LUISA_INFO("Vulkan native AST-to-XIR finished for kernel '{}'", kernel.name());
+    }
     return compile_spirv_xir(
         kernel, xir_module.get(), opt, target_features);
 }
@@ -279,15 +294,20 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     SpirvTargetFeatures target_features) {
     auto profile = std::getenv(
                        "LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
+    auto trace = trace_native_spirv();
     Clock phase_clock;
     auto report_phase = [&](const char *phase) noexcept {
-        if (profile) {
+        if (profile || trace) {
             LUISA_INFO(
-                "Vulkan native SPIR-V phase '{}': {:.3f} ms",
-                phase, phase_clock.toc());
+                "Vulkan native SPIR-V phase '{}' kernel '{}' : {:.3f} ms",
+                phase, kernel.name(), phase_clock.toc());
         }
         phase_clock.tic();
     };
+    if (trace) {
+        LUISA_INFO("Vulkan native SPIR-V compile begin for kernel '{}'",
+                   kernel.name());
+    }
     LUISA_ASSERT(xir_module != nullptr,
                  "Cannot compile a null XIR module to SPIR-V.");
     auto kernel_abi = validate_spirv_xir_kernel_abi(kernel, xir_module);
@@ -467,6 +487,10 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             missing.features.front().name);
     }
     report_phase("target-feature reconciliation");
+    if (trace) {
+        LUISA_INFO("Vulkan native SPIR-V compile complete for kernel '{}'",
+                   kernel.name());
+    }
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());
     if (luisa::compute::backend_print_code_enabled()) {

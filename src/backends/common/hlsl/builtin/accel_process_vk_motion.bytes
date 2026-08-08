@@ -3,15 +3,13 @@
 // instead of VkAccelerationStructureInstanceKHR (64 bytes per instance).
 // Required when TLAS has VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV.
 
-struct InputInst{
+struct InputInst {
 float4 p0;
 float4 p1;
 float4 p2;
 uint2 mesh;
-uint index:24;
-uint vis_mask:8;
-uint user_id:24;
-uint flags:8;
+uint IndexVisibility;
+uint UserIdFlags;
 };
 RWByteAddressBuffer _InstBuffer:register(u1);
 StructuredBuffer<InputInst> _SetBuffer:register(t0);
@@ -48,43 +46,47 @@ const uint flag_visibility = 1u << 4u;
 const uint flag_user_id = 1u << 5u;
 const uint flag_opaque = flag_opaque_on | flag_opaque_off;
 InputInst v=_SetBuffer[id];
-if(v.index>=cb.count) return;
-uint base = v.index * MOTION_INST_STRIDE;
+uint index = v.IndexVisibility & 0x00FFFFFFu;
+if(index >= cb.count) return;
+uint vis_mask = (v.IndexVisibility >> 24u) & 0xFFu;
+uint user_id = v.UserIdFlags & 0x00FFFFFFu;
+uint flags = (v.UserIdFlags >> 24u) & 0xFFu;
+uint base = index * MOTION_INST_STRIDE;
+uint data_base = base + STATIC_DATA_OFFSET;
 // Write type = STATIC (0) and flags = 0
 _InstBuffer.Store(base, 0u);
 _InstBuffer.Store(base + 4u, 0u);
-uint data_base = base + STATIC_DATA_OFFSET;
-if((v.flags&flag_transform)!=0){
+if((flags&flag_transform)!=0){
 // Write 3x4 transform (3 rows of float4 = 48 bytes)
 _InstBuffer.Store4(data_base + 0u, asuint(v.p0));
 _InstBuffer.Store4(data_base + 16u, asuint(v.p1));
 _InstBuffer.Store4(data_base + 32u, asuint(v.p2));
 }
 // InstanceID (24 bits) | InstanceMask (8 bits) at offset 48
-if((v.flags&flag_visibility)!=0 || (v.flags&flag_user_id)!=0){
+if((flags&flag_visibility)!=0 || (flags&flag_user_id)!=0){
 uint existing = _InstBuffer.Load(data_base + 48u);
 uint inst_id = existing & 0x00FFFFFFu;
 uint inst_mask = (existing >> 24u) & 0xFFu;
-if((v.flags&flag_user_id)!=0){
-inst_id = v.user_id;
+if((flags&flag_user_id)!=0){
+inst_id = user_id;
 }
-if((v.flags&flag_visibility)!=0){
-inst_mask = v.vis_mask;
+if((flags&flag_visibility)!=0){
+inst_mask = vis_mask;
 }
 _InstBuffer.Store(data_base + 48u, inst_id | (inst_mask << 24u));
 }
 // InstanceContributionToHitGroupIndex (24 bits) | Flags (8 bits) at offset 52
 {
 uint hit_flags = 0u;
-if((v.flags&flag_opaque)!=0){
-if((v.flags&flag_opaque_on)!=0)
+if((flags&flag_opaque)!=0){
+if((flags&flag_opaque_on)!=0)
 hit_flags = 4u;
 else
 hit_flags = 8u;
 }
 _InstBuffer.Store(data_base + 52u, 0u | (hit_flags << 24u));
 }
-if((v.flags&flag_mesh)!=0){
+if((flags&flag_mesh)!=0){
 // accelerationStructureReference at offset 56 (uint2 = 8 bytes)
 _InstBuffer.Store2(data_base + 56u, v.mesh);
 }

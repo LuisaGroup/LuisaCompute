@@ -3040,6 +3040,12 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     }
     luisa::string shader_name = uses_user_path ? option.name : luisa::format("{}.spv", shader_md5.to_string(false));
     auto compile_native_spirv = [&] {
+        if (profile) {
+            LUISA_INFO("Vulkan native SPIR-V compile path start: kernel='{}', block_size=[{}, {}, {}], hash={:016x}",
+                       kernel.name(), kernel.block_size().x,
+                       kernel.block_size().y, kernel.block_size().z,
+                       kernel.hash());
+        }
         Clock codegen_clock;
         auto result =
             lc::spirv::SpirvCodegenEntry::compile_spirv(
@@ -3060,6 +3066,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
              .codegen_dialect =
                  detail::ShaderCodegenDialect::XIR_SPIRV},
             serde_type, _binary_io)) {
+        if (profile) {
+            LUISA_INFO("Vulkan native SPIR-V need compile for '{}': {}", kernel.name(), shader_name);
+        }
         spv_result = compile_native_spirv();
     }
 
@@ -3077,12 +3086,18 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             32u,
             option.enable_driver_optimization);
         if (deser.shader) {
+            if (profile) {
+                LUISA_INFO("Vulkan native SPIR-V cache hit for kernel '{}', shader='{}'", kernel.name(), shader_name);
+            }
             auto shader = static_cast<ComputeShader *>(deser.shader);
             LUISA_VERBOSE("ComputeShader loaded successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
             info.block_size = shader->block_size();
             return info;
+        }
+        if (profile) {
+            LUISA_INFO("Vulkan native SPIR-V cache miss for kernel '{}', recompiling '{}'", kernel.name(), shader_name);
         }
         spv_result = compile_native_spirv();
     }
@@ -3145,6 +3160,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     } else {
         LUISA_ASSERT(spv_result, "Vulkan SPIR-V cache load failed without recompilation.");
         Clock pipeline_clock;
+        if (profile) {
+            LUISA_INFO("Vulkan native ComputeShader construct start for kernel '{}'", kernel.name());
+        }
         auto shader = new ComputeShader(
             this,
             kernel.block_size(),

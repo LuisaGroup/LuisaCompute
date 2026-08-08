@@ -56,7 +56,10 @@ LC_HLSL_DECL_VARNAME(bc7_trymode02_dxil)
 LC_HLSL_DECL_VARNAME(bc7_trymode137_dxil)
 LC_HLSL_DECL_VARNAME(bc7_trymode456_dxil)
 LC_HLSL_DECL_VARNAME(spv_alias_bytes)
+LC_HLSL_DECL_VARNAME(indirect_prepare_vk_spv)
+LC_HLSL_DECL_VARNAME(accel_process_vk_spv)
 LC_HLSL_DECL_VARNAME(bindless_upload_vk_bytes)
+LC_HLSL_DECL_VARNAME(bindless_upload_vk_spv)
 }
 
 namespace lc_hlsl {
@@ -84,6 +87,7 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
             LC_HLSL_INSERT_VARNAME(determinant_bytes, "determinant")
             LC_HLSL_INSERT_VARNAME(inverse_bytes, "inverse")
             LC_HLSL_INSERT_VARNAME(indirect_bytes, "indirect")
+            LC_HLSL_INSERT_VARNAME(indirect_prepare_vk_spv, "indirect_prepare_vk.spv")
             LC_HLSL_INSERT_VARNAME(resource_size_bytes, "resource_size")
             LC_HLSL_INSERT_VARNAME(accel_header_bytes, "accel_header")
             LC_HLSL_INSERT_VARNAME(copy_sign_bytes, "copy_sign")
@@ -91,7 +95,9 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
             LC_HLSL_INSERT_VARNAME(auto_diff_bytes, "auto_diff")
             LC_HLSL_INSERT_VARNAME(reduce_bytes, "reduce")
             LC_HLSL_INSERT_VARNAME(accel_process_bytes, "accel_process.bytes")
+            LC_HLSL_INSERT_VARNAME(accel_process_vk_spv, "accel_process_vk.spv")
             LC_HLSL_INSERT_VARNAME(accel_process_vk_dxil, "accel_process_vk.dxil")
+            LC_HLSL_INSERT_VARNAME(bindless_upload_vk_spv, "bindless_upload_vk.spv")
             LC_HLSL_INSERT_VARNAME(load_bdls_dxil, "load_bdls.dxil")
             LC_HLSL_INSERT_VARNAME(load_bdls_vk_dxil, "load_bdls_vk.dxil")
             LC_HLSL_INSERT_VARNAME(set_accel4_dxil, "set_accel4.dxil")

@@ -1,11 +1,78 @@
+#include <cstdlib>
+
 #include "builtin_kernel.h"
 #include <luisa/core/stl/filesystem.h>
+
+#include "../common/hlsl/builtin/hlsl_builtin.hpp"
 #include "../common/hlsl/hlsl_codegen.h"
 #include "../common/indirect_dispatch_layout.h"
 #include "device.h"
 #include "indirect_prepare_shader.h"
 namespace lc::vk {
+namespace {
+
+[[nodiscard]] bool require_native_xir_spirv() noexcept {
+    if (auto value = std::getenv(
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV")) {
+        auto flag = luisa::string_view{value};
+        return flag == "1" || flag == "true" || flag == "TRUE" ||
+               flag == "on" || flag == "ON";
+    }
+    return false;
+}
+
+[[nodiscard]] bool try_load_embedded_spv(
+    std::string_view name,
+    vstd::span<const uint> &spv) noexcept {
+    auto header = lc_hlsl::get_hlsl_builtin(name);
+    if (!header.ptr || header.size == 0u) { return false; }
+    LUISA_ASSERT(
+        header.size % sizeof(uint) == 0u,
+        "Invalid embedded SPIR-V for {}: {} bytes.",
+        name,
+        header.size);
+    spv = vstd::span<const uint>{
+        reinterpret_cast<uint const *>(header.ptr),
+        header.size / sizeof(uint)};
+    return true;
+}
+
+ComputeShader *load_embedded_spv(
+    Device *device,
+    uint3 block_size,
+    vstd::span<const uint> spv) noexcept {
+    return new ComputeShader(
+        device,
+        block_size,
+        {},
+        {},
+        spv,
+        {},
+        luisa::span<std::byte const>{},
+        false,
+        false,
+        false,
+        {},
+        luisa::span<std::byte const>{},
+        0,
+        luisa::nullopt,
+        32u);
+}
+}
+
 ComputeShader *BuiltinKernel::load_indirect_prepare_kernel(Device *device) {
+    if (require_native_xir_spirv()) {
+        vstd::span<const uint> spv;
+        if (try_load_embedded_spv("indirect_prepare_vk.spv", spv)) {
+            return load_embedded_spv(
+                device,
+                {IndirectDispatchLayout::prepare_block_size, 1u, 1u},
+                spv);
+        }
+        LUISA_WARNING(
+            "Embedded SPIR-V {} not found, falling back to HLSL+DXC.",
+            "indirect_prepare_vk.spv");
+    }
     auto func = [] {
         hlsl::CodegenResult code;
         code.useBufferBindless = false;
@@ -90,15 +157,36 @@ void main(uint3 dispatch_id : SV_DispatchThreadID) {
     };
     vstd::vector<SavedArgument> saved_args;
     return ComputeShader::compile_builtin_hlsl_to_spirv(
-        device->binary_io(), device, std::move(saved_args), std::move(func),
-        vstd::MD5{"indirect_prepare_vk_v9"sv}, {},
+        device->binary_io(),
+        device,
+        std::move(saved_args),
+        std::move(func),
+        vstd::MD5{"indirect_prepare_vk_v9"sv},
+        {},
         uint3{IndirectDispatchLayout::prepare_block_size, 1u, 1u},
-        "indirect_prepare_vk.spv"sv, SerdeType::kBuiltin, 62u, true,
-        0u, luisa::nullopt, false,
+        "indirect_prepare_vk.spv"sv,
+        SerdeType::kBuiltin,
+        62u,
+        true,
+        0u,
+        luisa::nullopt,
+        false,
         sizeof(IndirectDispatchPrepareConstants));
 }
 
 ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
+    if (require_native_xir_spirv()) {
+        vstd::span<const uint> spv;
+        if (try_load_embedded_spv("accel_process_vk.spv", spv)) {
+            return load_embedded_spv(
+                device,
+                {256u, 1u, 1u},
+                spv);
+        }
+        LUISA_WARNING(
+            "Embedded SPIR-V {} not found, falling back to HLSL+DXC.",
+            "accel_process_vk.spv");
+    }
     auto func = [&] {
         hlsl::CodegenResult code;
         code.useBufferBindless = false;
@@ -131,9 +219,23 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         uint3(256, 1, 1),
         "accel_process_vk.dxil"sv,
         SerdeType::kBuiltin,
-        62, true);
+        62,
+        true);
 }
+
 ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
+    if (require_native_xir_spirv()) {
+        vstd::span<const uint> spv;
+        if (try_load_embedded_spv("bindless_upload_vk.spv", spv)) {
+            return load_embedded_spv(
+                device,
+                {256u, 1u, 1u},
+                spv);
+        }
+        LUISA_WARNING(
+            "Embedded SPIR-V {} not found, falling back to HLSL+DXC.",
+            "bindless_upload_vk.spv");
+    }
     auto func = [&] {
         hlsl::CodegenResult code;
         code.useBufferBindless = false;
@@ -166,125 +268,8 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         uint3(256, 1, 1),
         "load_bdls_vk.dxil"sv,
         SerdeType::kBuiltin,
-        62, true);
+        62,
+        true);
 }
-// namespace detail {
-// static ComputeShader *LoadBCKernel(
-//     Device *device,
-//     vstd::function<vstd::string_view()> const &includeCode,
-//     vstd::function<vstd::string_view()> const &kernelCode,
-//     vstd::string_view codePath) {
-//     auto func = [&] {
-//         hlsl::CodegenResult code;
-//         auto incCode = includeCode();
-//         auto kerCode = kernelCode();
-//         code.result.reserve(incCode.size() + kerCode.size());
-//         code.result << incCode << kerCode;
-//         code.useBufferBindless = false;
-//         code.useTex2DBindless = false;
-//         code.useTex3DBindless = false;
-//         code.properties.resize(4);
-//         auto &globalBuffer = code.properties[0];
-//         globalBuffer.array_size = 1;
-//         globalBuffer.register_index = 0;
-//         globalBuffer.space_index = 0;
-//         globalBuffer.type = hlsl::ShaderVariableType::ConstantBuffer;
 
-//         auto &gInput = code.properties[1];
-//         gInput.array_size = 1;
-//         gInput.register_index = 0;
-//         gInput.space_index = 0;
-//         gInput.type = hlsl::ShaderVariableType::SRVTextureHeap;
-
-//         auto &gInBuff = code.properties[2];
-//         gInBuff.array_size = 1;
-//         gInBuff.register_index = 1;
-//         gInBuff.space_index = 0;
-//         gInBuff.type = hlsl::ShaderVariableType::StructuredBuffer;
-
-//         auto &gOutBuff = code.properties[3];
-//         gOutBuff.array_size = 1;
-//         gOutBuff.register_index = 0;
-//         gOutBuff.space_index = 0;
-//         gOutBuff.type = hlsl::ShaderVariableType::RWStructuredBuffer;
-//         return code;
-//     };
-//     vstd::string fileName;
-//     vstd::string_view extName = "2.dxil"sv;
-//     fileName.reserve(codePath.size() + extName.size());
-//     fileName << codePath << extName;
-//     return ComputeShader::CompileCompute(
-//         device->fileIo,
-//         device->profiler,
-//         device,
-//         {},
-//         func,
-//         {},
-//         {},
-//         uint3(1, 1, 1),
-//         62,
-//         fileName,
-//         CacheType::Internal, true, false);
-// }
-// static vstd::string_view Bc6Header() {
-//     static auto bc6Header = hlsl::CodegenUtility::ReadInternalHLSLFile("bc6_header");
-//     return {bc6Header.data(), bc6Header.size()};
-// }
-// static vstd::string_view Bc7Header() {
-//     static auto bc7Header = hlsl::CodegenUtility::ReadInternalHLSLFile("bc7_header");
-//     return {bc7Header.data(), bc7Header.size()};
-// }
-
-// static vstd::string bc7Header;
-// }// namespace detail
-
-// ComputeShader *BuiltinKernel::LoadBC6TryModeG10CSKernel(Device *device) {
-//     return detail::LoadBCKernel(
-//         device,
-//         [&] { return detail::Bc6Header(); },
-//         [&] { return hlsl::CodegenUtility::ReadInternalHLSLFile("bc6_trymode_g10cs"); },
-//         "bc6_trymodeg10"sv);
-// }
-// ComputeShader *BuiltinKernel::LoadBC6TryModeLE10CSKernel(Device *device) {
-//     return detail::LoadBCKernel(
-//         device,
-//         [&] { return detail::Bc6Header(); },
-//         [&] { return hlsl::CodegenUtility::ReadInternalHLSLFile("bc6_trymode_le10cs"); },
-//         "bc6_trymodele10"sv);
-// }
-// ComputeShader *BuiltinKernel::LoadBC6EncodeBlockCSKernel(Device *device) {
-//     return detail::LoadBCKernel(
-//         device,
-//         [&] { return detail::Bc6Header(); },
-//         [&] { return hlsl::CodegenUtility::ReadInternalHLSLFile("bc6_encode_block"); },
-//         "bc6_encodeblock"sv);
-// }
-// ComputeShader *BuiltinKernel::LoadBC7TryMode456CSKernel(Device *device) {
-//     return detail::LoadBCKernel(
-//         device,
-//         [&] { return detail::Bc7Header(); },
-//         [&] { return hlsl::CodegenUtility::ReadInternalHLSLFile("bc7_trymode_456cs"); },
-//         "bc7_trymode456"sv);
-// }
-// ComputeShader *BuiltinKernel::LoadBC7TryMode137CSKernel(Device *device) {
-//     return detail::LoadBCKernel(
-//         device,
-//         [&] { return detail::Bc7Header(); },
-//         [&] { return hlsl::CodegenUtility::ReadInternalHLSLFile("bc7_trymode_137cs"); },
-//         "bc7_trymode137"sv);
-// }
-// ComputeShader *BuiltinKernel::LoadBC7TryMode02CSKernel(Device *device) {
-//     return detail::LoadBCKernel(
-//         device,
-//         [&] { return detail::Bc7Header(); },
-//         [&] { return hlsl::CodegenUtility::ReadInternalHLSLFile("bc7_trymode_02cs"); },
-//         "bc7_trymode02"sv);
-// }
-// ComputeShader *BuiltinKernel::LoadBC7EncodeBlockCSKernel(Device *device) {
-//     return detail::LoadBCKernel(
-//         device,
-//         [&] { return detail::Bc7Header(); },
-//         [&] { return hlsl::CodegenUtility::ReadInternalHLSLFile("bc7_encode_block"); },
-//         "bc7_encodeblock"sv);
-// }
-}// namespace lc::vk
+} // namespace lc::vk
