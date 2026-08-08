@@ -14,6 +14,9 @@
 #include <string_view>
 #include <vector>
 
+#include <vulkan/vulkan_core.h>
+#include <luisa/backends/ext/vk_config_ext.h>
+
 #include <luisa/core/logging.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
@@ -33,6 +36,8 @@ namespace {
 constexpr std::string_view strict_native_environment =
     "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV";
 constexpr std::string_view child_probe = "--strict-native-route-probe";
+constexpr std::string_view child_readback_probe =
+    "--strict-native-route-readback-probe";
 
 void set_environment_variable(const char *name,
                               const char *value) noexcept {
@@ -83,6 +88,57 @@ uint lc_strict_native_route_marker(uint value) { return value; }
     return 3;
 }
 
+struct NativeRouteDxcReadbackProbe final : VulkanDeviceConfigExt {
+    bool compiler_seen = false;
+    bool library_seen = false;
+    bool utils_seen = false;
+
+    void readback_vulkan_device(
+        VkInstance instance,
+        VkPhysicalDevice physical_device,
+        VkDevice,
+        VkAllocationCallbacks *,
+        VkPipelineCacheHeaderVersionOne const &,
+        VkQueue,
+        VkQueue,
+        VkQueue,
+        uint32_t,
+        uint32_t,
+        uint32_t,
+        IDxcCompiler3 *dxc_compiler,
+        IDxcLibrary *dxc_library,
+        IDxcUtils *dxc_utils) noexcept override {
+        compiler_seen = dxc_compiler != nullptr;
+        library_seen = dxc_library != nullptr;
+        utils_seen = dxc_utils != nullptr;
+    }
+};
+
+[[nodiscard]] int run_strict_native_route_readback_probe(
+    int argc, char *argv[]) {
+    set_environment_variable(strict_native_environment.data(), "1");
+    DeviceConfig config;
+    auto tracker = luisa::make_unique<NativeRouteDxcReadbackProbe>();
+    auto tracker_ptr = tracker.get();
+    config.extension = std::move(tracker);
+    auto dc = luisa::test::create_device_from_ut(
+        argc, argv, &config, true);
+    LUISA_ASSERT(dc.has_value(), "Failed to create Vulkan test device.");
+
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        output.write(0u, 42u);
+    };
+    ShaderOption option{.enable_cache = false};
+    static_cast<void>(dc->device.compile(kernel, option));
+    LUISA_ASSERT(
+        !tracker_ptr->compiler_seen &&
+            !tracker_ptr->library_seen &&
+            !tracker_ptr->utils_seen,
+        "Strict native XIR->SPIR-V path should not pass DXC to "
+        "readback callback.");
+    return 0;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -94,6 +150,10 @@ int main(int argc, char *argv[]) {
     if (argc >= 3 && argv[2] != nullptr &&
         std::string_view{argv[2]} == child_probe) {
         return run_strict_native_route_probe(argc, argv);
+    }
+    if (argc >= 3 && argv[2] != nullptr &&
+        std::string_view{argv[2]} == child_readback_probe) {
+        return run_strict_native_route_readback_probe(argc, argv);
     }
 
     std::vector<const char *> ut_argv;
@@ -143,5 +203,15 @@ int main(int argc, char *argv[]) {
                    "an ordinary user Function; child output:\n{}",
                    log);
 #endif
+    };
+    "vk_strict_native_route_readback_has_no_dxc"_test = [&] {
+        auto command = luisa::format(
+            "\"{}\" vk {} > /dev/null 2>&1",
+            executable_path, child_readback_probe);
+        auto status = std::system(command.c_str());
+        expect(status == 0)
+            << luisa::format(
+                   "strict native readback probe should return success; status={}",
+                   status);
     };
 }

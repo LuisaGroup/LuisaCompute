@@ -593,6 +593,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
       prepare_indirect_kernel(BuiltinKernel::load_indirect_prepare_kernel) {
     bool headless = false;
     bool use_lmdb = false;
+    auto require_native_spirv = require_native_xir_spirv();
     bool load_dxc_for_config_readback = false;
     uint device_idx = -1;
     if (configs) {
@@ -671,7 +672,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         ext_phy_device = external_device.physical_device;
         ext_device = external_device.device;
         _instance = external_device.instance;
-        load_dxc_for_config_readback = _config_ext->load_dxc();
+        load_dxc_for_config_readback = !require_native_spirv && _config_ext->load_dxc();
         _graphics_queue = external_device.graphics_queue;
         auto ext_path = _config_ext->external_vulkan_lib_path();
         custom_path = std::move(ext_path.lib_path);
@@ -785,7 +786,10 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
 
     if (_config_ext) {
         _config_ext->init_volk(vkGetInstanceProcAddr);
-        auto dxc = load_dxc_for_config_readback ? Device::compiler() : nullptr;
+        hlsl::ShaderCompiler *dxc = nullptr;
+        if (load_dxc_for_config_readback) {
+            dxc = Device::compiler();
+        }
         _config_ext->readback_vulkan_device(
             instance(), physical_device(), logic_device(), alloc_callbacks(),
             _pso_header, _graphics_queue, _compute_queue, _copy_queue,
