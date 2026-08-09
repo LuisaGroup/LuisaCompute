@@ -211,11 +211,13 @@ conservative_spirv_artifact_requirements(
 }
 
 }// namespace
+#ifndef LC_NO_HLSL_BUILTIN
 static luisa::spin_mutex g_dxc_mutex;
 static vstd::StackObject<hlsl::ShaderCompiler, false> g_dxc_compiler;
 static luisa::filesystem::path g_dxc_runtime_directory;
 static int32 g_dxc_ref_count = 0;
 static bool g_dxc_compiler_initialized = false;
+#endif
 
 namespace detail {
 
@@ -712,8 +714,8 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
     }
     device_address_enabled |= raytracing_enabled;
 
-    Context ctx{this->_ctx_impl};
 #ifndef LC_NO_HLSL_BUILTIN
+    Context ctx{this->_ctx_impl};
     {
         std::lock_guard lck(g_dxc_mutex);
         if (g_dxc_ref_count == 0) {
@@ -3396,6 +3398,9 @@ hlsl::ShaderCompiler *Device::compiler() {
     }
     return g_dxc_compiler.ptr();
 #else
+    LUISA_ERROR(
+        "Vulkan DXC compatibility was disabled at build time. This path "
+        "requires the legacy HLSL-to-SPIR-V compiler.");
     return nullptr;
 #endif
 }

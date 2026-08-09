@@ -75,21 +75,5 @@ public:
         detail::ShaderCodegenDialect codegen_dialect =
             detail::ShaderCodegenDialect::HLSL_SPIRV,
         bool enable_driver_optimization = true);
-    static ComputeShader *compile_builtin_hlsl_to_spirv(
-        BinaryIO const *bin_io,
-        Device *device,
-        vstd::vector<SavedArgument> &&saved_args,
-        vstd::function<hlsl::CodegenResult()> const &codegen,
-        vstd::optional<vstd::MD5> const &code_md5,
-        vstd::vector<Argument> &&bindings,
-        uint3 block_size,
-        vstd::string_view file_name,
-        SerdeType serde_type,
-        uint shader_model,
-        bool unsafe_math,
-        uint validation_count = 0,
-        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
-        bool requires_sampler_anisotropy = false,
-        uint32_t push_constant_size = 32u);
 };
 }// namespace lc::vk

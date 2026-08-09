@@ -1,0 +1,16 @@
+// Single source of truth for the host and Vulkan acceleration-instance
+// update kernel's packed fields and action flags. Define
+// LC_VULKAN_ACCEL_UPDATE_LAYOUT(shader_name, cpp_name, value) before use.
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(INDEX_MASK, index_mask, 0x00ffffffu)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(BYTE_MASK, byte_mask, 0xffu)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(HIGH_BYTE_MASK, high_byte_mask, 0xff000000u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(HIGH_BYTE_SHIFT, high_byte_shift, 24u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(FLAG_MESH, flag_mesh, 1u << 0u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(FLAG_TRANSFORM, flag_transform, 1u << 1u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(FLAG_OPAQUE_ON, flag_opaque_on, 1u << 2u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(FLAG_OPAQUE_OFF, flag_opaque_off, 1u << 3u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(FLAG_VISIBILITY, flag_visibility, 1u << 4u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(FLAG_USER_ID, flag_user_id, 1u << 5u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(INSTANCE_FORCE_OPAQUE, instance_force_opaque, 4u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(INSTANCE_FORCE_NO_OPAQUE, instance_force_no_opaque, 8u)
+LC_VULKAN_ACCEL_UPDATE_LAYOUT(BLOCK_SIZE, block_size, 256u)

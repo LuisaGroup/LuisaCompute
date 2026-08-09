@@ -205,13 +205,16 @@ int main(int argc, char *argv[]) {
 #endif
     };
     "vk_strict_native_route_readback_has_no_dxc"_test = [&] {
+        auto log_path = process_directory / "strict_native_readback.log";
         auto command = luisa::format(
-            "\"{}\" vk {} > /dev/null 2>&1",
-            executable_path, child_readback_probe);
+            "\"{}\" vk {} > \"{}\" 2>&1",
+            executable_path, child_readback_probe, log_path.string());
         auto status = std::system(command.c_str());
+        auto log = read_text_file(log_path);
         expect(status == 0)
             << luisa::format(
-                   "strict native readback probe should return success; status={}",
-                   status);
+                   "strict native readback probe should return success; "
+                   "status={}; child output:\n{}",
+                   status, log);
     };
 }
