@@ -18,6 +18,12 @@ struct InlineInfo {
     size_t skipped_metadata_call_count{0u};
     size_t skipped_declaration_call_count{0u};
     size_t rejected_malformed_call_count{0u};
+    // Diagnostic work counts for call-site preflight and application.
+    // These do not participate in changed().
+    size_t call_site_summary_function_count{0u};
+    size_t call_site_summary_instruction_scan_count{0u};
+    size_t call_site_cached_apply_count{0u};
+    size_t call_site_revalidated_apply_count{0u};
     [[nodiscard]] bool changed() const noexcept {
         return inlined_call_count != 0u ||
                removed_callable_count != 0u;

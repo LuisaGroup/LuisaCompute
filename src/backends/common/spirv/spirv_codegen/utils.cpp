@@ -424,6 +424,18 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                            i.argument_usage_worklist_pop_count);
                      r.set("argument_usage_dependency_visit",
                            i.argument_usage_dependency_visit_count);
+                     r.set("inline_summary_function",
+                           i.inline_info.call_site_summary_function_count);
+                     r.set(
+                         "inline_summary_instruction_scan",
+                         i.inline_info
+                             .call_site_summary_instruction_scan_count);
+                     r.set("inline_cached_apply",
+                           i.inline_info.call_site_cached_apply_count);
+                     r.set(
+                         "inline_revalidated_apply",
+                         i.inline_info
+                             .call_site_revalidated_apply_count);
                      if (!i.succeeded()) {
                          LUISA_ERROR_WITH_LOCATION(
                              "SPIR-V reference-argument legalization failed: {}",

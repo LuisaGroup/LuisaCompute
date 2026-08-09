@@ -150,6 +150,125 @@ public:
     return rvalue_operand_valid(actual);
 }
 
+struct InlineFunctionSummary {
+    bool has_valid_definition{false};
+    bool has_single_block{false};
+    bool can_inline_single_block{false};
+    bool return_shape_is_valid{false};
+    bool has_return_metadata{false};
+    bool has_single_body_metadata{false};
+    bool contains_barrier_disallow_autodiff{false};
+    bool contains_barrier_allow_autodiff{false};
+};
+
+[[nodiscard]] static InlineFunctionSummary summarize_inline_function(
+    Function *function, InlineInfo &info) noexcept {
+    InlineFunctionSummary summary;
+    auto *definition =
+        function == nullptr ? nullptr : function->definition();
+    if (definition == nullptr || definition->body_block() == nullptr) {
+        return summary;
+    }
+    summary.has_valid_definition = true;
+    ++info.call_site_summary_function_count;
+    auto block_count = size_t{0u};
+    auto return_count = size_t{0u};
+    auto single_block_forbidden = false;
+    auto return_shape_is_valid = true;
+    for (auto *block : definition->basic_blocks()) {
+        ++block_count;
+        for (auto *inst : block->instructions()) {
+            ++info.call_site_summary_instruction_scan_count;
+            single_block_forbidden |=
+                (inst->is_terminator() &&
+                 !inst->isa<ReturnInst>()) ||
+                inst->isa<PhiInst>();
+            switch (inst->derived_instruction_tag()) {
+                case DerivedInstructionTag::IF:
+                case DerivedInstructionTag::SWITCH:
+                case DerivedInstructionTag::LOOP:
+                case DerivedInstructionTag::SIMPLE_LOOP:
+                case DerivedInstructionTag::BREAK:
+                case DerivedInstructionTag::CONTINUE:
+                case DerivedInstructionTag::RAY_QUERY_LOOP:
+                case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+                case DerivedInstructionTag::OUTLINE:
+                case DerivedInstructionTag::CORO_SUSPEND:
+                case DerivedInstructionTag::CORO_RESUME:
+                case DerivedInstructionTag::CORO_TERMINATE:
+                    summary.contains_barrier_disallow_autodiff = true;
+                    summary.contains_barrier_allow_autodiff = true;
+                    break;
+                case DerivedInstructionTag::AUTODIFF_SCOPE:
+                    summary.contains_barrier_disallow_autodiff = true;
+                    break;
+                default: break;
+            }
+            if (!inst->isa<ReturnInst>()) { continue; }
+            auto *return_inst = static_cast<ReturnInst *>(inst);
+            auto *return_value = return_inst->return_value();
+            return_shape_is_valid &=
+                (function->type() == nullptr) ==
+                    (return_value == nullptr) &&
+                (return_value == nullptr ||
+                 return_value->type() == function->type());
+            summary.has_return_metadata |=
+                !inst->metadata_list().empty();
+            ++return_count;
+        }
+    }
+    summary.has_single_block = block_count == 1u;
+    if (summary.has_single_block) {
+        auto *body = definition->body_block();
+        summary.has_single_body_metadata =
+            !body->metadata_list().empty();
+        summary.can_inline_single_block =
+            body->is_terminated() &&
+            body->terminator()->isa<ReturnInst>() &&
+            !single_block_forbidden;
+    }
+    summary.return_shape_is_valid =
+        return_shape_is_valid &&
+        (function->type() == nullptr || return_count != 0u);
+    return summary;
+}
+
+[[nodiscard]] static bool validate_call_shape(
+    CallInst *call, Function *callee,
+    const InlineFunctionSummary &summary) noexcept {
+    if (call->type() != callee->type() ||
+        call->argument_count() !=
+            callee->arguments().count_size() ||
+        !summary.has_valid_definition ||
+        !summary.return_shape_is_valid) {
+        return false;
+    }
+    auto argument_index = 0u;
+    for (auto *formal : callee->arguments()) {
+        if (!argument_matches(
+                formal, call->argument(argument_index++))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool has_unmappable_inline_metadata(
+    CallInst *call,
+    const InlineFunctionSummary &summary) noexcept {
+    if (call == nullptr || !summary.has_valid_definition ||
+        !call->metadata_list().empty() ||
+        summary.has_return_metadata) {
+        return true;
+    }
+    if (summary.has_single_block) {
+        return summary.has_single_body_metadata;
+    }
+    auto *call_block = call->parent_block();
+    return call_block == nullptr ||
+           !call_block->metadata_list().empty();
+}
+
 [[nodiscard]] static bool validate_call_shape(CallInst *call,
                                               Function *callee) noexcept {
     if (call->type() != callee->type()) { return false; }
@@ -209,11 +328,12 @@ public:
 }
 
 [[nodiscard]] static bool inline_single_block_call(CallInst *call,
-                                                   Function *callee) noexcept {
+                                                   Function *callee,
+                                                   bool prevalidated = false) noexcept {
     auto *callee_def = callee->definition();
     auto *caller = call->parent_function();
     if (callee_def == nullptr || caller == nullptr ||
-        !can_inline_single_block(callee_def)) {
+        (!prevalidated && !can_inline_single_block(callee_def))) {
         return false;
     }
     auto *block = callee_def->body_block();
@@ -625,6 +745,14 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.skipped_declaration_call_count);
     report->set("rejected_malformed_call",
                 info.rejected_malformed_call_count);
+    report->set("call_site_summary_function",
+                info.call_site_summary_function_count);
+    report->set("call_site_summary_instruction_scan",
+                info.call_site_summary_instruction_scan_count);
+    report->set("call_site_cached_apply",
+                info.call_site_cached_apply_count);
+    report->set("call_site_revalidated_apply",
+                info.call_site_revalidated_apply_count);
 }
 
 }// namespace
@@ -725,9 +853,26 @@ InlineInfo inline_call_sites_pass_run_on_module(
         }
     }
     auto recursive = detail::find_recursive_callables(all_callables);
+    luisa::unordered_map<Function *, detail::InlineFunctionSummary>
+        function_summaries;
+    auto summary_of = [&](Function *function) noexcept {
+        if (auto iter = function_summaries.find(function);
+            iter != function_summaries.end()) {
+            return iter->second;
+        }
+        auto summary =
+            detail::summarize_inline_function(function, info);
+        function_summaries.emplace(function, summary);
+        return summary;
+    };
+    struct PreparedInlineCall {
+        CallInst *call;
+        Function *callee;
+        bool single_block;
+    };
     luisa::unordered_set<Function *> reported_recursive;
     luisa::unordered_set<CallInst *> seen_calls;
-    luisa::vector<std::pair<CallInst *, Function *>> plan;
+    luisa::vector<PreparedInlineCall> plan;
     plan.reserve(call_sites.size());
     for (auto *call : call_sites) {
         if (call == nullptr) {
@@ -748,10 +893,14 @@ InlineInfo inline_call_sites_pass_run_on_module(
             ++info.skipped_declaration_call_count;
             continue;
         }
+        auto callee_summary = malformed ?
+                                  detail::InlineFunctionSummary{} :
+                                  summary_of(callee);
         malformed |= !malformed &&
-                     !detail::validate_call_shape(call, callee);
-        if (!malformed && detail::has_single_block(callee->definition()) &&
-            !detail::can_inline_single_block(callee->definition())) {
+                     !detail::validate_call_shape(
+                         call, callee, callee_summary);
+        if (!malformed && callee_summary.has_single_block &&
+            !callee_summary.can_inline_single_block) {
             malformed = true;
         }
         if (malformed) {
@@ -764,25 +913,30 @@ InlineInfo inline_call_sites_pass_run_on_module(
             }
             continue;
         }
-        auto *callee_def = callee->definition();
-        auto *caller_def = caller->definition();
         if (callee->find_metadata<SignatureConstraintMD>() != nullptr) {
             ++info.skipped_constrained_call_count;
             continue;
         }
         if (detail::has_unmappable_inline_metadata(
-                call, callee_def)) {
+                call, callee_summary)) {
             ++info.skipped_metadata_call_count;
             continue;
         }
-        if (detail::contains_inline_barrier(callee_def, false) ||
-            (!detail::has_single_block(callee_def) &&
-             detail::contains_inline_barrier(
-                 caller_def, options.allow_autodiff_scope_in_caller))) {
+        auto caller_contains_barrier = false;
+        if (!callee_summary.has_single_block) {
+            auto caller_summary = summary_of(caller);
+            caller_contains_barrier =
+                options.allow_autodiff_scope_in_caller ?
+                    caller_summary.contains_barrier_allow_autodiff :
+                    caller_summary.contains_barrier_disallow_autodiff;
+        }
+        if (callee_summary.contains_barrier_disallow_autodiff ||
+            caller_contains_barrier) {
             ++info.skipped_structured_call_count;
             continue;
         }
-        plan.emplace_back(call, callee);
+        plan.emplace_back(call, callee,
+                          callee_summary.has_single_block);
     }
     if (info.rejected_malformed_call_count != 0u ||
         info.skipped_recursive_callable_count != 0u ||
@@ -794,16 +948,43 @@ InlineInfo inline_call_sites_pass_run_on_module(
         set_inline_report(info, report);
         return info;
     }
-    for (auto &&[call, callee] : plan) {
-        if (!detail::inline_call(call, callee, info, options,
-                                 &reported_malformed_calls)) {
+    // Every summary above describes an immutable function definition. An
+    // inline operation mutates only its caller, so a prepared callee remains
+    // valid unless that function was itself an earlier caller in this plan.
+    // Track exactly that invalidation frontier: independent call sites reuse
+    // their preflight decision, while nested call chains retain the complete
+    // generic validation path after their callee changes.
+    luisa::unordered_set<Function *> mutated_functions;
+    for (auto &&prepared : plan) {
+        auto *call = prepared.call;
+        auto *callee = prepared.callee;
+        auto *caller = call->parent_function();
+        auto revalidate = mutated_functions.contains(callee);
+        auto succeeded = false;
+        if (revalidate) {
+            ++info.call_site_revalidated_apply_count;
+            succeeded = detail::inline_call(
+                call, callee, info, options,
+                &reported_malformed_calls);
+        } else {
+            ++info.call_site_cached_apply_count;
+            succeeded = prepared.single_block ?
+                            detail::inline_single_block_call(
+                                call, callee, true) :
+                            detail::inline_multi_block_call(
+                                call, callee);
+        }
+        if (!succeeded) {
             LUISA_ERROR_WITH_LOCATION(
                 "Inline call-site plan changed after successful preflight.");
         }
+        mutated_functions.emplace(caller);
         ++info.inlined_call_count;
     }
     luisa::unordered_set<Function *> planned_callees;
-    for (auto &&[_, callee] : plan) { planned_callees.emplace(callee); }
+    for (auto &&prepared : plan) {
+        planned_callees.emplace(prepared.callee);
+    }
     luisa::vector<Function *> unused_callables;
     for (auto *function : module->function_list()) {
         if (planned_callees.contains(function) &&
