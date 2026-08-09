@@ -521,18 +521,33 @@ private:
         _emit_operands(inst);
     }
 
+    void _emit_bindless_access(BindlessResourceAccess access) noexcept {
+        if (access.is_default()) { return; }
+        _main << " [";
+        if (access.typed) { _main << "typed"; }
+        if (access.typed && access.uniform) { _main << ", "; }
+        if (access.uniform) { _main << "uniform"; }
+        _main << "]";
+    }
+
     void _emit_resource_query_inst(const ResourceQueryInst *inst) noexcept {
-        _main << "resource_query " << xir::to_string(inst->op()) << " ";
+        _main << "resource_query " << xir::to_string(inst->op());
+        _emit_bindless_access(inst->bindless_access());
+        _main << " ";
         _emit_operands(inst);
     }
 
     void _emit_resource_read_inst(const ResourceReadInst *inst) noexcept {
-        _main << "resource_read " << xir::to_string(inst->op()) << " ";
+        _main << "resource_read " << xir::to_string(inst->op());
+        _emit_bindless_access(inst->bindless_access());
+        _main << " ";
         _emit_operands(inst);
     }
 
     void _emit_resource_write_inst(const ResourceWriteInst *inst) noexcept {
-        _main << "resource_write " << xir::to_string(inst->op()) << " ";
+        _main << "resource_write " << xir::to_string(inst->op());
+        _emit_bindless_access(inst->bindless_access());
+        _main << " ";
         _emit_operands(inst);
     }
 

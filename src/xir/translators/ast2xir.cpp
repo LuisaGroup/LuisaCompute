@@ -353,6 +353,11 @@ private:
             }
             return b.call(f->type(), f, args);
         }
+        auto ast_op = expr->op();
+        auto bindless_access = BindlessResourceAccess{
+            .typed = is_typed_bindless_resource_call(ast_op),
+            .uniform = is_uniform_bindless_resource_call(ast_op)};
+        auto canonical_op = canonical_bindless_resource_call(ast_op);
         auto alu_call = [&](ArithmeticOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
@@ -393,9 +398,10 @@ private:
                 args.emplace_back(arg);
             }
             if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
-                return b.call(target_op, args);
+                return b.call(target_op, args, bindless_access);
             } else {
-                return b.call(expr->type(), target_op, args);
+                return b.call(
+                    expr->type(), target_op, args, bindless_access);
             }
         };
         auto rq_call = [&]<typename T>(T target_op) noexcept {
@@ -488,7 +494,7 @@ private:
             return inst;
         };
         // builtin function
-        switch (expr->op()) {
+        switch (canonical_op) {
             case CallOp::CUSTOM: LUISA_ERROR_WITH_LOCATION("Unexpected custom call operation.");
             case CallOp::EXTERNAL: LUISA_ERROR_WITH_LOCATION("Unexpected external call operation.");
             case CallOp::ALL: return alu_call(ArithmeticOp::ALL);
@@ -846,7 +852,9 @@ private:
                     "SPIR-V events as uint32 values and exposes only ordinary lvalue references, "
                     "but OpUntypedGroupAsyncCopyKHR requires OpTypeEvent values and opposite "
                     "Workgroup/CrossWorkgroup untyped pointers.");
-            default: LUISA_NOT_IMPLEMENTED("AST Op {} is not implemented.", luisa::to_string(expr->op()));
+            default: LUISA_NOT_IMPLEMENTED(
+                "AST Op {} is not implemented.",
+                luisa::to_string(ast_op));
         }
         LUISA_NOT_IMPLEMENTED();
     }

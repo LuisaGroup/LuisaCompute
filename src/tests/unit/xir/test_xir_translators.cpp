@@ -10,6 +10,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
@@ -91,6 +92,97 @@ void reg_ast2xir() {
         expect(module != nullptr) << "ast_to_xir should return non-null module";
         expect(count_functions(module.get(), [](auto *) { return true; }) >= 1u)
             << "translated module should have at least 1 function (the kernel)";
+    };
+
+    "xir_ast_to_xir_preserves_bindless_access_axes"_test = [] {
+        Kernel1D kernel = [](BindlessVar bindless, BufferUInt output) {
+            auto lane = dispatch_id().x;
+            auto typed_uniform =
+                bindless.buffer<uint32_t>(lane, true, true);
+            auto typed_divergent =
+                bindless.buffer<uint32_t>(lane, true, false);
+            auto ordinary_uniform =
+                bindless.buffer<uint32_t>(lane, false, true);
+            output.write(0u, typed_uniform.read(0u));
+            typed_divergent.write(1u, 42u);
+            output.write(1u, ordinary_uniform.size());
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto saw_typed_uniform_read = false;
+        auto saw_typed_divergent_write = false;
+        auto saw_ordinary_uniform_query = false;
+        auto *definition = find_kernel_definition(module.get());
+        expect(definition != nullptr);
+        definition->traverse_instructions(
+            [&](const Instruction *instruction) noexcept {
+                if (instruction->isa<ResourceReadInst>()) {
+                    auto read = static_cast<const ResourceReadInst *>(
+                        instruction);
+                    if (read->op() ==
+                            ResourceReadOp::BINDLESS_BUFFER_READ &&
+                        read->bindless_access() ==
+                            BindlessResourceAccess{
+                                .typed = true, .uniform = true}) {
+                        saw_typed_uniform_read = true;
+                    }
+                } else if (instruction->isa<ResourceWriteInst>()) {
+                    auto write = static_cast<const ResourceWriteInst *>(
+                        instruction);
+                    if (write->op() ==
+                            ResourceWriteOp::BINDLESS_BUFFER_WRITE &&
+                        write->bindless_access() ==
+                            BindlessResourceAccess{
+                                .typed = true, .uniform = false}) {
+                        saw_typed_divergent_write = true;
+                    }
+                } else if (instruction->isa<ResourceQueryInst>()) {
+                    auto query = static_cast<const ResourceQueryInst *>(
+                        instruction);
+                    if (query->op() ==
+                            ResourceQueryOp::BINDLESS_BUFFER_SIZE &&
+                        query->bindless_access() ==
+                            BindlessResourceAccess{
+                                .typed = false, .uniform = true}) {
+                        saw_ordinary_uniform_query = true;
+                    }
+                }
+            });
+        expect(saw_typed_uniform_read);
+        expect(saw_typed_divergent_write);
+        expect(saw_ordinary_uniform_query);
+    };
+
+    "ast_bindless_resource_call_axes_are_bijective"_test = [] {
+        constexpr auto all_variants_round_trip = []() noexcept {
+            constexpr auto begin = luisa::to_underlying(
+                CallOp::BINDLESS_TEXTURE2D_SAMPLE);
+            constexpr auto end = luisa::to_underlying(
+                CallOp::BINDLESS_BUFFER_ADDRESS);
+            for (auto value = begin; value <= end; ++value) {
+                auto base = static_cast<CallOp>(value);
+                for (auto typed : {false, true}) {
+                    for (auto uniform : {false, true}) {
+                        auto specialized = specialize_bindless_resource_call(
+                            base, typed, uniform);
+                        if (canonical_bindless_resource_call(specialized) !=
+                                base ||
+                            is_typed_bindless_resource_call(specialized) !=
+                                typed ||
+                            is_uniform_bindless_resource_call(specialized) !=
+                                uniform) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }();
+        static_assert(all_variants_round_trip);
+        expect(all_variants_round_trip);
     };
 
     "xir_ast_to_xir_callable"_test = [] {
@@ -286,7 +378,7 @@ void reg_ast2xir() {
         auto module = ast_to_xir_translate_finalize(ctx);
         expect(count_functions(
                    module.get(),
-                   [](auto *f) { return f->isa<CallableFunction>(); }) == 2u);
+                   [](auto *f) { return f->template isa<CallableFunction>(); }) == 2u);
     };
 
     "xir_ast_to_xir_preserves_distinct_kernel_entries"_test = [] {
@@ -304,7 +396,7 @@ void reg_ast2xir() {
         auto module = ast_to_xir_translate_finalize(ctx);
         expect(count_functions(
                    module.get(),
-                   [](auto *f) { return f->isa<KernelFunction>(); }) == 2u)
+                   [](auto *f) { return f->template isa<KernelFunction>(); }) == 2u)
             << "hash canonicalization must not collapse independently "
                "addressable entry points";
     };

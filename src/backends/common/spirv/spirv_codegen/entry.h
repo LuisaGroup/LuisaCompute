@@ -207,6 +207,17 @@ private:
         BYTE
     };
 
+    struct BindlessBufferBinding {
+        spv::Id buffer{spv::NoResult};
+        spv::Id slot_index{spv::NoResult};
+    };
+
+    struct BindlessTextureBinding {
+        spv::Id image{spv::NoResult};
+        spv::Id packed{spv::NoResult};
+        bool nonuniform{false};
+    };
+
     struct InstructionUsageAnalysis {
         luisa::unordered_set<const Type *> used_types;
         luisa::unordered_set<const xir::Constant *> used_constants;
@@ -297,6 +308,19 @@ private:
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
     void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
     void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
+    [[nodiscard]] bool _bindless_index_is_nonuniform(
+        const xir::Value *index,
+        xir::BindlessResourceAccess access) const noexcept;
+    [[nodiscard]] spv::Id _load_bindless_slot_word(
+        spv::Id bindless_array, spv::Id slot_index,
+        uint32_t stride_words, uint32_t field_word,
+        bool nonuniform) noexcept;
+    [[nodiscard]] BindlessBufferBinding _load_bindless_buffer_binding(
+        spv::Id bindless_array, const xir::Value *slot,
+        xir::BindlessResourceAccess access) noexcept;
+    [[nodiscard]] BindlessTextureBinding _load_bindless_texture_binding(
+        spv::Id bindless_array, const xir::Value *slot,
+        bool is_2d, xir::BindlessResourceAccess access) noexcept;
     spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
     spv::Id _emit_buffer_read_impl(spv::Id buffer, spv::Id byte_offset, const Type *elem_type, size_t byte_alignment, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
     void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
@@ -313,7 +337,7 @@ private:
         spv::Id buffer, spv::Id byte_offset) noexcept;
     [[nodiscard]] spv::Id _add_bindless_buffer_bias(
         spv::Id bindless_array, spv::Id slot_index,
-        spv::Id byte_offset) noexcept;
+        spv::Id byte_offset, xir::BindlessResourceAccess access) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
     void _emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept;
     void _emit_ray_query_object_write_inst(const xir::RayQueryObjectWriteInst *inst) noexcept;
