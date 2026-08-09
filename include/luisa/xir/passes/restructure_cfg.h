@@ -33,10 +33,22 @@ struct RestructureCFGInfo {
     // hierarchy from the sparse dominator tree. This grows with actual active
     // nesting, not with the square of the number of constructs.
     size_t construct_exit_parent_query_count{0u};
-    // Post-dominator rebuilds consumed inside one if-restructuring batch.
-    // Rebuilds are lazy: a post-mutation candidate pays for one only when its
-    // merge cannot be inferred from the current dominance tree.
-    size_t if_batch_post_dom_rebuild_count{0u};
+    // If restructuring analyzes one immutable dominance snapshot, stores the
+    // lexical merge of every raw conditional, then inserts only transparent
+    // edge subdivisions. Candidate queries therefore scale with raw If sites;
+    // new overlay blocks are handled through explicit owner provenance rather
+    // than rebuilding dominance after each rewrite.
+    size_t if_batch_analysis_count{0u};
+    size_t if_batch_candidate_query_count{0u};
+    size_t if_batch_overlay_block_query_count{0u};
+    // Selection merges share one dense value-numbering workspace and one
+    // persistent loop-context tree per immutable if batch. Epoch arrays make
+    // query cost proportional to actually visited blocks and edges without
+    // rebuilding pointer hash maps for each arm.
+    size_t if_batch_merge_loop_context_count{0u};
+    size_t if_batch_merge_query_count{0u};
+    size_t if_batch_merge_block_visit_count{0u};
+    size_t if_batch_merge_edge_visit_count{0u};
     // Physical invocations of the per-definition mutating transform. A
     // successful transactional pass invokes it twice per definition (shadow
     // validation plus identity-preserving replay); an in-place pass invokes
@@ -69,6 +81,14 @@ struct RestructureCFGInfo {
     // canonicalizers can collapse the generated protocol before the next
     // bounded outer fixed-point round.
     size_t selection_exit_round_yield_count{0u};
+    // Loop-boundary merge canonicalization is analyzed against an immutable
+    // CFG snapshot. Each snapshot numbers blocks once, solves one sparse
+    // reverse-CFG dataflow per visited loop, and classifies each IfInst arm
+    // by an O(1) lookup. A rewrite batch invalidates the complete snapshot.
+    size_t boundary_merge_analysis_count{0u};
+    size_t boundary_merge_dataflow_count{0u};
+    size_t boundary_merge_classification_count{0u};
+    size_t boundary_merge_rewrite_batch_count{0u};
     // Post-merge selection re-entry scans materialize loop-boundary
     // membership once per immutable CFG version, then inspect only dominator
     // ancestors of each forwarding edge destination. These operation counts

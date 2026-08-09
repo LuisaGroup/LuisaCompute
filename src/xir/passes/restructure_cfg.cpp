@@ -28,6 +28,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
+#include "restructure_cfg_selection_merge.h"
 
 #include <array>
 #include <cstdlib>
@@ -564,10 +565,11 @@ bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
 
 void fix_degenerate_terminator(BasicBlock *bb) noexcept;
 
+template<typename Dominance>
 [[nodiscard]] luisa::unordered_set<BasicBlock *>
 collect_enclosing_loop_exits(FunctionDefinition *def,
                              BasicBlock *header,
-                             const DomTree &dom) noexcept;
+                             const Dominance &dom) noexcept;
 [[nodiscard]] BasicBlock *
 structured_statement_merge(Instruction *term) noexcept;
 [[nodiscard]] BasicBlock *
@@ -577,11 +579,12 @@ canonical_exit_target(BasicBlock *target) noexcept;
 // enclosing loop or terminates the function. Recover the nearest normal-path
 // convergence instead by ignoring enclosing loop boundaries and comparing
 // shortest reachability from each distinct arm.
+template<typename Dominance>
 [[nodiscard]] BasicBlock *infer_selection_merge(
     FunctionDefinition *def,
     BasicBlock *header,
     luisa::span<BasicBlock *const> entries,
-    const DomTree &dom) noexcept {
+    const Dominance &dom) noexcept {
     if (def == nullptr || header == nullptr || entries.empty()) {
         return nullptr;
     }
@@ -1149,14 +1152,7 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
 }
 
 [[nodiscard]] BasicBlock *trivial_branch_chain_target(BasicBlock *bb) noexcept {
-    luisa::unordered_set<BasicBlock *> visited;
-    auto *cur = bb;
-    while (cur != nullptr && visited.emplace(cur).second) {
-        auto *next = trivial_branch_target(cur);
-        if (next == nullptr) { break; }
-        cur = next;
-    }
-    return cur;
+    return detail::canonical_trivial_branch_chain_target(bb);
 }
 
 [[nodiscard]] bool trivial_branch_chain_reaches(
@@ -2460,112 +2456,188 @@ collect_loop_boundary_selection_entries(
            term->isa<SimpleLoopInst>();
 }
 
-[[nodiscard]] bool canonicalize_loop_boundary_selection_merges(FunctionDefinition *def) noexcept {
+[[nodiscard]] bool canonicalize_loop_boundary_selection_merges(
+    FunctionDefinition *def,
+    RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_canonicalize_loop_boundary_selection_merges(
         "canonicalize_loop_boundary_selection_merges");
-    bool changed = false;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated()) { return; }
-        auto *term = bb->terminator();
+    struct LoopSite {
         BasicBlock *body = nullptr;
         BasicBlock *continue_target = nullptr;
         BasicBlock *loop_entry = nullptr;
         BasicBlock *merge = nullptr;
+    };
+    luisa::vector<LoopSite> loops;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated()) { return; }
+        auto *term = bb->terminator();
+        auto site = LoopSite{};
         if (term->isa<LoopInst>()) {
             auto *loop = static_cast<LoopInst *>(term);
-            body = loop->body_block();
-            continue_target = loop->update_block();
-            if (continue_target == nullptr) { continue_target = loop->prepare_block(); }
-            loop_entry = loop->prepare_block();
-            merge = loop->merge_block();
+            site.body = loop->body_block();
+            site.continue_target = loop->update_block();
+            if (site.continue_target == nullptr) {
+                site.continue_target = loop->prepare_block();
+            }
+            site.loop_entry = loop->prepare_block();
+            site.merge = loop->merge_block();
         } else if (term->isa<SimpleLoopInst>()) {
             auto *loop = static_cast<SimpleLoopInst *>(term);
-            body = loop->body_block();
-            continue_target = loop->body_block();
-            loop_entry = loop->body_block();
-            merge = loop->merge_block();
+            site.body = loop->body_block();
+            site.continue_target = loop->body_block();
+            site.loop_entry = loop->body_block();
+            site.merge = loop->merge_block();
         } else {
             return;
         }
-        luisa::unordered_set<BasicBlock *> visited;
-        luisa::vector<BasicBlock *> work;
-        auto enqueue = [&](BasicBlock *candidate) noexcept {
-            if (candidate == nullptr || candidate == merge) { return; }
-            if (visited.emplace(candidate).second) { work.emplace_back(candidate); }
-        };
-        enqueue(body);
-        while (!work.empty()) {
-            auto *cur = work.back();
-            work.pop_back();
-            if (cur->is_terminated() && cur->terminator()->isa<IfInst>()) {
-                auto *if_inst = static_cast<IfInst *>(cur->terminator());
-                auto true_kind = classify_loop_boundary_path(
-                    if_inst->true_block(), continue_target,
-                    loop_entry, merge);
-                auto false_kind = classify_loop_boundary_path(
-                    if_inst->false_block(), continue_target,
-                    loop_entry, merge);
-                auto canonicalize_boundary_arm =
-                    [&](BasicBlock *target,
-                        LoopBoundaryTargetKind kind) noexcept {
-                        auto break_arm =
-                            kind == LoopBoundaryTargetKind::BREAK &&
-                            is_loop_break_target(target, merge);
-                        if (!break_arm) { return target; }
-                        // A previously normalized boundary proxy may be
-                        // lowered from Break(M) to a pure branch chain ending
-                        // at M by an adjacent canonicalization phase. It
-                        // already preserves the declared single-exit
-                        // boundary. Only a chain that reaches the forwarding
-                        // destination *after* M while bypassing M needs a new
-                        // proxy.
-                        if (is_canonical_loop_break_path(
-                                target, merge)) {
-                            return target;
-                        }
-                        auto *proxy = def->create_basic_block();
-                        XIRBuilder b;
-                        b.set_insertion_point(proxy);
-                        b.break_(merge);
-                        changed = true;
-                        return proxy;
-                    };
-                auto *old_true = if_inst->true_block();
-                auto *old_false = if_inst->false_block();
-                auto *new_true = canonicalize_boundary_arm(
-                    old_true, true_kind);
-                auto *new_false = canonicalize_boundary_arm(
-                    old_false, false_kind);
-                if (new_true != old_true) {
-                    if_inst->set_true_target(new_true);
-                }
-                if (new_false != old_false) {
-                    if_inst->set_false_target(new_false);
-                }
-                if (is_loop_boundary_if(
-                        if_inst, continue_target,
-                        loop_entry, merge) &&
-                    ((if_inst->merge_block() !=
-                          if_inst->true_block() &&
-                      if_inst->merge_block() !=
-                          if_inst->false_block()) ||
-                     if_inst->merge_block() == merge)) {
-                    old_false = if_inst->false_block();
-                    auto *new_merge = def->create_basic_block();
-                    XIRBuilder b;
-                    b.set_insertion_point(new_merge);
-                    b.br(old_false);
-                    if_inst->set_false_target(new_merge);
-                    if_inst->set_merge_block(new_merge);
-                    changed = true;
-                }
-            }
-            traverse_structured_successors(cur, [&](BasicBlock *succ) noexcept {
-                if (succ == loop_entry || succ == merge) { return; }
-                enqueue(succ);
-            });
+        if (site.body != nullptr &&
+            site.continue_target != nullptr &&
+            site.loop_entry != nullptr &&
+            site.merge != nullptr) {
+            loops.emplace_back(site);
         }
     });
+    if (loops.empty()) { return false; }
+
+    struct Rewrite {
+        IfInst *if_inst{nullptr};
+        BasicBlock *true_target{nullptr};
+        BasicBlock *false_target{nullptr};
+        BasicBlock *selection_merge{nullptr};
+        BasicBlock *loop_merge{nullptr};
+        bool true_break_proxy{false};
+        bool false_break_proxy{false};
+        bool merge_proxy{false};
+    };
+    auto apply_rewrites = [&](luisa::span<const Rewrite> rewrites) noexcept {
+        XIRBuilder builder;
+        for (auto &&rewrite : rewrites) {
+            auto *new_true = rewrite.true_target;
+            auto *new_false = rewrite.false_target;
+            if (rewrite.true_break_proxy) {
+                new_true = def->create_basic_block();
+                builder.set_insertion_point(new_true);
+                builder.break_(rewrite.loop_merge);
+            }
+            if (rewrite.false_break_proxy) {
+                new_false = def->create_basic_block();
+                builder.set_insertion_point(new_false);
+                builder.break_(rewrite.loop_merge);
+            }
+            if (new_true != rewrite.true_target) {
+                rewrite.if_inst->set_true_target(new_true);
+            }
+            if (new_false != rewrite.false_target) {
+                rewrite.if_inst->set_false_target(new_false);
+            }
+            if (rewrite.merge_proxy) {
+                auto *new_merge = def->create_basic_block();
+                builder.set_insertion_point(new_merge);
+                builder.br(new_false);
+                rewrite.if_inst->set_false_target(new_merge);
+                rewrite.if_inst->set_merge_block(new_merge);
+            }
+        }
+    };
+
+    auto changed = false;
+    for (;;) {
+        // The dataflow and all classifications below describe exactly this
+        // immutable CFG version. Applying any loop batch invalidates the
+        // block numbering, reverse edges, and terminal facts, so restart from
+        // a fresh snapshot before inspecting another loop context.
+        LoopBoundaryPathDataflow dataflow{def};
+        ++info.boundary_merge_analysis_count;
+        auto applied_batch = false;
+        for (auto &&loop : loops) {
+            dataflow.evaluate(
+                loop.continue_target,
+                loop.loop_entry,
+                loop.merge);
+            ++info.boundary_merge_dataflow_count;
+            luisa::vector<Rewrite> rewrites;
+            dataflow.visit_loop_region(
+                loop.body, loop.loop_entry, loop.merge,
+                [&](BasicBlock *cur) noexcept {
+                    if (!cur->is_terminated() ||
+                        !cur->terminator()->isa<IfInst>()) {
+                        return;
+                    }
+                    auto *if_inst = static_cast<IfInst *>(
+                        cur->terminator());
+                    auto true_kind = dataflow.classify(
+                        if_inst->true_block());
+                    auto false_kind = dataflow.classify(
+                        if_inst->false_block());
+                    info.boundary_merge_classification_count += 2u;
+                    auto needs_break_proxy = [merge = loop.merge](
+                                                 BasicBlock *target,
+                                                 LoopBoundaryTargetKind kind) noexcept {
+                        return kind == LoopBoundaryTargetKind::BREAK &&
+                               is_loop_break_target(target, merge) &&
+                               !is_canonical_loop_break_path(target, merge);
+                    };
+                    auto rewrite = Rewrite{
+                        .if_inst = if_inst,
+                        .true_target = if_inst->true_block(),
+                        .false_target = if_inst->false_block(),
+                        .selection_merge = if_inst->merge_block(),
+                        .loop_merge = loop.merge,
+                        .true_break_proxy = needs_break_proxy(
+                            if_inst->true_block(), true_kind),
+                        .false_break_proxy = needs_break_proxy(
+                            if_inst->false_block(), false_kind)};
+
+                    // Break proxies preserve the arm's BREAK fact but replace
+                    // its target identity. Evaluate the selection predicate
+                    // on those prospective identities, matching the original
+                    // arm-first rewrite order without mutating the snapshot.
+                    auto true_is_selection_merge =
+                        !rewrite.true_break_proxy &&
+                        rewrite.true_target == rewrite.selection_merge;
+                    auto false_is_selection_merge =
+                        !rewrite.false_break_proxy &&
+                        rewrite.false_target == rewrite.selection_merge;
+                    auto singular_boundary = [](auto kind) noexcept {
+                        return kind == LoopBoundaryTargetKind::BREAK ||
+                               kind == LoopBoundaryTargetKind::CONTINUE;
+                    };
+                    auto boundary_if =
+                        (true_kind == LoopBoundaryTargetKind::CONTINUE &&
+                         false_kind == LoopBoundaryTargetKind::BREAK) ||
+                        (true_kind == LoopBoundaryTargetKind::BREAK &&
+                         false_kind == LoopBoundaryTargetKind::CONTINUE) ||
+                        (true_is_selection_merge &&
+                         singular_boundary(false_kind)) ||
+                        (false_is_selection_merge &&
+                         singular_boundary(true_kind));
+                    rewrite.merge_proxy =
+                        boundary_if &&
+                        ((!true_is_selection_merge &&
+                          !false_is_selection_merge) ||
+                         rewrite.selection_merge == loop.merge);
+                    if (rewrite.true_break_proxy ||
+                        rewrite.false_break_proxy ||
+                        rewrite.merge_proxy) {
+                        rewrites.emplace_back(rewrite);
+                    }
+                });
+            if (rewrites.empty()) { continue; }
+
+            // Within one loop context, a break proxy substitutes the same
+            // BREAK fact. A merge proxy removes only its obsolete declared
+            // successor while retaining both executable arms. Facts can
+            // therefore only stay equal or lose spurious bits; every action
+            // proven on this snapshot remains sound. Newly enabled actions
+            // are found after the mandatory version restart below.
+            apply_rewrites(rewrites);
+            ++info.boundary_merge_rewrite_batch_count;
+            changed = true;
+            applied_batch = true;
+            break;
+        }
+        if (!applied_batch) { break; }
+    }
     return changed;
 }
 
@@ -2865,15 +2937,7 @@ collect_loop_boundary_selection_entries(
 }
 
 [[nodiscard]] BasicBlock *canonical_exit_target(BasicBlock *target) noexcept {
-    luisa::unordered_set<BasicBlock *> visited;
-    auto *cur = target;
-    while (cur != nullptr && visited.emplace(cur).second) {
-        if (!has_only_terminator(cur) || !cur->terminator()->isa<BranchInst>()) { break; }
-        auto *next = static_cast<BranchInst *>(cur->terminator())->target_block();
-        if (next == nullptr) { break; }
-        cur = next;
-    }
-    return cur;
+    return detail::canonical_trivial_branch_chain_target(target);
 }
 
 // Visit executable CFG successors only. Keep this spelling explicit instead
@@ -3079,11 +3143,12 @@ collect_structured_loop_exit_info(
     return loops;
 }
 
+template<typename Dominance>
 [[nodiscard]] luisa::unordered_set<BasicBlock *>
 collect_enclosing_loop_exits(
     FunctionDefinition *def,
     BasicBlock *header,
-    const DomTree &dom) noexcept {
+    const Dominance &dom) noexcept {
     luisa::unordered_set<BasicBlock *> exits;
     if (!dom.contains(header)) { return exits; }
     for (auto &&loop :
@@ -4226,6 +4291,72 @@ struct SelectionExitDrainResult {
     return any;
 }
 
+// Dominance overlay for transparent merge blocks inserted by one immutable
+// if-restructuring batch. Each overlay block records an old-block anchor whose
+// dominators are exactly the old dominators of the overlay. Queries between
+// old blocks delegate to the immutable tree; no existing relation changes.
+class IfBatchDominanceOverlay {
+private:
+    const DomTree &_base;
+    const luisa::unordered_map<BasicBlock *, BasicBlock *> &_anchors;
+
+public:
+    IfBatchDominanceOverlay(
+        const DomTree &base,
+        const luisa::unordered_map<BasicBlock *, BasicBlock *> &anchors) noexcept
+        : _base{base}, _anchors{anchors} {}
+
+    [[nodiscard]] bool contains(BasicBlock *block) const noexcept {
+        return _base.contains(block) || _anchors.contains(block);
+    }
+
+    [[nodiscard]] bool dominates(
+        BasicBlock *source,
+        BasicBlock *target) const noexcept {
+        if (_base.contains(source)) {
+            if (_base.contains(target)) {
+                return _base.dominates(source, target);
+            }
+            if (auto iter = _anchors.find(target);
+                iter != _anchors.end()) {
+                return _base.dominates(source, iter->second);
+            }
+        }
+        return source == target && contains(source);
+    }
+};
+
+[[nodiscard]] BasicBlock *nearest_common_dominator(
+    const DomTree &dom,
+    BasicBlock *lhs,
+    BasicBlock *rhs) noexcept {
+    if (lhs == nullptr) { return rhs; }
+    if (rhs == nullptr) { return lhs; }
+    auto *lhs_node = dom.node_or_null(lhs);
+    auto *rhs_node = dom.node_or_null(rhs);
+    if (lhs_node == nullptr || rhs_node == nullptr) {
+        return nullptr;
+    }
+    auto lhs_depth = dom_depth(dom, lhs);
+    auto rhs_depth = dom_depth(dom, rhs);
+    while (lhs_depth > rhs_depth) {
+        lhs_node = lhs_node->parent();
+        --lhs_depth;
+    }
+    while (rhs_depth > lhs_depth) {
+        rhs_node = rhs_node->parent();
+        --rhs_depth;
+    }
+    while (lhs_node != rhs_node) {
+        lhs_node = lhs_node->parent();
+        rhs_node = rhs_node->parent();
+        LUISA_DEBUG_ASSERT(
+            lhs_node != nullptr && rhs_node != nullptr,
+            "Dominator tree nodes must share the function root.");
+    }
+    return lhs_node->block();
+}
+
 [[nodiscard]] bool try_restructure_if_batch(FunctionDefinition *def,
                                             DomTree &dom,
                                             PostDomInfo &pdom,
@@ -4233,6 +4364,17 @@ struct SelectionExitDrainResult {
                                             luisa::unordered_set<BasicBlock *> &all_created_structural_merges,
                                             luisa::unordered_map<BasicBlock *, BasicBlock *> &sm_to_header) noexcept {
     ScopedTimer _timer_try_if("try_restructure_if_batch");
+    detail::SelectionMergeBatchAnalysis merge_analysis{def, dom};
+    auto accumulate_merge_stats = [&]() noexcept {
+        auto &stats = merge_analysis.stats();
+        info.if_batch_merge_loop_context_count +=
+            stats.loop_context_count;
+        info.if_batch_merge_query_count += stats.query_count;
+        info.if_batch_merge_block_visit_count +=
+            stats.block_visit_count;
+        info.if_batch_merge_edge_visit_count +=
+            stats.edge_visit_count;
+    };
     // Collect merge blocks and headers of already-structured loops.
     luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
     luisa::unordered_set<BasicBlock *> loop_headers;
@@ -4261,6 +4403,7 @@ struct SelectionExitDrainResult {
     struct Candidate {
         BasicBlock *header;
         ConditionalBranchInst *cbr;
+        BasicBlock *merge;
         size_t depth;
     };
     luisa::vector<Candidate> candidates;
@@ -4277,11 +4420,10 @@ struct SelectionExitDrainResult {
         if (true_bb == false_bb) { return; }
 
         auto entries = std::array{true_bb, false_bb};
-        auto *merge = infer_selection_merge(
-            def, bb,
+        auto *merge = merge_analysis.infer(
+            bb,
             luisa::span<BasicBlock *const>{
-                entries.data(), entries.size()},
-            dom);
+                entries.data(), entries.size()});
         if (merge == nullptr) {
             auto ipm_it = pdom.ipostdom.find(bb);
             if (ipm_it == pdom.ipostdom.end() ||
@@ -4297,10 +4439,15 @@ struct SelectionExitDrainResult {
         if (!dom.strictly_dominates(bb, false_bb)) { return; }
 
         candidates.push_back(
-            {bb, cbr, dom_depth(dom, bb)});
+            {bb, cbr, merge, dom_depth(dom, bb)});
     });
 
-    if (candidates.empty()) { return false; }
+    if (candidates.empty()) {
+        accumulate_merge_stats();
+        return false;
+    }
+    ++info.if_batch_analysis_count;
+    info.if_batch_candidate_query_count += candidates.size();
 
     // Sort by depth descending (innermost first)
     luisa::sort(candidates.begin(), candidates.end(), [](const Candidate &a, const Candidate &b) {
@@ -4309,8 +4456,10 @@ struct SelectionExitDrainResult {
 
     bool any = false;
     auto &created_structural_merges = all_created_structural_merges;
-    auto pdom_valid = true;
-
+    luisa::unordered_map<BasicBlock *, BasicBlock *>
+        overlay_dominance_anchors;
+    IfBatchDominanceOverlay dominance{
+        dom, overlay_dominance_anchors};
     // Process all candidates from innermost to outermost.
     // Since we process innermost first, restructuring an inner if does not
     // invalidate the dom/pdom for outer if-candidates. We re-validate each
@@ -4338,30 +4487,17 @@ struct SelectionExitDrainResult {
             continue;
         }
         auto entries = std::array{true_bb, false_bb};
-        auto *found_merge = infer_selection_merge(
-            def, found_header,
+        auto *found_merge = merge_analysis.infer(
+            found_header,
             luisa::span<BasicBlock *const>{
                 entries.data(), entries.size()},
-            dom);
+            &overlay_dominance_anchors);
+        // Transparent subdivisions can hide every normal path behind an
+        // overlay that is irrelevant to this candidate. In that case the
+        // lexical merge proven on the immutable input remains the exact
+        // quotient-graph fallback.
         if (found_merge == nullptr) {
-            // Post-dominance is a fallback for candidates whose merge cannot
-            // be inferred from the current dominance tree. Rebuild it lazily
-            // after a mutation, immediately before the first query that
-            // observes the new CFG. This is equivalent to eager rebuilding
-            // after every rewrite while avoiding analyses that no candidate
-            // consumes.
-            if (!pdom_valid) {
-                pdom = compute_post_dom(def);
-                ++info.if_batch_post_dom_rebuild_count;
-                pdom_valid = true;
-            }
-            auto merge_iter =
-                pdom.ipostdom.find(found_header);
-            if (merge_iter == pdom.ipostdom.end() ||
-                merge_iter->second == nullptr) {
-                continue;
-            }
-            found_merge = merge_iter->second;
+            found_merge = cand.merge;
         }
         if (found_merge == pdom.virtual_exit ||
             found_merge == found_header) {
@@ -4387,6 +4523,8 @@ struct SelectionExitDrainResult {
             structural_merge = found_merge;
         } else {
             structural_merge = def->create_basic_block();
+            merge_analysis.register_overlay_block(
+                structural_merge);
             created_structural_merges.emplace(structural_merge);
             sm_to_header.emplace(structural_merge, found_header);
             {
@@ -4450,6 +4588,42 @@ struct SelectionExitDrainResult {
         // Only retarget unstructured cbr/br blocks that are actually inside
         // the if's scope. Skip IfInst/SwitchInst/LoopInst terminators to avoid
         // corrupting already-structured inner constructs.
+        auto retarget_scope_exit = [&](BasicBlock *bb,
+                                       bool overlay_block) noexcept {
+            if (bb == structural_merge ||
+                bb == found_header ||
+                bb == found_merge ||
+                !bb->is_terminated() ||
+                !if_scope_blocks.contains(bb) ||
+                allowed_outside_targets.contains(bb)) {
+                return;
+            }
+            auto *term = bb->terminator();
+            if (!term->isa<ConditionalBranchInst>() &&
+                !term->isa<BranchInst>()) {
+                return;
+            }
+            auto is_loop_update_backedge = false;
+            if (auto iter = loop_update_to_prepare.find(bb);
+                iter != loop_update_to_prepare.end() &&
+                iter->second == found_merge) {
+                is_loop_update_backedge = true;
+            }
+            if (!is_loop_update_backedge) {
+                auto retarget = overlay_block;
+                if (!retarget && dom.contains(found_merge)) {
+                    retarget =
+                        !dom.strictly_dominates(found_merge, bb) ||
+                        (dom.strictly_dominates(found_merge, bb) &&
+                         dom.strictly_dominates(found_header, bb));
+                }
+                if (retarget) {
+                    retarget_terminator(
+                        term, found_merge, structural_merge);
+                }
+            }
+            fix_degenerate_terminator(bb);
+        };
         auto header_node = dom.node_or_null(found_header);
         if (header_node != nullptr) {
             luisa::vector<const DomTreeNode *> work;
@@ -4458,30 +4632,26 @@ struct SelectionExitDrainResult {
                 auto *node = work.back();
                 work.pop_back();
                 auto *bb = node->block();
-                if (bb != structural_merge && bb != found_header && bb != found_merge &&
-                    bb->is_terminated() && if_scope_blocks.contains(bb) &&
-                    !allowed_outside_targets.contains(bb)) {
-                    auto *term = bb->terminator();
-                    if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
-                        bool is_loop_update_backedge = false;
-                        if (auto it = loop_update_to_prepare.find(bb);
-                            it != loop_update_to_prepare.end() && it->second == found_merge) {
-                            is_loop_update_backedge = true;
-                        }
-                        if (!is_loop_update_backedge) {
-                            if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
-                                retarget_terminator(term, found_merge, structural_merge);
-                            } else if (dom.contains(found_merge) && dom.strictly_dominates(found_merge, bb) && dom.strictly_dominates(found_header, bb)) {
-                                retarget_terminator(term, found_merge, structural_merge);
-                            }
-                        }
-                        fix_degenerate_terminator(bb);
-                    }
-                }
+                retarget_scope_exit(bb, false);
                 for (auto *child : node->children()) {
                     work.push_back(child);
                 }
             }
+        }
+        // The batch inserts only transparent structural merges. Contracting
+        // those overlay blocks reproduces the immutable input graph, so
+        // dominance between every pre-existing pair of blocks is unchanged.
+        // A later outer selection still needs to retarget an overlay merge in
+        // its scope; query its exact old-block dominance anchor and process it
+        // explicitly instead of rebuilding the whole dominator tree.
+        for (auto *bb : if_scope_blocks) {
+            if (dom.contains(bb)) { continue; }
+            ++info.if_batch_overlay_block_query_count;
+            if (!overlay_dominance_anchors.contains(bb) ||
+                !dominance.dominates(found_header, bb)) {
+                continue;
+            }
+            retarget_scope_exit(bb, true);
         }
         if (true_bb == found_merge) { true_bb = structural_merge; }
         if (false_bb == found_merge) { false_bb = structural_merge; }
@@ -4499,6 +4669,42 @@ struct SelectionExitDrainResult {
             if_inst->set_true_target(true_bb);
             if_inst->set_false_target(false_bb);
             if_inst->set_merge_block(structural_merge);
+
+            if (!dom.contains(structural_merge) &&
+                !overlay_dominance_anchors.contains(
+                    structural_merge)) {
+                BasicBlock *anchor = nullptr;
+                structural_merge->traverse_predecessors(
+                    false, [&](BasicBlock *predecessor) noexcept {
+                        if (!has_executable_edge(
+                                predecessor,
+                                structural_merge)) {
+                            return;
+                        }
+                        auto *predecessor_anchor = predecessor;
+                        if (!dom.contains(predecessor)) {
+                            auto iter =
+                                overlay_dominance_anchors.find(
+                                    predecessor);
+                            if (iter ==
+                                overlay_dominance_anchors.end()) {
+                                return;
+                            }
+                            predecessor_anchor = iter->second;
+                        }
+                        anchor = nearest_common_dominator(
+                            dom, anchor, predecessor_anchor);
+                    });
+                LUISA_DEBUG_ASSERT(
+                    anchor != nullptr && dom.contains(anchor),
+                    "Transparent selection merge must have a reachable "
+                    "dominance anchor.");
+                if (anchor == nullptr) {
+                    anchor = found_header;
+                }
+                overlay_dominance_anchors.emplace(
+                    structural_merge, anchor);
+            }
 
             // Do not eagerly clone successors that are not dominated by this
             // header. Such a reachable set is not necessarily a single-entry
@@ -4525,15 +4731,14 @@ struct SelectionExitDrainResult {
             // conditional, turning a linear dispatch chain into quadratic
             // (or worse, because merge inference walks the CFG) work.
             //
-            // Refresh dominance after every mutation so subsequent scope
-            // walks include newly inserted structural merges. Mark post-dom
-            // stale; the fallback above refreshes it only if a later
-            // candidate actually requires an immediate post-dominator.
-            dom = compute_dom_tree(def);
-            pdom_valid = false;
+            // The immutable dominance relation remains valid for all old
+            // blocks. Newly inserted merges are consumed through the explicit
+            // dominance-anchor overlay above, so no per-candidate rebuild is
+            // required.
         }
     }
 
+    accumulate_merge_stats();
     return any;
 }
 
@@ -6323,7 +6528,7 @@ restructure_cfg_on_definition_in_place(
     // matching their no-OpSelectionMerge lowering. Generic construct-entry
     // enforcement must observe that canonical construct classification and
     // never node-split an enclosing loop prepare/update region for the guard.
-    if (canonicalize_loop_boundary_selection_merges(def)) {
+    if (canonicalize_loop_boundary_selection_merges(def, info)) {
         ++info.canonicalized_cfg_count;
     }
     enforce_unique_construct_entries(def, info);
@@ -6398,7 +6603,8 @@ restructure_cfg_on_definition_in_place(
                     "the remaining post canonicalizers after a site revisit.");
             }
             auto boundary_merge_changed =
-                canonicalize_loop_boundary_selection_merges(def);
+                canonicalize_loop_boundary_selection_merges(
+                    def, info);
             if (boundary_merge_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
@@ -6764,8 +6970,26 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "construct_exit_parent_query",
             info.construct_exit_parent_query_count);
         report->set(
-            "if_batch_post_dom_rebuild",
-            info.if_batch_post_dom_rebuild_count);
+            "if_batch_analysis",
+            info.if_batch_analysis_count);
+        report->set(
+            "if_batch_candidate_query",
+            info.if_batch_candidate_query_count);
+        report->set(
+            "if_batch_overlay_block_query",
+            info.if_batch_overlay_block_query_count);
+        report->set(
+            "if_batch_merge_loop_context",
+            info.if_batch_merge_loop_context_count);
+        report->set(
+            "if_batch_merge_query",
+            info.if_batch_merge_query_count);
+        report->set(
+            "if_batch_merge_block_visit",
+            info.if_batch_merge_block_visit_count);
+        report->set(
+            "if_batch_merge_edge_visit",
+            info.if_batch_merge_edge_visit_count);
         report->set(
             "definition_transform_invocation",
             info.definition_transform_invocation_count);
@@ -6796,6 +7020,18 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         report->set(
             "selection_exit_round_yield",
             info.selection_exit_round_yield_count);
+        report->set(
+            "boundary_merge_analysis",
+            info.boundary_merge_analysis_count);
+        report->set(
+            "boundary_merge_dataflow",
+            info.boundary_merge_dataflow_count);
+        report->set(
+            "boundary_merge_classification",
+            info.boundary_merge_classification_count);
+        report->set(
+            "boundary_merge_rewrite_batch",
+            info.boundary_merge_rewrite_batch_count);
         report->set(
             "selection_reentry_boundary_analysis",
             info.selection_reentry_boundary_analysis_count);
@@ -6847,8 +7083,20 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.construct_exit_boundary_analysis_count;
         dst.construct_exit_parent_query_count +=
             src.construct_exit_parent_query_count;
-        dst.if_batch_post_dom_rebuild_count +=
-            src.if_batch_post_dom_rebuild_count;
+        dst.if_batch_analysis_count +=
+            src.if_batch_analysis_count;
+        dst.if_batch_candidate_query_count +=
+            src.if_batch_candidate_query_count;
+        dst.if_batch_overlay_block_query_count +=
+            src.if_batch_overlay_block_query_count;
+        dst.if_batch_merge_loop_context_count +=
+            src.if_batch_merge_loop_context_count;
+        dst.if_batch_merge_query_count +=
+            src.if_batch_merge_query_count;
+        dst.if_batch_merge_block_visit_count +=
+            src.if_batch_merge_block_visit_count;
+        dst.if_batch_merge_edge_visit_count +=
+            src.if_batch_merge_edge_visit_count;
         dst.definition_transform_invocation_count +=
             src.definition_transform_invocation_count;
         dst.boundary_verifier_count +=
@@ -6869,6 +7117,14 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_loop_context_count;
         dst.selection_exit_round_yield_count +=
             src.selection_exit_round_yield_count;
+        dst.boundary_merge_analysis_count +=
+            src.boundary_merge_analysis_count;
+        dst.boundary_merge_dataflow_count +=
+            src.boundary_merge_dataflow_count;
+        dst.boundary_merge_classification_count +=
+            src.boundary_merge_classification_count;
+        dst.boundary_merge_rewrite_batch_count +=
+            src.boundary_merge_rewrite_batch_count;
         dst.selection_reentry_boundary_analysis_count +=
             src.selection_reentry_boundary_analysis_count;
         dst.selection_reentry_edge_query_count +=
