@@ -140,6 +140,7 @@ private:
 
     struct MergeScore {
         BasicBlock *block{nullptr};
+        size_t block_id{invalid_index};
         size_t support{0u};
         size_t max_distance{invalid_index};
         size_t total_distance{invalid_index};
@@ -164,6 +165,7 @@ private:
     uint32_t _visit_epoch{0u};
     luisa::vector<size_t> _queue;
     luisa::vector<size_t> _entry_visits;
+    luisa::vector<size_t> _query_aggregates;
     SelectionMergeBatchStats _stats;
 
 private:
@@ -196,6 +198,7 @@ private:
                 _aggregate_epochs.end(), 0u);
             _query_epoch = 1u;
         }
+        _query_aggregates.clear();
         ++_stats.query_count;
     }
 
@@ -269,6 +272,7 @@ private:
             auto distance = _distances[id];
             if (_aggregate_epochs[id] != _query_epoch) {
                 _aggregate_epochs[id] = _query_epoch;
+                _query_aggregates.emplace_back(id);
                 _support[id] = 0u;
                 _minimum_distances[id] = invalid_index;
                 _maximum_distances[id] = 0u;
@@ -290,6 +294,7 @@ private:
     static void _consider(
         MergeScore &score,
         BasicBlock *candidate,
+        size_t candidate_id,
         size_t support,
         size_t max_distance,
         size_t total_distance) noexcept {
@@ -298,9 +303,13 @@ private:
              max_distance < score.max_distance) ||
             (support == score.support &&
              max_distance == score.max_distance &&
-             total_distance < score.total_distance)) {
+             total_distance < score.total_distance) ||
+            (support == score.support &&
+             max_distance == score.max_distance &&
+             total_distance == score.total_distance &&
+             candidate_id < score.block_id)) {
             score = {
-                candidate, support,
+                candidate, candidate_id, support,
                 max_distance, total_distance};
         }
     }
@@ -454,8 +463,13 @@ public:
         MergeScore boundary_proxy_best;
         auto required_support =
             std::min<size_t>(2u, entries.size());
-        for (auto id = size_t{0u};
-             id < _blocks.size(); ++id) {
+        // `_query_aggregates` is exactly the support of `_has_aggregate` for
+        // this epoch. Enumerating it is therefore equivalent to scanning all
+        // block IDs and rejecting the complement. The explicit dense-ID
+        // tie-break below preserves the historical first-in-block-order
+        // result even though query discovery order is different.
+        for (auto id : _query_aggregates) {
+            ++_stats.aggregate_scan_count;
             auto *candidate = _blocks[id];
             if (candidate == nullptr || candidate == header ||
                 _is_boundary(candidate) ||
@@ -469,7 +483,7 @@ public:
                               boundary_proxy_best :
                               best;
             _consider(
-                score, candidate, _support[id],
+                score, candidate, id, _support[id],
                 _maximum_distances[id],
                 _total_distances[id]);
         }
@@ -478,21 +492,33 @@ public:
             return boundary_proxy_best.block;
         }
 
-        // One-normal-arm fallback to the nearest enclosing selection merge.
-        for (auto header_id = size_t{0u};
-             header_id < _blocks.size(); ++header_id) {
-            auto *candidate_header = _blocks[header_id];
-            if (candidate_header == nullptr ||
-                candidate_header == header ||
-                !candidate_header->is_terminated() ||
-                !_dominance.contains(candidate_header) ||
-                !_dominance.dominates(
-                    candidate_header, header)) {
+        // A reachable block dominates `header` iff its DomTree node is on
+        // `header`'s ancestor chain. Walking that chain enumerates exactly the
+        // same candidate-header set as the former all-block dominance filter.
+        // Dense block IDs retain its original tie order.
+        auto fallback_block_id = invalid_index;
+        auto *ancestor = _dominance.node_or_null(header);
+        ancestor = ancestor == nullptr ? nullptr : ancestor->parent();
+        while (ancestor != nullptr) {
+            ++_stats.dominator_ancestor_visit_count;
+            auto *candidate_header = ancestor->block();
+            auto header_iter = _block_ids.find(candidate_header);
+            LUISA_DEBUG_ASSERT(
+                header_iter != _block_ids.end(),
+                "Dominator-tree block must be value-numbered.");
+            if (header_iter == _block_ids.end()) {
+                ancestor = ancestor->parent();
+                continue;
+            }
+            auto header_id = header_iter->second;
+            if (!candidate_header->is_terminated()) {
+                ancestor = ancestor->parent();
                 continue;
             }
             auto *terminator = candidate_header->terminator();
             if (!terminator->isa<IfInst>() &&
                 !terminator->isa<SwitchInst>()) {
+                ancestor = ancestor->parent();
                 continue;
             }
             auto *candidate =
@@ -505,20 +531,26 @@ public:
                         candidate)) ||
                 candidate_iter == _block_ids.end() ||
                 !_has_aggregate(candidate_iter->second)) {
+                ancestor = ancestor->parent();
                 continue;
             }
             auto min_distance =
                 _minimum_distances[candidate_iter->second];
-            if (min_distance < best.max_distance) {
+            if (min_distance < best.max_distance ||
+                (min_distance == best.max_distance &&
+                 header_id < fallback_block_id)) {
                 best.block = candidate;
                 best.max_distance = min_distance;
+                fallback_block_id = header_id;
             }
+            ancestor = ancestor->parent();
         }
         if (best.block != nullptr) { return best.block; }
 
         // One-normal-arm fallback immediately before a recovered construct.
-        for (auto id = size_t{0u};
-             id < _blocks.size(); ++id) {
+        fallback_block_id = invalid_index;
+        for (auto id : _query_aggregates) {
+            ++_stats.aggregate_scan_count;
             auto *candidate = _blocks[id];
             if (candidate == nullptr || candidate == header ||
                 _is_boundary(candidate) ||
@@ -531,9 +563,12 @@ public:
                 continue;
             }
             auto min_distance = _minimum_distances[id];
-            if (min_distance < best.max_distance) {
+            if (min_distance < best.max_distance ||
+                (min_distance == best.max_distance &&
+                 id < fallback_block_id)) {
                 best.block = candidate;
                 best.max_distance = min_distance;
+                fallback_block_id = id;
             }
         }
         return best.block;

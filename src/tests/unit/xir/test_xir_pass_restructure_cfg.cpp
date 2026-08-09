@@ -1605,6 +1605,7 @@ void reg_restructure_cfg() {
         auto *condition =
             kernel->create_value_argument(Type::of<bool>());
         constexpr auto diamond_count = size_t{64u};
+        constexpr auto unreachable_block_count = size_t{256u};
         XIRBuilder builder;
         auto *header = body;
         for (auto i = size_t{0u};
@@ -1626,6 +1627,19 @@ void reg_restructure_cfg() {
         }
         builder.set_insertion_point(header);
         builder.return_void();
+
+        // These blocks belong to the definition's physical block table but
+        // cannot contribute support to any reachable selection query. They
+        // make a whole-function scoring scan observable without changing the
+        // reachable CFG or the expected structured result.
+        for (auto i = size_t{0u};
+             i < unreachable_block_count;
+             ++i) {
+            auto *unreachable =
+                kernel->create_basic_block();
+            builder.set_insertion_point(unreachable);
+            builder.return_void();
+        }
 
         auto info = restructure_cfg_pass_run_on_function(
             kernel,
@@ -1650,6 +1664,19 @@ void reg_restructure_cfg() {
             2u * info.if_batch_candidate_query_count);
         expect(info.if_batch_merge_block_visit_count > 0u);
         expect(info.if_batch_merge_edge_visit_count > 0u);
+        expect(info.if_batch_merge_aggregate_scan_count > 0u);
+        expect(
+            info.if_batch_merge_aggregate_scan_count <=
+            2u * info.if_batch_merge_block_visit_count)
+            << "merge scoring must enumerate only the per-query support; "
+               "the factor two accounts for the recovered-construct "
+               "fallback";
+        expect(
+            info.if_batch_merge_aggregate_scan_count <
+            info.if_batch_merge_query_count *
+                unreachable_block_count)
+            << "unreachable physical blocks must not make selection-merge "
+               "scoring scale with the function block table";
         expect(count_terminator_kind(
                    kernel,
                    DerivedInstructionTag::

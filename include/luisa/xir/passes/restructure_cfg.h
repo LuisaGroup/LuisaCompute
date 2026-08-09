@@ -49,6 +49,11 @@ struct RestructureCFGInfo {
     size_t if_batch_merge_query_count{0u};
     size_t if_batch_merge_block_visit_count{0u};
     size_t if_batch_merge_edge_visit_count{0u};
+    // Merge scoring enumerates only blocks reached by the current query.
+    // Enclosing-selection fallback walks exactly the header's dominator
+    // ancestors instead of filtering the complete function block table.
+    size_t if_batch_merge_aggregate_scan_count{0u};
+    size_t if_batch_merge_dominator_ancestor_visit_count{0u};
     // Loop-continue normalization shares ownership and dominance across all
     // site queries in one immutable CFG version. Any successful site rewrite
     // invalidates both analyses before the next site is inspected. Intermediate

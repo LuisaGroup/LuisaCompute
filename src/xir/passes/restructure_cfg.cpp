@@ -4280,6 +4280,10 @@ public:
             stats.block_visit_count;
         info.if_batch_merge_edge_visit_count +=
             stats.edge_visit_count;
+        info.if_batch_merge_aggregate_scan_count +=
+            stats.aggregate_scan_count;
+        info.if_batch_merge_dominator_ancestor_visit_count +=
+            stats.dominator_ancestor_visit_count;
     };
     // Collect merge blocks and headers of already-structured loops.
     luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
@@ -6897,6 +6901,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "if_batch_merge_edge_visit",
             info.if_batch_merge_edge_visit_count);
         report->set(
+            "if_batch_merge_aggregate_scan",
+            info.if_batch_merge_aggregate_scan_count);
+        report->set(
+            "if_batch_merge_dominator_ancestor_visit",
+            info.if_batch_merge_dominator_ancestor_visit_count);
+        report->set(
             "loop_continue_analysis",
             info.loop_continue_analysis_count);
         report->set(
@@ -7096,6 +7106,10 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.if_batch_merge_block_visit_count;
         dst.if_batch_merge_edge_visit_count +=
             src.if_batch_merge_edge_visit_count;
+        dst.if_batch_merge_aggregate_scan_count +=
+            src.if_batch_merge_aggregate_scan_count;
+        dst.if_batch_merge_dominator_ancestor_visit_count +=
+            src.if_batch_merge_dominator_ancestor_visit_count;
         dst.loop_continue_analysis_count +=
             src.loop_continue_analysis_count;
         dst.loop_continue_site_query_count +=
