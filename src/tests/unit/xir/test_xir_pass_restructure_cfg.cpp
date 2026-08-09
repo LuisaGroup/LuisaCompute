@@ -1424,6 +1424,11 @@ void reg_restructure_cfg() {
             info.if_batch_candidate_query_count ==
             diamond_count * info.if_batch_analysis_count);
         expect(info.if_batch_overlay_block_query_count == 0u);
+        expect(
+            info.if_batch_merge_query_count ==
+            2u * info.if_batch_candidate_query_count);
+        expect(info.if_batch_merge_block_visit_count > 0u);
+        expect(info.if_batch_merge_edge_visit_count > 0u);
         expect(count_terminator_kind(
                    kernel,
                    DerivedInstructionTag::
@@ -3523,6 +3528,11 @@ void reg_restructure_cfg() {
         expect(restructured.succeeded());
         expect(restructured.iteration_limit_count == 0u);
         expect(restructured.restructured_switch_count == 1u);
+        expect(
+            restructured.if_batch_merge_loop_context_count > 0u)
+            << "nested selection merge queries must reuse the enclosing "
+               "loop-context tree";
+        expect(restructured.if_batch_merge_query_count > 0u);
         expect(count_terminator_kind(
                    k->definition(),
                    DerivedInstructionTag::INDEXED_BRANCH) == 0u);

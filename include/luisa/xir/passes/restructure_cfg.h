@@ -41,6 +41,14 @@ struct RestructureCFGInfo {
     size_t if_batch_analysis_count{0u};
     size_t if_batch_candidate_query_count{0u};
     size_t if_batch_overlay_block_query_count{0u};
+    // Selection merges share one dense value-numbering workspace and one
+    // persistent loop-context tree per immutable if batch. Epoch arrays make
+    // query cost proportional to actually visited blocks and edges without
+    // rebuilding pointer hash maps for each arm.
+    size_t if_batch_merge_loop_context_count{0u};
+    size_t if_batch_merge_query_count{0u};
+    size_t if_batch_merge_block_visit_count{0u};
+    size_t if_batch_merge_edge_visit_count{0u};
     // Physical invocations of the per-definition mutating transform. A
     // successful transactional pass invokes it twice per definition (shadow
     // validation plus identity-preserving replay); an in-place pass invokes

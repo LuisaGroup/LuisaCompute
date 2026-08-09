@@ -28,6 +28,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
+#include "restructure_cfg_selection_merge.h"
 
 #include <array>
 #include <cstdlib>
@@ -1151,14 +1152,7 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
 }
 
 [[nodiscard]] BasicBlock *trivial_branch_chain_target(BasicBlock *bb) noexcept {
-    luisa::unordered_set<BasicBlock *> visited;
-    auto *cur = bb;
-    while (cur != nullptr && visited.emplace(cur).second) {
-        auto *next = trivial_branch_target(cur);
-        if (next == nullptr) { break; }
-        cur = next;
-    }
-    return cur;
+    return detail::canonical_trivial_branch_chain_target(bb);
 }
 
 [[nodiscard]] bool trivial_branch_chain_reaches(
@@ -2943,15 +2937,7 @@ collect_loop_boundary_selection_entries(
 }
 
 [[nodiscard]] BasicBlock *canonical_exit_target(BasicBlock *target) noexcept {
-    luisa::unordered_set<BasicBlock *> visited;
-    auto *cur = target;
-    while (cur != nullptr && visited.emplace(cur).second) {
-        if (!has_only_terminator(cur) || !cur->terminator()->isa<BranchInst>()) { break; }
-        auto *next = static_cast<BranchInst *>(cur->terminator())->target_block();
-        if (next == nullptr) { break; }
-        cur = next;
-    }
-    return cur;
+    return detail::canonical_trivial_branch_chain_target(target);
 }
 
 // Visit executable CFG successors only. Keep this spelling explicit instead
@@ -4378,6 +4364,17 @@ public:
                                             luisa::unordered_set<BasicBlock *> &all_created_structural_merges,
                                             luisa::unordered_map<BasicBlock *, BasicBlock *> &sm_to_header) noexcept {
     ScopedTimer _timer_try_if("try_restructure_if_batch");
+    detail::SelectionMergeBatchAnalysis merge_analysis{def, dom};
+    auto accumulate_merge_stats = [&]() noexcept {
+        auto &stats = merge_analysis.stats();
+        info.if_batch_merge_loop_context_count +=
+            stats.loop_context_count;
+        info.if_batch_merge_query_count += stats.query_count;
+        info.if_batch_merge_block_visit_count +=
+            stats.block_visit_count;
+        info.if_batch_merge_edge_visit_count +=
+            stats.edge_visit_count;
+    };
     // Collect merge blocks and headers of already-structured loops.
     luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
     luisa::unordered_set<BasicBlock *> loop_headers;
@@ -4423,11 +4420,10 @@ public:
         if (true_bb == false_bb) { return; }
 
         auto entries = std::array{true_bb, false_bb};
-        auto *merge = infer_selection_merge(
-            def, bb,
+        auto *merge = merge_analysis.infer(
+            bb,
             luisa::span<BasicBlock *const>{
-                entries.data(), entries.size()},
-            dom);
+                entries.data(), entries.size()});
         if (merge == nullptr) {
             auto ipm_it = pdom.ipostdom.find(bb);
             if (ipm_it == pdom.ipostdom.end() ||
@@ -4447,6 +4443,7 @@ public:
     });
 
     if (candidates.empty()) {
+        accumulate_merge_stats();
         return false;
     }
     ++info.if_batch_analysis_count;
@@ -4490,11 +4487,11 @@ public:
             continue;
         }
         auto entries = std::array{true_bb, false_bb};
-        auto *found_merge = infer_selection_merge(
-            def, found_header,
+        auto *found_merge = merge_analysis.infer(
+            found_header,
             luisa::span<BasicBlock *const>{
                 entries.data(), entries.size()},
-            dominance);
+            &overlay_dominance_anchors);
         // Transparent subdivisions can hide every normal path behind an
         // overlay that is irrelevant to this candidate. In that case the
         // lexical merge proven on the immutable input remains the exact
@@ -4526,6 +4523,8 @@ public:
             structural_merge = found_merge;
         } else {
             structural_merge = def->create_basic_block();
+            merge_analysis.register_overlay_block(
+                structural_merge);
             created_structural_merges.emplace(structural_merge);
             sm_to_header.emplace(structural_merge, found_header);
             {
@@ -4739,6 +4738,7 @@ public:
         }
     }
 
+    accumulate_merge_stats();
     return any;
 }
 
@@ -6979,6 +6979,18 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "if_batch_overlay_block_query",
             info.if_batch_overlay_block_query_count);
         report->set(
+            "if_batch_merge_loop_context",
+            info.if_batch_merge_loop_context_count);
+        report->set(
+            "if_batch_merge_query",
+            info.if_batch_merge_query_count);
+        report->set(
+            "if_batch_merge_block_visit",
+            info.if_batch_merge_block_visit_count);
+        report->set(
+            "if_batch_merge_edge_visit",
+            info.if_batch_merge_edge_visit_count);
+        report->set(
             "definition_transform_invocation",
             info.definition_transform_invocation_count);
         report->set(
@@ -7077,6 +7089,14 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.if_batch_candidate_query_count;
         dst.if_batch_overlay_block_query_count +=
             src.if_batch_overlay_block_query_count;
+        dst.if_batch_merge_loop_context_count +=
+            src.if_batch_merge_loop_context_count;
+        dst.if_batch_merge_query_count +=
+            src.if_batch_merge_query_count;
+        dst.if_batch_merge_block_visit_count +=
+            src.if_batch_merge_block_visit_count;
+        dst.if_batch_merge_edge_visit_count +=
+            src.if_batch_merge_edge_visit_count;
         dst.definition_transform_invocation_count +=
             src.definition_transform_invocation_count;
         dst.boundary_verifier_count +=
