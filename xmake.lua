@@ -31,6 +31,11 @@ option("lc_use_lto", {default=false})
 option("lc_vk_backend", {default = true})
 
 option("lc_vk_backend_use_xir_spirv", {default = false})
+-- Keep the legacy runtime DXC route available for unsupported Vulkan shader
+-- features. Projects that require a native-only Vulkan build can disable it;
+-- the backend then fails at configuration time unless a native SPIR-V route
+-- is enabled.
+option("lc_vk_backend_enable_dxc_compatibility", {default = true})
 -- enable toy C backend for testing and debugging
 option("lc_toy_c_backend", {default = false})
 -- enable NVIDIA-CUDA backend
