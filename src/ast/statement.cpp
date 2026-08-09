@@ -112,7 +112,7 @@ PrintStmt::PrintStmt(luisa::string fmt, luisa::vector<const Expression *> args) 
 }
 
 uint64_t DebugBreakStmt::_compute_hash() const noexcept {
-    auto h = hash64_default_seed;
+    auto h = luisa::hash_value(_wrapper);
     for (auto &&w : _watches) {
         h = luisa::hash_value(w->hash(), h);
     }

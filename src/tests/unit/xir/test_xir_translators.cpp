@@ -9,6 +9,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
@@ -23,6 +24,16 @@ using namespace luisa::compute;
 using namespace luisa::compute::xir;
 using namespace boost::ut;
 using namespace boost::ut::literals;
+
+namespace {
+
+void debug_break_wrapper_a(void *, DebugBreakStmt::Evaluator *) {}
+void debug_break_wrapper_b(void *, DebugBreakStmt::Evaluator *) {}
+void cpu_custom_callback_a(void *, void *) {}
+void cpu_custom_callback_b(void *, void *) {}
+void cpu_custom_destructor(void *) {}
+
+}// namespace
 
 void reg_ast2xir() {
 
@@ -50,6 +61,47 @@ void reg_ast2xir() {
         auto func_count = 0u;
         for ([[maybe_unused]] auto *f : module->function_list()) { func_count++; }
         expect(func_count >= 2u) << "kernel + callable should produce at least 2 functions";
+    };
+
+    "xir_ast_to_xir_reuses_one_callable_definition_at_every_call_site"_test = [] {
+        Callable add_one = [](Float x) { return x + 1.0f; };
+        Kernel1D kernel = [&add_one](BufferFloat buffer) {
+            auto index = dispatch_id().x;
+            Float value = buffer.read(index);
+            for (auto i = 0u; i < 16u; i++) {
+                value = add_one(value);
+            }
+            buffer.write(index, value);
+        };
+        auto module = ast_to_xir_translate(kernel.function()->function(), {});
+        expect(module != nullptr);
+
+        const xir::Function *translated_callable = nullptr;
+        const FunctionDefinition *translated_kernel = nullptr;
+        auto callable_count = 0u;
+        for (auto *function : module->function_list()) {
+            if (function->isa<CallableFunction>()) {
+                callable_count++;
+                translated_callable = function;
+            } else if (function->isa<KernelFunction>()) {
+                translated_kernel = function->definition();
+            }
+        }
+        expect(callable_count == 1u)
+            << "one Callable builder must produce exactly one XIR definition";
+        expect(translated_kernel != nullptr);
+
+        auto call_count = 0u;
+        if (translated_kernel != nullptr) {
+            translated_kernel->traverse_instructions(
+                [&](const Instruction *instruction) noexcept {
+                    if (!instruction->isa<CallInst>()) { return; }
+                    const auto *call = static_cast<const CallInst *>(instruction);
+                    if (call->callee() == translated_callable) { call_count++; }
+                });
+        }
+        expect(call_count == 16u)
+            << "all call sites must reference the one translated Callable";
     };
 
     "xir_ast_to_xir_with_control_flow"_test = [] {
@@ -85,7 +137,88 @@ void reg_ast2xir() {
         expect(func_count >= 1u);
     };
 
-    "xir_ast_to_xir_does_not_merge_distinct_functions_by_hash"_test = [] {
+    "ast_structural_hash_covers_codegen_semantics"_test = [] {
+        auto plain = compute::detail::FunctionBuilder::define_callable([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            auto *argument = builder->argument(Type::of<float>());
+            builder->return_(argument);
+        });
+        auto with_unused_local = compute::detail::FunctionBuilder::define_callable([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            auto *argument = builder->argument(Type::of<float>());
+            static_cast<void>(builder->local(Type::of<float>()));
+            builder->return_(argument);
+        });
+        expect(plain->body()->hash() == with_unused_local->body()->hash());
+        expect(plain->hash() != with_unused_local->hash())
+            << "local declarations emitted by AST2XIR must participate in Function::hash()";
+
+        auto plain_kernel = compute::detail::FunctionBuilder::define_kernel([] {});
+        auto with_unused_shared = compute::detail::FunctionBuilder::define_kernel([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            static_cast<void>(builder->shared(Type::array(Type::of<float>(), 8u)));
+        });
+        expect(plain_kernel->body()->hash() == with_unused_shared->body()->hash());
+        expect(plain_kernel->hash() != with_unused_shared->hash())
+            << "shared-memory declarations emitted by AST2XIR must participate in Function::hash()";
+
+        auto with_runtime_buffer = compute::detail::FunctionBuilder::define_kernel([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            static_cast<void>(builder->buffer(Type::of<Buffer<float>>()));
+        });
+        auto with_bound_buffer = compute::detail::FunctionBuilder::define_kernel([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            static_cast<void>(builder->buffer_binding(
+                Type::of<Buffer<float>>(), 0x1234u, 0u, 64u));
+        });
+        expect(with_runtime_buffer->body()->hash() == with_bound_buffer->body()->hash());
+        expect(with_runtime_buffer->hash() != with_bound_buffer->hash())
+            << "captured-versus-runtime argument layout must participate without hashing resource handles";
+
+        DebugBreakStmt debug_a{debug_break_wrapper_a, {}};
+        DebugBreakStmt debug_b{debug_break_wrapper_b, {}};
+        expect(debug_a.hash() != debug_b.hash())
+            << "debug-break wrappers change the emitted XIR instruction";
+
+        auto binding_a = compute::Function::BufferBinding{0x1234u, 16u, 64u};
+        auto binding_b = compute::Function::BufferBinding{0x1234u, 16u, 128u};
+        expect(binding_a.hash() != binding_b.hash())
+            << "buffer binding size must participate in its complete value hash";
+
+        auto half_a = luisa::bit_cast<half>(static_cast<ushort>(0x7e01u));
+        auto half_b = luisa::bit_cast<half>(static_cast<ushort>(0x7e02u));
+        auto constant_a = ConstantData::create(Type::of<half>(), &half_a, sizeof(half_a));
+        auto constant_b = ConstantData::create(Type::of<half>(), &half_b, sizeof(half_b));
+        expect(constant_a.hash() != constant_b.hash())
+            << "half constants must preserve exact payload bits, including NaN payloads";
+
+        uint64_t cpu_hash_a = 0u;
+        uint64_t cpu_hash_b = 0u;
+        uint64_t gpu_hash_a = 0u;
+        uint64_t gpu_hash_b = 0u;
+        auto custom_hash_scope = compute::detail::FunctionBuilder::define_callable([&] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            auto *argument = builder->argument(Type::of<float>());
+            CpuCustomOpExpr cpu_a{Type::of<float>(), cpu_custom_callback_a,
+                                  cpu_custom_destructor, nullptr, argument};
+            CpuCustomOpExpr cpu_b{Type::of<float>(), cpu_custom_callback_b,
+                                  cpu_custom_destructor, nullptr, argument};
+            GpuCustomOpExpr gpu_a{Type::of<float>(), "source_a", argument};
+            GpuCustomOpExpr gpu_b{Type::of<float>(), "source_b", argument};
+            cpu_hash_a = cpu_a.hash();
+            cpu_hash_b = cpu_b.hash();
+            gpu_hash_a = gpu_a.hash();
+            gpu_hash_b = gpu_b.hash();
+            builder->return_(argument);
+        });
+        static_cast<void>(custom_hash_scope);
+        expect(cpu_hash_a != cpu_hash_b)
+            << "CPU custom callback identity must participate in expression hashing";
+        expect(gpu_hash_a != gpu_hash_b)
+            << "GPU custom source must participate in expression hashing";
+    };
+
+    "xir_ast_to_xir_merges_independent_equivalent_callables_by_hash"_test = [] {
         Callable a = [](Float x) { return x + 1.0f; };
         Callable b = [](Float x) { return x + 1.0f; };
         expect(a.function().hash() == b.function().hash());
@@ -102,7 +235,118 @@ void reg_ast2xir() {
                 callable_count++;
             }
         }
-        expect(callable_count == 2u) << "AST2XIR must key generated functions by builder identity, not only Function::hash()";
+        expect(callable_count == 1u)
+            << "independently constructed callables with one structural hash must share one XIR definition";
+    };
+
+    "ast_completed_call_graph_merges_independent_equivalent_callables"_test = [] {
+        Callable add_one_a = [](Float x) { return x + 1.0f; };
+        Callable add_one_b = [](Float x) { return x + 1.0f; };
+        Kernel1D kernel = [&add_one_a, &add_one_b](BufferFloat buffer) {
+            auto index = dispatch_id().x;
+            buffer.write(index,
+                         add_one_a(buffer.read(index)) +
+                             add_one_b(buffer.read(index)));
+        };
+        auto custom_callables = kernel.function()->function().custom_callables();
+        expect(custom_callables.size() == 1u)
+            << "the completed AST call graph must retain one canonical builder per structural hash";
+    };
+
+    "xir_ast_to_xir_does_not_merge_different_callable_hashes"_test = [] {
+        Callable add_one = [](Float x) { return x + 1.0f; };
+        Callable add_two = [](Float x) { return x + 2.0f; };
+        expect(add_one.function().hash() != add_two.function().hash());
+        AST2XIRConfig config{};
+        auto *ctx = ast_to_xir_translate_begin(config);
+        ast_to_xir_translate_add_function(ctx, add_one.function());
+        ast_to_xir_translate_add_function(ctx, add_two.function());
+        auto module = ast_to_xir_translate_finalize(ctx);
+        auto callable_count = 0u;
+        for (auto *function : module->function_list()) {
+            if (function->isa<CallableFunction>()) { callable_count++; }
+        }
+        expect(callable_count == 2u);
+    };
+
+    "xir_ast_to_xir_preserves_distinct_kernel_entries"_test = [] {
+        Kernel1D a = [](BufferFloat buffer) {
+            buffer.write(dispatch_id().x, 1.0f);
+        };
+        Kernel1D b = [](BufferFloat buffer) {
+            buffer.write(dispatch_id().x, 1.0f);
+        };
+        expect(a.function()->function().hash() == b.function()->function().hash());
+        AST2XIRConfig config{};
+        auto *ctx = ast_to_xir_translate_begin(config);
+        ast_to_xir_translate_add_function(ctx, a.function()->function());
+        ast_to_xir_translate_add_function(ctx, b.function()->function());
+        auto module = ast_to_xir_translate_finalize(ctx);
+        auto kernel_count = 0u;
+        for (auto *function : module->function_list()) {
+            if (function->isa<KernelFunction>()) { kernel_count++; }
+        }
+        expect(kernel_count == 2u)
+            << "hash canonicalization must not collapse independently addressable entry points";
+    };
+
+    "xir_ast_to_xir_keeps_distinct_capture_operands_when_merging_callables"_test = [] {
+        Kernel1D kernel = [](BufferFloat lhs, BufferFloat rhs, BufferFloat output) {
+            auto index = dispatch_id().x;
+            Callable read_lhs = [&lhs](UInt i) { return lhs.read(i); };
+            Callable read_rhs = [&rhs](UInt i) { return rhs.read(i); };
+            output.write(index, read_lhs(index) + read_rhs(index));
+        };
+        auto module = ast_to_xir_translate(kernel.function()->function(), {});
+        expect(module != nullptr);
+
+        const CallableFunction *translated_callable = nullptr;
+        const FunctionDefinition *translated_kernel = nullptr;
+        auto callable_count = 0u;
+        for (auto *function : module->function_list()) {
+            if (function->isa<CallableFunction>()) {
+                translated_callable = static_cast<const CallableFunction *>(function);
+                callable_count++;
+            } else if (function->isa<KernelFunction>()) {
+                translated_kernel = function->definition();
+            }
+        }
+        expect(callable_count == 1u);
+        expect(translated_callable != nullptr);
+        expect(translated_kernel != nullptr);
+
+        auto resource_argument_index = static_cast<size_t>(-1);
+        if (translated_callable != nullptr) {
+            auto index = 0u;
+            for (auto *argument : translated_callable->arguments()) {
+                if (argument->is_resource()) {
+                    resource_argument_index = index;
+                    break;
+                }
+                index++;
+            }
+        }
+        expect(resource_argument_index != static_cast<size_t>(-1));
+
+        luisa::vector<const CallInst *> calls;
+        if (translated_kernel != nullptr) {
+            translated_kernel->traverse_instructions(
+                [&](const Instruction *instruction) noexcept {
+                    if (!instruction->isa<CallInst>()) { return; }
+                    auto *call = static_cast<const CallInst *>(instruction);
+                    if (call->callee() == translated_callable) {
+                        calls.emplace_back(call);
+                    }
+                });
+        }
+        expect(calls.size() == 2u);
+        if (calls.size() == 2u &&
+            resource_argument_index != static_cast<size_t>(-1)) {
+            expect(calls[0]->argument(resource_argument_index) !=
+                   calls[1]->argument(resource_argument_index))
+                << "definition deduplication must retain each call site's captured resource";
+        }
+        expect(xir_verify_module(module.get()).succeeded());
     };
 
     "xir_ast_to_xir_normalizes_promoted_unary_operands"_test = [] {
