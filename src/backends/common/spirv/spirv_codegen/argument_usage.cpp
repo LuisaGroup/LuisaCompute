@@ -274,7 +274,8 @@ analyze_spirv_function_argument_usage(
                                         function,
                                         instruction->operand(0u)));
                             }
-                            if (spirv_bindless_resource_usage(query->op())
+                            if (spirv_bindless_resource_usage(
+                                    query->op(), query->bindless_access())
                                     .buffer_metadata) {
                                 static_cast<void>(
                                     require_bindless_buffer_metadata(
@@ -300,7 +301,8 @@ analyze_spirv_function_argument_usage(
                             static_cast<void>(add_usage(
                                 function, instruction->operand(0u),
                                 Usage::READ));
-                            if (spirv_bindless_resource_usage(read->op())
+                            if (spirv_bindless_resource_usage(
+                                    read->op(), read->bindless_access())
                                     .buffer_metadata) {
                                 static_cast<void>(
                                     require_bindless_buffer_metadata(
@@ -330,7 +332,8 @@ analyze_spirv_function_argument_usage(
                                 require_accel_instance_buffer(
                                     function,
                                     instruction->operand(0u)));
-                            if (spirv_bindless_resource_usage(write->op())
+                            if (spirv_bindless_resource_usage(
+                                    write->op(), write->bindless_access())
                                     .buffer_metadata) {
                                 static_cast<void>(
                                     require_bindless_buffer_metadata(

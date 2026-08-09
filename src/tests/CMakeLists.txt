@@ -70,6 +70,8 @@ luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.
 target_sources(test_spirv_motion_patch PRIVATE ../backends/vk/spirv_motion_patch.cpp)
 target_include_directories(test_spirv_motion_patch PRIVATE ../backends/vk)
 if (TARGET luisa-compute-backend-vk)
+    luisa_compute_add_test(test_vk_user_compute_codegen_route unit/ext/test_vk_user_compute_codegen_route.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_user_compute_codegen_route PRIVATE ../backends/vk)
     luisa_compute_add_test(test_vk_sparse_residency_registry unit/ext/test_vk_sparse_residency_registry.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_sparse_residency_registry PRIVATE ../backends/vk)
     target_sources(test_vk_sparse_residency_registry PRIVATE ../backends/vk/sparse_residency_registry.cpp)
@@ -274,6 +276,13 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     target_include_directories(test_vk_spirv_codegen_path PRIVATE ../backends/common)
     target_compile_options(test_vk_spirv_codegen_path PRIVATE
             $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+    if (LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY)
+        target_compile_definitions(test_vk_spirv_codegen_path PRIVATE
+                LUISA_TEST_VK_HAS_DXC_COMPATIBILITY=1)
+    else ()
+        target_compile_definitions(test_vk_spirv_codegen_path PRIVATE
+                LUISA_TEST_VK_HAS_DXC_COMPATIBILITY=0)
+    endif ()
 endif ()
 luisa_compute_add_test(test_ray_query_world_ray unit/runtime/test_ray_query_world_ray.cpp)
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)

@@ -238,9 +238,10 @@ void SpirvCodegenEntry::generate_binding(
         _runtime_target_plan.bindless_resources.buffer_heap;
     _use_buffer_bindless_metadata =
         _runtime_target_plan.bindless_resources.buffer_metadata;
-    LUISA_ASSERT(
-        !_use_buffer_bindless || _use_buffer_bindless_metadata,
-        "SPIR-V bindless buffer heap access has no per-slot metadata plan.");
+    // These are independent descriptor domains. Mixed-layout buffer reads
+    // take their bias/size/address from the metadata buffer, while typed
+    // buffer reads carry bias and size in the four-word slot record and need
+    // only the global heap. Device-address queries still request metadata.
     _use_tex2d_bindless =
         _runtime_target_plan.bindless_resources.texture_2d;
     _use_tex3d_bindless =

@@ -127,8 +127,6 @@ namespace {
         detail::UserComputeHlslFallbackReason::PRINTING,
         detail::UserComputeHlslFallbackReason::COOPERATIVE_OPERATIONS,
         detail::UserComputeHlslFallbackReason::ASYNC_COPY,
-        detail::UserComputeHlslFallbackReason::TYPED_BINDLESS_RESOURCES,
-        detail::UserComputeHlslFallbackReason::UNIFORM_BINDLESS_RESOURCES,
         detail::UserComputeHlslFallbackReason::MOTION_BLUR};
     luisa::string description;
     for (auto reason : reasons) {
@@ -2964,10 +2962,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
                       builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
                       builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
-        .typed_bindless_resources =
-            detail::requires_typed_bindless_hlsl_fallback(builtin_calls),
-        .uniform_bindless_resources =
-            detail::requires_uniform_bindless_hlsl_fallback(builtin_calls),
         .motion_blur = requires_motion_blur};
     auto codegen_route =
         detail::plan_user_compute_codegen_route(codegen_requirements);

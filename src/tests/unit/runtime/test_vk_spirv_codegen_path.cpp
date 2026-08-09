@@ -3777,9 +3777,11 @@ OpName %8 "Fma"
         constexpr auto second_offset = 2u;
         constexpr auto second_count = 2u;
         auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
         auto first = dc.device.create_buffer<uint32_t>(6u);
         auto second = dc.device.create_buffer<uint32_t>(6u);
-        auto output = dc.device.create_buffer<uint32_t>(6u);
+        auto output = dc.device.create_buffer<uint32_t>(8u);
         auto heap = dc.device.create_bindless_array(
             1u, BindlessSlotType::BUFFER_ONLY);
         auto stream = dc.device.create_stream();
@@ -3791,6 +3793,11 @@ OpName %8 "Fma"
             out.write(0u, view.read(0u));
             out.write(1u, view.read(count - 1u));
             out.write(2u, count);
+            out.write(
+                3u,
+                bindless.byte_buffer(0u, true, true)
+                    .read<uint32_t>((count - 1u) * 4u));
+            view.write(count - 1u, view.read(0u) + 100u);
         };
         auto shader = dc.device.compile(
             kernel, ShaderOption{.enable_cache = false,
@@ -3807,27 +3814,262 @@ OpName %8 "Fma"
             0xdead0000u, 11u, 12u, 13u, 0xdead0004u, 0xdead0005u};
         constexpr std::array second_source{
             0xbeef0000u, 0xbeef0001u, 21u, 22u, 0xbeef0004u, 0xbeef0005u};
-        std::array<uint32_t, 6u> result{};
+        std::array<uint32_t, 8u> result{};
+        std::array<uint32_t, 6u> first_after{};
+        std::array<uint32_t, 6u> second_after{};
         stream << first.copy_from(luisa::span{first_source})
                << second.copy_from(luisa::span{second_source})
                << std::move(bind_first)
-               << shader(heap, output.view(0u, 3u)).dispatch(1u)
+               << shader(heap, output.view(0u, 4u)).dispatch(1u)
                << std::move(bind_second)
-               << shader(heap, output.view(3u, 3u)).dispatch(1u)
+               << shader(heap, output.view(4u, 4u)).dispatch(1u)
                << output.copy_to(luisa::span{result})
+               << first.copy_to(luisa::span{first_after})
+               << second.copy_to(luisa::span{second_after})
                << synchronize();
 
         constexpr std::array expected{
             first_source[first_offset],
             first_source[first_offset + first_count - 1u],
             first_count,
+            first_source[first_offset + first_count - 1u],
             second_source[second_offset],
             second_source[second_offset + second_count - 1u],
-            second_count};
+            second_count,
+            second_source[second_offset + second_count - 1u]};
         expect(result == expected)
             << "typed BUFFER_ONLY records must be versioned in command order "
                "and retain each sliced view's bias and exact logical size";
+        auto expected_first_after = first_source;
+        expected_first_after[first_offset + first_count - 1u] =
+            first_source[first_offset] + 100u;
+        auto expected_second_after = second_source;
+        expected_second_after[second_offset + second_count - 1u] =
+            second_source[second_offset] + 100u;
+        expect(first_after == expected_first_after);
+        expect(second_after == expected_second_after);
     };
+
+    "vk_typed_texture_only_uses_native_slot_layout_and_sampler"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
+        constexpr auto extent = make_uint2(2u, 1u);
+        auto first = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, extent);
+        auto second = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, extent);
+        auto heap = dc.device.create_bindless_array(
+            2u, BindlessSlotType::TEXTURE2D_ONLY);
+        auto sizes = dc.device.create_buffer<uint2>(2u);
+        auto colors = dc.device.create_buffer<float4>(7u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar bindless,
+                             BufferUInt2 size_output,
+                             BufferFloat4 color_output) noexcept {
+            auto lane = dispatch_x();
+            auto texture = bindless.tex2d(lane, true, false);
+            Float default_u = 0.5f;
+            $if (lane == 0u) { default_u = 0.75f; };
+            size_output.write(lane, texture.size());
+            color_output.write(
+                lane * 3u,
+                texture.read(make_uint2(1u, 0u)));
+            color_output.write(
+                lane * 3u + 1u,
+                texture.sample(make_float2(default_u, 0.5f)));
+            color_output.write(
+                lane * 3u + 2u,
+                texture.sample(
+                    make_float2(0.75f, 0.5f),
+                    SamplerFilter::POINT, SamplerAddress::EDGE));
+            $if (lane == 0u) {
+                color_output.write(
+                    6u,
+                    bindless.tex2d(0u, true, true)
+                        .read(make_uint2(0u)));
+            };
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array first_source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 1.0f, 0.0f, 1.0f}};
+        constexpr std::array second_source{
+            float4{0.0f, 0.0f, 1.0f, 1.0f},
+            float4{1.0f, 1.0f, 0.0f, 1.0f}};
+        heap.emplace_on_update(
+            0u, first, Sampler::point_edge());
+        heap.emplace_on_update(
+            1u, second, Sampler::linear_linear_edge());
+        std::array<uint2, 2u> size_result{};
+        std::array<float4, 7u> color_result{};
+        stream << first.copy_from(luisa::span{first_source})
+               << second.copy_from(luisa::span{second_source})
+               << heap.update()
+               << shader(heap, sizes, colors).dispatch(2u)
+               << sizes.copy_to(luisa::span{size_result})
+               << colors.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        expect(size_result[0].x == extent.x &&
+               size_result[0].y == extent.y &&
+               size_result[1].x == extent.x &&
+               size_result[1].y == extent.y);
+        expect_vector_equal(color_result[0], first_source[1]);
+        expect_vector_equal(color_result[1], first_source[1]);
+        expect_vector_equal(color_result[2], first_source[1]);
+        expect_vector_equal(color_result[3], second_source[1]);
+        constexpr auto linear_midpoint =
+            (second_source[0] + second_source[1]) * 0.5f;
+        for (auto component = 0u; component < 4u; ++component) {
+            expect(std::abs(color_result[4][component] -
+                            linear_midpoint[component]) < 1e-6f)
+                << luisa::format(
+                       "typed default sampler component {} mismatch",
+                       component);
+        }
+        expect_vector_equal(color_result[5], second_source[1]);
+        expect_vector_equal(color_result[6], first_source[0]);
+    };
+
+    "vk_typed_volume_only_uses_native_slot_layout_and_sampler"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
+        constexpr auto extent = make_uint3(2u, 1u, 1u);
+        auto volume = dc.device.create_volume<float>(
+            PixelStorage::FLOAT4, extent);
+        auto heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::TEXTURE3D_ONLY);
+        auto size_output = dc.device.create_buffer<uint3>(1u);
+        auto color_output = dc.device.create_buffer<float4>(4u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar bindless,
+                             BufferUInt3 sizes,
+                             BufferFloat4 colors) noexcept {
+            auto texture = bindless.tex3d(
+                dispatch_x(), true, false);
+            sizes.write(0u, texture.size());
+            colors.write(
+                0u, texture.read(make_uint3(1u, 0u, 0u)));
+            colors.write(
+                1u, texture.sample(make_float3(0.5f)));
+            colors.write(
+                2u, texture.sample(
+                        make_float3(0.75f, 0.5f, 0.5f),
+                        SamplerFilter::POINT, SamplerAddress::EDGE));
+            colors.write(
+                3u, bindless.tex3d(0u, true, true)
+                        .read(make_uint3(0u)));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 0.0f, 1.0f, 1.0f}};
+        heap.emplace_on_update(
+            0u, volume, Sampler::linear_linear_edge());
+        std::array<uint3, 1u> size_result{};
+        std::array<float4, 4u> color_result{};
+        stream << volume.copy_from(luisa::span{source})
+               << heap.update()
+               << shader(heap, size_output, color_output).dispatch(1u)
+               << size_output.copy_to(luisa::span{size_result})
+               << color_output.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        expect(size_result[0].x == extent.x &&
+               size_result[0].y == extent.y &&
+               size_result[0].z == extent.z);
+        expect_vector_equal(color_result[0], source[1]);
+        constexpr auto midpoint = (source[0] + source[1]) * 0.5f;
+        for (auto component = 0u; component < 4u; ++component) {
+            expect(std::abs(color_result[1][component] -
+                            midpoint[component]) < 1e-6f);
+        }
+        expect_vector_equal(color_result[2], source[1]);
+        expect_vector_equal(color_result[3], source[0]);
+    };
+
+#if LUISA_TEST_VK_HAS_DXC_COMPATIBILITY
+    "vk_dxc_fallback_retains_typed_bindless_slot_abis"_test = [&] {
+        ScopedEnvironmentVariable allow_hlsl_fallback{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", nullptr};
+        auto dc = luisa::test::create_device(argc, argv);
+        auto source_buffer = dc.device.create_buffer<uint32_t>(4u);
+        auto source_image = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, make_uint2(2u, 1u));
+        auto buffer_heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::BUFFER_ONLY);
+        auto texture_heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::TEXTURE2D_ONLY);
+        auto integers = dc.device.create_buffer<uint32_t>(5u);
+        auto colors = dc.device.create_buffer<float4>(2u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar buffers,
+                             BindlessVar textures,
+                             BufferUInt integer_output,
+                             BufferFloat4 color_output) noexcept {
+            auto buffer = buffers.buffer<uint32_t>(0u, true);
+            auto texture = textures.tex2d(0u, true, false);
+            auto extent = texture.size();
+            integer_output.write(0u, buffer.size());
+            integer_output.write(1u, buffer.read(0u));
+            integer_output.write(2u, buffer.read(buffer.size() - 1u));
+            integer_output.write(3u, extent.x);
+            integer_output.write(4u, extent.y);
+            color_output.write(
+                0u, texture.read(make_uint2(1u, 0u)));
+            color_output.write(
+                1u, texture.sample(
+                        make_float2(0.75f, 0.5f),
+                        SamplerFilter::POINT,
+                        SamplerAddress::EDGE));
+        };
+        ShaderOption fallback_option{.enable_cache = false,
+                                     .enable_fast_math = false};
+        fallback_option.native_include = R"(
+uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
+)";
+        auto shader = dc.device.compile(kernel, fallback_option);
+
+        constexpr std::array buffer_source{
+            0xdead0000u, 41u, 42u, 0xdead0003u};
+        constexpr std::array image_source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 1.0f, 0.0f, 1.0f}};
+        buffer_heap.emplace_on_update(
+            0u, source_buffer.view(1u, 2u));
+        texture_heap.emplace_on_update(
+            0u, source_image, Sampler::linear_linear_edge());
+        std::array<uint32_t, 5u> integer_result{};
+        std::array<float4, 2u> color_result{};
+        stream << source_buffer.copy_from(luisa::span{buffer_source})
+               << source_image.copy_from(luisa::span{image_source})
+               << buffer_heap.update()
+               << texture_heap.update()
+               << shader(buffer_heap, texture_heap, integers, colors)
+                      .dispatch(1u)
+               << integers.copy_to(luisa::span{integer_result})
+               << colors.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        constexpr std::array expected_integers{2u, 41u, 42u, 2u, 1u};
+        expect(integer_result == expected_integers)
+            << "DXC fallback must retain typed buffer bias/size and typed "
+               "texture descriptor layout";
+        expect_vector_equal(color_result[0], image_source[1]);
+        expect_vector_equal(color_result[1], image_source[1]);
+    };
+#endif
 
     "vk_bindless_texture_sampler_bits_do_not_escape_descriptor_recycling"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);

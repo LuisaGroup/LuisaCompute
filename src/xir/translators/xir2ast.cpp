@@ -230,6 +230,13 @@ namespace detail {
     LUISA_ERROR_WITH_LOCATION("Unsupported resource query operation {}.", xir::to_string(op));
 }
 
+[[nodiscard]] static CallOp xir2ast_resource_query_op(
+    ResourceQueryOp op, BindlessResourceAccess access) noexcept {
+    auto base = xir2ast_resource_query_op(op);
+    return specialize_bindless_resource_call(
+        base, access.typed, access.uniform);
+}
+
 [[nodiscard]] static CallOp xir2ast_resource_read_op(ResourceReadOp op) noexcept {
     switch (op) {
         case ResourceReadOp::BUFFER_READ: return CallOp::BUFFER_READ;
@@ -247,6 +254,13 @@ namespace detail {
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported resource read operation {}.", xir::to_string(op));
+}
+
+[[nodiscard]] static CallOp xir2ast_resource_read_op(
+    ResourceReadOp op, BindlessResourceAccess access) noexcept {
+    auto base = xir2ast_resource_read_op(op);
+    return specialize_bindless_resource_call(
+        base, access.typed, access.uniform);
 }
 
 [[nodiscard]] static CallOp xir2ast_resource_write_op(ResourceWriteOp op) noexcept {
@@ -273,6 +287,13 @@ namespace detail {
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported resource write operation {}.", xir::to_string(op));
+}
+
+[[nodiscard]] static CallOp xir2ast_resource_write_op(
+    ResourceWriteOp op, BindlessResourceAccess access) noexcept {
+    auto base = xir2ast_resource_write_op(op);
+    return specialize_bindless_resource_call(
+        base, access.typed, access.uniform);
 }
 
 [[nodiscard]] static CallOp xir2ast_atomic_op(AtomicOp op) noexcept {
@@ -619,7 +640,16 @@ private:
                 case DerivedInstructionTag::RESOURCE_QUERY:
                     return _resource_query(
                         static_cast<const ResourceQueryInst *>(inst));
-                case DerivedInstructionTag::RESOURCE_READ: return _materialize(inst->type(), _current_builder()->call(inst->type(), detail::xir2ast_resource_read_op(static_cast<const ResourceReadInst *>(inst)->op()), _operands(inst)));
+                case DerivedInstructionTag::RESOURCE_READ: {
+                    auto read = static_cast<const ResourceReadInst *>(inst);
+                    return _materialize(
+                        inst->type(),
+                        _current_builder()->call(
+                            inst->type(),
+                            detail::xir2ast_resource_read_op(
+                                read->op(), read->bindless_access()),
+                            _operands(inst)));
+                }
                 case DerivedInstructionTag::ATOMIC: return _materialize(inst->type(), _atomic(static_cast<const AtomicInst *>(inst)));
                 case DerivedInstructionTag::THREAD_GROUP: {
                     auto expr = _current_builder()->call(inst->type(), detail::xir2ast_thread_group_op(static_cast<const ThreadGroupInst *>(inst)->op()), _operands(inst));
@@ -661,7 +691,10 @@ private:
                 _current_builder()->literal(Type::of<uint32_t>(), 1u));
         }
         return _current_builder()->call(
-            inst->type(), detail::xir2ast_resource_query_op(inst->op()), args);
+            inst->type(),
+            detail::xir2ast_resource_query_op(
+                inst->op(), inst->bindless_access()),
+            args);
     }
 
     template<typename F>
@@ -815,7 +848,10 @@ private:
                 }
                 case DerivedInstructionTag::RESOURCE_WRITE: {
                     auto write = static_cast<const ResourceWriteInst *>(inst);
-                    _current_builder()->call(detail::xir2ast_resource_write_op(write->op()), _operands(write));
+                    _current_builder()->call(
+                        detail::xir2ast_resource_write_op(
+                            write->op(), write->bindless_access()),
+                        _operands(write));
                     break;
                 }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];
@@ -918,7 +954,10 @@ private:
                 }
                 case DerivedInstructionTag::RESOURCE_WRITE: {
                     auto write = static_cast<const ResourceWriteInst *>(inst);
-                    _current_builder()->call(detail::xir2ast_resource_write_op(write->op()), _operands(write));
+                    _current_builder()->call(
+                        detail::xir2ast_resource_write_op(
+                            write->op(), write->bindless_access()),
+                        _operands(write));
                     break;
                 }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];

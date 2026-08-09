@@ -176,13 +176,19 @@ struct GVNState {
         case DerivedInstructionTag::RESOURCE_QUERY: {
             auto rq_a = static_cast<ResourceQueryInst *>(a);
             auto rq_b = static_cast<ResourceQueryInst *>(b);
-            if (rq_a->op() != rq_b->op()) return false;
+            if (rq_a->op() != rq_b->op() ||
+                rq_a->bindless_access() != rq_b->bindless_access()) {
+                return false;
+            }
             break;
         }
         case DerivedInstructionTag::RESOURCE_READ: {
             auto rr_a = static_cast<ResourceReadInst *>(a);
             auto rr_b = static_cast<ResourceReadInst *>(b);
-            if (rr_a->op() != rr_b->op()) return false;
+            if (rr_a->op() != rr_b->op() ||
+                rr_a->bindless_access() != rr_b->bindless_access()) {
+                return false;
+            }
             break;
         }
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
@@ -237,6 +243,8 @@ struct GVNState {
             auto rq = static_cast<ResourceQueryInst *>(inst);
             auto op = rq->op();
             h = luisa::hash64(&op, sizeof(op), h);
+            auto access = rq->bindless_access().encoded();
+            h = luisa::hash64(&access, sizeof(access), h);
             auto vns = state.get_operand_vns(inst);
             h = hash_operand_vns(vns, false, h);
             break;

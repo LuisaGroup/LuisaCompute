@@ -289,27 +289,60 @@ ArithmeticInst *XIRBuilder::call(const Type *type, ArithmeticOp op, std::initial
 }
 
 ResourceQueryInst *XIRBuilder::call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands) noexcept {
-    return _create_and_append_instruction<ResourceQueryInst>(_insertion_point->parent_block(), type, op, operands);
+    return this->call(type, op, operands, {});
+}
+
+ResourceQueryInst *XIRBuilder::call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands,
+                                    BindlessResourceAccess bindless_access) noexcept {
+    return _create_and_append_instruction<ResourceQueryInst>(
+        _insertion_point->parent_block(), type, op, operands, bindless_access);
 }
 
 ResourceQueryInst *XIRBuilder::call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands) noexcept {
     return this->call(type, op, luisa::span{operands.begin(), operands.end()});
 }
 
+ResourceQueryInst *XIRBuilder::call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands,
+                                    BindlessResourceAccess bindless_access) noexcept {
+    return this->call(type, op, luisa::span{operands.begin(), operands.end()}, bindless_access);
+}
+
 ResourceReadInst *XIRBuilder::call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands) noexcept {
-    return _create_and_append_instruction<ResourceReadInst>(_insertion_point->parent_block(), type, op, operands);
+    return this->call(type, op, operands, {});
+}
+
+ResourceReadInst *XIRBuilder::call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands,
+                                   BindlessResourceAccess bindless_access) noexcept {
+    return _create_and_append_instruction<ResourceReadInst>(
+        _insertion_point->parent_block(), type, op, operands, bindless_access);
 }
 
 ResourceReadInst *XIRBuilder::call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands) noexcept {
     return this->call(type, op, luisa::span{operands.begin(), operands.end()});
 }
 
+ResourceReadInst *XIRBuilder::call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands,
+                                   BindlessResourceAccess bindless_access) noexcept {
+    return this->call(type, op, luisa::span{operands.begin(), operands.end()}, bindless_access);
+}
+
 ResourceWriteInst *XIRBuilder::call(ResourceWriteOp op, luisa::span<Value *const> operands) noexcept {
-    return _create_and_append_instruction<ResourceWriteInst>(_insertion_point->parent_block(), op, operands);
+    return this->call(op, operands, {});
+}
+
+ResourceWriteInst *XIRBuilder::call(ResourceWriteOp op, luisa::span<Value *const> operands,
+                                    BindlessResourceAccess bindless_access) noexcept {
+    return _create_and_append_instruction<ResourceWriteInst>(
+        _insertion_point->parent_block(), op, operands, bindless_access);
 }
 
 ResourceWriteInst *XIRBuilder::call(ResourceWriteOp op, std::initializer_list<Value *> operands) noexcept {
     return this->call(op, luisa::span{operands.begin(), operands.end()});
+}
+
+ResourceWriteInst *XIRBuilder::call(ResourceWriteOp op, std::initializer_list<Value *> operands,
+                                    BindlessResourceAccess bindless_access) noexcept {
+    return this->call(op, luisa::span{operands.begin(), operands.end()}, bindless_access);
 }
 
 AtomicInst *XIRBuilder::atomic_fetch_add(const Type *type, Value *base,

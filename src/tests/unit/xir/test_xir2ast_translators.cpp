@@ -245,6 +245,61 @@ void reg_xir2ast_direct() {
         expect(size_query_count == 1u);
     };
 
+    "xir_to_ast_preserves_bindless_access_axes"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *bindless =
+            kernel->create_resource_argument(Type::of<BindlessArray>());
+        auto *output = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *body = kernel->create_body_block();
+        auto *slot = module.create_constant_zero(Type::of<uint32_t>());
+        auto *stride = module.create_constant_one(Type::of<uint32_t>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        std::array accesses{
+            BindlessResourceAccess{.typed = true, .uniform = true},
+            BindlessResourceAccess{.typed = true, .uniform = false},
+            BindlessResourceAccess{.typed = false, .uniform = true}};
+        for (auto i = 0u; i < accesses.size(); ++i) {
+            auto *size = b.call(
+                Type::of<uint32_t>(),
+                ResourceQueryOp::BINDLESS_BUFFER_SIZE,
+                {bindless, slot, stride}, accesses[i]);
+            auto *index = module.create_constant(
+                Type::of<uint32_t>(), &i);
+            b.call(ResourceWriteOp::BUFFER_WRITE,
+                   {output, index, size});
+        }
+        b.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+
+        std::array found{false, false, false};
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+        roundtrip_kernel->traverse_instructions(
+            [&](const Instruction *instruction) noexcept {
+                if (!instruction->isa<ResourceQueryInst>()) { return; }
+                auto *query = static_cast<const ResourceQueryInst *>(
+                    instruction);
+                if (query->op() !=
+                    ResourceQueryOp::BINDLESS_BUFFER_SIZE) {
+                    return;
+                }
+                for (auto i = 0u; i < accesses.size(); ++i) {
+                    found[i] = found[i] ||
+                               query->bindless_access() == accesses[i];
+                }
+            });
+        expect(found[0] && found[1] && found[2]);
+    };
+
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
     "xir_to_ast_rejects_unrepresentable_bindless_byte_write"_test = [] {
         Module module;

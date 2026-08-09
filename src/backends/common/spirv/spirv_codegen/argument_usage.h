@@ -29,8 +29,10 @@ struct SpirvFunctionArgumentAnalysis {
     // separate kernel-bound instance-record buffer.
     bool requires_accel_traversal_descriptor{false};
     bool requires_accel_instance_buffer{false};
-    // Bindless buffer size/read/write operations need a per-array local
-    // metadata descriptor; texture-only and unused arrays do not.
+    // Mixed-layout bindless buffer size/read/write and all bindless device-
+    // address queries need a per-array local metadata descriptor. Typed
+    // size/read/write use their slot record; texture-only and unused arrays
+    // need no metadata descriptor.
     bool requires_bindless_buffer_metadata{false};
     // Direct and bindless buffer-address queries require the runtime metadata
     // record to carry a proven VkDeviceAddress for the exact logical view.

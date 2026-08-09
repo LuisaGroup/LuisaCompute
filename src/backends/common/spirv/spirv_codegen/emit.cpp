@@ -221,21 +221,30 @@ void SpirvCodegenEntry::_analyze_instruction_usage(
                         _print_formats.emplace_back(print->format(), s);
                         break;
                     }
-                    case xir::DerivedInstructionTag::RESOURCE_QUERY:
+                    case xir::DerivedInstructionTag::RESOURCE_QUERY: {
+                        auto resource = static_cast<
+                            const xir::ResourceQueryInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceQueryInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
-                    case xir::DerivedInstructionTag::RESOURCE_READ:
+                    }
+                    case xir::DerivedInstructionTag::RESOURCE_READ: {
+                        auto resource = static_cast<
+                            const xir::ResourceReadInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceReadInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
-                    case xir::DerivedInstructionTag::RESOURCE_WRITE:
+                    }
+                    case xir::DerivedInstructionTag::RESOURCE_WRITE: {
+                        auto resource = static_cast<
+                            const xir::ResourceWriteInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceWriteInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
+                    }
                     default: break;
                 }
                 analysis.used_types.emplace(inst->type());

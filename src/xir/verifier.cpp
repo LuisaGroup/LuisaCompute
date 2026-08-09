@@ -666,9 +666,23 @@ template<typename Enum>
     for (auto *operand_use : instruction->operand_uses()) {
         operands.emplace_back(operand_use->value());
     }
+    auto bindless_access = [&]() noexcept {
+        switch (instruction->derived_instruction_tag()) {
+            case DerivedInstructionTag::RESOURCE_QUERY:
+                return static_cast<const ResourceQueryInst *>(instruction)
+                    ->bindless_access();
+            case DerivedInstructionTag::RESOURCE_READ:
+                return static_cast<const ResourceReadInst *>(instruction)
+                    ->bindless_access();
+            case DerivedInstructionTag::RESOURCE_WRITE:
+                return static_cast<const ResourceWriteInst *>(instruction)
+                    ->bindless_access();
+            default: return BindlessResourceAccess{};
+        }
+    }();
     return interchange_instruction_semantics_valid(
         instruction->derived_instruction_tag(), instruction_opcode(instruction),
-        instruction->type(), operands);
+        instruction->type(), operands, bindless_access);
 }
 
 template<typename OperandSpan>

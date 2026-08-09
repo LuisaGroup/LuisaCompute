@@ -95,13 +95,25 @@ public:
     ArithmeticInst *call(const Type *type, ArithmeticOp op, std::initializer_list<Value *> operands) noexcept;
 
     ResourceQueryInst *call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceQueryInst *call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
     ResourceQueryInst *call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceQueryInst *call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
 
     ResourceReadInst *call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceReadInst *call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands,
+                           BindlessResourceAccess bindless_access) noexcept;
     ResourceReadInst *call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceReadInst *call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands,
+                           BindlessResourceAccess bindless_access) noexcept;
 
     ResourceWriteInst *call(ResourceWriteOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceWriteInst *call(ResourceWriteOp op, luisa::span<Value *const> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
     ResourceWriteInst *call(ResourceWriteOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceWriteInst *call(ResourceWriteOp op, std::initializer_list<Value *> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
 
     CastInst *cast_(const Type *type, CastOp op, Value *value) noexcept;
 
