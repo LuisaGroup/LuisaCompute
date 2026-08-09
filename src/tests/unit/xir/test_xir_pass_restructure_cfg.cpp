@@ -1152,6 +1152,14 @@ void reg_restructure_cfg() {
         expect(
             info.selection_exit_enclosing_loop_query_count ==
             construct_count);
+        // Every diamond has two disjoint one-block arms. Region traversal
+        // visits each arm and edge once.
+        expect(
+            info.selection_exit_region_block_visit_count ==
+            2u * construct_count);
+        expect(
+            info.selection_exit_region_edge_visit_count ==
+            2u * construct_count);
         // The final post-merge audit asks each merge's sparse dominance
         // frontier. These sequential diamonds have empty frontiers, so graph
         // width cannot turn the audit into construct_count * block_count.
@@ -1255,6 +1263,56 @@ void reg_restructure_cfg() {
         expect(
             info.selection_exit_site_query_count >=
             selection_count);
+    };
+
+    "restructure_loop_boundary_dataflow_visits_induced_regions"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel =
+            make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto loop_count = size_t{64u};
+        auto *cursor = entry;
+        for (auto i = size_t{0u}; i < loop_count; ++i) {
+            builder.set_insertion_point(cursor);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(condition, body, merge);
+            builder.set_insertion_point(body);
+            builder.continue_(update);
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            cursor = merge;
+        }
+        builder.set_insertion_point(cursor);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(
+            info.selection_exit_boundary_dataflow_count ==
+            loop_count *
+                info.selection_exit_boundary_analysis_count);
+        // The 64 loops are sequential and each induced region contains only
+        // its body/update plus the explicit prepare/merge boundaries. A
+        // whole-function solve would visit Theta(loop_count^2) blocks; the
+        // region-closed solution stays linear in the number of loop contexts.
+        expect(
+            info.selection_exit_boundary_block_visit_count <=
+            4u *
+                info.selection_exit_boundary_dataflow_count);
+        expect(
+            info.selection_exit_boundary_edge_visit_count <=
+            4u *
+                info.selection_exit_boundary_dataflow_count);
     };
 
     "restructure_empty_module_noop"_test = [] {
@@ -2812,6 +2870,28 @@ void reg_restructure_cfg() {
         expect(first.succeeded());
         expect(first.iteration_limit_count == 0u);
         expect(first.unstructured_branch_count == 0u);
+        expect(
+            first.selection_exit_cfg_invalidation_count >=
+            sites.size());
+        expect(
+            first.selection_exit_local_invalidation_count ==
+            first.selection_exit_cfg_invalidation_count);
+        expect(
+            first.selection_exit_global_invalidation_count == 0u);
+        // Each local rewrite dirties only itself and physical enclosing
+        // selections. The 65-site chain is therefore drained with linear
+        // queries instead of restarting a full scan after every rewrite.
+        expect(
+            first.selection_exit_site_query_count <=
+            3u * sites.size());
+        expect(
+            first.selection_exit_postdom_refresh_count > 0u);
+        // All 65 independent rewrites are one drain batch. Dominance must be
+        // refreshed between writes because the next query observes it, while
+        // post-dominance has no observer until the following phase.
+        expect(
+            first.selection_exit_postdom_refresh_count <
+            first.selection_exit_cfg_invalidation_count);
         luisa::vector<BasicBlock *> rewritten_merges;
         rewritten_merges.reserve(sites.size());
         for (auto site : sites) {

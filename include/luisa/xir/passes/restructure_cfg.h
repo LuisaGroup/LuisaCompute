@@ -75,13 +75,32 @@ struct RestructureCFGInfo {
     // monotone dataflow per reachable loop, then performs O(1) lookups for
     // each IfInst arm. No arm launches an independent CFG search.
     size_t selection_exit_boundary_dataflow_count{0u};
+    // Each dataflow solves only the structurally reachable loop region plus
+    // its explicit boundary nodes. These counts expose the sparse induced
+    // subgraphs actually visited across all loop contexts.
+    size_t selection_exit_boundary_block_visit_count{0u};
+    size_t selection_exit_boundary_edge_visit_count{0u};
     size_t selection_exit_boundary_classification_count{0u};
     size_t selection_exit_site_query_count{0u};
     size_t selection_exit_enclosing_loop_query_count{0u};
+    // Actual sparse selection-region work across all site queries.
+    size_t selection_exit_region_block_visit_count{0u};
+    size_t selection_exit_region_edge_visit_count{0u};
     // Persistent enclosing-loop context nodes materialized while scanning
     // selection exits. There is exactly one node per reachable structured
     // loop per observed CFG version, never one loop-exit set per block.
     size_t selection_exit_loop_context_count{0u};
+    // Selection-exit rewrites invalidate dominance immediately because the
+    // next site query consumes it. Post-dominance is not observed inside the
+    // drain, so one refresh is deferred until the complete mutation batch has
+    // finished. These counters make that analysis-lifetime contract visible.
+    size_t selection_exit_cfg_invalidation_count{0u};
+    size_t selection_exit_local_invalidation_count{0u};
+    size_t selection_exit_global_invalidation_count{0u};
+    // Clean site results invalidated by the precise construct-dependency
+    // worklist after a localized rewrite.
+    size_t selection_exit_dependency_requery_count{0u};
+    size_t selection_exit_postdom_refresh_count{0u};
     // Rewriting a nested selection may make a site already handled in the
     // current drain round eligible again. The selection phase yields so later
     // canonicalizers can collapse the generated protocol before the next
