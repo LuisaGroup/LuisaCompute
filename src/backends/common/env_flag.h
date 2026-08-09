@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <string_view>
 
-namespace lc::detail {
+namespace luisa::compute::detail {
 
 // Single convention for boolean environment flags across the backends: the
 // flag is enabled when its value is a truthy string ("1", "true", "TRUE",
@@ -16,4 +16,4 @@ namespace lc::detail {
            flag == "on" || flag == "ON";
 }
 
-}// namespace lc::detail
+}// namespace luisa::compute::detail

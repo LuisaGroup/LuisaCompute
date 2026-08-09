@@ -35,7 +35,7 @@ ComputeShader::ComputeShader(
       _pipeline_create_flags{
           pipeline_create_flags(enable_driver_optimization)} {
     auto profile =
-        lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+        luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     Clock phase_clock;
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};

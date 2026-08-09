@@ -68,7 +68,7 @@ using namespace std::string_literals;
 namespace {
 
 [[nodiscard]] bool require_native_xir_spirv() noexcept {
-    return lc::detail::env_flag(
+    return luisa::compute::detail::env_flag(
         "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV");
 }
 
@@ -221,7 +221,10 @@ namespace detail {
 #else
     auto enabled = true;
 #endif
-    if (lc::detail::env_flag("LUISA_VULKAN_VALIDATION")) { enabled = true; }
+    if (luisa::compute::detail::env_flag(
+            "LUISA_VULKAN_VALIDATION")) {
+        enabled = true;
+    }
     return enabled;
 }
 
@@ -3024,7 +3027,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                  "Vulkan SPIR-V target-feature mask did not round-trip.");
     vstd::optional<lc::spirv::SpirvResult> spv_result;
     auto profile =
-        lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+        luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     auto shader_md5 = compute_shader_cache_md5(
         kernel, option, target_features);
     auto require_print_code = print_code();
