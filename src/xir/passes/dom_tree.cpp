@@ -22,6 +22,21 @@ inline void DomTreeNode::add_frontier(DomTreeNode *frontier) noexcept {
     _frontiers.emplace_back(frontier);
 }
 
+bool DomTreeNode::dominates(const DomTreeNode *other) const noexcept {
+    if (other == nullptr) { return false; }
+    LUISA_DEBUG_ASSERT(
+        _preorder_index != SIZE_MAX &&
+            _subtree_end_index != SIZE_MAX &&
+            other->_preorder_index != SIZE_MAX &&
+            other->_subtree_end_index != SIZE_MAX,
+        "Dominator tree ancestry intervals have not been computed.");
+    // Dominance is ancestry in the dominator tree. The DFS subtree interval
+    // makes the relation a constant-time comparison once callers have
+    // resolved their block handles to tree nodes.
+    return _preorder_index <= other->_preorder_index &&
+           other->_preorder_index < _subtree_end_index;
+}
+
 DomTree::DomTree() noexcept : _root{nullptr} {}
 
 inline DomTreeNode *DomTree::add_or_get_node(BasicBlock *block) noexcept {
@@ -71,6 +86,13 @@ inline void DomTree::compute_ancestry_intervals() noexcept {
 }
 
 inline void DomTree::compute_dominance_frontiers() noexcept {
+    // Frontier construction is a pure derivative of the current tree. Clear
+    // the node-local vectors so explicit late materialization is idempotent
+    // without adding ABI-visible state to DomTree.
+    for (auto &&[block, node] : _nodes) {
+        static_cast<void>(block);
+        node->_frontiers.clear();
+    }
     luisa::fixed_vector<BasicBlock *, 16u> preds;
     luisa::unordered_map<DomTreeNode *, luisa::unordered_set<DomTreeNode *>> frontiers;
     for (auto &&[b, node] : _nodes) {
@@ -111,20 +133,13 @@ bool DomTree::contains(BasicBlock *block) const noexcept {
 }
 
 bool DomTree::dominates(BasicBlock *src, BasicBlock *dst) const noexcept {
-    if (!contains(src) || !contains(dst)) { return false; }
-    auto src_node = node(src);
-    auto dst_node = node(dst);
-    LUISA_DEBUG_ASSERT(
-        src_node->_preorder_index != SIZE_MAX &&
-            src_node->_subtree_end_index != SIZE_MAX &&
-            dst_node->_preorder_index != SIZE_MAX &&
-            dst_node->_subtree_end_index != SIZE_MAX,
-        "Dominator tree ancestry intervals have not been computed.");
-    // In a rooted tree, a node is an ancestor of another node iff the
-    // descendant's DFS preorder index lies in the ancestor's half-open
-    // subtree interval. Dominance is precisely ancestry in the dominator tree.
-    return src_node->_preorder_index <= dst_node->_preorder_index &&
-           dst_node->_preorder_index < src_node->_subtree_end_index;
+    auto src_node = node_or_null(src);
+    if (src_node == nullptr) { return false; }
+    // Reflexivity needs only one lookup, while a general query resolves each
+    // block once. The former contains()+node() sequence resolved each block
+    // twice and made a constant-time tree query perform four hash probes.
+    if (src == dst) { return true; }
+    return src_node->dominates(node_or_null(dst));
 }
 
 bool DomTree::strictly_dominates(BasicBlock *src, BasicBlock *dst) const noexcept {
@@ -139,6 +154,12 @@ auto DomTree::immediate_dominator(BasicBlock *block) const noexcept -> BasicBloc
 
 // Reference: A Simple, Fast Dominance Algorithm [Cooper et al. 2001]
 DomTree compute_dom_tree(Function *function) noexcept {
+    return compute_dom_tree(function, {});
+}
+
+DomTree compute_dom_tree(
+    Function *function,
+    DomTreeBuildOptions options) noexcept {
     auto definition =
         function == nullptr ? nullptr : function->definition();
     if (definition == nullptr || definition->body_block() == nullptr) {
@@ -250,7 +271,9 @@ DomTree compute_dom_tree(Function *function) noexcept {
     }
     tree.set_root(tree.add_or_get_node(root_block));
     tree.compute_ancestry_intervals();
-    tree.compute_dominance_frontiers();
+    if (options.compute_dominance_frontiers) {
+        tree.compute_dominance_frontiers();
+    }
     return tree;
 }
 

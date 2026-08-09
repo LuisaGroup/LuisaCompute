@@ -104,6 +104,10 @@ void register_post_dom_tree_tests() {
         auto post_dom_tree = compute_post_dom_tree(kernel);
         auto *foreign = reinterpret_cast<BasicBlock *>(uintptr_t{0xdead});
         expect(!dom_tree.dominates(foreign, foreign));
+        expect(!dom_tree.dominates(body, foreign));
+        expect(!dom_tree.dominates(foreign, body));
+        expect(!dom_tree.dominates(nullptr, body));
+        expect(!dom_tree.dominates(body, nullptr));
         expect(!dom_tree.strictly_dominates(foreign, foreign));
         expect(!post_dom_tree.post_dominates(foreign, foreign));
         expect(!post_dom_tree.strictly_post_dominates(foreign, foreign));
@@ -128,6 +132,34 @@ void register_post_dom_tree_tests() {
         auto tree = compute_dom_tree(kernel);
         auto frontiers = tree.root()->frontiers();
         expect(std::find(frontiers.begin(), frontiers.end(), tree.root()) != frontiers.end());
+    };
+
+    "dom_tree_frontiers_can_be_materialized_once_after_ancestry"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(body);
+        b.set_insertion_point(right);
+        b.br(body);
+
+        auto tree = compute_dom_tree(
+            kernel, {.compute_dominance_frontiers = false});
+        expect(tree.root()->frontiers().empty());
+        expect(tree.dominates(body, left));
+        expect(tree.dominates(body, right));
+        tree.compute_dominance_frontiers();
+        auto frontier_count = tree.root()->frontiers().size();
+        expect(frontier_count == 1u);
+        expect(tree.root()->frontiers().front() == tree.root());
+        tree.compute_dominance_frontiers();
+        expect(tree.root()->frontiers().size() == frontier_count);
     };
 
     "dom_tree_ancestry_queries_cover_deep_and_sibling_subtrees"_test = [] {
@@ -165,6 +197,9 @@ void register_post_dom_tree_tests() {
         expect(tree.dominates(merge, tail));
         expect(tree.strictly_dominates(merge, tail));
         expect(!tree.strictly_dominates(merge, merge));
+        expect(tree.node(body)->dominates(tree.node(left_inner)));
+        expect(!tree.node(left)->dominates(tree.node(right)));
+        expect(!tree.node(body)->dominates(nullptr));
     };
 
     "dom_trees_ignore_unreachable_predecessors"_test = [] {

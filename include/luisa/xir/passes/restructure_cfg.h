@@ -51,10 +51,14 @@ struct RestructureCFGInfo {
     size_t if_batch_merge_edge_visit_count{0u};
     // Loop-continue normalization shares ownership and dominance across all
     // site queries in one immutable CFG version. Any successful site rewrite
-    // invalidates both analyses before the next site is inspected.
+    // invalidates both analyses before the next site is inspected. Intermediate
+    // dominance versions omit the unobserved frontier relation; the final tree
+    // retained by each mutating batch materializes it exactly once.
     size_t loop_continue_analysis_count{0u};
     size_t loop_continue_site_query_count{0u};
     size_t loop_continue_invalidation_count{0u};
+    size_t loop_continue_dominance_rebuild_count{0u};
+    size_t loop_continue_frontier_materialization_count{0u};
     // Post-dominance value-numbers every owned CFG once, then solves the
     // sink-reachable reverse CFG using sparse CSR edges and dense RPO IDs.
     // Pointer hashing is confined to numbering and the final API mapping.

@@ -1040,11 +1040,60 @@ void reg_restructure_cfg() {
                loop_count);
         expect(info.loop_continue_analysis_count > 0u);
         expect(info.loop_continue_invalidation_count == 0u);
+        expect(info.loop_continue_dominance_rebuild_count == 0u);
+        expect(
+            info.loop_continue_frontier_materialization_count == 0u);
         expect(
             info.loop_continue_site_query_count ==
             loop_count * info.loop_continue_analysis_count)
             << "all loop sites in an immutable CFG version must share "
                "one ownership/dominance analysis";
+    };
+
+    "restructure_loop_continue_defers_frontiers_across_mutations"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto loop_count = size_t{16u};
+        auto *insertion = body;
+        for (auto i = size_t{0u}; i < loop_count; ++i) {
+            builder.set_insertion_point(insertion);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *loop_body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(condition, loop_body, merge);
+            builder.set_insertion_point(loop_body);
+            builder.br(update);
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            insertion = merge;
+        }
+        builder.set_insertion_point(insertion);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.changed());
+        expect(info.loop_continue_invalidation_count >= loop_count);
+        expect(
+            info.loop_continue_dominance_rebuild_count ==
+            info.loop_continue_invalidation_count);
+        expect(
+            info.loop_continue_frontier_materialization_count > 0u);
+        expect(
+            info.loop_continue_frontier_materialization_count <
+            info.loop_continue_dominance_rebuild_count)
+            << "one immutable ancestry tree is required per mutation, "
+               "but frontier materialization is deferred to the final "
+               "tree retained by each mutating batch";
     };
 
     "restructure_loop_body_break_or_continue_through_proxy_chain"_test = [] {

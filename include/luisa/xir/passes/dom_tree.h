@@ -30,6 +30,7 @@ public:
     [[nodiscard]] auto block() const noexcept { return _block; }
     [[nodiscard]] auto children() const noexcept { return luisa::span{_children}; }
     [[nodiscard]] auto frontiers() const noexcept { return luisa::span{_frontiers}; }
+    [[nodiscard]] bool dominates(const DomTreeNode *other) const noexcept;
 };
 
 class LUISA_XIR_API DomTree : public concepts::Noncopyable {
@@ -56,7 +57,15 @@ public:
     [[nodiscard]] auto immediate_dominator(BasicBlock *block) const noexcept -> BasicBlock *;
 };
 
+struct DomTreeBuildOptions {
+    bool compute_dominance_frontiers{true};
+};
+
 /// Null and declaration-only functions yield an empty tree.
-[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(Function *function) noexcept;
+[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(
+    Function *function) noexcept;
+[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(
+    Function *function,
+    DomTreeBuildOptions options) noexcept;
 
 }// namespace luisa::compute::xir
