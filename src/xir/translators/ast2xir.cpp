@@ -68,6 +68,7 @@ private:
     [[maybe_unused]] AST2XIRConfig _config;
     luisa::unique_ptr<Module> _module;
     luisa::unordered_map<const compute::detail::FunctionBuilder *, Function *> _generated_functions;
+    luisa::unordered_map<uint64_t, Function *> _generated_callable_definitions;
     luisa::unordered_map<uint64_t, ExternalFunction *> _generated_external_functions;
     luisa::unordered_map<ConstantData, Constant *> _generated_constants;
     luisa::unordered_map<TypedLiteral, Constant *> _generated_literals;
@@ -1268,10 +1269,23 @@ public:
 
     Function *add_function(const ASTFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
-        // try emplace the function
-        auto [iter, just_inserted] = _generated_functions.try_emplace(f.builder(), nullptr);
-        // return the function if it has been translated
-        if (!just_inserted) { return iter->second; }
+        // Builder identity breaks recursive translation cycles. Equivalent
+        // CALLABLE builders additionally share one definition by structural
+        // hash; kernels and coroutines remain distinct entry points.
+        if (auto iter = _generated_functions.find(f.builder());
+            iter != _generated_functions.end()) {
+            return iter->second;
+        }
+        if (f.tag() == ASTFunction::Tag::CALLABLE) {
+            if (auto iter = _generated_callable_definitions.find(f.hash());
+                iter != _generated_callable_definitions.end()) {
+                _generated_functions.emplace(f.builder(), iter->second);
+                return iter->second;
+            }
+        }
+        auto [iter, just_inserted] =
+            _generated_functions.try_emplace(f.builder(), nullptr);
+        LUISA_ASSERT(just_inserted, "Function builder was inserted concurrently.");
         // create a new function
         auto def = [&]() noexcept -> FunctionDefinition * {
             switch (f.tag()) {
@@ -1294,6 +1308,12 @@ public:
             def->set_name(name);
         }
         iter->second = def;
+        if (f.tag() == ASTFunction::Tag::CALLABLE) {
+            auto [hash_iter, hash_inserted] =
+                _generated_callable_definitions.try_emplace(f.hash(), def);
+            LUISA_ASSERT(hash_inserted || hash_iter->second == def,
+                         "Callable hash canonicalization is inconsistent.");
+        }
         // translate the function
         auto old = std::exchange(_current, {.f = def, .ast = &f});
         _translate_current_function();
