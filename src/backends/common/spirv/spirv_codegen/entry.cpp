@@ -19,7 +19,8 @@ namespace lc::spirv {
 namespace {
 
 [[nodiscard]] bool profile_native_spirv() noexcept {
-    return lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+    return luisa::compute::detail::env_flag(
+        "LUISA_VULKAN_PROFILE_COMPILATION");
 }
 
 [[nodiscard]] bool is_constant_ubo_element_layout_supported(
