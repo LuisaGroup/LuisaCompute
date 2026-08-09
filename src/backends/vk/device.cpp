@@ -596,6 +596,11 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
     bool headless = false;
     bool use_lmdb = false;
     auto require_native_spirv = require_native_xir_spirv();
+#ifdef LC_NO_HLSL_BUILTIN
+    constexpr auto dxc_compatibility_compiled = false;
+#else
+    constexpr auto dxc_compatibility_compiled = true;
+#endif
     bool load_dxc_for_config_readback = false;
     uint device_idx = -1;
     if (configs) {
@@ -674,7 +679,11 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         ext_phy_device = external_device.physical_device;
         ext_device = external_device.device;
         _instance = external_device.instance;
-        load_dxc_for_config_readback = !require_native_spirv && _config_ext->load_dxc();
+        load_dxc_for_config_readback =
+            detail::plan_vulkan_config_readback_dxc(
+                _config_ext->load_dxc(), dxc_compatibility_compiled,
+                require_native_spirv)
+                .expose_dxc;
         _graphics_queue = external_device.graphics_queue;
         auto ext_path = _config_ext->external_vulkan_lib_path();
         custom_path = std::move(ext_path.lib_path);

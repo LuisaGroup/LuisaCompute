@@ -100,6 +100,22 @@ struct RequiredNativeXirSpirvPlan {
     }
 };
 
+struct VulkanConfigReadbackDxcPlan {
+    bool expose_dxc{};
+};
+
+// A config extension may request DXC for legacy integrations, but a strict
+// native route and a build that omitted DXC are both authoritative. Keeping
+// this decision pure makes all combinations testable without creating a
+// Vulkan device or loading a compiler shared library.
+[[nodiscard]] constexpr VulkanConfigReadbackDxcPlan
+plan_vulkan_config_readback_dxc(
+    bool requested, bool compatibility_compiled,
+    bool native_xir_spirv_required) noexcept {
+    return {.expose_dxc = requested && compatibility_compiled &&
+                           !native_xir_spirv_required};
+}
+
 [[nodiscard]] constexpr RequiredNativeXirSpirvPlan
 plan_required_native_xir_spirv(
     bool required, bool native_codegen_compiled,
