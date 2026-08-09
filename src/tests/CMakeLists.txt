@@ -116,6 +116,10 @@ if (TARGET luisa-compute-backend-vk)
     # Exercises a fatal runtime contract through a child process and requires
     # a physical Vulkan device, so keep it out of unattended CTest runs.
     luisa_compute_add_test(test_vk_native_route_guard unit/runtime/test_vk_native_route_guard.cpp)
+    # vk_config_ext.h exposes Vulkan ABI types. Inherit the vendored
+    # Vulkan-Headers through Volk so this test does not depend on a system
+    # Vulkan SDK (notably on the Windows CI image).
+    target_link_libraries(test_vk_native_route_guard PRIVATE luisa-compute-ext-volk)
     if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
         target_compile_definitions(test_vk_native_route_guard PRIVATE
                 LUISA_TEST_VK_HAS_NATIVE_XIR_SPIRV=1)
