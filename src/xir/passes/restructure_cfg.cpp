@@ -2460,112 +2460,188 @@ collect_loop_boundary_selection_entries(
            term->isa<SimpleLoopInst>();
 }
 
-[[nodiscard]] bool canonicalize_loop_boundary_selection_merges(FunctionDefinition *def) noexcept {
+[[nodiscard]] bool canonicalize_loop_boundary_selection_merges(
+    FunctionDefinition *def,
+    RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_canonicalize_loop_boundary_selection_merges(
         "canonicalize_loop_boundary_selection_merges");
-    bool changed = false;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated()) { return; }
-        auto *term = bb->terminator();
+    struct LoopSite {
         BasicBlock *body = nullptr;
         BasicBlock *continue_target = nullptr;
         BasicBlock *loop_entry = nullptr;
         BasicBlock *merge = nullptr;
+    };
+    luisa::vector<LoopSite> loops;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated()) { return; }
+        auto *term = bb->terminator();
+        auto site = LoopSite{};
         if (term->isa<LoopInst>()) {
             auto *loop = static_cast<LoopInst *>(term);
-            body = loop->body_block();
-            continue_target = loop->update_block();
-            if (continue_target == nullptr) { continue_target = loop->prepare_block(); }
-            loop_entry = loop->prepare_block();
-            merge = loop->merge_block();
+            site.body = loop->body_block();
+            site.continue_target = loop->update_block();
+            if (site.continue_target == nullptr) {
+                site.continue_target = loop->prepare_block();
+            }
+            site.loop_entry = loop->prepare_block();
+            site.merge = loop->merge_block();
         } else if (term->isa<SimpleLoopInst>()) {
             auto *loop = static_cast<SimpleLoopInst *>(term);
-            body = loop->body_block();
-            continue_target = loop->body_block();
-            loop_entry = loop->body_block();
-            merge = loop->merge_block();
+            site.body = loop->body_block();
+            site.continue_target = loop->body_block();
+            site.loop_entry = loop->body_block();
+            site.merge = loop->merge_block();
         } else {
             return;
         }
-        luisa::unordered_set<BasicBlock *> visited;
-        luisa::vector<BasicBlock *> work;
-        auto enqueue = [&](BasicBlock *candidate) noexcept {
-            if (candidate == nullptr || candidate == merge) { return; }
-            if (visited.emplace(candidate).second) { work.emplace_back(candidate); }
-        };
-        enqueue(body);
-        while (!work.empty()) {
-            auto *cur = work.back();
-            work.pop_back();
-            if (cur->is_terminated() && cur->terminator()->isa<IfInst>()) {
-                auto *if_inst = static_cast<IfInst *>(cur->terminator());
-                auto true_kind = classify_loop_boundary_path(
-                    if_inst->true_block(), continue_target,
-                    loop_entry, merge);
-                auto false_kind = classify_loop_boundary_path(
-                    if_inst->false_block(), continue_target,
-                    loop_entry, merge);
-                auto canonicalize_boundary_arm =
-                    [&](BasicBlock *target,
-                        LoopBoundaryTargetKind kind) noexcept {
-                        auto break_arm =
-                            kind == LoopBoundaryTargetKind::BREAK &&
-                            is_loop_break_target(target, merge);
-                        if (!break_arm) { return target; }
-                        // A previously normalized boundary proxy may be
-                        // lowered from Break(M) to a pure branch chain ending
-                        // at M by an adjacent canonicalization phase. It
-                        // already preserves the declared single-exit
-                        // boundary. Only a chain that reaches the forwarding
-                        // destination *after* M while bypassing M needs a new
-                        // proxy.
-                        if (is_canonical_loop_break_path(
-                                target, merge)) {
-                            return target;
-                        }
-                        auto *proxy = def->create_basic_block();
-                        XIRBuilder b;
-                        b.set_insertion_point(proxy);
-                        b.break_(merge);
-                        changed = true;
-                        return proxy;
-                    };
-                auto *old_true = if_inst->true_block();
-                auto *old_false = if_inst->false_block();
-                auto *new_true = canonicalize_boundary_arm(
-                    old_true, true_kind);
-                auto *new_false = canonicalize_boundary_arm(
-                    old_false, false_kind);
-                if (new_true != old_true) {
-                    if_inst->set_true_target(new_true);
-                }
-                if (new_false != old_false) {
-                    if_inst->set_false_target(new_false);
-                }
-                if (is_loop_boundary_if(
-                        if_inst, continue_target,
-                        loop_entry, merge) &&
-                    ((if_inst->merge_block() !=
-                          if_inst->true_block() &&
-                      if_inst->merge_block() !=
-                          if_inst->false_block()) ||
-                     if_inst->merge_block() == merge)) {
-                    old_false = if_inst->false_block();
-                    auto *new_merge = def->create_basic_block();
-                    XIRBuilder b;
-                    b.set_insertion_point(new_merge);
-                    b.br(old_false);
-                    if_inst->set_false_target(new_merge);
-                    if_inst->set_merge_block(new_merge);
-                    changed = true;
-                }
-            }
-            traverse_structured_successors(cur, [&](BasicBlock *succ) noexcept {
-                if (succ == loop_entry || succ == merge) { return; }
-                enqueue(succ);
-            });
+        if (site.body != nullptr &&
+            site.continue_target != nullptr &&
+            site.loop_entry != nullptr &&
+            site.merge != nullptr) {
+            loops.emplace_back(site);
         }
     });
+    if (loops.empty()) { return false; }
+
+    struct Rewrite {
+        IfInst *if_inst{nullptr};
+        BasicBlock *true_target{nullptr};
+        BasicBlock *false_target{nullptr};
+        BasicBlock *selection_merge{nullptr};
+        BasicBlock *loop_merge{nullptr};
+        bool true_break_proxy{false};
+        bool false_break_proxy{false};
+        bool merge_proxy{false};
+    };
+    auto apply_rewrites = [&](luisa::span<const Rewrite> rewrites) noexcept {
+        XIRBuilder builder;
+        for (auto &&rewrite : rewrites) {
+            auto *new_true = rewrite.true_target;
+            auto *new_false = rewrite.false_target;
+            if (rewrite.true_break_proxy) {
+                new_true = def->create_basic_block();
+                builder.set_insertion_point(new_true);
+                builder.break_(rewrite.loop_merge);
+            }
+            if (rewrite.false_break_proxy) {
+                new_false = def->create_basic_block();
+                builder.set_insertion_point(new_false);
+                builder.break_(rewrite.loop_merge);
+            }
+            if (new_true != rewrite.true_target) {
+                rewrite.if_inst->set_true_target(new_true);
+            }
+            if (new_false != rewrite.false_target) {
+                rewrite.if_inst->set_false_target(new_false);
+            }
+            if (rewrite.merge_proxy) {
+                auto *new_merge = def->create_basic_block();
+                builder.set_insertion_point(new_merge);
+                builder.br(new_false);
+                rewrite.if_inst->set_false_target(new_merge);
+                rewrite.if_inst->set_merge_block(new_merge);
+            }
+        }
+    };
+
+    auto changed = false;
+    for (;;) {
+        // The dataflow and all classifications below describe exactly this
+        // immutable CFG version. Applying any loop batch invalidates the
+        // block numbering, reverse edges, and terminal facts, so restart from
+        // a fresh snapshot before inspecting another loop context.
+        LoopBoundaryPathDataflow dataflow{def};
+        ++info.boundary_merge_analysis_count;
+        auto applied_batch = false;
+        for (auto &&loop : loops) {
+            dataflow.evaluate(
+                loop.continue_target,
+                loop.loop_entry,
+                loop.merge);
+            ++info.boundary_merge_dataflow_count;
+            luisa::vector<Rewrite> rewrites;
+            dataflow.visit_loop_region(
+                loop.body, loop.loop_entry, loop.merge,
+                [&](BasicBlock *cur) noexcept {
+                    if (!cur->is_terminated() ||
+                        !cur->terminator()->isa<IfInst>()) {
+                        return;
+                    }
+                    auto *if_inst = static_cast<IfInst *>(
+                        cur->terminator());
+                    auto true_kind = dataflow.classify(
+                        if_inst->true_block());
+                    auto false_kind = dataflow.classify(
+                        if_inst->false_block());
+                    info.boundary_merge_classification_count += 2u;
+                    auto needs_break_proxy = [merge = loop.merge](
+                                                 BasicBlock *target,
+                                                 LoopBoundaryTargetKind kind) noexcept {
+                        return kind == LoopBoundaryTargetKind::BREAK &&
+                               is_loop_break_target(target, merge) &&
+                               !is_canonical_loop_break_path(target, merge);
+                    };
+                    auto rewrite = Rewrite{
+                        .if_inst = if_inst,
+                        .true_target = if_inst->true_block(),
+                        .false_target = if_inst->false_block(),
+                        .selection_merge = if_inst->merge_block(),
+                        .loop_merge = loop.merge,
+                        .true_break_proxy = needs_break_proxy(
+                            if_inst->true_block(), true_kind),
+                        .false_break_proxy = needs_break_proxy(
+                            if_inst->false_block(), false_kind)};
+
+                    // Break proxies preserve the arm's BREAK fact but replace
+                    // its target identity. Evaluate the selection predicate
+                    // on those prospective identities, matching the original
+                    // arm-first rewrite order without mutating the snapshot.
+                    auto true_is_selection_merge =
+                        !rewrite.true_break_proxy &&
+                        rewrite.true_target == rewrite.selection_merge;
+                    auto false_is_selection_merge =
+                        !rewrite.false_break_proxy &&
+                        rewrite.false_target == rewrite.selection_merge;
+                    auto singular_boundary = [](auto kind) noexcept {
+                        return kind == LoopBoundaryTargetKind::BREAK ||
+                               kind == LoopBoundaryTargetKind::CONTINUE;
+                    };
+                    auto boundary_if =
+                        (true_kind == LoopBoundaryTargetKind::CONTINUE &&
+                         false_kind == LoopBoundaryTargetKind::BREAK) ||
+                        (true_kind == LoopBoundaryTargetKind::BREAK &&
+                         false_kind == LoopBoundaryTargetKind::CONTINUE) ||
+                        (true_is_selection_merge &&
+                         singular_boundary(false_kind)) ||
+                        (false_is_selection_merge &&
+                         singular_boundary(true_kind));
+                    rewrite.merge_proxy =
+                        boundary_if &&
+                        ((!true_is_selection_merge &&
+                          !false_is_selection_merge) ||
+                         rewrite.selection_merge == loop.merge);
+                    if (rewrite.true_break_proxy ||
+                        rewrite.false_break_proxy ||
+                        rewrite.merge_proxy) {
+                        rewrites.emplace_back(rewrite);
+                    }
+                });
+            if (rewrites.empty()) { continue; }
+
+            // Within one loop context, a break proxy substitutes the same
+            // BREAK fact. A merge proxy removes only its obsolete declared
+            // successor while retaining both executable arms. Facts can
+            // therefore only stay equal or lose spurious bits; every action
+            // proven on this snapshot remains sound. Newly enabled actions
+            // are found after the mandatory version restart below.
+            apply_rewrites(rewrites);
+            ++info.boundary_merge_rewrite_batch_count;
+            changed = true;
+            applied_batch = true;
+            break;
+        }
+        if (!applied_batch) { break; }
+    }
     return changed;
 }
 
@@ -6323,7 +6399,7 @@ restructure_cfg_on_definition_in_place(
     // matching their no-OpSelectionMerge lowering. Generic construct-entry
     // enforcement must observe that canonical construct classification and
     // never node-split an enclosing loop prepare/update region for the guard.
-    if (canonicalize_loop_boundary_selection_merges(def)) {
+    if (canonicalize_loop_boundary_selection_merges(def, info)) {
         ++info.canonicalized_cfg_count;
     }
     enforce_unique_construct_entries(def, info);
@@ -6398,7 +6474,8 @@ restructure_cfg_on_definition_in_place(
                     "the remaining post canonicalizers after a site revisit.");
             }
             auto boundary_merge_changed =
-                canonicalize_loop_boundary_selection_merges(def);
+                canonicalize_loop_boundary_selection_merges(
+                    def, info);
             if (boundary_merge_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
@@ -6797,6 +6874,18 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_round_yield",
             info.selection_exit_round_yield_count);
         report->set(
+            "boundary_merge_analysis",
+            info.boundary_merge_analysis_count);
+        report->set(
+            "boundary_merge_dataflow",
+            info.boundary_merge_dataflow_count);
+        report->set(
+            "boundary_merge_classification",
+            info.boundary_merge_classification_count);
+        report->set(
+            "boundary_merge_rewrite_batch",
+            info.boundary_merge_rewrite_batch_count);
+        report->set(
             "selection_reentry_boundary_analysis",
             info.selection_reentry_boundary_analysis_count);
         report->set(
@@ -6869,6 +6958,14 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_loop_context_count;
         dst.selection_exit_round_yield_count +=
             src.selection_exit_round_yield_count;
+        dst.boundary_merge_analysis_count +=
+            src.boundary_merge_analysis_count;
+        dst.boundary_merge_dataflow_count +=
+            src.boundary_merge_dataflow_count;
+        dst.boundary_merge_classification_count +=
+            src.boundary_merge_classification_count;
+        dst.boundary_merge_rewrite_batch_count +=
+            src.boundary_merge_rewrite_batch_count;
         dst.selection_reentry_boundary_analysis_count +=
             src.selection_reentry_boundary_analysis_count;
         dst.selection_reentry_edge_query_count +=

@@ -718,6 +718,7 @@ void reg_restructure_cfg() {
         expect(info.changed());
         expect(info.iteration_limit_count == 0u);
         expect(info.invalid_construct_count == 0u);
+        expect(info.boundary_merge_rewrite_batch_count > 0u);
         expect(count_owned_blocks(kernel) <= block_count + 4u)
             << "normalizing a physical loop guard may add only constant-size "
                "boundary proxies, not clone the loop prepare region";
@@ -1188,6 +1189,19 @@ void reg_restructure_cfg() {
             info.selection_exit_boundary_classification_count ==
             2u * selection_count *
                 info.selection_exit_boundary_analysis_count);
+        // Merge canonicalization obeys the same immutable-version contract:
+        // this function has one loop, so every numbered snapshot has exactly
+        // one sparse dataflow solution. All 128 selections contribute only
+        // two constant-time arm lookups and require no invalidating rewrite.
+        expect(info.boundary_merge_analysis_count > 0u);
+        expect(
+            info.boundary_merge_dataflow_count ==
+            info.boundary_merge_analysis_count);
+        expect(
+            info.boundary_merge_classification_count ==
+            2u * selection_count *
+                info.boundary_merge_dataflow_count);
+        expect(info.boundary_merge_rewrite_batch_count == 0u);
         expect(
             info.selection_exit_site_query_count >=
             selection_count);

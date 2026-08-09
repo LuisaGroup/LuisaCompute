@@ -69,6 +69,14 @@ struct RestructureCFGInfo {
     // canonicalizers can collapse the generated protocol before the next
     // bounded outer fixed-point round.
     size_t selection_exit_round_yield_count{0u};
+    // Loop-boundary merge canonicalization is analyzed against an immutable
+    // CFG snapshot. Each snapshot numbers blocks once, solves one sparse
+    // reverse-CFG dataflow per visited loop, and classifies each IfInst arm
+    // by an O(1) lookup. A rewrite batch invalidates the complete snapshot.
+    size_t boundary_merge_analysis_count{0u};
+    size_t boundary_merge_dataflow_count{0u};
+    size_t boundary_merge_classification_count{0u};
+    size_t boundary_merge_rewrite_batch_count{0u};
     // Post-merge selection re-entry scans materialize loop-boundary
     // membership once per immutable CFG version, then inspect only dominator
     // ancestors of each forwarding edge destination. These operation counts
