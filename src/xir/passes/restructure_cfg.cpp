@@ -564,10 +564,11 @@ bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
 
 void fix_degenerate_terminator(BasicBlock *bb) noexcept;
 
+template<typename Dominance>
 [[nodiscard]] luisa::unordered_set<BasicBlock *>
 collect_enclosing_loop_exits(FunctionDefinition *def,
                              BasicBlock *header,
-                             const DomTree &dom) noexcept;
+                             const Dominance &dom) noexcept;
 [[nodiscard]] BasicBlock *
 structured_statement_merge(Instruction *term) noexcept;
 [[nodiscard]] BasicBlock *
@@ -577,11 +578,12 @@ canonical_exit_target(BasicBlock *target) noexcept;
 // enclosing loop or terminates the function. Recover the nearest normal-path
 // convergence instead by ignoring enclosing loop boundaries and comparing
 // shortest reachability from each distinct arm.
+template<typename Dominance>
 [[nodiscard]] BasicBlock *infer_selection_merge(
     FunctionDefinition *def,
     BasicBlock *header,
     luisa::span<BasicBlock *const> entries,
-    const DomTree &dom) noexcept {
+    const Dominance &dom) noexcept {
     if (def == nullptr || header == nullptr || entries.empty()) {
         return nullptr;
     }
@@ -3155,11 +3157,12 @@ collect_structured_loop_exit_info(
     return loops;
 }
 
+template<typename Dominance>
 [[nodiscard]] luisa::unordered_set<BasicBlock *>
 collect_enclosing_loop_exits(
     FunctionDefinition *def,
     BasicBlock *header,
-    const DomTree &dom) noexcept {
+    const Dominance &dom) noexcept {
     luisa::unordered_set<BasicBlock *> exits;
     if (!dom.contains(header)) { return exits; }
     for (auto &&loop :
@@ -4302,6 +4305,72 @@ struct SelectionExitDrainResult {
     return any;
 }
 
+// Dominance overlay for transparent merge blocks inserted by one immutable
+// if-restructuring batch. Each overlay block records an old-block anchor whose
+// dominators are exactly the old dominators of the overlay. Queries between
+// old blocks delegate to the immutable tree; no existing relation changes.
+class IfBatchDominanceOverlay {
+private:
+    const DomTree &_base;
+    const luisa::unordered_map<BasicBlock *, BasicBlock *> &_anchors;
+
+public:
+    IfBatchDominanceOverlay(
+        const DomTree &base,
+        const luisa::unordered_map<BasicBlock *, BasicBlock *> &anchors) noexcept
+        : _base{base}, _anchors{anchors} {}
+
+    [[nodiscard]] bool contains(BasicBlock *block) const noexcept {
+        return _base.contains(block) || _anchors.contains(block);
+    }
+
+    [[nodiscard]] bool dominates(
+        BasicBlock *source,
+        BasicBlock *target) const noexcept {
+        if (_base.contains(source)) {
+            if (_base.contains(target)) {
+                return _base.dominates(source, target);
+            }
+            if (auto iter = _anchors.find(target);
+                iter != _anchors.end()) {
+                return _base.dominates(source, iter->second);
+            }
+        }
+        return source == target && contains(source);
+    }
+};
+
+[[nodiscard]] BasicBlock *nearest_common_dominator(
+    const DomTree &dom,
+    BasicBlock *lhs,
+    BasicBlock *rhs) noexcept {
+    if (lhs == nullptr) { return rhs; }
+    if (rhs == nullptr) { return lhs; }
+    auto *lhs_node = dom.node_or_null(lhs);
+    auto *rhs_node = dom.node_or_null(rhs);
+    if (lhs_node == nullptr || rhs_node == nullptr) {
+        return nullptr;
+    }
+    auto lhs_depth = dom_depth(dom, lhs);
+    auto rhs_depth = dom_depth(dom, rhs);
+    while (lhs_depth > rhs_depth) {
+        lhs_node = lhs_node->parent();
+        --lhs_depth;
+    }
+    while (rhs_depth > lhs_depth) {
+        rhs_node = rhs_node->parent();
+        --rhs_depth;
+    }
+    while (lhs_node != rhs_node) {
+        lhs_node = lhs_node->parent();
+        rhs_node = rhs_node->parent();
+        LUISA_DEBUG_ASSERT(
+            lhs_node != nullptr && rhs_node != nullptr,
+            "Dominator tree nodes must share the function root.");
+    }
+    return lhs_node->block();
+}
+
 [[nodiscard]] bool try_restructure_if_batch(FunctionDefinition *def,
                                             DomTree &dom,
                                             PostDomInfo &pdom,
@@ -4337,6 +4406,7 @@ struct SelectionExitDrainResult {
     struct Candidate {
         BasicBlock *header;
         ConditionalBranchInst *cbr;
+        BasicBlock *merge;
         size_t depth;
     };
     luisa::vector<Candidate> candidates;
@@ -4373,10 +4443,14 @@ struct SelectionExitDrainResult {
         if (!dom.strictly_dominates(bb, false_bb)) { return; }
 
         candidates.push_back(
-            {bb, cbr, dom_depth(dom, bb)});
+            {bb, cbr, merge, dom_depth(dom, bb)});
     });
 
-    if (candidates.empty()) { return false; }
+    if (candidates.empty()) {
+        return false;
+    }
+    ++info.if_batch_analysis_count;
+    info.if_batch_candidate_query_count += candidates.size();
 
     // Sort by depth descending (innermost first)
     luisa::sort(candidates.begin(), candidates.end(), [](const Candidate &a, const Candidate &b) {
@@ -4385,8 +4459,10 @@ struct SelectionExitDrainResult {
 
     bool any = false;
     auto &created_structural_merges = all_created_structural_merges;
-    auto pdom_valid = true;
-
+    luisa::unordered_map<BasicBlock *, BasicBlock *>
+        overlay_dominance_anchors;
+    IfBatchDominanceOverlay dominance{
+        dom, overlay_dominance_anchors};
     // Process all candidates from innermost to outermost.
     // Since we process innermost first, restructuring an inner if does not
     // invalidate the dom/pdom for outer if-candidates. We re-validate each
@@ -4418,26 +4494,13 @@ struct SelectionExitDrainResult {
             def, found_header,
             luisa::span<BasicBlock *const>{
                 entries.data(), entries.size()},
-            dom);
+            dominance);
+        // Transparent subdivisions can hide every normal path behind an
+        // overlay that is irrelevant to this candidate. In that case the
+        // lexical merge proven on the immutable input remains the exact
+        // quotient-graph fallback.
         if (found_merge == nullptr) {
-            // Post-dominance is a fallback for candidates whose merge cannot
-            // be inferred from the current dominance tree. Rebuild it lazily
-            // after a mutation, immediately before the first query that
-            // observes the new CFG. This is equivalent to eager rebuilding
-            // after every rewrite while avoiding analyses that no candidate
-            // consumes.
-            if (!pdom_valid) {
-                pdom = compute_post_dom(def);
-                ++info.if_batch_post_dom_rebuild_count;
-                pdom_valid = true;
-            }
-            auto merge_iter =
-                pdom.ipostdom.find(found_header);
-            if (merge_iter == pdom.ipostdom.end() ||
-                merge_iter->second == nullptr) {
-                continue;
-            }
-            found_merge = merge_iter->second;
+            found_merge = cand.merge;
         }
         if (found_merge == pdom.virtual_exit ||
             found_merge == found_header) {
@@ -4526,6 +4589,42 @@ struct SelectionExitDrainResult {
         // Only retarget unstructured cbr/br blocks that are actually inside
         // the if's scope. Skip IfInst/SwitchInst/LoopInst terminators to avoid
         // corrupting already-structured inner constructs.
+        auto retarget_scope_exit = [&](BasicBlock *bb,
+                                       bool overlay_block) noexcept {
+            if (bb == structural_merge ||
+                bb == found_header ||
+                bb == found_merge ||
+                !bb->is_terminated() ||
+                !if_scope_blocks.contains(bb) ||
+                allowed_outside_targets.contains(bb)) {
+                return;
+            }
+            auto *term = bb->terminator();
+            if (!term->isa<ConditionalBranchInst>() &&
+                !term->isa<BranchInst>()) {
+                return;
+            }
+            auto is_loop_update_backedge = false;
+            if (auto iter = loop_update_to_prepare.find(bb);
+                iter != loop_update_to_prepare.end() &&
+                iter->second == found_merge) {
+                is_loop_update_backedge = true;
+            }
+            if (!is_loop_update_backedge) {
+                auto retarget = overlay_block;
+                if (!retarget && dom.contains(found_merge)) {
+                    retarget =
+                        !dom.strictly_dominates(found_merge, bb) ||
+                        (dom.strictly_dominates(found_merge, bb) &&
+                         dom.strictly_dominates(found_header, bb));
+                }
+                if (retarget) {
+                    retarget_terminator(
+                        term, found_merge, structural_merge);
+                }
+            }
+            fix_degenerate_terminator(bb);
+        };
         auto header_node = dom.node_or_null(found_header);
         if (header_node != nullptr) {
             luisa::vector<const DomTreeNode *> work;
@@ -4534,30 +4633,26 @@ struct SelectionExitDrainResult {
                 auto *node = work.back();
                 work.pop_back();
                 auto *bb = node->block();
-                if (bb != structural_merge && bb != found_header && bb != found_merge &&
-                    bb->is_terminated() && if_scope_blocks.contains(bb) &&
-                    !allowed_outside_targets.contains(bb)) {
-                    auto *term = bb->terminator();
-                    if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
-                        bool is_loop_update_backedge = false;
-                        if (auto it = loop_update_to_prepare.find(bb);
-                            it != loop_update_to_prepare.end() && it->second == found_merge) {
-                            is_loop_update_backedge = true;
-                        }
-                        if (!is_loop_update_backedge) {
-                            if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
-                                retarget_terminator(term, found_merge, structural_merge);
-                            } else if (dom.contains(found_merge) && dom.strictly_dominates(found_merge, bb) && dom.strictly_dominates(found_header, bb)) {
-                                retarget_terminator(term, found_merge, structural_merge);
-                            }
-                        }
-                        fix_degenerate_terminator(bb);
-                    }
-                }
+                retarget_scope_exit(bb, false);
                 for (auto *child : node->children()) {
                     work.push_back(child);
                 }
             }
+        }
+        // The batch inserts only transparent structural merges. Contracting
+        // those overlay blocks reproduces the immutable input graph, so
+        // dominance between every pre-existing pair of blocks is unchanged.
+        // A later outer selection still needs to retarget an overlay merge in
+        // its scope; query its exact old-block dominance anchor and process it
+        // explicitly instead of rebuilding the whole dominator tree.
+        for (auto *bb : if_scope_blocks) {
+            if (dom.contains(bb)) { continue; }
+            ++info.if_batch_overlay_block_query_count;
+            if (!overlay_dominance_anchors.contains(bb) ||
+                !dominance.dominates(found_header, bb)) {
+                continue;
+            }
+            retarget_scope_exit(bb, true);
         }
         if (true_bb == found_merge) { true_bb = structural_merge; }
         if (false_bb == found_merge) { false_bb = structural_merge; }
@@ -4575,6 +4670,42 @@ struct SelectionExitDrainResult {
             if_inst->set_true_target(true_bb);
             if_inst->set_false_target(false_bb);
             if_inst->set_merge_block(structural_merge);
+
+            if (!dom.contains(structural_merge) &&
+                !overlay_dominance_anchors.contains(
+                    structural_merge)) {
+                BasicBlock *anchor = nullptr;
+                structural_merge->traverse_predecessors(
+                    false, [&](BasicBlock *predecessor) noexcept {
+                        if (!has_executable_edge(
+                                predecessor,
+                                structural_merge)) {
+                            return;
+                        }
+                        auto *predecessor_anchor = predecessor;
+                        if (!dom.contains(predecessor)) {
+                            auto iter =
+                                overlay_dominance_anchors.find(
+                                    predecessor);
+                            if (iter ==
+                                overlay_dominance_anchors.end()) {
+                                return;
+                            }
+                            predecessor_anchor = iter->second;
+                        }
+                        anchor = nearest_common_dominator(
+                            dom, anchor, predecessor_anchor);
+                    });
+                LUISA_DEBUG_ASSERT(
+                    anchor != nullptr && dom.contains(anchor),
+                    "Transparent selection merge must have a reachable "
+                    "dominance anchor.");
+                if (anchor == nullptr) {
+                    anchor = found_header;
+                }
+                overlay_dominance_anchors.emplace(
+                    structural_merge, anchor);
+            }
 
             // Do not eagerly clone successors that are not dominated by this
             // header. Such a reachable set is not necessarily a single-entry
@@ -4601,12 +4732,10 @@ struct SelectionExitDrainResult {
             // conditional, turning a linear dispatch chain into quadratic
             // (or worse, because merge inference walks the CFG) work.
             //
-            // Refresh dominance after every mutation so subsequent scope
-            // walks include newly inserted structural merges. Mark post-dom
-            // stale; the fallback above refreshes it only if a later
-            // candidate actually requires an immediate post-dominator.
-            dom = compute_dom_tree(def);
-            pdom_valid = false;
+            // The immutable dominance relation remains valid for all old
+            // blocks. Newly inserted merges are consumed through the explicit
+            // dominance-anchor overlay above, so no per-candidate rebuild is
+            // required.
         }
     }
 
@@ -6841,8 +6970,14 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "construct_exit_parent_query",
             info.construct_exit_parent_query_count);
         report->set(
-            "if_batch_post_dom_rebuild",
-            info.if_batch_post_dom_rebuild_count);
+            "if_batch_analysis",
+            info.if_batch_analysis_count);
+        report->set(
+            "if_batch_candidate_query",
+            info.if_batch_candidate_query_count);
+        report->set(
+            "if_batch_overlay_block_query",
+            info.if_batch_overlay_block_query_count);
         report->set(
             "definition_transform_invocation",
             info.definition_transform_invocation_count);
@@ -6936,8 +7071,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.construct_exit_boundary_analysis_count;
         dst.construct_exit_parent_query_count +=
             src.construct_exit_parent_query_count;
-        dst.if_batch_post_dom_rebuild_count +=
-            src.if_batch_post_dom_rebuild_count;
+        dst.if_batch_analysis_count +=
+            src.if_batch_analysis_count;
+        dst.if_batch_candidate_query_count +=
+            src.if_batch_candidate_query_count;
+        dst.if_batch_overlay_block_query_count +=
+            src.if_batch_overlay_block_query_count;
         dst.definition_transform_invocation_count +=
             src.definition_transform_invocation_count;
         dst.boundary_verifier_count +=

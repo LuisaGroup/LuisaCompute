@@ -1411,16 +1411,19 @@ void reg_restructure_cfg() {
             {.main_iteration_limit = 1u,
              .post_iteration_limit = 64u});
 
-        // Candidate discovery uses one dom/post-dom snapshot. Every diamond's
-        // merge remains inferable from the refreshed dominance tree, so no
-        // post-mutation candidate consumes a rebuilt post-dom fallback.
+        // Candidate discovery uses one immutable dom/post-dom snapshot. Each
+        // rewrite adds only a transparent merge; contracting those overlays
+        // restores the original graph, so all 64 lexical merges are queried
+        // exactly once without a per-candidate dominance rebuild.
         expect(info.succeeded());
         expect(info.iteration_limit_count == 0u);
         expect(info.restructured_if_count ==
                diamond_count);
+        expect(info.if_batch_analysis_count > 0u);
         expect(
-            info.if_batch_post_dom_rebuild_count ==
-            0u);
+            info.if_batch_candidate_query_count ==
+            diamond_count * info.if_batch_analysis_count);
+        expect(info.if_batch_overlay_block_query_count == 0u);
         expect(count_terminator_kind(
                    kernel,
                    DerivedInstructionTag::

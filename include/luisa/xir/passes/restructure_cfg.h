@@ -33,10 +33,14 @@ struct RestructureCFGInfo {
     // hierarchy from the sparse dominator tree. This grows with actual active
     // nesting, not with the square of the number of constructs.
     size_t construct_exit_parent_query_count{0u};
-    // Post-dominator rebuilds consumed inside one if-restructuring batch.
-    // Rebuilds are lazy: a post-mutation candidate pays for one only when its
-    // merge cannot be inferred from the current dominance tree.
-    size_t if_batch_post_dom_rebuild_count{0u};
+    // If restructuring analyzes one immutable dominance snapshot, stores the
+    // lexical merge of every raw conditional, then inserts only transparent
+    // edge subdivisions. Candidate queries therefore scale with raw If sites;
+    // new overlay blocks are handled through explicit owner provenance rather
+    // than rebuilding dominance after each rewrite.
+    size_t if_batch_analysis_count{0u};
+    size_t if_batch_candidate_query_count{0u};
+    size_t if_batch_overlay_block_query_count{0u};
     // Physical invocations of the per-definition mutating transform. A
     // successful transactional pass invokes it twice per definition (shadow
     // validation plus identity-preserving replay); an in-place pass invokes
