@@ -35,12 +35,14 @@
 #include <luisa/xir/verifier.h>
 
 #include "instruction_semantics.h"
+#include "verifier_dom_tree.h"
 
 namespace luisa::compute::xir {
 
 namespace detail {
 
-using BlockSet = luisa::unordered_set<const BasicBlock *>;
+using BlockSet = VerifierBlockSet;
+using BlockAdjacency = VerifierBlockAdjacency;
 
 [[nodiscard]] bool typed_value_operand_valid(const Value *value) noexcept {
     return value != nullptr && value->type() != nullptr &&
@@ -966,15 +968,6 @@ private:
         });
     }
 
-    [[nodiscard]] static bool _same_set(const BlockSet &lhs,
-                                        const BlockSet &rhs) noexcept {
-        if (lhs.size() != rhs.size()) { return false; }
-        for (auto *block : lhs) {
-            if (!rhs.contains(block)) { return false; }
-        }
-        return true;
-    }
-
     [[nodiscard]] bool _use_list_contains(const Value *value,
                                           const Use *use) noexcept {
         // A Use is an intrusive node and therefore has at most one use-list
@@ -1053,8 +1046,8 @@ public:
         }
         luisa::unordered_map<const Instruction *, size_t> instruction_order;
         luisa::unordered_map<const Instruction *, const BasicBlock *> instruction_blocks;
-        luisa::unordered_map<const BasicBlock *, BlockSet> successors;
-        luisa::unordered_map<const BasicBlock *, BlockSet> predecessors;
+        BlockAdjacency successors;
+        BlockAdjacency predecessors;
         luisa::unordered_map<const BasicBlock *, const Instruction *> merge_owners;
 
         for (auto *block : blocks) {
@@ -1167,52 +1160,27 @@ public:
             }
         }
 
-        luisa::unordered_map<const BasicBlock *, BlockSet> dominators;
-        for (auto *block : reachable) {
-            if (block == definition->body_block()) {
-                dominators[block].emplace(block);
-            } else {
-                dominators[block] = reachable;
-            }
-        }
-        for (;;) {
-            auto changed = false;
-            for (auto *block : reachable) {
-                if (block == definition->body_block()) { continue; }
-                BlockSet next;
-                auto first = true;
-                if (auto pred_iter = predecessors.find(block);
-                    pred_iter != predecessors.end()) {
-                    for (auto *predecessor : pred_iter->second) {
-                        if (!reachable.contains(predecessor)) { continue; }
-                        if (first) {
-                            next = dominators[predecessor];
-                            first = false;
-                        } else {
-                            BlockSet intersection;
-                            for (auto *candidate : next) {
-                                if (dominators[predecessor].contains(candidate)) {
-                                    intersection.emplace(candidate);
-                                }
-                            }
-                            next = std::move(intersection);
-                        }
-                    }
-                }
-                next.emplace(block);
-                if (!_same_set(next, dominators[block])) {
-                    dominators[block] = std::move(next);
-                    changed = true;
-                }
-            }
-            if (!changed) { break; }
-        }
+        VerifierSparseDomTree dominators{
+            definition->body_block(),
+            successors,
+            predecessors,
+            reachable};
+        _result.statistics.dominance_tree_nodes +=
+            dominators.size();
+        _result.statistics.dominance_tree_edges +=
+            dominators.tree_edge_count();
+        _result.statistics.dominance_cfg_edges +=
+            dominators.cfg_edge_count();
+        _result.statistics.dominance_fixed_point_iterations +=
+            dominators.fixed_point_iteration_count();
 
         auto block_dominates = [&](const BasicBlock *definition_block,
                                    const BasicBlock *use_block) noexcept {
+            ++_result.statistics.dominance_queries;
             if (!reachable.contains(use_block)) { return true; }
             if (!reachable.contains(definition_block)) { return false; }
-            return dominators[use_block].contains(definition_block);
+            return dominators.dominates(
+                definition_block, use_block);
         };
         auto is_owned_block = [&](const Value *value) noexcept {
             if (value == nullptr || !value->isa<BasicBlock>()) { return false; }
@@ -1274,7 +1242,7 @@ public:
                          block_dominates(scope.merge, block))) {
                         continue;
                     }
-                    auto depth = dominators[scope.parent].size();
+                    auto depth = dominators.depth(scope.parent);
                     auto *target = is_continue ? scope.continue_target : scope.merge;
                     if (!result.found || depth > best_depth) {
                         result = {.target = target, .found = true, .ambiguous = false};

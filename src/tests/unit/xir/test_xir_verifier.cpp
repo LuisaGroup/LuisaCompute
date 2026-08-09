@@ -130,6 +130,65 @@ void reg_xir_verifier() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "xir_verifier_dominance_storage_is_sparse_in_cfg_size"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *current = kernel->create_body_block();
+        auto *one =
+            module.create_constant_one(Type::of<int32_t>());
+        XIRBuilder builder;
+
+        // A long diamond chain is deliberately large enough that the old
+        // per-block set of all dominators required quadratic storage. The
+        // numbered sparse representation must retain only the CFG edges and
+        // one idom edge per block.
+        constexpr auto diamond_count = size_t{2048u};
+        for (auto i = size_t{0u}; i < diamond_count; ++i) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+
+            builder.set_insertion_point(current);
+            auto *dominating_value = builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {one, one});
+            builder.cond_br(condition, left, right);
+            builder.set_insertion_point(left);
+            builder.br(merge);
+            builder.set_insertion_point(right);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {dominating_value, one});
+            current = merge;
+        }
+        builder.return_void();
+
+        auto result = xir_verify_module(&module);
+        expect(result.succeeded());
+        constexpr auto expected_blocks =
+            size_t{1u} + diamond_count * 3u;
+        constexpr auto expected_cfg_edges = diamond_count * 4u;
+        expect(
+            result.statistics.dominance_tree_nodes ==
+            expected_blocks);
+        expect(
+            result.statistics.dominance_tree_edges ==
+            expected_blocks - 1u);
+        expect(
+            result.statistics.dominance_cfg_edges ==
+            expected_cfg_edges);
+        expect(
+            result.statistics.dominance_fixed_point_iterations <= 3u)
+            << "reverse-postorder CHK should converge in a constant number "
+               "of sweeps on a diamond chain";
+        expect(
+            result.statistics.dominance_queries >= diamond_count);
+    };
+
     "xir_verifier_accepts_valid_type_and_category_paths"_test = [] {
         Module module;
         auto int_type = Type::of<int32_t>();
@@ -343,6 +402,30 @@ void reg_xir_verifier() {
         kernel->create_body_block();
         auto result = xir_verify_module(&module);
         expect(!result.succeeded());
+    };
+
+    "xir_verifier_sanitizes_cross_function_cfg_edges_before_dominance"_test = [] {
+        Module module;
+        auto *source = module.create_kernel();
+        auto *source_body = source->create_body_block();
+        auto *foreign = module.create_kernel();
+        auto *foreign_body = foreign->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(source_body);
+        auto *invalid_branch = builder.br(foreign_body);
+        builder.set_insertion_point(foreign_body);
+        builder.return_void();
+
+        // The malformed edge is diagnosed, but it must never enter the
+        // numbered dominance CFG of either function.
+        auto result = xir_verify_module(&module);
+        expect(!result.succeeded());
+        expect(has_verification_error(
+            result, source_body, invalid_branch,
+            "Branch has an invalid target."));
+        expect(result.statistics.dominance_tree_nodes == 2u);
+        expect(result.statistics.dominance_tree_edges == 0u);
+        expect(result.statistics.dominance_cfg_edges == 0u);
     };
 
     "xir_verifier_rejects_use_before_definition"_test = [] {
