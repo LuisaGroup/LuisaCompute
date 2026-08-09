@@ -1094,6 +1094,14 @@ void reg_restructure_cfg() {
             << "one immutable ancestry tree is required per mutation, "
                "but frontier materialization is deferred to the final "
                "tree retained by each mutating batch";
+        expect(info.loop_continue_dom_numbered_block_count > 0u);
+        expect(info.loop_continue_dom_numbered_edge_count > 0u);
+        expect(
+            info.loop_continue_dom_fixed_point_iteration_count >=
+            info.loop_continue_dominance_rebuild_count);
+        expect(info.loop_continue_dom_fixed_point_block_visit_count > 0u);
+        expect(info.loop_continue_dom_fixed_point_edge_visit_count > 0u);
+        expect(info.loop_continue_dom_intersect_step_count > 0u);
     };
 
     "restructure_loop_body_break_or_continue_through_proxy_chain"_test = [] {

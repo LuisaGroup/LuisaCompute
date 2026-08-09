@@ -1849,6 +1849,7 @@ void remove_write_only_dispatch_selectors(
     auto function_blocks = collect_function_blocks(def);
     auto ownership_ms = ownership_clock.toc();
     auto dominance_rebuild_ms = 0.0;
+    auto dominance_frontier_ms = 0.0;
     LoopContinueTiming timing;
     ++info.loop_continue_analysis_count;
     for (auto site : loops) {
@@ -1870,10 +1871,24 @@ void remove_write_only_dispatch_selectors(
         function_blocks = collect_function_blocks(def);
         ownership_ms += ownership_rebuild_clock.toc();
         Clock dominance_rebuild_clock;
+        DomTreeBuildStats dominance_stats;
         dom = compute_dom_tree(
-            def, {.compute_dominance_frontiers = false});
+            def, {.compute_dominance_frontiers = false},
+            &dominance_stats);
         dominance_rebuild_ms += dominance_rebuild_clock.toc();
         ++info.loop_continue_dominance_rebuild_count;
+        info.loop_continue_dom_numbered_block_count +=
+            dominance_stats.numbered_block_count;
+        info.loop_continue_dom_numbered_edge_count +=
+            dominance_stats.numbered_edge_count;
+        info.loop_continue_dom_fixed_point_iteration_count +=
+            dominance_stats.fixed_point_iteration_count;
+        info.loop_continue_dom_fixed_point_block_visit_count +=
+            dominance_stats.fixed_point_block_visit_count;
+        info.loop_continue_dom_fixed_point_edge_visit_count +=
+            dominance_stats.fixed_point_edge_visit_count;
+        info.loop_continue_dom_intersect_step_count +=
+            dominance_stats.intersect_step_count;
         ++info.loop_continue_analysis_count;
     }
     if (changed) {
@@ -1882,7 +1897,7 @@ void remove_write_only_dispatch_selectors(
         // by the caller, rather than once after every local edge rewrite.
         Clock dominance_frontier_clock;
         dom.compute_dominance_frontiers();
-        dominance_rebuild_ms += dominance_frontier_clock.toc();
+        dominance_frontier_ms += dominance_frontier_clock.toc();
         ++info.loop_continue_frontier_materialization_count;
     }
     if (restructure_trace_enabled()) {
@@ -1901,6 +1916,9 @@ void remove_write_only_dispatch_selectors(
         LUISA_VERBOSE_WITH_LOCATION(
             "[restructure_cfg] loop_continue_dominance_rebuild: {:.3f} ms",
             dominance_rebuild_ms);
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] loop_continue_dominance_frontier: {:.3f} ms",
+            dominance_frontier_ms);
     }
     return changed;
 }
@@ -6874,6 +6892,24 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "loop_continue_frontier_materialization",
             info.loop_continue_frontier_materialization_count);
         report->set(
+            "loop_continue_dom_numbered_block",
+            info.loop_continue_dom_numbered_block_count);
+        report->set(
+            "loop_continue_dom_numbered_edge",
+            info.loop_continue_dom_numbered_edge_count);
+        report->set(
+            "loop_continue_dom_fixed_point_iteration",
+            info.loop_continue_dom_fixed_point_iteration_count);
+        report->set(
+            "loop_continue_dom_fixed_point_block_visit",
+            info.loop_continue_dom_fixed_point_block_visit_count);
+        report->set(
+            "loop_continue_dom_fixed_point_edge_visit",
+            info.loop_continue_dom_fixed_point_edge_visit_count);
+        report->set(
+            "loop_continue_dom_intersect_step",
+            info.loop_continue_dom_intersect_step_count);
+        report->set(
             "postdom_analysis",
             info.postdom_analysis_count);
         report->set(
@@ -7041,6 +7077,18 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.loop_continue_dominance_rebuild_count;
         dst.loop_continue_frontier_materialization_count +=
             src.loop_continue_frontier_materialization_count;
+        dst.loop_continue_dom_numbered_block_count +=
+            src.loop_continue_dom_numbered_block_count;
+        dst.loop_continue_dom_numbered_edge_count +=
+            src.loop_continue_dom_numbered_edge_count;
+        dst.loop_continue_dom_fixed_point_iteration_count +=
+            src.loop_continue_dom_fixed_point_iteration_count;
+        dst.loop_continue_dom_fixed_point_block_visit_count +=
+            src.loop_continue_dom_fixed_point_block_visit_count;
+        dst.loop_continue_dom_fixed_point_edge_visit_count +=
+            src.loop_continue_dom_fixed_point_edge_visit_count;
+        dst.loop_continue_dom_intersect_step_count +=
+            src.loop_continue_dom_intersect_step_count;
         dst.postdom_analysis_count +=
             src.postdom_analysis_count;
         dst.postdom_numbered_block_count +=

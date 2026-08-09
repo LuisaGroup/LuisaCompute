@@ -59,6 +59,15 @@ struct RestructureCFGInfo {
     size_t loop_continue_invalidation_count{0u};
     size_t loop_continue_dominance_rebuild_count{0u};
     size_t loop_continue_frontier_materialization_count{0u};
+    // Dense CHK work performed by the ancestry-only rebuilds above. The
+    // solver value-numbers each reachable CFG once and retains only sparse
+    // predecessor edges plus one immediate-dominator ID per block.
+    size_t loop_continue_dom_numbered_block_count{0u};
+    size_t loop_continue_dom_numbered_edge_count{0u};
+    size_t loop_continue_dom_fixed_point_iteration_count{0u};
+    size_t loop_continue_dom_fixed_point_block_visit_count{0u};
+    size_t loop_continue_dom_fixed_point_edge_visit_count{0u};
+    size_t loop_continue_dom_intersect_step_count{0u};
     // Post-dominance value-numbers every owned CFG once, then solves the
     // sink-reachable reverse CFG using sparse CSR edges and dense RPO IDs.
     // Pointer hashing is confined to numbering and the final API mapping.

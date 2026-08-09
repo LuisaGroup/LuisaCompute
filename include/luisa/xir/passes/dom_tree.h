@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/function.h>
@@ -57,6 +59,15 @@ public:
     [[nodiscard]] auto immediate_dominator(BasicBlock *block) const noexcept -> BasicBlock *;
 };
 
+struct DomTreeBuildStats {
+    size_t numbered_block_count{0u};
+    size_t numbered_edge_count{0u};
+    size_t fixed_point_iteration_count{0u};
+    size_t fixed_point_block_visit_count{0u};
+    size_t fixed_point_edge_visit_count{0u};
+    size_t intersect_step_count{0u};
+};
+
 struct DomTreeBuildOptions {
     bool compute_dominance_frontiers{true};
 };
@@ -67,5 +78,11 @@ struct DomTreeBuildOptions {
 [[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(
     Function *function,
     DomTreeBuildOptions options) noexcept;
+/// Diagnostic overload. The original options overload remains ABI-stable;
+/// stats are written only when the supplied pointer is non-null.
+[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(
+    Function *function,
+    DomTreeBuildOptions options,
+    DomTreeBuildStats *stats) noexcept;
 
 }// namespace luisa::compute::xir

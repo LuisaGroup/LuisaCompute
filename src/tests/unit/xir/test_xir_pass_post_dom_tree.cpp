@@ -29,6 +29,51 @@ namespace {
 
 void register_post_dom_tree_tests() {
 
+    "dom_tree_dense_chk_has_sparse_linear_work_on_diamond_chain"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        constexpr auto diamond_count = size_t{128u};
+        auto *cursor = body;
+        for (auto index = size_t{0u}; index < diamond_count; ++index) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+            b.set_insertion_point(cursor);
+            b.cond_br(condition, left, right);
+            b.set_insertion_point(left);
+            b.br(merge);
+            b.set_insertion_point(right);
+            b.br(merge);
+            cursor = merge;
+        }
+        b.set_insertion_point(cursor);
+        b.return_void();
+
+        DomTreeBuildStats stats;
+        auto tree = compute_dom_tree(
+            kernel, {.compute_dominance_frontiers = false}, &stats);
+        const auto expected_block_count =
+            1u + 3u * diamond_count;
+        const auto expected_edge_count = 4u * diamond_count;
+        expect(tree.nodes().size() == expected_block_count);
+        expect(tree.dominates(body, cursor));
+        expect(stats.numbered_block_count == expected_block_count);
+        expect(stats.numbered_edge_count == expected_edge_count);
+        // RPO makes every predecessor available in the establishing pass;
+        // the second pass only confirms the fixed point. Work is proportional
+        // to the sparse graph, never to its Cartesian block relation.
+        expect(stats.fixed_point_iteration_count == 2u);
+        expect(stats.fixed_point_block_visit_count ==
+               2u * (expected_block_count - 1u));
+        expect(stats.fixed_point_edge_visit_count ==
+               2u * expected_edge_count);
+        expect(stats.intersect_step_count > 0u);
+    };
+
     "post_dom_tree_coro_terminate_is_exit"_test = [] {
         Module m;
         BasicBlock *body;
