@@ -177,7 +177,8 @@ DomTree compute_dom_tree(Function *function) noexcept {
     block_id[root_block] = reverse_postorder.size();// root gets the last slot
     postorder_index_vec[reverse_postorder.size()] = postorder_size - 1;// root was last in postorder
 
-    // Dense dominator array.
+    // Dense-indexed storage of the sparse immediate-dominator relation: one
+    // parent per reachable block, not a V-by-V dominance matrix.
     luisa::vector<BasicBlock *> doms_vec(n, nullptr);
     doms_vec[block_id[root_block]] = root_block;
 

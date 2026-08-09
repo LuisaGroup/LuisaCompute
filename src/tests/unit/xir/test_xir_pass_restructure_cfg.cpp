@@ -1076,6 +1076,19 @@ void reg_restructure_cfg() {
         // sufficient. The count may grow only after an actual CFG mutation.
         expect(
             info.construct_entry_dom_tree_count == 1u);
+        // Loop-boundary membership is another value of this immutable CFG,
+        // independent of the number of construct queries.
+        expect(
+            info.construct_entry_boundary_analysis_count ==
+            1u);
+        expect(
+            info.construct_exit_boundary_analysis_count ==
+            1u);
+        // Each diamond ends at its merge before the next begins. The sparse
+        // dominator event walk suspends the completed construct for the merge
+        // subtree, so there are no pairwise parent candidates to inspect.
+        expect(
+            info.construct_exit_parent_query_count == 0u);
         // Selection-exit legality for all 256 sites observes the same CFG.
         // The loop-boundary relation is materialized once, not rediscovered
         // by a full-function scan for every site.
@@ -1088,6 +1101,96 @@ void reg_restructure_cfg() {
         expect(
             info.selection_exit_enclosing_loop_query_count ==
             construct_count);
+        // The final post-merge audit asks each merge's sparse dominance
+        // frontier. These sequential diamonds have empty frontiers, so graph
+        // width cannot turn the audit into construct_count * block_count.
+        expect(
+            info.selection_reentry_audit_selection_query_count ==
+            construct_count);
+        expect(
+            info.selection_reentry_audit_frontier_query_count ==
+            0u);
+        expect(
+            info.selection_reentry_audit_predecessor_query_count ==
+            0u);
+    };
+
+    "restructure_selection_exit_loop_context_is_sparse_per_cfg_version"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel =
+            make_kernel_with_body(module, entry);
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *selection_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        builder.set_insertion_point(prepare);
+        builder.cond_br(
+            loop_condition, body, merge);
+        builder.set_insertion_point(body);
+        constexpr auto selection_count = size_t{128u};
+        for (auto i = size_t{0u};
+             i < selection_count; ++i) {
+            auto *selection =
+                builder.if_(selection_condition);
+            auto *true_block =
+                selection->create_true_block();
+            auto *false_block =
+                selection->create_false_block();
+            auto *selection_merge =
+                selection->create_merge_block();
+            builder.set_insertion_point(true_block);
+            builder.br(selection_merge);
+            builder.set_insertion_point(false_block);
+            builder.br(selection_merge);
+            builder.set_insertion_point(selection_merge);
+        }
+        builder.continue_(update);
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(
+            count_terminator_kind(
+                kernel->definition(),
+                DerivedInstructionTag::IF) ==
+            selection_count);
+        expect(
+            info.selection_exit_boundary_analysis_count >
+            0u);
+        // This CFG has one reachable structured loop. Every observed CFG
+        // version therefore allocates one persistent context node, regardless
+        // of the 128 selections and hundreds of dominated blocks.
+        expect(
+            info.selection_exit_loop_context_count ==
+            info.selection_exit_boundary_analysis_count);
+        // Value numbering builds one sparse reverse-CFG solution per loop
+        // and reduces every arm classification to one array lookup. The
+        // number of dataflow solutions is independent of the 128 IfInsts;
+        // only the constant-time lookup counter grows with their two arms.
+        expect(
+            info.selection_exit_boundary_dataflow_count ==
+            info.selection_exit_boundary_analysis_count);
+        expect(
+            info.selection_exit_boundary_classification_count ==
+            2u * selection_count *
+                info.selection_exit_boundary_analysis_count);
+        expect(
+            info.selection_exit_site_query_count >=
+            selection_count);
     };
 
     "restructure_empty_module_noop"_test = [] {

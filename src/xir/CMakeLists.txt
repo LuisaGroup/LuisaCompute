@@ -14,6 +14,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         user.cpp
         value.cpp
         verifier.cpp
+        verifier_dom_tree.cpp
 
         # derived instructions
         instructions/alloca.cpp

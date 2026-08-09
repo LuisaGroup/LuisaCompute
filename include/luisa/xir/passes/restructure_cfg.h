@@ -21,6 +21,18 @@ struct RestructureCFGInfo {
     // Diagnostic operation count for dominance trees built while enforcing
     // unique structured-construct entries. This is not a change count.
     size_t construct_entry_dom_tree_count{0u};
+    // Loop-boundary selection membership is a value of one immutable CFG
+    // version. Entry enforcement materializes the complete relation once per
+    // version instead of rediscovering it separately for every construct.
+    size_t construct_entry_boundary_analysis_count{0u};
+    // Construct-exit repair follows the same versioned-analysis contract. A
+    // successful repair invalidates the relation and the next scan rebuilds
+    // it exactly once.
+    size_t construct_exit_boundary_analysis_count{0u};
+    // Candidate inspections performed while deriving the physical construct
+    // hierarchy from the sparse dominator tree. This grows with actual active
+    // nesting, not with the square of the number of constructs.
+    size_t construct_exit_parent_query_count{0u};
     // Post-dominator rebuilds consumed inside one if-restructuring batch.
     // Rebuilds are lazy: a post-mutation candidate pays for one only when its
     // merge cannot be inferred from the current dominance tree.
@@ -41,8 +53,17 @@ struct RestructureCFGInfo {
     // observed CFG version, then reuse that exact relation for every site.
     // These are diagnostic operation counts, not change counts.
     size_t selection_exit_boundary_analysis_count{0u};
+    // A boundary analysis numbers its blocks once, solves one sparse
+    // monotone dataflow per reachable loop, then performs O(1) lookups for
+    // each IfInst arm. No arm launches an independent CFG search.
+    size_t selection_exit_boundary_dataflow_count{0u};
+    size_t selection_exit_boundary_classification_count{0u};
     size_t selection_exit_site_query_count{0u};
     size_t selection_exit_enclosing_loop_query_count{0u};
+    // Persistent enclosing-loop context nodes materialized while scanning
+    // selection exits. There is exactly one node per reachable structured
+    // loop per observed CFG version, never one loop-exit set per block.
+    size_t selection_exit_loop_context_count{0u};
     // Rewriting a nested selection may make a site already handled in the
     // current drain round eligible again. The selection phase yields so later
     // canonicalizers can collapse the generated protocol before the next
@@ -55,6 +76,11 @@ struct RestructureCFGInfo {
     size_t selection_reentry_boundary_analysis_count{0u};
     size_t selection_reentry_edge_query_count{0u};
     size_t selection_reentry_owner_query_count{0u};
+    // The final selection-reentry audit is expressed as sparse dominance-
+    // frontier queries. It never scans every block for every selection.
+    size_t selection_reentry_audit_selection_query_count{0u};
+    size_t selection_reentry_audit_frontier_query_count{0u};
+    size_t selection_reentry_audit_predecessor_query_count{0u};
     size_t irreducible_region_count{0u};
     size_t unstructured_branch_count{0u};
     size_t invalid_construct_count{0u};
