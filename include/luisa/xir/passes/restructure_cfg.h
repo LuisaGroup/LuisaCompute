@@ -121,6 +121,12 @@ struct RestructureCFGInfo {
     size_t selection_exit_cfg_invalidation_count{0u};
     size_t selection_exit_local_invalidation_count{0u};
     size_t selection_exit_global_invalidation_count{0u};
+    // Multi-target state dispatches can make existing SSA uses syntactically
+    // non-dominating. Requests accumulate across one drain; the exact final
+    // CFG is repaired once at the batch boundary.
+    size_t selection_exit_ssa_repair_request_count{0u};
+    size_t selection_exit_ssa_repair_count{0u};
+    size_t selection_exit_ssa_repaired_value_count{0u};
     // Clean site results invalidated by the precise construct-dependency
     // worklist after a localized rewrite.
     size_t selection_exit_dependency_requery_count{0u};

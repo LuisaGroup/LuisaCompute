@@ -2959,6 +2959,7 @@ struct SelectionExitRewriteResult {
     // need invalidation. Multi-target state dispatches conservatively
     // invalidate every site because their CFG expands correlated reachability.
     bool local_dependency_only{false};
+    bool requires_ssa_repair{false};
     luisa::vector<BasicBlock *> mutated_edge_sources;
     luisa::vector<BasicBlock *> bypassed_forwarding_blocks;
 };
@@ -3362,13 +3363,11 @@ void repair_target_state_dispatch_ssa(
         }
         switch_inst->set_merge_block(new_merge);
     }
-    if (targets.size() > 1u) {
-        repair_target_state_dispatch_ssa(def);
-    }
     return SelectionExitRewriteResult{
         .status = SelectionExitRewriteStatus::MODIFIED,
         .site = term,
         .local_dependency_only = local_dependency_only,
+        .requires_ssa_repair = targets.size() > 1u,
         .mutated_edge_sources =
             std::move(mutated_edge_sources),
         .bypassed_forwarding_blocks =
@@ -3397,6 +3396,7 @@ struct SelectionExitDrainResult {
     luisa::unordered_map<Instruction *, size_t>
         rewritten_site_invalid_exit_counts;
     SelectionExitDrainResult drain;
+    auto ssa_repair_requested = false;
 
     struct Site {
         BasicBlock *header{nullptr};
@@ -3556,6 +3556,10 @@ struct SelectionExitDrainResult {
                 drain.modified = true;
                 version_modified = true;
                 ++info.selection_exit_cfg_invalidation_count;
+                if (result.requires_ssa_repair) {
+                    ssa_repair_requested = true;
+                    ++info.selection_exit_ssa_repair_request_count;
+                }
                 if (result.local_dependency_only) {
                     ++info.selection_exit_local_invalidation_count;
                     mark_enclosing_dependencies(
@@ -3602,6 +3606,22 @@ struct SelectionExitDrainResult {
         }
         if (drain.yielded) { break; }
         if (!version_modified) { break; }
+    }
+    // A state-dispatch rewrite changes only control-flow edges. Dominance and
+    // subsequent selection-exit queries are independent of instruction
+    // operands, so they may observe the temporarily non-SSA CFG. Repair once
+    // against the final graph: every dynamically feasible use is still
+    // preceded by its original definition, while reg2mem transports values
+    // across only the extra syntactic paths introduced by the selectors.
+    if (ssa_repair_requested) {
+        ScopedTimer _timer_selection_exit_ssa_repair(
+            "selection_exit_ssa_repair");
+        auto repair =
+            reg2mem_pass_repair_cross_block_rvalue_uses_on_function(
+                static_cast<Function *>(def));
+        ++info.selection_exit_ssa_repair_count;
+        info.selection_exit_ssa_repaired_value_count +=
+            repair.lowered_cross_block_value_count;
     }
     // Post-dominance has no observer inside the drain: selection-exit
     // classification and rewriting consume only the current dominator tree.
@@ -6982,6 +7002,15 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_global_invalidation",
             info.selection_exit_global_invalidation_count);
         report->set(
+            "selection_exit_ssa_repair_request",
+            info.selection_exit_ssa_repair_request_count);
+        report->set(
+            "selection_exit_ssa_repair",
+            info.selection_exit_ssa_repair_count);
+        report->set(
+            "selection_exit_ssa_repaired_value",
+            info.selection_exit_ssa_repaired_value_count);
+        report->set(
             "selection_exit_dependency_requery",
             info.selection_exit_dependency_requery_count);
         report->set(
@@ -7137,6 +7166,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_local_invalidation_count;
         dst.selection_exit_global_invalidation_count +=
             src.selection_exit_global_invalidation_count;
+        dst.selection_exit_ssa_repair_request_count +=
+            src.selection_exit_ssa_repair_request_count;
+        dst.selection_exit_ssa_repair_count +=
+            src.selection_exit_ssa_repair_count;
+        dst.selection_exit_ssa_repaired_value_count +=
+            src.selection_exit_ssa_repaired_value_count;
         dst.selection_exit_dependency_requery_count +=
             src.selection_exit_dependency_requery_count;
         dst.selection_exit_postdom_refresh_count +=

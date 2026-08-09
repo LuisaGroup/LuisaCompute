@@ -2714,6 +2714,83 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_batches_state_dispatch_ssa_repair_at_drain_boundary"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<int>());
+        auto *body = f->create_body_block();
+        auto *selector =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *first_return = f->create_basic_block();
+        auto *first_alternative_return = f->create_basic_block();
+        auto *second_return = f->create_basic_block();
+        auto *second_alternative_return = f->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+
+        b.set_insertion_point(body);
+        auto *first = b.switch_(selector);
+        auto *first_fallthrough = first->create_default_block();
+        auto *first_value_arm = first->create_case_block(1u);
+        auto *first_alternative_arm = first->create_case_block(2u);
+        auto *first_merge = first->create_merge_block();
+        b.set_insertion_point(first_value_arm);
+        auto *first_value = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        b.br(first_return);
+        b.set_insertion_point(first_alternative_arm);
+        b.br(first_alternative_return);
+        b.set_insertion_point(first_fallthrough);
+        b.br(first_merge);
+
+        b.set_insertion_point(first_merge);
+        auto *second = b.switch_(selector);
+        auto *second_fallthrough = second->create_default_block();
+        auto *second_value_arm = second->create_case_block(1u);
+        auto *second_alternative_arm = second->create_case_block(2u);
+        auto *second_merge = second->create_merge_block();
+        b.set_insertion_point(second_value_arm);
+        auto *second_value = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        b.br(second_return);
+        b.set_insertion_point(second_alternative_arm);
+        b.br(second_alternative_return);
+        b.set_insertion_point(second_fallthrough);
+        b.br(second_merge);
+        b.set_insertion_point(second_merge);
+        b.return_(zero);
+
+        b.set_insertion_point(first_return);
+        auto *first_value_return = b.return_(first_value);
+        b.set_insertion_point(first_alternative_return);
+        b.return_(zero);
+        b.set_insertion_point(second_return);
+        auto *second_value_return = b.return_(second_value);
+        b.set_insertion_point(second_alternative_return);
+        b.return_(zero);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(f);
+        expect(info.succeeded());
+        expect(info.unstructured_branch_count == 0u);
+        expect(info.selection_exit_ssa_repair_request_count >= 2u);
+        expect(info.selection_exit_ssa_repair_count > 0u);
+        expect(info.selection_exit_ssa_repair_request_count >
+               info.selection_exit_ssa_repair_count)
+            << "multiple state dispatches in one drain must share the "
+               "final-CFG SSA repair";
+        expect(info.selection_exit_ssa_repaired_value_count >= 2u);
+        auto spills = audit_reg2mem_spills_on_function(f);
+        expect(spills.remaining_cross_block_spill_count == 2u);
+        expect(first_value_return->return_value()->isa<LoadInst>());
+        expect(second_value_return->return_value()->isa<LoadInst>());
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
     "restructure_separates_structured_loop_prepare_role"_test = [] {
         Module m;
         BasicBlock *body;
