@@ -2236,6 +2236,43 @@ OpName %8 "Fma"
             << "autodiff scope should be lowered before SPIR-V emission";
     };
 
+    "vk_user_compute_autodiff_array_store_uses_logical_type"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input = dc.device.create_buffer<std::array<float, 1u>>(1u);
+        auto output = dc.device.create_buffer<float>(1u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferVar<std::array<float, 1u>> in,
+                             BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            auto p = in.read(i);
+            $autodiff {
+                requires_grad(p);
+                ArrayFloat<1> scratch;
+                scratch = p;
+                auto used = scratch[0];
+                auto loss = used * used;
+                scratch[0] = p[0] * 7.0f;
+                backward(loss);
+                out.write(i, grad(p)[0]);
+            };
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+        constexpr std::array source{std::array<float, 1u>{3.0f}};
+        std::array<float, 1u> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(1u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        expect(result[0] == 6.0f)
+            << "aggregate autodiff stores should preserve the logical array type";
+    };
+
     "vk_user_compute_aot_uses_spirv_not_hlsl"_test = [&] {
         constexpr std::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path_aot.hlsl";
         constexpr std::string_view spv_dump = "spv_code_vk_spirv_codegen_path_aot.spvasm";

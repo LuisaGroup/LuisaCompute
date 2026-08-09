@@ -322,9 +322,12 @@ luisa_compute_install_extension(luisa-compute-ext-stb-interface HEADER_FILES
         HEADER_DESTINATION stb)
 
 # glslang
-set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+# Vulkan's backend-private compute kernels are compiled to SPIR-V during the
+# build. Use the bundled, version-pinned glslang executable so those artifacts
+# are reproducible and never need to be checked into the source tree.
+set(ENABLE_GLSLANG_BINARIES ${LUISA_COMPUTE_ENABLE_VULKAN} CACHE BOOL "" FORCE)
 set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
-set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL ${LUISA_COMPUTE_ENABLE_VULKAN} CACHE BOOL "" FORCE)
 set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
 set(ALLOW_EXTERNAL_SPIRV_TOOLS OFF CACHE BOOL "" FORCE)
@@ -336,8 +339,7 @@ if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV OR
-        LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+if (LUISA_COMPUTE_ENABLE_VULKAN)
 # SPIRV-Tools
 set(SPIRV-Headers_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers CACHE PATH "" FORCE)
 set(SPIRV_HEADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers/include CACHE PATH "" FORCE)

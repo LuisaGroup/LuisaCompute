@@ -6,16 +6,34 @@
 #include "log.h"
 #include "blas.h"
 #include "motion_instance.h"
+#include "vulkan_builtin_contract.h"
 namespace lc::vk {
 namespace tlas_detail {
-struct TlasInputInst {
-    float affine[12];
-    std::array<uint, 2> mesh;
-    uint index : 24;
-    uint vis_mask : 8;
-    uint user_id : 24;
-    uint flags : 8;
-};
+using TlasInputInst = detail::VulkanAccelUpdateInput;
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_mesh ==
+    AccelBuildCommand::Modification::flag_primitive);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_transform ==
+    AccelBuildCommand::Modification::flag_transform);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_opaque_on ==
+    AccelBuildCommand::Modification::flag_opaque_on);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_opaque_off ==
+    AccelBuildCommand::Modification::flag_opaque_off);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_visibility ==
+    AccelBuildCommand::Modification::flag_visibility);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_user_id ==
+    AccelBuildCommand::Modification::flag_user_id);
+static_assert(
+    detail::VulkanAccelUpdateLayout::instance_force_opaque ==
+    VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR);
+static_assert(
+    detail::VulkanAccelUpdateLayout::instance_force_no_opaque ==
+    VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR);
 // Resolve a primitive handle to a Blas pointer.
 // If the handle is a MotionInstance, returns its child Blas.
 static Blas *resolve_to_blas(uint64_t primitive_handle) {
@@ -389,15 +407,20 @@ void Tlas::pre_build(
 
         for (size_t idx = 0; idx < modifications.size(); idx++) {
             auto &&i = modifications[idx];
-            std::memcpy(inst_ptr->affine, i.affine, sizeof(float) * 12);
-            inst_ptr->index = i.index;
-            inst_ptr->vis_mask = i.vis_mask;
-            inst_ptr->user_id = i.user_id;
-            inst_ptr->flags = i.flags;
+            std::memcpy(
+                inst_ptr->affine.data(), i.affine,
+                sizeof(float) * inst_ptr->affine.size());
+            inst_ptr->index_visibility =
+                TlasInputInst::pack_index_visibility(
+                    i.index, i.vis_mask);
+            inst_ptr->user_id_flags =
+                TlasInputInst::pack_user_id_flags(
+                    i.user_id, i.flags);
             if ((i.flags & AccelBuildCommand::Modification::flag_primitive) && resolved_meshes[idx]) {
                 auto mesh = resolved_meshes[idx];
                 auto addr = mesh->get_accel_device_address();
-                inst_ptr->mesh = reinterpret_cast<std::array<uint, 2> const &>(addr);
+                inst_ptr->mesh =
+                    TlasInputInst::device_address_words(addr);
                 resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
                                          ResourceBarrier::Usage::kAccelInstanceBuffer);
             }
@@ -405,12 +428,18 @@ void Tlas::pre_build(
         }
         for (auto &i : _set_map) {
             if (i.first >= _all_instance.size()) continue;
-            inst_ptr->index = i.first;
-            inst_ptr->flags = AccelBuildCommand::Modification::flag_primitive;
+            inst_ptr->index_visibility =
+                TlasInputInst::pack_index_visibility(
+                    static_cast<uint32_t>(i.first), 0u);
+            inst_ptr->user_id_flags =
+                TlasInputInst::pack_user_id_flags(
+                    0u,
+                    AccelBuildCommand::Modification::flag_primitive);
             resource_barrier->record(BufferView{i.second->mesh->_accel_buffer.get()},
                                      ResourceBarrier::Usage::kAccelInstanceBuffer);
             auto addr = i.second->mesh->get_accel_device_address();
-            inst_ptr->mesh = reinterpret_cast<std::array<uint, 2> &>(addr);
+            inst_ptr->mesh =
+                TlasInputInst::device_address_words(addr);
             ++inst_ptr;
         }
         static_cast<UploadBuffer const *>(dsc_buffer.buffer)->copy_from(cache.data(), dsc_buffer.offset, dsc_buffer.size_bytes);

@@ -41,6 +41,7 @@ set_showmenu(false)
 add_deps("lc_dx_backend", "lc_vk_backend", "lc_cuda_backend", "lc_metal_backend", "lc_enable_tests", "lc_py_include",
     "lc_cuda_ext_lcub", "lc_enable_dsl", "lc_enable_gui", "lc_bin_dir", "lc_dx_cuda_interop", "lc_vk_cuda_interop",
     "_lc_enable_py", "lc_enable_py", "lc_enable_xir", 'lc_vk_backend_use_xir_spirv', 'lc_vk_backend_use_ast_llvm_spirv',
+    "lc_vk_backend_enable_dxc_compatibility",
     "lc_fallback_backend", "lc_llvm_path", "lc_embree_path")
 
 before_check(function(option)

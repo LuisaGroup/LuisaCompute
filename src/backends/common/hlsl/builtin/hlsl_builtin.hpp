@@ -23,7 +23,6 @@
 
 extern "C" {
 LC_HLSL_DECL_VARNAME(accel_process_vk_motion_bytes)
-LC_HLSL_DECL_VARNAME(accel_process_vk_bytes)
 LC_HLSL_DECL_VARNAME(bindless_upload_bytes)
 LC_HLSL_DECL_VARNAME(hlsl_header_bytes)
 LC_HLSL_DECL_VARNAME(dx_linalg_bytes)
@@ -56,7 +55,6 @@ LC_HLSL_DECL_VARNAME(bc7_trymode02_dxil)
 LC_HLSL_DECL_VARNAME(bc7_trymode137_dxil)
 LC_HLSL_DECL_VARNAME(bc7_trymode456_dxil)
 LC_HLSL_DECL_VARNAME(spv_alias_bytes)
-LC_HLSL_DECL_VARNAME(bindless_upload_vk_bytes)
 }
 
 namespace lc_hlsl {
@@ -68,8 +66,6 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
     struct Dict {
         luisa::unordered_map<luisa::string_view, HLSLCompressedHeader> dict;
         Dict() {
-            LC_HLSL_INSERT_VARNAME(bindless_upload_vk_bytes, "bindless_upload_vk.bytes")
-            LC_HLSL_INSERT_VARNAME(accel_process_vk_bytes, "accel_process_vk.bytes")
             LC_HLSL_INSERT_VARNAME(hlsl_header_bytes, "hlsl_header")
             LC_HLSL_INSERT_VARNAME(spv_alias_bytes, "spv_alias")
             LC_HLSL_INSERT_VARNAME(dx_linalg_bytes, "dx_linalg")

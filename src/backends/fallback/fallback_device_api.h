@@ -212,10 +212,19 @@ struct alignas(16) RayQueryCandidate {
     uint prim;
     float2 bary;
     float t;
-    float pad;
+    // A committed hit's kind is discrete traversal state, not a property that
+    // can be reconstructed from barycentric coordinates. In particular,
+    // watertight triangle intersection may produce a tiny negative coordinate
+    // on a shared edge, while curves and procedural hits also use sentinel
+    // barycentrics. Keep the kind explicit in the otherwise unused ABI slot.
+    HitType committed_hit_type;
     int committed;
     int terminated;
 };
+static_assert(sizeof(RayQueryCandidate) == 32u,
+              "RayQueryCandidate size mismatch");
+static_assert(alignof(RayQueryCandidate) == 16u,
+              "RayQueryCandidate align mismatch");
 
 static constexpr uint64_t luisa_fallback_embree_accel_user_data_flags_opaque = 1u << 0u;
 static constexpr uint64_t luisa_fallback_embree_accel_user_data_flags_curve = 1u << 1u;

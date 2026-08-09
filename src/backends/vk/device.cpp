@@ -211,11 +211,13 @@ conservative_spirv_artifact_requirements(
 }
 
 }// namespace
+#ifndef LC_NO_HLSL_BUILTIN
 static luisa::spin_mutex g_dxc_mutex;
 static vstd::StackObject<hlsl::ShaderCompiler, false> g_dxc_compiler;
 static luisa::filesystem::path g_dxc_runtime_directory;
 static int32 g_dxc_ref_count = 0;
 static bool g_dxc_compiler_initialized = false;
+#endif
 
 namespace detail {
 
@@ -593,6 +595,12 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
       prepare_indirect_kernel(BuiltinKernel::load_indirect_prepare_kernel) {
     bool headless = false;
     bool use_lmdb = false;
+    auto require_native_spirv = require_native_xir_spirv();
+#ifdef LC_NO_HLSL_BUILTIN
+    constexpr auto dxc_compatibility_compiled = false;
+#else
+    constexpr auto dxc_compatibility_compiled = true;
+#endif
     bool load_dxc_for_config_readback = false;
     uint device_idx = -1;
     if (configs) {
@@ -671,7 +679,11 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         ext_phy_device = external_device.physical_device;
         ext_device = external_device.device;
         _instance = external_device.instance;
-        load_dxc_for_config_readback = _config_ext->load_dxc();
+        load_dxc_for_config_readback =
+            detail::plan_vulkan_config_readback_dxc(
+                _config_ext->load_dxc(), dxc_compatibility_compiled,
+                require_native_spirv)
+                .expose_dxc;
         _graphics_queue = external_device.graphics_queue;
         auto ext_path = _config_ext->external_vulkan_lib_path();
         custom_path = std::move(ext_path.lib_path);
@@ -711,8 +723,8 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
     }
     device_address_enabled |= raytracing_enabled;
 
-    Context ctx{this->_ctx_impl};
 #ifndef LC_NO_HLSL_BUILTIN
+    Context ctx{this->_ctx_impl};
     {
         std::lock_guard lck(g_dxc_mutex);
         if (g_dxc_ref_count == 0) {
@@ -785,7 +797,10 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
 
     if (_config_ext) {
         _config_ext->init_volk(vkGetInstanceProcAddr);
-        auto dxc = load_dxc_for_config_readback ? Device::compiler() : nullptr;
+        hlsl::ShaderCompiler *dxc = nullptr;
+        if (load_dxc_for_config_readback) {
+            dxc = Device::compiler();
+        }
         _config_ext->readback_vulkan_device(
             instance(), physical_device(), logic_device(), alloc_callbacks(),
             _pso_header, _graphics_queue, _compute_queue, _copy_queue,
@@ -3035,6 +3050,12 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     }
     luisa::string shader_name = uses_user_path ? option.name : luisa::format("{}.spv", shader_md5.to_string(false));
     auto compile_native_spirv = [&] {
+        if (profile) {
+            LUISA_INFO("Vulkan native SPIR-V compile path start: kernel='{}', block_size=[{}, {}, {}], hash={:016x}",
+                       kernel.name(), kernel.block_size().x,
+                       kernel.block_size().y, kernel.block_size().z,
+                       kernel.hash());
+        }
         Clock codegen_clock;
         auto result =
             lc::spirv::SpirvCodegenEntry::compile_spirv(
@@ -3055,6 +3076,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
              .codegen_dialect =
                  detail::ShaderCodegenDialect::XIR_SPIRV},
             serde_type, _binary_io)) {
+        if (profile) {
+            LUISA_INFO("Vulkan native SPIR-V need compile for '{}': {}", kernel.name(), shader_name);
+        }
         spv_result = compile_native_spirv();
     }
 
@@ -3072,12 +3096,18 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             32u,
             option.enable_driver_optimization);
         if (deser.shader) {
+            if (profile) {
+                LUISA_INFO("Vulkan native SPIR-V cache hit for kernel '{}', shader='{}'", kernel.name(), shader_name);
+            }
             auto shader = static_cast<ComputeShader *>(deser.shader);
             LUISA_VERBOSE("ComputeShader loaded successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
             info.block_size = shader->block_size();
             return info;
+        }
+        if (profile) {
+            LUISA_INFO("Vulkan native SPIR-V cache miss for kernel '{}', recompiling '{}'", kernel.name(), shader_name);
         }
         spv_result = compile_native_spirv();
     }
@@ -3140,6 +3170,9 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     } else {
         LUISA_ASSERT(spv_result, "Vulkan SPIR-V cache load failed without recompilation.");
         Clock pipeline_clock;
+        if (profile) {
+            LUISA_INFO("Vulkan native ComputeShader construct start for kernel '{}'", kernel.name());
+        }
         auto shader = new ComputeShader(
             this,
             kernel.block_size(),
@@ -3372,6 +3405,9 @@ hlsl::ShaderCompiler *Device::compiler() {
     }
     return g_dxc_compiler.ptr();
 #else
+    LUISA_ERROR(
+        "Vulkan DXC compatibility was disabled at build time. This path "
+        "requires the legacy HLSL-to-SPIR-V compiler.");
     return nullptr;
 #endif
 }

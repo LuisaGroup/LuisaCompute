@@ -275,45 +275,4 @@ ComputeShader *ComputeShader::compile(
     return static_cast<ComputeShader *>(result.shader);
 }
 
-ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
-    BinaryIO const *bin_io,
-    Device *device,
-    vstd::vector<SavedArgument> &&saved_args,
-    vstd::function<hlsl::CodegenResult()> const &codegen,
-    vstd::optional<vstd::MD5> const &code_md5,
-    vstd::vector<Argument> &&bindings,
-    uint3 block_size,
-    vstd::string_view file_name,
-    SerdeType serde_type,
-    uint shader_model,
-    bool unsafe_math,
-    uint validation_count,
-    luisa::optional<uint8_t> required_subgroup_size,
-    bool requires_sampler_anisotropy,
-    uint32_t push_constant_size) {
-
-    if (serde_type != SerdeType::kBuiltin) [[unlikely]] {
-        LUISA_ERROR("Vulkan HLSL-to-SPIR-V compute compilation is restricted to internal builtins. "
-                    "User compute shaders must use native SPIR-V codegen.");
-    }
-
-    return compile(
-        bin_io,
-        device,
-        std::move(saved_args),
-        codegen,
-        code_md5,
-        luisa::nullopt,
-        std::move(bindings),
-        block_size,
-        file_name,
-        serde_type,
-        shader_model,
-        unsafe_math,
-        validation_count,
-        required_subgroup_size,
-        requires_sampler_anisotropy,
-        push_constant_size,
-        detail::ShaderCodegenDialect::VULKAN_BUILTIN);
-}
 }// namespace lc::vk

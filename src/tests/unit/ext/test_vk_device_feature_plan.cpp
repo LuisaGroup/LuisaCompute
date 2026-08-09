@@ -133,6 +133,21 @@ int main(int argc, char *argv[]) {
         expect(eq(combined.hlsl_fallback_reasons, 0x7fu));
     };
 
+    "vk_config_readback_dxc_obeys_build_and_route_contracts"_test = [] {
+        using lc::vk::detail::plan_vulkan_config_readback_dxc;
+        for (auto requested : {false, true}) {
+            for (auto compiled : {false, true}) {
+                for (auto native_required : {false, true}) {
+                    auto plan = plan_vulkan_config_readback_dxc(
+                        requested, compiled, native_required);
+                    expect(eq(
+                        plan.expose_dxc,
+                        requested && compiled && !native_required));
+                }
+            }
+        }
+    };
+
     "vk_bindless_address_representation_stays_on_native_route"_test = [] {
         using namespace lc::vk::detail;
         using luisa::compute::CallOp;

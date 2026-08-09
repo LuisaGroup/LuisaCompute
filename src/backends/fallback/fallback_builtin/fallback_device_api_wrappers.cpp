@@ -502,19 +502,19 @@ LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_surface_hit(SurfaceHit *surfa
                     .committed_ray_t = ray_hit->ray.extra.tfar};
 }
 
-LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *committed_hit, const EmbreeHit *hit) noexcept {
+LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *committed_hit, const LC_RayQueryObject *q) noexcept {
+    auto hit = &q->ray_hit.hit;
     *committed_hit = {.inst = hit->instID[0],
                       .prim = hit->primID,
                       .bary = {hit->u, hit->v},
-                      .hit_type = hit->instID[0] == ~0u ? HitType::Miss :
-                                  hit->u < 0.f          ? HitType::Procedural :
-                                                          HitType::Surface,
+                      .hit_type = q->candidate.committed_hit_type,
                       .committed_ray_t = hit->Ng_z};
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse_motion(const AccelView *handle, const Ray *ray, float time, uint mask, LC_RayQueryObject *out) noexcept {
     out->accel = *handle;
     out->world_ray = *ray;
+    out->candidate.committed_hit_type = HitType::Miss;
     luisa_fallback_create_embree_ray(&out->ray_hit.ray, ray, time, mask);
     luisa_fallback_create_embree_hit(&out->ray_hit.hit);
 }
@@ -540,7 +540,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_surface_cand
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_committed_hit(const LC_RayQueryObject *q, CommittedHit *out) noexcept {
-    luisa_fallback_decode_committed_hit(out, &q->ray_hit.hit);
+    luisa_fallback_decode_committed_hit(out, q);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_surface_hit(LC_RayQueryObject *q) noexcept {
