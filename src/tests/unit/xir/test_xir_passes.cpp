@@ -198,7 +198,7 @@ void reg_pass_entry_totality() {
         check_zero_report(1u, [](PassReport *report) noexcept {
             (void)cvp_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(3u, [](PassReport *report) noexcept {
+        check_zero_report(5u, [](PassReport *report) noexcept {
             (void)dce_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
@@ -2235,6 +2235,11 @@ void reg_dce() {
 
         auto info = dce_pass_run_on_function(f);
         expect(info.removed_inst_count == chain_length);
+        // One scan sees the chain plus Return; the fixed-point confirmation
+        // sees only Return. The reverse-use solver must process every dead
+        // instruction exactly once, independent of the chain depth.
+        expect(info.dead_code_instruction_scan_count == chain_length + 2u);
+        expect(info.dead_code_worklist_pop_count == chain_length);
         expect(xir_verify_module(&m).succeeded());
         expect(body->instructions().front()->isa<ReturnInst>());
     };
@@ -2324,7 +2329,7 @@ void reg_dce() {
         auto module_info =
             dce_pass_run_on_module(nullptr, &report);
         expect(!module_info.changed());
-        expect(report.entries().size() == 3u);
+        expect(report.entries().size() == 5u);
     };
 
     "dce_module_runs_all_functions"_test = [] {
