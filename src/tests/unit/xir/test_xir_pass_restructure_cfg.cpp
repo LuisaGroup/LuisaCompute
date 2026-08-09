@@ -1076,6 +1076,19 @@ void reg_restructure_cfg() {
         // sufficient. The count may grow only after an actual CFG mutation.
         expect(
             info.construct_entry_dom_tree_count == 1u);
+        // Loop-boundary membership is another value of this immutable CFG,
+        // independent of the number of construct queries.
+        expect(
+            info.construct_entry_boundary_analysis_count ==
+            1u);
+        expect(
+            info.construct_exit_boundary_analysis_count ==
+            1u);
+        // Each diamond ends at its merge before the next begins. The sparse
+        // dominator event walk suspends the completed construct for the merge
+        // subtree, so there are no pairwise parent candidates to inspect.
+        expect(
+            info.construct_exit_parent_query_count == 0u);
         // Selection-exit legality for all 256 sites observes the same CFG.
         // The loop-boundary relation is materialized once, not rediscovered
         // by a full-function scan for every site.
@@ -1088,6 +1101,18 @@ void reg_restructure_cfg() {
         expect(
             info.selection_exit_enclosing_loop_query_count ==
             construct_count);
+        // The final post-merge audit asks each merge's sparse dominance
+        // frontier. These sequential diamonds have empty frontiers, so graph
+        // width cannot turn the audit into construct_count * block_count.
+        expect(
+            info.selection_reentry_audit_selection_query_count ==
+            construct_count);
+        expect(
+            info.selection_reentry_audit_frontier_query_count ==
+            0u);
+        expect(
+            info.selection_reentry_audit_predecessor_query_count ==
+            0u);
     };
 
     "restructure_empty_module_noop"_test = [] {

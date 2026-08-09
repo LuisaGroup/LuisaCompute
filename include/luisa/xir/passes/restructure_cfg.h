@@ -21,6 +21,18 @@ struct RestructureCFGInfo {
     // Diagnostic operation count for dominance trees built while enforcing
     // unique structured-construct entries. This is not a change count.
     size_t construct_entry_dom_tree_count{0u};
+    // Loop-boundary selection membership is a value of one immutable CFG
+    // version. Entry enforcement materializes the complete relation once per
+    // version instead of rediscovering it separately for every construct.
+    size_t construct_entry_boundary_analysis_count{0u};
+    // Construct-exit repair follows the same versioned-analysis contract. A
+    // successful repair invalidates the relation and the next scan rebuilds
+    // it exactly once.
+    size_t construct_exit_boundary_analysis_count{0u};
+    // Candidate inspections performed while deriving the physical construct
+    // hierarchy from the sparse dominator tree. This grows with actual active
+    // nesting, not with the square of the number of constructs.
+    size_t construct_exit_parent_query_count{0u};
     // Post-dominator rebuilds consumed inside one if-restructuring batch.
     // Rebuilds are lazy: a post-mutation candidate pays for one only when its
     // merge cannot be inferred from the current dominance tree.
@@ -55,6 +67,11 @@ struct RestructureCFGInfo {
     size_t selection_reentry_boundary_analysis_count{0u};
     size_t selection_reentry_edge_query_count{0u};
     size_t selection_reentry_owner_query_count{0u};
+    // The final selection-reentry audit is expressed as sparse dominance-
+    // frontier queries. It never scans every block for every selection.
+    size_t selection_reentry_audit_selection_query_count{0u};
+    size_t selection_reentry_audit_frontier_query_count{0u};
+    size_t selection_reentry_audit_predecessor_query_count{0u};
     size_t irreducible_region_count{0u};
     size_t unstructured_branch_count{0u};
     size_t invalid_construct_count{0u};

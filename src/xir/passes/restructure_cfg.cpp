@@ -32,6 +32,7 @@
 #include <array>
 #include <cstdlib>
 #include <limits>
+#include <set>
 
 namespace luisa::compute::xir {
 
@@ -2139,27 +2140,6 @@ template<typename F>
     return stopped;
 }
 
-[[nodiscard]] bool is_loop_boundary_selection_entry(
-    BasicBlock *entry,
-    FunctionDefinition *def) noexcept {
-    if (entry == nullptr || !entry->is_terminated() ||
-        !entry->terminator()->isa<IfInst>()) {
-        return false;
-    }
-    auto *if_inst =
-        static_cast<IfInst *>(entry->terminator());
-    return visit_loop_region_blocks(
-        def, [&](BasicBlock *block,
-                 BasicBlock *continue_target,
-                 BasicBlock *loop_entry,
-                 BasicBlock *merge) noexcept {
-            return block == entry &&
-                   is_loop_boundary_if(
-                       if_inst, continue_target,
-                       loop_entry, merge);
-        });
-}
-
 // Invert is_loop_boundary_selection_entry's repeated membership query. For
 // one immutable CFG, the predicate is the exact existential relation
 //
@@ -2197,14 +2177,15 @@ collect_loop_boundary_selection_entries(
 // break/continue branch without OpSelectionMerge. Consequently it has no
 // selection interior whose entries need node splitting.
 [[nodiscard]] bool requires_unique_construct_entries(
-    BasicBlock *header, FunctionDefinition *def) noexcept {
+    BasicBlock *header,
+    const luisa::unordered_set<BasicBlock *> &
+        loop_boundary_selection_entries) noexcept {
     if (header == nullptr || !header->is_terminated()) {
         return false;
     }
     auto *term = header->terminator();
     if (term->isa<IfInst>()) {
-        return !is_loop_boundary_selection_entry(
-            header, def);
+        return !loop_boundary_selection_entries.contains(header);
     }
     return term->isa<SwitchInst>() ||
            term->isa<LoopInst>() ||
@@ -4672,6 +4653,7 @@ struct PostMergeSelectionReentry {
                                              RestructureCFGInfo &info,
                                              DomTree &dom,
                                              bool &dom_valid,
+                                             const luisa::unordered_set<BasicBlock *> &loop_boundary_selection_entries,
                                              luisa::unordered_set<Instruction *> &rewritten_sites) noexcept {
     ScopedTimer _timer_enforce_entries("enforce_construct_entries");
     // A loop-boundary IfInst is the structured XIR spelling of a physical
@@ -4680,7 +4662,8 @@ struct PostMergeSelectionReentry {
     // allowed to have the loop's ordinary executable predecessors. It is not
     // a selection construct and must not be node-split as one.
     if (!requires_unique_construct_entries(
-            header_bb, def)) {
+            header_bb,
+            loop_boundary_selection_entries)) {
         return false;
     }
     luisa::vector<BasicBlock *> entries;
@@ -4759,6 +4742,12 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     bool dom_valid = false;
     for (;;) {
         auto changed = false;
+        // The body of this scan observes one immutable CFG version. This set
+        // is the value-numbered result of the boundary predicate for that
+        // version; a successful rewrite exits the scan and invalidates it.
+        ++info.construct_entry_boundary_analysis_count;
+        const auto loop_boundary_selection_entries =
+            collect_loop_boundary_selection_entries(def);
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> construct_sites;// header_bb, merge_bb
         def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
             if (!bb->is_terminated()) { return; }
@@ -4781,6 +4770,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             auto limits_before = info.iteration_limit_count;
             if (enforce_construct_entries(
                     def, hbb, mbb, info, dom, dom_valid,
+                    loop_boundary_selection_entries,
                     rewritten_sites)) {
                 ++info.canonicalized_cfg_count;
                 changed = true;
@@ -5057,6 +5047,12 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     auto modified = false;
 
     for (;;) {
+        // No mutation occurs while a candidate is selected. Materialize the
+        // boundary relation once for this CFG version; the successful rewrite
+        // at the bottom invalidates it together with dominance.
+        ++info.construct_exit_boundary_analysis_count;
+        const auto loop_boundary_selection_entries =
+            collect_loop_boundary_selection_entries(def);
         struct Construct {
             BasicBlock *header{nullptr};
             Instruction *term{nullptr};
@@ -5070,7 +5066,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             if (header == nullptr || !header->is_terminated() ||
                 !dom.contains(header) ||
                 exit_dispatch_headers.contains(header) ||
-                is_loop_boundary_selection_entry(header, def)) {
+                loop_boundary_selection_entries.contains(header)) {
                 return;
             }
             auto *term = header->terminator();
@@ -5100,29 +5096,124 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         });
         if (constructs.empty()) { break; }
 
-        auto encloses = [&](const Construct &outer,
-                            const Construct &inner) noexcept {
-            if (&outer == &inner ||
-                !dom.contains(outer.header) ||
-                !dom.contains(inner.header) ||
-                !dom.strictly_dominates(
-                    outer.header, inner.header) ||
-                inner.header == outer.merge ||
-                inner.header == outer.continue_target) {
-                return false;
+        // Derive the construct hierarchy with one event walk over the sparse
+        // dominator tree. For a construct (H, M), the exact set in which it
+        // can parent another header X is
+        //
+        //   subtree(H) - subtree(M) - {continue(H)}.
+        //
+        // (The M term disappears when M is unreachable or outside H's
+        // subtree.) Entering H activates the construct after H's own parent
+        // query; entering M suspends it for that complete subtree. The
+        // deepest active construct is therefore exactly the former O(C^2)
+        // pairwise `encloses` maximum, including the continue-target
+        // exception. Events are restored on DFS exit, so sibling subtrees see
+        // the same immutable-CFG facts without recomputation.
+        luisa::unordered_map<BasicBlock *, size_t>
+            construct_index_by_header;
+        luisa::unordered_map<BasicBlock *, luisa::vector<size_t>>
+            construct_merge_events;
+        luisa::vector<uint8_t> construct_can_be_active(
+            constructs.size(), uint8_t{1u});
+        construct_index_by_header.reserve(constructs.size());
+        for (auto i = size_t{0u}; i < constructs.size(); ++i) {
+            auto &construct = constructs[i];
+            construct_index_by_header.emplace(
+                construct.header, i);
+            if (!dom.contains(construct.merge)) { continue; }
+            if (dom.dominates(
+                    construct.merge,
+                    construct.header)) {
+                // M dominates H: subtree(H) is entirely outside the physical
+                // construct interior, so this construct encloses no header.
+                construct_can_be_active[i] = uint8_t{0u};
+            } else if (dom.dominates(
+                           construct.header,
+                           construct.merge)) {
+                construct_merge_events[construct.merge]
+                    .emplace_back(i);
             }
-            return !dom.contains(outer.merge) ||
-                   !dom.dominates(
-                       outer.merge, inner.header);
+        }
+
+        using ActiveConstructKey =
+            std::pair<size_t, size_t>;// (dom depth, construct index)
+        std::set<ActiveConstructKey> active_constructs;
+        struct DomWalkFrame {
+            const DomTreeNode *node{nullptr};
+            size_t depth{0u};
+            size_t next_child{0u};
+            size_t activated_construct{SIZE_MAX};
+            luisa::vector<size_t> suspended_constructs;
         };
-        for (auto &inner : constructs) {
-            for (auto &outer : constructs) {
-                if (!encloses(outer, inner)) { continue; }
-                if (inner.parent == nullptr ||
-                    outer.depth > inner.parent->depth) {
-                    inner.parent = &outer;
+        luisa::vector<DomWalkFrame> dom_walk;
+        if (dom.root() != nullptr) {
+            dom_walk.emplace_back(DomWalkFrame{
+                .node = dom.root()});
+        }
+        while (!dom_walk.empty()) {
+            auto &frame = dom_walk.back();
+            auto *block = frame.node->block();
+            if (frame.next_child == 0u) {
+                if (auto event_iter =
+                        construct_merge_events.find(block);
+                    event_iter != construct_merge_events.end()) {
+                    for (auto construct_index :
+                         event_iter->second) {
+                        auto key = ActiveConstructKey{
+                            constructs[construct_index].depth,
+                            construct_index};
+                        if (active_constructs.erase(key) != 0u) {
+                            frame.suspended_constructs.emplace_back(
+                                construct_index);
+                        }
+                    }
+                }
+                if (auto construct_iter =
+                        construct_index_by_header.find(block);
+                    construct_iter !=
+                    construct_index_by_header.end()) {
+                    auto construct_index = construct_iter->second;
+                    auto &inner = constructs[construct_index];
+                    inner.depth = frame.depth;
+                    for (auto iter = active_constructs.rbegin();
+                         iter != active_constructs.rend(); ++iter) {
+                        ++info.construct_exit_parent_query_count;
+                        auto &outer = constructs[iter->second];
+                        if (outer.continue_target == block) {
+                            continue;
+                        }
+                        inner.parent = &outer;
+                        break;
+                    }
+                    if (construct_can_be_active[construct_index] != 0u) {
+                        active_constructs.emplace(
+                            inner.depth, construct_index);
+                        frame.activated_construct = construct_index;
+                    }
                 }
             }
+            auto children = frame.node->children();
+            if (frame.next_child < children.size()) {
+                auto *child = children[frame.next_child++];
+                dom_walk.emplace_back(DomWalkFrame{
+                    .node = child,
+                    .depth = frame.depth + 1u});
+                continue;
+            }
+            if (frame.activated_construct != SIZE_MAX) {
+                auto construct_index =
+                    frame.activated_construct;
+                active_constructs.erase(ActiveConstructKey{
+                    constructs[construct_index].depth,
+                    construct_index});
+            }
+            for (auto construct_index :
+                 frame.suspended_constructs) {
+                active_constructs.emplace(
+                    constructs[construct_index].depth,
+                    construct_index);
+            }
+            dom_walk.pop_back();
         }
 
         luisa::vector<Construct *> construct_order;
@@ -5173,8 +5264,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             }
 
             luisa::vector<SelectionExitEdge> exits;
-            for (auto *block : def->basic_blocks()) {
-                if (!blocks.contains(block)) { continue; }
+            for (auto *block : blocks) {
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
                         if (!blocks.contains(successor)) {
@@ -5443,6 +5533,8 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     FunctionDefinition *def) noexcept {
     size_t count = 0u;
     auto dom = compute_dom_tree(def);
+    const auto loop_boundary_selection_entries =
+        collect_loop_boundary_selection_entries(def);
     for (auto *header : def->basic_blocks()) {
         if (header == nullptr || !header->is_terminated() ||
             !dom.contains(header)) {
@@ -5457,7 +5549,8 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             default: continue;
         }
         if (!requires_unique_construct_entries(
-                header, def)) {
+                header,
+                loop_boundary_selection_entries)) {
             continue;
         }
         luisa::vector<BasicBlock *> entries;
@@ -5485,9 +5578,12 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 }
 
 [[nodiscard]] size_t count_post_merge_selection_reentries(
-    FunctionDefinition *def) noexcept {
+    FunctionDefinition *def,
+    RestructureCFGInfo &info) noexcept {
     size_t count = 0u;
     auto dom = compute_dom_tree(def);
+    const auto loop_boundary_selection_entries =
+        collect_loop_boundary_selection_entries(def);
     for (auto *header : def->basic_blocks()) {
         if (header == nullptr || !header->is_terminated() ||
             !dom.contains(header)) {
@@ -5503,7 +5599,8 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         // declare them as selection constructs, so selection re-entry rules
         // do not apply to those provenance-checked nodes.
         if (!requires_unique_construct_entries(
-                header, def)) {
+                header,
+                loop_boundary_selection_entries)) {
             continue;
         }
         auto *merge =
@@ -5511,14 +5608,24 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         if (merge == nullptr || !dom.contains(merge)) {
             continue;
         }
+        ++info.selection_reentry_audit_selection_query_count;
 
         // For a structured selection (H, M), its executable interior is the
         // H-dominated region before M. An edge from an M-dominated block back
         // into that region is precisely a second entry after the construct
         // has merged. SPIR-V rejects this graph even when the two declared arm
         // entries themselves have unique predecessors.
+        //
+        // Such a destination is, by definition, in M's dominance frontier:
+        // M dominates an executable predecessor but does not dominate the
+        // destination. Query that sparse relation instead of scanning every
+        // block for every selection. The executable-predecessor check below
+        // filters any ownership-only XIR use-list edges, preserving the exact
+        // graph predicate rather than relying on representation details.
         auto invalid = false;
-        for (auto *block : def->basic_blocks()) {
+        for (auto *frontier : dom.node(merge)->frontiers()) {
+            ++info.selection_reentry_audit_frontier_query_count;
+            auto *block = frontier->block();
             if (block == nullptr || block == header ||
                 block == merge || !dom.contains(block) ||
                 !dom.dominates(header, block) ||
@@ -5528,11 +5635,14 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             block->traverse_predecessors(
                 false,
                 [&](BasicBlock *predecessor) noexcept {
+                    if (invalid) { return; }
+                    ++info.selection_reentry_audit_predecessor_query_count;
                     invalid |=
                         dom.contains(predecessor) &&
                         has_executable_edge(predecessor, block) &&
                         dom.dominates(merge, predecessor);
                 });
+            if (invalid) { break; }
         }
         count += invalid ? 1u : 0u;
     }
@@ -6081,7 +6191,7 @@ restructure_cfg_on_definition_in_place(
         ScopedTimer _timer_reentries(
             "post_count_selection_reentries");
         selection_reentry_count =
-            count_post_merge_selection_reentries(def);
+            count_post_merge_selection_reentries(def, info);
         info.invalid_construct_count += selection_reentry_count;
     }
     if (restructure_trace_enabled() &&
@@ -6315,6 +6425,15 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "construct_entry_dom_tree",
             info.construct_entry_dom_tree_count);
         report->set(
+            "construct_entry_boundary_analysis",
+            info.construct_entry_boundary_analysis_count);
+        report->set(
+            "construct_exit_boundary_analysis",
+            info.construct_exit_boundary_analysis_count);
+        report->set(
+            "construct_exit_parent_query",
+            info.construct_exit_parent_query_count);
+        report->set(
             "if_batch_post_dom_rebuild",
             info.if_batch_post_dom_rebuild_count);
         report->set(
@@ -6348,6 +6467,15 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_reentry_owner_query",
             info.selection_reentry_owner_query_count);
         report->set(
+            "selection_reentry_audit_selection_query",
+            info.selection_reentry_audit_selection_query_count);
+        report->set(
+            "selection_reentry_audit_frontier_query",
+            info.selection_reentry_audit_frontier_query_count);
+        report->set(
+            "selection_reentry_audit_predecessor_query",
+            info.selection_reentry_audit_predecessor_query_count);
+        report->set(
             "irreducible_region", info.irreducible_region_count);
         report->set(
             "unstructured_branch", info.unstructured_branch_count);
@@ -6374,6 +6502,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.canonicalized_cfg_count;
         dst.construct_entry_dom_tree_count +=
             src.construct_entry_dom_tree_count;
+        dst.construct_entry_boundary_analysis_count +=
+            src.construct_entry_boundary_analysis_count;
+        dst.construct_exit_boundary_analysis_count +=
+            src.construct_exit_boundary_analysis_count;
+        dst.construct_exit_parent_query_count +=
+            src.construct_exit_parent_query_count;
         dst.if_batch_post_dom_rebuild_count +=
             src.if_batch_post_dom_rebuild_count;
         dst.definition_transform_invocation_count +=
@@ -6396,6 +6530,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_reentry_edge_query_count;
         dst.selection_reentry_owner_query_count +=
             src.selection_reentry_owner_query_count;
+        dst.selection_reentry_audit_selection_query_count +=
+            src.selection_reentry_audit_selection_query_count;
+        dst.selection_reentry_audit_frontier_query_count +=
+            src.selection_reentry_audit_frontier_query_count;
+        dst.selection_reentry_audit_predecessor_query_count +=
+            src.selection_reentry_audit_predecessor_query_count;
         dst.irreducible_region_count +=
             src.irreducible_region_count;
         dst.unstructured_branch_count +=
