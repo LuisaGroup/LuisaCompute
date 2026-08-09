@@ -427,53 +427,66 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
 static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
     auto structural_targets = collect_structural_targets(def);
-    BasicBlock *candidate_block = nullptr;
-    BasicBlock *candidate_successor = nullptr;
+    ++info.straight_line_scan_count;
+    luisa::vector<BasicBlock *> blocks;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (candidate_block != nullptr) return;
-        auto term = bb->terminator();
-        if (term == nullptr || !term->isa<BranchInst>()) return;
-        auto br = static_cast<BranchInst *>(term);
-        auto succ = br->target_block();
-        if (succ == nullptr || succ == bb || succ == entry) return;
-        if (structural_targets.contains(bb) || structural_targets.contains(succ)) return;
-        if (block_has_phi(succ)) return;
-        if (has_phi_sensitive_successor(bb, succ)) return;
-        size_t pred_count = 0;
-        BasicBlock *pred = nullptr;
-        succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
-            ++pred_count;
-            pred = p;
-        });
-        if (pred_count == 1 && pred == bb) {
-            candidate_block = bb;
-            candidate_successor = succ;
+        blocks.emplace_back(bb);
+    });
+    auto changed = false;
+    luisa::unordered_set<BasicBlock *> removed;
+    // Snapshot entries are raw pointers. Retain detached blocks until every
+    // entry has been skipped or visited, so no worklist pointer can dangle.
+    luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
+    for (auto *block : blocks) {
+        if (removed.contains(block)) { continue; }
+        // Contract the maximal chain rooted at this physical-order block.
+        // A contraction changes no predecessor relation except replacing
+        // (block -> successor -> target) with (block -> target), so only the
+        // same source can become newly eligible. All other live sources were
+        // already present in `blocks` and are revalidated when visited.
+        for (;;) {
+            ++info.straight_line_block_visit_count;
+            auto *terminator = block->terminator();
+            if (terminator == nullptr ||
+                !terminator->isa<BranchInst>()) {
+                break;
+            }
+            auto *branch = static_cast<BranchInst *>(terminator);
+            auto *successor = branch->target_block();
+            if (successor == nullptr || successor == block ||
+                successor == entry || removed.contains(successor) ||
+                structural_targets.contains(block) ||
+                structural_targets.contains(successor) ||
+                block_has_phi(successor) ||
+                has_phi_sensitive_successor(block, successor)) {
+                break;
+            }
+            auto predecessor_count = size_t{0u};
+            BasicBlock *predecessor = nullptr;
+            successor->traverse_predecessors(
+                false, [&](BasicBlock *candidate) noexcept {
+                    ++predecessor_count;
+                    predecessor = candidate;
+                });
+            if (predecessor_count != 1u || predecessor != block) {
+                break;
+            }
+
+            branch->remove_self();
+            XIRBuilder builder;
+            builder.set_insertion_point(block);
+            while (!successor->instructions().empty()) {
+                auto instruction =
+                    successor->instructions().front()->remove_self();
+                builder.append(std::move(instruction));
+            }
+            removed.emplace(successor);
+            removed_blocks.emplace_back(successor->remove_self());
+            ++info.merged_straight_line_count;
+            changed = true;
         }
-    });
-    if (candidate_block == nullptr || candidate_successor == nullptr) return false;
-    auto bb = candidate_block;
-    auto succ = candidate_successor;
-    if (bb->terminator() == nullptr || !bb->terminator()->isa<BranchInst>()) return false;
-    auto br = static_cast<BranchInst *>(bb->terminator());
-    if (br->target_block() != succ || block_has_phi(succ)) return false;
-    if (has_phi_sensitive_successor(bb, succ)) return false;
-    size_t pred_count = 0;
-    BasicBlock *pred = nullptr;
-    succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
-        ++pred_count;
-        pred = p;
-    });
-    if (pred_count != 1 || pred != bb) return false;
-    br->remove_self();
-    XIRBuilder b;
-    b.set_insertion_point(bb);
-    while (!succ->instructions().empty()) {
-        auto inst = succ->instructions().front()->remove_self();
-        b.append(std::move(inst));
     }
-    succ->remove_self();
-    ++info.merged_straight_line_count;
-    return true;
+    return changed;
 }
 
 }// namespace detail
@@ -520,6 +533,9 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module, PassReport *repo
             info.threaded_empty_block_count += sub.threaded_empty_block_count;
             info.merged_straight_line_count += sub.merged_straight_line_count;
             info.removed_unreachable_block_count += sub.removed_unreachable_block_count;
+            info.straight_line_scan_count += sub.straight_line_scan_count;
+            info.straight_line_block_visit_count +=
+                sub.straight_line_block_visit_count;
         }
     }
     if (report != nullptr) {
@@ -528,6 +544,10 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module, PassReport *repo
         report->set("threaded_empty_block", info.threaded_empty_block_count);
         report->set("merged_straight_line", info.merged_straight_line_count);
         report->set("removed_unreachable_block", info.removed_unreachable_block_count);
+        report->set("straight_line_scan", info.straight_line_scan_count);
+        report->set(
+            "straight_line_block_visit",
+            info.straight_line_block_visit_count);
     }
     return info;
 }

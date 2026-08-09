@@ -309,7 +309,7 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)sccp_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(5u, [](PassReport *report) noexcept {
+        check_zero_report(7u, [](PassReport *report) noexcept {
             (void)simplify_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
