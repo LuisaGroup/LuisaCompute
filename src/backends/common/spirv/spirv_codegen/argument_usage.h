@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <luisa/ast/usage.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
@@ -48,6 +50,14 @@ using SpirvFunctionArgumentAnalysisMap = luisa::unordered_map<
     const luisa::compute::xir::Function *,
     luisa::vector<SpirvFunctionArgumentAnalysis>>;
 
+struct SpirvFunctionArgumentAnalysisStatistics {
+    size_t structural_closure_count{0u};
+    size_t instruction_scan_count{0u};
+    size_t call_dependency_count{0u};
+    size_t worklist_pop_count{0u};
+    size_t dependency_visit_count{0u};
+};
+
 // A surviving callable buffer/bindless argument need not become an SPIR-V
 // function parameter when every reachable call forwards the same kernel
 // resource. In that case the descriptor (and all of its metadata side
@@ -60,7 +70,8 @@ using SpirvReadonlyResourceOriginMap = luisa::unordered_map<
 
 [[nodiscard]] SpirvFunctionArgumentAnalysisMap
 analyze_spirv_function_argument_usage(
-    const luisa::compute::xir::Module *module) noexcept;
+    const luisa::compute::xir::Module *module,
+    SpirvFunctionArgumentAnalysisStatistics *statistics = nullptr) noexcept;
 
 [[nodiscard]] SpirvReadonlyResourceOriginMap
 analyze_spirv_readonly_resource_origins(

@@ -528,6 +528,45 @@ void reg_simplify_cfg() {
         expect(info.changed());
         expect(count_blocks(def) == 1u);
     };
+
+    "merge_straight_line_long_chain_is_batched"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *definition = kernel->definition();
+        constexpr auto edge_count = size_t{256u};
+        luisa::vector<BasicBlock *> blocks;
+        blocks.reserve(edge_count + 1u);
+        blocks.emplace_back(body);
+        for (auto i = size_t{0u}; i < edge_count; ++i) {
+            blocks.emplace_back(
+                definition->create_basic_block());
+        }
+        auto *undefined =
+            module.create_undefined(Type::of<int>());
+        XIRBuilder builder;
+        for (auto i = size_t{0u}; i < edge_count; ++i) {
+            builder.set_insertion_point(blocks[i]);
+            builder.call(
+                Type::of<int>(), ArithmeticOp::BINARY_ADD,
+                {undefined, undefined});
+            builder.br(blocks[i + 1u]);
+        }
+        builder.set_insertion_point(blocks.back());
+        builder.return_void();
+
+        auto info =
+            simplify_cfg_pass_run_on_function(kernel);
+        expect(info.merged_straight_line_count == edge_count);
+        expect(info.straight_line_scan_count == 2u)
+            << "one mutating maximal-chain scan plus one fixed-point "
+               "confirmation must replace one full scan per edge";
+        expect(info.straight_line_block_visit_count <=
+               2u * (edge_count + 1u))
+            << "straight-line work must remain linear in the physical "
+               "input blocks plus contracted edges";
+        expect(count_blocks(definition) == 1u);
+    };
 }
 
 int main(int argc, char *argv[]) {

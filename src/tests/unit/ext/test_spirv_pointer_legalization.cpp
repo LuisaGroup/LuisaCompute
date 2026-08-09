@@ -31,6 +31,7 @@
 #include <luisa/xir/verifier.h>
 
 #include "spirv_codegen/entry.h"
+#include "spirv_codegen/argument_usage.h"
 #include "spirv_codegen/dialect.h"
 #include "spirv_codegen/pointer_legalization.h"
 #include "spirv_codegen/utils.h"
@@ -241,6 +242,67 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
 
+    "spirv_argument_usage_propagates_sparse_deep_call_chain"_test = [] {
+        Module module;
+        constexpr auto chain_length = 128u;
+        auto *buffer_type =
+            Type::buffer(Type::of<uint32_t>());
+        luisa::vector<CallableFunction *> callables;
+        luisa::vector<ResourceArgument *> arguments;
+        luisa::vector<BasicBlock *> bodies;
+        callables.reserve(chain_length);
+        arguments.reserve(chain_length);
+        bodies.reserve(chain_length);
+        for (auto i = 0u; i < chain_length; ++i) {
+            auto *callable = module.create_callable(nullptr);
+            callables.emplace_back(callable);
+            arguments.emplace_back(
+                callable->create_resource_argument(buffer_type));
+            bodies.emplace_back(callable->create_body_block());
+        }
+        XIRBuilder builder;
+        for (auto i = 0u; i + 1u < chain_length; ++i) {
+            builder.set_insertion_point(bodies[i]);
+            builder.call(nullptr, callables[i + 1u],
+                         {arguments[i]});
+            builder.return_void();
+        }
+        auto *zero =
+            module.create_constant_zero(Type::of<uint32_t>());
+        builder.set_insertion_point(bodies.back());
+        builder.call(Type::of<uint32_t>(),
+                     ResourceReadOp::BUFFER_READ,
+                     {arguments.back(), zero});
+        builder.return_void();
+
+        auto *kernel = module.create_kernel();
+        auto *kernel_buffer =
+            kernel->create_resource_argument(buffer_type);
+        auto *kernel_body = kernel->create_body_block();
+        builder.set_insertion_point(kernel_body);
+        builder.call(nullptr, callables.front(),
+                     {kernel_buffer});
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+
+        lc::spirv::SpirvFunctionArgumentAnalysisStatistics statistics;
+        auto analysis =
+            lc::spirv::analyze_spirv_function_argument_usage(
+                &module, &statistics);
+        expect(lc::spirv::spirv_function_argument_usage_of(
+                   analysis, kernel, kernel_buffer) == Usage::READ);
+        expect(eq(statistics.structural_closure_count,
+                  chain_length + 1u));
+        expect(eq(statistics.instruction_scan_count,
+                  2u * (chain_length + 1u)));
+        expect(eq(statistics.call_dependency_count,
+                  chain_length));
+        expect(eq(statistics.worklist_pop_count,
+                  chain_length + 1u));
+        expect(eq(statistics.dependency_visit_count,
+                  chain_length));
+    };
+
     "spirv_pointer_switch_fallback_compiles_and_validates"_test = [] {
         auto kernel = make_pointer_switch_kernel();
         auto module = ast_to_xir_translate(
@@ -258,6 +320,7 @@ int main(int argc, char *argv[]) {
         expect(eq(legalized.destructured_switch_count, 0u));
         expect(eq(legalized.inline_info.inlined_call_count, 1u));
         expect(eq(legalized.remaining_pointer_call_count, 0u));
+        expect(eq(legalized.argument_usage_analysis_count, 2u));
         expect(xir_verify_module(module.get()).succeeded());
         auto intermediate_dialect =
             lc::spirv::validate_spirv_xir_codegen_dialect(module.get());

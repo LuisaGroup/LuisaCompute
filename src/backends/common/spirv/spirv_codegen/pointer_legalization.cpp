@@ -344,9 +344,27 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
         return result;
     }
 
+    auto analyze_argument_usage = [&]() noexcept {
+        SpirvFunctionArgumentAnalysisStatistics statistics;
+        auto usage = analyze_spirv_function_argument_usage(
+            module, &statistics);
+        ++result.argument_usage_analysis_count;
+        result.argument_usage_structural_closure_count +=
+            statistics.structural_closure_count;
+        result.argument_usage_instruction_scan_count +=
+            statistics.instruction_scan_count;
+        result.argument_usage_call_dependency_count +=
+            statistics.call_dependency_count;
+        result.argument_usage_worklist_pop_count +=
+            statistics.worklist_pop_count;
+        result.argument_usage_dependency_visit_count +=
+            statistics.dependency_visit_count;
+        return usage;
+    };
+
     luisa::unordered_set<xir::Function *> blocking_functions_seen;
     for (;;) {
-        auto usage = analyze_spirv_function_argument_usage(module);
+        auto usage = analyze_argument_usage();
         auto readonly_resource_origins =
             analyze_spirv_readonly_resource_origins(
                 module, usage);
@@ -445,8 +463,7 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             if (!destructured.succeeded()) {
                 result.status =
                     SpirvPointerLegalizationStatus::DESTRUCTURE_FAILED;
-                auto remaining_usage =
-                    analyze_spirv_function_argument_usage(module);
+                auto remaining_usage = analyze_argument_usage();
                 auto remaining_readonly_resource_origins =
                     analyze_spirv_readonly_resource_origins(
                         module, remaining_usage);
@@ -477,8 +494,7 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             inline_info.skipped_structured_call_count != 0u ||
             inline_info.rejected_malformed_call_count != 0u ||
             inline_info.skipped_recursive_callable_count != 0u) {
-            auto remaining_usage =
-                analyze_spirv_function_argument_usage(module);
+            auto remaining_usage = analyze_argument_usage();
             auto remaining_readonly_resource_origins =
                 analyze_spirv_readonly_resource_origins(
                     module, remaining_usage);
