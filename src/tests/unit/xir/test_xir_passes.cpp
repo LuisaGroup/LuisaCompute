@@ -2320,6 +2320,38 @@ void reg_dce() {
         expect(body->instructions().front()->isa<ReturnInst>());
     };
 
+    "dce_solves_cascading_write_only_allocas_to_fixed_point"_test = [] {
+        Module m;
+        auto *f = m.create_callable(nullptr);
+        auto *argument =
+            f->create_value_argument(Type::of<uint>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *source = b.alloca_local(Type::of<uint>());
+        b.store(source, argument);
+        auto *loaded = b.load(Type::of<uint>(), source);
+        auto *sink = b.alloca_local(Type::of<uint>());
+        b.store(sink, loaded);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto first = dce_pass_run_on_function(f);
+        // Removing sink exposes the load from source; removing that load is
+        // the exact event that makes source write-only. Both monotone rules
+        // must converge in one invocation without a whole-function rescan.
+        expect(first.removed_inst_count == 5u);
+        expect(first.dead_code_instruction_scan_count == 6u);
+        expect(first.dead_code_worklist_pop_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+        expect(body->instructions().front()->isa<ReturnInst>());
+
+        auto second = dce_pass_run_on_function(f);
+        expect(!second.changed());
+        expect(second.dead_code_instruction_scan_count == 1u);
+        expect(second.dead_code_worklist_pop_count == 0u);
+    };
+
     "dce_preserves_unused_volatile_resource_reads"_test = [] {
         Module m;
         auto *k = m.create_kernel();
