@@ -1440,45 +1440,311 @@ enum struct LoopBoundaryTargetKind {
         if (bb == nullptr || !visited.emplace(bb).second) { continue; }
         if (bb == merge ||
             canonical_exit_target(bb) == canonical_merge) {
-            if (!add_kind(LoopBoundaryTargetKind::BREAK)) { return LoopBoundaryTargetKind::NONE; }
+            if (!add_kind(LoopBoundaryTargetKind::BREAK)) {
+                return LoopBoundaryTargetKind::NONE;
+            }
             continue;
         }
         if (bb == continue_target || bb == loop_entry) {
-            if (!add_kind(LoopBoundaryTargetKind::CONTINUE)) { return LoopBoundaryTargetKind::NONE; }
+            if (!add_kind(LoopBoundaryTargetKind::CONTINUE)) {
+                return LoopBoundaryTargetKind::NONE;
+            }
             continue;
         }
-        if (!bb->is_terminated()) { return LoopBoundaryTargetKind::NONE; }
+        if (!bb->is_terminated()) {
+            return LoopBoundaryTargetKind::NONE;
+        }
         auto *term = bb->terminator();
         if (term->isa<BreakInst>()) {
             auto *br = static_cast<BreakInst *>(term);
-            if (br->target_block() != merge) { return LoopBoundaryTargetKind::NONE; }
-            if (!add_kind(LoopBoundaryTargetKind::BREAK)) { return LoopBoundaryTargetKind::NONE; }
+            if (br->target_block() != merge) {
+                return LoopBoundaryTargetKind::NONE;
+            }
+            if (!add_kind(LoopBoundaryTargetKind::BREAK)) {
+                return LoopBoundaryTargetKind::NONE;
+            }
             continue;
         }
         if (term->isa<ContinueInst>()) {
             auto *cont = static_cast<ContinueInst *>(term);
             auto *cont_target = cont->target_block();
-            if (cont_target != continue_target && cont_target != loop_entry) { return LoopBoundaryTargetKind::NONE; }
-            if (!add_kind(LoopBoundaryTargetKind::CONTINUE)) { return LoopBoundaryTargetKind::NONE; }
+            if (cont_target != continue_target &&
+                cont_target != loop_entry) {
+                return LoopBoundaryTargetKind::NONE;
+            }
+            if (!add_kind(LoopBoundaryTargetKind::CONTINUE)) {
+                return LoopBoundaryTargetKind::NONE;
+            }
             continue;
         }
-        if (term->isa<ReturnInst>() || term->isa<UnreachableInst>() || term->isa<RasterDiscardInst>()) {
+        if (term->isa<ReturnInst>() ||
+            term->isa<UnreachableInst>() ||
+            term->isa<RasterDiscardInst>()) {
             return LoopBoundaryTargetKind::NONE;
         }
-        if (term->isa<LoopInst>() || term->isa<SimpleLoopInst>()) {
+        if (term->isa<LoopInst>() ||
+            term->isa<SimpleLoopInst>()) {
             auto *control_flow_merge = term->control_flow_merge();
-            if (control_flow_merge == nullptr || control_flow_merge->merge_block() == nullptr) {
+            if (control_flow_merge == nullptr ||
+                control_flow_merge->merge_block() == nullptr) {
                 return LoopBoundaryTargetKind::NONE;
             }
             work.emplace_back(control_flow_merge->merge_block());
             continue;
         }
-        traverse_structured_successors(bb, [&](BasicBlock *succ) noexcept {
-            if (succ != nullptr) { work.emplace_back(succ); }
-        });
+        traverse_structured_successors(
+            bb, [&](BasicBlock *succ) noexcept {
+                if (succ != nullptr) { work.emplace_back(succ); }
+            });
     }
     return kind;
 }
+
+// Batch solution of every loop-boundary path query for one loop context. The
+// classification is a finite forward reachability problem over three facts:
+// BREAK, CONTINUE, and INVALID. Build the context-independent reverse graph
+// once for the immutable CFG, seed context-specific terminal facts, then
+// propagate bitwise unions backwards. Each block acquires each of the three
+// bits at most once, so one loop context costs O(V + E) rather than launching
+// a fresh graph search from every IfInst arm.
+class LoopBoundaryPathDataflow {
+private:
+    static constexpr auto break_bit = uint8_t{1u};
+    static constexpr auto continue_bit = uint8_t{2u};
+    static constexpr auto invalid_bit = uint8_t{4u};
+
+    luisa::vector<BasicBlock *> _blocks;
+    luisa::unordered_map<BasicBlock *, size_t> _block_ids;
+    // CSR for the reversed structured CFG. The offset table is dense in value
+    // numbers; the relation itself stores exactly O(E) source IDs.
+    luisa::vector<size_t> _reverse_edge_offsets;
+    luisa::vector<size_t> _reverse_edge_sources;
+    luisa::vector<BasicBlock *> _canonical_targets;
+    luisa::vector<uint8_t> _facts;
+    luisa::vector<uint8_t> _terminal;
+    luisa::vector<uint32_t> _visit_epochs;
+    uint32_t _visit_epoch{0u};
+    luisa::vector<size_t> _work;
+
+private:
+    void _begin_visit() noexcept {
+        ++_visit_epoch;
+        if (_visit_epoch == 0u) {
+            std::fill(
+                _visit_epochs.begin(),
+                _visit_epochs.end(), 0u);
+            _visit_epoch = 1u;
+        }
+        _work.clear();
+    }
+
+public:
+    explicit LoopBoundaryPathDataflow(
+        FunctionDefinition *def) noexcept {
+        if (def == nullptr) { return; }
+        for (auto *block : def->basic_blocks()) {
+            auto id = _blocks.size();
+            _blocks.emplace_back(block);
+            _block_ids.emplace(block, id);
+        }
+        _canonical_targets.reserve(_blocks.size());
+        for (auto *block : _blocks) {
+            _canonical_targets.emplace_back(
+                canonical_exit_target(block));
+        }
+        luisa::vector<std::pair<size_t, size_t>> reverse_edges;
+        auto add_edge = [&](size_t source,
+                            BasicBlock *target) noexcept {
+            if (auto iter = _block_ids.find(target);
+                iter != _block_ids.end()) {
+                reverse_edges.emplace_back(
+                    iter->second, source);
+            }
+        };
+        for (auto source = size_t{0u};
+             source < _blocks.size(); ++source) {
+            auto *block = _blocks[source];
+            if (!block->is_terminated()) { continue; }
+            auto *term = block->terminator();
+            if (term->isa<BreakInst>() ||
+                term->isa<ContinueInst>() ||
+                term->isa<ReturnInst>() ||
+                term->isa<UnreachableInst>() ||
+                term->isa<RasterDiscardInst>()) {
+                continue;
+            }
+            if (term->isa<LoopInst>() ||
+                term->isa<SimpleLoopInst>()) {
+                auto *control_flow_merge =
+                    term->control_flow_merge();
+                if (control_flow_merge != nullptr) {
+                    add_edge(
+                        source,
+                        control_flow_merge->merge_block());
+                }
+                continue;
+            }
+            traverse_structured_successors(
+                block, [&](BasicBlock *successor) noexcept {
+                    add_edge(source, successor);
+                });
+        }
+        _reverse_edge_offsets.resize(
+            _blocks.size() + 1u, 0u);
+        for (auto [target, source] : reverse_edges) {
+            static_cast<void>(source);
+            ++_reverse_edge_offsets[target + 1u];
+        }
+        for (auto i = size_t{1u};
+             i < _reverse_edge_offsets.size(); ++i) {
+            _reverse_edge_offsets[i] +=
+                _reverse_edge_offsets[i - 1u];
+        }
+        _reverse_edge_sources.resize(reverse_edges.size());
+        auto cursors = _reverse_edge_offsets;
+        for (auto [target, source] : reverse_edges) {
+            _reverse_edge_sources[cursors[target]++] = source;
+        }
+        _facts.resize(_blocks.size(), uint8_t{0u});
+        _terminal.resize(_blocks.size(), uint8_t{0u});
+        _visit_epochs.resize(_blocks.size(), 0u);
+        _work.reserve(_blocks.size());
+    }
+
+    void evaluate(BasicBlock *continue_target,
+                  BasicBlock *loop_entry,
+                  BasicBlock *merge) noexcept {
+        std::fill(_facts.begin(), _facts.end(), uint8_t{0u});
+        std::fill(
+            _terminal.begin(), _terminal.end(), uint8_t{0u});
+        _work.clear();
+        auto *canonical_merge =
+            canonical_exit_target(merge);
+        for (auto id = size_t{0u};
+             id < _blocks.size(); ++id) {
+            auto *block = _blocks[id];
+            auto fact = uint8_t{0u};
+            if (block == merge ||
+                _canonical_targets[id] == canonical_merge) {
+                fact = break_bit;
+            } else if (block == continue_target ||
+                       block == loop_entry) {
+                fact = continue_bit;
+            } else if (!block->is_terminated()) {
+                fact = invalid_bit;
+            } else {
+                auto *term = block->terminator();
+                if (term->isa<BreakInst>()) {
+                    fact = static_cast<BreakInst *>(term)
+                                       ->target_block() == merge ?
+                               break_bit :
+                               invalid_bit;
+                } else if (term->isa<ContinueInst>()) {
+                    auto *target =
+                        static_cast<ContinueInst *>(term)
+                            ->target_block();
+                    fact = target == continue_target ||
+                                   target == loop_entry ?
+                               continue_bit :
+                               invalid_bit;
+                } else if (term->isa<ReturnInst>() ||
+                           term->isa<UnreachableInst>() ||
+                           term->isa<RasterDiscardInst>()) {
+                    fact = invalid_bit;
+                } else if (term->isa<LoopInst>() ||
+                           term->isa<SimpleLoopInst>()) {
+                    auto *control_flow_merge =
+                        term->control_flow_merge();
+                    if (control_flow_merge == nullptr ||
+                        control_flow_merge->merge_block() ==
+                            nullptr) {
+                        fact = invalid_bit;
+                    }
+                }
+            }
+            if (fact != 0u) {
+                _facts[id] = fact;
+                _terminal[id] = uint8_t{1u};
+                _work.emplace_back(id);
+            }
+        }
+        for (auto cursor = size_t{0u};
+             cursor < _work.size(); ++cursor) {
+            auto node = _work[cursor];
+            auto fact = _facts[node];
+            for (auto edge = _reverse_edge_offsets[node];
+                 edge < _reverse_edge_offsets[node + 1u];
+                 ++edge) {
+                auto predecessor =
+                    _reverse_edge_sources[edge];
+                if (_terminal[predecessor] != 0u) {
+                    continue;
+                }
+                auto combined = static_cast<uint8_t>(
+                    _facts[predecessor] | fact);
+                if (combined != _facts[predecessor]) {
+                    _facts[predecessor] = combined;
+                    _work.emplace_back(predecessor);
+                }
+            }
+        }
+    }
+
+    template<typename Visitor>
+    void visit_loop_region(
+        BasicBlock *body,
+        BasicBlock *loop_entry,
+        BasicBlock *merge,
+        Visitor &&visitor) noexcept {
+        _begin_visit();
+        auto enqueue = [&](BasicBlock *block,
+                           bool allow_loop_entry) noexcept {
+            if (block == nullptr || block == merge ||
+                (!allow_loop_entry && block == loop_entry)) {
+                return;
+            }
+            auto iter = _block_ids.find(block);
+            if (iter == _block_ids.end()) { return; }
+            auto id = iter->second;
+            if (_visit_epochs[id] == _visit_epoch) { return; }
+            _visit_epochs[id] = _visit_epoch;
+            _work.emplace_back(id);
+        };
+        enqueue(body, true);
+        while (!_work.empty()) {
+            auto id = _work.back();
+            _work.pop_back();
+            auto *block = _blocks[id];
+            visitor(block);
+            traverse_structured_successors(
+                block, [&](BasicBlock *successor) noexcept {
+                    enqueue(successor, false);
+                });
+        }
+    }
+
+    [[nodiscard]] LoopBoundaryTargetKind classify(
+        BasicBlock *target) const noexcept {
+        auto iter = _block_ids.find(target);
+        if (iter == _block_ids.end()) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        auto fact = _facts[iter->second];
+        if ((fact & invalid_bit) != 0u) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        switch (fact & (break_bit | continue_bit)) {
+            case break_bit:
+                return LoopBoundaryTargetKind::BREAK;
+            case continue_bit:
+                return LoopBoundaryTargetKind::CONTINUE;
+            case break_bit | continue_bit:
+                return LoopBoundaryTargetKind::MIXED;
+            default:
+                return LoopBoundaryTargetKind::NONE;
+        }
+    }
+};
 
 [[nodiscard]] bool normalize_one_loop_boundary_conditional_branch(FunctionDefinition *def,
                                                                   luisa::unordered_set<BasicBlock *> &
@@ -2057,16 +2323,11 @@ void remove_write_only_dispatch_selectors(
     return changed;
 }
 
-[[nodiscard]] bool is_loop_boundary_if(IfInst *if_inst,
-                                       BasicBlock *continue_target,
-                                       BasicBlock *loop_entry,
-                                       BasicBlock *merge) noexcept {
+[[nodiscard]] bool is_loop_boundary_if(
+    IfInst *if_inst,
+    LoopBoundaryTargetKind true_kind,
+    LoopBoundaryTargetKind false_kind) noexcept {
     if (if_inst == nullptr) { return false; }
-    if (continue_target == nullptr || loop_entry == nullptr || merge == nullptr) { return false; }
-    auto true_kind = classify_loop_boundary_path(
-        if_inst->true_block(), continue_target, loop_entry, merge);
-    auto false_kind = classify_loop_boundary_path(
-        if_inst->false_block(), continue_target, loop_entry, merge);
     auto singular_boundary = [](auto kind) noexcept {
         return kind == LoopBoundaryTargetKind::BREAK ||
                kind == LoopBoundaryTargetKind::CONTINUE;
@@ -2082,62 +2343,23 @@ void remove_write_only_dispatch_selectors(
             singular_boundary(true_kind));
 }
 
-template<typename F>
-[[nodiscard]] bool visit_loop_region_blocks(
-    FunctionDefinition *def, F &&visitor) noexcept {
-    if (def == nullptr) { return false; }
-    auto stopped = false;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (stopped || !bb->is_terminated()) { return; }
-        auto *term = bb->terminator();
-        BasicBlock *body = nullptr;
-        BasicBlock *continue_target = nullptr;
-        BasicBlock *loop_entry = nullptr;
-        BasicBlock *merge = nullptr;
-        if (term->isa<LoopInst>()) {
-            auto *loop = static_cast<LoopInst *>(term);
-            body = loop->body_block();
-            continue_target = loop->update_block();
-            if (continue_target == nullptr) { continue_target = loop->prepare_block(); }
-            loop_entry = loop->prepare_block();
-            merge = loop->merge_block();
-        } else if (term->isa<SimpleLoopInst>()) {
-            auto *loop = static_cast<SimpleLoopInst *>(term);
-            body = loop->body_block();
-            continue_target = loop->body_block();
-            loop_entry = loop->body_block();
-            merge = loop->merge_block();
-        } else {
-            return;
-        }
-        if (body == nullptr || merge == nullptr) { return; }
-        luisa::unordered_set<BasicBlock *> visited;
-        luisa::vector<BasicBlock *> work;
-        auto enqueue = [&](BasicBlock *candidate) noexcept {
-            if (candidate == nullptr || candidate == merge) { return; }
-            if (visited.emplace(candidate).second) { work.emplace_back(candidate); }
-        };
-        enqueue(body);
-        while (!work.empty() && !stopped) {
-            auto *cur = work.back();
-            work.pop_back();
-            if (visitor(
-                    cur, continue_target,
-                    loop_entry, merge)) {
-                stopped = true;
-                return;
-            }
-            traverse_structured_successors(
-                cur, [&](BasicBlock *succ) noexcept {
-                    if (succ == loop_entry ||
-                        succ == merge) {
-                        return;
-                    }
-                    enqueue(succ);
-                });
-        }
-    });
-    return stopped;
+[[nodiscard]] bool is_loop_boundary_if(
+    IfInst *if_inst,
+    BasicBlock *continue_target,
+    BasicBlock *loop_entry,
+    BasicBlock *merge) noexcept {
+    if (if_inst == nullptr || continue_target == nullptr ||
+        loop_entry == nullptr || merge == nullptr) {
+        return false;
+    }
+    auto true_kind = classify_loop_boundary_path(
+        if_inst->true_block(), continue_target, loop_entry,
+        merge);
+    auto false_kind = classify_loop_boundary_path(
+        if_inst->false_block(), continue_target, loop_entry,
+        merge);
+    return is_loop_boundary_if(
+        if_inst, true_kind, false_kind);
 }
 
 // Invert is_loop_boundary_selection_entry's repeated membership query. For
@@ -2150,24 +2372,70 @@ template<typename F>
 // Walking every loop once materializes the same relation for all entries.
 [[nodiscard]] luisa::unordered_set<BasicBlock *>
 collect_loop_boundary_selection_entries(
-    FunctionDefinition *def) noexcept {
+    FunctionDefinition *def,
+    RestructureCFGInfo *info = nullptr) noexcept {
     luisa::unordered_set<BasicBlock *> entries;
-    static_cast<void>(visit_loop_region_blocks(
-        def, [&](BasicBlock *block,
-                 BasicBlock *continue_target,
-                 BasicBlock *loop_entry,
-                 BasicBlock *merge) noexcept {
-            if (block->is_terminated() &&
-                block->terminator()->isa<IfInst>() &&
-                is_loop_boundary_if(
-                    static_cast<IfInst *>(
-                        block->terminator()),
-                    continue_target, loop_entry,
-                    merge)) {
-                entries.emplace(block);
+    if (def == nullptr) { return entries; }
+    LoopBoundaryPathDataflow dataflow{def};
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        if (block == nullptr || !block->is_terminated()) {
+            return;
+        }
+        auto *term = block->terminator();
+        BasicBlock *body = nullptr;
+        BasicBlock *continue_target = nullptr;
+        BasicBlock *loop_entry = nullptr;
+        BasicBlock *merge = nullptr;
+        if (term->isa<LoopInst>()) {
+            auto *loop = static_cast<LoopInst *>(term);
+            body = loop->body_block();
+            continue_target = loop->update_block();
+            if (continue_target == nullptr) {
+                continue_target = loop->prepare_block();
             }
-            return false;
-        }));
+            loop_entry = loop->prepare_block();
+            merge = loop->merge_block();
+        } else if (term->isa<SimpleLoopInst>()) {
+            auto *loop = static_cast<SimpleLoopInst *>(term);
+            body = loop->body_block();
+            continue_target = loop->body_block();
+            loop_entry = loop->body_block();
+            merge = loop->merge_block();
+        } else {
+            return;
+        }
+        if (body == nullptr || continue_target == nullptr ||
+            loop_entry == nullptr || merge == nullptr) {
+            return;
+        }
+        dataflow.evaluate(
+            continue_target, loop_entry, merge);
+        if (info != nullptr) {
+            ++info->selection_exit_boundary_dataflow_count;
+        }
+        dataflow.visit_loop_region(
+            body, loop_entry, merge,
+            [&](BasicBlock *candidate) noexcept {
+                if (!candidate->is_terminated() ||
+                    !candidate->terminator()->isa<IfInst>()) {
+                    return;
+                }
+                auto *if_inst = static_cast<IfInst *>(
+                    candidate->terminator());
+                auto true_kind = dataflow.classify(
+                    if_inst->true_block());
+                auto false_kind = dataflow.classify(
+                    if_inst->false_block());
+                if (info != nullptr) {
+                    info->selection_exit_boundary_classification_count +=
+                        2u;
+                }
+                if (is_loop_boundary_if(
+                        if_inst, true_kind, false_kind)) {
+                    entries.emplace(candidate);
+                }
+            });
+    });
     return entries;
 }
 
@@ -2832,12 +3100,15 @@ collect_enclosing_loop_exits(
 }
 
 struct SelectionExitCFGRelations {
+    struct LoopContext {
+        size_t parent{SIZE_MAX};
+        luisa::vector<BasicBlock *> exits;
+    };
     luisa::unordered_set<BasicBlock *>
         loop_boundary_selection_entries;
-    luisa::unordered_map<
-        BasicBlock *,
-        luisa::unordered_set<BasicBlock *>>
-        enclosing_loop_exits;
+    luisa::vector<LoopContext> loop_contexts;
+    luisa::unordered_map<BasicBlock *, size_t>
+        selection_loop_contexts;
 };
 
 // Materialize the exact CFG relations consumed by one selection-exit scan.
@@ -2847,28 +3118,73 @@ struct SelectionExitCFGRelations {
 [[nodiscard]] SelectionExitCFGRelations
 build_selection_exit_cfg_relations(
     FunctionDefinition *def,
-    const DomTree &dom) noexcept {
+    const DomTree &dom,
+    RestructureCFGInfo &info) noexcept {
     SelectionExitCFGRelations relations;
     relations.loop_boundary_selection_entries =
-        collect_loop_boundary_selection_entries(def);
+        collect_loop_boundary_selection_entries(def, &info);
     auto loops = collect_structured_loop_exit_info(def);
-    def->traverse_basic_blocks(
-        [&](BasicBlock *block) noexcept {
-            if (!dom.contains(block)) { return; }
-            for (auto &&loop : loops) {
-                if (!dom.contains(loop.header) ||
-                    !dom.dominates(
-                        loop.header, block)) {
-                    continue;
-                }
-                auto &exits =
-                    relations.enclosing_loop_exits[
-                        block];
-                for (auto *exit : loop.exits) {
-                    exits.emplace(exit);
+    relations.loop_contexts.reserve(loops.size());
+    luisa::unordered_map<BasicBlock *, size_t>
+        loop_index_by_header;
+    loop_index_by_header.reserve(loops.size());
+    for (auto i = size_t{0u}; i < loops.size(); ++i) {
+        loop_index_by_header.emplace(loops[i].header, i);
+    }
+
+    // Dominance is ancestry in `dom`. Carry a persistent linked loop context
+    // down that sparse tree: entering a reachable loop header creates exactly
+    // one node whose parent is the previously active context. A selection
+    // records only the current context ID. This represents the same relation
+    // as the old block-by-loop Cartesian materialization because a loop header
+    // dominates a block iff it is an ancestor of that block in this tree.
+    struct DomWalkFrame {
+        const DomTreeNode *node{nullptr};
+        size_t loop_context{SIZE_MAX};
+        size_t next_child{0u};
+        bool entered{false};
+    };
+    luisa::vector<DomWalkFrame> walk;
+    if (dom.root() != nullptr) {
+        walk.emplace_back(DomWalkFrame{
+            .node = dom.root()});
+    }
+    while (!walk.empty()) {
+        auto &frame = walk.back();
+        if (!frame.entered) {
+            frame.entered = true;
+            auto *block = frame.node->block();
+            if (auto loop_iter =
+                    loop_index_by_header.find(block);
+                loop_iter != loop_index_by_header.end()) {
+                auto context =
+                    relations.loop_contexts.size();
+                relations.loop_contexts.emplace_back(
+                    SelectionExitCFGRelations::LoopContext{
+                        .parent = frame.loop_context,
+                        .exits = loops[loop_iter->second].exits});
+                frame.loop_context = context;
+                ++info.selection_exit_loop_context_count;
+            }
+            if (block->is_terminated()) {
+                auto *term = block->terminator();
+                if (term->isa<IfInst>() ||
+                    term->isa<SwitchInst>()) {
+                    relations.selection_loop_contexts.emplace(
+                        block, frame.loop_context);
                 }
             }
-        });
+        }
+        auto children = frame.node->children();
+        if (frame.next_child < children.size()) {
+            auto *child = children[frame.next_child++];
+            walk.emplace_back(DomWalkFrame{
+                .node = child,
+                .loop_context = frame.loop_context});
+            continue;
+        }
+        walk.pop_back();
+    }
     return relations;
 }
 
@@ -2947,14 +3263,27 @@ void repair_target_state_dispatch_ssa(
     auto entries = selection_entries(term);
     if (entries.empty()) { return {}; }
     ++info.selection_exit_enclosing_loop_query_count;
-    auto loop_exit_iter =
-        cfg_relations.enclosing_loop_exits.find(header);
+    auto loop_context_iter =
+        cfg_relations.selection_loop_contexts.find(header);
+    auto loop_context =
+        loop_context_iter ==
+                cfg_relations.selection_loop_contexts.end() ?
+            SIZE_MAX :
+            loop_context_iter->second;
     auto is_enclosing_loop_exit =
         [&](BasicBlock *block) noexcept {
-            return loop_exit_iter !=
-                       cfg_relations
-                           .enclosing_loop_exits.end() &&
-                   loop_exit_iter->second.contains(block);
+            for (auto context = loop_context;
+                 context != SIZE_MAX;
+                 context = cfg_relations
+                               .loop_contexts[context]
+                               .parent) {
+                for (auto *exit : cfg_relations
+                                      .loop_contexts[context]
+                                      .exits) {
+                    if (exit == block) { return true; }
+                }
+            }
+            return false;
         };
 
     luisa::vector<SelectionExitEdge> invalid_exits;
@@ -3259,7 +3588,8 @@ void repair_target_state_dispatch_ssa(
     luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
     auto cfg_relations =
-        build_selection_exit_cfg_relations(def, dom);
+        build_selection_exit_cfg_relations(
+            def, dom, info);
     ++info.selection_exit_boundary_analysis_count;
     struct Site {
         BasicBlock *header;
@@ -6449,11 +6779,20 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_boundary_analysis",
             info.selection_exit_boundary_analysis_count);
         report->set(
+            "selection_exit_boundary_dataflow",
+            info.selection_exit_boundary_dataflow_count);
+        report->set(
+            "selection_exit_boundary_classification",
+            info.selection_exit_boundary_classification_count);
+        report->set(
             "selection_exit_site_query",
             info.selection_exit_site_query_count);
         report->set(
             "selection_exit_enclosing_loop_query",
             info.selection_exit_enclosing_loop_query_count);
+        report->set(
+            "selection_exit_loop_context",
+            info.selection_exit_loop_context_count);
         report->set(
             "selection_exit_round_yield",
             info.selection_exit_round_yield_count);
@@ -6518,10 +6857,16 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.intermediate_verifier_count;
         dst.selection_exit_boundary_analysis_count +=
             src.selection_exit_boundary_analysis_count;
+        dst.selection_exit_boundary_dataflow_count +=
+            src.selection_exit_boundary_dataflow_count;
+        dst.selection_exit_boundary_classification_count +=
+            src.selection_exit_boundary_classification_count;
         dst.selection_exit_site_query_count +=
             src.selection_exit_site_query_count;
         dst.selection_exit_enclosing_loop_query_count +=
             src.selection_exit_enclosing_loop_query_count;
+        dst.selection_exit_loop_context_count +=
+            src.selection_exit_loop_context_count;
         dst.selection_exit_round_yield_count +=
             src.selection_exit_round_yield_count;
         dst.selection_reentry_boundary_analysis_count +=
