@@ -118,6 +118,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/simplify_cfg.cpp
         passes/simplify_libcalls.cpp
         passes/restructure_cfg.cpp
+        passes/restructure_cfg_loop_boundary.cpp
         passes/restructure_cfg_selection_merge.cpp
         passes/scalar_evolution.cpp
         passes/gvn.cpp
