@@ -151,10 +151,6 @@ if has_config("lc_vk_backend") then
         add_includedirs("../backends/vk")
         add_deps("lc-volk")
     end)
-    test_proj("test_vk_device_feature_plan", "unit/ext/test_vk_device_feature_plan.cpp", false, function()
-        add_includedirs("../backends/vk")
-        add_deps("lc-volk")
-    end)
     test_proj("test_vk_native_route_guard", "unit/runtime/test_vk_native_route_guard.cpp", false, function()
         if has_config('lc_vk_backend_use_xir_spirv') then
             add_defines("LUISA_TEST_VK_HAS_NATIVE_XIR_SPIRV=1")

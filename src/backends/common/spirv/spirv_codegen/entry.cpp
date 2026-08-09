@@ -5,6 +5,7 @@
 #include "texture_sampling.h"
 #include "utils.h"
 #include "../../backend_print_code.h"
+#include "../../env_flag.h"
 #include <SPIRV/disassemble.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -18,7 +19,7 @@ namespace lc::spirv {
 namespace {
 
 [[nodiscard]] bool profile_native_spirv() noexcept {
-    return std::getenv("LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
+    return lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
 }
 
 [[nodiscard]] bool is_constant_ubo_element_layout_supported(

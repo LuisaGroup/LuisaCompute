@@ -43,6 +43,11 @@ struct RestructureCFGInfo {
     size_t selection_exit_boundary_analysis_count{0u};
     size_t selection_exit_site_query_count{0u};
     size_t selection_exit_enclosing_loop_query_count{0u};
+    // Rewriting a nested selection may make a site already handled in the
+    // current drain round eligible again. The selection phase yields so later
+    // canonicalizers can collapse the generated protocol before the next
+    // bounded outer fixed-point round.
+    size_t selection_exit_round_yield_count{0u};
     // Post-merge selection re-entry scans materialize loop-boundary
     // membership once per immutable CFG version, then inspect only dominator
     // ancestors of each forwarding edge destination. These operation counts

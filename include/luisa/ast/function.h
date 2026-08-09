@@ -64,13 +64,13 @@ public:
      *
      * Bind buffer handle and offset.
      */
-    struct LUISA_AST_API BufferBinding : public Argument::Buffer {
+    struct BufferBinding : public Argument::Buffer {
         BufferBinding() noexcept = default;
         explicit BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
             : Argument::Buffer{.handle = handle,
                                .offset = offset_bytes,
                                .size = size_bytes} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
 
     /**
@@ -78,12 +78,12 @@ public:
      *
      * Bind texture handle and level.
      */
-    struct LUISA_AST_API TextureBinding : public Argument::Texture {
+    struct TextureBinding : public Argument::Texture {
         TextureBinding() noexcept = default;
         explicit TextureBinding(uint64_t handle, uint32_t level) noexcept
             : Argument::Texture{.handle = handle,
                                 .level = level} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
 
     /**
@@ -91,11 +91,11 @@ public:
      *
      * Bind array handle.
      */
-    struct LUISA_AST_API BindlessArrayBinding : public Argument::BindlessArray {
+    struct BindlessArrayBinding : public Argument::BindlessArray {
         BindlessArrayBinding() noexcept = default;
         explicit BindlessArrayBinding(uint64_t handle) noexcept
             : Argument::BindlessArray{.handle = handle} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
 
     /**
@@ -103,11 +103,11 @@ public:
      *
      * Bind accel handle.
      */
-    struct LUISA_AST_API AccelBinding : public Argument::Accel {
+    struct AccelBinding : public Argument::Accel {
         AccelBinding() noexcept = default;
         explicit AccelBinding(uint64_t handle) noexcept
             : Argument::Accel{.handle = handle} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
     using Binding = luisa::variant<
         luisa::monostate,// not bound
