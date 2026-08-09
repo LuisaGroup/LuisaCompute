@@ -83,9 +83,16 @@ bool spirv_resource_query_requires_accel_instance_buffer(
 
 SpirvFunctionArgumentAnalysisMap
 analyze_spirv_function_argument_usage(
-    const xir::Module *module) noexcept {
+    const xir::Module *module,
+    SpirvFunctionArgumentAnalysisStatistics *statistics) noexcept {
+    SpirvFunctionArgumentAnalysisStatistics local_statistics;
     SpirvFunctionArgumentAnalysisMap analysis;
-    if (module == nullptr) { return analysis; }
+    if (module == nullptr) {
+        if (statistics != nullptr) {
+            *statistics = local_statistics;
+        }
+        return analysis;
+    }
     luisa::unordered_map<
         const xir::Function *,
         luisa::unordered_map<const xir::Argument *, size_t>>
@@ -237,13 +244,26 @@ analyze_spirv_function_argument_usage(
         slot = true;
         return true;
     };
-    auto traverse_definition = [](
+    struct ArgumentDependency {
+        const xir::Function *caller;
+        const xir::Argument *actual;
+    };
+    luisa::unordered_map<
+        const xir::Argument *,
+        luisa::vector<ArgumentDependency>>
+        dependencies;
+    auto traverse_definition = [&local_statistics](
                                    const xir::FunctionDefinition *definition,
                                    auto &&visit) noexcept {
+        ++local_statistics.structural_closure_count;
         auto closure = plan_spirv_codegen_structural_closure(definition);
         if (!closure.succeeded()) { return; }
         for (auto *block : closure.blocks) {
-            block->traverse_instructions(visit);
+            block->traverse_instructions(
+                [&](const xir::Instruction *instruction) noexcept {
+                    ++local_statistics.instruction_scan_count;
+                    visit(instruction);
+                });
         }
     };
     for (auto *function : module->function_list()) {
@@ -252,6 +272,37 @@ analyze_spirv_function_argument_usage(
         traverse_definition(
             definition,
             [&](const xir::Instruction *instruction) noexcept {
+                if (instruction->isa<xir::CallInst>()) {
+                    auto *call = static_cast<
+                        const xir::CallInst *>(instruction);
+                    auto *callee = call->callee();
+                    auto analysis_iter = analysis.find(callee);
+                    if (analysis_iter != analysis.end()) {
+                        auto count = std::min(
+                            call->argument_count(),
+                            analysis_iter->second.size());
+                        auto argument_index = size_t{0u};
+                        for (auto *formal : callee->arguments()) {
+                            if (argument_index >= count) { break; }
+                            auto *actual_value =
+                                call->argument(argument_index++);
+                            if (actual_value == nullptr ||
+                                !actual_value->isa<xir::Argument>()) {
+                                continue;
+                            }
+                            auto *actual = static_cast<
+                                const xir::Argument *>(actual_value);
+                            if (actual->parent_function() != function) {
+                                continue;
+                            }
+                            dependencies[formal].emplace_back(
+                                ArgumentDependency{
+                                    .caller = function,
+                                    .actual = actual});
+                            ++local_statistics.call_dependency_count;
+                        }
+                    }
+                }
                 switch (instruction->derived_instruction_tag()) {
                     case xir::DerivedInstructionTag::RESOURCE_QUERY: {
                         auto *query = static_cast<
@@ -364,63 +415,89 @@ analyze_spirv_function_argument_usage(
                 }
             });
     }
-    for (auto changed = true; changed;) {
-        changed = false;
-        for (auto *function : module->function_list()) {
-            auto *definition = function->definition();
-            if (definition == nullptr) { continue; }
-            traverse_definition(
-                definition,
-                [&](const xir::Instruction *instruction) noexcept {
-                    if (!instruction->isa<xir::CallInst>()) { return; }
-                    auto *call =
-                        static_cast<const xir::CallInst *>(instruction);
-                    if (call->operand_count() == 0u) { return; }
-                    auto *callee_value = call->operand(
-                        xir::CallInst::operand_index_callee);
-                    auto *callee =
-                        callee_value != nullptr &&
-                                callee_value->isa<xir::Function>() ?
-                            static_cast<const xir::Function *>(callee_value) :
-                            nullptr;
-                    auto analysis_iter = analysis.find(callee);
-                    if (analysis_iter == analysis.end()) { return; }
-                    auto count = std::min(
-                        call->operand_count() -
-                            xir::CallInst::operand_index_argument_offset,
-                        analysis_iter->second.size());
-                    for (auto i = 0u; i < count; ++i) {
-                        auto incoming = analysis_iter->second[i];
-                        auto *actual = call->operand(
-                            xir::CallInst::operand_index_argument_offset + i);
-                        if (incoming.usage != Usage::NONE) {
-                            changed |= add_usage(
-                                function, actual,
-                                incoming.usage);
-                        }
-                        if (incoming.requires_accel_instance_buffer) {
-                            changed |= require_accel_instance_buffer(
-                                function, actual);
-                        }
-                        if (incoming.requires_accel_traversal_descriptor) {
-                            changed |= require_accel_traversal_descriptor(
-                                function, actual);
-                        }
-                        if (incoming.requires_bindless_buffer_metadata) {
-                            changed |= require_bindless_buffer_metadata(
-                                function, actual);
-                        }
-                        if (incoming.requires_buffer_device_address) {
-                            changed |= require_buffer_device_address(
-                                function, actual);
-                        }
-                        if (incoming.requires_buffer_coherence) {
-                            changed |= require_buffer_coherence(
-                                function, actual);
-                        }
-                    }
-                });
+    auto analysis_of_argument = [&](
+                                    const xir::Argument *argument) noexcept
+        -> SpirvFunctionArgumentAnalysis * {
+        if (argument == nullptr) { return nullptr; }
+        auto *function = argument->parent_function();
+        auto fit = indices.find(function);
+        if (fit == indices.end()) { return nullptr; }
+        auto ait = fit->second.find(argument);
+        if (ait == fit->second.end()) { return nullptr; }
+        return &analysis.at(function)[ait->second];
+    };
+    auto is_bottom = [](const SpirvFunctionArgumentAnalysis &value) noexcept {
+        return value.usage == Usage::NONE &&
+               !value.requires_accel_traversal_descriptor &&
+               !value.requires_accel_instance_buffer &&
+               !value.requires_bindless_buffer_metadata &&
+               !value.requires_buffer_device_address &&
+               !value.requires_buffer_coherence;
+    };
+    luisa::vector<const xir::Argument *> worklist;
+    luisa::unordered_set<const xir::Argument *> queued;
+    auto schedule = [&](const xir::Argument *argument) noexcept {
+        if (queued.emplace(argument).second) {
+            worklist.emplace_back(argument);
         }
+    };
+    for (auto *function : module->function_list()) {
+        for (auto *argument : function->arguments()) {
+            auto *value = analysis_of_argument(argument);
+            if (value != nullptr && !is_bottom(*value)) {
+                schedule(argument);
+            }
+        }
+    }
+    // The argument lattice is a finite product of Usage bits and boolean
+    // feature requirements. Each dependency is the exact transfer
+    //   state(callee formal) -> state(caller actual argument).
+    // Process only outgoing dependencies of a slot whose value grew; this is
+    // the same least fixed point as repeated whole-module scans, independent
+    // of function order and call-graph depth.
+    while (!worklist.empty()) {
+        auto *formal = worklist.back();
+        worklist.pop_back();
+        queued.erase(formal);
+        ++local_statistics.worklist_pop_count;
+        auto *incoming = analysis_of_argument(formal);
+        LUISA_DEBUG_ASSERT(incoming != nullptr,
+                           "Missing SPIR-V argument worklist state.");
+        auto dependency_iter = dependencies.find(formal);
+        if (dependency_iter == dependencies.end()) { continue; }
+        for (auto &&dependency : dependency_iter->second) {
+            ++local_statistics.dependency_visit_count;
+            auto changed = false;
+            if (incoming->usage != Usage::NONE) {
+                changed |= add_usage(
+                    dependency.caller, dependency.actual,
+                    incoming->usage);
+            }
+            if (incoming->requires_accel_instance_buffer) {
+                changed |= require_accel_instance_buffer(
+                    dependency.caller, dependency.actual);
+            }
+            if (incoming->requires_accel_traversal_descriptor) {
+                changed |= require_accel_traversal_descriptor(
+                    dependency.caller, dependency.actual);
+            }
+            if (incoming->requires_bindless_buffer_metadata) {
+                changed |= require_bindless_buffer_metadata(
+                    dependency.caller, dependency.actual);
+            }
+            if (incoming->requires_buffer_device_address) {
+                changed |= require_buffer_device_address(
+                    dependency.caller, dependency.actual);
+            }
+            if (incoming->requires_buffer_coherence) {
+                changed |= require_buffer_coherence(
+                    dependency.caller, dependency.actual);
+            }
+            if (changed) { schedule(dependency.actual); }
+        }
+    }
+    if (statistics != nullptr) {
+        *statistics = local_statistics;
     }
     return analysis;
 }
