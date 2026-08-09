@@ -94,7 +94,7 @@ option(LUISA_COMPUTE_ENABLE_DX_CUDA_INTEROP
         "Enable CUDA interop in the DirectX backend when CUDAToolkit is available"
         ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
 
-option(LUISA_COMPUTE_USE_SYSTEM_STL "Use system STL instead of the bundled EASTL" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
+option(LUISA_COMPUTE_USE_SYSTEM_STL "Use system STL instead of the bundled EASTL" ON)
 option(LUISA_COMPUTE_USE_SYSTEM_GLFW "Use system GLFW instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
 option(LUISA_COMPUTE_USE_SYSTEM_LMDB "Use system LMDB instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
 option(LUISA_COMPUTE_USE_SYSTEM_REPROC "Use system reproc instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
