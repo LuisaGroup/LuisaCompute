@@ -791,6 +791,166 @@ canonical_exit_target(BasicBlock *target) noexcept;
     return switch_inst;
 }
 
+[[nodiscard]] Constant *create_indexed_branch_case_constant(
+    Module *module, const Type *selector_type,
+    IndexedBranchTerminatorInstruction::case_value_type bits) noexcept {
+    if (module == nullptr || selector_type == nullptr) { return nullptr; }
+    bits = IndexedBranchTerminatorInstruction::canonicalize_case_value(
+        selector_type, bits);
+    switch (selector_type->tag()) {
+        case Type::Tag::BOOL: {
+            auto value = bits != 0u;
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::INT8: {
+            auto value = luisa::bit_cast<int8_t>(
+                static_cast<uint8_t>(bits));
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::UINT8: {
+            auto value = static_cast<uint8_t>(bits);
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::INT16: {
+            auto value = luisa::bit_cast<int16_t>(
+                static_cast<uint16_t>(bits));
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::UINT16: {
+            auto value = static_cast<uint16_t>(bits);
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::INT32: {
+            auto value = luisa::bit_cast<int32_t>(
+                static_cast<uint32_t>(bits));
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::UINT32: {
+            auto value = static_cast<uint32_t>(bits);
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::INT64: {
+            auto value = luisa::bit_cast<int64_t>(bits);
+            return module->create_constant(selector_type, &value);
+        }
+        case Type::Tag::UINT64:
+            return module->create_constant(selector_type, &bits);
+        default: return nullptr;
+    }
+}
+
+[[nodiscard]] bool indexed_branch_has_back_edge(
+    IndexedBranchInst *indexed_branch,
+    const DomTree &dom) noexcept {
+    if (indexed_branch == nullptr) { return false; }
+    auto *header = indexed_branch->parent_block();
+    if (header == nullptr || !dom.contains(header)) { return false; }
+    auto is_back_target = [&](BasicBlock *target) noexcept {
+        return target != nullptr && dom.contains(target) &&
+               dom.dominates(target, header);
+    };
+    if (is_back_target(indexed_branch->default_block())) {
+        return true;
+    }
+    for (auto i = size_t{0u};
+         i < indexed_branch->case_count(); ++i) {
+        if (is_back_target(indexed_branch->case_block(i))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// A natural-loop back edge is an edge whose target dominates its source.
+// Loop recovery consumes BranchInst and ConditionalBranchInst edges, whereas
+// treating a cyclic IndexedBranchInst as a selection first turns that back
+// edge into an illegal construct entry and makes node splitting clone the
+// whole loop body. Lower only cyclic indexed branches to an ordered equality
+// chain before selection recovery. This exposes every back edge to the single
+// loop-recovery algorithm while preserving native SwitchInst for acyclic
+// multi-way control flow. A zero-case branch is unconditionally canonicalized
+// to BranchInst because its selector has no effect.
+[[nodiscard]] bool lower_cyclic_indexed_branches(
+    FunctionDefinition *def) noexcept {
+    auto modified = false;
+    for (;;) {
+        auto dom = compute_dom_tree(def);
+        IndexedBranchInst *candidate = nullptr;
+        for (auto *block : def->basic_blocks()) {
+            if (block == nullptr || !block->is_terminated() ||
+                !block->terminator()->isa<IndexedBranchInst>()) {
+                continue;
+            }
+            auto *indexed_branch = static_cast<IndexedBranchInst *>(
+                block->terminator());
+            if (indexed_branch->case_count() == 0u ||
+                indexed_branch_has_back_edge(indexed_branch, dom)) {
+                candidate = indexed_branch;
+                break;
+            }
+        }
+        if (candidate == nullptr) { break; }
+
+        using Case = std::pair<
+            IndexedBranchTerminatorInstruction::case_value_type,
+            BasicBlock *>;
+        auto *header = candidate->parent_block();
+        auto *selector = candidate->value();
+        auto *default_block = candidate->default_block();
+        luisa::vector<Case> cases;
+        cases.reserve(candidate->case_count());
+        for (auto i = size_t{0u}; i < candidate->case_count(); ++i) {
+            // A case targeting the default is semantically redundant: case
+            // labels are unique after selector-width canonicalization, so no
+            // later case can match the same selector value.
+            if (auto *target = candidate->case_block(i);
+                target != default_block) {
+                cases.emplace_back(candidate->case_value(i), target);
+            }
+        }
+
+        auto removed = candidate->remove_self();
+        Instruction *replacement_terminator = nullptr;
+        XIRBuilder builder;
+        if (cases.empty()) {
+            builder.set_insertion_point(header);
+            replacement_terminator = builder.br(default_block);
+        } else {
+            auto *test_block = header;
+            for (auto i = size_t{0u}; i < cases.size(); ++i) {
+                auto [case_value, case_block] = cases[i];
+                auto *case_constant = create_indexed_branch_case_constant(
+                    def->parent_module(), selector->type(), case_value);
+                LUISA_ASSERT(
+                    case_constant != nullptr,
+                    "Verified indexed branch has an unsupported selector type.");
+                auto *next_block = i + 1u == cases.size() ?
+                                       default_block :
+                                       def->create_basic_block();
+                builder.set_insertion_point(test_block);
+                auto *condition = builder.call(
+                    Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                    {selector, case_constant});
+                auto *conditional = builder.cond_br(
+                    condition, case_block, next_block);
+                if (i == 0u) {
+                    replacement_terminator = conditional;
+                }
+                test_block = next_block;
+            }
+        }
+        LUISA_ASSERT(
+            replacement_terminator != nullptr,
+            "Failed to lower cyclic indexed branch.");
+        for (auto *metadata : removed->metadata_list()) {
+            replacement_terminator->metadata_list().push_front(
+                metadata->clone());
+        }
+        modified = true;
+    }
+    return modified;
+}
+
 // Convert every raw multi-way branch into a structured SwitchInst. A real
 // common post-dominator is split through a fresh per-switch merge block so
 // nested selections never share merge ownership. If no real post-dominator
@@ -2031,6 +2191,26 @@ collect_loop_boundary_selection_entries(
     return entries;
 }
 
+// Entry uniqueness is a property of physical structured constructs. A
+// loop-boundary IfInst is retained in XIR so generic transforms still see a
+// structured conditional, but SPIR-V lowers it as the loop's physical
+// break/continue branch without OpSelectionMerge. Consequently it has no
+// selection interior whose entries need node splitting.
+[[nodiscard]] bool requires_unique_construct_entries(
+    BasicBlock *header, FunctionDefinition *def) noexcept {
+    if (header == nullptr || !header->is_terminated()) {
+        return false;
+    }
+    auto *term = header->terminator();
+    if (term->isa<IfInst>()) {
+        return !is_loop_boundary_selection_entry(
+            header, def);
+    }
+    return term->isa<SwitchInst>() ||
+           term->isa<LoopInst>() ||
+           term->isa<SimpleLoopInst>();
+}
+
 [[nodiscard]] bool canonicalize_loop_boundary_selection_merges(FunctionDefinition *def) noexcept {
     ScopedTimer _timer_canonicalize_loop_boundary_selection_merges(
         "canonicalize_loop_boundary_selection_merges");
@@ -2719,7 +2899,7 @@ struct SelectionExitEdge {
 enum class SelectionExitRewriteStatus : uint8_t {
     UNCHANGED,
     MODIFIED,
-    REPEATED_SITE,
+    STALLED_SITE,
 };
 
 struct SelectionExitRewriteResult {
@@ -2762,7 +2942,8 @@ void repair_target_state_dispatch_ssa(
     const DomTree &dom,
     const SelectionExitCFGRelations &cfg_relations,
     RestructureCFGInfo &info,
-    luisa::unordered_set<Instruction *> &rewritten_sites,
+    luisa::unordered_map<Instruction *, size_t> &
+        rewritten_site_invalid_exit_counts,
     luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
     if (header == nullptr || term == nullptr || merge == nullptr) { return {}; }
@@ -2997,9 +3178,14 @@ void repair_target_state_dispatch_ssa(
             return {};
         }
     }
-    if (!rewritten_sites.emplace(term).second) {
-        return {SelectionExitRewriteStatus::REPEATED_SITE, term};
+    auto [rewrite_iter, first_rewrite] =
+        rewritten_site_invalid_exit_counts.try_emplace(
+            term, invalid_exits.size());
+    if (!first_rewrite &&
+        invalid_exits.size() >= rewrite_iter->second) {
+        return {SelectionExitRewriteStatus::STALLED_SITE, term};
     }
+    rewrite_iter->second = invalid_exits.size();
     auto *new_merge = def->create_basic_block();
     XIRBuilder b;
     auto retargeted_any = false;
@@ -3087,7 +3273,8 @@ void repair_target_state_dispatch_ssa(
     FunctionDefinition *def,
     const DomTree &dom,
     RestructureCFGInfo &info,
-    luisa::unordered_set<Instruction *> &rewritten_sites,
+    luisa::unordered_map<Instruction *, size_t> &
+        rewritten_site_invalid_exit_counts,
     luisa::unordered_set<BasicBlock *> &
         exit_dispatch_headers) noexcept {
     auto cfg_relations =
@@ -3116,7 +3303,8 @@ void repair_target_state_dispatch_ssa(
         auto result = canonicalize_selection_exits(
             def, site.header, site.term, site.merge, dom,
             cfg_relations, info,
-            rewritten_sites, exit_dispatch_headers);
+            rewritten_site_invalid_exit_counts,
+            exit_dispatch_headers);
         if (result.status != SelectionExitRewriteStatus::UNCHANGED) {
             return result;
         }
@@ -3124,30 +3312,44 @@ void repair_target_state_dispatch_ssa(
     return {};
 }
 
-[[nodiscard]] bool drain_selection_exits(FunctionDefinition *def,
-                                         DomTree &dom,
-                                         PostDomInfo &pdom,
-                                         RestructureCFGInfo &info,
-                                         luisa::unordered_set<BasicBlock *> &
-                                             exit_dispatch_headers) noexcept {
+struct SelectionExitDrainResult {
+    bool modified{false};
+    bool yielded{false};
+};
+
+[[nodiscard]] SelectionExitDrainResult drain_selection_exits(
+    FunctionDefinition *def,
+    DomTree &dom,
+    PostDomInfo &pdom,
+    RestructureCFGInfo &info,
+    luisa::unordered_set<BasicBlock *> &
+        exit_dispatch_headers) noexcept {
     ScopedTimer _timer_drain_selection_exits(
         "drain_selection_exits");
-    luisa::unordered_set<Instruction *> rewritten_sites;
-    auto modified = false;
+    // A site may become eligible again after a nested selection rewrite. It
+    // may continue draining only while its count of non-local exits strictly
+    // decreases, a well-founded natural-number measure. A non-decreasing
+    // revisit yields to the remaining fixed-point phases instead of building
+    // an equivalent exit protocol indefinitely.
+    luisa::unordered_map<Instruction *, size_t>
+        rewritten_site_invalid_exit_counts;
+    SelectionExitDrainResult drain;
     for (;;) {
         auto result = canonicalize_one_selection_exit(
-            def, dom, info, rewritten_sites,
+            def, dom, info,
+            rewritten_site_invalid_exit_counts,
             exit_dispatch_headers);
         if (result.status == SelectionExitRewriteStatus::UNCHANGED) { break; }
-        if (result.status == SelectionExitRewriteStatus::REPEATED_SITE) {
-            ++info.iteration_limit_count;
+        if (result.status == SelectionExitRewriteStatus::STALLED_SITE) {
+            ++info.selection_exit_round_yield_count;
+            drain.yielded = true;
             break;
         }
-        modified = true;
+        drain.modified = true;
         dom = compute_dom_tree(def);
         pdom = compute_post_dom(def);
     }
-    return modified;
+    return drain;
 }
 
 [[nodiscard]] bool try_restructure_loop(FunctionDefinition *def,
@@ -4150,7 +4352,11 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
         if (is_clone_boundary(B, E, header_bb, entries, merge_bb, dom)) { continue; }
         region.emplace(B);
         ordered.emplace_back(B);
-        B->traverse_successors(false, [&](BasicBlock *S) noexcept {
+        // Construct-role operands (selection merges and loop body/update/merge
+        // declarations) are not dynamic CFG edges. Following them here can
+        // make a tiny entry split clone an unrelated, arbitrarily large
+        // construct. The owned region is defined over executable reachability.
+        traverse_executable_successors(B, [&](BasicBlock *S) noexcept {
             if (!is_clone_boundary(S, E, header_bb, entries, merge_bb, dom) &&
                 !region.contains(S)) {
                 work.emplace_back(S);
@@ -4168,6 +4374,10 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                                  BasicBlock *merge_bb,
                                                  const DomTree &dom,
                                                  bool lower_cloned_structured_branches = false) noexcept {
+    // Node splitting applies to a dynamic edge. BasicBlock use-lists also
+    // expose declarative construct-role operands, so fail closed before doing
+    // any cloning if P does not actually transfer control to E.
+    if (!has_executable_edge(P, E)) { return false; }
     luisa::unordered_set<BasicBlock *> region;
     luisa::vector<BasicBlock *> ordered;
     collect_owned_region(E, header_bb, entries, merge_bb, dom, region, ordered);
@@ -4266,8 +4476,12 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
         rb.set_insertion_point(relay);
         rb.br(clone_E);
     }
-    // Reroute every edge in P's terminator that targeted E to instead target relay.
-    retarget_terminator(P->terminator(), E, relay);
+    // Reroute every executable edge in P's terminator that targeted E to the
+    // relay. This includes structured arm and loop-entry edges; the generic
+    // raw-branch helper deliberately does not cover those instruction kinds.
+    LUISA_ASSERT(
+        retarget_executable_edge(P->terminator(), E, relay),
+        "Failed to retarget executable edge after cloning its owned region.");
     return true;
 }
 
@@ -4460,6 +4674,15 @@ struct PostMergeSelectionReentry {
                                              bool &dom_valid,
                                              luisa::unordered_set<Instruction *> &rewritten_sites) noexcept {
     ScopedTimer _timer_enforce_entries("enforce_construct_entries");
+    // A loop-boundary IfInst is the structured XIR spelling of a physical
+    // break/continue guard. The SPIR-V emitter intentionally emits no
+    // OpSelectionMerge for it, so its loop prepare/update/merge targets are
+    // allowed to have the loop's ordinary executable predecessors. It is not
+    // a selection construct and must not be node-split as one.
+    if (!requires_unique_construct_entries(
+            header_bb, def)) {
+        return false;
+    }
     luisa::vector<BasicBlock *> entries;
     collect_construct_entries(header_bb, entries);
     if (entries.size() <= 1u) { return false; }
@@ -4484,7 +4707,7 @@ struct PostMergeSelectionReentry {
             }
             luisa::vector<BasicBlock *> offenders;
             E->traverse_predecessors(false, [&](BasicBlock *P) noexcept {
-                if (!dom.contains(P)) { return; }
+                if (!dom.contains(P) || !has_executable_edge(P, E)) { return; }
                 if (!is_authorized_construct_pred(header_bb->terminator(), E, header_bb, P)) {
                     offenders.emplace_back(P);
                 }
@@ -5233,6 +5456,10 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             case DerivedInstructionTag::SIMPLE_LOOP: break;
             default: continue;
         }
+        if (!requires_unique_construct_entries(
+                header, def)) {
+            continue;
+        }
         luisa::vector<BasicBlock *> entries;
         collect_construct_entries(header, entries);
         if (entries.size() <= 1u) { continue; }
@@ -5244,7 +5471,10 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                 // ownership. Construct-entry legality is an executable-CFG
                 // property, so only predecessors represented in the same
                 // reachable dominance tree participate.
-                if (!dom.contains(predecessor)) { return; }
+                if (!dom.contains(predecessor) ||
+                    !has_executable_edge(predecessor, entry)) {
+                    return;
+                }
                 invalid |= !is_authorized_construct_pred(
                     term, entry, header, predecessor);
             });
@@ -5272,8 +5502,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         // break/continue guards. The SPIR-V emitter deliberately does not
         // declare them as selection constructs, so selection re-entry rules
         // do not apply to those provenance-checked nodes.
-        if (term->isa<IfInst>() &&
-            is_loop_boundary_selection_entry(
+        if (!requires_unique_construct_entries(
                 header, def)) {
             continue;
         }
@@ -5301,6 +5530,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                 [&](BasicBlock *predecessor) noexcept {
                     invalid |=
                         dom.contains(predecessor) &&
+                        has_executable_edge(predecessor, block) &&
                         dom.dominates(merge, predecessor);
                 });
         }
@@ -5584,6 +5814,11 @@ restructure_cfg_on_definition_in_place(
     // rewriting an equivalent-looking user IfInst.
     luisa::unordered_set<BasicBlock *>
         generated_exit_dispatch_headers;
+    // Expose cyclic indexed edges to the common loop-recovery algorithm before
+    // recovering the remaining native multi-way selection boundaries.
+    if (lower_cyclic_indexed_branches(def)) {
+        ++info.canonicalized_cfg_count;
+    }
     // Recover native multi-way selection boundaries before generic loop/if
     // structurization. Otherwise those passes can mistake an indexed branch's
     // case subgraph for an ordinary cross-edge region and clone through it.
@@ -5642,6 +5877,15 @@ restructure_cfg_on_definition_in_place(
         break;
     }
     if (main_last_modified) { ++info.iteration_limit_count; }
+    // Main structurization can recover an opposing break/continue branch as
+    // an ordinary IfInst with a third, synthetic merge. Normalize these
+    // physical loop guards first: one arm becomes the transparent merge arm,
+    // matching their no-OpSelectionMerge lowering. Generic construct-entry
+    // enforcement must observe that canonical construct classification and
+    // never node-split an enclosing loop prepare/update region for the guard.
+    if (canonicalize_loop_boundary_selection_merges(def)) {
+        ++info.canonicalized_cfg_count;
+    }
     enforce_unique_construct_entries(def, info);
     if (split_switch_cases(def)) {
         ++info.canonicalized_cfg_count;
@@ -5686,11 +5930,12 @@ restructure_cfg_on_definition_in_place(
                 dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
-            auto limits_before_selection_exits = info.iteration_limit_count;
-            auto selection_exit_changed =
+            auto selection_exit_drain =
                 drain_selection_exits(
                     def, dom, pdom, info,
                     exit_dispatch_headers);
+            auto selection_exit_changed =
+                selection_exit_drain.modified;
             if (selection_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
@@ -5706,9 +5951,11 @@ restructure_cfg_on_definition_in_place(
                 generated_exit_dispatch_headers.emplace(
                     header);
             }
-            if (info.iteration_limit_count != limits_before_selection_exits) {
-                post_last_modified = false;
-                break;
+            if (selection_exit_drain.yielded &&
+                restructure_trace_enabled()) {
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] selection-exit drain yielded to "
+                    "the remaining post canonicalizers after a site revisit.");
             }
             auto boundary_merge_changed =
                 canonicalize_loop_boundary_selection_merges(def);
@@ -6089,6 +6336,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_enclosing_loop_query",
             info.selection_exit_enclosing_loop_query_count);
         report->set(
+            "selection_exit_round_yield",
+            info.selection_exit_round_yield_count);
+        report->set(
             "selection_reentry_boundary_analysis",
             info.selection_reentry_boundary_analysis_count);
         report->set(
@@ -6138,6 +6388,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_site_query_count;
         dst.selection_exit_enclosing_loop_query_count +=
             src.selection_exit_enclosing_loop_query_count;
+        dst.selection_exit_round_yield_count +=
+            src.selection_exit_round_yield_count;
         dst.selection_reentry_boundary_analysis_count +=
             src.selection_reentry_boundary_analysis_count;
         dst.selection_reentry_edge_query_count +=

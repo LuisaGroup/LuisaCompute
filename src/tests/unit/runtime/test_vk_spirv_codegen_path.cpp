@@ -18,8 +18,15 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/return.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/verifier.h>
 #include "indirect_dispatch_layout.h"
 #include "spirv_codegen/entry.h"
+#include "spirv_codegen/utils.h"
 
 #include <algorithm>
 #include <array>
@@ -1090,6 +1097,22 @@ inspect_spirv_u64_switches(
         offset += word_count;
     }
     return switches;
+}
+
+[[nodiscard]] size_t count_spirv_binary_opcode(
+    luisa::span<const uint32_t> words, spv::Op expected) noexcept {
+    if (words.size() < 5u) { return 0u; }
+    auto count = size_t{0u};
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            return 0u;
+        }
+        auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        count += opcode == expected;
+        offset += word_count;
+    }
+    return count;
 }
 
 struct SpirvIndirectRecordGuardFacts {
@@ -5993,6 +6016,134 @@ OpName %8 "Fma"
         constexpr std::array expected{5u, 29u, 55u, 103u, 3u};
         expect(result == expected)
             << "the outer merge must execute exactly once after early and normal loop exits";
+    };
+
+    "vk_user_compute_sibling_one_sided_loop_exits_preserve_continuation"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+        auto output = device.create_buffer<uint32_t>(4u);
+
+        Kernel1D kernel = [](BufferUInt out) noexcept {
+            auto lane = dispatch_x();
+            UInt value = 0u;
+            UInt iteration = 0u;
+            $while (iteration < 1u) {
+                iteration += 1u;
+                $if ((lane & 1u) == 0u) {
+                    $if (lane < 2u) {
+                        value = 11u;
+                        $break;
+                    };
+                    value = 12u;
+                    $break;
+                }
+                $else {
+                    $if (lane < 3u) {
+                        value = 21u;
+                        $break;
+                    };
+                    value = 22u;
+                    $break;
+                };
+            };
+            out.write(lane, value + 1000u);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint32_t, 4u> result{};
+        stream << shader(output).dispatch(4u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        constexpr std::array expected{
+            1011u, 1021u, 1012u, 1022u};
+        expect(result == expected)
+            << "sibling one-sided exits must preserve each path-local value "
+               "and execute the loop continuation exactly once";
+    };
+
+    "vk_native_xir_spirv_recovers_cyclic_indexed_branch_before_emission"_test = [] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+
+        // Build the exact raw-CFG category that caused the production volume
+        // kernel to clone its complete loop body: the IndexedBranch itself has
+        // a target that dominates it. A source-level switch/continue does not
+        // necessarily retain this shape after destructuring, so this is an
+        // explicit XIR-to-SPIR-V conformance test.
+        Kernel1D ast_kernel = [](Int) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(ast_function.block_size());
+        auto *selector =
+            kernel->create_value_argument(Type::of<int32_t>());
+        auto *body = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *payload = kernel->create_basic_block();
+        auto *latch = kernel->create_basic_block();
+        auto *case_exit = kernel->create_basic_block();
+        auto *default_exit = kernel->create_basic_block();
+
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.br(header);
+        builder.set_insertion_point(header);
+        builder.br(payload);
+        builder.set_insertion_point(payload);
+        builder.br(latch);
+        builder.set_insertion_point(latch);
+        auto *indexed = builder.indexed_branch(selector);
+        indexed->add_case(0u, header);
+        indexed->add_case(1u, case_exit);
+        indexed->set_default_block(default_exit);
+        builder.set_insertion_point(case_exit);
+        builder.return_void();
+        builder.set_insertion_point(default_exit);
+        builder.return_void();
+
+        expect(xir::xir_verify_module(&module).succeeded());
+        auto restructure =
+            xir::restructure_cfg_pass_run_on_function(kernel);
+        expect(restructure.succeeded());
+        expect(restructure.restructured_loop_count == 1u);
+        expect(restructure.canonicalized_cfg_count != 0u);
+        expect(xir::xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        // compile_spirv_xir accepts the production legalization boundary,
+        // not merely a structurally valid module. Preserve block identities
+        // while clearing disconnected raw-CFG payloads exactly as the Vulkan
+        // translation pipeline does before the direct handoff.
+        auto post_restructure = luisa::compute::spirv::
+            create_spirv_codegen_post_restructure_pipeline();
+        [[maybe_unused]] auto cleanup_stats =
+            post_restructure.run(&module);
+        expect(xir::xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto spirv = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_function, &module,
+            ShaderOption{.enable_cache = false,
+                         .enable_fast_math = false});
+        auto words = luisa::span<const uint32_t>{spirv.spv_bin};
+        expect(count_spirv_binary_opcode(
+                   words, spv::Op::OpLoopMerge) >= 1u)
+            << "cyclic indexed control flow must reach SPIR-V as a loop";
+        expect(count_spirv_binary_opcode(
+                   words, spv::Op::OpSwitch) == 0u)
+            << "the cyclic IndexedBranch must be lowered to conditional "
+               "control flow before native SPIR-V emission";
     };
 
     "vk_user_compute_native_switch_nested_in_loop"_test = [&] {
