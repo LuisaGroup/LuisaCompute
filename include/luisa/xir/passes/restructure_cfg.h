@@ -49,6 +49,11 @@ struct RestructureCFGInfo {
     size_t if_batch_merge_query_count{0u};
     size_t if_batch_merge_block_visit_count{0u};
     size_t if_batch_merge_edge_visit_count{0u};
+    // Merge scoring enumerates only blocks reached by the current query.
+    // Enclosing-selection fallback walks exactly the header's dominator
+    // ancestors instead of filtering the complete function block table.
+    size_t if_batch_merge_aggregate_scan_count{0u};
+    size_t if_batch_merge_dominator_ancestor_visit_count{0u};
     // Loop-continue normalization shares ownership and dominance across all
     // site queries in one immutable CFG version. Any successful site rewrite
     // invalidates both analyses before the next site is inspected. Intermediate
@@ -59,6 +64,13 @@ struct RestructureCFGInfo {
     size_t loop_continue_invalidation_count{0u};
     size_t loop_continue_dominance_rebuild_count{0u};
     size_t loop_continue_frontier_materialization_count{0u};
+    // All sites in one CFG version are populated before any rewrite is
+    // applied. Actions retain their original edge precondition and fail
+    // closed if an earlier action consumed it.
+    size_t loop_continue_region_block_visit_count{0u};
+    size_t loop_continue_region_edge_visit_count{0u};
+    size_t loop_continue_planned_rewrite_count{0u};
+    size_t loop_continue_applied_rewrite_count{0u};
     // Dense CHK work performed by the ancestry-only rebuilds above. The
     // solver value-numbers each reachable CFG once and retains only sparse
     // predecessor edges plus one immediate-dominator ID per block.
@@ -121,6 +133,12 @@ struct RestructureCFGInfo {
     size_t selection_exit_cfg_invalidation_count{0u};
     size_t selection_exit_local_invalidation_count{0u};
     size_t selection_exit_global_invalidation_count{0u};
+    // Multi-target state dispatches can make existing SSA uses syntactically
+    // non-dominating. Requests accumulate across one drain; the exact final
+    // CFG is repaired once at the batch boundary.
+    size_t selection_exit_ssa_repair_request_count{0u};
+    size_t selection_exit_ssa_repair_count{0u};
+    size_t selection_exit_ssa_repaired_value_count{0u};
     // Clean site results invalidated by the precise construct-dependency
     // worklist after a localized rewrite.
     size_t selection_exit_dependency_requery_count{0u};

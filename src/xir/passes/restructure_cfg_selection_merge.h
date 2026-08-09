@@ -18,6 +18,8 @@ struct SelectionMergeBatchStats {
     size_t query_count{0u};
     size_t block_visit_count{0u};
     size_t edge_visit_count{0u};
+    size_t aggregate_scan_count{0u};
+    size_t dominator_ancestor_visit_count{0u};
 };
 
 // Reusable dense workspace for selection-merge queries on one immutable CFG

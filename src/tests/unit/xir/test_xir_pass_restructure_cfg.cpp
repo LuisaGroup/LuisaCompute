@@ -1050,7 +1050,7 @@ void reg_restructure_cfg() {
                "one ownership/dominance analysis";
     };
 
-    "restructure_loop_continue_defers_frontiers_across_mutations"_test = [] {
+    "restructure_loop_continue_batches_rewrites_at_version_boundary"_test = [] {
         Module module;
         BasicBlock *body;
         auto *kernel = make_kernel_with_body(module, body);
@@ -1083,17 +1083,26 @@ void reg_restructure_cfg() {
         expect(info.succeeded());
         expect(info.changed());
         expect(info.loop_continue_invalidation_count >= loop_count);
+        expect(info.loop_continue_planned_rewrite_count ==
+               info.loop_continue_applied_rewrite_count)
+            << "disjoint loop sites must plan only edges present in the "
+               "immutable input CFG; a rewrite may not become eligible "
+               "because an earlier rewrite created its source edge";
+        expect(info.loop_continue_applied_rewrite_count >= loop_count);
+        expect(info.loop_continue_region_block_visit_count > 0u);
+        expect(info.loop_continue_region_edge_visit_count > 0u);
         expect(
-            info.loop_continue_dominance_rebuild_count ==
-            info.loop_continue_invalidation_count);
+            info.loop_continue_dominance_rebuild_count > 0u);
         expect(
-            info.loop_continue_frontier_materialization_count > 0u);
+            info.loop_continue_dominance_rebuild_count <
+            info.loop_continue_invalidation_count)
+            << "all guarded actions populated from one immutable CFG "
+               "version must share its final exact dominance rebuild";
         expect(
-            info.loop_continue_frontier_materialization_count <
+            info.loop_continue_frontier_materialization_count ==
             info.loop_continue_dominance_rebuild_count)
-            << "one immutable ancestry tree is required per mutation, "
-               "but frontier materialization is deferred to the final "
-               "tree retained by each mutating batch";
+            << "each mutating analysis batch retains one exact ancestry "
+               "tree and materializes its frontier once";
         expect(info.loop_continue_dom_numbered_block_count > 0u);
         expect(info.loop_continue_dom_numbered_edge_count > 0u);
         expect(
@@ -1605,6 +1614,7 @@ void reg_restructure_cfg() {
         auto *condition =
             kernel->create_value_argument(Type::of<bool>());
         constexpr auto diamond_count = size_t{64u};
+        constexpr auto unreachable_block_count = size_t{256u};
         XIRBuilder builder;
         auto *header = body;
         for (auto i = size_t{0u};
@@ -1626,6 +1636,19 @@ void reg_restructure_cfg() {
         }
         builder.set_insertion_point(header);
         builder.return_void();
+
+        // These blocks belong to the definition's physical block table but
+        // cannot contribute support to any reachable selection query. They
+        // make a whole-function scoring scan observable without changing the
+        // reachable CFG or the expected structured result.
+        for (auto i = size_t{0u};
+             i < unreachable_block_count;
+             ++i) {
+            auto *unreachable =
+                kernel->create_basic_block();
+            builder.set_insertion_point(unreachable);
+            builder.return_void();
+        }
 
         auto info = restructure_cfg_pass_run_on_function(
             kernel,
@@ -1650,6 +1673,19 @@ void reg_restructure_cfg() {
             2u * info.if_batch_candidate_query_count);
         expect(info.if_batch_merge_block_visit_count > 0u);
         expect(info.if_batch_merge_edge_visit_count > 0u);
+        expect(info.if_batch_merge_aggregate_scan_count > 0u);
+        expect(
+            info.if_batch_merge_aggregate_scan_count <=
+            2u * info.if_batch_merge_block_visit_count)
+            << "merge scoring must enumerate only the per-query support; "
+               "the factor two accounts for the recovered-construct "
+               "fallback";
+        expect(
+            info.if_batch_merge_aggregate_scan_count <
+            info.if_batch_merge_query_count *
+                unreachable_block_count)
+            << "unreachable physical blocks must not make selection-merge "
+               "scoring scale with the function block table";
         expect(count_terminator_kind(
                    kernel,
                    DerivedInstructionTag::
@@ -2709,6 +2745,83 @@ void reg_restructure_cfg() {
         auto promoted = mem2reg_pass_run_on_function(f);
         expect(promoted.promoted_alloca_count >= 1u);
         expect(audit_reg2mem_spills_on_function(f).succeeded());
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_batches_state_dispatch_ssa_repair_at_drain_boundary"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<int>());
+        auto *body = f->create_body_block();
+        auto *selector =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *first_return = f->create_basic_block();
+        auto *first_alternative_return = f->create_basic_block();
+        auto *second_return = f->create_basic_block();
+        auto *second_alternative_return = f->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+
+        b.set_insertion_point(body);
+        auto *first = b.switch_(selector);
+        auto *first_fallthrough = first->create_default_block();
+        auto *first_value_arm = first->create_case_block(1u);
+        auto *first_alternative_arm = first->create_case_block(2u);
+        auto *first_merge = first->create_merge_block();
+        b.set_insertion_point(first_value_arm);
+        auto *first_value = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        b.br(first_return);
+        b.set_insertion_point(first_alternative_arm);
+        b.br(first_alternative_return);
+        b.set_insertion_point(first_fallthrough);
+        b.br(first_merge);
+
+        b.set_insertion_point(first_merge);
+        auto *second = b.switch_(selector);
+        auto *second_fallthrough = second->create_default_block();
+        auto *second_value_arm = second->create_case_block(1u);
+        auto *second_alternative_arm = second->create_case_block(2u);
+        auto *second_merge = second->create_merge_block();
+        b.set_insertion_point(second_value_arm);
+        auto *second_value = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        b.br(second_return);
+        b.set_insertion_point(second_alternative_arm);
+        b.br(second_alternative_return);
+        b.set_insertion_point(second_fallthrough);
+        b.br(second_merge);
+        b.set_insertion_point(second_merge);
+        b.return_(zero);
+
+        b.set_insertion_point(first_return);
+        auto *first_value_return = b.return_(first_value);
+        b.set_insertion_point(first_alternative_return);
+        b.return_(zero);
+        b.set_insertion_point(second_return);
+        auto *second_value_return = b.return_(second_value);
+        b.set_insertion_point(second_alternative_return);
+        b.return_(zero);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(f);
+        expect(info.succeeded());
+        expect(info.unstructured_branch_count == 0u);
+        expect(info.selection_exit_ssa_repair_request_count >= 2u);
+        expect(info.selection_exit_ssa_repair_count > 0u);
+        expect(info.selection_exit_ssa_repair_request_count >
+               info.selection_exit_ssa_repair_count)
+            << "multiple state dispatches in one drain must share the "
+               "final-CFG SSA repair";
+        expect(info.selection_exit_ssa_repaired_value_count >= 2u);
+        auto spills = audit_reg2mem_spills_on_function(f);
+        expect(spills.remaining_cross_block_spill_count == 2u);
+        expect(first_value_return->return_value()->isa<LoadInst>());
+        expect(second_value_return->return_value()->isa<LoadInst>());
         expect(xir_verify_module(
                    &m, {.require_unique_merge_blocks = true})
                    .succeeded());
