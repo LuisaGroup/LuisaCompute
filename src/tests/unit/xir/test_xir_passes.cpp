@@ -2235,11 +2235,36 @@ void reg_dce() {
 
         auto info = dce_pass_run_on_function(f);
         expect(info.removed_inst_count == chain_length);
-        // One scan sees the chain plus Return; the fixed-point confirmation
-        // sees only Return. The reverse-use solver must process every dead
+        // The sparse solver seeds from one scan of the chain plus Return and
+        // then follows only newly empty use-lists. It must process every dead
         // instruction exactly once, independent of the chain depth.
-        expect(info.dead_code_instruction_scan_count == chain_length + 2u);
+        expect(info.dead_code_instruction_scan_count == chain_length + 1u);
         expect(info.dead_code_worklist_pop_count == chain_length);
+        expect(xir_verify_module(&m).succeeded());
+        expect(body->instructions().front()->isa<ReturnInst>());
+    };
+
+    "dce_schedules_repeated_operand_once"_test = [] {
+        Module m;
+        auto *f = m.create_callable(nullptr);
+        auto *argument =
+            f->create_value_argument(Type::of<uint>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *common = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {argument, one});
+        b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+               {common, common});
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = dce_pass_run_on_function(f);
+        expect(info.removed_inst_count == 2u);
+        expect(info.dead_code_instruction_scan_count == 3u);
+        expect(info.dead_code_worklist_pop_count == 2u);
         expect(xir_verify_module(&m).succeeded());
         expect(body->instructions().front()->isa<ReturnInst>());
     };
@@ -2261,6 +2286,36 @@ void reg_dce() {
 
         auto info = dce_pass_run_on_function(f);
         expect(info.removed_inst_count == 3u);
+        expect(xir_verify_module(&m).succeeded());
+        expect(body->instructions().front()->isa<ReturnInst>());
+    };
+
+    "dce_propagates_from_write_only_alloca_without_rescan"_test = [] {
+        Module m;
+        auto *f = m.create_callable(nullptr);
+        auto *argument =
+            f->create_value_argument(Type::of<uint>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *array =
+            b.alloca_local(Type::array(Type::of<uint>(), 8u));
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *element = b.gep(Type::of<uint>(), array, {zero});
+        auto *stored = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {argument, one});
+        b.store(element, stored);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = dce_pass_run_on_function(f);
+        expect(info.removed_inst_count == 4u);
+        // alloca, GEP, add, store, Return are classified once. Removing the
+        // store exposes add through its real use-list transition.
+        expect(info.dead_code_instruction_scan_count == 5u);
+        expect(info.dead_code_worklist_pop_count == 1u);
         expect(xir_verify_module(&m).succeeded());
         expect(body->instructions().front()->isa<ReturnInst>());
     };
