@@ -288,6 +288,62 @@ void expect_no_structured_cfg(FunctionDefinition *def) noexcept {
 
 void reg_restructure_cfg() {
 
+    "restructure_post_dom_dense_solver_scales_with_sparse_cfg"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto diamond_count = size_t{128u};
+        auto *cursor = entry;
+        for (auto index = size_t{0u};
+             index < diamond_count; ++index) {
+            builder.set_insertion_point(cursor);
+            auto *selection = builder.if_(condition);
+            auto *left = selection->create_true_block();
+            auto *right = selection->create_false_block();
+            auto *merge = selection->create_merge_block();
+            builder.set_insertion_point(left);
+            builder.br(merge);
+            builder.set_insertion_point(right);
+            builder.br(merge);
+            cursor = merge;
+        }
+        builder.set_insertion_point(cursor);
+        builder.return_void();
+
+        const auto expected_block_count =
+            1u + 3u * diamond_count;
+        const auto expected_edge_count =
+            4u * diamond_count;
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(!info.changed());
+        expect(info.postdom_analysis_count > 0u);
+        // Each immutable analysis numbers the sparse graph once. The CHK
+        // solver converges in one establishing and one confirming RPO pass;
+        // no pointer-valued Cartesian relation can hide in these counts.
+        expect(info.postdom_numbered_block_count ==
+               info.postdom_analysis_count *
+                   expected_block_count);
+        expect(info.postdom_numbered_edge_count ==
+               info.postdom_analysis_count *
+                   expected_edge_count);
+        expect(info.postdom_active_block_count ==
+               info.postdom_numbered_block_count);
+        expect(info.postdom_fixed_point_iteration_count ==
+               2u * info.postdom_analysis_count);
+        expect(info.postdom_fixed_point_block_visit_count ==
+               2u * info.postdom_active_block_count);
+        expect(info.postdom_fixed_point_edge_visit_count ==
+               2u *
+                   (info.postdom_numbered_edge_count +
+                    info.postdom_analysis_count));
+    };
+
     "restructure_empty_function_noop"_test = [] {
         Module m;
         BasicBlock *body;
@@ -984,11 +1040,68 @@ void reg_restructure_cfg() {
                loop_count);
         expect(info.loop_continue_analysis_count > 0u);
         expect(info.loop_continue_invalidation_count == 0u);
+        expect(info.loop_continue_dominance_rebuild_count == 0u);
+        expect(
+            info.loop_continue_frontier_materialization_count == 0u);
         expect(
             info.loop_continue_site_query_count ==
             loop_count * info.loop_continue_analysis_count)
             << "all loop sites in an immutable CFG version must share "
                "one ownership/dominance analysis";
+    };
+
+    "restructure_loop_continue_defers_frontiers_across_mutations"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto loop_count = size_t{16u};
+        auto *insertion = body;
+        for (auto i = size_t{0u}; i < loop_count; ++i) {
+            builder.set_insertion_point(insertion);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *loop_body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(condition, loop_body, merge);
+            builder.set_insertion_point(loop_body);
+            builder.br(update);
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            insertion = merge;
+        }
+        builder.set_insertion_point(insertion);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.changed());
+        expect(info.loop_continue_invalidation_count >= loop_count);
+        expect(
+            info.loop_continue_dominance_rebuild_count ==
+            info.loop_continue_invalidation_count);
+        expect(
+            info.loop_continue_frontier_materialization_count > 0u);
+        expect(
+            info.loop_continue_frontier_materialization_count <
+            info.loop_continue_dominance_rebuild_count)
+            << "one immutable ancestry tree is required per mutation, "
+               "but frontier materialization is deferred to the final "
+               "tree retained by each mutating batch";
+        expect(info.loop_continue_dom_numbered_block_count > 0u);
+        expect(info.loop_continue_dom_numbered_edge_count > 0u);
+        expect(
+            info.loop_continue_dom_fixed_point_iteration_count >=
+            info.loop_continue_dominance_rebuild_count);
+        expect(info.loop_continue_dom_fixed_point_block_visit_count > 0u);
+        expect(info.loop_continue_dom_fixed_point_edge_visit_count > 0u);
+        expect(info.loop_continue_dom_intersect_step_count > 0u);
     };
 
     "restructure_loop_body_break_or_continue_through_proxy_chain"_test = [] {

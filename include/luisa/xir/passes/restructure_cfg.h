@@ -51,10 +51,34 @@ struct RestructureCFGInfo {
     size_t if_batch_merge_edge_visit_count{0u};
     // Loop-continue normalization shares ownership and dominance across all
     // site queries in one immutable CFG version. Any successful site rewrite
-    // invalidates both analyses before the next site is inspected.
+    // invalidates both analyses before the next site is inspected. Intermediate
+    // dominance versions omit the unobserved frontier relation; the final tree
+    // retained by each mutating batch materializes it exactly once.
     size_t loop_continue_analysis_count{0u};
     size_t loop_continue_site_query_count{0u};
     size_t loop_continue_invalidation_count{0u};
+    size_t loop_continue_dominance_rebuild_count{0u};
+    size_t loop_continue_frontier_materialization_count{0u};
+    // Dense CHK work performed by the ancestry-only rebuilds above. The
+    // solver value-numbers each reachable CFG once and retains only sparse
+    // predecessor edges plus one immediate-dominator ID per block.
+    size_t loop_continue_dom_numbered_block_count{0u};
+    size_t loop_continue_dom_numbered_edge_count{0u};
+    size_t loop_continue_dom_fixed_point_iteration_count{0u};
+    size_t loop_continue_dom_fixed_point_block_visit_count{0u};
+    size_t loop_continue_dom_fixed_point_edge_visit_count{0u};
+    size_t loop_continue_dom_intersect_step_count{0u};
+    // Post-dominance value-numbers every owned CFG once, then solves the
+    // sink-reachable reverse CFG using sparse CSR edges and dense RPO IDs.
+    // Pointer hashing is confined to numbering and the final API mapping.
+    size_t postdom_analysis_count{0u};
+    size_t postdom_numbered_block_count{0u};
+    size_t postdom_numbered_edge_count{0u};
+    size_t postdom_active_block_count{0u};
+    size_t postdom_fixed_point_iteration_count{0u};
+    size_t postdom_fixed_point_block_visit_count{0u};
+    size_t postdom_fixed_point_edge_visit_count{0u};
+    size_t postdom_intersect_step_count{0u};
     // Physical invocations of the per-definition mutating transform. A
     // successful transactional pass invokes it twice per definition (shadow
     // validation plus identity-preserving replay); an in-place pass invokes
