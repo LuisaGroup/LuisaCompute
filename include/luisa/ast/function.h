@@ -64,7 +64,7 @@ public:
      *
      * Bind buffer handle and offset.
      */
-    struct BufferBinding : public Argument::Buffer {
+    struct LUISA_AST_API BufferBinding : public Argument::Buffer {
         BufferBinding() noexcept = default;
         explicit BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
             : Argument::Buffer{.handle = handle,
@@ -78,7 +78,7 @@ public:
      *
      * Bind texture handle and level.
      */
-    struct TextureBinding : public Argument::Texture {
+    struct LUISA_AST_API TextureBinding : public Argument::Texture {
         TextureBinding() noexcept = default;
         explicit TextureBinding(uint64_t handle, uint32_t level) noexcept
             : Argument::Texture{.handle = handle,
@@ -91,7 +91,7 @@ public:
      *
      * Bind array handle.
      */
-    struct BindlessArrayBinding : public Argument::BindlessArray {
+    struct LUISA_AST_API BindlessArrayBinding : public Argument::BindlessArray {
         BindlessArrayBinding() noexcept = default;
         explicit BindlessArrayBinding(uint64_t handle) noexcept
             : Argument::BindlessArray{.handle = handle} {}
@@ -103,7 +103,7 @@ public:
      *
      * Bind accel handle.
      */
-    struct AccelBinding : public Argument::Accel {
+    struct LUISA_AST_API AccelBinding : public Argument::Accel {
         AccelBinding() noexcept = default;
         explicit AccelBinding(uint64_t handle) noexcept
             : Argument::Accel{.handle = handle} {}
