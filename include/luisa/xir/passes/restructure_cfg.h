@@ -64,6 +64,13 @@ struct RestructureCFGInfo {
     size_t loop_continue_invalidation_count{0u};
     size_t loop_continue_dominance_rebuild_count{0u};
     size_t loop_continue_frontier_materialization_count{0u};
+    // All sites in one CFG version are populated before any rewrite is
+    // applied. Actions retain their original edge precondition and fail
+    // closed if an earlier action consumed it.
+    size_t loop_continue_region_block_visit_count{0u};
+    size_t loop_continue_region_edge_visit_count{0u};
+    size_t loop_continue_planned_rewrite_count{0u};
+    size_t loop_continue_applied_rewrite_count{0u};
     // Dense CHK work performed by the ancestry-only rebuilds above. The
     // solver value-numbers each reachable CFG once and retains only sparse
     // predecessor edges plus one immediate-dominator ID per block.

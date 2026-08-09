@@ -1050,7 +1050,7 @@ void reg_restructure_cfg() {
                "one ownership/dominance analysis";
     };
 
-    "restructure_loop_continue_defers_frontiers_across_mutations"_test = [] {
+    "restructure_loop_continue_batches_rewrites_at_version_boundary"_test = [] {
         Module module;
         BasicBlock *body;
         auto *kernel = make_kernel_with_body(module, body);
@@ -1083,17 +1083,26 @@ void reg_restructure_cfg() {
         expect(info.succeeded());
         expect(info.changed());
         expect(info.loop_continue_invalidation_count >= loop_count);
+        expect(info.loop_continue_planned_rewrite_count ==
+               info.loop_continue_applied_rewrite_count)
+            << "disjoint loop sites must plan only edges present in the "
+               "immutable input CFG; a rewrite may not become eligible "
+               "because an earlier rewrite created its source edge";
+        expect(info.loop_continue_applied_rewrite_count >= loop_count);
+        expect(info.loop_continue_region_block_visit_count > 0u);
+        expect(info.loop_continue_region_edge_visit_count > 0u);
         expect(
-            info.loop_continue_dominance_rebuild_count ==
-            info.loop_continue_invalidation_count);
+            info.loop_continue_dominance_rebuild_count > 0u);
         expect(
-            info.loop_continue_frontier_materialization_count > 0u);
+            info.loop_continue_dominance_rebuild_count <
+            info.loop_continue_invalidation_count)
+            << "all guarded actions populated from one immutable CFG "
+               "version must share its final exact dominance rebuild";
         expect(
-            info.loop_continue_frontier_materialization_count <
+            info.loop_continue_frontier_materialization_count ==
             info.loop_continue_dominance_rebuild_count)
-            << "one immutable ancestry tree is required per mutation, "
-               "but frontier materialization is deferred to the final "
-               "tree retained by each mutating batch";
+            << "each mutating analysis batch retains one exact ancestry "
+               "tree and materializes its frontier once";
         expect(info.loop_continue_dom_numbered_block_count > 0u);
         expect(info.loop_continue_dom_numbered_edge_count > 0u);
         expect(

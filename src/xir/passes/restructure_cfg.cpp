@@ -1083,14 +1083,6 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     return true;
 }
 
-[[nodiscard]] luisa::unordered_set<BasicBlock *> collect_function_blocks(FunctionDefinition *def) noexcept {
-    luisa::unordered_set<BasicBlock *> blocks;
-    for (auto *bb : def->basic_blocks()) {
-        blocks.emplace(bb);
-    }
-    return blocks;
-}
-
 template<typename Visitor>
 void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     if (bb == nullptr || !bb->is_terminated()) { return; }
@@ -1109,106 +1101,6 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
         if (auto *body = loop->body_block(); body != nullptr) { visit(body); }
         if (auto *update = loop->update_block(); update != nullptr) { visit(update); }
     }
-}
-
-struct LoopContinueTiming {
-    double region_discovery_ms{0.0};
-    double rewrite_scan_ms{0.0};
-};
-
-[[nodiscard]] bool retarget_loop_backedges_to_continue(FunctionDefinition *def,
-                                                       BasicBlock *loop_entry,
-                                                       BasicBlock *body,
-                                                       BasicBlock *continue_target,
-                                                       BasicBlock *merge,
-                                                       const luisa::unordered_set<BasicBlock *> &function_blocks,
-                                                       const DomTree &dom,
-                                                       LoopContinueTiming &timing) noexcept {
-    Clock region_discovery_clock;
-    auto is_live_block = [&](BasicBlock *bb) noexcept {
-        return bb != nullptr && function_blocks.contains(bb);
-    };
-    if (!is_live_block(loop_entry) || !is_live_block(body) ||
-        !is_live_block(continue_target) || !is_live_block(merge)) {
-        timing.region_discovery_ms +=
-            region_discovery_clock.toc();
-        return false;
-    }
-    auto allow_loop_entry_in_region = loop_entry == body && body == continue_target;
-    luisa::unordered_set<BasicBlock *> loop_region;
-    luisa::vector<BasicBlock *> work;
-    auto enqueue = [&](BasicBlock *bb) noexcept {
-        if (!is_live_block(bb) || bb == merge) { return; }
-        // Reachability alone does not define lexical loop membership: an
-        // enclosing cycle may reach a path which bypasses this loop and joins
-        // at its merge. Rewriting such an edge as Break would attach it to a
-        // loop that does not dominate the source, and a later single-exit
-        // rewrite would leave a stale non-enclosing break target. Every block
-        // owned by a structured loop is dominated by its declared entry.
-        if (!dom.contains(loop_entry) || !dom.contains(bb) ||
-            !dom.dominates(loop_entry, bb)) {
-            return;
-        }
-        if (!allow_loop_entry_in_region && bb == loop_entry) { return; }
-        if (loop_region.emplace(bb).second) { work.emplace_back(bb); }
-    };
-    enqueue(body);
-    enqueue(continue_target);
-    while (!work.empty()) {
-        auto *bb = work.back();
-        work.pop_back();
-        if (!is_live_block(bb)) { continue; }
-        if (!bb->is_terminated()) { continue; }
-        auto *term = bb->terminator();
-        // Loop boundary normalization is local to one construct scope.
-        // Descending into a nested Loop or Switch would rewrite an edge in the
-        // child as a Break/Continue of the parent, violating the nearest-scope
-        // invariant. Treat nested break scopes as atomic and continue from
-        // their declared merge; fixup_construct_exits owns any genuine
-        // cross-hierarchy exit from the child.
-        if (term->isa<LoopInst>() ||
-            term->isa<SimpleLoopInst>() ||
-            term->isa<SwitchInst>()) {
-            if (auto *nested_merge =
-                    structured_statement_merge(term);
-                nested_merge != nullptr &&
-                nested_merge != merge) {
-                enqueue(nested_merge);
-            }
-            continue;
-        }
-        traverse_structured_successors(bb, [&](BasicBlock *succ) noexcept {
-            if (!is_live_block(succ) || succ == merge) { return; }
-            if (!allow_loop_entry_in_region && succ == loop_entry) { return; }
-            enqueue(succ);
-        });
-    }
-    timing.region_discovery_ms += region_discovery_clock.toc();
-    Clock rewrite_scan_clock;
-    auto changed = false;
-    auto *merge_successor = trivial_branch_target(merge);
-    for (auto *bb : loop_region) {
-        if (!is_live_block(bb)) { continue; }
-        if (bb != continue_target) {
-            changed |= retarget_edges_to_continue(def, bb, continue_target, continue_target);
-        }
-        if (bb != merge) {
-            changed |= retarget_edges_to_break(def, bb, merge, merge);
-            if (merge_successor != nullptr) {
-                changed |= retarget_edges_to_break(def, bb, merge_successor, merge);
-            }
-        }
-        if (continue_target == loop_entry) {
-            continue;
-        }
-        if (bb != continue_target ||
-            !bb->is_terminated() || !bb->terminator()->isa<BranchInst>() ||
-            static_cast<BranchInst *>(bb->terminator())->target_block() != loop_entry) {
-            changed |= retarget_edges_to_continue(def, bb, loop_entry, continue_target);
-        }
-    }
-    timing.rewrite_scan_ms += rewrite_scan_clock.toc();
-    return changed;
 }
 
 [[nodiscard]] bool is_loop_continue_target(BasicBlock *target,
@@ -1846,30 +1738,74 @@ void remove_write_only_dispatch_selectors(
     });
     auto site_collection_ms = site_collection_clock.toc();
     Clock ownership_clock;
-    auto function_blocks = collect_function_blocks(def);
+    LoopContinueBatchAnalysis batch_analysis{def, dom};
     auto ownership_ms = ownership_clock.toc();
     auto dominance_rebuild_ms = 0.0;
     auto dominance_frontier_ms = 0.0;
-    LoopContinueTiming timing;
+    Clock region_discovery_clock;
     ++info.loop_continue_analysis_count;
-    for (auto site : loops) {
+    for (auto site_index = size_t{0u};
+         site_index < loops.size(); ++site_index) {
+        auto site = loops[site_index];
         ++info.loop_continue_site_query_count;
-        auto site_changed =
-            retarget_loop_backedges_to_continue(
-                def, site.entry, site.body,
-                site.continue_target, site.merge,
-                function_blocks, dom, timing);
-        if (!site_changed) { continue; }
+        batch_analysis.plan(
+            site_index, site.entry, site.body,
+            site.continue_target, site.merge);
+    }
+    auto region_discovery_ms = region_discovery_clock.toc();
+    auto &batch_stats = batch_analysis.stats();
+    info.loop_continue_region_block_visit_count +=
+        batch_stats.region_block_visit_count;
+    info.loop_continue_region_edge_visit_count +=
+        batch_stats.region_edge_visit_count;
+    info.loop_continue_planned_rewrite_count +=
+        batch_analysis.rewrite_count();
+
+    // Every query above observes the same immutable CFG and dominance
+    // version. Each action carries the original (source, old target)
+    // precondition; the mutation helper revalidates it immediately before
+    // applying the rewrite. An earlier action can therefore only make a later
+    // action fail closed, never make stale analysis authorize a different
+    // edge. The outer restructure fixed point analyzes any rejected
+    // opportunity on the next exact CFG version.
+    Clock rewrite_scan_clock;
+    luisa::vector<uint8_t> mutated_sites(loops.size(), 0u);
+    for (auto rewrite_index = size_t{0u};
+         rewrite_index < batch_analysis.rewrite_count();
+         ++rewrite_index) {
+        auto &rewrite = batch_analysis.rewrite(rewrite_index);
+        auto rewrite_changed = false;
+        switch (rewrite.kind) {
+            case LoopContinueRewriteKind::BREAK:
+                rewrite_changed = retarget_edges_to_break(
+                    def, rewrite.block, rewrite.from,
+                    rewrite.target);
+                break;
+            case LoopContinueRewriteKind::CONTINUE:
+                rewrite_changed = retarget_edges_to_continue(
+                    def, rewrite.block, rewrite.from,
+                    rewrite.target);
+                break;
+        }
+        if (!rewrite_changed) { continue; }
         changed = true;
-        ++info.loop_continue_invalidation_count;
-        // The current site's region was completely planned before mutation,
-        // matching the historical implementation. Before the next site,
-        // rebuild exactly the two analyses that mutation invalidated. Thus a
-        // CFG version pays O(V + E) once, not once per loop, without carrying
-        // stale dominance or ownership across a rewrite.
-        Clock ownership_rebuild_clock;
-        function_blocks = collect_function_blocks(def);
-        ownership_ms += ownership_rebuild_clock.toc();
+        ++info.loop_continue_applied_rewrite_count;
+        LUISA_DEBUG_ASSERT(
+            rewrite.site_index < mutated_sites.size(),
+            "Loop-continue rewrite site index is out of bounds.");
+        if (rewrite.site_index < mutated_sites.size()) {
+            mutated_sites[rewrite.site_index] = 1u;
+        }
+    }
+    auto rewrite_scan_ms = rewrite_scan_clock.toc();
+    for (auto mutated : mutated_sites) {
+        info.loop_continue_invalidation_count +=
+            mutated != 0u ? 1u : 0u;
+    }
+    if (changed) {
+        // No analysis query is issued after mutation. Build the one exact
+        // ancestry tree retained by the caller, then materialize its frontier
+        // relation once at the public batch boundary.
         Clock dominance_rebuild_clock;
         DomTreeBuildStats dominance_stats;
         dom = compute_dom_tree(
@@ -1889,12 +1825,6 @@ void remove_write_only_dispatch_selectors(
             dominance_stats.fixed_point_edge_visit_count;
         info.loop_continue_dom_intersect_step_count +=
             dominance_stats.intersect_step_count;
-        ++info.loop_continue_analysis_count;
-    }
-    if (changed) {
-        // Intermediate loop-site versions query only dominance ancestry.
-        // Materialize the frontier relation once for the final tree retained
-        // by the caller, rather than once after every local edge rewrite.
         Clock dominance_frontier_clock;
         dom.compute_dominance_frontiers();
         dominance_frontier_ms += dominance_frontier_clock.toc();
@@ -1909,10 +1839,10 @@ void remove_write_only_dispatch_selectors(
             ownership_ms);
         LUISA_VERBOSE_WITH_LOCATION(
             "[restructure_cfg] loop_continue_region_discovery: {:.3f} ms",
-            timing.region_discovery_ms);
+            region_discovery_ms);
         LUISA_VERBOSE_WITH_LOCATION(
             "[restructure_cfg] loop_continue_rewrite_scan: {:.3f} ms",
-            timing.rewrite_scan_ms);
+            rewrite_scan_ms);
         LUISA_VERBOSE_WITH_LOCATION(
             "[restructure_cfg] loop_continue_dominance_rebuild: {:.3f} ms",
             dominance_rebuild_ms);
@@ -6922,6 +6852,18 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "loop_continue_frontier_materialization",
             info.loop_continue_frontier_materialization_count);
         report->set(
+            "loop_continue_region_block_visit",
+            info.loop_continue_region_block_visit_count);
+        report->set(
+            "loop_continue_region_edge_visit",
+            info.loop_continue_region_edge_visit_count);
+        report->set(
+            "loop_continue_planned_rewrite",
+            info.loop_continue_planned_rewrite_count);
+        report->set(
+            "loop_continue_applied_rewrite",
+            info.loop_continue_applied_rewrite_count);
+        report->set(
             "loop_continue_dom_numbered_block",
             info.loop_continue_dom_numbered_block_count);
         report->set(
@@ -7120,6 +7062,14 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.loop_continue_dominance_rebuild_count;
         dst.loop_continue_frontier_materialization_count +=
             src.loop_continue_frontier_materialization_count;
+        dst.loop_continue_region_block_visit_count +=
+            src.loop_continue_region_block_visit_count;
+        dst.loop_continue_region_edge_visit_count +=
+            src.loop_continue_region_edge_visit_count;
+        dst.loop_continue_planned_rewrite_count +=
+            src.loop_continue_planned_rewrite_count;
+        dst.loop_continue_applied_rewrite_count +=
+            src.loop_continue_applied_rewrite_count;
         dst.loop_continue_dom_numbered_block_count +=
             src.loop_continue_dom_numbered_block_count;
         dst.loop_continue_dom_numbered_edge_count +=
