@@ -29,6 +29,7 @@
 
 #include "helpers.h"
 #include "restructure_cfg_loop_boundary.h"
+#include "restructure_cfg_post_dom.h"
 #include "restructure_cfg_selection_merge.h"
 
 #include <array>
@@ -256,195 +257,34 @@ void trace_module_definition(
     return irreducible_count;
 }
 
-[[nodiscard]] bool is_sink(BasicBlock *bb) noexcept {
-    if (!bb->is_terminated()) { return true; }
-    auto *t = bb->terminator();
-    if (t->isa<ReturnInst>() || t->isa<UnreachableInst>() || t->isa<RasterDiscardInst>()) { return true; }
-    bool has_succ = false;
-    bb->traverse_successors(false, [&](BasicBlock *) noexcept { has_succ = true; });
-    return !has_succ;
+[[nodiscard]] bool is_sink(BasicBlock *block) noexcept {
+    return detail::is_restructure_cfg_sink(block);
 }
 
-struct PostDomInfo {
-    luisa::unordered_map<BasicBlock *, BasicBlock *> ipostdom;
-    BasicBlock *virtual_exit{nullptr};
-};
+using PostDomInfo = detail::RestructurePostDomInfo;
 
-[[nodiscard]] PostDomInfo compute_post_dom(FunctionDefinition *def) noexcept {
+[[nodiscard]] PostDomInfo compute_post_dom(
+    FunctionDefinition *def,
+    RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_pdom("compute_post_dom");
-    luisa::vector<BasicBlock *> all_blocks;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        all_blocks.emplace_back(bb);
-    });
-
-    luisa::vector<BasicBlock *> sinks;
-    for (auto *bb : all_blocks) {
-        if (is_sink(bb)) { sinks.emplace_back(bb); }
-    }
-
-    // Assign dense block IDs for O(1) array indexing.
-    luisa::unordered_map<BasicBlock *, size_t> block_id;
-    for (size_t i = 0; i < all_blocks.size(); i++) {
-        block_id[all_blocks[i]] = i;
-    }
-    size_t n = all_blocks.size();
-
-    luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> pred_map;
-    for (auto *bb : all_blocks) {
-        if (!bb->is_terminated()) { continue; }
-        bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            pred_map[succ].emplace_back(bb);
-        });
-    }
-
-    static int virtual_exit_sentinel = 0;
-    BasicBlock *virt = reinterpret_cast<BasicBlock *>(&virtual_exit_sentinel);
-
-    luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> aug_pred_map = pred_map;
-    for (auto *s : sinks) {
-        aug_pred_map[virt].emplace_back(s);
-    }
-
-    luisa::vector<BasicBlock *> rpo;
-    {
-        luisa::unordered_set<BasicBlock *> visited;
-        luisa::vector<std::pair<BasicBlock *, size_t>> stack;
-        visited.emplace(virt);
-        stack.emplace_back(virt, 0);
-        while (!stack.empty()) {
-            auto *cur = stack.back().first;
-            auto &idx = stack.back().second;
-            auto &preds = aug_pred_map[cur];
-            if (idx < preds.size()) {
-                auto *pred = preds[idx++];
-                if (!visited.contains(pred)) {
-                    visited.emplace(pred);
-                    stack.emplace_back(pred, 0);
-                }
-            } else {
-                rpo.emplace_back(cur);
-                stack.pop_back();
-            }
-        }
-    }
-
-    // Dense RPO index — array lookup instead of hash map.
-    luisa::vector<size_t> rpo_idx_vec(n, SIZE_MAX);
-    for (size_t i = 0; i < rpo.size(); i++) {
-        if (rpo[i] != virt) {
-            auto it = block_id.find(rpo[i]);
-            if (it != block_id.end()) {
-                rpo_idx_vec[it->second] = i;
-            }
-        }
-    }
-    // virt is always last in RPO; use rpo.size()-1 for its index.
-    const size_t virt_rpo_idx = rpo.size() - 1;
-
-    // Dense ipostdom — array lookup instead of hash map.
-    luisa::vector<BasicBlock *> ipostdom_vec(n, nullptr);
-
-    // Dense processed flag.
-    luisa::vector<bool> processed_vec(n, false);
-
-    // Helpers for dense lookups.
-    auto get_rpo_idx = [&](BasicBlock *b) noexcept -> size_t {
-        if (b == virt) { return virt_rpo_idx; }
-        if (b == nullptr) { return SIZE_MAX; }
-        auto it = block_id.find(b);
-        if (it == block_id.end()) { return SIZE_MAX; }
-        return rpo_idx_vec[it->second];
-    };
-    auto get_ipostdom = [&](BasicBlock *b) noexcept -> BasicBlock * {
-        if (b == virt) { return virt; }
-        if (b == nullptr) { return nullptr; }
-        auto it = block_id.find(b);
-        if (it == block_id.end()) { return nullptr; }
-        return ipostdom_vec[it->second];
-    };
-    auto set_ipostdom = [&](BasicBlock *b, BasicBlock *val) noexcept {
-        if (b == virt || b == nullptr) { return; }
-        auto it = block_id.find(b);
-        if (it != block_id.end()) {
-            ipostdom_vec[it->second] = val;
-        }
-    };
-    auto is_processed = [&](BasicBlock *b) noexcept -> bool {
-        if (b == virt) { return true; }
-        if (b == nullptr) { return false; }
-        auto it = block_id.find(b);
-        if (it == block_id.end()) { return false; }
-        return processed_vec[it->second];
-    };
-    auto set_processed = [&](BasicBlock *b) noexcept {
-        if (b == virt || b == nullptr) { return; }
-        auto it = block_id.find(b);
-        if (it != block_id.end()) {
-            processed_vec[it->second] = true;
-        }
-    };
-
-    auto intersect = [&](BasicBlock *b1, BasicBlock *b2) noexcept -> BasicBlock * {
-        if (b1 == nullptr) { return b2; }
-        if (b2 == nullptr) { return b1; }
-        auto f1 = b1;
-        auto f2 = b2;
-        while (f1 != f2) {
-            auto i1 = get_rpo_idx(f1);
-            auto i2 = get_rpo_idx(f2);
-            if (i1 == SIZE_MAX || i2 == SIZE_MAX) { return nullptr; }
-            while (i1 < i2) {
-                f1 = get_ipostdom(f1);
-                if (f1 == nullptr) { return nullptr; }
-                i1 = get_rpo_idx(f1);
-            }
-            while (i2 < i1) {
-                f2 = get_ipostdom(f2);
-                if (f2 == nullptr) { return nullptr; }
-                i2 = get_rpo_idx(f2);
-            }
-        }
-        return f1;
-    };
-
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (auto it = rpo.rbegin(); it != rpo.rend(); ++it) {
-            auto *bb = *it;
-            if (bb == virt) { continue; }
-
-            luisa::vector<BasicBlock *> succs;
-            if (is_sink(bb)) {
-                succs.emplace_back(virt);
-            } else {
-                bb->traverse_successors(false, [&](BasicBlock *s) noexcept { succs.emplace_back(s); });
-            }
-
-            BasicBlock *new_ipostdom = nullptr;
-            for (auto *s : succs) {
-                if (is_processed(s)) {
-                    new_ipostdom = intersect(new_ipostdom, s);
-                }
-            }
-            if (get_ipostdom(bb) != new_ipostdom) {
-                set_ipostdom(bb, new_ipostdom);
-                changed = true;
-            }
-            if (new_ipostdom != nullptr) { set_processed(bb); }
-        }
-    }
-
-    // Convert dense results back to hash map for API compatibility.
-    PostDomInfo result;
-    result.virtual_exit = virt;
-    for (auto *bb : rpo) {
-        if (bb != virt) {
-            result.ipostdom[bb] = get_ipostdom(bb);
-        }
-    }
-    result.ipostdom[virt] = virt;
-
+    detail::RestructurePostDomStats stats;
+    auto result = detail::compute_restructure_post_dom(
+        def, &stats);
+    ++info.postdom_analysis_count;
+    info.postdom_numbered_block_count +=
+        stats.numbered_block_count;
+    info.postdom_numbered_edge_count +=
+        stats.numbered_edge_count;
+    info.postdom_active_block_count +=
+        stats.active_block_count;
+    info.postdom_fixed_point_iteration_count +=
+        stats.fixed_point_iteration_count;
+    info.postdom_fixed_point_block_visit_count +=
+        stats.fixed_point_block_visit_count;
+    info.postdom_fixed_point_edge_visit_count +=
+        stats.fixed_point_edge_visit_count;
+    info.postdom_intersect_step_count +=
+        stats.intersect_step_count;
     return result;
 }
 
@@ -967,7 +807,7 @@ void restructure_indexed_branches(
     FunctionDefinition *def, RestructureCFGInfo &info) noexcept {
     for (;;) {
         auto dom = compute_dom_tree(def);
-        auto pdom = compute_post_dom(def);
+        auto pdom = compute_post_dom(def, info);
         BasicBlock *header = nullptr;
         IndexedBranchInst *indexed_branch = nullptr;
         size_t best_depth = 0u;
@@ -3700,7 +3540,7 @@ struct SelectionExitDrainResult {
     // Preserve the same observation point for the following phase while
     // coalescing every write in this batch into one version refresh.
     if (drain.modified) {
-        pdom = compute_post_dom(def);
+        pdom = compute_post_dom(def, info);
         ++info.selection_exit_postdom_refresh_count;
     }
     return drain;
@@ -5121,7 +4961,7 @@ struct PostMergeSelectionReentry {
             // the common continuation reloads it.
             repair_target_state_dispatch_ssa(def);
             dom = compute_dom_tree(def);
-            pdom = compute_post_dom(def);
+            pdom = compute_post_dom(def, info);
             LUISA_ASSERT(
                 clone_owned_subgraph_for_edge(
                     def, reentry.header,
@@ -5134,7 +4974,7 @@ struct PostMergeSelectionReentry {
                 "Selection re-entry node splitting made no progress.");
             ++info.canonicalized_cfg_count;
             dom = compute_dom_tree(def);
-            pdom = compute_post_dom(def);
+            pdom = compute_post_dom(def, info);
             return true;
         }
     }
@@ -5513,7 +5353,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 
     // Invalidate analyses after CFG mutation.
     dom = compute_dom_tree(def);
-    pdom = compute_post_dom(def);
+    pdom = compute_post_dom(def, info);
     return true;
 }
 
@@ -5912,7 +5752,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         // LLVM Splitter::invalidate(): all containment and exit facts above are
         // stale after one rewrite.
         dom = compute_dom_tree(def);
-        pdom = compute_post_dom(def);
+        pdom = compute_post_dom(def, info);
     }
     return modified;
 }
@@ -6457,7 +6297,7 @@ restructure_cfg_on_definition_in_place(
                 iteration);
         }
         auto dom = compute_dom_tree(def);
-        auto pdom = compute_post_dom(def);
+        auto pdom = compute_post_dom(def, info);
         if (try_restructure_loop(def, dom, pdom, info)) {
             main_last_modified = true;
             // Fast path: if no conditional branches remain after restructuring
@@ -6521,7 +6361,7 @@ restructure_cfg_on_definition_in_place(
     {
         ScopedTimer _timer_post("post_restructure_fixed_point");
         auto dom = compute_dom_tree(def);
-        auto pdom = compute_post_dom(def);
+        auto pdom = compute_post_dom(def, info);
         for (size_t iteration = 0u;
              iteration < options.post_iteration_limit;
              ++iteration) {
@@ -6535,7 +6375,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_changed) {
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             auto header_changed =
                 add_headers_to_remaining_divergent(
@@ -6551,7 +6391,7 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             auto selection_exit_drain =
                 drain_selection_exits(
@@ -6587,7 +6427,7 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             auto boundary_branch_changed =
                 normalize_loop_boundary_conditional_branches(
@@ -6597,7 +6437,7 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             auto loop_prepare_changed =
                 canonicalize_loop_prepare_blocks(def);
@@ -6605,7 +6445,7 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             auto loop_continue_changed =
                 normalize_structured_loop_continues(
@@ -6613,7 +6453,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_continue_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             auto loop_update_changed =
                 canonicalize_loop_update_blocks(def);
@@ -6621,7 +6461,7 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             auto limits_before_fixup = info.iteration_limit_count;
             auto construct_exit_changed =
@@ -6632,7 +6472,7 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             for (auto *header : exit_dispatch_headers) {
                 generated_exit_dispatch_headers.emplace(
@@ -6646,7 +6486,7 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                pdom = compute_post_dom(def, info);
             }
             if (restructure_trace_enabled()) {
                 auto stats_after = trace_stats(def);
@@ -6978,6 +6818,30 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "loop_continue_invalidation",
             info.loop_continue_invalidation_count);
         report->set(
+            "postdom_analysis",
+            info.postdom_analysis_count);
+        report->set(
+            "postdom_numbered_block",
+            info.postdom_numbered_block_count);
+        report->set(
+            "postdom_numbered_edge",
+            info.postdom_numbered_edge_count);
+        report->set(
+            "postdom_active_block",
+            info.postdom_active_block_count);
+        report->set(
+            "postdom_fixed_point_iteration",
+            info.postdom_fixed_point_iteration_count);
+        report->set(
+            "postdom_fixed_point_block_visit",
+            info.postdom_fixed_point_block_visit_count);
+        report->set(
+            "postdom_fixed_point_edge_visit",
+            info.postdom_fixed_point_edge_visit_count);
+        report->set(
+            "postdom_intersect_step",
+            info.postdom_intersect_step_count);
+        report->set(
             "definition_transform_invocation",
             info.definition_transform_invocation_count);
         report->set(
@@ -7117,6 +6981,22 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.loop_continue_site_query_count;
         dst.loop_continue_invalidation_count +=
             src.loop_continue_invalidation_count;
+        dst.postdom_analysis_count +=
+            src.postdom_analysis_count;
+        dst.postdom_numbered_block_count +=
+            src.postdom_numbered_block_count;
+        dst.postdom_numbered_edge_count +=
+            src.postdom_numbered_edge_count;
+        dst.postdom_active_block_count +=
+            src.postdom_active_block_count;
+        dst.postdom_fixed_point_iteration_count +=
+            src.postdom_fixed_point_iteration_count;
+        dst.postdom_fixed_point_block_visit_count +=
+            src.postdom_fixed_point_block_visit_count;
+        dst.postdom_fixed_point_edge_visit_count +=
+            src.postdom_fixed_point_edge_visit_count;
+        dst.postdom_intersect_step_count +=
+            src.postdom_intersect_step_count;
         dst.definition_transform_invocation_count +=
             src.definition_transform_invocation_count;
         dst.boundary_verifier_count +=
