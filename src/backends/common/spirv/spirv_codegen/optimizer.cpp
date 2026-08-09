@@ -1,5 +1,7 @@
 #include "optimizer.h"
 
+#include "../../env_flag.h"
+
 #include <cerrno>
 #include <cstdlib>
 #include <limits>
@@ -316,7 +318,7 @@ SpirvOptimizerReport optimize_spirv(
     std::vector<uint32_t> optimized;
     report.succeeded =
         optimizer.Run(words.data(), words.size(), &optimized);
-    if (std::getenv("LUISA_VULKAN_PROFILE_COMPILATION")) {
+    if (lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION")) {
         LUISA_INFO(
             "Vulkan native SPIR-V optimizer execution: {:.3f} ms",
             optimizer_clock.toc());
@@ -325,7 +327,7 @@ SpirvOptimizerReport optimize_spirv(
     optimizer_clock.tic();
     auto commit = validate_and_commit_spirv_transform(
         words, std::move(optimized));
-    if (std::getenv("LUISA_VULKAN_PROFILE_COMPILATION")) {
+    if (lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION")) {
         LUISA_INFO(
             "Vulkan native SPIR-V optimizer commit validation: {:.3f} ms",
             optimizer_clock.toc());

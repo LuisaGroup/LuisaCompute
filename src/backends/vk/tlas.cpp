@@ -299,9 +299,11 @@ void Tlas::pre_build(
                     // Instance fields after the two SRT transforms
                     auto *srt_inst_fields = inst_base + 8 + 64 + 64; // offset 136
                     *reinterpret_cast<uint32_t *>(srt_inst_fields + 0) =
-                        (custom_index & 0x00FFFFFFu) | (static_cast<uint32_t>(mask) << 24u);
+                        detail::VulkanAccelUpdateInput::pack_index_visibility(
+                            custom_index, mask);
                     *reinterpret_cast<uint32_t *>(srt_inst_fields + 4) =
-                        (0u & 0x00FFFFFFu) | (static_cast<uint32_t>(geom_flags) << 24u);
+                        detail::VulkanAccelUpdateInput::pack_user_id_flags(
+                            0u, static_cast<uint32_t>(geom_flags));
                     *reinterpret_cast<uint64_t *>(srt_inst_fields + 8) = accel_ref;
 
                     if (mi->keyframe_count() > 2) {

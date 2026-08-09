@@ -3,6 +3,7 @@
 #include "float_atomic_policy.h"
 #include "sampler_anisotropy.h"
 #include "user_compute_codegen_route.h"
+#include "../common/env_flag.h"
 #include <luisa/ast/op.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -67,13 +68,8 @@ using namespace std::string_literals;
 namespace {
 
 [[nodiscard]] bool require_native_xir_spirv() noexcept {
-    if (auto value = std::getenv(
-            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV")) {
-        auto flag = luisa::string_view{value};
-        return flag == "1" || flag == "true" || flag == "TRUE" ||
-               flag == "on" || flag == "ON";
-    }
-    return false;
+    return lc::detail::env_flag(
+        "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV");
 }
 
 [[nodiscard]] uint32_t query_bindless_heap_capacity(
@@ -227,11 +223,7 @@ namespace detail {
 #else
     auto enabled = true;
 #endif
-    if (auto value = std::getenv("LUISA_VULKAN_VALIDATION")) {
-        auto flag = luisa::string_view{value};
-        enabled = flag == "1" || flag == "true" || flag == "TRUE" ||
-                  flag == "on" || flag == "ON";
-    }
+    if (lc::detail::env_flag("LUISA_VULKAN_VALIDATION")) { enabled = true; }
     return enabled;
 }
 
@@ -679,11 +671,12 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         ext_phy_device = external_device.physical_device;
         ext_device = external_device.device;
         _instance = external_device.instance;
+        // A config extension may request DXC for legacy integrations, but a
+        // strict native route and a build that omitted DXC are both
+        // authoritative.
         load_dxc_for_config_readback =
-            detail::plan_vulkan_config_readback_dxc(
-                _config_ext->load_dxc(), dxc_compatibility_compiled,
-                require_native_spirv)
-                .expose_dxc;
+            _config_ext->load_dxc() && dxc_compatibility_compiled &&
+            !require_native_spirv;
         _graphics_queue = external_device.graphics_queue;
         auto ext_path = _config_ext->external_vulkan_lib_path();
         custom_path = std::move(ext_path.lib_path);
@@ -3037,8 +3030,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     LUISA_ASSERT(target_features.enabled_mask() == enabled_spirv_features,
                  "Vulkan SPIR-V target-feature mask did not round-trip.");
     vstd::optional<lc::spirv::SpirvResult> spv_result;
-    auto profile = std::getenv(
-                       "LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
+    auto profile =
+        lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     auto shader_md5 = compute_shader_cache_md5(
         kernel, option, target_features);
     auto require_print_code = print_code();
@@ -3051,12 +3044,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     }
     luisa::string shader_name = uses_user_path ? option.name : luisa::format("{}.spv", shader_md5.to_string(false));
     auto compile_native_spirv = [&] {
-        if (profile) {
-            LUISA_INFO("Vulkan native SPIR-V compile path start: kernel='{}', block_size=[{}, {}, {}], hash={:016x}",
-                       kernel.name(), kernel.block_size().x,
-                       kernel.block_size().y, kernel.block_size().z,
-                       kernel.hash());
-        }
         Clock codegen_clock;
         auto result =
             lc::spirv::SpirvCodegenEntry::compile_spirv(
@@ -3077,9 +3064,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
              .codegen_dialect =
                  detail::ShaderCodegenDialect::XIR_SPIRV},
             serde_type, _binary_io)) {
-        if (profile) {
-            LUISA_INFO("Vulkan native SPIR-V need compile for '{}': {}", kernel.name(), shader_name);
-        }
         spv_result = compile_native_spirv();
     }
 
@@ -3097,18 +3081,12 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             32u,
             option.enable_driver_optimization);
         if (deser.shader) {
-            if (profile) {
-                LUISA_INFO("Vulkan native SPIR-V cache hit for kernel '{}', shader='{}'", kernel.name(), shader_name);
-            }
             auto shader = static_cast<ComputeShader *>(deser.shader);
             LUISA_VERBOSE("ComputeShader loaded successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
             info.block_size = shader->block_size();
             return info;
-        }
-        if (profile) {
-            LUISA_INFO("Vulkan native SPIR-V cache miss for kernel '{}', recompiling '{}'", kernel.name(), shader_name);
         }
         spv_result = compile_native_spirv();
     }
@@ -3171,9 +3149,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     } else {
         LUISA_ASSERT(spv_result, "Vulkan SPIR-V cache load failed without recompilation.");
         Clock pipeline_clock;
-        if (profile) {
-            LUISA_INFO("Vulkan native ComputeShader construct start for kernel '{}'", kernel.name());
-        }
         auto shader = new ComputeShader(
             this,
             kernel.block_size(),

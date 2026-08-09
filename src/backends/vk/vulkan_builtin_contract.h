@@ -89,7 +89,8 @@ vulkan_builtin_kernel_contract(VulkanBuiltinKernel kernel) noexcept {
             return {VulkanAccelUpdateLayout::block_size,
                     2u * sizeof(uint32_t)};
         case VulkanBuiltinKernel::BINDLESS_UPLOAD:
-            return {256u, sizeof(uint32_t)};
+            return {VulkanAccelUpdateLayout::bindless_upload_block_size,
+                    sizeof(uint32_t)};
     }
     return {};
 }

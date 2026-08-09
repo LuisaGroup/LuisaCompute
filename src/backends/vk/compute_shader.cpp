@@ -2,6 +2,7 @@
 #include "device.h"
 #include "log.h"
 #include "../common/hlsl/hlsl_codegen.h"
+#include "../common/env_flag.h"
 #include <luisa/core/stl/filesystem.h>
 #include "shader_serializer.h"
 #include <luisa/core/clock.h>
@@ -33,8 +34,8 @@ ComputeShader::ComputeShader(
       _block_size(block_size),
       _pipeline_create_flags{
           pipeline_create_flags(enable_driver_optimization)} {
-    auto profile = std::getenv(
-                       "LUISA_VULKAN_PROFILE_COMPILATION") != nullptr;
+    auto profile =
+        lc::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     Clock phase_clock;
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};

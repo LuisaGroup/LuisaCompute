@@ -1,7 +1,6 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <vector>
 
 #include <spirv-tools/libspirv.hpp>
@@ -14,19 +13,17 @@ namespace {
         std::cerr << path << ": failed to open SPIR-V module.\n";
         return false;
     }
+    // Build artifacts are small; only guard the cases that matter for a
+    // well-formed SPIR-V file: an empty (or unreadable) stream and a payload
+    // that is not a whole number of 32-bit words.
     auto stream_size = static_cast<std::streamoff>(file.tellg());
     if (stream_size <= 0 ||
-        static_cast<uintmax_t>(stream_size) >
-            std::numeric_limits<size_t>::max() ||
-        stream_size > std::numeric_limits<std::streamsize>::max()) {
-        std::cerr << path << ": invalid SPIR-V module size.\n";
+        stream_size % static_cast<std::streamoff>(sizeof(uint32_t)) != 0) {
+        std::cerr << path
+                  << ": invalid or non-word-aligned SPIR-V module size.\n";
         return false;
     }
     auto byte_size = static_cast<size_t>(stream_size);
-    if (byte_size % sizeof(uint32_t) != 0u) {
-        std::cerr << path << ": SPIR-V size is not word-aligned.\n";
-        return false;
-    }
     std::vector<uint32_t> words(byte_size / sizeof(uint32_t));
     file.seekg(0, std::ios::beg);
     file.read(reinterpret_cast<char *>(words.data()),

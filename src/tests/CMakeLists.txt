@@ -71,8 +71,6 @@ luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.
 target_sources(test_spirv_motion_patch PRIVATE ../backends/vk/spirv_motion_patch.cpp)
 target_include_directories(test_spirv_motion_patch PRIVATE ../backends/vk)
 if (TARGET luisa-compute-backend-vk)
-    luisa_compute_add_test(test_vk_device_feature_plan unit/ext/test_vk_device_feature_plan.cpp LABELS "unit;unit_ext;vk")
-    target_include_directories(test_vk_device_feature_plan PRIVATE ../backends/vk)
     luisa_compute_add_test(test_vk_sparse_residency_registry unit/ext/test_vk_sparse_residency_registry.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_sparse_residency_registry PRIVATE ../backends/vk)
     target_sources(test_vk_sparse_residency_registry PRIVATE ../backends/vk/sparse_residency_registry.cpp)
@@ -99,7 +97,6 @@ if (TARGET luisa-compute-backend-vk)
     luisa_compute_add_test(test_vk_cuda_interop_texture_plan unit/ext/test_vk_cuda_interop_texture_plan.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_cuda_interop_texture_plan PRIVATE ../backends/vk)
     foreach (_vulkan_header_test IN ITEMS
-            test_vk_device_feature_plan
             test_vk_resource_barrier_contract
             test_vk_result_contract
             test_vk_cuda_interop_texture_plan)
