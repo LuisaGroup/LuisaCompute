@@ -49,6 +49,12 @@ struct RestructureCFGInfo {
     size_t if_batch_merge_query_count{0u};
     size_t if_batch_merge_block_visit_count{0u};
     size_t if_batch_merge_edge_visit_count{0u};
+    // Loop-continue normalization shares ownership and dominance across all
+    // site queries in one immutable CFG version. Any successful site rewrite
+    // invalidates both analyses before the next site is inspected.
+    size_t loop_continue_analysis_count{0u};
+    size_t loop_continue_site_query_count{0u};
+    size_t loop_continue_invalidation_count{0u};
     // Physical invocations of the per-definition mutating transform. A
     // successful transactional pass invokes it twice per definition (shadow
     // validation plus identity-preserving replay); an in-place pass invokes

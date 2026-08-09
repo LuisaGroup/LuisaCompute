@@ -1274,9 +1274,9 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
                                                        BasicBlock *loop_entry,
                                                        BasicBlock *body,
                                                        BasicBlock *continue_target,
-                                                       BasicBlock *merge) noexcept {
-    auto function_blocks = collect_function_blocks(def);
-    auto dom = compute_dom_tree(def);
+                                                       BasicBlock *merge,
+                                                       const luisa::unordered_set<BasicBlock *> &function_blocks,
+                                                       const DomTree &dom) noexcept {
     auto is_live_block = [&](BasicBlock *bb) noexcept {
         return bb != nullptr && function_blocks.contains(bb);
     };
@@ -2217,7 +2217,10 @@ void remove_write_only_dispatch_selectors(
     return modified;
 }
 
-[[nodiscard]] bool normalize_structured_loop_continues(FunctionDefinition *def) noexcept {
+[[nodiscard]] bool normalize_structured_loop_continues(
+    FunctionDefinition *def,
+    DomTree &dom,
+    RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_normalize_structured_loop_continues(
         "normalize_structured_loop_continues");
     struct LoopSite {
@@ -2239,8 +2242,26 @@ void remove_write_only_dispatch_selectors(
             loops.emplace_back(loop->body_block(), loop->body_block(), loop->body_block(), loop->merge_block());
         }
     });
+    auto function_blocks = collect_function_blocks(def);
+    ++info.loop_continue_analysis_count;
     for (auto site : loops) {
-        changed |= retarget_loop_backedges_to_continue(def, site.entry, site.body, site.continue_target, site.merge);
+        ++info.loop_continue_site_query_count;
+        auto site_changed =
+            retarget_loop_backedges_to_continue(
+                def, site.entry, site.body,
+                site.continue_target, site.merge,
+                function_blocks, dom);
+        if (!site_changed) { continue; }
+        changed = true;
+        ++info.loop_continue_invalidation_count;
+        // The current site's region was completely planned before mutation,
+        // matching the historical implementation. Before the next site,
+        // rebuild exactly the two analyses that mutation invalidated. Thus a
+        // CFG version pays O(V + E) once, not once per loop, without carrying
+        // stale dominance or ownership across a rewrite.
+        function_blocks = collect_function_blocks(def);
+        dom = compute_dom_tree(def);
+        ++info.loop_continue_analysis_count;
     }
     return changed;
 }
@@ -6630,11 +6651,11 @@ restructure_cfg_on_definition_in_place(
                 pdom = compute_post_dom(def);
             }
             auto loop_continue_changed =
-                normalize_structured_loop_continues(def);
+                normalize_structured_loop_continues(
+                    def, dom, info);
             if (loop_continue_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
                 pdom = compute_post_dom(def);
             }
             auto loop_update_changed =
@@ -6991,6 +7012,15 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "if_batch_merge_edge_visit",
             info.if_batch_merge_edge_visit_count);
         report->set(
+            "loop_continue_analysis",
+            info.loop_continue_analysis_count);
+        report->set(
+            "loop_continue_site_query",
+            info.loop_continue_site_query_count);
+        report->set(
+            "loop_continue_invalidation",
+            info.loop_continue_invalidation_count);
+        report->set(
             "definition_transform_invocation",
             info.definition_transform_invocation_count);
         report->set(
@@ -7097,6 +7127,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.if_batch_merge_block_visit_count;
         dst.if_batch_merge_edge_visit_count +=
             src.if_batch_merge_edge_visit_count;
+        dst.loop_continue_analysis_count +=
+            src.loop_continue_analysis_count;
+        dst.loop_continue_site_query_count +=
+            src.loop_continue_site_query_count;
+        dst.loop_continue_invalidation_count +=
+            src.loop_continue_invalidation_count;
         dst.definition_transform_invocation_count +=
             src.definition_transform_invocation_count;
         dst.boundary_verifier_count +=
