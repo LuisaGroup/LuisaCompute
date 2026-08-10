@@ -186,6 +186,43 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         }
     };
 
+    "wavefront_large_pool_activates_only_logical_dispatch"_test = [options] {
+        constexpr uint N = 13u;
+        constexpr uint capacity = 256u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
+            auto tid = dispatch_x();
+            auto value = tid + 1u;
+            $suspend("only");
+            buf.write(tid, value * 3u);
+        });
+        WavefrontCoroScheduler<Buffer<uint>> scheduler{
+            device, coro,
+            WavefrontCoroSchedulerConfig{
+                .thread_count = capacity,
+                .gather_by_sorting = false,
+                .frame_buffer_compaction = false}};
+
+        scheduler(output).dispatch(N)(stream);
+        expect(scheduler.config().thread_count == capacity)
+            << "the allocated pool ceiling must remain unchanged";
+        expect(scheduler.active_frame_capacity() == N)
+            << "a small dispatch must not initialize or scan the entire pool";
+
+        luisa::vector<uint> host(N);
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+        auto correct = true;
+        for (auto i = 0u; i < N; i++) {
+            correct &= host[i] == (i + 1u) * 3u;
+        }
+        expect(correct);
+    };
+
     "wavefront_sorting_gather_preserves_config_and_correctness"_test = [options] {
         constexpr uint N = 193u;
         constexpr uint capacity = 64u;
@@ -425,8 +462,16 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             .hint_fields = {"sort_me"},
         };
         WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-        expect(scheduler.config().hint_fields.size() == 1u) << "valid hint field should be preserved";
-        expect(scheduler.config().hint_fields.front() == "sort_me") << "hint field should resolve by suspend name";
+        auto native_hint_sort =
+            device.compute_warp_size() == radix_sort::warp_size;
+        expect(scheduler.config().hint_fields.size() ==
+               static_cast<size_t>(native_hint_sort))
+            << "one-sweep hint sorting must be enabled exactly on its "
+               "declared subgroup capability";
+        if (native_hint_sort) {
+            expect(scheduler.config().hint_fields.front() == "sort_me")
+                << "hint field should resolve by suspend name";
+        }
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
@@ -522,7 +567,10 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             .hint_fields = {"sort_me"},
         };
         WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-        expect(scheduler.config().hint_fields.size() == 1u);
+        expect(scheduler.config().hint_fields.size() ==
+               static_cast<size_t>(
+                   device.compute_warp_size() ==
+                   radix_sort::warp_size));
         expect(scheduler.config().gather_by_sorting == true);
 
         scheduler(output).dispatch(N)(stream);
@@ -579,7 +627,10 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .hint_fields = {"sort_me"},
                 };
                 WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-                expect(scheduler.config().hint_fields.size() == 1u);
+                expect(scheduler.config().hint_fields.size() ==
+                       static_cast<size_t>(
+                           device.compute_warp_size() ==
+                           radix_sort::warp_size));
 
                 scheduler(output).dispatch(N)(stream);
                 luisa::vector<uint> host(N);

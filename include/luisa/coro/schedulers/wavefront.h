@@ -65,6 +65,7 @@ private:
     luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
     size_t _hint_field_index{static_cast<size_t>(-1)};
     uint _used_frame_count{0u};
+    uint _active_frame_capacity{0u};
     bool _has_hint_sort{false};
 
 private:
@@ -412,13 +413,19 @@ private:
         Stream &stream, uint3 dispatch_size,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
         uint N = dispatch_size.x * dispatch_size.y * dispatch_size.z;
-        stream << _initialize_shader(_frame_buffer, _config.thread_count).dispatch(_config.thread_count);
+        // `thread_count` is the allocated frame-pool ceiling, not a mandate to
+        // initialize and scan every slot. A paper-scale pool (2^24 frames) is
+        // intentionally much larger than many tiled or diagnostic dispatches;
+        // only logical instances that can exist in this dispatch are active.
+        _active_frame_capacity = std::min(_config.thread_count, N);
+        if (_active_frame_capacity == 0u) { return; }
+        stream << _initialize_shader(_frame_buffer, _active_frame_capacity).dispatch(_active_frame_capacity);
         _used_frame_count = 0u;
 
         auto nc = _resume_kernels.size();
         for (size_t i = 0u; i < nc; ++i) {
-            _host_count[i] = i == 0u ? _config.thread_count : 0u;
-            _host_offset[i] = i == 0u ? 0u : _config.thread_count;
+            _host_count[i] = i == 0u ? _active_frame_capacity : 0u;
+            _host_offset[i] = i == 0u ? 0u : _active_frame_capacity;
         }
         stream << _resume_count.copy_from(luisa::span{_host_count.data(), _host_count.size()});
 
@@ -434,7 +441,7 @@ private:
         Clock dispatch_clock;
         while (true) {
             iteration_count++;
-            auto scan_count = _config.frame_buffer_compaction ? _used_frame_count : _config.thread_count;
+            auto scan_count = _config.frame_buffer_compaction ? _used_frame_count : _active_frame_capacity;
             gather_scan_count += scan_count;
             max_scan_count = std::max(max_scan_count, scan_count);
             if (_config.gather_by_sorting) {
@@ -457,7 +464,7 @@ private:
                          "Wavefront coroutine queue invariant violation: active frames ({}) exceed scanned frame prefix ({}).",
                          active_count, scan_count);
             auto empty_count = _config.frame_buffer_compaction ?
-                                   _config.thread_count - active_count :
+                                   _active_frame_capacity - active_count :
                                    _host_count[0u];
             auto compact_empty_count = _config.frame_buffer_compaction ?
                                            scan_count - active_count :
@@ -476,7 +483,7 @@ private:
                 stream << _gather_shader(_frame_buffer, _resume_index, _resume_offset, scan_count).dispatch(scan_count);
             }
 
-            if (empty_count > _config.thread_count / 2u && dispatch_counter < N) {
+            if (empty_count > _active_frame_capacity / 2u && dispatch_counter < N) {
                 auto gen_count = std::min(N - dispatch_counter, empty_count);
                 auto frame_offset = active_count;
                 if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
@@ -528,9 +535,12 @@ private:
 
 public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
+    [[nodiscard]] uint active_frame_capacity() const noexcept { return _active_frame_capacity; }
 
     WavefrontCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
         : _config{config} {
+        LUISA_ASSERT(_config.thread_count != 0u,
+                     "Wavefront coroutine frame capacity must be positive.");
         _create_shader(device, coro);
     }
     WavefrontCoroScheduler(Device &device, const Coro &coro) noexcept
