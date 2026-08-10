@@ -9,12 +9,6 @@
 #include <pmmintrin.h>
 #endif
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/transform.h>
-#endif
-
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
@@ -167,15 +161,6 @@ BufferCreationInfo FallbackDevice::create_buffer(const Type *element, size_t ele
     return info;
 }
 
-BufferCreationInfo FallbackDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count, external_memory);
-#else
-    LUISA_ERROR_WITH_LOCATION("LuisaCompute's fallback backend is compiled without IR support.");
-#endif
-}
-
 ResourceCreationInfo FallbackDevice::create_texture(PixelFormat format, uint dimension,
                                                     uint width, uint height, uint depth,
                                                     uint mipmap_levels, void *external_native_handle,
@@ -230,16 +215,6 @@ ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, Fun
         LUISA_ERROR("Fallback backend only support warp size 1.");
     }
     Clock clk;
-    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
-#ifdef LUISA_ENABLE_IR
-        auto ir = AST2IR::build_kernel(kernel);
-        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
-        transform_ir_kernel_module_auto(ir->get());
-        return create_shader(option, ir->get());
-#else
-        LUISA_ERROR_WITH_LOCATION("Please enable IR for autodiff support");
-#endif
-    }
     auto shader = luisa::new_with_allocator<FallbackShader>(this, option, kernel);
     LUISA_VERBOSE("Shader compilation took {} ms.", clk.toc());
     ShaderCreationInfo info{};
@@ -247,22 +222,6 @@ ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, Fun
     info.native_handle = reinterpret_cast<void *>(shader->native_handle());
     info.block_size = kernel.block_size();
     return info;
-}
-
-ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-#ifdef LUISA_ENABLE_IR
-    Clock clk;
-    auto function = IR2AST::build(kernel);
-    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-    return create_shader(option, function->function());
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
-    return {};
-#endif
-}
-
-ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
-    return DeviceInterface::create_shader(option, kernel);
 }
 
 ShaderCreationInfo FallbackDevice::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {

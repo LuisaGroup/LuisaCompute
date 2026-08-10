@@ -2475,7 +2475,6 @@ BufferCreationInfo Device::create_buffer(const luisa::compute::Type *element, si
     info.total_size_bytes = ptr->byte_size();
     return info;
 }
-BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_ptr) noexcept { return BufferCreationInfo::make_invalid(); }
 void Device::destroy_buffer(uint64_t handle) noexcept {
     auto *buffer = reinterpret_cast<Buffer *>(handle);
     // Keep stream membership and lifetime stable until every per-stream
@@ -3272,7 +3271,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     info.block_size = kernel.block_size();
     return info;
 }
-ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept {
     ShaderCreationInfo info;
     luisa::optional<detail::ShaderCodegenDialect> required_dialect;

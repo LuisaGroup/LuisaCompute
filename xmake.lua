@@ -15,10 +15,10 @@ option("lc_enable_pch", {default = true})
 option("lc_enable_simd", {default = true})
 -- enable DirectX-12 backend
 option("lc_dx_backend", {default = true})
--- enable fallback CPU backend for platforms without GPU support
+-- enable the native C++ fallback backend for platforms without GPU support
 option("lc_fallback_backend", {default = false})
 -- enable XIR (Intermediate Representation) support
-option("lc_enable_xir", {default = false})
+option("lc_enable_xir", {default = true})
 -- use external Marl library instead of bundled version
 option("lc_external_marl", {default = false})
 -- enable DirectX-CUDA interoperability

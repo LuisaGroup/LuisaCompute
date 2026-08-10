@@ -177,11 +177,7 @@ public:
     void visit(const AutoDiffStmt *stmt) override;
     void visit(const PrintStmt *stmt) override;
     void visit(const DebugBreakStmt *stmt) override { LUISA_NOT_IMPLEMENTED(); }
-    void VisitFunction(
-#ifdef LUISA_ENABLE_IR
-        vstd::unordered_set<Variable> const &grad_vars,
-#endif
-        Function func);
+    void VisitFunction(Function func);
     StringStateVisitor(
         Function f,
         vstd::StringBuilder &str,

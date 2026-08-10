@@ -14,7 +14,7 @@ DLDevice get_dldevice(luisa::string_view backend_name, int32_t device_id) {
     if (backend_name == "cuda") {
         device.device_type = DLDeviceType::kDLCUDA;
     }
-    else if (backend_name == "cpu" || backend_name == "fallback") {
+    else if (backend_name == "fallback") {
         device.device_type = DLDeviceType::kDLCPU;
     }
     else if (backend_name == "vk") {
@@ -257,4 +257,3 @@ void export_dlpack(py::module &m) {
     m.def("to_dlpack_device", get_pydldevice);
     m.def("from_dlpack", from_py_dlpack);
 }
-

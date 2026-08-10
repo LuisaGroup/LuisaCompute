@@ -22,17 +22,6 @@ namespace detail {
 class ContextImpl;
 }// namespace detail
 
-namespace ir {
-struct KernelModule;
-struct Type;
-template<class T>
-struct CArc;
-}// namespace ir
-
-namespace ir_v2 {
-struct KernelModule;
-}// namespace ir_v2
-
 class Type;
 struct AccelOption;
 
@@ -125,9 +114,6 @@ public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element,
                                                            size_t elem_count,
                                                            void *external_memory /* nullptr if not imported from external memory */) noexcept = 0;
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
-                                                           size_t elem_count,
-                                                           void *external_memory /* nullptr if not imported from external memory */) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
     // texture
@@ -159,8 +145,6 @@ public:
 
     // kernel
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
-    [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept = 0;
-    [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept;
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
     virtual Usage shader_argument_usage(uint64_t handle, size_t index) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;

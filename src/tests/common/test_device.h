@@ -31,7 +31,7 @@ struct DeviceContext {
 inline void print_device_usage(const char *exe) noexcept {
     LUISA_INFO(
         "Usage: {} <backend>. <backend> must be an installed runtime backend "
-        "(for example: cpu, cuda, dx, fallback, hip, metal, remote, vk).",
+        "(for example: cuda, dx, fallback, hip, metal, vk).",
         exe);
 }
 

@@ -41,6 +41,8 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
@@ -578,6 +580,18 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     if (!option.name.empty()) { xir_module->set_location(option.name); }
     verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
+
+    if (kernel.requires_autodiff()) {
+        auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
+        auto autodiff_info = xir::autodiff_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE(
+            "Fallback XIR AutoDiff lowering: inlined {} call(s), transformed {} "
+            "scope(s), removed {} instruction(s).",
+            inline_info.inlined_call_count,
+            autodiff_info.transformed_scope_count,
+            autodiff_info.removed_instruction_count);
+        verify_xir_or_error(xir_module.get(), "AutoDiff lowering");
+    }
 
     // dump for debugging
     if (LUISA_SHOULD_DUMP_XIR) {

@@ -436,13 +436,11 @@ Each backend has a switch on `CallOp` that emits native code or IR. Add your cas
 | **Metal** | `src/backends/metal/metal_codegen_ast.cpp` | Direct AST→Metal Shading Language string emission |
 | **HLSL/DX12** | `src/backends/common/hlsl/codegen_utils/function_codegen.cpp` (main CallOp dispatch), `src/backends/common/hlsl/hlsl_codegen.cpp` (AST visitor), `src/backends/dx/` (DXIL compilation) | AST→HLSL string, compiled to DXIL; no own CallOp switch in `dx/` |
 | **SPIR-V (LLVM)** | `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | AST→LLVM IR → SPIR-V binary via `spirv64` target machine |
-| **LLVM/CPU** | `src/backends/common/c_codegen/codegen_visitor.cpp` | AST→LLVM IR for CPU JIT backend (`src/backends/cpu/`) |
-| **Vulkan** | `src/backends/vk/` (device setup) + `src/backends/common/spirv_llvm/` (codegen) | Uses common SPIR-V LLVM codegen; no own CallOp switch |
-| **XIR** (intermediate) | `src/xir/translators/ast2xir.cpp` | AST→XIR IR; backends using XIR (CUDA XIR, Metal XIR, HIP, Fallback) handle CallOp in their own XIR visitors |
+| **Vulkan** | `src/backends/vk/` + `src/backends/common/spirv/` (default) or `spirv_llvm/` (experimental) | Uses common SPIR-V codegen; no own CallOp switch |
+| **XIR** (intermediate) | `src/xir/translators/ast2xir.cpp` | AST→XIR; CUDA, HIP, Vulkan, and Fallback consume XIR directly, while DX/Metal use XIR for lowering before AST codegen |
 | **Fallback** | `src/backends/fallback/` + `src/xir/translators/ast2xir.cpp` | Uses XIR as input; no direct AST CallOp switch |
 | **Hip/AMD** | `src/backends/hip/` + `src/xir/translators/ast2xir.cpp` | Uses XIR as input; no direct AST CallOp switch |
 | **Toy C** | `src/backends/toy_c/` | Simple C output; no direct AST CallOp switch |
-| **Remote** | `src/backends/remote/` | Networked backend proxy; no direct AST CallOp switch |
 | **Validation** | `src/backends/validation/` | AST validation layer wrapping another backend; no own CallOp switch |
 
 Example CUDA addition:
@@ -674,16 +672,13 @@ src/backends/
 │   ├── cuda_codegen_xir.cpp/h      — XIR→CUDA codegen (alternative path)
 │   └── llvm_codegen/               — LLVM-based CUDA codegen path
 ├── metal/                 # Metal (Apple GPU) backend
-│   ├── metal_codegen_ast.cpp/h     — AST→MSL string codegen
-│   └── metal_codegen_ir.cpp/h      — XIR→MSL codegen
+│   └── metal_codegen_ast.cpp/h     — AST→MSL string codegen
 ├── dx/                    # DirectX 12 backend (uses common HLSL codegen; no own AST switch)
-├── vk/                    # Vulkan backend (uses common SPIR-V LLVM codegen; no own AST switch)
-├── cpu/                   # CPU LLVM JIT backend (uses c_codegen)
+├── vk/                    # Vulkan backend (uses common SPIR-V codegen; no own AST switch)
 ├── hip/                   # AMD HIP backend
 │   └── llvm_codegen/           — own LLVM codegen (input: XIR, not direct AST)
 ├── fallback/              # Fallback CPU reference implementation (uses XIR)
 │   └── fallback_codegen.cpp    — XIR-based LLVM codegen
-├── remote/                # Networked remote backend
 ├── toy_c/                 # Simple C output for debugging
 └── validation/            # AST validation layer (wraps another backend)
 ```

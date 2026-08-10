@@ -652,11 +652,7 @@ StringStateVisitor::StringStateVisitor(
     CodegenUtility *util)
     : f(f), util(util), str(str), switchCount{}, lazyDeclVars{} {
 }
-void StringStateVisitor::VisitFunction(
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> const &grad_vars,
-#endif
-    Function func) {
+void StringStateVisitor::VisitFunction(Function func) {
     lazyDeclVars.clear();
     for (auto &&v : func.local_variables()) {
         Usage usage = func.variable_usage(v.uid());
@@ -685,15 +681,6 @@ void StringStateVisitor::VisitFunction(
         }
         str << ";\n";
     }
-#ifdef LUISA_ENABLE_IR
-    for (auto v : grad_vars) {
-        vstd::StringBuilder typeName;
-        util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-        vstd::StringBuilder varName;
-        util->GetVariableName(func, v, varName);
-        str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0;\n"sv;
-    }
-#endif
     if (sharedVariables) {
         size_t shared_size{};
         for (auto &&v : func.shared_variables()) {

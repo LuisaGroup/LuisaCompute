@@ -53,7 +53,7 @@ Welcome to join the [discussion channel on Discord](https://discord.com/invite/y
 LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***unification***, ***programmability***, and ***performance***. To achieve this goal, we design three major components:
 - A domain-specific language (DSL) embedded inside modern C++ for kernel programming exploiting JIT code generation and compilation;
 - A unified runtime with resource wrappers for cross-platform resource management and command scheduling; and
-- Multiple optimized backends, including CUDA, DirectX, Metal, and CPU.
+- Multiple optimized backends, including CUDA, DirectX, Metal, Vulkan, HIP, and a native C++ fallback.
 
 To demonstrate the practicality of the system, we also build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is faster than the state-of-the-art rendering frameworks on modern GPUs.
 
@@ -93,7 +93,7 @@ On the programming interfaces for users, we provide high-level resource wrappers
 
 The backends are the final realizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
 
-Currently, we have 3 working GPU backends for the C++ and Python frontends, based on CUDA, Metal, and DirectX, respectively, and a CPU backend (re-)implemented in Rust for debugging purpose and fallback.
+The runtime provides CUDA, Metal, DirectX, Vulkan, and HIP GPU backends, plus a native C++ LLVM/Embree fallback backend for CPU execution and debugging.
 
 ### Python Frontend
 
@@ -111,16 +111,12 @@ Examples using the Python frontend can be found under `src/tests/python`.
 
 > Note: Due to the different syntax and idioms between Python and C++, the Python frontend does not 1:1 reflects the C++ DSL and APIs. For instance, Python does not have a dedicated reference type qualifier, so we follow the Python idiom that structures and arrays are passed as references to `@luisa.func` and built-in types (scalar, vector, matrix, etc.) as values by default.
 
-### C API and Frontends in Other Languages
-
-We are also making a C API for creating other language bindings and frontends (e.g., in [Rust](https://github.com/LuisaGroup/luisa-compute-rs) and C#).
-
 ## Building
 
 > Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is designed to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try a Monte Carlo renderer out of the box rather than building one from scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
 
 ### Preparation
-- Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and CPU on all the major platforms. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
+- Check your hardware and platform. Currently, we support CUDA and Vulkan on Linux and Windows, DirectX on Windows, Metal on macOS, HIP where its toolchain is available, and an optional LLVM/Embree fallback backend. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
 
 - Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 8, you may need to, for example, upgrade your VS to 2019 or 2022 and install CUDA 11.7+ and NVIDIA driver R535+.
 
@@ -140,11 +136,6 @@ python bootstrap.py cmake -f cuda -b -- -DCMAKE_BUILD_TYPE=RelWithDebInfo # ever
 ```
 
 You may specify `-f all` to enable all available features on your platform.
-
-To install certain dependencies, you can use the `--install` or `-i` option. For example, to install Rust, you can use:
-```bash
-python bootstrap.py -i rust
-```
 
 Alternatively, the bootstrap script can output a configuration file for build system without actually building the project. This is useful when you want to use the project inside IDE.
 ```bash
@@ -437,7 +428,9 @@ LuisaCompute currently supports these backends:
 - CUDA
 - DirectX
 - Metal
-- CPU (Clang + LLVM)
+- Vulkan
+- HIP
+- Fallback (C++ + LLVM + Embree)
 
 More backends might be added in the future. A device backend is implemented as a plug-in, which follows the `luisa-backend-<name>` naming convention and is placed under `<build-folder>/bin`.
 

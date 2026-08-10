@@ -168,7 +168,7 @@ Use `LUISA_DUMP_SOURCE=1` when you suspect a code-generation bug (wrong instruct
 - **Vulkan internal HLSL consumers:** backend builtins/raster may dump `hlsl_output_<name>.hlsl`; ordinary `Device::compile(Function)` compute shaders must not.
 - **CUDA:** `.cu` source in the runtime `.cache` directory; PTX/metadata in the runtime `.data` directory.
 - **Metal:** `.metal` source in the runtime `.cache` directory.
-- **Fallback/CPU:** CPU backend also respects `LUISA_DUMP_SOURCE` and may dump intermediate sources.
+- **Fallback:** the native C++ fallback backend also respects `LUISA_DUMP_SOURCE` and may dump intermediate sources.
 
 The runtime directories are printed by `LUISA_INFO` at context creation; they default to the executable directory. When running under `xmake run`, dumps written directly to the current working directory will appear in the project root.
 

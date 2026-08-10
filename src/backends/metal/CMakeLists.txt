@@ -59,10 +59,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_pinned_memory.cpp metal_pinned_memory.h
             metal_tex_compress.cpp metal_tex_compress.h)
 
-    if (LUISA_COMPUTE_ENABLE_RUST)
-        list(APPEND METAL_SOURCES metal_codegen_ir.cpp metal_codegen_ir.h)
-    endif ()
-
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
 
     if (TARGET luisa-compute-oidn-ext)
@@ -71,6 +67,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
     find_library(COMPRESSION_LIB compression)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
+            luisa-compute-xir
             ${COMPRESSION_LIB}
             "-framework Foundation"
             "-framework Metal"

@@ -6714,7 +6714,7 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
     auto constant_snapshot = snapshot_constants(module);
     ShadowDefinition shadow;
     if (!clone_definition_for_transaction(def, shadow)) {
-        luisa::vector shadows{std::move(shadow)};
+        luisa::vector<ShadowDefinition> shadows{std::move(shadow)};
         discard_shadow_definitions(shadows);
         rollback_new_constants(module, constant_snapshot);
         ++preflight.invalid_construct_count;
@@ -6750,7 +6750,7 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
             ++info.invalid_construct_count;
         }
     }
-    luisa::vector shadows{std::move(shadow)};
+    luisa::vector<ShadowDefinition> shadows{std::move(shadow)};
     discard_shadow_definitions(shadows);
     rollback_new_constants(module, constant_snapshot);
     if (!info.succeeded()) {

@@ -1620,11 +1620,6 @@ void test_structured_early_return(Device &device) {
 }
 
 void test_structured_ray_query_loop(Device &device) {
-    if (device.backend_name() == "cpu") {
-        LUISA_INFO("Skipping ray-query loop test on CPU backend.");
-        return;
-    }
-
     auto stream = device.create_stream();
     auto out = device.create_buffer<uint>(12);
 

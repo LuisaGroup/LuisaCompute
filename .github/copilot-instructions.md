@@ -5,8 +5,8 @@
 LuisaCompute is a high-performance cross-platform computing framework for graphics and beyond. It provides:
 - A domain-specific language (DSL) embedded inside modern C++ for kernel programming
 - A unified runtime with resource wrappers for cross-platform resource management and command scheduling
-- Multiple optimized backends: CUDA, DirectX, Metal, Vulkan, and CPU (LLVM-based)
-- Frontend support for C++, Python, and Rust
+- Multiple optimized backends: CUDA, DirectX, Metal, Vulkan, HIP, and a native C++ LLVM/Embree fallback
+- Frontend support for C++ and Python
 
 The project is described in the SIGGRAPH Asia 2022 paper *"LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"*.
 
@@ -39,7 +39,7 @@ xmake
 - **CUDA**: CUDA 12.0+, RTX-compatible GPU, Driver R535+ for OptiX 8
 - **DirectX**: DirectX 12.1, Shader Model 6.5 compatible GPU
 - **Metal**: macOS 13+, Metal 3 support, Apple M1+ recommended
-- **CPU**: clang++ in PATH
+- **Fallback**: LLVM and Embree CMake packages
 
 ## Code Style and Standards
 
@@ -77,17 +77,14 @@ The project uses `.clang-tidy` for static analysis with enabled checks for:
 LuisaCompute/
 ├── include/luisa/         # Public headers
 ├── src/
-│   ├── api/              # C API implementation
-│   ├── ast/              # Abstract Syntax Tree (legacy, being replaced by IR)
-│   ├── backends/         # Backend implementations (CUDA, DX, Metal, CPU, etc.)
+│   ├── ast/              # Abstract Syntax Tree frontend
+│   ├── backends/         # Backend implementations (CUDA, DX, Metal, Vulkan, HIP, fallback)
 │   ├── core/             # Core utilities and data structures
 │   ├── dsl/              # Domain-specific language implementation
 │   ├── gui/              # GUI support
-│   ├── ir/               # Intermediate Representation (modern, replacing AST)
-│   ├── xir/              # Extended IR
+│   ├── xir/              # Native C++ intermediate representation
 │   ├── py/               # Python bindings
 │   ├── runtime/          # Unified runtime
-│   ├── rust/             # Rust frontend support
 │   ├── tests/            # Test suite
 │   └── ext/              # External dependencies (submodules)
 ├── utils/                # Build utilities
@@ -113,7 +110,7 @@ LuisaCompute/
 
 ### Runtime Resources
 - **Context**: Entry point for device management
-- **Device**: Represents a specific backend (CUDA, DX, Metal, CPU)
+- **Device**: Represents a specific backend (CUDA, DX, Metal, Vulkan, HIP, fallback)
 - **Stream**: Command submission queue
 - **Buffer<T>**: Linear storage on device
 - **Image<T>**: 2D readable/writable textures
@@ -131,8 +128,8 @@ LuisaCompute/
 
 ### Test Organization
 - Tests are located in `src/tests/`
-- Tests use **doctest** framework (header-only, see `src/tests/common/doctest.h`)
-- Tests accept backend as command-line argument: `cuda`, `dx`, `metal`, or `cpu`
+- Tests use **Boost.UT** (header-only, see `src/tests/ut/ut.hpp`)
+- Device tests accept a built backend as command-line argument, such as `cuda`, `dx`, `metal`, `vk`, `hip`, or `fallback`
 - Examples: `test_dsl_sugar.cpp`, `test_matrix_multiply.cpp`, `test_path_tracing_clangcxx.cpp`
 
 ### Running Tests
@@ -161,7 +158,6 @@ python -m pip install luisa-python
 - **C++**: Core implementation (C++20)
 - **Python**: Frontend bindings, build scripts, code generation
 - **Lua**: XMake build scripts
-- **Rust**: IR module and Rust frontend
 
 ### Common File Patterns
 - **`xmake.lua`**: XMake build configuration
@@ -181,7 +177,7 @@ Some files are auto-generated (marked with comments):
 
 ### When Adding Features
 - Follow existing patterns in the codebase
-- Maintain backend compatibility (CUDA, DX, Metal, CPU)
+- Maintain backend compatibility (CUDA, DX, Metal, Vulkan, HIP, fallback)
 - Update documentation if adding public APIs
 - Add tests for new functionality
 - Consider performance implications (this is a high-performance framework)
@@ -190,7 +186,7 @@ Some files are auto-generated (marked with comments):
 - Be cautious: DSL changes affect all backends
 - Test with multiple backends
 - Update built-in function documentation
-- Ensure AST/IR compatibility
+- Ensure AST/XIR compatibility
 
 ### When Working with Backends
 - Backend-specific code goes in `src/backends/<backend-name>/`
@@ -241,7 +237,6 @@ python src/xir/update_op_name_map.py
 - **Discord**: Join the discussion at https://discord.com/invite/ymYEBkUa7F
 - **Related projects**: 
   - [LuisaRender](https://github.com/LuisaGroup/LuisaRender) - Monte Carlo renderer
-  - [luisa-compute-rs](https://github.com/LuisaGroup/luisa-compute-rs) - Rust frontend
 
 ## Special Notes for AI Assistance
 
@@ -251,4 +246,4 @@ python src/xir/update_op_name_map.py
 - The project uses cutting-edge C++20 features and GPU programming concepts
 - When in doubt about DSL behavior, check existing test files for patterns
 - Backend-specific limitations exist (e.g., Metal has acceleration structure compaction bugs)
-- IR (Intermediate Representation) is replacing AST in the architecture
+- XIR is the native C++ optimization and backend-handoff representation; AST remains the DSL frontend representation

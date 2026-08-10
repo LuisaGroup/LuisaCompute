@@ -7,7 +7,9 @@ local _sdks = {
         name = 'dx_sdk_20260714.zip'
     },
     vk_sdk = {
-        name = 'linux_dxc_2026_07_29.x86_64.zip'
+        -- The 2026-07-29 binary requires GLIBC 2.43; use the Ubuntu 24.04-
+        -- compatible build until the newer SDK is rebuilt on an older base.
+        name = 'linux_dxc_2025_07_14.x86_64.zip'
     }
 }
 

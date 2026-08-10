@@ -19,6 +19,8 @@
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 
+#include "../../../backends/common/xir_autodiff.h"
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
@@ -930,6 +932,27 @@ void reg_xir2ast_ast_roundtrip() {
         expect(ast->bound_arguments().size() == 1u);
         expect(ast->unbound_arguments().size() == 1u);
         expect(luisa::holds_alternative<compute::Function::BufferBinding>(ast->bound_arguments().front()));
+    };
+
+    "xir_to_ast_roundtrips_lowered_autodiff"_test = [] {
+        Kernel1D kernel = [](BufferFloat output) {
+            auto index = dispatch_id().x;
+            auto x = def(2.0f);
+            $autodiff {
+                requires_grad(x);
+                auto y = x * x;
+                backward(y);
+                output->write(index, grad(x));
+            };
+        };
+        auto ast = backend_detail::lower_autodiff_to_ast(
+            kernel.function()->function());
+        expect(ast != nullptr);
+        expect(!ast->function().requires_autodiff());
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        auto text = xir_to_text_translate(rebuilt.get(), false);
+        expect(text.find("autodiff") == string::npos);
+        expect(text.find("resource_write buffer_write") != string::npos);
     };
 }
 

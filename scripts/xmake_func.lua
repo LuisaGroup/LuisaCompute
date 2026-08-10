@@ -466,39 +466,7 @@ end)
 target_end()
 
 -- ============================================================================
--- SECTION 4: Cargo/Rust Build Support
--- ============================================================================
-
--- Rule for building Rust projects using Cargo
-rule("build_cargo")
-set_extensions(".toml")
-on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
-    local lib = import("lib")
-    local sb = lib.StringBuilder("cargo build -q ")
-    sb:add("--no-default-features ")
-    sb:add("--manifest-path ")
-    sb:add(sourcefile):add(' ')
-
-    local features = target:get('features')
-    if features then
-        sb:add("--features ")
-        sb:add(features):add(' ')
-    end
-
-    -- Use release mode for non-debug builds
-    if not is_mode("debug") then
-        sb:add("--release ")
-    end
-
-    local cargo_cmd = sb:to_string()
-    batchcmds:show(cargo_cmd)
-    batchcmds:vrun(cargo_cmd)
-    sb:dispose()
-end)
-rule_end()
-
--- ============================================================================
--- SECTION 5: SDK Installation Rule
+-- SECTION 4: SDK Installation Rule
 -- ============================================================================
 
 --[[
@@ -535,7 +503,7 @@ end)
 rule_end()
 
 -- ============================================================================
--- SECTION 6: LLVM Integration Rule
+-- SECTION 5: LLVM Integration Rule
 -- ============================================================================
 
 -- Rule for linking against LLVM libraries

@@ -1,9 +1,5 @@
 #pragma once
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#endif
-
 #include <luisa/core/basic_types.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
@@ -310,14 +306,6 @@ public:
                          return info;
                      }(),
                      ShaderDispatchCmdEncoder::compute_uniform_size(kernel.unbound_arguments())} {}
-
-#ifdef LUISA_ENABLE_IR
-    // JIT shader from IR module
-    Shader(DeviceInterface *device,
-           const ir::KernelModule *const module,
-           const ShaderOption &option) noexcept
-        : Shader{device, IR2AST::build(module)->function(), option} {}
-#endif
 
     // AOT shader
     Shader(DeviceInterface *device, string_view file_path) noexcept

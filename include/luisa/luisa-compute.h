@@ -97,13 +97,6 @@
 #include <luisa/gui/window.h>
 #endif
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/fwd.h>
-#include <luisa/ir/ir2ast.h>
-#include <luisa/ir/transform.h>
-#endif
-
 #include <luisa/osl/hint.h>
 #include <luisa/osl/instruction.h>
 #include <luisa/osl/literal.h>
@@ -131,8 +124,6 @@
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/runtime/raster/vertex_attribute.h>
 #include <luisa/runtime/raster/viewport.h>
-#include <luisa/runtime/remote/client_interface.h>
-#include <luisa/runtime/remote/server_interface.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/rhi/command_encoder.h>
@@ -164,13 +155,6 @@
 #include <luisa/runtime/stream_event.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/runtime/volume.h>
-
-#ifdef LUISA_ENABLE_RUST
-#include <luisa/rust/api_types.h>
-#include <luisa/rust/api_types.hpp>
-#include <luisa/rust/ir.hpp>
-#include <luisa/rust/ir_common.h>
-#endif
 
 #ifdef LUISA_ENABLE_TENSOR
 #include <luisa/tensor/expression.h>
@@ -230,14 +214,14 @@
 #include <luisa/xir/instructions/assert.h>
 #include <luisa/xir/instructions/assume.h>
 #include <luisa/xir/instructions/atomic.h>
-        #include <luisa/xir/instructions/autodiff.h>
-        #include <luisa/xir/instructions/branch.h>
-        #include <luisa/xir/instructions/break.h>
-        #include <luisa/xir/instructions/coro.h>
-        #include <luisa/xir/instructions/call.h>
-        #include <luisa/xir/instructions/cast.h>
+#include <luisa/xir/instructions/autodiff.h>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/break.h>
+#include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/debug_break.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>

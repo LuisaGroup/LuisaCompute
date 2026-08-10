@@ -16,11 +16,6 @@ extern bool shown_buffer_warning;
 
 namespace lc::hlsl {
 
-#ifdef LUISA_ENABLE_IR
-// Defined in entry_points.cpp — collects gradient variables from a function body.
-void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept;
-#endif
-
 namespace {
 
 [[nodiscard]] bool is_validation_resource(Type const *type) noexcept {
@@ -2203,18 +2198,10 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(vert, grad_vars);
-#endif
     {
         StringStateVisitor vis(vert, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            vert);
+        vis.VisitFunction(vert);
     }
     result << "}\n"sv;
 }
@@ -2253,18 +2240,10 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(pixel, grad_vars);
-#endif
     {
         StringStateVisitor vis(pixel, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            pixel);
+        vis.VisitFunction(pixel);
     }
     result << "\n}\nvoid main(v2p p"sv;
     result << ",uint primId:SV_PrimitiveID"sv;

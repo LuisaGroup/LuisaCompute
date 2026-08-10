@@ -62,7 +62,7 @@ A `Device` represents a physical or virtual GPU/CPU for computation.
 Device cuda = context.create_device("cuda");
 Device dx = context.create_device("dx");           // Windows
 Device metal = context.create_device("metal");     // macOS
-Device cpu = context.create_device("cpu");         // Any platform
+Device fallback = context.create_device("fallback"); // Requires LLVM + Embree
 
 // Create with validation enabled
 Device device = context.create_device("cuda", nullptr, true);

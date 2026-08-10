@@ -1,5 +1,5 @@
 // Test for DSL autodiff (automatic differentiation) functionality.
-// This is a pure DSL-level test — no IR/Rust dependency required.
+// This is a pure DSL-level AutoDiff test.
 //
 // Tests:
 // - Basic $autodiff block with requires_grad / backward / grad

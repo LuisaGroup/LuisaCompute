@@ -70,6 +70,8 @@ else ()
             FMT_EXCEPTIONS=0
             FMT_HEADER_ONLY=1
             FMT_USE_NOEXCEPT=1)
+    target_include_directories(spdlog_header_only INTERFACE
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     set_target_properties(spdlog PROPERTIES EXCLUDE_FROM_ALL ON)
     target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog_header_only)
     luisa_compute_install_extension(spdlog_header_only INCLUDE spdlog/include/spdlog)
@@ -87,7 +89,9 @@ if (LUISA_COMPUTE_USE_SYSTEM_XXHASH)
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_XXHASH=1)
 else ()
     add_library(xxhash INTERFACE)
-    target_include_directories(xxhash INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>)
+    target_include_directories(xxhash INTERFACE
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext/xxHash>)
     target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
     set_target_properties(xxhash PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
@@ -106,7 +110,9 @@ if (LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM)
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_MAGIC_ENUM=1)
 else ()
     add_library(magic_enum INTERFACE)
-    target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
+    target_include_directories(magic_enum INTERFACE
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
     luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include/magic_enum)
 endif ()
@@ -115,7 +121,11 @@ endif ()
 if (LUISA_COMPUTE_ENABLE_GUI)
     if (LUISA_COMPUTE_USE_SYSTEM_GLFW)
         find_package(glfw3 REQUIRED)
-        target_link_libraries(luisa-compute-ext INTERFACE glfw)
+        if (TARGET glfw)
+            target_link_libraries(luisa-compute-ext INTERFACE glfw)
+        else ()
+            target_link_libraries(luisa-compute-ext INTERFACE glfw3::glfw)
+        endif ()
         target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_GLFW=1)
     else ()
         if (UNIX AND NOT APPLE)
@@ -128,8 +138,10 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "" FORCE)
         add_subdirectory(glfw)
         set_target_properties(glfw PROPERTIES OUTPUT_NAME luisa-ext-glfw)
+        target_include_directories(glfw INTERFACE
+                $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
         target_link_libraries(luisa-compute-ext INTERFACE glfw)
-        luisa_compute_install_extension(glfw)
+        luisa_compute_install_extension(glfw INCLUDE glfw/include/GLFW)
     endif ()
 endif ()
 
@@ -137,6 +149,10 @@ if (LUISA_COMPUTE_USE_SYSTEM_STL)
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_STL=1)
 else ()
     add_subdirectory(EASTL)
+    target_include_directories(EASTL-interface INTERFACE
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
+    target_include_directories(EABase INTERFACE
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     set_target_properties(EASTL-object PROPERTIES UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
     target_link_libraries(luisa-compute-ext INTERFACE EASTL-interface)
     luisa_compute_install_extension(EASTL-interface INCLUDE EASTL/include/EASTL)
@@ -154,7 +170,12 @@ endif ()
 if (LUISA_COMPUTE_USE_SYSTEM_REPROC)
     find_package(reproc REQUIRED)
     find_package(reproc++ REQUIRED)
-    target_link_libraries(luisa-compute-ext INTERFACE reproc reproc++)
+    if (TARGET reproc::reproc AND TARGET reproc::reproc++)
+        target_link_libraries(luisa-compute-ext INTERFACE
+                reproc::reproc reproc::reproc++)
+    else ()
+        target_link_libraries(luisa-compute-ext INTERFACE reproc reproc++)
+    endif ()
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_REPROC=1)
 else ()
     set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
@@ -178,7 +199,8 @@ else ()
     target_compile_definitions(reproc-interface INTERFACE REPROC_SHARED REPROCXX_SHARED)
     target_include_directories(reproc-interface INTERFACE
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_link_libraries(luisa-compute-ext INTERFACE reproc-interface)
     install(TARGETS reproc-interface EXPORT LuisaComputeTargets)
 
@@ -226,7 +248,8 @@ if (LUISA_COMPUTE_USE_SYSTEM_MARL)
 else ()
     add_library(luisa-compute-ext-marl-interface INTERFACE)
     target_include_directories(luisa-compute-ext-marl-interface INTERFACE
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/marl/include>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/marl/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_compile_definitions(luisa-compute-ext-marl-interface INTERFACE MARL_DLL=1)
     target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-marl-interface)
     luisa_compute_install_extension(luisa-compute-ext-marl-interface INCLUDE marl/include/marl)
@@ -254,7 +277,6 @@ else ()
     if (UNIX AND NOT APPLE)
         set_target_properties(luisa-compute-ext-marl PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif ()
-    install(TARGETS luisa-compute-ext-marl EXPORT LuisaComputeTargets)
 endif ()
 
 # lmdb
@@ -283,14 +305,15 @@ else ()
     set_target_properties(luisa-compute-ext-lmdb PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             OUTPUT_NAME luisa-ext-lmdb)
-    install(TARGETS luisa-compute-ext-lmdb EXPORT LuisaComputeTargets)
 endif ()
 
 # TODO: support system half and stb
 
 # half
 add_library(half INTERFACE)
-target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>)
+target_include_directories(half INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
 target_link_libraries(luisa-compute-ext INTERFACE half)
 luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20.0)
@@ -302,6 +325,8 @@ endif ()
 
 # stb
 add_subdirectory(stb)
+target_include_directories(luisa-compute-ext-stb-interface INTERFACE
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
 target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-stb-interface)
 
 luisa_compute_install_extension(luisa-compute-ext-stb-interface HEADER_FILES
@@ -362,10 +387,8 @@ endif ()
 
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 
-if (LUISA_COMPUTE_ENABLE_CPU OR
-    LUISA_COMPUTE_ENABLE_VULKAN OR
+if (LUISA_COMPUTE_ENABLE_VULKAN OR
     LUISA_COMPUTE_ENABLE_CUDA OR
-    LUISA_COMPUTE_ENABLE_REMOTE OR
     LUISA_COMPUTE_ENABLE_FALLBACK OR
     LUISA_COMPUTE_ENABLE_HIP)
     add_subdirectory(volk)
