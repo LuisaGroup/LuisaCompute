@@ -137,6 +137,13 @@ void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
 
     "coro_radix_sort_repeated_compilation_preserves_required_subgroup_size"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            // This test intentionally exercises the one-sweep subgroup
+            // contract. The bucket regressions below must still run on such
+            // devices because bucket sorting has no subgroup dependency.
+            expect(true);
+            return;
+        }
         auto output = dc.device.create_buffer<uint>(1u);
         Kernel1D kernel = [](BufferUInt result) noexcept {
             set_block_size(radix_sort::warp_size);
@@ -173,6 +180,10 @@ void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
 
     "coro_radix_sort_radix_direct_multiblock"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            expect(true);
+            return;
+        }
         auto keys = make_radix_keys(5003u);
         run_sort_case(dc.device, keys, 0u, radix_sort::hist_block_size, 0u, 10u,
                       SortDispatch::direct, "radix direct multiblock");
@@ -180,6 +191,10 @@ void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
 
     "coro_radix_sort_radix_switch_multiblock"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            expect(true);
+            return;
+        }
         auto keys = make_radix_keys(5003u);
         run_sort_case(dc.device, keys, 0u, radix_sort::hist_block_size, 0u, 10u,
                       SortDispatch::switch_buffers, "radix sort_switch multiblock");

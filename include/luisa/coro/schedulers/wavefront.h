@@ -157,6 +157,24 @@ private:
                 _config.hint_fields.clear();
             }
         }
+        // Small hint ranges use the subgroup-independent bucket path. Larger
+        // ranges use one-sweep radix sorting, whose rank construction is
+        // explicitly defined for 32-lane subgroups. Hint sorting is only a
+        // scheduling optimization, so disable that hint when the device does
+        // not satisfy the algorithmic precondition; coroutine semantics and
+        // token gathering remain unchanged.
+        if (_valid_hint_field_count() != 0u &&
+            _config.hint_range > radix_sort::hist_block_size &&
+            device.compute_warp_size() != radix_sort::warp_size) {
+            LUISA_WARNING(
+                "Wavefront coroutine hint sorting over range {} requires "
+                "{}-lane subgroups, but the device reports {}; hint sorting "
+                "is disabled.",
+                _config.hint_range, radix_sort::warp_size,
+                device.compute_warp_size());
+            std::fill(_have_hint.begin(), _have_hint.end(), false);
+            _config.hint_fields.clear();
+        }
         _has_hint_sort = _valid_hint_field_count() != 0u;
         auto use_sort = _config.gather_by_sorting || _has_hint_sort;
 

@@ -315,8 +315,16 @@ public:
         _accum_shader = device.compile(accum_kernel);
         _copy_shader = device.compile(copy_kernel);
         _bucket_scatter_shader = device.compile(bucket_scatter_kernel);
-        _onesweep_first_shader = device.compile(make_onesweep_kernel(true));
-        _onesweep_shader = device.compile(make_onesweep_kernel(false));
+        // Bucket mode returns before the one-sweep path in sort(). Compiling
+        // the unreachable kernels is not merely wasted work: one-sweep has a
+        // real 32-lane subgroup precondition, while bucket scatter is defined
+        // entirely in terms of block atomics and is valid on subgroup-size-1
+        // devices. Keep construction specialized by the algorithm mode so a
+        // dead implementation cannot impose capabilities on the live one.
+        if (!_bucket_mode) {
+            _onesweep_first_shader = device.compile(make_onesweep_kernel(true));
+            _onesweep_shader = device.compile(make_onesweep_kernel(false));
+        }
         _clear_shader = device.compile(clear_kernel);
 
         LUISA_ASSERT(max_count < (1u << 30u), "radix_sort array is too large.");
