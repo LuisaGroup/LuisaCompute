@@ -374,7 +374,19 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_thread_group_inst(IB &b, FunctionCon
             return shuffle_arbitrary_value(shuffle_arbitrary_value, llvm_value, llvm_lane_id);
         }
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK: {
-            return b.CreateIntrinsic(b.getVoidTy(), llvm::Intrinsic::amdgcn_s_barrier, {});
+            // `s_barrier` is only an execution barrier. Non-returning LDS
+            // operations (for example an atomic whose old value is unused)
+            // may still be in flight unless the IR also carries workgroup
+            // release/acquire semantics. Match the AMDGPU memory model used by
+            // Clang's __syncthreads(): release all prior workgroup memory
+            // operations, rendezvous, then acquire their effects.
+            auto workgroup_scope =
+                _llvm_context.getOrInsertSyncScopeID("workgroup");
+            b.CreateFence(llvm::AtomicOrdering::Release, workgroup_scope);
+            auto barrier = b.CreateIntrinsic(
+                b.getVoidTy(), llvm::Intrinsic::amdgcn_s_barrier, {});
+            b.CreateFence(llvm::AtomicOrdering::Acquire, workgroup_scope);
+            return barrier;
         }
     }
     LUISA_NOT_IMPLEMENTED();
