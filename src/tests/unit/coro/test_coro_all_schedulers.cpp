@@ -2,6 +2,7 @@
 #include "coro_test_utils.h"
 
 #include <array>
+#include <cstdlib>
 
 #include <luisa/core/logging.h>
 #include <luisa/dsl/coro_func.h>
@@ -17,6 +18,9 @@
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -507,6 +511,87 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 [&] { persistent(output, sample_count).dispatch(N)(stream); },
                 "nested_loop_sparse_token_persistent");
         };
+
+    "coroutine_lowering_preserves_structured_helper_identity"_test = [] {
+        // An ordinary helper is a dependency of the coroutine, not a member of
+        // its state machine. Coroutine CFG passes must therefore leave the
+        // helper's structured AST identity unchanged. This is important for
+        // large shader graphs: a whole-module destructure/restructure makes
+        // compilation scale with dependency size even though the helper does
+        // not participate in coroutine scheduling.
+        constexpr auto helper_name =
+            "coro-structured-helper-preservation-oracle";
+        Callable<uint(uint)> structured_helper = [](UInt x) noexcept {
+            UInt result = x * 3u + 1u;
+            $switch (x % 3u) {
+                $case (0u) { result += 5u; };
+                $case (1u) { result ^= 9u; };
+                $default { result += 17u; };
+            };
+            $for (i, 4u) {
+                $if (((x + i) & 1u) != 0u) {
+                    result += i + 2u;
+                } $else {
+                    result ^= i + 3u;
+                };
+            };
+            return result;
+        };
+        structured_helper.set_name(helper_name);
+
+        // XIR-to-AST translation has its own canonical representation, so the
+        // oracle must cross the same translation boundary as a lowered
+        // continuation. Comparing against the original DSL AST hash would
+        // conflate that canonicalization with coroutine CFG mutation.
+        auto oracle_module = xir::ast_to_xir_translate(
+            structured_helper.function(), {});
+        const xir::FunctionDefinition *oracle_definition = nullptr;
+        for (auto *function : oracle_module->function_list()) {
+            if (function->isa<xir::CallableFunction>() &&
+                function->definition() != nullptr) {
+                oracle_definition = function->definition();
+                break;
+            }
+        }
+        expect(oracle_definition != nullptr);
+        auto oracle_ast = xir::xir_to_ast_translate(
+            *oracle_definition, {});
+        expect(oracle_ast != nullptr);
+        auto canonical_helper_hash = oracle_ast->hash();
+
+#ifdef _WIN32
+        _putenv_s("LUISA_CORO_VERIFY_PASS_DOMAIN", "1");
+#else
+        setenv("LUISA_CORO_VERIFY_PASS_DOMAIN", "1", 1);
+#endif
+        auto coroutine = Coroutine<void(Buffer<uint>)>(
+            [&structured_helper](BufferUInt output) noexcept {
+                auto tid = dispatch_x();
+                $suspend("before-structured-helper");
+                output.write(tid, structured_helper(tid));
+            });
+        auto lowered = luisa::compute::detail::compile_coroutine_pipeline(
+            coroutine.function_builder());
+#ifdef _WIN32
+        _putenv_s("LUISA_CORO_VERIFY_PASS_DOMAIN", "");
+#else
+        unsetenv("LUISA_CORO_VERIFY_PASS_DOMAIN");
+#endif
+
+        size_t dependency_count = 0u;
+        size_t canonical_dependency_count = 0u;
+        for (auto &&subroutine : lowered.subroutines) {
+            for (auto &&dependency : subroutine->custom_callables()) {
+                dependency_count++;
+                canonical_dependency_count +=
+                    dependency->hash() == canonical_helper_hash;
+            }
+        }
+        expect(dependency_count == 1u)
+            << "the live continuation must retain its structured helper dependency";
+        expect(canonical_dependency_count == dependency_count)
+            << "coroutine-only CFG passes must preserve the canonical form of every ordinary helper";
+    };
 }
 
 int main(int argc, char *argv[]) {

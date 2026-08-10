@@ -33,9 +33,76 @@
 #include <luisa/xir/translators/coro_xir2ast.h>
 #include <luisa/xir/verifier.h>
 
+#include <cstdlib>
+
 namespace luisa::compute::detail {
 
 namespace {
+
+struct OrdinaryCallableSnapshot {
+    xir::Function *function;
+    xir::BasicBlock *body_block;
+    luisa::vector<const xir::BasicBlock *> blocks;
+    luisa::vector<const xir::Instruction *> instructions;
+};
+
+[[nodiscard]] bool verify_coro_pass_domain_enabled() noexcept {
+    if (auto value = std::getenv("LUISA_CORO_VERIFY_PASS_DOMAIN")) {
+        return luisa::string_view{value} == "1";
+    }
+    return false;
+}
+
+[[nodiscard]] luisa::vector<OrdinaryCallableSnapshot>
+snapshot_ordinary_callables(xir::Module *module,
+                            const xir::Function *coroutine) noexcept {
+    luisa::vector<OrdinaryCallableSnapshot> snapshots;
+    for (auto *function : module->function_list()) {
+        if (function == coroutine || function->definition() == nullptr) {
+            continue;
+        }
+        auto *definition = function->definition();
+        OrdinaryCallableSnapshot snapshot{
+            .function = function,
+            .body_block = definition->body_block()};
+        for (auto *block : definition->basic_blocks()) {
+            snapshot.blocks.emplace_back(block);
+            for (auto *instruction : block->instructions()) {
+                snapshot.instructions.emplace_back(instruction);
+            }
+        }
+        snapshots.emplace_back(std::move(snapshot));
+    }
+    return snapshots;
+}
+
+void verify_ordinary_callables_unchanged(
+    luisa::span<const OrdinaryCallableSnapshot> snapshots,
+    luisa::string_view stage) noexcept {
+    for (auto &&snapshot : snapshots) {
+        LUISA_ASSERT(
+            snapshot.function->parent_module() != nullptr &&
+                snapshot.function->definition() != nullptr,
+            "Coroutine lowering removed an ordinary callable dependency.");
+        auto *definition = snapshot.function->definition();
+        luisa::vector<const xir::BasicBlock *> blocks;
+        luisa::vector<const xir::Instruction *> instructions;
+        for (auto *block : definition->basic_blocks()) {
+            blocks.emplace_back(block);
+            for (auto *instruction : block->instructions()) {
+                instructions.emplace_back(instruction);
+            }
+        }
+        LUISA_ASSERT(
+            definition->body_block() == snapshot.body_block &&
+                blocks == snapshot.blocks &&
+                instructions == snapshot.instructions,
+            "Coroutine CFG passes mutated ordinary callable '{}'. Only the "
+            "source coroutine and materialized continuations belong to the "
+            "coroutine pass domain (first observed after {}).",
+            snapshot.function->name().value_or("<unnamed>"), stage);
+    }
+}
 
 void verify_coro_xir_or_error(
     const xir::Module *module, luisa::string_view stage,
@@ -48,14 +115,19 @@ void verify_coro_xir_or_error(
     }
 }
 
-[[nodiscard]] xir::PassPipeline create_coro_pre_distill_pipeline() noexcept {
+[[nodiscard]] xir::PassPipeline create_coro_pre_distill_pipeline(
+    xir::Function *coroutine) noexcept {
+    LUISA_ASSERT(coroutine != nullptr && coroutine->definition() != nullptr,
+                 "Coroutine pre-distill optimization requires a definition.");
     xir::PassPipeline p;
-    p.add("algebraic-simplify", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::algebraic_simplify_pass_run_on_module(m, {}, &r);
+    p.add("algebraic-simplify", [coroutine](xir::Module *, xir::PassReport &r) {
+        auto i = xir::algebraic_simplify_pass_run_on_function(coroutine);
+        r.set("simplified_inst", i.simplified_inst_count);
         return i.simplified_inst_count > 0u;
     });
-    p.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::const_fold_pass_run_on_module(m, &r);
+    p.add("const-fold", [coroutine](xir::Module *, xir::PassReport &r) {
+        auto i = xir::const_fold_pass_run_on_function(coroutine);
+        r.set("folded_inst", i.folded_inst_count);
         return i.folded_inst_count > 0u;
     });
     // Coro scope/token metadata must describe the executable CFG, not the
@@ -63,22 +135,37 @@ void verify_coro_xir_or_error(
     // constant-dead arm while a later live suspend keeps its (now sparse)
     // token. Fold the branch and erase the unreachable suspend/resume pair
     // before distilling scopes so every distilled token has a lowered callable.
-    p.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
+    p.add("simplify-cfg", [coroutine](xir::Module *, xir::PassReport &r) {
+        auto i = xir::simplify_cfg_pass_run_on_function(coroutine);
+        r.set("folded_constant_cond_br", i.folded_constant_cond_br_count);
+        r.set("folded_switch", i.folded_switch_count);
+        r.set("threaded_empty_block", i.threaded_empty_block_count);
+        r.set("merged_straight_line", i.merged_straight_line_count);
+        r.set("removed_unreachable_block", i.removed_unreachable_block_count);
+        r.set("straight_line_scan", i.straight_line_scan_count);
+        r.set("straight_line_block_visit", i.straight_line_block_visit_count);
         return i.changed();
     });
-    p.add("dce", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::dce_pass_run_on_module(m, &r);
+    p.add("dce", [coroutine](xir::Module *, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_function(coroutine);
+        r.set("removed_inst", i.removed_inst_count);
+        r.set("removed_block", i.removed_block_count);
+        r.set("inserted_terminator", i.inserted_terminator_count);
+        r.set("dead_code_instruction_scan", i.dead_code_instruction_scan_count);
+        r.set("dead_code_worklist_pop", i.dead_code_worklist_pop_count);
         return i.changed();
     });
-    p.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::trace_gep_pass_run_on_module(m);
+    p.add("trace-gep", [coroutine](xir::Module *, xir::PassReport &r) {
+        auto i = xir::trace_gep_pass_run_on_function(coroutine);
         r.set("traced_gep", i.traced_gep_count);
         r.set("removed_noop_gep", i.removed_noop_gep_count);
         return i.changed();
     });
-    p.add("sroa", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::sroa_pass_run_on_module(m, {.decompose_vectors = true}, &r);
+    p.add("sroa", [coroutine](xir::Module *, xir::PassReport &r) {
+        auto i = xir::sroa_pass_run_on_function(
+            coroutine, {.decompose_vectors = true});
+        r.set("decomposed_alloca", i.decomposed_alloca_count);
+        r.set("inserted_alloca", i.inserted_alloca_count);
         return i.changed();
     });
     return p;
@@ -136,16 +223,30 @@ CoroutineCompileResult compile_coroutine_pipeline(
             "ray-query loop(s).",
             ray_query_info.error_count);
     }
+    auto ordinary_callable_snapshots =
+        verify_coro_pass_domain_enabled() ?
+            snapshot_ordinary_callables(module.get(), coro_func) :
+            luisa::vector<OrdinaryCallableSnapshot>{};
     // Destructure then converts the remaining structured constructs to the raw
     // CFG expected by coroutine distillation.
-    auto destructure_info = xir::destructure_cfg_pass_run_on_module(module.get());
+    auto destructure_info =
+        xir::destructure_cfg_pass_run_on_function(coro_func);
     if (!destructure_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine destructuring failed (errors={}, leaked_blocks={}).",
             destructure_info.error_count, destructure_info.leaked_block_count);
     }
-    auto pre_distill_pipeline = create_coro_pre_distill_pipeline();
+    if (!ordinary_callable_snapshots.empty()) {
+        verify_ordinary_callables_unchanged(
+            ordinary_callable_snapshots, "source destructuring");
+    }
+    auto pre_distill_pipeline =
+        create_coro_pre_distill_pipeline(coro_func);
     auto pre_distill_stats = pre_distill_pipeline.run(module.get());
+    if (!ordinary_callable_snapshots.empty()) {
+        verify_ordinary_callables_unchanged(
+            ordinary_callable_snapshots, "pre-distill optimization");
+    }
     verify_coro_xir_or_error(module.get(), "pre-distill optimization");
     pre_distill_stats.log("Coroutine pre-distill optimization");
 
@@ -159,6 +260,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
         "Coroutine source definition was lost during pre-distill optimization.");
 
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
+    if (!ordinary_callable_snapshots.empty()) {
+        verify_ordinary_callables_unchanged(
+            ordinary_callable_snapshots, "CFG distillation");
+    }
     LUISA_ASSERT(
         cfg.succeeded(),
         "coro-cfg-distill rejected its input (structured={}, invalid_input={}, invalid_cfg={})",
@@ -177,6 +282,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto *frame_type = Type::structure(frame_alignment, frame_fields);
 
     auto split_info = xir::coro_split_pass_run_on_module_with_cfg_and_frame_info(module.get(), cfg, frame_type);
+    if (!ordinary_callable_snapshots.empty()) {
+        verify_ordinary_callables_unchanged(
+            ordinary_callable_snapshots, "coroutine splitting");
+    }
     if (!split_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine split rejected its input (structured={}, invalid_cfg={}).",
@@ -185,6 +294,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(!split_info.subroutines.empty(), "coro-split produced no callables");
 
     auto materialize_info = xir::coro_materialize_pass_run_on_module_with_cfg(module.get(), cfg, split_info);
+    if (!ordinary_callable_snapshots.empty()) {
+        verify_ordinary_callables_unchanged(
+            ordinary_callable_snapshots, "continuation materialization");
+    }
     if (!materialize_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine materialization rejected its input (structured={}, invalid_input={}).",
@@ -219,14 +332,32 @@ CoroutineCompileResult compile_coroutine_pipeline(
         "Coroutine source function was not linked in its module.");
 
     (void)xir::coro_reg2mem_pass_run_on_split(split_info);
-    destructure_info = xir::destructure_cfg_pass_run_on_module(module.get());
-    if (!destructure_info.succeeded()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Coroutine post-materialization destructuring failed (errors={}, leaked_blocks={}).",
-            destructure_info.error_count, destructure_info.leaked_block_count);
+    if (!ordinary_callable_snapshots.empty()) {
+        verify_ordinary_callables_unchanged(
+            ordinary_callable_snapshots, "coroutine reg2mem");
     }
-    (void)xir::simplify_cfg_pass_run_on_module(module.get());
-    (void)xir::reg2mem_pass_run_on_module(module.get());
+    // Ordinary callable dependencies are not part of the coroutine state
+    // machine. Keep their original structured AST-to-XIR form intact and
+    // normalize only the generated continuations. Besides avoiding a
+    // destructive CFG round trip, this preserves one canonical helper body
+    // for XIR-to-AST instead of repeatedly normalizing shader-graph code that
+    // is independent of coroutine scheduling.
+    for (auto &subroutine : split_info.subroutines) {
+        destructure_info = xir::destructure_cfg_pass_run_on_function(
+            subroutine.callable);
+        if (!destructure_info.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Coroutine continuation {} post-materialization "
+                "destructuring failed (errors={}, leaked_blocks={}).",
+                subroutine.scope_index,
+                destructure_info.error_count,
+                destructure_info.leaked_block_count);
+        }
+        (void)xir::simplify_cfg_pass_run_on_function(
+            subroutine.callable);
+        (void)xir::reg2mem_pass_run_on_function(
+            subroutine.callable);
+    }
     // Splitting at a suspend boundary can cut paths inside an otherwise
     // reducible source loop. A continuation scope may consequently contain a
     // residual cyclic SCC with several entry nodes even though the original
@@ -246,17 +377,33 @@ CoroutineCompileResult compile_coroutine_pipeline(
                 irreducible_info.error_count);
         }
     }
-    auto restructure_info = xir::restructure_cfg_pass_run_on_module(module.get());
-    if (!restructure_info.succeeded()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Coroutine restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
-            restructure_info.irreducible_region_count,
-            restructure_info.unstructured_branch_count,
-            restructure_info.invalid_construct_count,
-            restructure_info.iteration_limit_count);
+    for (auto &subroutine : split_info.subroutines) {
+        auto restructure_info =
+            xir::restructure_cfg_pass_run_on_function(
+                subroutine.callable,
+                {.mutation_mode =
+                     xir::RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE});
+        if (!restructure_info.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Coroutine continuation {} restructuring failed "
+                "(irreducible={}, unstructured={}, invalid={}, "
+                "iteration_limit={}).",
+                subroutine.scope_index,
+                restructure_info.irreducible_region_count,
+                restructure_info.unstructured_branch_count,
+                restructure_info.invalid_construct_count,
+                restructure_info.iteration_limit_count);
+        }
+        (void)xir::dce_pass_run_on_function(
+            subroutine.callable);
+        (void)xir::reg2mem_pass_run_on_function(
+            subroutine.callable);
     }
-    (void)xir::dce_pass_run_on_module(module.get());
-    (void)xir::reg2mem_pass_run_on_module(module.get());
+    if (!ordinary_callable_snapshots.empty()) {
+        verify_ordinary_callables_unchanged(
+            ordinary_callable_snapshots, "continuation normalization");
+    }
     verify_coro_xir_or_error(module.get(), "codegen handoff", {.require_no_phi = true});
 
     // Keep continuation code and its routing token as one atomic relation.
