@@ -1154,7 +1154,7 @@ find_recursive_callables(luisa::span<Function *const> callables,
     return recursive;
 }
 
-static void run(Module *module, InlineInfo &info) noexcept {
+static void inline_run(Module *module, InlineInfo &info) noexcept {
     if (module == nullptr) { return; }
     // Early exit if no callables
     bool has_callables = false;
@@ -1276,7 +1276,7 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
 InlineInfo inline_pass_run_on_module(Module *module, PassReport *report) noexcept {
     InlineInfo info;
     if (module != nullptr) {
-        detail::run(module, info);
+        detail::inline_run(module, info);
     }
     set_inline_report(info, report);
     return info;

@@ -7,8 +7,8 @@ namespace luisa::compute {
 namespace detail {
 
 [[nodiscard]] inline auto &callable_library_function_builder_deserialize_stack() noexcept {
-    static thread_local luisa::vector<FunctionBuilder *> stack;
-    return stack;
+    static thread_local luisa::vector<FunctionBuilder *> callable_library_stack;
+    return callable_library_stack;
 }
 
 [[nodiscard]] inline auto callable_library_function_builder_deserialize_stack_top() noexcept {

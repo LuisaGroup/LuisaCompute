@@ -999,7 +999,7 @@ namespace {
 
 }// namespace
 
-static void run(Function *function, LoopVectorizationInfo &info) noexcept {
+static void loop_vectorization_run(Function *function, LoopVectorizationInfo &info) noexcept {
     if (function == nullptr) { return; }
     auto *def = function->definition();
     if (def == nullptr) { return; }
@@ -1027,7 +1027,7 @@ static void run(Function *function, LoopVectorizationInfo &info) noexcept {
     }
 }
 
-[[nodiscard]] static bool preflight_module(
+[[nodiscard]] static bool loop_vectorization_preflight_module(
     Module *module, LoopVectorizationInfo &info) noexcept {
     if (module == nullptr) { return true; }
     for (auto *function : module->function_list()) {
@@ -1049,17 +1049,17 @@ static void run(Function *function, LoopVectorizationInfo &info) noexcept {
 
 LoopVectorizationInfo loop_vectorization_pass_run_on_function(Function *function) noexcept {
     LoopVectorizationInfo info;
-    detail::run(function, info);
+    detail::loop_vectorization_run(function, info);
     return info;
 }
 
 LoopVectorizationInfo loop_vectorization_pass_run_on_module(Module *module,
                                                             PassReport *report) noexcept {
     LoopVectorizationInfo info;
-    if (detail::preflight_module(module, info)) {
+    if (detail::loop_vectorization_preflight_module(module, info)) {
         if (module != nullptr) {
             for (auto *function : module->function_list()) {
-                detail::run(function, info);
+                detail::loop_vectorization_run(function, info);
             }
         }
     }

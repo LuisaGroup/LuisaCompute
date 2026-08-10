@@ -75,8 +75,8 @@ private:
     [[nodiscard]] const TypeImpl *_decode(luisa::string_view desc) noexcept;
     [[nodiscard]] static auto _compute_hash(luisa::string_view desc) noexcept {
         using namespace std::string_view_literals;
-        static auto seed = hash_value("__hash_type"sv);
-        return hash_value(desc, seed);
+        static auto type_seed = hash_value("__hash_type"sv);
+        return hash_value(desc, type_seed);
     };
     [[nodiscard]] auto _register(TypeImpl *type) noexcept {
         LUISA_ASSERT(_types.size() <= std::numeric_limits<uint>::max(),

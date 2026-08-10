@@ -110,7 +110,7 @@ struct RetargetableHandlerRegion {
     return true;
 }
 
-[[nodiscard]] static bool handler_region_has_external_predecessor(
+[[nodiscard]] static bool lower_ray_query_loop_to_loop_handler_region_has_external_predecessor(
     BasicBlock *entry, BasicBlock *dispatch,
     const RetargetableHandlerRegion &region) noexcept {
     for (auto *block : region.blocks) {
@@ -124,7 +124,7 @@ struct RetargetableHandlerRegion {
     return false;
 }
 
-[[nodiscard]] static bool handler_regions_overlap(
+[[nodiscard]] static bool lower_ray_query_loop_to_loop_handler_regions_overlap(
     const RetargetableHandlerRegion &lhs,
     const RetargetableHandlerRegion &rhs) noexcept {
     auto *smaller = &lhs.blocks;
@@ -221,7 +221,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
                                              merge_block, procedural_region)) {
         return reject("handler has an unterminated or non-Branch edge to dispatch");
     }
-    if (handler_regions_overlap(surface_region, procedural_region)) {
+    if (lower_ray_query_loop_to_loop_handler_regions_overlap(surface_region, procedural_region)) {
         return reject("surface and procedural handler regions overlap");
     }
     auto dispatch_has_external_predecessor = false;
@@ -235,8 +235,8 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     if (dispatch_has_external_predecessor) {
         return reject("dispatch has a predecessor outside the ray-query loop");
     }
-    if (handler_region_has_external_predecessor(on_surface_block, dispatch_block, surface_region) ||
-        handler_region_has_external_predecessor(on_procedural_block, dispatch_block, procedural_region)) {
+    if (lower_ray_query_loop_to_loop_handler_region_has_external_predecessor(on_surface_block, dispatch_block, surface_region) ||
+        lower_ray_query_loop_to_loop_handler_region_has_external_predecessor(on_procedural_block, dispatch_block, procedural_region)) {
         return reject("handler has a predecessor outside its region");
     }
     auto merge_has_external_predecessor = false;
@@ -362,7 +362,7 @@ collect_ray_query_loops_impl(Function *function) noexcept {
     return rq_loops;
 }
 
-[[nodiscard]] static bool preflight_ray_query_loops(
+[[nodiscard]] static bool lower_ray_query_loop_to_loop_preflight_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> rq_loops,
     XIRBuilder &b, LowerRayQueryLoopToLoopInfo &info) noexcept {
     auto accepted = true;
@@ -372,7 +372,7 @@ collect_ray_query_loops_impl(Function *function) noexcept {
     return accepted;
 }
 
-static void lower_preflighted_ray_query_loops(
+static void lower_ray_query_loop_to_loop_lower_preflighted_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> rq_loops,
     XIRBuilder &b, LowerRayQueryLoopToLoopInfo &info) noexcept {
     for (auto *rq : rq_loops) {
@@ -385,11 +385,11 @@ static void lower_in_function(
     Function *function, LowerRayQueryLoopToLoopInfo &info) noexcept {
     auto rq_loops = collect_ray_query_loops_impl(function);
     XIRBuilder b;
-    if (!preflight_ray_query_loops(
+    if (!lower_ray_query_loop_to_loop_preflight_ray_query_loops(
             luisa::span{rq_loops}, b, info)) {
         return;
     }
-    lower_preflighted_ray_query_loops(
+    lower_ray_query_loop_to_loop_lower_preflighted_ray_query_loops(
         luisa::span{rq_loops}, b, info);
 }
 
@@ -418,12 +418,12 @@ LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Modu
         XIRBuilder b;
         auto accepted = true;
         for (auto &item : work) {
-            accepted &= detail::preflight_ray_query_loops(
+            accepted &= detail::lower_ray_query_loop_to_loop_preflight_ray_query_loops(
                 luisa::span{item.loops}, b, info);
         }
         if (accepted) {
             for (auto &item : work) {
-                detail::lower_preflighted_ray_query_loops(
+                detail::lower_ray_query_loop_to_loop_lower_preflighted_ray_query_loops(
                     luisa::span{item.loops}, b, info);
             }
         }

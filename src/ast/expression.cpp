@@ -18,12 +18,12 @@ void Expression::mark(Usage usage) const noexcept {
 uint64_t Expression::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
-        static auto seed = hash_value("__hash_expression"sv);
+        static auto expression_seed = hash_value("__hash_expression"sv);
         _hash = hash_combine(
             {static_cast<uint64_t>(_tag),
              _compute_hash(),
              _type ? _type->hash() : 0ull},
-            seed);
+            expression_seed);
         _hash_computed = true;
     }
     return _hash;

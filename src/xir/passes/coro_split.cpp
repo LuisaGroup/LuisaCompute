@@ -34,7 +34,7 @@ static constexpr uint32_t FRAME_FIELD_SIZE_Z = 5u;
 static constexpr uint32_t FRAME_FIELD_TOKEN = 6u;
 static constexpr uint32_t FRAME_USER_FIELD_OFFSET = 7u;
 
-static void clone_metadata(const MetadataListMixin &source,
+static void coro_split_clone_metadata(const MetadataListMixin &source,
                            MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
         target.metadata_list().push_front(metadata->clone());
@@ -204,7 +204,7 @@ public:
                         _alloca_insertion_point);
                     auto *cloned = alloca_builder.alloca_(
                         orig_alloca->type(), orig_alloca->op());
-                    clone_metadata(*orig_alloca, *cloned);
+                    coro_split_clone_metadata(*orig_alloca, *cloned);
                     _alloca_insertion_point = cloned;
                     _value_map.emplace(inst, cloned);
                     return cloned;
@@ -265,7 +265,7 @@ public:
     return true;
 }
 
-[[nodiscard]] static bool validate_coroutine_tokens(FunctionDefinition *def) noexcept {
+[[nodiscard]] static bool coro_split_validate_coroutine_tokens(FunctionDefinition *def) noexcept {
     if (def == nullptr) { return false; }
     luisa::unordered_set<uint32_t> suspend_tokens;
     luisa::unordered_set<uint32_t> resume_tokens;
@@ -365,7 +365,7 @@ public:
         result.edges.size() != result.scopes.size()) {
         return false;
     }
-    if (!validate_coroutine_tokens(def)) { return false; }
+    if (!coro_split_validate_coroutine_tokens(def)) { return false; }
     auto canonical = coro_cfg_distill_pass_run_on_function(def);
     if (!canonical.succeeded() ||
         !distilled_cfg_matches_canonical(result, canonical)) {
@@ -460,10 +460,10 @@ public:
     return true;
 }
 
-static void clone_instruction_metadata(
+static void coro_split_clone_instruction_metadata(
     const Instruction *source, Instruction *target) noexcept {
     if (source == nullptr || target == nullptr) { return; }
-    clone_metadata(*source, *target);
+    coro_split_clone_metadata(*source, *target);
 }
 
 static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint32_t token) noexcept {
@@ -616,7 +616,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                 if (resolver.has_value(inst)) { continue; }
                 auto *orig_alloca = static_cast<const AllocaInst *>(inst);
                 auto *cloned_alloca = b.alloca_(orig_alloca->type(), orig_alloca->op());
-                clone_metadata(*orig_alloca, *cloned_alloca);
+                coro_split_clone_metadata(*orig_alloca, *cloned_alloca);
                 resolver.map_value(inst, cloned_alloca);
             }
         }
@@ -637,7 +637,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
             static_cast<const AllocaInst *>(frame_value.value);
         auto *cloned_alloca =
             b.alloca_(orig_alloca->type(), orig_alloca->op());
-        clone_metadata(*orig_alloca, *cloned_alloca);
+        coro_split_clone_metadata(*orig_alloca, *cloned_alloca);
         resolver.map_value(orig_alloca, cloned_alloca);
     }
 
@@ -690,7 +690,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                     store_live_values_to_frame(b, mod, frame_arg, result, values, field_indices, resolver);
                     store_frame_token(b, frame_arg, mod, s->token());
                     auto *cloned = b.return_void();
-                    clone_instruction_metadata(inst, cloned);
+                    coro_split_clone_instruction_metadata(inst, cloned);
                     goto block_terminated;
                 }
                 case DerivedInstructionTag::CORO_TERMINATE: {
@@ -700,14 +700,14 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                                                field_indices, resolver);
                     store_frame_token(b, frame_arg, mod, TERMINAL_TOKEN);
                     auto *cloned = b.return_void();
-                    clone_instruction_metadata(inst, cloned);
+                    coro_split_clone_instruction_metadata(inst, cloned);
                     goto block_terminated;
                 }
                 case DerivedInstructionTag::CORO_RESUME: {
                     auto *r = static_cast<CoroResumeInst *>(inst);
                     b.set_insertion_point(cloned_bb);
                     auto *cloned = b.coro_resume(r->token(), frame_arg);
-                    clone_instruction_metadata(inst, cloned);
+                    coro_split_clone_instruction_metadata(inst, cloned);
                     resolver.map_value(inst, cloned);
                     break;
                 }
@@ -720,7 +720,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                     Instruction *cloned = true_block == false_block ?
                                               static_cast<Instruction *>(b.br(true_block)) :
                                               static_cast<Instruction *>(b.cond_br(cond, true_block, false_block));
-                    clone_instruction_metadata(inst, cloned);
+                    coro_split_clone_instruction_metadata(inst, cloned);
                     resolver.map_value(inst, cloned);
                     break;
                 }
@@ -729,7 +729,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                     auto *target = resolve_branch_target(orig_bb, br->target_block());
                     b.set_insertion_point(cloned_bb);
                     auto *cloned = b.br(target);
-                    clone_instruction_metadata(inst, cloned);
+                    coro_split_clone_instruction_metadata(inst, cloned);
                     resolver.map_value(inst, cloned);
                     break;
                 }
@@ -839,20 +839,20 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
         auto &scope = result.scopes[i];
 
         auto *new_func = mod->create_callable(nullptr);
-        clone_metadata(*def, *new_func);
+        coro_split_clone_metadata(*def, *new_func);
         auto *frame_arg = new_func->create_reference_argument(actual_frame_type);
 
         CoroSplitValueResolver resolver;
 
         for (auto *orig_arg : def->arguments()) {
             auto *cloned_arg = new_func->create_argument(orig_arg->type(), orig_arg->is_lvalue());
-            clone_metadata(*orig_arg, *cloned_arg);
+            coro_split_clone_metadata(*orig_arg, *cloned_arg);
             resolver.map_arg(orig_arg, cloned_arg);
         }
 
         for (auto *orig_bb : scope.blocks) {
             auto *cloned_bb = new_func->create_basic_block();
-            clone_metadata(*orig_bb, *cloned_bb);
+            coro_split_clone_metadata(*orig_bb, *cloned_bb);
             resolver.map_block(orig_bb, cloned_bb);
         }
 
@@ -955,7 +955,7 @@ CoroSplitInfo coro_split_pass_run_on_module_info(Module *m) noexcept {
         }
         cfgs.emplace_back(coro_cfg_distill_pass_run_on_function(def));
         if (!cfgs.back().succeeded() ||
-            !detail::validate_coroutine_tokens(def) ||
+            !detail::coro_split_validate_coroutine_tokens(def) ||
             !detail::validate_distilled_cfg(def, cfgs.back())) {
             ++info.invalid_cfg_error_count;
         }

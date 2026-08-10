@@ -64,7 +64,7 @@ namespace detail {
     return luisa::nullopt;
 }
 
-[[nodiscard]] static bool validate_coroutine_tokens(
+[[nodiscard]] static bool coro_cfg_distill_validate_coroutine_tokens(
     FunctionDefinition *def) noexcept {
     if (def == nullptr) { return false; }
     luisa::unordered_set<uint32_t> suspend_tokens;
@@ -866,7 +866,7 @@ CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept
         contains_structured_control_flow(def) ? 1u : 0u;
     result.invalid_cfg_error_count =
         detail::validate_coroutine_input_language(def) &&
-                detail::validate_coroutine_tokens(def) ?
+                detail::coro_cfg_distill_validate_coroutine_tokens(def) ?
             0u :
             1u;
     if (!result.succeeded()) {

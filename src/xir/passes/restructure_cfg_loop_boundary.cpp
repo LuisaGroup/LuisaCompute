@@ -24,7 +24,7 @@ namespace luisa::compute::xir {
 namespace {
 
 template<typename Visitor>
-void traverse_structured_successors(
+void restructure_cfg_loop_boundary_traverse_structured_successors(
     BasicBlock *block, Visitor &&visit) noexcept {
     if (block == nullptr || !block->is_terminated()) { return; }
     auto *terminator = block->terminator();
@@ -49,7 +49,7 @@ void traverse_structured_successors(
     }
 }
 
-[[nodiscard]] bool has_only_terminator(
+[[nodiscard]] bool restructure_cfg_loop_boundary_has_only_terminator(
     BasicBlock *block) noexcept {
     if (block == nullptr || !block->is_terminated()) {
         return false;
@@ -59,9 +59,9 @@ void traverse_structured_successors(
            *iter == block->terminator();
 }
 
-[[nodiscard]] BasicBlock *trivial_branch_target(
+[[nodiscard]] BasicBlock *restructure_cfg_loop_boundary_trivial_branch_target(
     BasicBlock *block) noexcept {
-    if (!has_only_terminator(block) ||
+    if (!restructure_cfg_loop_boundary_has_only_terminator(block) ||
         !block->terminator()->isa<BranchInst>()) {
         return nullptr;
     }
@@ -69,7 +69,7 @@ void traverse_structured_successors(
         ->target_block();
 }
 
-[[nodiscard]] BasicBlock *structured_statement_merge(
+[[nodiscard]] BasicBlock *restructure_cfg_loop_boundary_structured_statement_merge(
     Instruction *terminator) noexcept {
     if (terminator == nullptr ||
         (!terminator->isa<LoopInst>() &&
@@ -206,14 +206,14 @@ public:
                 terminator->isa<SimpleLoopInst>() ||
                 terminator->isa<SwitchInst>()) {
                 if (auto *nested_merge =
-                        structured_statement_merge(terminator);
+                        restructure_cfg_loop_boundary_structured_statement_merge(terminator);
                     nested_merge != nullptr &&
                     nested_merge != merge) {
                     enqueue(nested_merge);
                 }
                 continue;
             }
-            traverse_structured_successors(
+            restructure_cfg_loop_boundary_traverse_structured_successors(
                 block, [&](BasicBlock *successor) noexcept {
                     ++_stats.region_edge_visit_count;
                     if (!_is_live(successor) ||
@@ -229,7 +229,7 @@ public:
         }
 
         auto *merge_successor =
-            trivial_branch_target(merge);
+            restructure_cfg_loop_boundary_trivial_branch_target(merge);
         for (auto *block : loop_region) {
             if (block != continue_target) {
                 _append(site_index, block, continue_target,
@@ -363,7 +363,7 @@ public:
                 }
                 continue;
             }
-            traverse_structured_successors(
+            restructure_cfg_loop_boundary_traverse_structured_successors(
                 block, [&](BasicBlock *successor) noexcept {
                     add_edge(source, successor);
                 });
@@ -416,7 +416,7 @@ public:
             auto id = _work.back();
             _work.pop_back();
             _region.emplace_back(id);
-            traverse_structured_successors(
+            restructure_cfg_loop_boundary_traverse_structured_successors(
                 _blocks[id], [&](BasicBlock *successor) noexcept {
                     enqueue_region(successor, false);
                 });

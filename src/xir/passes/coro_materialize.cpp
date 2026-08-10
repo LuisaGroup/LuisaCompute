@@ -196,17 +196,17 @@ struct RegisterInfo {
     return valid;
 }
 
-static void clone_metadata(const MetadataListMixin &source,
+static void coro_materialize_clone_metadata(const MetadataListMixin &source,
                            MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
         target.metadata_list().push_front(metadata->clone());
     }
 }
 
-static void clone_instruction_metadata(
+static void coro_materialize_clone_instruction_metadata(
     const Instruction *source, Instruction *target) noexcept {
     if (source == nullptr || target == nullptr) { return; }
-    clone_metadata(*source, *target);
+    coro_materialize_clone_metadata(*source, *target);
 }
 
 [[nodiscard]] static bool validate_resume_boundary(
@@ -328,7 +328,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         auto *tok_c = mod->create_constant(Type::of<uint32_t>(), &token);
         b.store(gep0, tok_c);
         auto *replacement = b.return_void();
-        clone_instruction_metadata(s, replacement);
+        coro_materialize_clone_instruction_metadata(s, replacement);
         s->remove_self();
         info.suspend_lowered_count++;
     }
@@ -352,7 +352,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         auto *term_c = mod->create_constant(Type::of<uint32_t>(), &term_tok);
         b.store(gep0, term_c);
         auto *replacement = b.return_void();
-        clone_instruction_metadata(t, replacement);
+        coro_materialize_clone_instruction_metadata(t, replacement);
         t->remove_self();
         info.terminal_lowered_count++;
     }
@@ -397,7 +397,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         // Resume has no runtime operation after materialization. Its parent
         // block is the unique continuation-entry boundary, so it owns the
         // source provenance once the marker is removed.
-        clone_metadata(*r, *r->parent_block());
+        coro_materialize_clone_metadata(*r, *r->parent_block());
         r->remove_self();
         info.resume_lowered_count++;
     }

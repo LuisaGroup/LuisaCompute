@@ -110,7 +110,7 @@ static void clone_metadata(const MetadataListMixin &source,
     return true;
 }
 
-[[nodiscard]] static bool handler_regions_overlap(
+[[nodiscard]] static bool lower_ray_query_loop_handler_regions_overlap(
     const RayQueryHandlerRegion &lhs,
     const RayQueryHandlerRegion &rhs) noexcept {
     auto *smaller = &lhs.blocks;
@@ -122,7 +122,7 @@ static void clone_metadata(const MetadataListMixin &source,
     return false;
 }
 
-[[nodiscard]] static bool handler_region_has_external_predecessor(
+[[nodiscard]] static bool lower_ray_query_loop_handler_region_has_external_predecessor(
     BasicBlock *entry, BasicBlock *dispatch,
     const RayQueryHandlerRegion &handler) noexcept {
     for (auto *block : handler.blocks) {
@@ -304,7 +304,7 @@ static void clone_metadata(const MetadataListMixin &source,
                                             procedural_region, reason)) {
         return false;
     }
-    if (handler_regions_overlap(surface_region, procedural_region)) {
+    if (lower_ray_query_loop_handler_regions_overlap(surface_region, procedural_region)) {
         reason = "surface and procedural candidate handler regions overlap";
         return false;
     }
@@ -320,8 +320,8 @@ static void clone_metadata(const MetadataListMixin &source,
         reason = "ray-query dispatch has a predecessor outside the loop";
         return false;
     }
-    if (handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
-        handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
+    if (lower_ray_query_loop_handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
+        lower_ray_query_loop_handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
         reason = "candidate handler has a predecessor outside its outline region";
         return false;
     }
@@ -356,7 +356,7 @@ collect_ray_query_loops(Function *function) noexcept {
     return loops;
 }
 
-[[nodiscard]] static bool preflight_ray_query_loops(
+[[nodiscard]] static bool lower_ray_query_loop_preflight_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> loops,
     RayQueryLoopLowerInfo &info) noexcept {
     auto rejected = false;
@@ -796,7 +796,7 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
     }
 }
 
-static void lower_preflighted_ray_query_loops(
+static void lower_ray_query_loop_lower_preflighted_ray_query_loops(
     Function *function, luisa::span<RayQueryLoopInst *const> loops,
     RayQueryLoopLowerInfo &info) noexcept {
     auto *def = function == nullptr ? nullptr : function->definition();
@@ -822,8 +822,8 @@ static void run_lower_ray_query_loop_pass_on_function(
     auto loops = collect_ray_query_loops(function);
     // Preflight the complete function before touching dispatch PHIs, hoisting
     // allocas, creating callbacks, or running function-wide DCE.
-    if (!preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
-    lower_preflighted_ray_query_loops(
+    if (!lower_ray_query_loop_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
+    lower_ray_query_loop_lower_preflighted_ray_query_loops(
         function, luisa::span{loops}, info);
 }
 
@@ -856,12 +856,12 @@ RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, Pa
         // alloca, pipeline, or DCE mutation is created.
         auto accepted = true;
         for (auto &item : work) {
-            accepted &= detail::preflight_ray_query_loops(
+            accepted &= detail::lower_ray_query_loop_preflight_ray_query_loops(
                 luisa::span{item.loops}, info);
         }
         if (accepted) {
             for (auto &item : work) {
-                detail::lower_preflighted_ray_query_loops(
+                detail::lower_ray_query_loop_lower_preflighted_ray_query_loops(
                     item.function, luisa::span{item.loops}, info);
             }
         }

@@ -4,8 +4,8 @@
 namespace luisa::compute::detail {
 
 luisa::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
-    static thread_local luisa::vector<FunctionBuilder *> stack;
-    return stack;
+    static thread_local luisa::vector<FunctionBuilder *> function_builder_stack;
+    return function_builder_stack;
 }
 
 void FunctionBuilder::push(FunctionBuilder *func) noexcept {
@@ -608,7 +608,7 @@ void FunctionBuilder::_compute_hash() noexcept {
     // call-site data; only the binding kind participates in the function ABI.
     // Names and function attributes are debug/user metadata and are not read
     // by code generation.
-    static auto seed = hash_value("__hash_function_v2"sv);
+    static auto function_builder_seed = hash_value("__hash_function_v2"sv);
     enum struct Field : uint64_t {
         tag,
         body,
@@ -697,7 +697,7 @@ void FunctionBuilder::_compute_hash() noexcept {
                         static_cast<uint64_t>(_requires_printing) << 1u |
                         static_cast<uint64_t>(_use_cooperative_operations) << 2u);
 
-    _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), seed);
+    _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), function_builder_seed);
     _hash_computed = true;
 }
 
