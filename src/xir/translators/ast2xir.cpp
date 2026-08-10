@@ -806,9 +806,14 @@ private:
                     b, expr->arguments().front(), false);
                 b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
                        {query});
-                return b.call(expr->type(),
-                              RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
-                              {query});
+                auto terminated = b.call(
+                    expr->type(),
+                    RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+                    {query});
+                // AST proceed() returns whether traversal is still active;
+                // normalized XIR stores the complementary termination state.
+                return b.call(expr->type(), ArithmeticOp::UNARY_BIT_NOT,
+                              {terminated});
             }
             case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE);
             case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE);

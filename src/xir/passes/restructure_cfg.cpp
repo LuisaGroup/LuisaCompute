@@ -6683,6 +6683,18 @@ restructure_cfg_on_definition_in_place(
             info.unstructured_branch_count, raw_conditional_count,
             raw_indexed_count, info.invalid_construct_count,
             info.iteration_limit_count, info.irreducible_region_count);
+        if (restructure_trace_enabled()) {
+            auto stats = trace_stats(def);
+            if (stats.block_count <= 128u &&
+                stats.instruction_count <= 4096u) {
+                luisa::string dump;
+                XIRDebugPrinter printer;
+                printer.emit_function(dump, def);
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] incomplete function dump:\n{}",
+                    dump);
+            }
+        }
     }
     return info;
 }

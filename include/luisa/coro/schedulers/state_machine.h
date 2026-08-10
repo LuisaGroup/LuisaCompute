@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/dsl/coro_func.h>
@@ -34,11 +36,21 @@ private:
             frame.target_token = 0u;
             coroutine[0u](frame, args...);
             $while (!frame.is_terminated()) {
+                // A token identifies exactly one continuation. Preserve that
+                // exclusivity in the shader CFG instead of encoding it as a
+                // sequence of correlated independent `if`s. Besides avoiding
+                // O(N) predicate evaluation, the switch keeps continuation-
+                // local opaque objects (notably Vulkan ray queries) inside a
+                // region where their initialization structurally dominates
+                // every use.
+                auto dispatch = switch_(frame.target_token);
                 for (size_t i = 1u; i < coroutine.subroutine_count(); ++i) {
-                    $if (frame.target_token == coroutine.trigger_token(i)) {
+                    dispatch = std::move(dispatch).case_(
+                        coroutine.trigger_token(i), [&, i] {
                         coroutine[i](frame, args...);
-                    };
+                    });
                 }
+                std::move(dispatch).default_([] {});
             };
         };
         _shader = device.compile(

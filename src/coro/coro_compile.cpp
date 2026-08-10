@@ -21,6 +21,7 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/lower_ray_query_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -114,7 +115,28 @@ CoroutineCompileResult compile_coroutine_pipeline(
                  "Coroutine compilation failed: no coroutine function found in XIR module");
 
     // Coro cfg distill/split/materialize intentionally accept only raw CFG.
-    // Destructure converts structured SwitchInst nodes to IndexedBranchInst.
+    // A ray-query candidate loop is not coroutine scheduling control flow: no
+    // suspension is permitted inside its synchronous candidate callbacks.
+    // Outline those callbacks and replace the loop by one atomic pipeline
+    // instruction before destructuring the surrounding CFG:
+    //
+    //   RayQueryLoopInst -> RayQueryPipelineInst -> raw coroutine CFG.
+    //
+    // Keeping this boundary high-level is backend-neutral. After coroutine
+    // materialization, XIR-to-AST reconstructs RayQueryStmt and each backend
+    // remains free to choose callback pipelines (HIP/fallback) or an inline
+    // query loop (native SPIR-V). The transform is module-transactional, so a
+    // rejected handler shape cannot leave a partially outlined module.
+    auto ray_query_info =
+        xir::lower_ray_query_loop_pass_run_on_module(module.get());
+    if (!ray_query_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Coroutine ray-query normalization rejected {} unsupported "
+            "ray-query loop(s).",
+            ray_query_info.error_count);
+    }
+    // Destructure then converts the remaining structured constructs to the raw
+    // CFG expected by coroutine distillation.
     auto destructure_info = xir::destructure_cfg_pass_run_on_module(module.get());
     if (!destructure_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
@@ -170,6 +192,31 @@ CoroutineCompileResult compile_coroutine_pipeline(
     }
     LUISA_ASSERT(materialize_info.callable_count != 0u, "coro-materialize found no callables");
 
+    result.graph = coro::CoroGraph::from_module(
+        *module, materialize_info, cfg, split_info);
+    result.frame_desc.from_materialize_info(materialize_info);
+
+    // Split callables are now the complete code-generation domain. The source
+    // coroutine is an analysis artifact whose ordinary CFG ends at each
+    // CoroSuspendInst; blocks owned beyond those semantic edges are therefore
+    // deliberately disconnected in the ordinary CFG. Passing that source
+    // definition to whole-module simplify/restructure would ask non-coroutine
+    // passes to normalize blocks outside their executable domain.
+    //
+    // Detach it from the module transaction, but retain ownership until every
+    // cfg/split metadata consumer below has finished. This also realizes the
+    // ownership contract documented by generic XIR-to-AST normalization: that
+    // generic path preserves source coroutines, whereas this compile path
+    // replaces one source coroutine by its generated callables.
+    LUISA_ASSERT(
+        coro_func->use_list().empty(),
+        "Coroutine source function still has {} IR user(s) after materialization.",
+        coro_func->use_list().count_size());
+    auto source_coroutine_owner = coro_func->remove_self();
+    LUISA_ASSERT(
+        source_coroutine_owner != nullptr,
+        "Coroutine source function was not linked in its module.");
+
     (void)xir::coro_reg2mem_pass_run_on_split(split_info);
     destructure_info = xir::destructure_cfg_pass_run_on_module(module.get());
     if (!destructure_info.succeeded()) {
@@ -191,9 +238,6 @@ CoroutineCompileResult compile_coroutine_pipeline(
     (void)xir::dce_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
     verify_coro_xir_or_error(module.get(), "codegen handoff", {.require_no_phi = true});
-
-    result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg, split_info);
-    result.frame_desc.from_materialize_info(materialize_info);
 
     // Keep continuation code and its routing token as one atomic relation.
     // Silently skipping a failed XIR->AST translation and then independently

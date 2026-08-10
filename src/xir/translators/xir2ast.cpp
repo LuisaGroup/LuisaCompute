@@ -24,6 +24,7 @@
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/print.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
@@ -296,6 +297,46 @@ namespace detail {
         base, access.typed, access.uniform);
 }
 
+[[nodiscard]] static CallOp xir2ast_ray_query_object_read_op(
+    RayQueryObjectReadOp op) noexcept {
+    switch (op) {
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
+            return CallOp::RAY_QUERY_WORLD_SPACE_RAY;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
+            return CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:
+            return CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT:
+            return CallOp::RAY_QUERY_COMMITTED_HIT;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE:
+            return CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE:
+            return CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED:
+            break;
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Ray-query termination state has no standalone AST operation; "
+        "it must be paired with the immediately preceding proceed write.");
+}
+
+[[nodiscard]] static CallOp xir2ast_ray_query_object_write_op(
+    RayQueryObjectWriteOp op) noexcept {
+    switch (op) {
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE:
+            return CallOp::RAY_QUERY_COMMIT_TRIANGLE;
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL:
+            return CallOp::RAY_QUERY_COMMIT_PROCEDURAL;
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:
+            return CallOp::RAY_QUERY_TERMINATE;
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED:
+            break;
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Ray-query proceed writes have no standalone AST operation; "
+        "they must be paired with the immediately following termination read.");
+}
+
 [[nodiscard]] static CallOp xir2ast_atomic_op(AtomicOp op) noexcept {
     switch (op) {
         case AtomicOp::EXCHANGE: return CallOp::ATOMIC_EXCHANGE;
@@ -465,6 +506,123 @@ private:
         args.reserve(user->operand_count() - offset);
         for (auto i = offset; i < user->operand_count(); i++) { args.emplace_back(_expr(user->operand(i))); }
         return args;
+    }
+
+    [[nodiscard]] static bool _is_canonical_ray_query_proceed_pair(
+        const RayQueryObjectWriteInst *write,
+        const RayQueryObjectReadInst *read) noexcept {
+        return write != nullptr && read != nullptr &&
+               write->op() ==
+                   RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED &&
+               read->op() ==
+                   RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED &&
+               write->operand_count() == 1u && read->operand_count() == 1u &&
+               write->operand(0u) == read->operand(0u) &&
+               write->next() == read && read->prev() == write;
+    }
+
+    void _emit_ray_query_object_write(
+        const RayQueryObjectWriteInst *write) noexcept {
+        if (write->op() ==
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED) {
+            auto next = write->next();
+            LUISA_ASSERT(
+                next != nullptr && !next->is_sentinel() &&
+                    next->isa<RayQueryObjectReadInst>() &&
+                    _is_canonical_ray_query_proceed_pair(
+                        write,
+                        static_cast<const RayQueryObjectReadInst *>(next)),
+                "XIR-to-AST requires each ray-query proceed write to be "
+                "immediately followed by an is-terminated read of the same "
+                "query object. The AST represents that pair as one stateful "
+                "proceed expression.");
+            // Emitted atomically when translating the paired read below. The
+            // pair is adjacent, so moving the transition to the value-producing
+            // half cannot cross another instruction or observable effect.
+            return;
+        }
+        _current_builder()->call(
+            detail::xir2ast_ray_query_object_write_op(write->op()),
+            _operands(write));
+    }
+
+    [[nodiscard]] const Expression *_ray_query_object_read(
+        const RayQueryObjectReadInst *read) noexcept {
+        if (read->op() ==
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED) {
+            auto prev = read->prev();
+            LUISA_ASSERT(
+                prev != nullptr && !prev->is_sentinel() &&
+                    prev->isa<RayQueryObjectWriteInst>() &&
+                    _is_canonical_ray_query_proceed_pair(
+                        static_cast<const RayQueryObjectWriteInst *>(prev),
+                        read),
+                "XIR-to-AST cannot represent a standalone ray-query "
+                "is-terminated read. It must immediately follow a proceed "
+                "write of the same query object.");
+            // AST proceed returns `active`, while normalized XIR exposes the
+            // complementary `terminated` state. Materialize the stateful call
+            // exactly once, then reconstruct the XIR value by negation.
+            auto active = _materialize(
+                Type::of<bool>(),
+                _current_builder()->call(
+                    Type::of<bool>(), CallOp::RAY_QUERY_PROCEED,
+                    _operands(read)));
+            return _current_builder()->unary(
+                Type::of<bool>(), UnaryOp::NOT, active);
+        }
+        return _materialize(
+            read->type(),
+            _current_builder()->call(
+                read->type(),
+                detail::xir2ast_ray_query_object_read_op(read->op()),
+                _operands(read)));
+    }
+
+    void _emit_ray_query_pipeline(
+        const RayQueryPipelineInst *pipeline) noexcept {
+        auto query = _expr(pipeline->query_object());
+        LUISA_ASSERT(
+            query->tag() == Expression::Tag::REF,
+            "XIR ray-query pipeline object must translate to an AST "
+            "reference expression, got expression tag {}.",
+            luisa::to_underlying(query->tag()));
+        auto query_ref = static_cast<const RefExpr *>(query);
+        auto ray_query = _current_builder()->ray_query_(query_ref);
+
+        auto emit_handler = [&](ScopeStmt *scope,
+                                const Function *handler) noexcept {
+            LUISA_ASSERT(
+                handler != nullptr &&
+                    handler->derived_function_tag() ==
+                        DerivedFunctionTag::CALLABLE &&
+                    handler->definition() != nullptr,
+                "XIR ray-query pipeline handler must be a callable "
+                "definition.");
+            auto handler_builder = _translate_callable(
+                *handler->definition());
+            auto args = luisa::vector<const Expression *>{};
+            args.reserve(pipeline->captured_argument_count() + 1u);
+            args.emplace_back(query_ref);
+            for (auto i = 0u;
+                 i < pipeline->captured_argument_count(); ++i) {
+                args.emplace_back(
+                    _expr(pipeline->captured_argument(i)));
+            }
+            LUISA_ASSERT(
+                args.size() == handler_builder->arguments().size(),
+                "XIR ray-query pipeline handler argument mismatch: "
+                "pipeline provides {}, callable expects {}.",
+                args.size(), handler_builder->arguments().size());
+            _current_builder()->with(scope, [&] {
+                _current_builder()->call(
+                    handler_builder->function(), args);
+            });
+        };
+        emit_handler(ray_query->on_triangle_candidate(),
+                     pipeline->on_surface_function());
+        emit_handler(ray_query->on_procedural_candidate(),
+                     pipeline->on_procedural_function());
     }
 
     [[nodiscard]] const Expression *_gep(const GEPInst *inst) noexcept {
@@ -650,6 +808,9 @@ private:
                                 read->op(), read->bindless_access()),
                             _operands(inst)));
                 }
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+                    return _ray_query_object_read(
+                        static_cast<const RayQueryObjectReadInst *>(inst));
                 case DerivedInstructionTag::ATOMIC: return _materialize(inst->type(), _atomic(static_cast<const AtomicInst *>(inst)));
                 case DerivedInstructionTag::THREAD_GROUP: {
                     auto expr = _current_builder()->call(inst->type(), detail::xir2ast_thread_group_op(static_cast<const ThreadGroupInst *>(inst)->op()), _operands(inst));
@@ -854,12 +1015,23 @@ private:
                         _operands(write));
                     break;
                 }
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    _emit_ray_query_object_write(
+                        static_cast<const RayQueryObjectWriteInst *>(inst));
+                    break;
+                }
+                case DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+                    _emit_ray_query_pipeline(
+                        static_cast<const RayQueryPipelineInst *>(inst));
+                    break;
+                }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];
                 case DerivedInstructionTag::ASSUME: [[fallthrough]];
                 case DerivedInstructionTag::ATOMIC: [[fallthrough]];
                 case DerivedInstructionTag::THREAD_GROUP: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_QUERY: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_READ: [[fallthrough]];
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: [[fallthrough]];
                 case DerivedInstructionTag::LOAD: [[fallthrough]];
                 case DerivedInstructionTag::GEP: [[fallthrough]];
                 case DerivedInstructionTag::CLOCK: [[fallthrough]];
@@ -960,12 +1132,23 @@ private:
                         _operands(write));
                     break;
                 }
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    _emit_ray_query_object_write(
+                        static_cast<const RayQueryObjectWriteInst *>(inst));
+                    break;
+                }
+                case DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+                    _emit_ray_query_pipeline(
+                        static_cast<const RayQueryPipelineInst *>(inst));
+                    break;
+                }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];
                 case DerivedInstructionTag::ASSUME: [[fallthrough]];
                 case DerivedInstructionTag::ATOMIC: [[fallthrough]];
                 case DerivedInstructionTag::THREAD_GROUP: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_QUERY: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_READ: [[fallthrough]];
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: [[fallthrough]];
                 case DerivedInstructionTag::LOAD: [[fallthrough]];
                 case DerivedInstructionTag::GEP: [[fallthrough]];
                 case DerivedInstructionTag::CLOCK: [[fallthrough]];

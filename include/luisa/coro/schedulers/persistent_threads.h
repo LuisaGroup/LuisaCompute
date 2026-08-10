@@ -16,6 +16,7 @@
 #include <luisa/runtime/shader.h>
 
 #include <limits>
+#include <utility>
 
 namespace luisa::compute::coro {
 
@@ -298,7 +299,13 @@ private:
                 }
                 $if (do_work) {
                     auto current_token = def(all_token[pid]);
-                    $if (current_token == 0u) {
+                    // The queue token is a sum type: empty/generate (zero) or
+                    // exactly one continuation index. Encode that partition as
+                    // a switch so continuation-local opaque state cannot leak
+                    // through correlated sibling `if` regions after CFG
+                    // restructuring.
+                    auto dispatch = switch_(current_token);
+                    dispatch = std::move(dispatch).case_(0u, [&] {
                         auto global_index = _config.global_memory_ext ?
                                                 gen_start + thread_x() :
                                                 workload.atomic(0u).fetch_add(1u);
@@ -318,9 +325,10 @@ private:
                                 workload.atomic(0u).fetch_add(1u);
                             }
                         };
-                    };
+                    });
                     for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
-                        $if (current_token == static_cast<uint>(i)) {
+                        dispatch = std::move(dispatch).case_(
+                            static_cast<uint>(i), [&, i] {
                             work_counter.atomic(static_cast<uint>(i)).fetch_sub(1u);
                             auto frame = frames.read(pid, luisa::span{input_fields[i]});
                             coro[i](frame, args...);
@@ -331,8 +339,9 @@ private:
                             frames.write(pid, frame, luisa::span{output_fields[i]});
                             all_token[pid] = next;
                             work_counter.atomic(next).fetch_add(1u);
-                        };
+                        });
                     }
+                    std::move(dispatch).default_([] {});
                 };
                 sync_block();
             };

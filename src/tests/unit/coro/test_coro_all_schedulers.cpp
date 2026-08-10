@@ -1,14 +1,21 @@
 #include "ut/ut.hpp"
 #include "coro_test_utils.h"
 
+#include <array>
+
 #include <luisa/core/logging.h>
 #include <luisa/dsl/coro_func.h>
+#include <luisa/dsl/rtx/accel.h>
+#include <luisa/dsl/rtx/ray.h>
+#include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/coro/schedulers/state_machine.h>
 #include <luisa/coro/schedulers/wavefront.h>
 #include <luisa/coro/schedulers/persistent.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/stream.h>
 
 using namespace luisa;
@@ -212,6 +219,102 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatch complete");
         expect_filled(host, 33u, "cross_3suspend_persistent");
     };
+
+    "ray_query_loop_is_normalized_before_coroutine_destructuring"_test =
+        [options] {
+            constexpr uint N = 32u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+
+            constexpr std::array vertices{
+                make_float3(-1.0f, -1.0f, 0.0f),
+                make_float3(1.0f, -1.0f, 0.0f),
+                make_float3(0.0f, 1.0f, 0.0f)};
+            constexpr std::array triangles{
+                Triangle{0u, 1u, 2u}};
+            auto vertex_buffer =
+                device.create_buffer<float3>(vertices.size());
+            auto triangle_buffer =
+                device.create_buffer<Triangle>(triangles.size());
+            auto mesh =
+                device.create_mesh(vertex_buffer, triangle_buffer);
+            auto accel = device.create_accel();
+            // Non-opaque geometry makes the surface callback observable.
+            accel.emplace_back(
+                mesh, make_float4x4(1.0f), 0xffu, false);
+
+            auto coro = Coroutine<void(Buffer<uint>)>(
+                [&accel](BufferUInt result) noexcept {
+                    auto tid = dispatch_x();
+                    $suspend("before-ray-query");
+                    auto ray = make_ray(
+                        make_float3(0.0f, 0.0f, 1.0f),
+                        make_float3(0.0f, 0.0f, -1.0f));
+                    UInt callback_count = 0u;
+                    auto hit =
+                        accel->traverse(ray, {})
+                            .on_surface_candidate(
+                                [&](SurfaceCandidate &candidate) noexcept {
+                                    callback_count += 1u;
+                                    candidate.commit();
+                                })
+                            .on_procedural_candidate(
+                                [](ProceduralCandidate &) noexcept {})
+                            .trace();
+                    result.write(
+                        tid,
+                        callback_count +
+                            select(0u, 10u, !hit->miss()));
+                });
+
+            expect(coro.subroutine_count() == 2u)
+                << "ray-query lowering must preserve the suspend boundary";
+
+            stream << vertex_buffer.copy_from(luisa::span{vertices})
+                   << triangle_buffer.copy_from(luisa::span{triangles})
+                   << mesh.build()
+                   << accel.build()
+                   << synchronize();
+
+            auto clear_and_check =
+                [&](auto &&dispatch, luisa::string_view label) {
+                    luisa::vector<uint> zero(N);
+                    stream << output.copy_from(luisa::span{zero});
+                    dispatch();
+                    luisa::vector<uint> host(N);
+                    stream << output.copy_to(luisa::span{host})
+                           << synchronize();
+                    auto valid = true;
+                    for (auto value : host) {
+                        valid &= value == 11u;
+                    }
+                    expect(valid) << label;
+                };
+
+            StateMachineCoroScheduler<Buffer<uint>> state_machine{
+                device, coro};
+            clear_and_check(
+                [&] { state_machine(output).dispatch(N)(stream); },
+                "ray query/state machine");
+
+            WavefrontCoroScheduler<Buffer<uint>> wavefront{
+                device, coro,
+                WavefrontCoroSchedulerConfig{.thread_count = N}};
+            clear_and_check(
+                [&] { wavefront(output).dispatch(N)(stream); },
+                "ray query/wavefront");
+
+            PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
+                device, coro,
+                PersistentThreadsCoroSchedulerConfig{
+                    .thread_count = N, .block_size = N}};
+            clear_and_check(
+                [&] { persistent(output).dispatch(N)(stream); },
+                "ray query/persistent");
+        };
 
     "dead_suspend_keeps_sparse_callable_token_pairing"_test = [options, expect_filled] {
         constexpr uint N = 64u;

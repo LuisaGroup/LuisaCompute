@@ -13,7 +13,9 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
@@ -109,6 +111,128 @@ template<typename F>
 }// namespace
 
 void reg_xir2ast_direct() {
+
+    "xir_to_ast_roundtrips_canonical_low_level_ray_query_state"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *query = callable->create_reference_argument(
+            Type::of<RayQueryAll>());
+        auto *distance = callable->create_value_argument(Type::of<float>());
+        auto *body = callable->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+
+        static_cast<void>(b.call(
+            Type::of<Ray>(),
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<ProceduralHit>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<TriangleHit>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<CommittedHit>(),
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<bool>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<bool>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE,
+            {query}));
+        b.call(
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE,
+            {query});
+        b.call(
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL,
+            {query, distance});
+        b.call(
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE,
+            {query});
+
+        // XIR splits AST proceed() into an adjacent state transition and a
+        // read of the complementary termination bit. This exact pair is the
+        // representable inverse boundary for XIR-to-AST.
+        b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+               {query});
+        auto *terminated = b.call(
+            Type::of<bool>(),
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+            {query});
+        auto *active = b.call(
+            Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT,
+            {terminated});
+        b.assume_(active, "canonical proceed pair remains active");
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+        // XIR-to-AST materializes stateful calls into AST locals. Promote those
+        // transport-only temporaries so the semantic polarity can be inspected
+        // on the rebuilt SSA value rather than through incidental loads/stores.
+        static_cast<void>(mem2reg_pass_run_on_module(rebuilt.get()));
+
+        std::array<size_t, 7u> read_counts{};
+        std::array<size_t, 4u> write_counts{};
+        const AssumeInst *rebuilt_assume = nullptr;
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (instruction->isa<RayQueryObjectReadInst>()) {
+                        auto op = static_cast<RayQueryObjectReadInst *>(
+                                      instruction)
+                                      ->op();
+                        read_counts[luisa::to_underlying(op)]++;
+                    } else if (instruction
+                                   ->isa<RayQueryObjectWriteInst>()) {
+                        auto op = static_cast<RayQueryObjectWriteInst *>(
+                                      instruction)
+                                      ->op();
+                        write_counts[luisa::to_underlying(op)]++;
+                    } else if (instruction->isa<AssumeInst>()) {
+                        rebuilt_assume = static_cast<const AssumeInst *>(
+                            instruction);
+                    }
+                });
+        }
+        for (auto count : read_counts) { expect(count == 1u); }
+        for (auto count : write_counts) { expect(count == 1u); }
+        // The assumed value was `active = !terminated`. Follow the rebuilt
+        // unary chain back to the termination read and verify odd parity. This
+        // catches the tempting but incorrect mapping of AST proceed() directly
+        // to XIR is_terminated, even though both shapes contain the same number
+        // of ray-query reads and writes.
+        expect(rebuilt_assume != nullptr);
+        auto *value = rebuilt_assume->condition();
+        auto negation_count = 0u;
+        while (value->isa<ArithmeticInst>()) {
+            auto *arithmetic = static_cast<const ArithmeticInst *>(value);
+            if (arithmetic->op() != ArithmeticOp::UNARY_BIT_NOT) { break; }
+            negation_count++;
+            value = arithmetic->operand(0u);
+        }
+        expect((negation_count & 1u) == 1u);
+        expect(value->isa<RayQueryObjectReadInst>());
+        if (value->isa<RayQueryObjectReadInst>()) {
+            expect(static_cast<const RayQueryObjectReadInst *>(value)->op() ==
+                   RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED);
+        }
+    };
 
     "xir_to_ast_direct_memory_and_resource_kernel"_test = [] {
         Module module;
