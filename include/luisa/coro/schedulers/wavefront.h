@@ -42,13 +42,13 @@ public:
 private:
     Config _config;
     ByteBuffer _frame_buffer;
-    Shader1D<ByteBuffer, uint, Buffer<uint>, uint, uint, uint, uint, uint3, Args...> _gen_kernel;
-    luisa::vector<Shader1D<ByteBuffer, uint, Buffer<uint>, uint, uint, Args...>> _resume_kernels;
-    Shader1D<ByteBuffer, uint, uint> _initialize_shader;
+    Shader1D<uint, Buffer<uint>, uint, uint, uint, uint, uint3, Args...> _gen_kernel;
+    luisa::vector<Shader1D<uint, Buffer<uint>, uint, uint, Args...>> _resume_kernels;
+    Shader1D<uint, uint> _initialize_shader;
     Shader1D<Buffer<uint>, uint> _clear_count_shader;
-    Shader1D<ByteBuffer, uint, Buffer<uint>, uint> _count_shader;
-    Shader1D<ByteBuffer, uint, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
-    Shader1D<ByteBuffer, uint, Buffer<uint>, Buffer<uint>, uint, uint, uint> _compact_shader;
+    Shader1D<uint, Buffer<uint>, uint> _count_shader;
+    Shader1D<uint, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
+    Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint, uint> _compact_shader;
     Buffer<uint> _resume_index;
     Buffer<uint> _resume_count;
     Buffer<uint> _resume_offset;
@@ -194,6 +194,12 @@ private:
         auto use_sort = _config.gather_by_sorting || _has_hint_sort;
 
         _frame_buffer = device.create_byte_buffer(_frame_layout.size_bytes);
+        // The scheduler owns this complete allocation for the lifetime of all
+        // generated shaders. Capturing it makes the zero-offset binding part
+        // of the shader ABI (but not its structural hash), allowing backends
+        // to prove the frame base alignment without weakening arbitrary
+        // ByteBufferView semantics for user arguments.
+        auto *frame_buffer = &_frame_buffer;
         _resume_index = device.create_buffer<uint>(_config.thread_count);
         _resume_count = device.create_buffer<uint>(nc);
         _resume_offset = device.create_buffer<uint>(nc);
@@ -264,14 +270,15 @@ private:
         }
 
         if (auto entry_sub = coro[0u]) {
-            Kernel1D k_gen = [&coro, layout = _frame_layout, output_fields = _transition_output_fields[0u],
+            Kernel1D k_gen = [&coro, frame_buffer, layout = _frame_layout, output_fields = _transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
                               token_to_index](
-                                 ByteBufferVar frame_buf, UInt frame_capacity,
+                                 UInt frame_capacity,
                                  BufferUInt resume_index,
                                  UInt index_offset, UInt frame_offset, UInt global_start,
                                  UInt count, UInt3 dispatch_shape,
                                  Var<Args>... k_args) noexcept {
+                auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                 auto x = dispatch_x();
                 $if (x >= count) { $return(); };
                 auto frame_id = compact ? frame_offset + x : resume_index.read(index_offset + x);
@@ -299,13 +306,14 @@ private:
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
-            Kernel1D k_cont = [&coro, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
+            Kernel1D k_cont = [&coro, frame_buffer, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
                                read_scheduler_token, token_to_index](
-                                  ByteBufferVar frame_buf, UInt frame_capacity,
+                                  UInt frame_capacity,
                                   BufferUInt resume_index,
                                   UInt resume_offset, UInt count,
                                   Var<Args>... k_args) noexcept {
+                auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                 auto x = dispatch_x();
                 $if (x >= count) { $return(); };
                 auto idx = resume_index.read(resume_offset + x);
@@ -334,9 +342,10 @@ private:
                     luisa::format("wavefront_resume_{}", i)));
         }
 
-        Kernel1D initialize_kernel = [layout = _frame_layout, soa = _config.global_memory_soa](
-                                         ByteBufferVar buf, UInt frame_capacity,
+        Kernel1D initialize_kernel = [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa](
+                                         UInt frame_capacity,
                                          UInt n) {
+            auto buf = Expr<ByteBuffer>{*frame_buffer};
             auto x = dispatch_x();
             $if (x < n) {
                 coro_frame_write_field(
@@ -358,10 +367,11 @@ private:
                 _config.shader_option, "wavefront_clear_count"));
 
         Kernel1D count_kernel =
-            [layout = _frame_layout, soa = _config.global_memory_soa,
+            [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
              read_scheduler_token, node_count = static_cast<uint>(nc)](
-                ByteBufferVar frame_buf, UInt frame_capacity,
+                UInt frame_capacity,
                 BufferUInt count, UInt n) noexcept {
+            auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
             auto x = dispatch_x();
             $if (x >= n) { $return(); };
             auto tok = read_scheduler_token(x, frame_buf, frame_capacity);
@@ -375,10 +385,11 @@ private:
                 _config.shader_option, "wavefront_count"));
 
         Kernel1D gather_kernel =
-            [layout = _frame_layout, soa = _config.global_memory_soa,
+            [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
              read_scheduler_token, node_count = static_cast<uint>(nc)](
-                ByteBufferVar frame_buf, UInt frame_capacity,
+                UInt frame_capacity,
                 BufferUInt index, BufferUInt offset, UInt n) noexcept {
+            auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
             auto x = dispatch_x();
             $if (x >= n) { $return(); };
             auto tok = read_scheduler_token(x, frame_buf, frame_capacity);
@@ -393,11 +404,12 @@ private:
                 _config.shader_option, "wavefront_gather"));
 
         Kernel1D compact_kernel =
-            [layout = _frame_layout, soa = _config.global_memory_soa,
+            [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
              read_scheduler_token, desc = &coro.frame()](
-                ByteBufferVar frame_buf, UInt frame_capacity,
+                UInt frame_capacity,
                 BufferUInt index, BufferUInt global,
                 UInt active_count, UInt empty_count, UInt scan_count) noexcept {
+                auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                 auto x = dispatch_x();
                 auto src = active_count + x;
                 $if (src >= scan_count) { $return(); };
@@ -470,7 +482,7 @@ private:
         _active_frame_capacity = std::min(_config.thread_count, N);
         if (_active_frame_capacity == 0u) { return; }
         stream << _initialize_shader(
-                      _frame_buffer, _config.thread_count,
+                      _config.thread_count,
                       _active_frame_capacity)
                       .dispatch(_active_frame_capacity);
         _used_frame_count = 0u;
@@ -542,7 +554,7 @@ private:
                 stream << _clear_count_shader(_resume_count, static_cast<uint>(nc)).dispatch(static_cast<uint>(nc));
                 if (scan_count != 0u) {
                     stream << _count_shader(
-                                  _frame_buffer, _config.thread_count,
+                                  _config.thread_count,
                                   _resume_count, scan_count)
                                   .dispatch(scan_count);
                 }
@@ -582,7 +594,7 @@ private:
             if (!_config.gather_by_sorting && scan_count != 0u) {
                 stream << _resume_offset.copy_from(luisa::span{_host_offset.data(), _host_offset.size()});
                 stream << _gather_shader(
-                              _frame_buffer, _config.thread_count,
+                              _config.thread_count,
                               _resume_index, _resume_offset, scan_count)
                               .dispatch(scan_count);
             }
@@ -592,13 +604,13 @@ private:
                 auto frame_offset = active_count;
                 if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
                     stream << _clear_count_shader(_global_buffer, 1u).dispatch(1u);
-                    stream << _compact_shader(_frame_buffer, _config.thread_count,
+                    stream << _compact_shader(_config.thread_count,
                                               _resume_index, _global_buffer,
                                               frame_offset, compact_empty_count, scan_count)
                                   .dispatch(scan_count - frame_offset);
                     compact_scan_count += scan_count - frame_offset;
                 }
-                stream << _gen_kernel(_frame_buffer, _config.thread_count,
+                stream << _gen_kernel(_config.thread_count,
                                       _resume_index,
                                       _host_offset[0u], frame_offset,
                                       dispatch_counter, gen_count, dispatch_size, args...)
@@ -618,12 +630,12 @@ private:
                         BufferView<uint> indices[2] = {
                             _resume_index.view().subview(_host_offset[i], count),
                             _sort_index.view().subview(_host_offset[i], count)};
-                        stream << _resume_kernels[i](_frame_buffer, _config.thread_count,
+                        stream << _resume_kernels[i](_config.thread_count,
                                                      indices[sorted_index],
                                                      0u, count, args...)
                                       .dispatch(count);
                     } else {
-                        stream << _resume_kernels[i](_frame_buffer, _config.thread_count,
+                        stream << _resume_kernels[i](_config.thread_count,
                                                      _resume_index,
                                                      _host_offset[i], count, args...)
                                       .dispatch(count);

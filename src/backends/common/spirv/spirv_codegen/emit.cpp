@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <numeric>
 #include <sstream>
+#include <type_traits>
 #include <luisa/core/logging.h>
 #include <luisa/ast/function.h>
 #include <luisa/xir/module.h>
@@ -1501,6 +1503,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     _print_formats.clear();
     _requires_printing = false;
     _direct_buffer_metadata_indices.clear();
+    _bound_direct_buffer_bias_alignments.clear();
     _bindless_buffer_metadata_ids.clear();
     LUISA_ASSERT(
         _atomic_buffer_plan_installed,
@@ -1521,6 +1524,40 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
                  "SPIR-V module plan requires the kernel to be last in callable post-order.");
     auto *kernel = static_cast<const xir::KernelFunction *>(
         analysis.used_functions_post_order.back());
+    {
+        luisa::vector<const xir::Argument *> xir_arguments;
+        for (auto *argument : kernel->arguments()) {
+            xir_arguments.emplace_back(argument);
+        }
+        LUISA_ASSERT(
+            bindings.size() <= xir_arguments.size(),
+            "SPIR-V kernel has {} bound AST arguments but only {} XIR arguments.",
+            bindings.size(), xir_arguments.size());
+        for (auto i = 0u; i < bindings.size(); ++i) {
+            auto *argument = xir_arguments[i];
+            luisa::visit(
+                [&](auto &&binding) noexcept {
+                    using Binding = std::remove_cvref_t<decltype(binding)>;
+                    if constexpr (std::is_same_v<
+                                      Binding,
+                                      Function::BufferBinding>) {
+                        if (argument->type() != nullptr &&
+                            argument->type()->is_buffer() &&
+                            argument->type()->element() == nullptr) {
+                            // storage_buffer_descriptor_range() chooses a
+                            // descriptor base divisible by four. Therefore
+                            // bias = logical_offset - descriptor_offset has
+                            // every power-of-two divisor shared by offset and
+                            // four. Offset zero denotes the strongest fact.
+                            _bound_direct_buffer_bias_alignments.emplace(
+                                argument,
+                                std::gcd(binding.offset, size_t{4u}));
+                        }
+                    }
+                },
+                bindings[i]);
+        }
+    }
     auto argument_layout =
         plan_spirv_kernel_argument_layout(kernel);
     LUISA_ASSERT(

@@ -328,6 +328,7 @@ luisa_compute_add_test(test_xir_pass_alias_analysis unit/xir/test_xir_pass_alias
 luisa_compute_add_test(test_xir_pass_core_analyses unit/xir/test_xir_pass_core_analyses.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_pointer_usage unit/xir/test_xir_pass_pointer_usage.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_scalar_evolution unit/xir/test_xir_pass_scalar_evolution.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_integer_alignment unit/xir/test_xir_integer_alignment.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_unused_callable_removal unit/xir/test_xir_pass_unused_callable_removal.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_licm unit/xir/test_xir_pass_licm.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_break_continue unit/xir/test_xir_pass_lower_break_continue.cpp LABELS "unit;unit_xir")

@@ -269,7 +269,7 @@ public:
 };
 
 inline void coro_frame_store_aos(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
     bool is_volatile = false) noexcept {
@@ -287,7 +287,7 @@ inline void coro_frame_store_aos(
 }
 
 [[nodiscard]] inline auto coro_frame_load_aos(
-    const CoroFrameDesc *desc, const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
     bool is_volatile = false) noexcept {
@@ -307,7 +307,7 @@ inline void coro_frame_store_aos(
 }
 
 inline void coro_frame_store_soa(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
     bool is_volatile = false) noexcept {
@@ -324,7 +324,7 @@ inline void coro_frame_store_soa(
 }
 
 [[nodiscard]] inline auto coro_frame_load_soa(
-    const CoroFrameDesc *desc, const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
     bool is_volatile = false) noexcept {
@@ -357,7 +357,7 @@ inline void coro_frame_store_soa(
 }
 
 inline void coro_frame_store_runtime_soa(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     Expr<uint> capacity, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
@@ -378,7 +378,7 @@ inline void coro_frame_store_runtime_soa(
 }
 
 [[nodiscard]] inline auto coro_frame_load_runtime_soa(
-    const CoroFrameDesc *desc, const Var<ByteBuffer> &buffer,
+    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer,
     Expr<uint> frame_index, Expr<uint> capacity,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
@@ -404,7 +404,7 @@ inline void coro_frame_store_runtime_soa(
 }
 
 inline void coro_frame_store(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
     bool is_volatile = false) noexcept {
@@ -416,7 +416,7 @@ inline void coro_frame_store(
 }
 
 inline void coro_frame_store(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     Expr<uint> soa_capacity, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
@@ -433,7 +433,7 @@ inline void coro_frame_store(
 }
 
 [[nodiscard]] inline auto coro_frame_load(
-    const CoroFrameDesc *desc, const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
     bool is_volatile = false) noexcept {
@@ -443,7 +443,7 @@ inline void coro_frame_store(
 }
 
 [[nodiscard]] inline auto coro_frame_load(
-    const CoroFrameDesc *desc, const Var<ByteBuffer> &buffer,
+    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer,
     Expr<uint> frame_index, Expr<uint> soa_capacity,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
@@ -459,7 +459,7 @@ inline void coro_frame_store(
 
 template<typename T>
 [[nodiscard]] inline auto coro_frame_read_field(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout, bool soa, size_t field_index) noexcept {
     auto offset = def(static_cast<uint>(layout.field_offsets[field_index]));
     offset += frame_index * static_cast<uint>(soa ? layout.field_strides[field_index] : layout.frame_stride);
@@ -468,7 +468,7 @@ template<typename T>
 
 template<typename V>
 inline void coro_frame_write_field(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout, bool soa, size_t field_index, V &&value) noexcept {
     auto offset = def(static_cast<uint>(layout.field_offsets[field_index]));
     offset += frame_index * static_cast<uint>(soa ? layout.field_strides[field_index] : layout.frame_stride);
@@ -477,7 +477,7 @@ inline void coro_frame_write_field(
 
 template<typename T>
 [[nodiscard]] inline auto coro_frame_read_field(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     Expr<uint> soa_capacity, const CoroFrameStorageLayout &layout,
     bool soa, size_t field_index) noexcept {
     if (soa) {
@@ -491,7 +491,7 @@ template<typename T>
 
 template<typename V>
 inline void coro_frame_write_field(
-    const Var<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     Expr<uint> soa_capacity, const CoroFrameStorageLayout &layout,
     bool soa, size_t field_index, V &&value) noexcept {
     if (soa) {

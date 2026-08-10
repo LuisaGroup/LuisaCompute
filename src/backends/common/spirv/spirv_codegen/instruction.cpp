@@ -3,6 +3,7 @@
 #include "arithmetic_support.h"
 #include "texture_sampling.h"
 #include <luisa/core/logging.h>
+#include <luisa/xir/passes/integer_alignment.h>
 #include <SPIRV/GLSL.std.450.h>
 #include <algorithm>
 #include <limits>
@@ -1842,6 +1843,23 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(
     return id;
 }
 
+size_t SpirvCodegenEntry::_direct_buffer_bias_alignment(
+    const xir::Value *resource) const noexcept {
+    if (resource == nullptr || !resource->isa<xir::Argument>()) {
+        return 1u;
+    }
+    auto *argument = static_cast<const xir::Argument *>(resource);
+    if (auto iter = _bound_direct_buffer_bias_alignments.find(argument);
+        iter != _bound_direct_buffer_bias_alignments.end()) {
+        return iter->second;
+    }
+    if (auto origin = _readonly_resource_origins.find(argument);
+        origin != _readonly_resource_origins.end()) {
+        return _direct_buffer_bias_alignment(origin->second);
+    }
+    return 1u;
+}
+
 spv::Id SpirvCodegenEntry::_resolve_writable_resource(
     const xir::Value *resource) noexcept {
     LUISA_ASSERT(resource != nullptr && resource->type() != nullptr &&
@@ -3582,7 +3600,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id byte_o
     return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, raw);
 }
 
-spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access) noexcept {
+spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access, size_t byte_index_alignment) noexcept {
     auto typed_buffer = buffer_type != nullptr && buffer_type->is_buffer() &&
                         buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type);
     if (typed_buffer) {
@@ -3631,7 +3649,9 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
     auto index_width = _builder.getScalarTypeWidth(index_type);
     auto address_type = index_width > 32 ? _builder.makeUintType(64) : _builder.makeUintType(32);
     auto byte_offset = _ensure_type(index, address_type);
-    auto byte_alignment = size_t{1u};
+    auto byte_alignment = index_unit == BufferIndexUnit::BYTE ?
+                              byte_index_alignment :
+                              size_t{1u};
     if (index_unit == BufferIndexUnit::ELEMENT) {
         byte_offset = _builder.createBinOp(
             spv::Op::OpIMul, address_type, byte_offset,
@@ -3645,9 +3665,10 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
         // The Vulkan argument preprocessor validates direct typed-buffer
         // offsets and sizes as exact multiples of the logical element stride.
         // The runtime bias is therefore at least as aligned as the element
-        // access planned above. Byte-buffer accesses start with alignment one
-        // and remain conservative. The host separately proves the padded
-        // descriptor tail needed by a genuinely cross-word access.
+        // access planned above. Byte-buffer callers combine their XIR offset
+        // proof with an independently established descriptor-bias proof; an
+        // unbound view contributes alignment one. The host separately proves
+        // the padded descriptor tail needed by a cross-word access.
     }
     return _emit_buffer_read_impl(buffer, byte_offset, read_type, byte_alignment, memory_access);
 }
@@ -3882,7 +3903,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id byte_off
     }
 }
 
-void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access) noexcept {
+void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access, size_t byte_index_alignment) noexcept {
     auto typed_buffer = buffer_type != nullptr && buffer_type->is_buffer() &&
                         buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type);
     if (typed_buffer) {
@@ -3933,7 +3954,9 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
     auto index_width = _builder.getScalarTypeWidth(index_type);
     auto address_type = index_width > 32 ? _builder.makeUintType(64) : _builder.makeUintType(32);
     auto byte_offset = _ensure_type(index, address_type);
-    auto byte_alignment = size_t{1u};
+    auto byte_alignment = index_unit == BufferIndexUnit::BYTE ?
+                              byte_index_alignment :
+                              size_t{1u};
     if (index_unit == BufferIndexUnit::ELEMENT) {
         byte_offset = _builder.createBinOp(
             spv::Op::OpIMul, address_type, byte_offset,
@@ -3946,7 +3969,7 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
         byte_offset = _add_direct_buffer_bias(buffer, byte_offset);
         // Direct typed-buffer metadata preserves the logical element-stride
         // alignment proved by storage_buffer_descriptor_range(). Byte-buffer
-        // writes retain their initial alignment-one contract.
+        // callers have already intersected the index and runtime-bias facts.
     }
     _emit_buffer_write_impl(buffer, byte_offset, value, value_type, byte_alignment, memory_access);
 }
@@ -3975,7 +3998,14 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
         case xir::ResourceReadOp::BYTE_BUFFER_READ: {
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _emit_value(inst->operand(1));
-            id = _emit_buffer_read(buffer, byte_index, inst->type(), nullptr, BufferIndexUnit::BYTE);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            id = _emit_buffer_read(
+                buffer, byte_index, inst->type(), nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::MaskNone, byte_alignment);
             break;
         }
         case xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ: {
@@ -3984,7 +4014,14 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
                                              spv::MemorySemanticsMask::AcquireRelease);
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _emit_value(inst->operand(1));
-            id = _emit_buffer_read(buffer, byte_index, inst->type(), nullptr, BufferIndexUnit::BYTE, spv::MemoryAccessMask::Volatile);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            id = _emit_buffer_read(
+                buffer, byte_index, inst->type(), nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::Volatile, byte_alignment);
             break;
         }
         case xir::ResourceReadOp::TEXTURE2D_READ:
@@ -4110,7 +4147,14 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto byte_index = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
             auto value_type = inst->operand(2)->type();
-            _emit_buffer_write(buffer, byte_index, value, value_type, nullptr, BufferIndexUnit::BYTE);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            _emit_buffer_write(
+                buffer, byte_index, value, value_type, nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::MaskNone, byte_alignment);
             break;
         }
         case xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE: {
@@ -4118,7 +4162,14 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto byte_index = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
             auto value_type = inst->operand(2)->type();
-            _emit_buffer_write(buffer, byte_index, value, value_type, nullptr, BufferIndexUnit::BYTE, spv::MemoryAccessMask::Volatile);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            _emit_buffer_write(
+                buffer, byte_index, value, value_type, nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::Volatile, byte_alignment);
             _builder.createMemoryBarrier(spv::Scope::Device,
                                          spv::MemorySemanticsAllMemory |
                                              spv::MemorySemanticsMask::AcquireRelease);

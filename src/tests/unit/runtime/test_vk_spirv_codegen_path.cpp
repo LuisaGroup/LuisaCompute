@@ -3324,6 +3324,14 @@ OpName %8 "Fma"
     };
 
     "vk_user_compute_unaligned_byte_buffer_cross_word_io"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_unaligned_byte_buffer"};
+        ScopedSourceDump source_dump;
+
         constexpr auto byte_count = 24u;
         auto dc = luisa::test::create_device(argc, argv);
         auto bytes = dc.device.create_byte_buffer(byte_count);
@@ -3380,6 +3388,73 @@ OpName %8 "Fma"
             << "unaligned scalar/vector reads must reconstruct every crossed word exactly";
         expect(result_bytes == expected_bytes)
             << "unaligned scalar/vector writes must preserve every surrounding canary byte";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the unaligned byte-buffer fixture should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "AtomicCompareExchange") >= 1u)
+                << "an unbound byte-buffer argument with unaligned accesses must "
+                   "retain masked CAS writes";
+        }
+    };
+
+    "vk_user_compute_captured_aligned_byte_buffer_uses_direct_words"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_captured_aligned_byte_buffer"};
+        ScopedSourceDump source_dump;
+
+        constexpr auto frame_capacity = 7u;
+        constexpr auto field_capacity_stride = 12u;
+        constexpr auto frame_stride = 4u;
+        constexpr auto dispatch_size = 8u;
+        constexpr auto byte_count =
+            frame_capacity * field_capacity_stride +
+            dispatch_size * frame_stride;
+        auto dc = luisa::test::create_device(argc, argv);
+        auto bytes = dc.device.create_byte_buffer(byte_count);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [&bytes](UInt capacity) noexcept {
+            auto byte_offset =
+                capacity * 12u + dispatch_x() * 4u;
+            bytes->write(byte_offset, 0x10203040u + dispatch_x());
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint8_t, byte_count> source{};
+        std::array<uint8_t, byte_count> result{};
+        auto expected = source;
+        for (auto i = 0u; i < dispatch_size; ++i) {
+            auto value = 0x10203040u + i;
+            auto offset = frame_capacity * field_capacity_stride +
+                          i * frame_stride;
+            std::memcpy(expected.data() + offset, &value, sizeof(value));
+        }
+        stream << bytes.copy_from(source.data())
+               << shader(frame_capacity).dispatch(dispatch_size)
+               << bytes.copy_to(result.data())
+               << synchronize();
+
+        expect(result == expected)
+            << "captured aligned byte-buffer writes must preserve the SoA address contract";
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the captured aligned byte-buffer fixture should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "AtomicCompareExchange") == 0u)
+                << "a zero-bias captured byte buffer plus a four-byte-aligned "
+                   "XIR offset must lower to direct word stores";
+        }
     };
 
     "vk_user_compute_volatile_buffer_is_coherent"_test = [&] {

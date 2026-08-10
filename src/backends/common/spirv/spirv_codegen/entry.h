@@ -146,6 +146,12 @@ private:
         _functions_requiring_dispatch_metadata;
     size_t _buffer_metadata_offset{0u};
     luisa::unordered_map<spv::Id, uint32_t> _direct_buffer_metadata_indices;
+    // A bound direct byte-buffer view has a compile-time logical offset. The
+    // Vulkan descriptor base is at least uint32-aligned, so gcd(offset, 4)
+    // also divides its runtime descriptor-relative bias. Unbound resources
+    // deliberately have no entry: their view offset remains runtime data.
+    luisa::unordered_map<const xir::Argument *, size_t>
+        _bound_direct_buffer_bias_alignments;
     luisa::unordered_map<spv::Id, spv::Id> _bindless_buffer_metadata_ids;
     bool _use_tex2d_bindless{false};
     bool _use_tex3d_bindless{false};
@@ -321,9 +327,9 @@ private:
     [[nodiscard]] BindlessTextureBinding _load_bindless_texture_binding(
         spv::Id bindless_array, const xir::Value *slot,
         bool is_2d, xir::BindlessResourceAccess access) noexcept;
-    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
+    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone, size_t byte_index_alignment = 1u) noexcept;
     spv::Id _emit_buffer_read_impl(spv::Id buffer, spv::Id byte_offset, const Type *elem_type, size_t byte_alignment, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
-    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
+    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone, size_t byte_index_alignment = 1u) noexcept;
     void _emit_buffer_write_impl(spv::Id buffer, spv::Id byte_offset, spv::Id value, const Type *elem_type, size_t byte_alignment, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
     void _emit_buffer_write_word_masked(spv::Id buffer, spv::Id word_index, spv::Id value, spv::Id mask) noexcept;
     [[nodiscard]] spv::Id _load_direct_buffer_metadata(
@@ -333,6 +339,8 @@ private:
         spv::Id bindless_array, spv::Id slot_index,
         StorageBufferMetadataField field,
         spv::Id target_type) noexcept;
+    [[nodiscard]] size_t _direct_buffer_bias_alignment(
+        const xir::Value *resource) const noexcept;
     [[nodiscard]] spv::Id _add_direct_buffer_bias(
         spv::Id buffer, spv::Id byte_offset) noexcept;
     [[nodiscard]] spv::Id _add_bindless_buffer_bias(

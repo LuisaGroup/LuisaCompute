@@ -123,6 +123,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/restructure_cfg_loop_boundary.cpp
         passes/restructure_cfg_selection_merge.cpp
         passes/scalar_evolution.cpp
+        passes/integer_alignment.cpp
         passes/gvn.cpp
         passes/phi_cleanup.cpp
         passes/if_conversion.cpp
