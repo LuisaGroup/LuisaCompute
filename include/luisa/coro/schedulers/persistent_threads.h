@@ -5,6 +5,7 @@
 #pragma once
 
 #include <luisa/coro/coro_frame_storage.h>
+#include <luisa/coro/schedulers/detail/token_index.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/dsl/shared.h>
@@ -13,6 +14,8 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
+
+#include <limits>
 
 namespace luisa::compute::coro {
 
@@ -36,13 +39,56 @@ private:
     Config _config;
     Shader1D<Buffer<uint>, ByteBuffer, uint3, Args...> _pt_shader;
     Shader1D<Buffer<uint>> _clear_shader;
-    Shader1D<ByteBuffer, uint> _clear_global_frames_shader;
     Buffer<uint> _global;
     ByteBuffer _global_frames;
     CoroFrameStorageLayout _global_frame_layout;
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
 
+private:
+    [[nodiscard]] static Config _normalize_config(
+        Config config, size_t subroutine_count) noexcept {
+        constexpr auto uint_max = std::numeric_limits<uint>::max();
+        LUISA_ASSERT(config.thread_count != 0u,
+                     "Persistent coroutine worker count must be positive.");
+        LUISA_ASSERT(config.block_size != 0u,
+                     "Persistent coroutine block size must be positive.");
+        LUISA_ASSERT(config.fetch_size != 0u,
+                     "Persistent coroutine fetch size must be positive.");
+        LUISA_ASSERT(subroutine_count != 0u && subroutine_count <= uint_max,
+                     "Persistent coroutine subroutine count ({}) is outside the supported uint range.",
+                     subroutine_count);
+
+        auto aligned_thread_count =
+            (static_cast<uint64_t>(config.thread_count) + config.block_size - 1u) /
+            config.block_size * config.block_size;
+        LUISA_ASSERT(aligned_thread_count <= uint_max,
+                     "Persistent coroutine worker count ({}) cannot be aligned to block size ({}) "
+                     "without overflowing uint.",
+                     config.thread_count, config.block_size);
+        config.thread_count = static_cast<uint>(aligned_thread_count);
+
+        auto fetch_count =
+            static_cast<uint64_t>(config.block_size) * config.fetch_size;
+        LUISA_ASSERT(fetch_count <= uint_max,
+                     "Persistent coroutine fetch batch ({} * {}) overflows uint.",
+                     config.block_size, config.fetch_size);
+        if (config.global_memory_ext) {
+            auto total_queue_size =
+                static_cast<uint64_t>(config.block_size) * subroutine_count;
+            auto global_frame_capacity =
+                static_cast<uint64_t>(config.thread_count) * (subroutine_count - 1u);
+            LUISA_ASSERT(total_queue_size <= uint_max,
+                         "Persistent coroutine block queue size ({} * {}) overflows uint.",
+                         config.block_size, subroutine_count);
+            LUISA_ASSERT(global_frame_capacity <= uint_max,
+                         "Persistent coroutine global frame capacity ({} * {}) overflows uint.",
+                         config.thread_count, subroutine_count - 1u);
+        }
+        return config;
+    }
+
+private:
     void _prepare(Device &device, const Coro &coro) noexcept {
         _global = device.create_buffer<uint>(1u);
         auto q_fac = 1u;
@@ -59,8 +105,9 @@ private:
             _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
             _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
         }
+        auto token_to_index = detail::make_coro_token_index_callable(coro);
 
-        Kernel1D main_kernel = [this, &coro, q_fac, g_fac,
+        Kernel1D main_kernel = [this, &coro, &token_to_index, q_fac, g_fac,
                                 input_fields = _input_fields,
                                 output_fields = _output_fields,
                                 global_layout = _global_frame_layout](
@@ -73,17 +120,6 @@ private:
             auto total_queue_size = _config.global_memory_ext ?
                                         shared_queue_size + global_queue_size :
                                         shared_queue_size;
-            auto token_to_index = [&](UInt target_token) noexcept {
-                auto next = def(0u);
-                $if (target_token != CoroFrame::TERMINAL_TOKEN) {
-                    for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
-                        $if (target_token == coro.trigger_token(i)) {
-                            next = static_cast<uint>(i);
-                        };
-                    }
-                };
-                return next;
-            };
             auto dispatch_id_from_linear = [&](UInt global_index) noexcept {
                 auto index_z = global_index / dispatch_size_prefix_product.y;
                 auto index_xy = global_index - index_z * dispatch_size_prefix_product.y;
@@ -114,18 +150,19 @@ private:
                 }
             }
             if (_config.global_memory_ext) {
-                for (auto index = 0u; index < g_fac; index++) {
+                $for (index, 0u, g_fac) {
                     auto s = shared_queue_size + index * _config.block_size + thread_x();
                     all_token[s] = 0u;
-                }
-            }
-            $if (thread_x() < subroutine_count) {
-                $if (thread_x() == 0u) {
-                    work_counter[0u] = total_queue_size;
-                }
-                $else {
-                    work_counter[thread_x()] = 0u;
                 };
+            }
+            // A scheduler is not restricted to at most one continuation per
+            // worker in a block. Initialize and reduce the complete counter
+            // domain with a block-strided loop.
+            $for (i, thread_x(), subroutine_count, _config.block_size) {
+                work_counter[i] = 0u;
+            };
+            $if (thread_x() == 0u) {
+                work_counter[0u] = total_queue_size;
             };
             $if (thread_x() == 0u) {
                 workload[0u] = 0u;
@@ -157,20 +194,23 @@ private:
                 };
                 sync_block();
 
-                $if (thread_x() < subroutine_count) {
-                    $if (workload[0u] < workload[1u] | thread_x() != 0u) {
-                        auto count = work_counter[thread_x()];
+                $for (i, thread_x(), subroutine_count, _config.block_size) {
+                    $if (workload[0u] < workload[1u] | i != 0u) {
+                        auto count = work_counter[i];
                         $if (count != 0u) {
-                            rem_local[0u] = 1u;
+                            rem_local.atomic(0u).fetch_or(1u);
                             work_stat.atomic(0u).fetch_max(count);
                         };
                     };
                 };
                 sync_block();
-                $if (thread_x() < subroutine_count) {
-                    auto count = work_counter[thread_x()];
-                    $if (work_stat[0u] == count & (workload[0u] < workload[1u] | thread_x() != 0u)) {
-                        work_stat[1u] = thread_x();
+                $for (i, thread_x(), subroutine_count, _config.block_size) {
+                    auto count = work_counter[i];
+                    $if (work_stat[0u] == count & (workload[0u] < workload[1u] | i != 0u)) {
+                        // Equal-size classes are semantically interchangeable.
+                        // Pick the lowest index atomically to avoid a shared-memory
+                        // data race and make the schedule deterministic.
+                        work_stat.atomic(1u).fetch_min(i);
                     };
                 };
                 sync_block();
@@ -205,7 +245,10 @@ private:
                     }
                     sync_block();
                     $if (shared_queue_size - work_offset[0u] < _config.block_size) {
-                        for (auto index = 0u; index < g_fac; index++) {
+                        // `g_fac` grows with the continuation count. This is a
+                        // device loop by design: host unrolling duplicates the
+                        // complete frame spill/restore path once per continuation.
+                        $for (index, 0u, g_fac) {
                             auto global_queue_id = index * _config.block_size + thread_x();
                             auto global_token_index = shared_queue_size + global_queue_id;
                             auto coro_token = def(all_token[global_token_index]);
@@ -237,7 +280,7 @@ private:
                                     };
                                 };
                             };
-                        }
+                        };
                     };
                 }
 
@@ -304,27 +347,28 @@ private:
             g.write(dispatch_x(), 0u);
         }, detail::coro_scheduler_shader_option(
                _config.shader_option, "persistent_clear"));
-        _clear_global_frames_shader = device.compile<1>([](ByteBufferVar buffer, UInt word_count) {
-            auto x = dispatch_x();
-            $if (x < word_count) {
-                buffer.write(x * 4u, 0u);
-            };
-        }, detail::coro_scheduler_shader_option(
-               _config.shader_option, "persistent_clear_global_frames"));
     }
 
     void _dispatch(
         Stream &stream, uint3 dispatch_size,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
+        auto prefix_y =
+            static_cast<uint64_t>(dispatch_size.x) * dispatch_size.y;
+        auto logical_dispatch_size = prefix_y * dispatch_size.z;
+        if (logical_dispatch_size == 0u) { return; }
+        LUISA_ASSERT(logical_dispatch_size <= std::numeric_limits<uint>::max(),
+                     "Persistent coroutine logical dispatch size ({} x {} x {}) exceeds uint capacity.",
+                     dispatch_size.x, dispatch_size.y, dispatch_size.z);
         auto dispatch_size_prefix_product = make_uint3(
             dispatch_size.x,
-            dispatch_size.x * dispatch_size.y,
-            dispatch_size.x * dispatch_size.y * dispatch_size.z);
+            static_cast<uint>(prefix_y),
+            static_cast<uint>(logical_dispatch_size));
         stream << _clear_shader(_global).dispatch(1u);
-        if (_config.global_memory_ext) {
-            auto word_count = static_cast<uint>((_global_frame_layout.size_bytes + sizeof(uint) - 1u) / sizeof(uint));
-            stream << _clear_global_frames_shader(_global_frames, word_count).dispatch(word_count);
-        }
+        // Global frames are reachable only through this dispatch's shared
+        // `all_token` table, which is initialized to the empty token. Every
+        // non-empty token is published only after its frame has been stored, so
+        // stale bytes from a previous dispatch are unobservable and need not be
+        // cleared.
         // The configured thread count is the scheduler's worker-capacity ceiling.
         // Launching more workers than logical coroutine instances only creates idle
         // workgroups contending on the global work counter. Keep a complete final
@@ -341,8 +385,7 @@ public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
 
     PersistentThreadsCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
-        : _config{config} {
-        _config.thread_count = luisa::align(_config.thread_count, _config.block_size);
+        : _config{_normalize_config(config, coro.subroutine_count())} {
         _prepare(device, coro);
     }
     PersistentThreadsCoroScheduler(Device &device, const Coro &coro) noexcept

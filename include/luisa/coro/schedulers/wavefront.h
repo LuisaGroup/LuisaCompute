@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include <luisa/coro/coro_frame_storage.h>
+#include <luisa/coro/schedulers/detail/token_index.h>
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/coro/radix_sort.h>
 #include <luisa/core/clock.h>
@@ -194,17 +195,7 @@ private:
             _sort_temp_storage = radix_sort::temp_storage{device, _config.thread_count, max_digit};
         }
 
-        auto token_to_index = [&coro](UInt target_token) noexcept {
-            auto next = def(0u);
-            $if (target_token != CoroFrame::TERMINAL_TOKEN) {
-                for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
-                    $if (target_token == coro.trigger_token(i)) {
-                        next = static_cast<uint>(i);
-                    };
-                }
-            };
-            return next;
-        };
+        auto token_to_index = detail::make_coro_token_index_callable(coro);
         Callable<uint(uint, ByteBuffer)> read_scheduler_token = [layout = _frame_layout, soa = _config.global_memory_soa](
                                                                     UInt index, ByteBufferVar frame_buf) noexcept {
             return coro_frame_read_field<uint>(frame_buf, index, layout, soa, 6u);

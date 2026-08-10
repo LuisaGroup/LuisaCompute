@@ -190,6 +190,80 @@ void reg_coro_persistent(luisa::test::coro_test::Options options) {
         }
         expect(ok) << "persistent scheduler must preserve logical dispatch id across suspension";
     };
+
+    "persistent_more_continuations_than_block_threads"_test = [options] {
+        constexpr uint N = 37u;
+        constexpr uint block_size = 32u;
+        constexpr uint suspend_count = block_size + 1u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
+            auto tid = dispatch_x();
+            auto value = tid * 11u;
+            for (auto i = 0u; i < suspend_count; i++) {
+                value += i + 1u;
+                auto name = luisa::format("s{}", i);
+                $suspend(name.c_str());
+            }
+            buf.write(tid, value);
+        });
+        expect(coro.subroutine_count() > block_size)
+            << "the regression must cover more counters than block threads";
+
+        for (auto global_memory_ext : {false, true}) {
+            luisa::vector<uint> zero(N);
+            stream << output.copy_from(luisa::span{zero}) << synchronize();
+            PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{
+                device, coro,
+                PersistentThreadsCoroSchedulerConfig{
+                    .thread_count = 64u,
+                    .block_size = block_size,
+                    .fetch_size = 3u,
+                    .shared_memory_soa = true,
+                    .global_memory_ext = global_memory_ext}};
+            scheduler(output).dispatch(N)(stream);
+
+            luisa::vector<uint> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+            auto correct = true;
+            for (auto i = 0u; i < N; i++) {
+                correct &= host[i] == i * 11u +
+                                           suspend_count * (suspend_count + 1u) / 2u;
+            }
+            expect(correct)
+                << "all continuation counters must be initialized and scheduled "
+                   "even when their count exceeds the block size";
+        }
+    };
+
+    "persistent_zero_sized_dispatch_is_noop"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(1u);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
+            $suspend("resume");
+            buf.write(0u, 0u);
+        });
+        PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{
+            device, coro,
+            PersistentThreadsCoroSchedulerConfig{
+                .thread_count = 32u,
+                .block_size = 32u,
+                .global_memory_ext = true}};
+
+        uint value = 0x12345678u;
+        stream << output.copy_from(luisa::span{&value, 1u});
+        scheduler(output).dispatch(0u)(stream);
+        stream << output.copy_to(luisa::span{&value, 1u}) << synchronize();
+        expect(value == 0x12345678u)
+            << "a zero-sized logical dispatch must enqueue no scheduler work";
+    };
 }
 
 int main(int argc, char *argv[]) {
