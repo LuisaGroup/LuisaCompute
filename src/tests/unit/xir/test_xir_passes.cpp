@@ -66,6 +66,7 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -2386,6 +2387,59 @@ void reg_dce() {
         b.return_void();
         auto info = dce_pass_run_on_function(k);
         expect(info.removed_inst_count == 0u);
+    };
+
+    "dce_preserves_live_coroutine_resume_and_removes_dead_token_pair"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *entry = callable->create_body_block();
+        auto *dead_suspend = callable->create_basic_block();
+        auto *dead_resume = callable->create_basic_block();
+        auto *live_suspend = callable->create_basic_block();
+        auto *live_resume = callable->create_basic_block();
+        constexpr uint32_t dead_token = 17u;
+        constexpr uint32_t live_token = 91u;
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.cond_br(
+            module.create_constant_zero(Type::of<bool>()),
+            dead_suspend, live_suspend);
+        builder.set_insertion_point(dead_suspend);
+        builder.coro_suspend(dead_token, "dead", nullptr);
+        builder.set_insertion_point(dead_resume);
+        builder.coro_resume(dead_token, nullptr);
+        builder.br(live_suspend);
+        builder.set_insertion_point(live_suspend);
+        builder.coro_suspend(live_token, "live", nullptr);
+        builder.set_insertion_point(live_resume);
+        builder.coro_resume(live_token, nullptr);
+        builder.coro_terminate();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = dce_pass_run_on_function(callable);
+        expect(info.removed_block_count == 2u)
+            << "DCE must remove the dead suspend/resume component only";
+        expect(xir_verify_module(&module).succeeded());
+        auto suspend_count = size_t{0u};
+        auto resume_count = size_t{0u};
+        // Resume blocks are semantic successors of suspend tokens, not
+        // ordinary CFG successors, so inspect the owned block set here.
+        for (auto *block : callable->basic_blocks()) {
+            for (auto *instruction : block->instructions()) {
+                if (instruction->isa<CoroSuspendInst>()) {
+                    ++suspend_count;
+                    expect(static_cast<CoroSuspendInst *>(instruction)->token() ==
+                           live_token);
+                } else if (instruction->isa<CoroResumeInst>()) {
+                    ++resume_count;
+                    expect(static_cast<CoroResumeInst *>(instruction)->token() ==
+                           live_token);
+                }
+            }
+        }
+        expect(suspend_count == 1u);
+        expect(resume_count == 1u);
     };
 
     "dce_reports_inserted_terminator_and_is_idempotent"_test = [] {

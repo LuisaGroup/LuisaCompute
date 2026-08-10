@@ -212,6 +212,63 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatch complete");
         expect_filled(host, 33u, "cross_3suspend_persistent");
     };
+
+    "dead_suspend_keeps_sparse_callable_token_pairing"_test = [options, expect_filled] {
+        constexpr uint N = 64u;
+        constexpr uint dead_token = 17u;
+        constexpr uint live_token = 91u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto tid = dispatch_x();
+            $if (Expr<bool>{false}) {
+                $suspend(dead_token, "dead");
+            };
+            $suspend(live_token, "live");
+            output.write(tid, tid + 73u);
+        });
+
+        expect(coro.subroutine_count() == 2u)
+            << "only entry and the live sparse-token continuation may be lowered";
+        expect(coro.graph().node_count() == coro.subroutine_count());
+        expect(coro.graph().node_by_token(dead_token) == nullptr)
+            << "a suspend in unreachable control flow must have no graph node/callable";
+        expect(coro.graph().node_by_token(live_token) != nullptr);
+        expect(coro.trigger_token(0u) == 0u);
+        expect(coro.trigger_token(1u) == live_token)
+            << "the live callable must retain its sparse front-end token";
+
+        auto clear_and_check = [&](auto &&dispatch, luisa::string_view label) {
+            luisa::vector<uint> zero(N);
+            stream << output.copy_from(luisa::span{zero});
+            dispatch();
+            luisa::vector<uint> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+            expect_filled(host, 73u, label);
+        };
+
+        StateMachineCoroScheduler<Buffer<uint>> state_machine{device, coro};
+        clear_and_check(
+            [&] { state_machine(output).dispatch(N)(stream); },
+            "dead_suspend_sparse_token_state_machine");
+
+        WavefrontCoroScheduler<Buffer<uint>> wavefront{device, coro};
+        clear_and_check(
+            [&] { wavefront(output).dispatch(N)(stream); },
+            "dead_suspend_sparse_token_wavefront");
+
+        PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
+            device, coro,
+            PersistentThreadsCoroSchedulerConfig{
+                .thread_count = N, .block_size = N}};
+        clear_and_check(
+            [&] { persistent(output).dispatch(N)(stream); },
+            "dead_suspend_sparse_token_persistent");
+    };
 }
 
 int main(int argc, char *argv[]) {

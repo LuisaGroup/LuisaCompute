@@ -4,6 +4,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/loop.h>
@@ -12,6 +13,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 
@@ -236,6 +238,66 @@ void reg_simplify_cfg() {
         auto info = simplify_cfg_pass_run_on_function(k);
         expect(info.removed_unreachable_block_count == 1u);
         expect(count_blocks(def) == 1u);
+    };
+
+    "remove_dead_coroutine_suspend_resume_pair_but_keep_live_sparse_token"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *entry = callable->create_body_block();
+        auto *dead_suspend = callable->create_basic_block();
+        auto *dead_resume = callable->create_basic_block();
+        auto *live_suspend = callable->create_basic_block();
+        auto *live_resume = callable->create_basic_block();
+        constexpr uint32_t dead_token = 17u;
+        constexpr uint32_t live_token = 91u;
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.cond_br(
+            module.create_constant_zero(Type::of<bool>()),
+            dead_suspend, live_suspend);
+        builder.set_insertion_point(dead_suspend);
+        builder.coro_suspend(dead_token, "dead", nullptr);
+        builder.set_insertion_point(dead_resume);
+        builder.coro_resume(dead_token, nullptr);
+        builder.br(live_suspend);
+        builder.set_insertion_point(live_suspend);
+        builder.coro_suspend(live_token, "live", nullptr);
+        builder.set_insertion_point(live_resume);
+        builder.coro_resume(live_token, nullptr);
+        builder.coro_terminate();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = simplify_cfg_pass_run_on_function(callable);
+        expect(info.folded_constant_cond_br_count == 1u);
+        expect(info.removed_unreachable_block_count == 2u)
+            << "the untaken suspend and its semantic resume successor must be removed together";
+        expect(xir_verify_module(&module).succeeded());
+
+        auto suspend_count = size_t{0u};
+        auto resume_count = size_t{0u};
+        // Resume blocks are semantic successors of suspend tokens, not
+        // ordinary CFG successors, so inspect the owned block set here.
+        for (auto *block : callable->basic_blocks()) {
+            for (auto *instruction : block->instructions()) {
+                if (instruction->isa<CoroSuspendInst>()) {
+                    ++suspend_count;
+                    expect(static_cast<CoroSuspendInst *>(instruction)->token() ==
+                           live_token);
+                } else if (instruction->isa<CoroResumeInst>()) {
+                    ++resume_count;
+                    expect(static_cast<CoroResumeInst *>(instruction)->token() ==
+                           live_token);
+                }
+            }
+        }
+        expect(suspend_count == 1u);
+        expect(resume_count == 1u);
+        auto cfg = coro_cfg_distill_pass_run_on_function(callable);
+        expect(cfg.succeeded());
+        expect(cfg.scopes.size() == 2u);
+        expect(cfg.scopes[0u].trigger_token == 0u);
+        expect(cfg.scopes[1u].trigger_token == live_token);
     };
 
     "remove_unreachable_cfg_cycle_detaches_before_release"_test = [] {

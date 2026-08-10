@@ -1,4 +1,5 @@
 #include <luisa/coro/coro_graph.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
@@ -95,8 +96,27 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
 
     luisa::vector<const xir::CallableFunction *> callables(cfg.scopes.size(), nullptr);
     for (auto &subroutine : split.subroutines) {
-        if (subroutine.scope_index < callables.size()) {
-            callables[subroutine.scope_index] = subroutine.callable;
+        LUISA_ASSERT(
+            subroutine.scope_index < callables.size() &&
+                callables[subroutine.scope_index] == nullptr &&
+                subroutine.callable != nullptr &&
+                subroutine.trigger_token ==
+                    cfg.scopes[subroutine.scope_index].trigger_token,
+            "CoroGraph received inconsistent split metadata for scope {}.",
+            subroutine.scope_index);
+        callables[subroutine.scope_index] = subroutine.callable;
+    }
+    if (!split.subroutines.empty()) {
+        LUISA_ASSERT(
+            split.subroutines.size() == cfg.scopes.size(),
+            "CoroGraph received {} callable(s) for {} scope(s).",
+            split.subroutines.size(), cfg.scopes.size());
+        for (size_t scope_index = 0u;
+             scope_index < callables.size(); ++scope_index) {
+            LUISA_ASSERT(
+                callables[scope_index] != nullptr,
+                "CoroGraph is missing the callable for scope {}.",
+                scope_index);
         }
     }
 
@@ -114,7 +134,11 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
 
         // Build lookup maps (use the stored node, not the moved-from local)
         auto &stored = graph._nodes.back();
-        graph._token_to_index.emplace(stored.token, i);
+        auto [_, token_inserted] =
+            graph._token_to_index.emplace(stored.token, i);
+        LUISA_ASSERT(token_inserted,
+                     "CoroGraph received duplicate trigger token {}.",
+                     stored.token);
         if (!stored.name.empty()) {
             graph._name_to_index.emplace(stored.name, i);
         }

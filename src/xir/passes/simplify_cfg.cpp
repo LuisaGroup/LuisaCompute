@@ -13,6 +13,8 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
+#include "coro_semantic_cfg.h"
+
 namespace luisa::compute::xir {
 
 namespace detail {
@@ -260,6 +262,7 @@ static void traverse_structural_successors(BasicBlock *block, Visit &&visit) noe
 }
 
 static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(FunctionDefinition *def) noexcept {
+    CoroTransferGraph coro_transfers{def};
     luisa::unordered_set<BasicBlock *> reachable;
     luisa::vector<BasicBlock *> work;
     auto add = [&](BasicBlock *block) noexcept {
@@ -270,6 +273,7 @@ static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(
         auto *block = work.back();
         work.pop_back();
         traverse_structural_successors(block, add);
+        coro_transfers.traverse_successors(block, add);
     }
     return reachable;
 }

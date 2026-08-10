@@ -10,6 +10,7 @@
 #include <luisa/xir/instructions/continue.h>
 
 #include "helpers.h"
+#include "coro_semantic_cfg.h"
 
 namespace luisa::compute::xir {
 
@@ -392,6 +393,7 @@ void traverse_executable_successors(BasicBlock *block, Visit &&visit) noexcept {
 
 [[nodiscard]] luisa::unordered_set<BasicBlock *> collect_exec_reachable_blocks(
     FunctionDefinition *definition) noexcept {
+    CoroTransferGraph coro_transfers{definition};
     luisa::unordered_set<BasicBlock *> reachable;
     luisa::unordered_set<BasicBlock *> owned;
     for (auto block : definition->basic_blocks()) { owned.emplace(block); }
@@ -409,6 +411,8 @@ void traverse_executable_successors(BasicBlock *block, Visit &&visit) noexcept {
             traverse_executable_successors(block, [&](BasicBlock *successor) noexcept {
                 add_to_work_list(successor);
             });
+            coro_transfers.traverse_successors(
+                block, add_to_work_list);
         }
     }
     return reachable;

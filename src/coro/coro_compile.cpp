@@ -56,6 +56,19 @@ void verify_coro_xir_or_error(
         auto i = xir::const_fold_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u;
     });
+    // Coro scope/token metadata must describe the executable CFG, not the
+    // front-end statement list. In particular, an AST suspend may live in a
+    // constant-dead arm while a later live suspend keeps its (now sparse)
+    // token. Fold the branch and erase the unreachable suspend/resume pair
+    // before distilling scopes so every distilled token has a lowered callable.
+    p.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    p.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.changed();
+    });
     p.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::trace_gep_pass_run_on_module(m);
         r.set("traced_gep", i.traced_gep_count);
@@ -189,19 +202,65 @@ CoroutineCompileResult compile_coroutine_pipeline(
     result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg, split_info);
     result.frame_desc.from_materialize_info(materialize_info);
 
+    // Keep continuation code and its routing token as one atomic relation.
+    // Silently skipping a failed XIR->AST translation and then independently
+    // rebuilding tokens from cfg.scopes would shift every later token onto the
+    // wrong callable. Materialization guarantees exactly one split callable per
+    // distilled scope; enforce that contract and project both vectors together
+    // in scope order.
+    LUISA_ASSERT(
+        split_info.subroutines.size() == cfg.scopes.size(),
+        "Coroutine lowering produced {} split callable(s) for {} distilled scope(s).",
+        split_info.subroutines.size(), cfg.scopes.size());
+    luisa::vector<const xir::CoroSplitInfo::Subroutine *> subroutines_by_scope(
+        cfg.scopes.size(), nullptr);
     for (auto &subroutine : split_info.subroutines) {
-        if (subroutine.callable != nullptr) {
-            auto ast = xir::xir_to_ast_translate_continuation(*subroutine.callable);
-            if (ast) {
-                result.subroutines.push_back(std::move(ast));
-            }
-        }
+        LUISA_ASSERT(
+            subroutine.scope_index < subroutines_by_scope.size(),
+            "Coroutine lowering produced out-of-range scope index {} (scope count {}).",
+            subroutine.scope_index, subroutines_by_scope.size());
+        LUISA_ASSERT(
+            subroutines_by_scope[subroutine.scope_index] == nullptr,
+            "Coroutine lowering produced duplicate callable metadata for scope {}.",
+            subroutine.scope_index);
+        LUISA_ASSERT(
+            subroutine.callable != nullptr &&
+                subroutine.callable->definition() != nullptr &&
+                subroutine.trigger_token ==
+                    cfg.scopes[subroutine.scope_index].trigger_token,
+            "Coroutine lowering produced incomplete or inconsistent callable metadata for scope {}.",
+            subroutine.scope_index);
+        subroutines_by_scope[subroutine.scope_index] = &subroutine;
     }
 
-    result.trigger_tokens.resize(cfg.scopes.size(), 0u);
-    for (size_t i = 0u; i < cfg.scopes.size(); ++i) {
-        result.trigger_tokens[i] = cfg.scopes[i].trigger_token;
+    result.subroutines.reserve(subroutines_by_scope.size());
+    result.trigger_tokens.reserve(subroutines_by_scope.size());
+    for (size_t scope_index = 0u;
+         scope_index < subroutines_by_scope.size(); ++scope_index) {
+        auto *subroutine = subroutines_by_scope[scope_index];
+        LUISA_ASSERT(
+            subroutine != nullptr,
+            "Coroutine lowering did not materialize distilled scope {}.",
+            scope_index);
+        auto ast = xir::xir_to_ast_translate_continuation(
+            *subroutine->callable);
+        LUISA_ASSERT(
+            ast != nullptr,
+            "Coroutine XIR->AST translation failed for scope {} (trigger token {}).",
+            scope_index, subroutine->trigger_token);
+        LUISA_ASSERT(
+            result.graph.node(scope_index).token ==
+                subroutine->trigger_token,
+            "Coroutine graph/callable token mismatch at scope {}.",
+            scope_index);
+        result.subroutines.emplace_back(std::move(ast));
+        result.trigger_tokens.emplace_back(subroutine->trigger_token);
     }
+    LUISA_ASSERT(
+        !result.trigger_tokens.empty() &&
+            result.trigger_tokens.front() == 0u &&
+            result.subroutines.size() == result.trigger_tokens.size(),
+        "Coroutine lowering lost the entry continuation or callable/token pairing.");
 
     return result;
 }
