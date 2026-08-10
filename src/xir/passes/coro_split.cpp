@@ -819,8 +819,11 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
             "IR was left unchanged.");
         return info;
     }
-    if (result.scopes.size() <= 1u) { return info; }
-
+    // A coroutine whose every suspend was removed by CFG optimization still
+    // has one executable entry scope. Lower that scope to a normal
+    // continuation callable as the degenerate |T_live| = 0 case; returning no
+    // subroutine here would make the front-end coroutine lose its entry and
+    // would incorrectly require every original suspend token to survive.
     auto *actual_frame_type = frame_type ? frame_type : create_frame_type(result);
     if (!validate_frame_type(actual_frame_type, result)) {
         info.invalid_cfg_error_count = 1u;

@@ -269,6 +269,58 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             [&] { persistent(output).dispatch(N)(stream); },
             "dead_suspend_sparse_token_persistent");
     };
+
+    "all_dead_suspends_lower_to_entry_only_coroutine"_test = [options, expect_filled] {
+        constexpr uint N = 64u;
+        constexpr uint dead_token = 37u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto tid = dispatch_x();
+            $if (Expr<bool>{false}) {
+                $suspend(dead_token, "dead-only");
+            };
+            output.write(tid, tid + 83u);
+        });
+
+        expect(coro.subroutine_count() == 1u)
+            << "an optimized suspend set T_live = empty must retain exactly the entry callable";
+        expect(coro.graph().node_count() == 1u);
+        expect(coro.graph().node(0u).token == 0u);
+        expect(coro.graph().node_by_token(dead_token) == nullptr);
+        expect(coro.trigger_token(0u) == 0u);
+
+        auto clear_and_check = [&](auto &&dispatch, luisa::string_view label) {
+            luisa::vector<uint> zero(N);
+            stream << output.copy_from(luisa::span{zero});
+            dispatch();
+            luisa::vector<uint> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+            expect_filled(host, 83u, label);
+        };
+
+        StateMachineCoroScheduler<Buffer<uint>> state_machine{device, coro};
+        clear_and_check(
+            [&] { state_machine(output).dispatch(N)(stream); },
+            "all_dead_suspend_state_machine");
+
+        WavefrontCoroScheduler<Buffer<uint>> wavefront{device, coro};
+        clear_and_check(
+            [&] { wavefront(output).dispatch(N)(stream); },
+            "all_dead_suspend_wavefront");
+
+        PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
+            device, coro,
+            PersistentThreadsCoroSchedulerConfig{
+                .thread_count = N, .block_size = N}};
+        clear_and_check(
+            [&] { persistent(output).dispatch(N)(stream); },
+            "all_dead_suspend_persistent");
+    };
 }
 
 int main(int argc, char *argv[]) {

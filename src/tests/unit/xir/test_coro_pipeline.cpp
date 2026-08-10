@@ -172,6 +172,100 @@ void reg_coro_pipeline() {
         expect(checked_continuations >= 2u);
         expect(all_blocks_terminated(m));
     };
+
+    "generic_pipeline_projects_only_live_sparse_suspend_tokens"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *dead_suspend = kernel->create_basic_block();
+        auto *dead_resume = kernel->create_basic_block();
+        auto *live_suspend = kernel->create_basic_block();
+        auto *live_resume = kernel->create_basic_block();
+        constexpr uint32_t dead_token = 17u;
+        constexpr uint32_t live_token = 91u;
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        b.cond_br(
+            m.create_constant_zero(Type::of<bool>()),
+            dead_suspend, live_suspend);
+        b.set_insertion_point(dead_suspend);
+        b.coro_suspend(dead_token, "dead", nullptr);
+        b.set_insertion_point(dead_resume);
+        b.coro_resume(dead_token, nullptr);
+        b.br(live_suspend);
+        b.set_insertion_point(live_suspend);
+        b.coro_suspend(live_token, "live", nullptr);
+        b.set_insertion_point(live_resume);
+        b.coro_resume(live_token, nullptr);
+        b.coro_terminate();
+
+        xir_to_ast_normalize_module(&m);
+
+        expect(count_callables(m) == 2u)
+            << "entry plus the live sparse-token continuation must be materialized; the dead token must not be";
+        for (auto *function : m.function_list()) {
+            if (!function->isa<CallableFunction>() ||
+                function->definition() == nullptr) {
+                continue;
+            }
+            for (auto *block : function->definition()->basic_blocks()) {
+                expect(block->is_terminated());
+                for (auto *inst : block->instructions()) {
+                    auto tag = inst->derived_instruction_tag();
+                    expect(tag != DerivedInstructionTag::CORO_SUSPEND);
+                    expect(tag != DerivedInstructionTag::CORO_RESUME);
+                    expect(tag != DerivedInstructionTag::CORO_TERMINATE);
+                }
+            }
+        }
+    };
+
+    "generic_pipeline_lowers_empty_live_token_set_to_entry_callable"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *dead_suspend = kernel->create_basic_block();
+        auto *dead_resume = kernel->create_basic_block();
+        auto *terminal = kernel->create_basic_block();
+        constexpr uint32_t dead_token = 37u;
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        b.cond_br(
+            m.create_constant_zero(Type::of<bool>()),
+            dead_suspend, terminal);
+        b.set_insertion_point(dead_suspend);
+        b.coro_suspend(dead_token, "dead-only", nullptr);
+        b.set_insertion_point(dead_resume);
+        b.coro_resume(dead_token, nullptr);
+        b.br(terminal);
+        b.set_insertion_point(terminal);
+        b.coro_terminate();
+
+        xir_to_ast_normalize_module(&m);
+
+        expect(count_callables(m) == 1u)
+            << "T_live = empty is a one-scope coroutine, not a failed split";
+        expect(all_blocks_terminated(m));
+        size_t continuation_count = 0u;
+        for (auto *function : m.function_list()) {
+            if (!function->isa<CallableFunction>() ||
+                function->definition() == nullptr) {
+                continue;
+            }
+            ++continuation_count;
+            for (auto *block : function->definition()->basic_blocks()) {
+                for (auto *inst : block->instructions()) {
+                    auto tag = inst->derived_instruction_tag();
+                    expect(tag != DerivedInstructionTag::CORO_SUSPEND);
+                    expect(tag != DerivedInstructionTag::CORO_RESUME);
+                    expect(tag != DerivedInstructionTag::CORO_TERMINATE);
+                }
+            }
+        }
+        expect(continuation_count == 1u);
+    };
 }
 
 int main(int argc, char *argv[]) {

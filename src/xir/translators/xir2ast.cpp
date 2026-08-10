@@ -1263,7 +1263,20 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
         }
         return i.changed();
     });
-    // Coroutine pipeline: runs only if module contains CoroSuspendInst.
+    // Structured constant branches become ordinary CFG only after
+    // destructuring. Canonicalize reachability at this exact boundary so the
+    // coroutine scope/token domain is derived from executable suspend edges,
+    // not from the original front-end statement set.
+    pipeline.add("coro-pre-distill-simplify-cfg", [](Module *m, PassReport &r) {
+        auto i = simplify_cfg_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    pipeline.add("coro-pre-distill-dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    // Coroutine pipeline: runs only for definitions that still carry a
+    // coroutine suspend/resume/terminate marker.
     // Must run after destructure_cfg (needs destructured CFG) but BEFORE
     // mem2reg/ssa-opt which may eliminate dead resume blocks.
     pipeline.add("coro-pipeline", [&preserve_generated_coro_continuations](Module *m, PassReport & /*r*/) {
@@ -1272,8 +1285,13 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
             if (auto *def = f->definition()) {
                 bool has_coro = false;
                 def->traverse_instructions([&](Instruction *inst) noexcept {
-                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
-                        has_coro = true;
+                    switch (inst->derived_instruction_tag()) {
+                        case DerivedInstructionTag::CORO_SUSPEND:
+                        case DerivedInstructionTag::CORO_RESUME:
+                        case DerivedInstructionTag::CORO_TERMINATE:
+                            has_coro = true;
+                            break;
+                        default: break;
                     }
                 });
                 if (!has_coro) { continue; }

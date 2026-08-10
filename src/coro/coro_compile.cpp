@@ -126,21 +126,14 @@ CoroutineCompileResult compile_coroutine_pipeline(
     verify_coro_xir_or_error(module.get(), "pre-distill optimization");
     pre_distill_stats.log("Coroutine pre-distill optimization");
 
-    coro_func = nullptr;
-    for (auto *f : module->function_list()) {
-        if (f->isa<xir::CallableFunction>() && f->definition() != nullptr) {
-            auto *def = f->definition();
-            bool has_coro = false;
-            def->traverse_instructions([&](xir::Instruction *inst) noexcept {
-                if (inst->derived_instruction_tag() == xir::DerivedInstructionTag::CORO_SUSPEND) { has_coro = true; }
-            });
-            if (has_coro) {
-                coro_func = f;
-                break;
-            }
-        }
-    }
-    LUISA_ASSERT(coro_func != nullptr, "coro_func lost after destructure_cfg");
+    // Keep the coroutine owner's identity across optimization. Its surviving
+    // token set is allowed to be a strict subset of the front-end token set,
+    // including the empty set. Re-discovering the owner by searching for a
+    // remaining CoroSuspendInst would reject that valid degenerate case.
+    LUISA_ASSERT(
+        coro_func->definition() != nullptr &&
+            coro_func->parent_module() == module.get(),
+        "Coroutine source definition was lost during pre-distill optimization.");
 
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
     LUISA_ASSERT(
