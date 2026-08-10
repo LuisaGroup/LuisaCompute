@@ -238,17 +238,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(12u, [](PassReport *report) noexcept {
+        check_zero_report(17u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(12u, [](PassReport *report) noexcept {
+        check_zero_report(17u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(12u, [](PassReport *report) noexcept {
+        check_zero_report(17u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(12u, [](PassReport *report) noexcept {
+        check_zero_report(17u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -6109,6 +6109,108 @@ void reg_inline() {
         expect(self_call->callee() == callee);
     };
 
+    "inline_mutually_recursive_scc_is_skipped"_test = [] {
+        Module m;
+        auto *left = m.create_callable(nullptr);
+        auto *right = m.create_callable(nullptr);
+        XIRBuilder b;
+        b.set_insertion_point(left->create_body_block());
+        auto *left_call = b.call(nullptr, right, {});
+        b.return_void();
+        b.set_insertion_point(right->create_body_block());
+        auto *right_call = b.call(nullptr, left, {});
+        b.return_void();
+
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_recursive_callable_count == 2u);
+        expect(info.recursion_analysis_function_count == 2u);
+        expect(info.recursion_analysis_call_use_visit_count == 2u);
+        expect(info.recursion_analysis_edge_count == 2u);
+        expect(info.recursion_analysis_vertex_visit_count == 4u);
+        expect(info.recursion_analysis_edge_visit_count == 4u);
+        expect(left_call->is_linked());
+        expect(right_call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_recursion_graph_ignores_non_callee_function_use"_test = [] {
+        Module m;
+        auto *payload = m.create_callable(nullptr);
+        auto *consumer = m.create_callable(nullptr);
+        consumer->create_value_argument(Type::of<int>());
+        auto *caller = m.create_callable(nullptr);
+        XIRBuilder b;
+        b.set_insertion_point(payload->create_body_block());
+        b.return_void();
+        b.set_insertion_point(consumer->create_body_block());
+        b.return_void();
+        b.set_insertion_point(caller->create_body_block());
+        // Deliberately verifier-invalid: payload is an ordinary argument use,
+        // not another call-graph edge. The recursion analysis must inspect
+        // operand identity before assigning the use to caller -> payload.
+        auto *call = b.call(nullptr, consumer, {payload});
+        b.return_void();
+
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_recursive_callable_count == 0u);
+        expect(info.rejected_malformed_call_count == 1u);
+        expect(info.recursion_analysis_function_count == 3u);
+        expect(info.recursion_analysis_call_use_visit_count == 2u);
+        expect(info.recursion_analysis_edge_count == 1u);
+        expect(info.recursion_analysis_vertex_visit_count == 6u);
+        expect(info.recursion_analysis_edge_visit_count == 2u);
+        expect(call->is_linked());
+    };
+
+    "inline_recursion_analysis_is_linear_in_sparse_call_graph"_test = [] {
+        Module m;
+        constexpr auto callable_count = 128u;
+        luisa::vector<luisa::compute::xir::Function *> callables;
+        luisa::vector<BasicBlock *> bodies;
+        callables.reserve(callable_count);
+        bodies.reserve(callable_count);
+        for (auto i = 0u; i < callable_count; ++i) {
+            auto *callable = m.create_callable(nullptr);
+            callables.emplace_back(callable);
+            bodies.emplace_back(callable->create_body_block());
+        }
+        XIRBuilder b;
+        for (auto i = 0u; i < callable_count; ++i) {
+            b.set_insertion_point(bodies[i]);
+            if (i + 1u != callable_count) {
+                b.call(nullptr, callables[i + 1u], {});
+            }
+            b.return_void();
+        }
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        b.set_insertion_point(kernel_body);
+        auto *selected_call = b.call(nullptr, callables.front(), {});
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        std::array<CallInst *, 1u> selected{selected_call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == 1u);
+        expect(info.removed_callable_count == 1u);
+        expect(info.skipped_recursive_callable_count == 0u);
+        expect(info.recursion_analysis_function_count == callable_count);
+        expect(info.recursion_analysis_call_use_visit_count ==
+               callable_count);
+        expect(info.recursion_analysis_edge_count == callable_count - 1u);
+        expect(info.recursion_analysis_vertex_visit_count ==
+               2u * callable_count);
+        expect(info.recursion_analysis_edge_visit_count ==
+               2u * (callable_count - 1u));
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "inline_single_block_callee_preserves_structured_caller"_test = [] {
         Module m;
         auto *callee = m.create_callable(Type::of<int>());
@@ -6244,15 +6346,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 12u);
+        expect(report.entries().size() == 17u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 12u);
+        expect(report.entries().size() == 17u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 12u);
+        expect(report.entries().size() == 17u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {

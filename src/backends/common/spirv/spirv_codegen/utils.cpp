@@ -436,6 +436,25 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                          "inline_revalidated_apply",
                          i.inline_info
                              .call_site_revalidated_apply_count);
+                     r.set(
+                         "inline_recursion_function",
+                         i.inline_info
+                             .recursion_analysis_function_count);
+                     r.set(
+                         "inline_recursion_call_use_visit",
+                         i.inline_info
+                             .recursion_analysis_call_use_visit_count);
+                     r.set("inline_recursion_edge",
+                           i.inline_info
+                               .recursion_analysis_edge_count);
+                     r.set(
+                         "inline_recursion_vertex_visit",
+                         i.inline_info
+                             .recursion_analysis_vertex_visit_count);
+                     r.set(
+                         "inline_recursion_edge_visit",
+                         i.inline_info
+                             .recursion_analysis_edge_visit_count);
                      if (!i.succeeded()) {
                          LUISA_ERROR_WITH_LOCATION(
                              "SPIR-V reference-argument legalization failed: {}",

@@ -12,6 +12,8 @@
 #include <luisa/xir/value.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 
+#include <algorithm>
+
 #include "helpers.h"
 
 namespace luisa::compute::xir {
@@ -631,46 +633,143 @@ struct InlineFunctionSummary {
 }
 
 [[nodiscard]] static luisa::unordered_set<Function *>
-find_recursive_callables(luisa::span<Function *const> callables) noexcept {
-    luisa::unordered_set<Function *> callable_set;
-    callable_set.reserve(callables.size());
-    for (auto *callable : callables) { callable_set.emplace(callable); }
-    luisa::unordered_map<Function *, luisa::vector<Function *>> edges;
-    for (auto *function : callables) {
-        if (auto *def = function->definition()) {
-            // collect_call_sites() observes every owned CallInst through the
-            // callee use list. Recursion discovery must use the same domain;
-            // otherwise a self-call in a disconnected block can be mistaken
-            // for a non-recursive inlining candidate.
-            for (auto *block : def->basic_blocks()) {
-                for (auto *inst : block->instructions()) {
-                    if (inst->isa<CallInst>()) {
-                        auto *callee =
-                            static_cast<CallInst *>(inst)->callee();
-                        if (callee != nullptr &&
-                            callable_set.contains(callee)) {
-                            edges[function].emplace_back(callee);
-                        }
-                    }
-                }
+find_recursive_callables(luisa::span<Function *const> callables,
+                         InlineInfo &info) noexcept {
+    const auto function_count = callables.size();
+    info.recursion_analysis_function_count += function_count;
+    luisa::unordered_map<Function *, size_t> function_ids;
+    function_ids.reserve(function_count);
+    for (auto i = 0u; i < function_count; ++i) {
+        function_ids.emplace(callables[i], i);
+    }
+
+    struct CallEdge {
+        size_t caller;
+        size_t callee;
+    };
+    luisa::vector<CallEdge> edges;
+    luisa::vector<uint8_t> has_self_edge(function_count, false);
+    // A linked CallInst contributes exactly one use at its callee operand.
+    // Enumerating those uses is therefore set-equivalent to scanning every
+    // owned instruction, while visiting only actual function uses. Filtering
+    // the operand identity excludes a function passed as an ordinary value;
+    // parent_function() preserves calls in disconnected owned blocks.
+    for (auto callee_id = 0u; callee_id < function_count;
+         ++callee_id) {
+        auto *callee = callables[callee_id];
+        for (auto &&use : callee->use_list()) {
+            ++info.recursion_analysis_call_use_visit_count;
+            auto *user = use->user();
+            if (user == nullptr || !user->isa<CallInst>()) { continue; }
+            auto *call = static_cast<CallInst *>(user);
+            if (call->callee() != callee ||
+                use != call->operand_use(
+                           CallInst::operand_index_callee)) {
+                continue;
+            }
+            auto *caller = call->parent_function();
+            if (auto iter = function_ids.find(caller);
+                iter != function_ids.end()) {
+                auto caller_id = iter->second;
+                edges.emplace_back(caller_id, callee_id);
+                has_self_edge[caller_id] |=
+                    caller_id == callee_id;
             }
         }
     }
-    luisa::unordered_set<Function *> recursive;
-    for (auto *start : callables) {
-        luisa::unordered_set<Function *> visited;
-        luisa::vector<Function *> worklist{start};
-        while (!worklist.empty()) {
-            auto *current = worklist.back();
-            worklist.pop_back();
-            if (!visited.emplace(current).second) { continue; }
-            for (auto *next : edges[current]) {
-                if (next == start) {
-                    recursive.emplace(start);
-                    worklist.clear();
-                    break;
+    info.recursion_analysis_edge_count += edges.size();
+
+    // Materialize both directions as CSR. Kosaraju's two traversals identify
+    // the exact cyclic SCCs in O(F + E) time and storage. A singleton SCC is
+    // recursive only when its function has an explicit self edge.
+    luisa::vector<size_t> forward_offsets(function_count + 1u, 0u);
+    luisa::vector<size_t> reverse_offsets(function_count + 1u, 0u);
+    for (auto edge : edges) {
+        ++forward_offsets[edge.caller + 1u];
+        ++reverse_offsets[edge.callee + 1u];
+    }
+    for (auto i = 0u; i < function_count; ++i) {
+        forward_offsets[i + 1u] += forward_offsets[i];
+        reverse_offsets[i + 1u] += reverse_offsets[i];
+    }
+    auto forward_cursors = forward_offsets;
+    auto reverse_cursors = reverse_offsets;
+    luisa::vector<size_t> forward_targets(edges.size());
+    luisa::vector<size_t> reverse_targets(edges.size());
+    for (auto edge : edges) {
+        forward_targets[forward_cursors[edge.caller]++] =
+            edge.callee;
+        reverse_targets[reverse_cursors[edge.callee]++] =
+            edge.caller;
+    }
+
+    struct DFSFrame {
+        size_t function;
+        size_t next_edge;
+    };
+    luisa::vector<uint8_t> visited(function_count, false);
+    luisa::vector<size_t> finish_order;
+    finish_order.reserve(function_count);
+    luisa::vector<DFSFrame> dfs;
+    dfs.reserve(function_count);
+    for (auto root = 0u; root < function_count; ++root) {
+        if (visited[root]) { continue; }
+        visited[root] = true;
+        ++info.recursion_analysis_vertex_visit_count;
+        dfs.emplace_back(root, forward_offsets[root]);
+        while (!dfs.empty()) {
+            auto &frame = dfs.back();
+            auto edge_end = forward_offsets[frame.function + 1u];
+            if (frame.next_edge != edge_end) {
+                auto next = forward_targets[frame.next_edge++];
+                ++info.recursion_analysis_edge_visit_count;
+                if (!visited[next]) {
+                    visited[next] = true;
+                    ++info.recursion_analysis_vertex_visit_count;
+                    dfs.emplace_back(next, forward_offsets[next]);
                 }
-                worklist.emplace_back(next);
+            } else {
+                finish_order.emplace_back(frame.function);
+                dfs.pop_back();
+            }
+        }
+    }
+
+    std::fill(visited.begin(), visited.end(), false);
+    luisa::vector<size_t> worklist;
+    worklist.reserve(function_count);
+    luisa::vector<size_t> component;
+    component.reserve(function_count);
+    luisa::unordered_set<Function *> recursive;
+    recursive.reserve(function_count);
+    for (auto order_index = finish_order.size(); order_index != 0u;
+         --order_index) {
+        auto root = finish_order[order_index - 1u];
+        if (visited[root]) { continue; }
+        component.clear();
+        visited[root] = true;
+        ++info.recursion_analysis_vertex_visit_count;
+        worklist.emplace_back(root);
+        while (!worklist.empty()) {
+            auto current = worklist.back();
+            worklist.pop_back();
+            component.emplace_back(current);
+            for (auto edge_index = reverse_offsets[current];
+                 edge_index != reverse_offsets[current + 1u];
+                 ++edge_index) {
+                ++info.recursion_analysis_edge_visit_count;
+                auto next = reverse_targets[edge_index];
+                if (!visited[next]) {
+                    visited[next] = true;
+                    ++info.recursion_analysis_vertex_visit_count;
+                    worklist.emplace_back(next);
+                }
+            }
+        }
+        if (component.size() > 1u ||
+            has_self_edge[component.front()]) {
+            for (auto function_id : component) {
+                recursive.emplace(callables[function_id]);
             }
         }
     }
@@ -695,7 +794,7 @@ static void run(Module *module, InlineInfo &info) noexcept {
         if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
             callables.push_back(f);
 
-    auto recursive = find_recursive_callables(callables);
+    auto recursive = find_recursive_callables(callables, info);
 
     // Defer removal to after iteration to avoid corrupting the list
     luisa::vector<Function *> to_remove;
@@ -753,6 +852,16 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.call_site_cached_apply_count);
     report->set("call_site_revalidated_apply",
                 info.call_site_revalidated_apply_count);
+    report->set("recursion_analysis_function",
+                info.recursion_analysis_function_count);
+    report->set("recursion_analysis_call_use_visit",
+                info.recursion_analysis_call_use_visit_count);
+    report->set("recursion_analysis_edge",
+                info.recursion_analysis_edge_count);
+    report->set("recursion_analysis_vertex_visit",
+                info.recursion_analysis_vertex_visit_count);
+    report->set("recursion_analysis_edge_visit",
+                info.recursion_analysis_edge_visit_count);
 }
 
 }// namespace
@@ -783,7 +892,7 @@ InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, 
             if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
                 callables.push_back(f);
         if (callables.empty()) break;
-        auto recursive = detail::find_recursive_callables(callables);
+        auto recursive = detail::find_recursive_callables(callables, info);
         luisa::unordered_set<Function *> callable_set{callables.begin(), callables.end()};
         luisa::vector<Function *> leaves;
         for (auto callee : callables) {
@@ -852,7 +961,8 @@ InlineInfo inline_call_sites_pass_run_on_module(
             all_callables.emplace_back(function);
         }
     }
-    auto recursive = detail::find_recursive_callables(all_callables);
+    auto recursive =
+        detail::find_recursive_callables(all_callables, info);
     luisa::unordered_map<Function *, detail::InlineFunctionSummary>
         function_summaries;
     auto summary_of = [&](Function *function) noexcept {
