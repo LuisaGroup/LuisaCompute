@@ -1363,8 +1363,9 @@ AST2XIRContext *ast_to_xir_translate_begin(const AST2XIRConfig &config) noexcept
     return luisa::new_with_allocator<AST2XIRContext>(config);
 }
 
-void ast_to_xir_translate_add_function(AST2XIRContext *ctx, const ASTFunction &f) noexcept {
-    ctx->add_function(f);
+Function *ast_to_xir_translate_add_function(
+    AST2XIRContext *ctx, const ASTFunction &f) noexcept {
+    return ctx->add_function(f);
 }
 
 void ast_to_xir_translate_add_external_function(AST2XIRContext *ctx, const ASTExternalFunction &f) noexcept {

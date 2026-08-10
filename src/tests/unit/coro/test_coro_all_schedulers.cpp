@@ -432,6 +432,53 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             "all_dead_suspend_persistent");
     };
 
+    "zero_frontend_suspends_lower_to_entry_only_coroutine"_test = [options, expect_filled] {
+        constexpr uint N = 64u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto tid = dispatch_x();
+            output.write(tid, tid + 89u);
+        });
+
+        expect(coro.subroutine_count() == 1u)
+            << "T_front = empty must retain exactly the root entry callable";
+        expect(coro.graph().node_count() == 1u);
+        expect(coro.graph().node(0u).token == 0u);
+        expect(coro.trigger_token(0u) == 0u);
+
+        auto clear_and_check = [&](auto &&dispatch, luisa::string_view label) {
+            luisa::vector<uint> zero(N);
+            stream << output.copy_from(luisa::span{zero});
+            dispatch();
+            luisa::vector<uint> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+            expect_filled(host, 89u, label);
+        };
+
+        StateMachineCoroScheduler<Buffer<uint>> state_machine{device, coro};
+        clear_and_check(
+            [&] { state_machine(output).dispatch(N)(stream); },
+            "zero_frontend_suspend_state_machine");
+
+        WavefrontCoroScheduler<Buffer<uint>> wavefront{device, coro};
+        clear_and_check(
+            [&] { wavefront(output).dispatch(N)(stream); },
+            "zero_frontend_suspend_wavefront");
+
+        PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
+            device, coro,
+            PersistentThreadsCoroSchedulerConfig{
+                .thread_count = N, .block_size = N}};
+        clear_and_check(
+            [&] { persistent(output).dispatch(N)(stream); },
+            "zero_frontend_suspend_persistent");
+    };
+
     "dead_suspend_before_nested_loop_header_preserves_sparse_cutpoints"_test =
         [options, expect_filled] {
             constexpr uint N = 64u;

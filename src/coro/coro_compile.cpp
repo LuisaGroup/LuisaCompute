@@ -218,30 +218,20 @@ CoroutineCompileResult compile_coroutine_pipeline(
 
     auto ast_func = Function{builder.get()};
     xir::AST2XIRConfig config{};
-    auto module = xir::ast_to_xir_translate(ast_func, config);
+    auto *translation = xir::ast_to_xir_translate_begin(config);
+    auto *coro_func = xir::ast_to_xir_translate_add_function(
+        translation, ast_func);
+    auto module = xir::ast_to_xir_translate_finalize(translation);
     LUISA_ASSERT(module != nullptr,
                  "Coroutine compilation failed: AST->XIR translation returned null module");
+    LUISA_ASSERT(
+        coro_func != nullptr && coro_func->definition() != nullptr &&
+            coro_func->parent_module() == module.get(),
+        "Coroutine compilation failed: AST->XIR translation lost root-function provenance.");
     profiler.checkpoint("AST-to-XIR translation");
     verify_coro_xir_or_error(module.get(), "AST translation");
     profiler.checkpoint("input verification");
-
-    xir::Function *coro_func = nullptr;
-    for (auto *f : module->function_list()) {
-        if (f->isa<xir::CallableFunction>() && f->definition() != nullptr) {
-            auto *def = f->definition();
-            bool has_coro = false;
-            def->traverse_instructions([&](xir::Instruction *inst) noexcept {
-                if (inst->derived_instruction_tag() == xir::DerivedInstructionTag::CORO_SUSPEND) { has_coro = true; }
-            });
-            if (has_coro) {
-                coro_func = f;
-                break;
-            }
-        }
-    }
-    LUISA_ASSERT(coro_func != nullptr,
-                 "Coroutine compilation failed: no coroutine function found in XIR module");
-    profiler.checkpoint("coroutine discovery");
+    profiler.checkpoint("coroutine root provenance");
 
     // Coro cfg distill/split/materialize intentionally accept only raw CFG.
     // A ray-query candidate loop is not coroutine scheduling control flow: no
