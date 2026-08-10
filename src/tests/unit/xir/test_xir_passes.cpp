@@ -238,17 +238,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(30u, [](PassReport *report) noexcept {
+        check_zero_report(31u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(30u, [](PassReport *report) noexcept {
+        check_zero_report(31u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(30u, [](PassReport *report) noexcept {
+        check_zero_report(31u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(30u, [](PassReport *report) noexcept {
+        check_zero_report(31u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -6059,6 +6059,55 @@ void reg_inline() {
         expect(count_reachable_insts(caller, DerivedInstructionTag::BRANCH) == 0u);
     };
 
+    "inline_single_use_large_callable_preserves_compiler_partition"_test = [] {
+        Module m;
+        XIRBuilder b;
+        auto *callee = m.create_callable(Type::of<uint>());
+        auto *argument =
+            callee->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(callee->create_body_block());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        Value *value = argument;
+        for (auto i = 0u;
+             i < default_inline_single_use_instruction_budget;
+             ++i) {
+            value = b.call(Type::of<uint>(),
+                           ArithmeticOp::BINARY_ADD,
+                           {value, one});
+        }
+        b.return_(value);
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_argument =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee,
+                            {kernel_argument});
+        b.store(storage, call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto ordinary = inline_pass_run_on_module(&m);
+        expect(!ordinary.changed());
+        expect(ordinary.skipped_costly_callable_count == 1u);
+        expect(call->is_linked());
+        expect(callee->parent_module() == &m);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 1u);
+
+        // A legality-driven caller can still explicitly select the same site.
+        std::array<CallInst *, 1u> selected_calls{call};
+        auto selected = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected_calls});
+        expect(selected.inlined_call_count == 1u);
+        expect(selected.skipped_costly_callable_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "inline_pass_reuses_one_dense_layout_per_callee_version"_test = [] {
         Module m;
         auto *callee = m.create_callable(Type::of<uint>());
@@ -6510,15 +6559,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 30u);
+        expect(report.entries().size() == 31u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 30u);
+        expect(report.entries().size() == 31u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 30u);
+        expect(report.entries().size() == 31u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {

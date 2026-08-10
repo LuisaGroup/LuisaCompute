@@ -292,6 +292,8 @@ void accumulate_inline_info(
         increment.skipped_structured_call_count;
     total.rejected_malformed_call_count +=
         increment.rejected_malformed_call_count;
+    total.skipped_costly_callable_count +=
+        increment.skipped_costly_callable_count;
     total.call_site_summary_function_count +=
         increment.call_site_summary_function_count;
     total.call_site_summary_instruction_scan_count +=

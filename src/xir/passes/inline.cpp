@@ -201,10 +201,15 @@ public:
     }
 };
 
-[[nodiscard]] static size_t count_instructions(FunctionDefinition *def) noexcept {
-    size_t n = 0;
-    if (def) def->traverse_instructions([&](const Instruction *) noexcept { ++n; });
-    return n;
+[[nodiscard]] static bool ordinary_inline_cost_is_bounded(
+    size_t call_site_count, size_t instruction_count) noexcept {
+    if (call_site_count == 1u) {
+        return instruction_count <=
+               default_inline_single_use_instruction_budget;
+    }
+    return call_site_count <= default_inline_multi_use_call_site_budget &&
+           instruction_count <=
+               default_inline_multi_use_instruction_budget;
 }
 
 [[nodiscard]] static bool has_single_block(FunctionDefinition *def) noexcept {
@@ -1187,11 +1192,20 @@ static void inline_run(Module *module, InlineInfo &info) noexcept {
         auto edges = collect_call_sites(callee);
         if (edges.empty()) continue;
 
-        size_t n = edges.size();
-        bool doit = (n == 1) || (n <= 3 && count_instructions(def) <= 50);
-        if (!doit) continue;
-
+        // The summary counts the definition's owned instructions rather than
+        // traversing its executable CFG. Besides matching the amount of IR an
+        // inline clone must inspect, this keeps the heuristic total for
+        // bodyless and disconnected definitions. Reuse the same summary for
+        // legality and cloning so the callee is scanned only once.
         InlineCalleeVersion callee_version{callee, info};
+        auto instruction_count =
+            callee_version.summary().instruction_count;
+        if (!ordinary_inline_cost_is_bounded(
+                edges.size(), instruction_count)) {
+            ++info.skipped_costly_callable_count;
+            continue;
+        }
+
         for (auto call : edges)
             if (inline_call(call, callee, info, {}, nullptr,
                             &callee_version, &caller_barriers))
@@ -1225,6 +1239,8 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.skipped_declaration_call_count);
     report->set("rejected_malformed_call",
                 info.rejected_malformed_call_count);
+    report->set("skipped_costly_callable",
+                info.skipped_costly_callable_count);
     report->set("call_site_summary_function",
                 info.call_site_summary_function_count);
     report->set("call_site_summary_instruction_scan",
