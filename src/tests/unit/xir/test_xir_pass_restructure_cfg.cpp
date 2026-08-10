@@ -797,6 +797,81 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_does_not_treat_payload_path_as_physical_loop_guard"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *guard_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *zero =
+            module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(prepare);
+        builder.cond_br(loop_condition, body, loop_merge);
+        builder.set_insertion_point(body);
+        auto *guard = builder.if_(guard_condition);
+        auto *payload_arm = guard->create_false_block();
+        auto *original_merge = guard->create_merge_block();
+        guard->set_true_target(original_merge);
+
+        builder.set_insertion_point(payload_arm);
+        builder.call(ResourceWriteOp::BUFFER_WRITE,
+                     {buffer, zero, zero});
+        builder.br(update);
+        builder.set_insertion_point(original_merge);
+        builder.br(update);
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+
+        expect(info.succeeded());
+        expect(info.changed());
+        expect(guard->merge_block() != original_merge);
+        auto *physical_merge = guard->merge_block();
+        expect(payload_arm->terminator()->isa<BranchInst>());
+        expect(branch_chain_reaches(
+            guard->true_block(), physical_merge));
+        expect(branch_chain_reaches(
+            guard->false_block(), physical_merge));
+        if (physical_merge->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       physical_merge->terminator())
+                       ->target_block() == update);
+        } else {
+            expect(physical_merge->terminator()
+                       ->isa<ContinueInst>());
+            if (physical_merge->terminator()
+                    ->isa<ContinueInst>()) {
+                expect(static_cast<ContinueInst *>(
+                           physical_merge->terminator())
+                           ->target_block() == update);
+            }
+        }
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets =
+                        true})
+                   .succeeded());
+    };
+
     "restructure_module_late_failure_is_atomic_across_functions"_test = [] {
         Module m;
         BasicBlock *first_entry;
@@ -1831,7 +1906,7 @@ void reg_restructure_cfg() {
         expect(count_non_canonical_loop_update(def) == 0u);
     };
 
-    "restructure_nested_loop_boundary_selections_yield_before_dispatch_collapse"_test = [] {
+    "restructure_nested_loop_boundary_selections_converge_with_exact_guards"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -1888,7 +1963,9 @@ void reg_restructure_cfg() {
         auto info = restructure_cfg_pass_run_on_function(k);
         expect(info.succeeded());
         expect(info.iteration_limit_count == 0u);
-        expect(info.selection_exit_round_yield_count > 0u);
+        expect(
+            info.selection_exit_boundary_classification_count >
+            0u);
         auto verification = xir_verify_module(
             &m,
             {.require_unique_merge_blocks = true,

@@ -1927,27 +1927,14 @@ void remove_write_only_dispatch_selectors(
     return changed;
 }
 
-[[nodiscard]] bool is_loop_boundary_if(
-    IfInst *if_inst,
-    LoopBoundaryTargetKind true_kind,
-    LoopBoundaryTargetKind false_kind) noexcept {
-    if (if_inst == nullptr) { return false; }
-    auto singular_boundary = [](auto kind) noexcept {
-        return kind == LoopBoundaryTargetKind::BREAK ||
-               kind == LoopBoundaryTargetKind::CONTINUE;
-    };
-    auto *selection_merge = if_inst->merge_block();
-    return (true_kind == LoopBoundaryTargetKind::CONTINUE &&
-            false_kind == LoopBoundaryTargetKind::BREAK) ||
-           (true_kind == LoopBoundaryTargetKind::BREAK &&
-            false_kind == LoopBoundaryTargetKind::CONTINUE) ||
-           (if_inst->true_block() == selection_merge &&
-            singular_boundary(false_kind)) ||
-           (if_inst->false_block() == selection_merge &&
-            singular_boundary(true_kind));
-}
-
-[[nodiscard]] bool is_loop_boundary_if(
+// A semantic path may eventually reach an enclosing loop boundary after
+// executing arbitrary work. That does not make its conditional a physical
+// loop-boundary guard: SPIR-V may omit OpSelectionMerge only when the boundary
+// arm itself is an exclusive, side-effect-free forwarding chain that can be
+// collapsed to the loop break/continue edge. The one-sided declared-merge case
+// therefore uses the same exclusivity proof as ControlFlowPlan; the two-sided
+// case is accepted only for complementary physical break/continue arms.
+[[nodiscard]] bool is_physically_lowerable_loop_boundary_if(
     IfInst *if_inst,
     BasicBlock *continue_target,
     BasicBlock *loop_entry,
@@ -1956,14 +1943,88 @@ void remove_write_only_dispatch_selectors(
         loop_entry == nullptr || merge == nullptr) {
         return false;
     }
-    auto true_kind = classify_loop_boundary_path(
-        if_inst->true_block(), continue_target, loop_entry,
-        merge);
-    auto false_kind = classify_loop_boundary_path(
-        if_inst->false_block(), continue_target, loop_entry,
-        merge);
-    return is_loop_boundary_if(
-        if_inst, true_kind, false_kind);
+    auto *selection_merge = if_inst->merge_block();
+    auto true_is_merge = if_inst->true_block() == selection_merge;
+    auto false_is_merge = if_inst->false_block() == selection_merge;
+    auto classify_physical_arm =
+        [&](BasicBlock *entry) noexcept {
+            auto *expected_predecessor = if_inst->parent_block();
+            auto *block = entry;
+            luisa::unordered_set<BasicBlock *> visited;
+            while (block != nullptr &&
+                   visited.emplace(block).second) {
+                if (block == continue_target ||
+                    block == loop_entry) {
+                    return LoopBoundaryTargetKind::CONTINUE;
+                }
+                if (block == merge) {
+                    return LoopBoundaryTargetKind::BREAK;
+                }
+                // The declared merge may itself be an arm and then end in a
+                // loop boundary terminator. Reaching it later from the other
+                // arm is ordinary selection convergence, not an independently
+                // lowerable loop-boundary edge.
+                if ((block == selection_merge && entry != selection_merge) ||
+                    !has_only_terminator(block)) {
+                    return LoopBoundaryTargetKind::NONE;
+                }
+
+                auto predecessor_count = size_t{0u};
+                auto has_unexpected_predecessor = false;
+                block->traverse_predecessors(
+                    false,
+                    [&](BasicBlock *predecessor) noexcept {
+                        ++predecessor_count;
+                        has_unexpected_predecessor |=
+                            predecessor != expected_predecessor;
+                    });
+                if (predecessor_count != 1u ||
+                    has_unexpected_predecessor) {
+                    return LoopBoundaryTargetKind::NONE;
+                }
+
+                auto *terminator = block->terminator();
+                if (terminator->isa<BreakInst>()) {
+                    return static_cast<BreakInst *>(terminator)
+                                   ->target_block() == merge ?
+                               LoopBoundaryTargetKind::BREAK :
+                               LoopBoundaryTargetKind::NONE;
+                }
+                if (terminator->isa<ContinueInst>()) {
+                    auto *target =
+                        static_cast<ContinueInst *>(terminator)
+                            ->target_block();
+                    return target == continue_target ||
+                                   target == loop_entry ?
+                               LoopBoundaryTargetKind::CONTINUE :
+                               LoopBoundaryTargetKind::NONE;
+                }
+                if (!terminator->isa<BranchInst>()) {
+                    return LoopBoundaryTargetKind::NONE;
+                }
+                expected_predecessor = block;
+                block = static_cast<BranchInst *>(terminator)
+                            ->target_block();
+            }
+            return LoopBoundaryTargetKind::NONE;
+        };
+
+    auto true_kind =
+        classify_physical_arm(if_inst->true_block());
+    auto false_kind =
+        classify_physical_arm(if_inst->false_block());
+    auto opposing_boundaries =
+        (true_kind == LoopBoundaryTargetKind::BREAK &&
+         false_kind == LoopBoundaryTargetKind::CONTINUE) ||
+        (true_kind == LoopBoundaryTargetKind::CONTINUE &&
+         false_kind == LoopBoundaryTargetKind::BREAK);
+    auto singular_boundary = [](auto kind) noexcept {
+        return kind == LoopBoundaryTargetKind::BREAK ||
+               kind == LoopBoundaryTargetKind::CONTINUE;
+    };
+    return opposing_boundaries ||
+           (true_is_merge && singular_boundary(false_kind)) ||
+           (false_is_merge && singular_boundary(true_kind));
 }
 
 // Invert is_loop_boundary_selection_entry's repeated membership query. For
@@ -2030,16 +2091,12 @@ collect_loop_boundary_selection_entries(
             }
             auto *if_inst = static_cast<IfInst *>(
                 candidate->terminator());
-            auto true_kind = dataflow.classify(
-                if_inst->true_block());
-            auto false_kind = dataflow.classify(
-                if_inst->false_block());
             if (info != nullptr) {
                 info->selection_exit_boundary_classification_count +=
                     2u;
             }
-            if (is_loop_boundary_if(
-                    if_inst, true_kind, false_kind)) {
+            if (is_physically_lowerable_loop_boundary_if(
+                    if_inst, continue_target, loop_entry, merge)) {
                 entries.emplace(candidate);
             }
         }
