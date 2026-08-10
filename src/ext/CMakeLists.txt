@@ -33,7 +33,7 @@ function(luisa_compute_install_extension target)
     endif ()
 endfunction()
 
-# luisa/core/stl/map.h publicly includes <fc/btree.h>. Keep the bundled
+# include/luisa/core/stl/map.h publicly includes <fc/btree.h>. Keep the bundled
 # header-only dependency on the same transitive interface as the other core
 # STL dependencies so every CMake consumer sees it in both build and install
 # trees. The upstream BTree project is intentionally not added as a CMake
