@@ -1867,8 +1867,16 @@ void reg_restructure_cfg() {
         b.set_insertion_point(exit);
         b.return_void();
 
-        auto info = restructure_cfg_pass_run_on_function(k);
+        // Regression: construct repair may produce two distinct empty proxy
+        // chains that both end in Break(M). The generated exit selector must
+        // collapse those equal boundary effects instead of alternating among
+        // selection-exit, loop-boundary, and construct-exit rewrites. Four
+        // post rounds cover the finite forward normalization; the historical
+        // bug kept allocating blocks until the safety budget was exhausted.
+        auto info = restructure_cfg_pass_run_on_function(
+            k, {.post_iteration_limit = 4u});
         expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
         expect(info.restructured_loop_count == 2u);
         expect(count_terminator_kind(
                    def, DerivedInstructionTag::LOOP) ==

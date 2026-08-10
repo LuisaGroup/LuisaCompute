@@ -1624,11 +1624,14 @@ void remove_write_only_dispatch_selectors(
 
 // LLVM SPIRVStructurizer::removeUselessBlocks removes the forwarding chains
 // left behind after inner-to-outer exit-state propagation. Do the equivalent
-// before mem2reg: if both arms of a generated dispatch consist only of
-// unconditional forwarding blocks and end at the same target, the dispatch
-// has no control-flow meaning. The selected state already lives in the
-// alloca/store protocol, so replacing the conditional with one branch is
-// semantics-preserving and prevents a spurious SPIR-V selection.
+// before mem2reg: quotient each generated dispatch arm by empty unconditional
+// forwarding blocks, then compare its terminal effect. Equal Branch(T),
+// Break(M), or Continue(U) effects make the selector semantically dead. The
+// selected state already lives in the alloca/store protocol, so replacing the
+// conditional by that exact effect is semantics-preserving and strictly
+// reduces the number of generated conditionals. In particular, it prevents
+// later structural phases from repeatedly wrapping two distinct Break(M)
+// proxy blocks in equivalent SPIR-V selections.
 [[nodiscard]] bool collapse_redundant_exit_dispatches(
     FunctionDefinition *def,
     const luisa::unordered_set<BasicBlock *> &
@@ -1643,6 +1646,41 @@ void remove_write_only_dispatch_selectors(
         [&](BasicBlock *block) noexcept {
             live_blocks.emplace(block);
         });
+    enum class ExitEffect : uint8_t {
+        BLOCK,
+        BREAK,
+        CONTINUE,
+    };
+    struct CanonicalExitEffect {
+        ExitEffect effect{ExitEffect::BLOCK};
+        BasicBlock *target{nullptr};
+    };
+    // The exit-state selector is semantically dead when both of its arms have
+    // the same effect in the quotient CFG formed by removing empty forwarding
+    // blocks. Break and Continue are effects rather than ordinary successors:
+    // two distinct proxy blocks ending in Break(M), for example, are the same
+    // exit even though their block identities differ. Keeping the effect kind
+    // in the key prevents the unsound identification of Branch(M), Break(M),
+    // and Continue(M), which have different structural roles.
+    auto canonical_exit_effect = [](BasicBlock *target) noexcept {
+        auto *terminal = trivial_branch_chain_target(target);
+        auto result = CanonicalExitEffect{
+            .effect = ExitEffect::BLOCK,
+            .target = terminal};
+        if (!has_only_terminator(terminal)) { return result; }
+        auto *terminator = terminal->terminator();
+        if (terminator->isa<BreakInst>()) {
+            result.effect = ExitEffect::BREAK;
+            result.target = static_cast<BreakInst *>(terminator)
+                                ->target_block();
+        } else if (terminator->isa<ContinueInst>()) {
+            result.effect = ExitEffect::CONTINUE;
+            result.target =
+                static_cast<ContinueInst *>(terminator)
+                    ->target_block();
+        }
+        return result;
+    };
     for (auto *header : generated_exit_dispatch_headers) {
         if (!live_blocks.contains(header) ||
             !header->is_terminated()) {
@@ -1655,26 +1693,44 @@ void remove_write_only_dispatch_selectors(
         }
         auto *branch = static_cast<
             ConditionalBranchTerminatorInstruction *>(term);
-        auto *true_target =
-            trivial_branch_chain_target(
-                branch->true_block());
-        auto *false_target =
-            trivial_branch_chain_target(
-                branch->false_block());
-        if (true_target == nullptr ||
-            true_target != false_target) {
+        auto true_exit =
+            canonical_exit_effect(branch->true_block());
+        auto false_exit =
+            canonical_exit_effect(branch->false_block());
+        if (true_exit.target == nullptr ||
+            true_exit.effect != false_exit.effect ||
+            true_exit.target != false_exit.target) {
             continue;
         }
         auto *condition = branch->condition();
         auto old_term = term->remove_self();
         XIRBuilder builder;
         builder.set_insertion_point(header);
-        auto *replacement = builder.br(true_target);
+        TerminatorInstruction *replacement = nullptr;
+        switch (true_exit.effect) {
+            case ExitEffect::BLOCK:
+                replacement = builder.br(true_exit.target);
+                break;
+            case ExitEffect::BREAK:
+                replacement = builder.break_(true_exit.target);
+                break;
+            case ExitEffect::CONTINUE:
+                replacement = builder.continue_(true_exit.target);
+                break;
+        }
         for (auto *metadata : old_term->metadata_list()) {
             replacement->metadata_list().push_front(
                 metadata->clone());
         }
         dead_roots.emplace_back(condition);
+        if (restructure_trace_enabled()) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] dispatch-collapse rewrite: "
+                "header={}, effect={}, target={}.",
+                static_cast<void *>(header),
+                static_cast<uint32_t>(true_exit.effect),
+                static_cast<void *>(true_exit.target));
+        }
         modified = true;
     }
     luisa::unordered_set<AllocaInst *>
