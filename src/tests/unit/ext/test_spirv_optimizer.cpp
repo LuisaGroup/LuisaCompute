@@ -113,6 +113,46 @@ OpReturn
 OpFunctionEnd
 )";
 
+constexpr auto counted_loop_module = R"(
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main"
+OpExecutionMode %main LocalSize 1 1 1
+%void = OpTypeVoid
+%function = OpTypeFunction %void
+%bool = OpTypeBool
+%uint = OpTypeInt 32 0
+%zero = OpConstant %uint 0
+%one = OpConstant %uint 1
+%four = OpConstant %uint 4
+%main = OpFunction %void None %function
+%entry = OpLabel
+OpBranch %header
+%header = OpLabel
+%index = OpPhi %uint %zero %entry %next %continue
+%condition = OpULessThan %bool %index %four
+OpLoopMerge %merge %continue $loop_control
+OpBranchConditional %condition %body %merge
+%body = OpLabel
+OpBranch %continue
+%continue = OpLabel
+%next = OpIAdd %uint %index %one
+OpBranch %header
+%merge = OpLabel
+OpReturn
+OpFunctionEnd
+)";
+
+[[nodiscard]] std::string make_counted_loop_module(
+    std::string_view loop_control) {
+    auto module = std::string{counted_loop_module};
+    constexpr auto placeholder = std::string_view{"$loop_control"};
+    auto offset = module.find(placeholder);
+    expect(offset != std::string::npos);
+    module.replace(offset, placeholder.size(), loop_control);
+    return module;
+}
+
 void set_environment_variable(const char *name, const char *value) noexcept {
 #ifdef _WIN32
     _putenv_s(name, value == nullptr ? "" : value);
@@ -259,6 +299,30 @@ int main(int argc, char *argv[]) {
             << "SPIR-V must remain valid after the lightweight preset";
         expect(disassemble(words).find("OpIAdd") == std::string::npos)
             << "the deliberately dead arithmetic must be eliminated";
+    };
+
+    "spirv_compute_optimizer_only_analyzes_requested_unrolls"_test = [] {
+        auto ordinary = assemble_test_module(
+            make_counted_loop_module("None"));
+        auto ordinary_report = lc::spirv::optimize_spirv(
+            ordinary, {.level = 2, .preset = "compute"});
+        expect(ordinary_report.succeeded);
+        expect(ordinary_report.output_validated);
+        expect(!ordinary_report.loop_unroll_registered)
+            << "a LoopControl None depth/runtime loop must not trigger the "
+               "whole-module unroll analysis";
+        expect(validates(ordinary));
+
+        auto requested = assemble_test_module(
+            make_counted_loop_module("Unroll"));
+        auto requested_report = lc::spirv::optimize_spirv(
+            requested, {.level = 2, .preset = "compute"});
+        expect(requested_report.succeeded);
+        expect(requested_report.output_validated);
+        expect(requested_report.loop_unroll_registered)
+            << "an explicit Unroll control must preserve the existing "
+               "SPIRV-Tools behavior";
+        expect(validates(requested));
     };
 
     "spirv_capability_reconciliation_expands_implicit_subgroup_parent"_test = [] {

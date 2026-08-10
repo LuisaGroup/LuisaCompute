@@ -26,6 +26,7 @@ struct SpirvOptimizerReport {
     bool attempted{false};
     bool succeeded{true};
     bool changed{false};
+    bool loop_unroll_registered{false};
     bool capability_trim_registered{false};
     bool output_validated{false};
 };
