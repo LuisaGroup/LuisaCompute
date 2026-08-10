@@ -13,6 +13,9 @@
 #include <luisa/xir/metadata/signature_constraint.h>
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <limits>
 
 #include "helpers.h"
 
@@ -34,13 +37,120 @@ namespace detail {
     return calls;
 }
 
-class InlineValueResolver final : public InstructionCloneValueResolver {
-    luisa::unordered_map<const Value *, Value *> _map;
-    Module *_module;
+class InlineValueNumbering {
 public:
-    explicit InlineValueResolver(Function *caller_func) noexcept
-        : _module{caller_func->parent_module()} {}
-    void emplace(const Value *from, Value *to) noexcept { _map.emplace(from, to); }
+    static constexpr auto invalid_id =
+        std::numeric_limits<uint32_t>::max();
+
+private:
+    // The exact value vector owns the keys once. Hash slots contain id + 1,
+    // leaving zero as the empty sentinel. At a maximum load factor of 1/2,
+    // linear probing always terminates and needs no per-value node allocation.
+    luisa::vector<const Value *> _values;
+    luisa::vector<uint32_t> _slots;
+
+    [[nodiscard]] size_t _initial_slot(const Value *value) const noexcept {
+        return luisa::hash<const Value *>{}(value) &
+               (_slots.size() - 1u);
+    }
+
+public:
+    explicit InlineValueNumbering(size_t value_count) noexcept {
+        LUISA_ASSERT(
+            value_count < static_cast<size_t>(invalid_id),
+            "Inline clone layout exceeds the 32-bit dense value domain.");
+        if (value_count == 0u) { return; }
+        constexpr auto max_slot_count =
+            size_t{1u} << (std::numeric_limits<size_t>::digits - 1u);
+        LUISA_ASSERT(
+            value_count <= max_slot_count / 2u,
+            "Inline clone layout size overflow.");
+        auto slot_count = std::bit_ceil(value_count * 2u);
+        _values.reserve(value_count);
+        _slots.resize(slot_count, 0u);
+    }
+
+    void append(const Value *value) noexcept {
+        LUISA_ASSERT(value != nullptr && !_slots.empty(),
+                     "Invalid inline clone layout value.");
+        LUISA_ASSERT(_values.size() < _slots.size() &&
+                         _values.size() <
+                             static_cast<size_t>(invalid_id),
+                     "Inline clone layout exceeded its capacity.");
+        auto id = static_cast<uint32_t>(_values.size());
+        auto slot = _initial_slot(value);
+        for (;;) {
+            auto encoded = _slots[slot];
+            if (encoded == 0u) {
+                _values.emplace_back(value);
+                _slots[slot] = id + 1u;
+                return;
+            }
+            LUISA_ASSERT(_values[encoded - 1u] != value,
+                         "Duplicate value in inline clone layout.");
+            slot = (slot + 1u) & (_slots.size() - 1u);
+        }
+    }
+
+    [[nodiscard]] uint32_t find(const Value *value) const noexcept {
+        if (value == nullptr || _slots.empty()) { return invalid_id; }
+        auto slot = _initial_slot(value);
+        for (;;) {
+            auto encoded = _slots[slot];
+            if (encoded == 0u) { return invalid_id; }
+            auto id = encoded - 1u;
+            if (_values[id] == value) { return id; }
+            slot = (slot + 1u) & (_slots.size() - 1u);
+        }
+    }
+
+    [[nodiscard]] size_t size() const noexcept {
+        return _values.size();
+    }
+};
+
+class InlineValueResolver final : public InstructionCloneValueResolver {
+    const InlineValueNumbering *_numbering;
+    luisa::vector<Value *> _dense_values;
+    luisa::vector<uint8_t> _dense_mapped;
+    luisa::unordered_map<const Value *, Value *> _fallback_map;
+    Module *_module;
+    size_t *_dense_fallback_count;
+
+    void _note_dense_fallback() noexcept {
+        if (_numbering != nullptr &&
+            _dense_fallback_count != nullptr) {
+            ++*_dense_fallback_count;
+        }
+    }
+
+public:
+    explicit InlineValueResolver(
+        Function *caller_func,
+        const InlineValueNumbering *numbering = nullptr,
+        size_t *dense_fallback_count = nullptr) noexcept
+        : _numbering{numbering},
+          _module{caller_func->parent_module()},
+          _dense_fallback_count{dense_fallback_count} {
+        if (_numbering != nullptr) {
+            _dense_values.resize(_numbering->size(), nullptr);
+            _dense_mapped.resize(_numbering->size(), false);
+        }
+    }
+    void emplace(const Value *from, Value *to) noexcept {
+        if (_numbering != nullptr) {
+            auto id = _numbering->find(from);
+            if (id != InlineValueNumbering::invalid_id) {
+                if (!_dense_mapped[id]) {
+                    _dense_values[id] = to;
+                    _dense_mapped[id] = true;
+                }
+                return;
+            }
+            _note_dense_fallback();
+        }
+        _fallback_map.emplace(from, to);
+    }
     [[nodiscard]] Value *resolve(const Value *value) noexcept override {
         if (value == nullptr) return nullptr;
         switch (value->derived_value_tag()) {
@@ -51,14 +161,37 @@ public:
                 return const_cast<Value *>(value);
             default: break;
         }
-        auto it = _map.find(value);
-        if (it == _map.end()) {
+        if (_numbering != nullptr) {
+            auto id = _numbering->find(value);
+            if (id != InlineValueNumbering::invalid_id) {
+                if (_dense_mapped[id]) {
+                    return _dense_values[id];
+                }
+                if (value->derived_value_tag() ==
+                    DerivedValueTag::BASIC_BLOCK) {
+                    return nullptr;
+                }
+                if (value->type() != nullptr) {
+                    auto *undef =
+                        _module->create_undefined(value->type());
+                    _dense_values[id] = undef;
+                    _dense_mapped[id] = true;
+                    return undef;
+                }
+                LUISA_ERROR(
+                    "Inline: unresolved value (tag={}).",
+                    to_string(value->derived_value_tag()));
+            }
+            _note_dense_fallback();
+        }
+        auto it = _fallback_map.find(value);
+        if (it == _fallback_map.end()) {
             if (value->derived_value_tag() == DerivedValueTag::BASIC_BLOCK) {
                 return nullptr;
             }
             if (value->type() != nullptr) {
                 auto undef = _module->create_undefined(value->type());
-                _map.emplace(value, undef);
+                _fallback_map.emplace(value, undef);
                 return undef;
             }
             LUISA_ERROR("Inline: unresolved value (tag={}).", to_string(value->derived_value_tag()));
@@ -161,6 +294,9 @@ struct InlineFunctionSummary {
     bool has_single_body_metadata{false};
     bool contains_barrier_disallow_autodiff{false};
     bool contains_barrier_allow_autodiff{false};
+    size_t block_count{0u};
+    size_t instruction_count{0u};
+    size_t local_value_count{0u};
 };
 
 [[nodiscard]] static InlineFunctionSummary summarize_inline_function(
@@ -180,6 +316,7 @@ struct InlineFunctionSummary {
     for (auto *block : definition->basic_blocks()) {
         ++block_count;
         for (auto *inst : block->instructions()) {
+            ++summary.instruction_count;
             ++info.call_site_summary_instruction_scan_count;
             single_block_forbidden |=
                 (inst->is_terminator() &&
@@ -219,6 +356,10 @@ struct InlineFunctionSummary {
             ++return_count;
         }
     }
+    summary.block_count = block_count;
+    summary.local_value_count =
+        function->arguments().count_size() + block_count +
+        summary.instruction_count;
     summary.has_single_block = block_count == 1u;
     if (summary.has_single_block) {
         auto *body = definition->body_block();
@@ -234,6 +375,67 @@ struct InlineFunctionSummary {
         (function->type() == nullptr || return_count != 0u);
     return summary;
 }
+
+class InlineCloneLayout {
+    InlineValueNumbering _numbering;
+    luisa::vector<BasicBlock *> _reachable_blocks;
+    luisa::vector<uint8_t> _reachable_values;
+
+public:
+    InlineCloneLayout(Function *function,
+                      const InlineFunctionSummary &summary) noexcept
+        : _numbering{summary.local_value_count} {
+        LUISA_ASSERT(summary.has_valid_definition,
+                     "Cannot number an invalid inline callee.");
+        auto *definition = function->definition();
+        for (auto *argument : function->arguments()) {
+            _numbering.append(argument);
+        }
+        for (auto *block : definition->basic_blocks()) {
+            _numbering.append(block);
+            for (auto *instruction : block->instructions()) {
+                _numbering.append(instruction);
+            }
+        }
+        LUISA_ASSERT(
+            _numbering.size() == summary.local_value_count,
+            "Inline callee changed while building its clone layout.");
+        _reachable_values.resize(_numbering.size(), false);
+        _reachable_blocks.reserve(summary.block_count);
+        definition->traverse_basic_blocks(
+            BasicBlockTraversalOrder::REVERSE_POST_ORDER,
+            [&](BasicBlock *block) noexcept {
+                auto id = _numbering.find(block);
+                LUISA_ASSERT(
+                    id != InlineValueNumbering::invalid_id,
+                    "Reachable inline block is not in its definition.");
+                LUISA_ASSERT(!_reachable_values[id],
+                             "Inline RPO contains a duplicate block.");
+                _reachable_values[id] = true;
+                _reachable_blocks.emplace_back(block);
+            });
+    }
+
+    [[nodiscard]] const InlineValueNumbering &numbering() const noexcept {
+        return _numbering;
+    }
+
+    [[nodiscard]] const luisa::vector<BasicBlock *> &
+    reachable_blocks() const noexcept {
+        return _reachable_blocks;
+    }
+
+    [[nodiscard]] bool is_reachable(
+        const BasicBlock *block) const noexcept {
+        auto id = _numbering.find(block);
+        return id != InlineValueNumbering::invalid_id &&
+               _reachable_values[id];
+    }
+
+    [[nodiscard]] size_t value_count() const noexcept {
+        return _numbering.size();
+    }
+};
 
 [[nodiscard]] static bool validate_call_shape(
     CallInst *call, Function *callee,
@@ -331,7 +533,9 @@ struct InlineFunctionSummary {
 
 [[nodiscard]] static bool inline_single_block_call(CallInst *call,
                                                    Function *callee,
-                                                   bool prevalidated = false) noexcept {
+                                                   bool prevalidated = false,
+                                                   const InlineCloneLayout *clone_layout = nullptr,
+                                                   size_t *dense_fallback_count = nullptr) noexcept {
     auto *callee_def = callee->definition();
     auto *caller = call->parent_function();
     if (callee_def == nullptr || caller == nullptr ||
@@ -341,7 +545,11 @@ struct InlineFunctionSummary {
     auto *block = callee_def->body_block();
     XIRBuilder builder;
     builder.set_insertion_point(call);
-    InlineValueResolver resolver{caller};
+    InlineValueResolver resolver{
+        caller,
+        clone_layout == nullptr ? nullptr :
+                                  &clone_layout->numbering(),
+        dense_fallback_count};
     auto *module = caller->parent_module();
     size_t i = 0u;
     for (auto *arg : callee->arguments()) {
@@ -374,7 +582,10 @@ struct InlineFunctionSummary {
     return false;
 }
 
-[[nodiscard]] static bool inline_multi_block_call(CallInst *call, Function *callee) noexcept {
+[[nodiscard]] static bool inline_multi_block_call(
+    CallInst *call, Function *callee,
+    const InlineCloneLayout *clone_layout = nullptr,
+    size_t *dense_fallback_count = nullptr) noexcept {
     auto callee_def = callee->definition();
     if (!callee_def) return false;
     auto caller_func = call->parent_function();
@@ -395,7 +606,11 @@ struct InlineFunctionSummary {
 
     auto module = caller_func->parent_module();
     XIRBuilder builder;
-    InlineValueResolver resolver{caller_func};
+    InlineValueResolver resolver{
+        caller_func,
+        clone_layout == nullptr ? nullptr :
+                                  &clone_layout->numbering(),
+        dense_fallback_count};
 
     // Map callee args -> call args
     {
@@ -415,19 +630,37 @@ struct InlineFunctionSummary {
     }
 
     // Collect reachable callee blocks in RPO for instruction cloning.
-    luisa::vector<BasicBlock *> callee_blocks;
-    callee_def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *bb) noexcept { callee_blocks.push_back(bb); });
-    luisa::unordered_set<const BasicBlock *> callee_reachable{
-        callee_blocks.begin(), callee_blocks.end()};
+    luisa::vector<BasicBlock *> discovered_callee_blocks;
+    auto *callee_blocks = clone_layout == nullptr ?
+                              &discovered_callee_blocks :
+                              &clone_layout->reachable_blocks();
+    if (clone_layout == nullptr) {
+        callee_def->traverse_basic_blocks(
+            BasicBlockTraversalOrder::REVERSE_POST_ORDER,
+            [&](BasicBlock *bb) noexcept {
+                discovered_callee_blocks.push_back(bb);
+            });
+    }
+    luisa::unordered_set<const BasicBlock *> callee_reachable;
+    if (clone_layout == nullptr) {
+        callee_reachable.reserve(callee_blocks->size());
+        callee_reachable.insert(callee_blocks->begin(),
+                                callee_blocks->end());
+    }
+    auto is_callee_reachable =
+        [&](const BasicBlock *block) noexcept {
+            return clone_layout == nullptr ?
+                       callee_reachable.contains(block) :
+                       clone_layout->is_reachable(block);
+        };
 
-    luisa::unordered_map<BasicBlock *, BasicBlock *> block_map;
     luisa::vector<BasicBlock *> new_blocks;
-    for (auto bb : callee_blocks) {
+    new_blocks.reserve(callee_blocks->size());
+    for (auto bb : *callee_blocks) {
         auto nb = caller_func->create_basic_block();
         for (auto *metadata : bb->metadata_list()) {
             nb->metadata_list().push_front(metadata->clone());
         }
-        block_map[bb] = nb;
         new_blocks.push_back(nb);
         resolver.emplace(bb, nb);
     }
@@ -439,12 +672,11 @@ struct InlineFunctionSummary {
     // terminators (IfInst, LoopInst) referencing them get valid targets.
     {
         for (auto bb : callee_def->basic_blocks()) {
-            if (!callee_reachable.contains(bb)) {
+            if (!is_callee_reachable(bb)) {
                 auto nb = caller_func->create_basic_block();
                 for (auto *metadata : bb->metadata_list()) {
                     nb->metadata_list().push_front(metadata->clone());
                 }
-                block_map[bb] = nb;
                 resolver.emplace(bb, nb);
                 builder.set_insertion_point(nb);
                 builder.unreachable_();
@@ -465,9 +697,9 @@ struct InlineFunctionSummary {
     //   predecessor block after previous inlining).
     //   Pass 2: clone everything else.
     luisa::vector<std::pair<const PhiInst *, PhiInst *>> phi_nodes;
-    for (size_t i = 0; i < callee_blocks.size(); ++i) {
+    for (size_t i = 0; i < callee_blocks->size(); ++i) {
         builder.set_insertion_point(new_blocks[i]);
-        for (auto inst : callee_blocks[i]->instructions()) {
+        for (auto inst : (*callee_blocks)[i]->instructions()) {
             if (inst->isa<AllocaInst>()) {
                 auto c = inst->clone_with_metadata(builder, resolver);
                 LUISA_ASSERT(c, "Inline: clone failed.");
@@ -475,9 +707,9 @@ struct InlineFunctionSummary {
             }
         }
     }
-    for (size_t i = 0; i < callee_blocks.size(); ++i) {
+    for (size_t i = 0; i < callee_blocks->size(); ++i) {
         builder.set_insertion_point(new_blocks[i]);
-        for (auto inst : callee_blocks[i]->instructions()) {
+        for (auto inst : (*callee_blocks)[i]->instructions()) {
             if (inst->isa<ReturnInst>()) {
                 auto r = static_cast<ReturnInst *>(inst);
                 if (ret_alloca && r->operand_count() > 0) {
@@ -508,7 +740,7 @@ struct InlineFunctionSummary {
         // Keeping those labels creates an incoming-without-predecessor pair.
         for (size_t i = 0; i < original_phi->incoming_count(); i++) {
             auto incoming = original_phi->incoming(i);
-            if (!callee_reachable.contains(incoming.block)) { continue; }
+            if (!is_callee_reachable(incoming.block)) { continue; }
             auto resolved_value = resolver.resolve(incoming.value);
             auto resolved_block = resolver.resolve(incoming.block);
             dup_phi->add_incoming(
@@ -525,7 +757,10 @@ struct InlineFunctionSummary {
     }
 
     // Wire caller: split the call block
-    auto entry_block = block_map[callee_def->body_block()];
+    auto *entry_block = static_cast<BasicBlock *>(
+        resolver.resolve(callee_def->body_block()));
+    LUISA_ASSERT(entry_block != nullptr,
+                 "Inline callee entry block was not mapped.");
     luisa::vector<BasicBlock *> original_successors;
     if (call_block->is_terminated()) {
         call_block->traverse_successors(
@@ -852,6 +1087,14 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.call_site_cached_apply_count);
     report->set("call_site_revalidated_apply",
                 info.call_site_revalidated_apply_count);
+    report->set("call_site_clone_layout_function",
+                info.call_site_clone_layout_function_count);
+    report->set("call_site_clone_layout_value",
+                info.call_site_clone_layout_value_count);
+    report->set("call_site_dense_resolver_apply",
+                info.call_site_dense_resolver_apply_count);
+    report->set("call_site_dense_resolver_fallback",
+                info.call_site_dense_resolver_fallback_count);
     report->set("recursion_analysis_function",
                 info.recursion_analysis_function_count);
     report->set("recursion_analysis_call_use_visit",
@@ -1065,6 +1308,27 @@ InlineInfo inline_call_sites_pass_run_on_module(
     // their preflight decision, while nested call chains retain the complete
     // generic validation path after their callee changes.
     luisa::unordered_set<Function *> mutated_functions;
+    luisa::unordered_map<Function *, detail::InlineCloneLayout>
+        clone_layouts;
+    clone_layouts.reserve(plan.size());
+    auto clone_layout_of = [&](Function *function) noexcept
+        -> detail::InlineCloneLayout & {
+        if (auto iter = clone_layouts.find(function);
+            iter != clone_layouts.end()) {
+            return iter->second;
+        }
+        auto summary_iter = function_summaries.find(function);
+        LUISA_ASSERT(summary_iter != function_summaries.end(),
+                     "Missing prevalidated inline function summary.");
+        auto [iter, inserted] = clone_layouts.try_emplace(
+            function, function, summary_iter->second);
+        LUISA_ASSERT(inserted,
+                     "Failed to cache inline clone layout.");
+        ++info.call_site_clone_layout_function_count;
+        info.call_site_clone_layout_value_count +=
+            iter->second.value_count();
+        return iter->second;
+    };
     for (auto &&prepared : plan) {
         auto *call = prepared.call;
         auto *callee = prepared.callee;
@@ -1078,11 +1342,15 @@ InlineInfo inline_call_sites_pass_run_on_module(
                 &reported_malformed_calls);
         } else {
             ++info.call_site_cached_apply_count;
+            ++info.call_site_dense_resolver_apply_count;
+            auto &clone_layout = clone_layout_of(callee);
             succeeded = prepared.single_block ?
                             detail::inline_single_block_call(
-                                call, callee, true) :
+                                call, callee, true, &clone_layout,
+                                &info.call_site_dense_resolver_fallback_count) :
                             detail::inline_multi_block_call(
-                                call, callee);
+                                call, callee, &clone_layout,
+                                &info.call_site_dense_resolver_fallback_count);
         }
         if (!succeeded) {
             LUISA_ERROR_WITH_LOCATION(

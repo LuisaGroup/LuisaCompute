@@ -238,17 +238,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(17u, [](PassReport *report) noexcept {
+        check_zero_report(21u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(17u, [](PassReport *report) noexcept {
+        check_zero_report(21u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(17u, [](PassReport *report) noexcept {
+        check_zero_report(21u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(17u, [](PassReport *report) noexcept {
+        check_zero_report(21u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -6346,15 +6346,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 17u);
+        expect(report.entries().size() == 21u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 17u);
+        expect(report.entries().size() == 21u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 17u);
+        expect(report.entries().size() == 21u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {
@@ -6524,6 +6524,10 @@ void reg_inline() {
         auto info = inline_call_sites_pass_run_on_module(
             &m, luisa::span{selected});
         expect(info.inlined_call_count == 1u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count == 7u);
+        expect(info.call_site_dense_resolver_apply_count == 1u);
+        expect(info.call_site_dense_resolver_fallback_count == 0u);
         auto annotated_block_count = size_t{0u};
         for (auto *block : caller->basic_blocks()) {
             auto *comment = block->find_metadata<CommentMD>();
@@ -6582,6 +6586,11 @@ void reg_inline() {
                chain_length + 1u);
         expect(info.call_site_cached_apply_count == call_count);
         expect(info.call_site_revalidated_apply_count == 0u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count ==
+               chain_length + 3u);
+        expect(info.call_site_dense_resolver_apply_count == call_count);
+        expect(info.call_site_dense_resolver_fallback_count == 0u);
         expect(count_reachable_insts(
                    caller, DerivedInstructionTag::CALL) == 0u);
         expect(xir_verify_module(&m).succeeded());
@@ -6634,6 +6643,51 @@ void reg_inline() {
         expect(info.call_site_summary_function_count == 2u);
         expect(info.call_site_cached_apply_count == 1u);
         expect(info.call_site_revalidated_apply_count == 1u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count == 4u);
+        expect(info.call_site_dense_resolver_apply_count == 1u);
+        expect(info.call_site_dense_resolver_fallback_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_dense_resolver_preserves_unowned_value_fallback"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *foreign = m.create_callable(Type::of<uint>());
+        auto *foreign_argument =
+            foreign->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(foreign->create_body_block());
+        b.return_(foreign_argument);
+
+        auto *callee = m.create_callable(Type::of<uint>());
+        b.set_insertion_point(callee->create_body_block());
+        // Deliberately verifier-invalid input: the return references a local
+        // value owned by another function. The historical resolver repairs
+        // an unnumbered typed local to a module undefined value; dense
+        // numbering must retain that total fallback rather than indexing it.
+        b.return_(foreign_argument);
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee, {});
+        auto *store = b.store(storage, call);
+        b.return_void();
+
+        std::array<CallInst *, 1u> selected{call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == 1u);
+        expect(info.removed_callable_count == 1u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count == 2u);
+        expect(info.call_site_dense_resolver_apply_count == 1u);
+        expect(info.call_site_dense_resolver_fallback_count == 1u);
+        expect(store->value()->isa<Undefined>());
         expect(count_reachable_insts(
                    kernel, DerivedInstructionTag::CALL) == 0u);
         expect(xir_verify_module(&m).succeeded());

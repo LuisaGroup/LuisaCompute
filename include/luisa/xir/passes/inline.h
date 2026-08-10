@@ -24,6 +24,10 @@ struct InlineInfo {
     size_t call_site_summary_instruction_scan_count{0u};
     size_t call_site_cached_apply_count{0u};
     size_t call_site_revalidated_apply_count{0u};
+    size_t call_site_clone_layout_function_count{0u};
+    size_t call_site_clone_layout_value_count{0u};
+    size_t call_site_dense_resolver_apply_count{0u};
+    size_t call_site_dense_resolver_fallback_count{0u};
     // The recursion solver visits every callable and call edge once in each
     // direction. These counters expose that linear SCC complexity contract.
     size_t recursion_analysis_function_count{0u};

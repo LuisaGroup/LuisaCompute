@@ -437,6 +437,22 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                          i.inline_info
                              .call_site_revalidated_apply_count);
                      r.set(
+                         "inline_clone_layout_function",
+                         i.inline_info
+                             .call_site_clone_layout_function_count);
+                     r.set(
+                         "inline_clone_layout_value",
+                         i.inline_info
+                             .call_site_clone_layout_value_count);
+                     r.set(
+                         "inline_dense_resolver_apply",
+                         i.inline_info
+                             .call_site_dense_resolver_apply_count);
+                     r.set(
+                         "inline_dense_resolver_fallback",
+                         i.inline_info
+                             .call_site_dense_resolver_fallback_count);
+                     r.set(
                          "inline_recursion_function",
                          i.inline_info
                              .recursion_analysis_function_count);
