@@ -10,6 +10,7 @@
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
@@ -893,6 +894,44 @@ void reg_coro_split() {
         expect(info.subroutines.empty());
         expect(count_callables(m) == 0u);
         expect(body->terminator() == suspend);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "stale_distill_certificate_after_source_edit_is_rejected_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        auto *store = b.store(state, one);
+        auto *suspend = b.coro_suspend(11u, "stale-source", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(11u, nullptr);
+        auto *loaded = b.load(Type::of<int>(), state);
+        static_cast<void>(loaded);
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        // Editing an operand preserves pointer identity and CFG shape, so a
+        // shallow block/instruction snapshot cannot detect this stale result.
+        // The certificate must bind the complete operand relation as well.
+        store->set_value(zero);
+
+        auto info =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+
+        expect(!info.succeeded());
+        expect(info.invalid_cfg_error_count == 1u);
+        expect(info.subroutines.empty());
+        expect(count_callables(m) == 0u);
+        expect(body->terminator() == suspend);
+        expect(store->value() == zero);
         expect(xir_verify_module(&m).succeeded());
     };
 

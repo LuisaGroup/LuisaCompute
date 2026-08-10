@@ -1,6 +1,10 @@
 #include <algorithm>
+#include <cstdlib>
+#include <type_traits>
 
 #include <luisa/ast/type.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/core/stl/deque.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -24,6 +28,176 @@
 namespace luisa::compute::xir {
 
 namespace detail {
+
+class DistillCertificateHasher {
+
+private:
+    uint64_t _state{luisa::hash64_default_seed};
+
+public:
+    template<typename T>
+        requires(std::is_integral_v<T> || std::is_enum_v<T>)
+    void add(T value) noexcept {
+        _state = luisa::hash64(&value, sizeof(value), _state);
+    }
+
+    void add_pointer(const void *value) noexcept {
+        auto bits = reinterpret_cast<uintptr_t>(value);
+        add(bits);
+    }
+
+    void add_string(luisa::string_view value) noexcept {
+        add(value.size());
+        if (!value.empty()) {
+            _state = luisa::hash64(value.data(), value.size(), _state);
+        }
+    }
+
+    [[nodiscard]] uint64_t finish() const noexcept { return _state; }
+};
+
+static void hash_optional_string(DistillCertificateHasher &h,
+                                 const luisa::optional<luisa::string> &value) noexcept {
+    h.add(value.has_value());
+    if (value.has_value()) { h.add_string(*value); }
+}
+
+static void hash_optional_token(DistillCertificateHasher &h,
+                                const luisa::optional<uint32_t> &value) noexcept {
+    h.add(value.has_value());
+    if (value.has_value()) { h.add(*value); }
+}
+
+[[nodiscard]] static uint64_t compute_distill_validation_hash(
+    const CoroCfgDistillResult &result,
+    const FunctionDefinition *definition) noexcept {
+    DistillCertificateHasher h;
+    // Version the schema so adding a semantic field cannot silently retain a
+    // certificate computed by an older layout.
+    h.add(uint64_t{1u});
+    h.add_pointer(definition);
+    if (definition != nullptr) {
+        h.add_pointer(definition->body_block());
+        h.add(definition->arguments().count_size());
+        for (auto *argument : definition->arguments()) {
+            h.add_pointer(argument);
+            h.add_pointer(argument->type());
+            h.add(argument->derived_argument_tag());
+        }
+        h.add(definition->basic_blocks().count_size());
+        for (auto *block : definition->basic_blocks()) {
+            h.add_pointer(block);
+            h.add(block->instructions().count_size());
+            for (auto *instruction : block->instructions()) {
+                h.add_pointer(instruction);
+                h.add(instruction->derived_instruction_tag());
+                h.add_pointer(instruction->type());
+                h.add(instruction->is_lvalue());
+                h.add(instruction->is_terminator());
+                h.add_string(instruction->intrinsic_identifier());
+                if (auto name = instruction->name()) {
+                    h.add(true);
+                    h.add_string(*name);
+                } else {
+                    h.add(false);
+                }
+                h.add(instruction->operand_uses().size());
+                for (auto *operand : instruction->operand_uses()) {
+                    h.add_pointer(operand->value());
+                }
+                switch (instruction->derived_instruction_tag()) {
+                    case DerivedInstructionTag::CORO_SUSPEND: {
+                        auto *suspend =
+                            static_cast<const CoroSuspendInst *>(instruction);
+                        h.add(suspend->token());
+                        h.add_string(suspend->name());
+                        break;
+                    }
+                    case DerivedInstructionTag::CORO_RESUME:
+                        h.add(static_cast<const CoroResumeInst *>(instruction)->token());
+                        break;
+                    default: break;
+                }
+            }
+        }
+    }
+
+    h.add(result.scopes.size());
+    for (auto &scope : result.scopes) {
+        h.add(scope.blocks.size());
+        for (auto *block : scope.blocks) { h.add_pointer(block); }
+        h.add(scope.suspend_points.size());
+        for (auto &point : scope.suspend_points) {
+            h.add_pointer(point.block);
+            h.add(point.token);
+            h.add_string(point.name);
+        }
+        h.add(scope.scope_id);
+        hash_optional_token(h, scope.suspend_token);
+        hash_optional_string(h, scope.suspend_name);
+        h.add(scope.trigger_token);
+        hash_optional_string(h, scope.trigger_name);
+        auto hash_values = [&](auto &values) noexcept {
+            h.add(values.size());
+            for (auto *value : values) { h.add_pointer(value); }
+        };
+        auto hash_names = [&](auto &names) noexcept {
+            h.add(names.size());
+            for (auto &name : names) { h.add_string(name); }
+        };
+        hash_values(scope.external_values);
+        hash_values(scope.touched_values);
+        hash_values(scope.live_in_values);
+        hash_values(scope.live_out_values);
+        hash_names(scope.external_variables);
+        hash_names(scope.touched_variables);
+        hash_names(scope.live_in_variables);
+        hash_names(scope.live_out_variables);
+        h.add(scope.is_terminal);
+    }
+
+    h.add(result.edges.size());
+    for (auto &targets : result.edges) {
+        h.add(targets.size());
+        for (auto target : targets) { h.add(target); }
+    }
+
+    h.add(result.transition_edges.size());
+    for (auto &edge : result.transition_edges) {
+        h.add(edge.from_scope);
+        h.add(edge.to_scope);
+        h.add(edge.token);
+        h.add_pointer(edge.exit_block);
+        h.add(edge.is_suspend);
+        auto hash_values = [&](auto &values) noexcept {
+            h.add(values.size());
+            for (auto *value : values) { h.add_pointer(value); }
+        };
+        auto hash_names = [&](auto &names) noexcept {
+            h.add(names.size());
+            for (auto &name : names) { h.add_string(name); }
+        };
+        hash_values(edge.killed_values);
+        hash_values(edge.touched_values);
+        hash_values(edge.live_values);
+        hash_values(edge.store_values);
+        hash_names(edge.killed_variables);
+        hash_names(edge.touched_variables);
+        hash_names(edge.live_variables);
+        hash_names(edge.store_variables);
+    }
+
+    h.add(result.frame_values.size());
+    for (auto &frame_value : result.frame_values) {
+        h.add_pointer(frame_value.value);
+        h.add_string(frame_value.name);
+        h.add_pointer(frame_value.type);
+    }
+    h.add(result.structured_cfg_error_count);
+    h.add(result.invalid_input_error_count);
+    h.add(result.invalid_cfg_error_count);
+    return h.finish();
+}
 
 // Coroutine scopes are cloned into void continuation callables. Phi nodes need
 // edge-specific values, but suspend/resume transitions are not ordinary CFG
@@ -250,33 +424,57 @@ struct ScopeDataflowState {
     luisa::unordered_set<Value *> touched;
 };
 
-[[nodiscard]] static bool same_state(const ScopeDataflowState &a,
-                                     const ScopeDataflowState &b) noexcept {
-    return same_set(a.killed, b.killed) &&
-           same_set(a.external, b.external) &&
-           same_set(a.touched, b.touched);
-}
+class DenseValueSet {
 
-static void merge_state_union(ScopeDataflowState &dst,
-                              const ScopeDataflowState &src) noexcept {
-    for (auto *value : src.external) { dst.external.emplace(value); }
-    for (auto *value : src.touched) { dst.touched.emplace(value); }
-}
+private:
+    luisa::vector<uint64_t> _words;
 
-static void merge_state_into_entry(ScopeDataflowState &dst,
-                                   const ScopeDataflowState &src,
-                                   bool first_pred) noexcept {
-    merge_state_union(dst, src);
-    if (first_pred) {
-        dst.killed = src.killed;
-    } else {
-        luisa::unordered_set<Value *> killed;
-        for (auto *value : dst.killed) {
-            if (src.killed.contains(value)) { killed.emplace(value); }
+public:
+    explicit DenseValueSet(size_t bit_count = 0u) noexcept
+        : _words((bit_count + 63u) / 64u, 0u) {}
+
+    [[nodiscard]] static DenseValueSet full(size_t bit_count) noexcept {
+        DenseValueSet result{bit_count};
+        std::fill(result._words.begin(), result._words.end(), ~uint64_t{0u});
+        if (auto tail_bit_count = bit_count % 64u;
+            tail_bit_count != 0u) {
+            result._words.back() &=
+                (uint64_t{1u} << tail_bit_count) - uint64_t{1u};
         }
-        dst.killed = std::move(killed);
+        return result;
     }
-}
+
+    void set(size_t index) noexcept {
+        _words[index / 64u] |= uint64_t{1u} << (index % 64u);
+    }
+
+    [[nodiscard]] bool test(size_t index) const noexcept {
+        return (_words[index / 64u] &
+                (uint64_t{1u} << (index % 64u))) != 0u;
+    }
+
+    void union_with(const DenseValueSet &other) noexcept {
+        for (size_t i = 0u; i < _words.size(); ++i) {
+            _words[i] |= other._words[i];
+        }
+    }
+
+    void intersect_with(const DenseValueSet &other) noexcept {
+        for (size_t i = 0u; i < _words.size(); ++i) {
+            _words[i] &= other._words[i];
+        }
+    }
+
+    void subtract(const DenseValueSet &other) noexcept {
+        for (size_t i = 0u; i < _words.size(); ++i) {
+            _words[i] &= ~other._words[i];
+        }
+    }
+
+    [[nodiscard]] bool operator==(const DenseValueSet &other) const noexcept {
+        return _words == other._words;
+    }
+};
 
 static void touch_value(Value *value, ScopeDataflowState &state) noexcept {
     if (value == nullptr) { return; }
@@ -404,62 +602,322 @@ struct ScopeDataflowResult {
     luisa::unordered_map<BasicBlock *, luisa::unordered_set<Value *>> touched_at_exit;
 };
 
-[[nodiscard]] static ScopeDataflowResult analyze_scope_use_def(
+[[nodiscard]] static bool same_pointer_state(
+    const ScopeDataflowState &a,
+    const ScopeDataflowState &b) noexcept {
+    return same_set(a.killed, b.killed) &&
+           same_set(a.external, b.external) &&
+           same_set(a.touched, b.touched);
+}
+
+static void merge_pointer_state_into_entry(
+    ScopeDataflowState &dst,
+    const ScopeDataflowState &src,
+    bool first_predecessor) noexcept {
+    for (auto *value : src.external) { dst.external.emplace(value); }
+    for (auto *value : src.touched) { dst.touched.emplace(value); }
+    if (first_predecessor) {
+        dst.killed = src.killed;
+    } else {
+        luisa::unordered_set<Value *> killed;
+        for (auto *value : dst.killed) {
+            if (src.killed.contains(value)) { killed.emplace(value); }
+        }
+        dst.killed = std::move(killed);
+    }
+}
+
+[[nodiscard]] static ScopeDataflowResult
+analyze_scope_use_def_pointer_oracle(
     const CoroCfgDistillResult::Scope &scope) noexcept {
     ScopeDataflowResult result;
     if (scope.blocks.empty()) { return result; }
-
     luisa::unordered_set<BasicBlock *> scope_blocks;
-    for (auto *bb : scope.blocks) { scope_blocks.emplace(bb); }
-
+    for (auto *block : scope.blocks) { scope_blocks.emplace(block); }
     luisa::unordered_map<BasicBlock *, ScopeDataflowState> in_states;
     luisa::unordered_map<BasicBlock *, ScopeDataflowState> out_states;
     for (;;) {
         auto changed = false;
-        for (auto *bb : scope.blocks) {
+        for (auto *block : scope.blocks) {
             ScopeDataflowState next_in;
-            auto first_pred = true;
-            if (bb == scope.blocks.front()) {
-                first_pred = false;
-            }
-            bb->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                if (!scope_blocks.contains(pred)) { return; }
-                auto it = out_states.find(pred);
-                if (it == out_states.end()) { return; }
-                merge_state_into_entry(next_in, it->second, first_pred);
-                first_pred = false;
-            });
-            auto old_in = in_states.find(bb);
-            if (old_in == in_states.end() || !same_state(old_in->second, next_in)) {
-                in_states[bb] = next_in;
+            auto first_predecessor = block != scope.blocks.front();
+            block->traverse_predecessors(
+                false, [&](BasicBlock *predecessor) noexcept {
+                    if (!scope_blocks.contains(predecessor)) { return; }
+                    auto iter = out_states.find(predecessor);
+                    if (iter == out_states.end()) { return; }
+                    merge_pointer_state_into_entry(
+                        next_in, iter->second, first_predecessor);
+                    first_predecessor = false;
+                });
+            auto old_in = in_states.find(block);
+            if (old_in == in_states.end() ||
+                !same_pointer_state(old_in->second, next_in)) {
+                in_states[block] = next_in;
                 changed = true;
             }
-
             auto state = next_in;
-            for (auto *inst : bb->instructions()) {
-                if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
-                    result.killed_at_exit[bb] = state.killed;
-                    result.touched_at_exit[bb] = state.touched;
+            for (auto *instruction : block->instructions()) {
+                if (instruction->derived_instruction_tag() ==
+                        DerivedInstructionTag::CORO_SUSPEND ||
+                    (instruction->is_terminator() &&
+                     instruction->derived_instruction_tag() !=
+                         DerivedInstructionTag::CORO_SUSPEND)) {
+                    result.killed_at_exit[block] = state.killed;
+                    result.touched_at_exit[block] = state.touched;
                 }
-                if (inst->is_terminator() && inst->derived_instruction_tag() != DerivedInstructionTag::CORO_SUSPEND) {
-                    result.killed_at_exit[bb] = state.killed;
-                    result.touched_at_exit[bb] = state.touched;
-                }
-                transfer_instruction(inst, state);
+                transfer_instruction(instruction, state);
             }
-            auto old_out = out_states.find(bb);
-            if (old_out == out_states.end() || !same_state(old_out->second, state)) {
-                out_states[bb] = std::move(state);
+            auto old_out = out_states.find(block);
+            if (old_out == out_states.end() ||
+                !same_pointer_state(old_out->second, state)) {
+                out_states[block] = std::move(state);
                 changed = true;
             }
         }
         if (!changed) { break; }
     }
-
-    for (auto &[bb, state] : out_states) {
-        static_cast<void>(bb);
+    for (auto &[block, state] : out_states) {
+        static_cast<void>(block);
         for (auto *value : state.external) { result.external.emplace(value); }
         for (auto *value : state.touched) { result.touched.emplace(value); }
+    }
+    return result;
+}
+
+[[nodiscard]] static ScopeDataflowResult analyze_scope_use_def(
+    const CoroCfgDistillResult::Scope &scope) noexcept {
+    ScopeDataflowResult result;
+    if (scope.blocks.empty()) { return result; }
+
+    auto block_count = scope.blocks.size();
+    luisa::unordered_map<BasicBlock *, size_t> block_indices;
+    block_indices.reserve(block_count);
+    for (size_t i = 0u; i < block_count; ++i) {
+        block_indices.emplace(scope.blocks[i], i);
+    }
+
+    // Summarize each transfer exactly once. For a block B:
+    //
+    //   K_out = K_in union K_B
+    //   T_out = T_in union T_B
+    //   E_out = E_in union (E_B - K_in)
+    //
+    // K is a must-definition fact (intersection at joins); T and E are may
+    // facts (union at joins). This is the same finite dataflow problem as the
+    // former pointer-set fixed point, but instruction transfer is no longer
+    // re-executed on every iteration.
+    luisa::vector<ScopeDataflowState> local_states;
+    local_states.reserve(block_count);
+    luisa::unordered_map<Value *, size_t> value_indices;
+    luisa::vector<Value *> values;
+    for (auto *block : scope.blocks) {
+        auto &local = local_states.emplace_back();
+        for (auto *instruction : block->instructions()) {
+            transfer_instruction(instruction, local);
+        }
+        auto number_values = [&](auto &set) noexcept {
+            for (auto *value : set) {
+                if (!value_indices.contains(value)) {
+                    value_indices.emplace(value, values.size());
+                    values.emplace_back(value);
+                }
+            }
+        };
+        number_values(local.killed);
+        number_values(local.external);
+        number_values(local.touched);
+    }
+
+    auto value_count = values.size();
+    struct DenseBlockTransfer {
+        DenseValueSet killed;
+        DenseValueSet external;
+        DenseValueSet touched;
+        explicit DenseBlockTransfer(size_t n) noexcept
+            : killed{n}, external{n}, touched{n} {}
+    };
+    luisa::vector<DenseBlockTransfer> local_transfers;
+    local_transfers.reserve(block_count);
+    for (auto &local : local_states) {
+        auto &dense = local_transfers.emplace_back(value_count);
+        for (auto *value : local.killed) {
+            dense.killed.set(value_indices.at(value));
+        }
+        for (auto *value : local.external) {
+            dense.external.set(value_indices.at(value));
+        }
+        for (auto *value : local.touched) {
+            dense.touched.set(value_indices.at(value));
+        }
+    }
+    local_states.clear();
+
+    // Number the induced scope CFG once. Successor construction also gives us
+    // sparse predecessor lists without repeatedly walking intrusive use lists.
+    luisa::vector<luisa::vector<size_t>> successors(block_count);
+    luisa::vector<luisa::vector<size_t>> predecessors(block_count);
+    for (size_t i = 0u; i < block_count; ++i) {
+        scope.blocks[i]->traverse_successors(
+            false, [&](BasicBlock *successor) noexcept {
+                auto iter = block_indices.find(successor);
+                if (iter == block_indices.end()) { return; }
+                auto j = iter->second;
+                auto &out = successors[i];
+                if (std::find(out.begin(), out.end(), j) == out.end()) {
+                    out.emplace_back(j);
+                    predecessors[j].emplace_back(i);
+                }
+            });
+    }
+
+    auto solve_worklist = [&](auto &&update) noexcept {
+        luisa::deque<size_t> worklist;
+        luisa::vector<uint8_t> queued(block_count, 1u);
+        for (size_t i = 0u; i < block_count; ++i) {
+            worklist.emplace_back(i);
+        }
+        while (!worklist.empty()) {
+            auto block = worklist.front();
+            worklist.pop_front();
+            queued[block] = 0u;
+            if (update(block)) {
+                for (auto successor : successors[block]) {
+                    if (queued[successor] == 0u) {
+                        queued[successor] = 1u;
+                        worklist.emplace_back(successor);
+                    }
+                }
+            }
+        }
+    };
+
+    // Solve must-kill first. This is a forward must analysis, so non-entry
+    // states start at TOP and monotonically decrease to the greatest fixed
+    // point. Starting at the empty set instead computes the least fixed point:
+    // in a loop, a value killed on every path from the entry can then be lost
+    // merely because the unvisited back-edge initially contributes BOTTOM.
+    // The entry boundary remains the empty set even when a loop targets it.
+    // Keeping the final must solution fixed makes the subsequent may-use
+    // equations monotone and avoids transient external-value overestimates.
+    auto killed_top = DenseValueSet::full(value_count);
+    luisa::vector<DenseValueSet> killed_in(block_count, killed_top);
+    luisa::vector<DenseValueSet> killed_out(block_count, killed_top);
+    killed_in.front() = DenseValueSet{value_count};
+    killed_out.front() = local_transfers.front().killed;
+    solve_worklist([&](size_t block) noexcept {
+        DenseValueSet next_in{value_count};
+        if (block != 0u && !predecessors[block].empty()) {
+            next_in = killed_out[predecessors[block].front()];
+            for (size_t i = 1u; i < predecessors[block].size(); ++i) {
+                next_in.intersect_with(
+                    killed_out[predecessors[block][i]]);
+            }
+        }
+        auto next_out = next_in;
+        next_out.union_with(local_transfers[block].killed);
+        if (next_in == killed_in[block] &&
+            next_out == killed_out[block]) {
+            return false;
+        }
+        killed_in[block] = std::move(next_in);
+        killed_out[block] = std::move(next_out);
+        return true;
+    });
+
+    luisa::vector<DenseValueSet> external_out(
+        block_count, DenseValueSet{value_count});
+    luisa::vector<DenseValueSet> touched_out(
+        block_count, DenseValueSet{value_count});
+    solve_worklist([&](size_t block) noexcept {
+        DenseValueSet next_external{value_count};
+        DenseValueSet next_touched{value_count};
+        for (auto predecessor : predecessors[block]) {
+            next_external.union_with(external_out[predecessor]);
+            next_touched.union_with(touched_out[predecessor]);
+        }
+        auto local_external = local_transfers[block].external;
+        local_external.subtract(killed_in[block]);
+        next_external.union_with(local_external);
+        next_touched.union_with(local_transfers[block].touched);
+        if (next_external == external_out[block] &&
+            next_touched == touched_out[block]) {
+            return false;
+        }
+        external_out[block] = std::move(next_external);
+        touched_out[block] = std::move(next_touched);
+        return true;
+    });
+
+    auto append_dense_values = [&](auto &destination,
+                                   const DenseValueSet &source) noexcept {
+        for (size_t i = 0u; i < value_count; ++i) {
+            if (source.test(i)) { destination.emplace(values[i]); }
+        }
+    };
+    for (size_t i = 0u; i < block_count; ++i) {
+        append_dense_values(result.external, external_out[i]);
+        append_dense_values(result.touched, touched_out[i]);
+        auto *block = scope.blocks[i];
+        if (block->is_terminated()) {
+            append_dense_values(result.killed_at_exit[block], killed_out[i]);
+            append_dense_values(result.touched_at_exit[block], touched_out[i]);
+        }
+    }
+    if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
+        flag != nullptr && luisa::string_view{flag} == "1") {
+        auto oracle = analyze_scope_use_def_pointer_oracle(scope);
+        auto pointer_set_difference = [](auto &a, auto &b) noexcept {
+            luisa::unordered_set<Value *> difference;
+            for (auto *value : a) {
+                if (!b.contains(value)) { difference.emplace(value); }
+            }
+            return difference;
+        };
+        auto dense_only_external = pointer_set_difference(
+            result.external, oracle.external);
+        auto oracle_only_external = pointer_set_difference(
+            oracle.external, result.external);
+        auto dense_only_touched = pointer_set_difference(
+            result.touched, oracle.touched);
+        auto oracle_only_touched = pointer_set_difference(
+            oracle.touched, result.touched);
+        LUISA_ASSERT(
+            dense_only_external.empty() &&
+                oracle_only_external.empty() &&
+                dense_only_touched.empty() &&
+                oracle_only_touched.empty(),
+            "Dense coroutine dataflow differs from pointer oracle for scope "
+            "token {} (external dense-only={}, oracle-only={}; touched "
+            "dense-only={}, oracle-only={}).",
+            scope.trigger_token,
+            dense_only_external.size(), oracle_only_external.size(),
+            dense_only_touched.size(), oracle_only_touched.size());
+        for (auto *block : scope.blocks) {
+            auto dense_killed = result.killed_at_exit.find(block);
+            auto oracle_killed = oracle.killed_at_exit.find(block);
+            auto dense_touched = result.touched_at_exit.find(block);
+            auto oracle_touched = oracle.touched_at_exit.find(block);
+            auto empty = luisa::unordered_set<Value *>{};
+            auto &dense_killed_set = dense_killed == result.killed_at_exit.end() ?
+                                         empty :
+                                         dense_killed->second;
+            auto &oracle_killed_set = oracle_killed == oracle.killed_at_exit.end() ?
+                                          empty :
+                                          oracle_killed->second;
+            auto &dense_touched_set = dense_touched == result.touched_at_exit.end() ?
+                                          empty :
+                                          dense_touched->second;
+            auto &oracle_touched_set = oracle_touched == oracle.touched_at_exit.end() ?
+                                           empty :
+                                           oracle_touched->second;
+            LUISA_ASSERT(
+                same_set(dense_killed_set, oracle_killed_set) &&
+                    same_set(dense_touched_set, oracle_touched_set),
+                "Dense coroutine exit dataflow differs from pointer oracle "
+                "for scope token {}.",
+                scope.trigger_token);
+        }
     }
     return result;
 }
@@ -843,6 +1301,20 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
 
 }// namespace detail
 
+void CoroCfgDistillResult::_seal(FunctionDefinition *definition) noexcept {
+    _source_definition = definition;
+    _validation_hash =
+        detail::compute_distill_validation_hash(*this, definition);
+}
+
+bool CoroCfgDistillResult::validation_certificate_matches(
+    const FunctionDefinition *definition) const noexcept {
+    return definition != nullptr &&
+           definition == _source_definition &&
+           _validation_hash ==
+               detail::compute_distill_validation_hash(*this, definition);
+}
+
 CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept {
     if (f == nullptr) {
         CoroCfgDistillResult result;
@@ -872,7 +1344,9 @@ CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept
     if (!result.succeeded()) {
         return result;
     }
-    return detail::distill_function(def);
+    result = detail::distill_function(def);
+    result._seal(def);
+    return result;
 }
 
 size_t coro_cfg_distill_pass_run_on_module(Module *m) noexcept {

@@ -9,6 +9,7 @@ namespace luisa::compute::xir {
 
 class BasicBlock;
 class Function;
+class FunctionDefinition;
 class Module;
 class Value;
 
@@ -75,6 +76,23 @@ struct CoroCfgDistillResult {
     size_t structured_cfg_error_count{0u};
     size_t invalid_input_error_count{0u};
     size_t invalid_cfg_error_count{0u};
+
+private:
+    // A distilled result is an analysis certificate for one immutable source
+    // CFG version. Split validates this seal in linear time instead of
+    // rerunning the complete liveness fixed point. The seal covers the source
+    // instruction graph and every semantic result field, so copying is valid
+    // while mutation or reuse after CFG edits is rejected.
+    FunctionDefinition *_source_definition{nullptr};
+    uint64_t _validation_hash{0u};
+
+    void _seal(FunctionDefinition *definition) noexcept;
+    friend CoroCfgDistillResult
+    coro_cfg_distill_pass_run_on_function(Function *f) noexcept;
+
+public:
+    [[nodiscard]] bool validation_certificate_matches(
+        const FunctionDefinition *definition) const noexcept;
 
     [[nodiscard]] bool succeeded() const noexcept {
         return structured_cfg_error_count == 0u &&

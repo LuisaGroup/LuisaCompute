@@ -1,3 +1,4 @@
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 
 #include <luisa/ast/function.h>
@@ -46,12 +47,48 @@ struct OrdinaryCallableSnapshot {
     luisa::vector<const xir::Instruction *> instructions;
 };
 
-[[nodiscard]] bool verify_coro_pass_domain_enabled() noexcept {
-    if (auto value = std::getenv("LUISA_CORO_VERIFY_PASS_DOMAIN")) {
+[[nodiscard]] bool environment_flag_enabled(const char *name) noexcept {
+    if (auto value = std::getenv(name)) {
         return luisa::string_view{value} == "1";
     }
     return false;
 }
+
+[[nodiscard]] bool verify_coro_pass_domain_enabled() noexcept {
+    return environment_flag_enabled("LUISA_CORO_VERIFY_PASS_DOMAIN");
+}
+
+[[nodiscard]] bool verify_intermediate_xir_enabled() noexcept {
+    return environment_flag_enabled("LUISA_XIR_VERIFY_INTERMEDIATE");
+}
+
+class CoroutineCompilePhaseProfiler {
+
+private:
+    bool _enabled;
+    luisa::Clock _total_clock;
+    luisa::Clock _phase_clock;
+
+public:
+    CoroutineCompilePhaseProfiler() noexcept
+        : _enabled{environment_flag_enabled(
+              "LUISA_CORO_PROFILE_COMPILATION")} {}
+
+    void checkpoint(luisa::string_view phase) noexcept {
+        if (_enabled) {
+            LUISA_INFO("Coroutine compilation phase '{}': {:.3f} ms",
+                       phase, _phase_clock.toc());
+            _phase_clock.tic();
+        }
+    }
+
+    void finish() noexcept {
+        if (_enabled) {
+            LUISA_INFO("Coroutine compilation total: {:.3f} ms",
+                       _total_clock.toc());
+        }
+    }
+};
 
 [[nodiscard]] luisa::vector<OrdinaryCallableSnapshot>
 snapshot_ordinary_callables(xir::Module *module,
@@ -177,13 +214,16 @@ CoroutineCompileResult compile_coroutine_pipeline(
     const luisa::shared_ptr<const FunctionBuilder> &builder) {
 
     CoroutineCompileResult result{};
+    CoroutineCompilePhaseProfiler profiler;
 
     auto ast_func = Function{builder.get()};
     xir::AST2XIRConfig config{};
     auto module = xir::ast_to_xir_translate(ast_func, config);
     LUISA_ASSERT(module != nullptr,
                  "Coroutine compilation failed: AST->XIR translation returned null module");
+    profiler.checkpoint("AST-to-XIR translation");
     verify_coro_xir_or_error(module.get(), "AST translation");
+    profiler.checkpoint("input verification");
 
     xir::Function *coro_func = nullptr;
     for (auto *f : module->function_list()) {
@@ -201,6 +241,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     }
     LUISA_ASSERT(coro_func != nullptr,
                  "Coroutine compilation failed: no coroutine function found in XIR module");
+    profiler.checkpoint("coroutine discovery");
 
     // Coro cfg distill/split/materialize intentionally accept only raw CFG.
     // A ray-query candidate loop is not coroutine scheduling control flow: no
@@ -223,10 +264,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
             "ray-query loop(s).",
             ray_query_info.error_count);
     }
+    profiler.checkpoint("ray-query normalization");
     auto ordinary_callable_snapshots =
         verify_coro_pass_domain_enabled() ?
             snapshot_ordinary_callables(module.get(), coro_func) :
             luisa::vector<OrdinaryCallableSnapshot>{};
+    profiler.checkpoint("pass-domain snapshot");
     // Destructure then converts the remaining structured constructs to the raw
     // CFG expected by coroutine distillation.
     auto destructure_info =
@@ -240,6 +283,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "source destructuring");
     }
+    profiler.checkpoint("source destructuring");
     auto pre_distill_pipeline =
         create_coro_pre_distill_pipeline(coro_func);
     auto pre_distill_stats = pre_distill_pipeline.run(module.get());
@@ -247,8 +291,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "pre-distill optimization");
     }
-    verify_coro_xir_or_error(module.get(), "pre-distill optimization");
     pre_distill_stats.log("Coroutine pre-distill optimization");
+    profiler.checkpoint("pre-distill optimization");
+    if (verify_intermediate_xir_enabled()) {
+        verify_coro_xir_or_error(module.get(), "pre-distill optimization");
+        profiler.checkpoint("intermediate verification");
+    }
 
     // Keep the coroutine owner's identity across optimization. Its surviving
     // token set is allowed to be a strict subset of the front-end token set,
@@ -270,6 +318,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
         cfg.structured_cfg_error_count, cfg.invalid_input_error_count,
         cfg.invalid_cfg_error_count);
     LUISA_ASSERT(!cfg.scopes.empty(), "coro-cfg-distill found no scopes");
+    profiler.checkpoint("CFG distillation");
     luisa::vector<const Type *> frame_fields;
     auto frame_alignment = Type::of<uint>()->alignment();
     for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
@@ -280,6 +329,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
         frame_alignment = std::max(frame_alignment, value.type->alignment());
     }
     auto *frame_type = Type::structure(frame_alignment, frame_fields);
+    profiler.checkpoint("frame layout");
 
     auto split_info = xir::coro_split_pass_run_on_module_with_cfg_and_frame_info(module.get(), cfg, frame_type);
     if (!ordinary_callable_snapshots.empty()) {
@@ -292,6 +342,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
             split_info.structured_cfg_error_count, split_info.invalid_cfg_error_count);
     }
     LUISA_ASSERT(!split_info.subroutines.empty(), "coro-split produced no callables");
+    profiler.checkpoint("coroutine splitting");
 
     auto materialize_info = xir::coro_materialize_pass_run_on_module_with_cfg(module.get(), cfg, split_info);
     if (!ordinary_callable_snapshots.empty()) {
@@ -305,10 +356,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
             materialize_info.invalid_input_error_count);
     }
     LUISA_ASSERT(materialize_info.callable_count != 0u, "coro-materialize found no callables");
+    profiler.checkpoint("continuation materialization");
 
     result.graph = coro::CoroGraph::from_module(
         *module, materialize_info, cfg, split_info);
     result.frame_desc.from_materialize_info(materialize_info);
+    profiler.checkpoint("graph and frame metadata");
 
     // Split callables are now the complete code-generation domain. The source
     // coroutine is an analysis artifact whose ordinary CFG ends at each
@@ -330,12 +383,14 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(
         source_coroutine_owner != nullptr,
         "Coroutine source function was not linked in its module.");
+    profiler.checkpoint("source detachment");
 
     (void)xir::coro_reg2mem_pass_run_on_split(split_info);
     if (!ordinary_callable_snapshots.empty()) {
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "coroutine reg2mem");
     }
+    profiler.checkpoint("coroutine frame spilling");
     // Ordinary callable dependencies are not part of the coroutine state
     // machine. Keep their original structured AST-to-XIR form intact and
     // normalize only the generated continuations. Besides avoiding a
@@ -358,6 +413,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
         (void)xir::reg2mem_pass_run_on_function(
             subroutine.callable);
     }
+    profiler.checkpoint("continuation destructuring");
     // Splitting at a suspend boundary can cut paths inside an otherwise
     // reducible source loop. A continuation scope may consequently contain a
     // residual cyclic SCC with several entry nodes even though the original
@@ -377,6 +433,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
                 irreducible_info.error_count);
         }
     }
+    profiler.checkpoint("irreducible-CFG lowering");
     for (auto &subroutine : split_info.subroutines) {
         auto restructure_info =
             xir::restructure_cfg_pass_run_on_function(
@@ -400,11 +457,14 @@ CoroutineCompileResult compile_coroutine_pipeline(
         (void)xir::reg2mem_pass_run_on_function(
             subroutine.callable);
     }
+    profiler.checkpoint("continuation restructuring");
     if (!ordinary_callable_snapshots.empty()) {
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "continuation normalization");
+        profiler.checkpoint("pass-domain verification");
     }
     verify_coro_xir_or_error(module.get(), "codegen handoff", {.require_no_phi = true});
+    profiler.checkpoint("output verification");
 
     // Keep continuation code and its routing token as one atomic relation.
     // Silently skipping a failed XIR->AST translation and then independently
@@ -465,6 +525,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
             result.trigger_tokens.front() == 0u &&
             result.subroutines.size() == result.trigger_tokens.size(),
         "Coroutine lowering lost the entry continuation or callable/token pairing.");
+    profiler.checkpoint("XIR-to-AST continuation translation");
+    profiler.finish();
 
     return result;
 }

@@ -531,6 +531,73 @@ void reg_coro_cfg_distill() {
         expect(total_blocks >= 6u);// body, loop_hdr, loop_body, s1, r1, exit
     };
 
+    "loop_must_kill_uses_greatest_fixed_point"_test = [] {
+        // Definite definition is a must property. The loop header equation is
+        //
+        //   K_header = K_entry intersect K_backedge.
+        //
+        // Since state is initialized before the loop and no path can undo a
+        // definition, the greatest fixed point contains state. Initializing
+        // the backedge to the empty set instead selects the smaller, invalid
+        // fixed point and spuriously promotes this loop-local value into the
+        // coroutine frame.
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *loop_cond = m.create_constant_one(Type::of<bool>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+
+        auto *loop_header = k->create_basic_block();
+        auto *loop_backedge = k->create_basic_block();
+        auto *suspend_block = k->create_basic_block();
+        auto *resume_block = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("loop_local_state");
+        b.store(state, zero);
+        b.br(loop_header);
+
+        b.set_insertion_point(loop_header);
+        auto *loaded = b.load(Type::of<int>(), state);
+        static_cast<void>(loaded);
+        b.cond_br(loop_cond, loop_backedge, suspend_block);
+
+        b.set_insertion_point(loop_backedge);
+        b.br(loop_header);
+
+        b.set_insertion_point(suspend_block);
+        b.coro_suspend(1u, "after-loop", nullptr);
+
+        b.set_insertion_point(resume_block);
+        b.coro_resume(1u, nullptr);
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        expect(result.succeeded());
+        expect(result.scopes.size() == 2u);
+        expect(std::find(result.scopes[0u].external_values.begin(),
+                         result.scopes[0u].external_values.end(),
+                         state) == result.scopes[0u].external_values.end());
+        expect(std::find_if(result.frame_values.begin(),
+                            result.frame_values.end(),
+                            [&](auto &field) noexcept {
+                                return field.value == state;
+                            }) == result.frame_values.end());
+        auto suspend_kills_state = false;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.token == 1u &&
+                std::find(edge.killed_values.begin(),
+                          edge.killed_values.end(),
+                          state) != edge.killed_values.end()) {
+                suspend_kills_state = true;
+            }
+        }
+        expect(suspend_kills_state);
+    };
+
     "for_if_suspend_liveness"_test = [] {
         // given: for (...) { if (...) { suspend } } with a local updated
         // before the suspend and used after resume

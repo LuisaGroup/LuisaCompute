@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 
 #include "helpers.h"
@@ -24,6 +25,13 @@
 namespace luisa::compute::xir {
 
 namespace detail {
+
+[[nodiscard]] static bool verify_intermediate_xir_enabled() noexcept {
+    if (auto value = std::getenv("LUISA_XIR_VERIFY_INTERMEDIATE")) {
+        return luisa::string_view{value} == "1";
+    }
+    return false;
+}
 
 static constexpr uint32_t FRAME_FIELD_ID_X = 0u;
 static constexpr uint32_t FRAME_FIELD_ID_Y = 1u;
@@ -366,10 +374,21 @@ public:
         return false;
     }
     if (!coro_split_validate_coroutine_tokens(def)) { return false; }
-    auto canonical = coro_cfg_distill_pass_run_on_function(def);
-    if (!canonical.succeeded() ||
-        !distilled_cfg_matches_canonical(result, canonical)) {
+    // Distillation seals both the source CFG version and all semantic result
+    // fields. This linear certificate check rejects stale or caller-mutated
+    // metadata without rerunning the liveness fixed point at every consumer.
+    if (!result.validation_certificate_matches(def)) {
         return false;
+    }
+    // Full canonical recomputation is a diagnostic oracle, not part of the
+    // production split algorithm. Enable it explicitly when auditing an XIR
+    // pass boundary.
+    if (verify_intermediate_xir_enabled()) {
+        auto canonical = coro_cfg_distill_pass_run_on_function(def);
+        if (!canonical.succeeded() ||
+            !distilled_cfg_matches_canonical(result, canonical)) {
+            return false;
+        }
     }
     luisa::unordered_set<uint32_t> triggers;
     luisa::unordered_set<uint32_t> suspends;
@@ -403,10 +422,6 @@ public:
             if (block->is_terminated() && block->terminator()->isa<CoroSuspendInst>()) {
                 scope_suspend_blocks.emplace(block);
             }
-        }
-        if (scope_blocks.size() != canonical.scopes[i].blocks.size()) { return false; }
-        for (auto *block : canonical.scopes[i].blocks) {
-            if (!scope_blocks.contains(block)) { return false; }
         }
         for (auto &point : scope.suspend_points) {
             if (point.block == nullptr || point.token == 0u || point.token == TERMINAL_TOKEN) {
