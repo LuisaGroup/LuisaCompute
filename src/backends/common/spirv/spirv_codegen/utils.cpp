@@ -453,6 +453,42 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                          i.inline_info
                              .call_site_dense_resolver_fallback_count);
                      r.set(
+                         "ordinary_inline_summary_function",
+                         i.inline_info
+                             .inline_pass_summary_function_count);
+                     r.set(
+                         "ordinary_inline_summary_instruction_scan",
+                         i.inline_info
+                             .inline_pass_summary_instruction_scan_count);
+                     r.set(
+                         "ordinary_inline_clone_layout_function",
+                         i.inline_info
+                             .inline_pass_clone_layout_function_count);
+                     r.set(
+                         "ordinary_inline_clone_layout_value",
+                         i.inline_info
+                             .inline_pass_clone_layout_value_count);
+                     r.set(
+                         "ordinary_inline_dense_resolver_apply",
+                         i.inline_info
+                             .inline_pass_dense_resolver_apply_count);
+                     r.set(
+                         "ordinary_inline_dense_resolver_fallback",
+                         i.inline_info
+                             .inline_pass_dense_resolver_fallback_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_function",
+                         i.inline_info
+                             .inline_pass_caller_barrier_function_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_instruction_scan",
+                         i.inline_info
+                             .inline_pass_caller_barrier_instruction_scan_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_cache_hit",
+                         i.inline_info
+                             .inline_pass_caller_barrier_cache_hit_count);
+                     r.set(
                          "inline_recursion_function",
                          i.inline_info
                              .recursion_analysis_function_count);

@@ -238,17 +238,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(21u, [](PassReport *report) noexcept {
+        check_zero_report(30u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(21u, [](PassReport *report) noexcept {
+        check_zero_report(30u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(21u, [](PassReport *report) noexcept {
+        check_zero_report(30u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(21u, [](PassReport *report) noexcept {
+        check_zero_report(30u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -6059,6 +6059,170 @@ void reg_inline() {
         expect(count_reachable_insts(caller, DerivedInstructionTag::BRANCH) == 0u);
     };
 
+    "inline_pass_reuses_one_dense_layout_per_callee_version"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(Type::of<uint>());
+        auto *argument =
+            callee->create_value_argument(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(callee->create_body_block());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        Value *value = argument;
+        constexpr auto chain_length = 32u;
+        for (auto i = 0u; i < chain_length; ++i) {
+            value = b.call(Type::of<uint>(),
+                           ArithmeticOp::BINARY_ADD,
+                           {value, one});
+        }
+        b.return_(value);
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_argument =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        constexpr auto call_count = 3u;
+        for (auto i = 0u; i < call_count; ++i) {
+            auto *call = b.call(Type::of<uint>(), callee,
+                                {kernel_argument});
+            b.store(storage, call);
+        }
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == call_count);
+        expect(info.removed_callable_count == 1u);
+        expect(info.inline_pass_summary_function_count == 1u);
+        expect(info.inline_pass_summary_instruction_scan_count ==
+               chain_length + 1u);
+        expect(info.inline_pass_clone_layout_function_count == 1u);
+        expect(info.inline_pass_clone_layout_value_count ==
+               chain_length + 3u);
+        expect(info.inline_pass_dense_resolver_apply_count == call_count);
+        expect(info.inline_pass_dense_resolver_fallback_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_pass_rebuilds_layout_after_prior_caller_mutation"_test = [] {
+        Module m;
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<uint>());
+
+        auto *inner = m.create_callable(Type::of<uint>());
+        auto *inner_argument =
+            inner->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(inner->create_body_block());
+        b.return_(b.call(Type::of<uint>(),
+                         ArithmeticOp::BINARY_ADD,
+                         {inner_argument, one}));
+
+        auto *middle = m.create_callable(Type::of<uint>());
+        auto *middle_argument =
+            middle->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(middle->create_body_block());
+        b.return_(b.call(Type::of<uint>(), inner,
+                         {middle_argument}));
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_argument =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), middle,
+                            {kernel_argument});
+        b.store(storage, call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        // `inner` is processed first and mutates `middle`. The version for
+        // `middle` must be summarized and numbered only after that mutation;
+        // no layout may survive across the version boundary.
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == 2u);
+        expect(info.removed_callable_count == 2u);
+        expect(info.inline_pass_summary_function_count == 2u);
+        expect(info.inline_pass_summary_instruction_scan_count == 4u);
+        expect(info.inline_pass_clone_layout_function_count == 2u);
+        expect(info.inline_pass_clone_layout_value_count == 8u);
+        expect(info.inline_pass_dense_resolver_apply_count == 2u);
+        expect(info.inline_pass_dense_resolver_fallback_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_pass_caches_caller_barriers_across_mutations"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *callee = m.create_callable(Type::of<int>());
+        auto *callee_condition =
+            callee->create_value_argument(Type::of<bool>());
+        auto *callee_entry = callee->create_body_block();
+        auto *callee_left = callee->create_basic_block();
+        auto *callee_right = callee->create_basic_block();
+        b.set_insertion_point(callee_entry);
+        b.cond_br(callee_condition, callee_left, callee_right);
+        b.set_insertion_point(callee_left);
+        b.return_(m.create_constant_one(Type::of<int>()));
+        b.set_insertion_point(callee_right);
+        b.return_(m.create_constant_zero(Type::of<int>()));
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *kernel_value =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        Value *filler = kernel_value;
+        constexpr auto filler_instruction_count = 64u;
+        for (auto i = 0u; i < filler_instruction_count; ++i) {
+            filler = b.call(Type::of<uint>(),
+                            ArithmeticOp::BINARY_ADD,
+                            {filler, one});
+        }
+        constexpr auto call_count = 3u;
+        for (auto i = 0u; i < call_count; ++i) {
+            auto *call = b.call(Type::of<int>(), callee,
+                                {kernel_condition});
+            b.store(storage, call);
+        }
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        // The initial caller has one alloca, 64 arithmetic instructions,
+        // three calls, three stores, and one return. Successful inlining
+        // mutates it after the first query, but cannot introduce a barrier;
+        // the remaining two queries must therefore hit the same cache entry.
+        constexpr auto initial_caller_instruction_count =
+            1u + filler_instruction_count + call_count + call_count + 1u;
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == call_count);
+        expect(info.removed_callable_count == 1u);
+        expect(info.inline_pass_summary_function_count == 1u);
+        expect(info.inline_pass_summary_instruction_scan_count == 3u);
+        expect(info.inline_pass_clone_layout_function_count == 1u);
+        expect(info.inline_pass_clone_layout_value_count == 7u);
+        expect(info.inline_pass_dense_resolver_apply_count == call_count);
+        expect(info.inline_pass_dense_resolver_fallback_count == 0u);
+        expect(info.inline_pass_caller_barrier_function_count == 1u);
+        expect(info.inline_pass_caller_barrier_instruction_scan_count ==
+               initial_caller_instruction_count);
+        expect(info.inline_pass_caller_barrier_cache_hit_count ==
+               call_count - 1u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "inline_recursive_callable_is_skipped"_test = [] {
         Module m;
         auto *callee = m.create_callable(Type::of<int>());
@@ -6346,15 +6510,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 21u);
+        expect(report.entries().size() == 30u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 21u);
+        expect(report.entries().size() == 30u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 21u);
+        expect(report.entries().size() == 30u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {

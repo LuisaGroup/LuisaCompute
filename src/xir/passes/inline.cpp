@@ -2,6 +2,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/branch.h>
@@ -232,28 +233,48 @@ public:
     return true;
 }
 
-[[nodiscard]] static bool contains_inline_barrier(FunctionDefinition *def,
-                                                  bool allow_autodiff_scope) noexcept {
+struct InlineBarrierFlags {
+    bool disallow_autodiff_scope{false};
+    bool allow_autodiff_scope{false};
+};
+
+static void accumulate_inline_barrier(
+    const Instruction *instruction,
+    InlineBarrierFlags &flags) noexcept {
+    switch (instruction->derived_instruction_tag()) {
+        case DerivedInstructionTag::IF:
+        case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::LOOP:
+        case DerivedInstructionTag::SIMPLE_LOOP:
+        case DerivedInstructionTag::BREAK:
+        case DerivedInstructionTag::CONTINUE:
+        case DerivedInstructionTag::RAY_QUERY_LOOP:
+        case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+        case DerivedInstructionTag::OUTLINE:
+        case DerivedInstructionTag::CORO_SUSPEND:
+        case DerivedInstructionTag::CORO_RESUME:
+        case DerivedInstructionTag::CORO_TERMINATE:
+            flags.disallow_autodiff_scope = true;
+            flags.allow_autodiff_scope = true;
+            break;
+        case DerivedInstructionTag::AUTODIFF_SCOPE:
+            flags.disallow_autodiff_scope = true;
+            break;
+        default: break;
+    }
+}
+
+[[nodiscard]] static bool contains_inline_barrier(
+    FunctionDefinition *def,
+    bool allow_autodiff_scope) noexcept {
+    InlineBarrierFlags flags;
     for (auto *block : def->basic_blocks()) {
         for (auto *inst : block->instructions()) {
-            switch (inst->derived_instruction_tag()) {
-                case DerivedInstructionTag::IF:
-                case DerivedInstructionTag::SWITCH:
-                case DerivedInstructionTag::LOOP:
-                case DerivedInstructionTag::SIMPLE_LOOP:
-                case DerivedInstructionTag::BREAK:
-                case DerivedInstructionTag::CONTINUE:
-                case DerivedInstructionTag::RAY_QUERY_LOOP:
-                case DerivedInstructionTag::RAY_QUERY_DISPATCH:
-                case DerivedInstructionTag::OUTLINE:
-                case DerivedInstructionTag::CORO_SUSPEND:
-                case DerivedInstructionTag::CORO_RESUME:
-                case DerivedInstructionTag::CORO_TERMINATE:
-                    return true;
-                case DerivedInstructionTag::AUTODIFF_SCOPE:
-                    if (!allow_autodiff_scope) { return true; }
-                    break;
-                default: break;
+            accumulate_inline_barrier(inst, flags);
+            if (allow_autodiff_scope ?
+                    flags.allow_autodiff_scope :
+                    flags.disallow_autodiff_scope) {
+                return true;
             }
         }
     }
@@ -300,7 +321,8 @@ struct InlineFunctionSummary {
 };
 
 [[nodiscard]] static InlineFunctionSummary summarize_inline_function(
-    Function *function, InlineInfo &info) noexcept {
+    Function *function, size_t &summary_function_count,
+    size_t &summary_instruction_scan_count) noexcept {
     InlineFunctionSummary summary;
     auto *definition =
         function == nullptr ? nullptr : function->definition();
@@ -308,41 +330,22 @@ struct InlineFunctionSummary {
         return summary;
     }
     summary.has_valid_definition = true;
-    ++info.call_site_summary_function_count;
+    ++summary_function_count;
     auto block_count = size_t{0u};
     auto return_count = size_t{0u};
     auto single_block_forbidden = false;
     auto return_shape_is_valid = true;
+    InlineBarrierFlags barrier_flags;
     for (auto *block : definition->basic_blocks()) {
         ++block_count;
         for (auto *inst : block->instructions()) {
             ++summary.instruction_count;
-            ++info.call_site_summary_instruction_scan_count;
+            ++summary_instruction_scan_count;
             single_block_forbidden |=
                 (inst->is_terminator() &&
                  !inst->isa<ReturnInst>()) ||
                 inst->isa<PhiInst>();
-            switch (inst->derived_instruction_tag()) {
-                case DerivedInstructionTag::IF:
-                case DerivedInstructionTag::SWITCH:
-                case DerivedInstructionTag::LOOP:
-                case DerivedInstructionTag::SIMPLE_LOOP:
-                case DerivedInstructionTag::BREAK:
-                case DerivedInstructionTag::CONTINUE:
-                case DerivedInstructionTag::RAY_QUERY_LOOP:
-                case DerivedInstructionTag::RAY_QUERY_DISPATCH:
-                case DerivedInstructionTag::OUTLINE:
-                case DerivedInstructionTag::CORO_SUSPEND:
-                case DerivedInstructionTag::CORO_RESUME:
-                case DerivedInstructionTag::CORO_TERMINATE:
-                    summary.contains_barrier_disallow_autodiff = true;
-                    summary.contains_barrier_allow_autodiff = true;
-                    break;
-                case DerivedInstructionTag::AUTODIFF_SCOPE:
-                    summary.contains_barrier_disallow_autodiff = true;
-                    break;
-                default: break;
-            }
+            accumulate_inline_barrier(inst, barrier_flags);
             if (!inst->isa<ReturnInst>()) { continue; }
             auto *return_inst = static_cast<ReturnInst *>(inst);
             auto *return_value = return_inst->return_value();
@@ -360,6 +363,10 @@ struct InlineFunctionSummary {
     summary.local_value_count =
         function->arguments().count_size() + block_count +
         summary.instruction_count;
+    summary.contains_barrier_disallow_autodiff =
+        barrier_flags.disallow_autodiff_scope;
+    summary.contains_barrier_allow_autodiff =
+        barrier_flags.allow_autodiff_scope;
     summary.has_single_block = block_count == 1u;
     if (summary.has_single_block) {
         auto *body = definition->body_block();
@@ -434,6 +441,95 @@ public:
 
     [[nodiscard]] size_t value_count() const noexcept {
         return _numbering.size();
+    }
+};
+
+class InlineCalleeVersion {
+    Function *_function;
+    InlineInfo *_info;
+    InlineFunctionSummary _summary;
+    luisa::unique_ptr<InlineCloneLayout> _clone_layout;
+
+public:
+    InlineCalleeVersion(Function *function, InlineInfo &info) noexcept
+        : _function{function},
+          _info{&info},
+          _summary{summarize_inline_function(
+              function, info.inline_pass_summary_function_count,
+              info.inline_pass_summary_instruction_scan_count)} {}
+
+    [[nodiscard]] const InlineFunctionSummary &summary() const noexcept {
+        return _summary;
+    }
+
+    [[nodiscard]] const InlineCloneLayout &acquire_clone_layout() noexcept {
+        if (_clone_layout == nullptr) {
+            _clone_layout = luisa::make_unique<InlineCloneLayout>(
+                _function, _summary);
+            ++_info->inline_pass_clone_layout_function_count;
+            _info->inline_pass_clone_layout_value_count +=
+                _clone_layout->value_count();
+        }
+        ++_info->inline_pass_dense_resolver_apply_count;
+        return *_clone_layout;
+    }
+
+    [[nodiscard]] size_t *dense_fallback_count() const noexcept {
+        return &_info->inline_pass_dense_resolver_fallback_count;
+    }
+};
+
+// A successful inline operation only removes a CallInst, moves existing
+// caller instructions, and clones a callee already proven free of every
+// inline barrier. It therefore preserves both caller barrier predicates even
+// though it changes the caller definition. The cache is valid for the whole
+// pass invocation, not merely for one structural version of the caller.
+class InlineCallerBarrierCache {
+    luisa::unordered_map<Function *, InlineBarrierFlags> _flags;
+    InlineInfo *_info;
+
+public:
+    explicit InlineCallerBarrierCache(
+        InlineInfo &info, size_t expected_function_count = 0u) noexcept
+        : _info{&info} {
+        _flags.reserve(expected_function_count);
+    }
+
+    [[nodiscard]] bool contains(
+        Function *function, bool allow_autodiff_scope) noexcept {
+        if (auto iter = _flags.find(function);
+            iter != _flags.end()) {
+            ++_info->inline_pass_caller_barrier_cache_hit_count;
+            return allow_autodiff_scope ?
+                       iter->second.allow_autodiff_scope :
+                       iter->second.disallow_autodiff_scope;
+        }
+        auto *definition = function->definition();
+        LUISA_ASSERT(definition != nullptr,
+                     "Cannot inspect an undefined inline caller.");
+        InlineBarrierFlags flags;
+        ++_info->inline_pass_caller_barrier_function_count;
+        for (auto *block : definition->basic_blocks()) {
+            for (auto *instruction : block->instructions()) {
+                ++_info
+                      ->inline_pass_caller_barrier_instruction_scan_count;
+                accumulate_inline_barrier(instruction, flags);
+                if (flags.disallow_autodiff_scope &&
+                    flags.allow_autodiff_scope) {
+                    break;
+                }
+            }
+            if (flags.disallow_autodiff_scope &&
+                flags.allow_autodiff_scope) {
+                break;
+            }
+        }
+        auto [iter, inserted] = _flags.emplace(function, flags);
+        LUISA_ASSERT(inserted,
+                     "Failed to cache inline caller barrier state.");
+        return allow_autodiff_scope ?
+                   iter->second.allow_autodiff_scope :
+                   iter->second.disallow_autodiff_scope;
     }
 };
 
@@ -829,7 +925,9 @@ public:
 [[nodiscard]] static bool inline_call(CallInst *call, Function *callee,
                                       InlineInfo &info,
                                       InlineOptions options = {},
-                                      luisa::unordered_set<CallInst *> *reported_malformed_calls = nullptr) noexcept {
+                                      luisa::unordered_set<CallInst *> *reported_malformed_calls = nullptr,
+                                      InlineCalleeVersion *callee_version = nullptr,
+                                      InlineCallerBarrierCache *caller_barriers = nullptr) noexcept {
     auto *callee_def = callee->definition();
     auto *caller = call->parent_function();
     auto *caller_def = caller == nullptr ? nullptr : caller->definition();
@@ -838,7 +936,14 @@ public:
         ++info.skipped_declaration_call_count;
         return false;
     }
-    if (!validate_call_shape(call, callee)) {
+    auto *callee_summary = callee_version == nullptr ?
+                               nullptr :
+                               &callee_version->summary();
+    auto call_shape_is_valid = callee_summary == nullptr ?
+                                   validate_call_shape(call, callee) :
+                                   validate_call_shape(
+                                       call, callee, *callee_summary);
+    if (!call_shape_is_valid) {
         if (reported_malformed_calls == nullptr ||
             reported_malformed_calls->emplace(call).second) {
             ++info.rejected_malformed_call_count;
@@ -849,22 +954,60 @@ public:
         ++info.skipped_constrained_call_count;
         return false;
     }
-    if (has_unmappable_inline_metadata(call, callee_def)) {
+    auto has_unmappable_metadata = callee_summary == nullptr ?
+                                       has_unmappable_inline_metadata(
+                                           call, callee_def) :
+                                       has_unmappable_inline_metadata(
+                                           call, *callee_summary);
+    if (has_unmappable_metadata) {
         ++info.skipped_metadata_call_count;
         return false;
     }
-    if (contains_inline_barrier(callee_def, false)) {
+    auto callee_contains_barrier = callee_summary == nullptr ?
+                                       contains_inline_barrier(
+                                           callee_def, false) :
+                                       callee_summary
+                                           ->contains_barrier_disallow_autodiff;
+    if (callee_contains_barrier) {
         ++info.skipped_structured_call_count;
         return false;
     }
-    if (has_single_block(callee_def)) {
-        return inline_single_block_call(call, callee);
+    auto single_block = callee_summary == nullptr ?
+                            has_single_block(callee_def) :
+                            callee_summary->has_single_block;
+    if (single_block) {
+        if (callee_summary != nullptr &&
+            !callee_summary->can_inline_single_block) {
+            return false;
+        }
+        auto *clone_layout = callee_version == nullptr ?
+                                 nullptr :
+                                 &callee_version->acquire_clone_layout();
+        return inline_single_block_call(
+            call, callee, callee_summary != nullptr, clone_layout,
+            callee_version == nullptr ?
+                nullptr :
+                callee_version->dense_fallback_count());
     }
-    if (contains_inline_barrier(caller_def, options.allow_autodiff_scope_in_caller)) {
+    auto caller_contains_barrier = caller_barriers == nullptr ?
+                                       contains_inline_barrier(
+                                           caller_def,
+                                           options.allow_autodiff_scope_in_caller) :
+                                       caller_barriers->contains(
+                                           caller,
+                                           options.allow_autodiff_scope_in_caller);
+    if (caller_contains_barrier) {
         ++info.skipped_structured_call_count;
         return false;
     }
-    return inline_multi_block_call(call, callee);
+    auto *clone_layout = callee_version == nullptr ?
+                             nullptr :
+                             &callee_version->acquire_clone_layout();
+    return inline_multi_block_call(
+        call, callee, clone_layout,
+        callee_version == nullptr ?
+            nullptr :
+            callee_version->dense_fallback_count());
 }
 
 [[nodiscard]] static luisa::unordered_set<Function *>
@@ -1030,6 +1173,7 @@ static void run(Module *module, InlineInfo &info) noexcept {
             callables.push_back(f);
 
     auto recursive = find_recursive_callables(callables, info);
+    InlineCallerBarrierCache caller_barriers{info, callables.size()};
 
     // Defer removal to after iteration to avoid corrupting the list
     luisa::vector<Function *> to_remove;
@@ -1047,8 +1191,10 @@ static void run(Module *module, InlineInfo &info) noexcept {
         bool doit = (n == 1) || (n <= 3 && count_instructions(def) <= 50);
         if (!doit) continue;
 
+        InlineCalleeVersion callee_version{callee, info};
         for (auto call : edges)
-            if (inline_call(call, callee, info))
+            if (inline_call(call, callee, info, {}, nullptr,
+                            &callee_version, &caller_barriers))
                 info.inlined_call_count++;
 
         if (callee->use_list().empty()) { to_remove.push_back(callee); }
@@ -1095,6 +1241,24 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.call_site_dense_resolver_apply_count);
     report->set("call_site_dense_resolver_fallback",
                 info.call_site_dense_resolver_fallback_count);
+    report->set("inline_pass_summary_function",
+                info.inline_pass_summary_function_count);
+    report->set("inline_pass_summary_instruction_scan",
+                info.inline_pass_summary_instruction_scan_count);
+    report->set("inline_pass_clone_layout_function",
+                info.inline_pass_clone_layout_function_count);
+    report->set("inline_pass_clone_layout_value",
+                info.inline_pass_clone_layout_value_count);
+    report->set("inline_pass_dense_resolver_apply",
+                info.inline_pass_dense_resolver_apply_count);
+    report->set("inline_pass_dense_resolver_fallback",
+                info.inline_pass_dense_resolver_fallback_count);
+    report->set("inline_pass_caller_barrier_function",
+                info.inline_pass_caller_barrier_function_count);
+    report->set("inline_pass_caller_barrier_instruction_scan",
+                info.inline_pass_caller_barrier_instruction_scan_count);
+    report->set("inline_pass_caller_barrier_cache_hit",
+                info.inline_pass_caller_barrier_cache_hit_count);
     report->set("recursion_analysis_function",
                 info.recursion_analysis_function_count);
     report->set("recursion_analysis_call_use_visit",
@@ -1129,6 +1293,7 @@ InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, 
         return info;
     }
     luisa::unordered_set<CallInst *> reported_malformed_calls;
+    detail::InlineCallerBarrierCache caller_barriers{info};
     for (;;) {
         luisa::vector<Function *> callables;
         for (auto f : module->function_list())
@@ -1169,8 +1334,13 @@ InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, 
             auto def = callee->definition();
             if (!def) continue;
             auto edges = detail::collect_call_sites(callee);
+            if (edges.empty()) { continue; }
+            detail::InlineCalleeVersion callee_version{callee, info};
             for (auto call : edges) {
-                if (detail::inline_call(call, callee, info, options, &reported_malformed_calls)) {
+                if (detail::inline_call(
+                        call, callee, info, options,
+                        &reported_malformed_calls,
+                        &callee_version, &caller_barriers)) {
                     info.inlined_call_count++;
                     progress = true;
                 }
@@ -1214,7 +1384,10 @@ InlineInfo inline_call_sites_pass_run_on_module(
             return iter->second;
         }
         auto summary =
-            detail::summarize_inline_function(function, info);
+            detail::summarize_inline_function(
+                function,
+                info.call_site_summary_function_count,
+                info.call_site_summary_instruction_scan_count);
         function_summaries.emplace(function, summary);
         return summary;
     };
