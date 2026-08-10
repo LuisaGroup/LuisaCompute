@@ -427,6 +427,86 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             [&] { persistent(output).dispatch(N)(stream); },
             "all_dead_suspend_persistent");
     };
+
+    "dead_suspend_before_nested_loop_header_preserves_sparse_cutpoints"_test =
+        [options, expect_filled] {
+            constexpr uint N = 64u;
+            constexpr uint sample_count = 4u;
+            constexpr uint dead_token = 1u;
+            constexpr uint sample_token = 2u;
+            constexpr uint bounce_token = 3u;
+            // Per sample: (10 * sample + 1) + sum(1, 2, 3).
+            constexpr uint expected_increment = 88u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+
+            auto coro = Coroutine<void(Buffer<uint>, uint)>(
+                [](BufferUInt output, UInt samples) noexcept {
+                    auto tid = dispatch_x();
+                    UInt total = tid;
+                    // This consumes a front-end token, but is removed before
+                    // scope distillation and callable materialization.
+                    $if (Expr<bool>{false}) {
+                        $suspend("dead-before-sample-loop");
+                    };
+                    $for (sample, samples) {
+                        // A loop-header suspension turns every dynamic sample
+                        // iteration into a scheduler cycle. Its back-edge must
+                        // target this sparse token, not the eliminated token.
+                        $suspend("sample-loop-header");
+                        total += sample * 10u + 1u;
+                        $for (bounce, 3u) {
+                            $suspend("bounce-loop-body");
+                            total += bounce + 1u;
+                        };
+                    };
+                    output.write(tid, total);
+                });
+
+            expect(coro.subroutine_count() == 3u)
+                << "only entry and the two reachable loop cutpoints may be lowered";
+            expect(coro.graph().node_count() == coro.subroutine_count());
+            expect(coro.graph().node_by_token(dead_token) == nullptr)
+                << "the optimized-away front-end token must not acquire a callable";
+            auto sample_node = coro.graph().node_by_name("sample-loop-header");
+            auto bounce_node = coro.graph().node_by_name("bounce-loop-body");
+            expect(sample_node != nullptr && sample_node->token == sample_token);
+            expect(bounce_node != nullptr && bounce_node->token == bounce_token);
+            expect(coro.trigger_token(0u) == 0u);
+            expect(coro.trigger_token(1u) == sample_token);
+            expect(coro.trigger_token(2u) == bounce_token);
+
+            auto clear_and_check = [&](auto &&dispatch, luisa::string_view label) {
+                luisa::vector<uint> zero(N);
+                stream << output.copy_from(luisa::span{zero});
+                dispatch();
+                luisa::vector<uint> host(N);
+                stream << output.copy_to(luisa::span{host}) << synchronize();
+                expect_filled(host, expected_increment, label);
+            };
+
+            StateMachineCoroScheduler<Buffer<uint>, uint> state_machine{
+                device, coro};
+            clear_and_check(
+                [&] { state_machine(output, sample_count).dispatch(N)(stream); },
+                "nested_loop_sparse_token_state_machine");
+
+            WavefrontCoroScheduler<Buffer<uint>, uint> wavefront{device, coro};
+            clear_and_check(
+                [&] { wavefront(output, sample_count).dispatch(N)(stream); },
+                "nested_loop_sparse_token_wavefront");
+
+            PersistentThreadsCoroScheduler<Buffer<uint>, uint> persistent{
+                device, coro,
+                PersistentThreadsCoroSchedulerConfig{
+                    .thread_count = N, .block_size = N}};
+            clear_and_check(
+                [&] { persistent(output, sample_count).dispatch(N)(stream); },
+                "nested_loop_sparse_token_persistent");
+        };
 }
 
 int main(int argc, char *argv[]) {
