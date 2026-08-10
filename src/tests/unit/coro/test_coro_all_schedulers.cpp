@@ -316,10 +316,13 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 "ray query/persistent");
         };
 
-    "dead_suspend_keeps_sparse_callable_token_pairing"_test = [options, expect_filled] {
+    "dead_frontend_suspend_keeps_sparse_callable_token_pairing"_test = [options, expect_filled] {
         constexpr uint N = 64u;
-        constexpr uint dead_token = 17u;
-        constexpr uint live_token = 91u;
+        // FunctionBuilder assigns these tokens before XIR reachability
+        // optimization. The first suspend is removed, but its token must not
+        // be renumbered onto the surviving continuation.
+        constexpr uint dead_token = 1u;
+        constexpr uint live_token = 2u;
 
         auto dc = luisa::test::coro_test::create_device(options);
         auto &device = dc.device;
@@ -329,9 +332,9 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
             auto tid = dispatch_x();
             $if (Expr<bool>{false}) {
-                $suspend(dead_token, "dead");
+                $suspend("dead");
             };
-            $suspend(live_token, "live");
+            $suspend("live");
             output.write(tid, tid + 73u);
         });
 
