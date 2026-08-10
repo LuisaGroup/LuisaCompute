@@ -90,6 +90,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/licm.cpp
         passes/local_store_forward.cpp
         passes/local_load_elimination.cpp
+        passes/lower_irreducible_cfg.cpp
         passes/lower_ray_query_loop.cpp
         passes/lower_ray_query_loop_to_loop.cpp
         passes/mem2reg.cpp
@@ -126,6 +127,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/phi_cleanup.cpp
         passes/if_conversion.cpp
         passes/indvar_simplify.cpp
+        passes/irreducible_cfg_analysis.cpp
         passes/pass_pipeline.cpp
         passes/fuse_consecutive_buffer_reads.cpp
 )

@@ -21,6 +21,7 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/lower_irreducible_cfg.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -226,6 +227,25 @@ CoroutineCompileResult compile_coroutine_pipeline(
     }
     (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
+    // Splitting at a suspend boundary can cut paths inside an otherwise
+    // reducible source loop. A continuation scope may consequently contain a
+    // residual cyclic SCC with several entry nodes even though the original
+    // structured coroutine was reducible. Normalize exactly the generated
+    // continuations before generic restructuring. The lowering routes every
+    // entry edge through a selector and one dispatcher; it never clones the
+    // shader body and therefore has linear CFG/code-size cost.
+    for (auto &subroutine : split_info.subroutines) {
+        auto irreducible_info =
+            xir::lower_irreducible_cfg_pass_run_on_function(
+                subroutine.callable);
+        if (!irreducible_info.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Coroutine irreducible-CFG lowering failed "
+                "(remaining={}, errors={}).",
+                irreducible_info.remaining_irreducible_region_count,
+                irreducible_info.error_count);
+        }
+    }
     auto restructure_info = xir::restructure_cfg_pass_run_on_module(module.get());
     if (!restructure_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(

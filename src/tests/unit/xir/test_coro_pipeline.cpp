@@ -266,6 +266,68 @@ void reg_coro_pipeline() {
         }
         expect(continuation_count == 1u);
     };
+
+    "generic_pipeline_reduces_multi_entry_continuation_scc"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *enter_suspend = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *choose_loop_entry = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *leave_left = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *leave_right = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *suspend = kernel->create_basic_block();
+        auto *resume = kernel->create_basic_block();
+        auto *left_predecessor = kernel->create_basic_block();
+        auto *right_predecessor = kernel->create_basic_block();
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *terminal = kernel->create_basic_block();
+        constexpr uint32_t token = 73u;
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        builder.cond_br(enter_suspend, suspend, resume);
+        builder.set_insertion_point(suspend);
+        builder.coro_suspend(token, "multi-entry", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(token, nullptr);
+        builder.cond_br(
+            choose_loop_entry,
+            left_predecessor,
+            right_predecessor);
+        builder.set_insertion_point(left_predecessor);
+        builder.br(left);
+        builder.set_insertion_point(right_predecessor);
+        builder.br(right);
+        builder.set_insertion_point(left);
+        builder.cond_br(leave_left, terminal, right);
+        builder.set_insertion_point(right);
+        builder.cond_br(leave_right, terminal, left);
+        builder.set_insertion_point(terminal);
+        builder.coro_terminate();
+
+        xir_to_ast_normalize_module(&module);
+
+        expect(count_callables(module) == 2u)
+            << "entry and resume continuations must both survive";
+        expect(all_blocks_terminated(module));
+        for (auto *function : module.function_list()) {
+            if (!function->isa<CallableFunction>() ||
+                function->definition() == nullptr) {
+                continue;
+            }
+            function->definition()->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    expect(!instruction->isa<CoroSuspendInst>());
+                    expect(!instruction->isa<CoroResumeInst>());
+                    expect(!instruction->isa<CoroTerminateInst>());
+                });
+        }
+    };
 }
 
 int main(int argc, char *argv[]) {

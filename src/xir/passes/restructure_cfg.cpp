@@ -28,6 +28,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
+#include "irreducible_cfg_analysis.h"
 #include "restructure_cfg_loop_boundary.h"
 #include "restructure_cfg_post_dom.h"
 #include "restructure_cfg_selection_merge.h"
@@ -143,118 +144,98 @@ void trace_module_definition(
         name ? *name : luisa::string_view{"<unnamed>"});
 }
 
-// Return the number of cyclic SCCs with more than one entry block. Such a
-// region cannot be represented by XIR's structured loop form without node
-// splitting. Detect it before the restructuring pipeline mutates anything so
-// failure is atomic and callers can choose a dedicated irreducible-CFG lowering.
+void trace_preflight_result(
+    size_t index,
+    const RestructureCFGInfo &info) noexcept {
+    if (!restructure_trace_enabled() || info.succeeded()) { return; }
+    LUISA_VERBOSE_WITH_LOCATION(
+        "[restructure_cfg] preflight definition {} rejected: "
+        "irreducible={}, unstructured={}, invalid={}, iteration_limit={}.",
+        index, info.irreducible_region_count,
+        info.unstructured_branch_count,
+        info.invalid_construct_count,
+        info.iteration_limit_count);
+}
+
+// Return whether recursive SCC decomposition finds a cyclic region with more
+// than one entry block. Such a region cannot be represented by XIR's structured
+// loop form without state dispatch or node splitting. Detect it before the
+// restructuring pipeline mutates anything so failure is atomic and callers can
+// choose the dedicated irreducible-CFG lowering.
 [[nodiscard]] size_t count_irreducible_regions(FunctionDefinition *def) noexcept {
-    luisa::vector<BasicBlock *> blocks;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept { blocks.emplace_back(bb); });
-    if (blocks.empty()) { return 0u; }
-
-    luisa::unordered_map<BasicBlock *, size_t> block_index;
-    block_index.reserve(blocks.size());
-    for (size_t i = 0u; i < blocks.size(); ++i) { block_index.emplace(blocks[i], i); }
-
-    luisa::vector<luisa::vector<size_t>> successors(blocks.size());
-    luisa::vector<luisa::vector<size_t>> predecessors(blocks.size());
-    for (size_t i = 0u; i < blocks.size(); ++i) {
-        auto *bb = blocks[i];
-        if (!bb->is_terminated()) { continue; }
-        bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            if (auto iter = block_index.find(succ); iter != block_index.end()) {
-                successors[i].emplace_back(iter->second);
-                predecessors[iter->second].emplace_back(i);
+    auto analysis =
+        detail::analyze_cfg_strongly_connected_components(def);
+    if (!analysis.irreducible_regions.empty() &&
+        restructure_trace_enabled()) {
+        for (auto region_index = size_t{0u};
+             region_index < analysis.irreducible_regions.size();
+             ++region_index) {
+            auto &&region =
+                analysis.irreducible_regions[region_index];
+            luisa::vector<uint8_t> in_region(
+                analysis.blocks.size(), 0u);
+            for (auto node : region.nodes) {
+                in_region[node] = 1u;
             }
-        });
-    }
-
-    // Kosaraju's algorithm, written iteratively to avoid recursion depth limits
-    // on generated kernels with large CFGs.
-    luisa::vector<uint8_t> visited(blocks.size(), 0u);
-    luisa::vector<size_t> finish_order;
-    finish_order.reserve(blocks.size());
-    for (size_t root = 0u; root < blocks.size(); ++root) {
-        if (visited[root] != 0u) { continue; }
-        visited[root] = 1u;
-        luisa::vector<std::pair<size_t, size_t>> stack;
-        stack.emplace_back(root, 0u);
-        while (!stack.empty()) {
-            auto &[node, next_index] = stack.back();
-            if (next_index < successors[node].size()) {
-                auto next = successors[node][next_index++];
-                if (visited[next] == 0u) {
-                    visited[next] = 1u;
-                    stack.emplace_back(next, 0u);
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] irreducible region {}: "
+                "blocks={}, entries={}.",
+                region_index, region.nodes.size(),
+                region.entry_nodes.size());
+            XIRDebugPrinter printer;
+            for (auto node : region.entry_nodes) {
+                auto external_predecessor_count = size_t{0u};
+                for (auto predecessor : analysis.predecessors[node]) {
+                    external_predecessor_count +=
+                        in_region[predecessor] == 0u ?
+                            1u :
+                            0u;
                 }
-            } else {
-                finish_order.emplace_back(node);
-                stack.pop_back();
-            }
-        }
-    }
-
-    constexpr auto invalid_component = static_cast<size_t>(-1);
-    luisa::vector<size_t> component(blocks.size(), invalid_component);
-    luisa::vector<size_t> component_size;
-    for (size_t i = finish_order.size(); i-- > 0u;) {
-        auto root = finish_order[i];
-        if (component[root] != invalid_component) { continue; }
-        auto component_id = component_size.size();
-        auto size = size_t{0u};
-        luisa::vector<size_t> work{root};
-        component[root] = component_id;
-        while (!work.empty()) {
-            auto node = work.back();
-            work.pop_back();
-            ++size;
-            for (auto pred : predecessors[node]) {
-                if (component[pred] == invalid_component) {
-                    component[pred] = component_id;
-                    work.emplace_back(pred);
+                auto *block = analysis.blocks[node];
+                auto terminator_tag = block->is_terminated() ?
+                                          to_string(block->terminator()->derived_instruction_tag()) :
+                                          luisa::string_view{"unterminated"};
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] irreducible entry block {}: "
+                    "external_predecessors={}, terminator={}",
+                    node, external_predecessor_count, terminator_tag);
+                luisa::string terminator_dump;
+                if (block->is_terminated()) {
+                    printer.emit_instruction(
+                        terminator_dump, block->terminator());
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "[restructure_cfg] irreducible entry block {} "
+                        "terminator IR: {}",
+                        node, terminator_dump);
                 }
-            }
-        }
-        component_size.emplace_back(size);
-    }
-
-    luisa::vector<uint8_t> cyclic(component_size.size(), 0u);
-    for (size_t node = 0u; node < blocks.size(); ++node) {
-        auto cid = component[node];
-        if (component_size[cid] > 1u) {
-            cyclic[cid] = 1u;
-        } else {
-            for (auto succ : successors[node]) {
-                if (succ == node) {
-                    cyclic[cid] = 1u;
-                    break;
+                for (auto predecessor : analysis.predecessors[node]) {
+                    if (in_region[predecessor] != 0u) {
+                        continue;
+                    }
+                    auto *predecessor_block =
+                        analysis.blocks[predecessor];
+                    auto predecessor_tag = predecessor_block->is_terminated() ?
+                                               to_string(predecessor_block->terminator()->derived_instruction_tag()) :
+                                               luisa::string_view{"unterminated"};
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "[restructure_cfg] irreducible external edge "
+                        "{} -> {} (source terminator={}).",
+                        predecessor, node, predecessor_tag);
+                    luisa::string predecessor_dump;
+                    if (predecessor_block->is_terminated()) {
+                        printer.emit_instruction(
+                            predecessor_dump,
+                            predecessor_block->terminator());
+                        LUISA_VERBOSE_WITH_LOCATION(
+                            "[restructure_cfg] irreducible external "
+                            "source block {} terminator IR: {}",
+                            predecessor, predecessor_dump);
+                    }
                 }
             }
         }
     }
-
-    // Count distinct entry *nodes*, not incoming edges. A natural loop may have
-    // several external edges to its single header and is still reducible.
-    luisa::vector<uint8_t> is_entry_node(blocks.size(), 0u);
-    if (auto iter = block_index.find(def->body_block()); iter != block_index.end()) {
-        is_entry_node[iter->second] = 1u;
-    }
-    for (size_t source = 0u; source < blocks.size(); ++source) {
-        for (auto target : successors[source]) {
-            if (component[source] != component[target]) { is_entry_node[target] = 1u; }
-        }
-    }
-    luisa::vector<size_t> entry_count(component_size.size(), 0u);
-    for (size_t node = 0u; node < blocks.size(); ++node) {
-        if (is_entry_node[node] != 0u && cyclic[component[node]] != 0u) {
-            ++entry_count[component[node]];
-        }
-    }
-    size_t irreducible_count = 0u;
-    for (size_t cid = 0u; cid < component_size.size(); ++cid) {
-        if (cyclic[cid] != 0u && entry_count[cid] > 1u) { ++irreducible_count; }
-    }
-    return irreducible_count;
+    return analysis.irreducible_region_count();
 }
 
 [[nodiscard]] bool is_sink(BasicBlock *block) noexcept {
@@ -1234,7 +1215,6 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     return kind;
 }
 
-
 [[nodiscard]] bool normalize_one_loop_boundary_conditional_branch(FunctionDefinition *def,
                                                                   luisa::unordered_set<BasicBlock *> &
                                                                       exit_dispatch_headers,
@@ -1986,7 +1966,7 @@ void remove_write_only_dispatch_selectors(
                 auto *terminator = block->terminator();
                 if (terminator->isa<BreakInst>()) {
                     return static_cast<BreakInst *>(terminator)
-                                   ->target_block() == merge ?
+                                       ->target_block() == merge ?
                                LoopBoundaryTargetKind::BREAK :
                                LoopBoundaryTargetKind::NONE;
                 }
@@ -7291,6 +7271,7 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             trace_cfg("module preflight input", def);
             auto info = preflight_restructure_cfg(
                 def, verify_intermediate);
+            trace_preflight_result(definition_index, info);
             total.intermediate_verifier_count +=
                 info.intermediate_verifier_count;
             total.irreducible_region_count +=

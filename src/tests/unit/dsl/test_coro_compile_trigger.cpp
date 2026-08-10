@@ -99,14 +99,18 @@ void reg_coro_compile_trigger() {
     };
 
     "aggregate_vector_local_frame_is_split"_test = [] {
-        auto c = Coroutine<void(int)>{[](Var<int> x) {
+        auto c = Coroutine<void(Buffer<float>, int)>{[](Var<Buffer<float>> output, Var<int> x) {
             Float3 v = make_float3(cast<float>(x), 2.0f, 3.0f);
             $suspend("vector");
             Float y = v.x + v.y;
-            static_cast<void>(y);
+            // Keep the aggregate observably live across the suspend. A pure,
+            // unused expression is correctly removed by pre-distill DCE and
+            // therefore cannot establish a frame-layout requirement.
+            output.write(0u, y);
         }};
         auto &fd = c.frame_desc();
         expect(fd.field_count() == 3u);
+        if (fd.field_count() != 3u) { return; }
         expect(fd.field(0u).type == Type::of<float>());
         expect(fd.field(1u).type == Type::of<float>());
         expect(fd.field(2u).type == Type::of<float>());

@@ -5,6 +5,7 @@
 #include <luisa/ast/op.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
@@ -45,6 +46,7 @@
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/lower_irreducible_cfg.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -59,6 +61,8 @@
 #include <luisa/xir/translators/coro_xir2ast.h>
 #include <luisa/xir/verifier.h>
 
+#include <cstdlib>
+#include <limits>
 #include <type_traits>
 
 namespace luisa::compute::xir {
@@ -439,6 +443,7 @@ private:
     struct LoopUpdateContext {
         const BasicBlock *prepare;
         const BasicBlock *update;
+        bool emit_update_slice;
     };
     luisa::vector<LoopUpdateContext> _loop_update_stack;
 
@@ -675,6 +680,17 @@ private:
             case ArithmeticOp::BINARY_GREATER_EQUAL: return b->binary(inst->type(), BinaryOp::GREATER_EQUAL, args[0], args[1]);
             case ArithmeticOp::BINARY_EQUAL: return b->binary(inst->type(), BinaryOp::EQUAL, args[0], args[1]);
             case ArithmeticOp::BINARY_NOT_EQUAL: return b->binary(inst->type(), BinaryOp::NOT_EQUAL, args[0], args[1]);
+            // AST binary multiplication is linear algebra whenever either
+            // operand has the matrix/vector shape recognized by AST-to-XIR.
+            // Component-wise matrix multiplication remains the explicit
+            // MATRIX_COMPONENT_WISE_MULTIPLICATION call below. Keeping these
+            // cases at the BinaryExpr boundary makes the two translators exact
+            // inverses for every matrix arithmetic opcode.
+            case ArithmeticOp::MATRIX_COMP_NEG: return b->unary(inst->type(), UnaryOp::MINUS, args[0]);
+            case ArithmeticOp::MATRIX_COMP_ADD: return b->binary(inst->type(), BinaryOp::ADD, args[0], args[1]);
+            case ArithmeticOp::MATRIX_COMP_SUB: return b->binary(inst->type(), BinaryOp::SUB, args[0], args[1]);
+            case ArithmeticOp::MATRIX_COMP_DIV: return b->binary(inst->type(), BinaryOp::DIV, args[0], args[1]);
+            case ArithmeticOp::MATRIX_LINALG_MUL: return b->binary(inst->type(), BinaryOp::MUL, args[0], args[1]);
             case ArithmeticOp::AGGREGATE: {
                 if (inst->type()->is_vector()) { return b->call(inst->type(), detail::xir2ast_make_vector_op(inst->type()), args); }
                 if (inst->type()->is_matrix()) { return b->call(inst->type(), detail::xir2ast_make_matrix_op(inst->type()), args); }
@@ -863,6 +879,29 @@ private:
         auto value_map = _value_map;
         f();
         _value_map = std::move(value_map);
+    }
+
+    void _emit_selection_path(
+        const BasicBlock *target,
+        const BasicBlock *stop) noexcept {
+        if (target == nullptr || target == stop) { return; }
+        // Restructuring represents a physical loop-boundary guard as a
+        // structured selection without an OpSelectionMerge. One arm may point
+        // directly at the enclosing loop's canonical update block instead of
+        // owning a ContinueInst proxy. Recursing through that block as an
+        // ordinary selection arm walks back to the loop prepare and invents an
+        // unstructured cycle. Preserve the edge semantics explicitly: execute
+        // the update slice once, then continue the AST loop.
+        if (!_loop_update_stack.empty() &&
+            target == _loop_update_stack.back().update) {
+            auto context = _loop_update_stack.back();
+            if (context.emit_update_slice) {
+                _emit_block(context.update, context.prepare);
+            }
+            _current_builder()->continue_();
+            return;
+        }
+        _emit_block(target, stop);
     }
 
     [[nodiscard]] luisa::optional<const BasicBlock *> _find_conditional_branch_merge(
@@ -1189,7 +1228,9 @@ private:
                     if (continue_inst->target_block() == stop) { return; }
                     if (!_loop_update_stack.empty() && continue_inst->target_block() == _loop_update_stack.back().update) {
                         auto context = _loop_update_stack.back();
-                        _emit_block(context.update, context.prepare);
+                        if (context.emit_update_slice) {
+                            _emit_block(context.update, context.prepare);
+                        }
                     }
                     _current_builder()->continue_();
                     return;
@@ -1212,18 +1253,72 @@ private:
                     auto false_block = br->false_block();
                     auto merge = _find_conditional_branch_merge(br, stop);
                     if (!merge) {
-                        LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires structured control flow.");
+                        auto *function = br->parent_function();
+                        auto block_index = [&](const BasicBlock *needle) noexcept {
+                            auto index = size_t{0u};
+                            if (function != nullptr) {
+                                for (auto *candidate : function->basic_blocks()) {
+                                    if (candidate == needle) { return index; }
+                                    ++index;
+                                }
+                            }
+                            return std::numeric_limits<size_t>::max();
+                        };
+                        auto name = function == nullptr ?
+                                        luisa::optional<luisa::string_view>{} :
+                                        function->name();
+                        if (function != nullptr) {
+                            auto trace = false;
+                            if (auto *value = std::getenv(
+                                    "LUISA_XIR_TRACE_PASSES")) {
+                                trace = luisa::string_view{value} == "1";
+                            }
+                            auto block_count = size_t{0u};
+                            auto instruction_count = size_t{0u};
+                            for (auto *block : function->basic_blocks()) {
+                                ++block_count;
+                                for ([[maybe_unused]] auto *instruction :
+                                     block->instructions()) {
+                                    ++instruction_count;
+                                }
+                            }
+                            if (trace && block_count <= 128u &&
+                                instruction_count <= 4096u) {
+                                luisa::string dump;
+                                XIRDebugPrinter printer;
+                                printer.emit_function(dump, function);
+                                LUISA_VERBOSE_WITH_LOCATION(
+                                    "XIR-to-AST unstructured function "
+                                    "dump:\n{}",
+                                    dump);
+                            }
+                        }
+                        LUISA_ERROR_WITH_LOCATION(
+                            "XIR-to-AST requires structured control flow in "
+                            "function '{}' at conditional block {} "
+                            "(true={}, false={}, stop={}).",
+                            name ? *name : luisa::string_view{"<unnamed>"},
+                            block_index(br->parent_block()),
+                            block_index(true_block),
+                            block_index(false_block),
+                            block_index(stop));
                     }
                     auto merge_block = *merge;
                     auto ast_if = _current_builder()->if_(_expr(br->condition()));
                     if (true_block != merge_block) {
                         _current_builder()->with(ast_if->true_branch(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(true_block, merge_block); });
+                            _with_value_map_checkpoint([&] {
+                                _emit_selection_path(
+                                    true_block, merge_block);
+                            });
                         });
                     }
                     if (false_block != merge_block) {
                         _current_builder()->with(ast_if->false_branch(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(false_block, merge_block); });
+                            _with_value_map_checkpoint([&] {
+                                _emit_selection_path(
+                                    false_block, merge_block);
+                            });
                         });
                     }
                     if (merge_block != stop) { _emit_block(merge_block, stop); }
@@ -1233,10 +1328,18 @@ private:
                     auto if_inst = static_cast<const IfInst *>(inst);
                     auto ast_if = _current_builder()->if_(_expr(if_inst->condition()));
                     _current_builder()->with(ast_if->true_branch(), [&] {
-                        _with_value_map_checkpoint([&] { _emit_block(if_inst->true_block(), if_inst->merge_block()); });
+                        _with_value_map_checkpoint([&] {
+                            _emit_selection_path(
+                                if_inst->true_block(),
+                                if_inst->merge_block());
+                        });
                     });
                     _current_builder()->with(ast_if->false_branch(), [&] {
-                        _with_value_map_checkpoint([&] { _emit_block(if_inst->false_block(), if_inst->merge_block()); });
+                        _with_value_map_checkpoint([&] {
+                            _emit_selection_path(
+                                if_inst->false_block(),
+                                if_inst->merge_block());
+                        });
                     });
                     _emit_block(if_inst->merge_block(), stop);
                     return;
@@ -1244,9 +1347,15 @@ private:
                 case DerivedInstructionTag::SIMPLE_LOOP: {
                     auto loop = static_cast<const SimpleLoopInst *>(inst);
                     auto ast_loop = _current_builder()->loop_();
+                    _loop_update_stack.emplace_back(
+                        LoopUpdateContext{
+                            loop->body_block(),
+                            loop->body_block(),
+                            false});
                     _current_builder()->with(ast_loop->body(), [&] {
                         _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->merge_block()); });
                     });
+                    _loop_update_stack.pop_back();
                     _emit_block(loop->merge_block(), stop);
                     return;
                 }
@@ -1296,12 +1405,20 @@ private:
                             }();
                             auto ast_case = _current_builder()->case_(case_expr);
                             _current_builder()->with(ast_case->body(), [&] {
-                                _with_value_map_checkpoint([&] { _emit_block(sw->case_block(i), sw->merge_block()); });
+                                _with_value_map_checkpoint([&] {
+                                    _emit_selection_path(
+                                        sw->case_block(i),
+                                        sw->merge_block());
+                                });
                             });
                         }
                         auto ast_default = _current_builder()->default_();
                         _current_builder()->with(ast_default->body(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(sw->default_block(), sw->merge_block()); });
+                            _with_value_map_checkpoint([&] {
+                                _emit_selection_path(
+                                    sw->default_block(),
+                                    sw->merge_block());
+                            });
                         });
                     });
                     _emit_block(sw->merge_block(), stop);
@@ -1311,14 +1428,24 @@ private:
                     auto loop = static_cast<const LoopInst *>(inst);
                     if (auto for_loop = _match_for_loop(loop)) {
                         auto ast_for = _current_builder()->for_(_expr(for_loop->variable), _expr(for_loop->condition), _expr(for_loop->step));
+                        _loop_update_stack.emplace_back(
+                            LoopUpdateContext{
+                                loop->prepare_block(),
+                                loop->update_block(),
+                                false});
                         _current_builder()->with(ast_for->body(), [&] {
                             _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->update_block()); });
                         });
+                        _loop_update_stack.pop_back();
                         _emit_block(loop->merge_block(), stop);
                         return;
                     }
                     auto ast_loop = _current_builder()->loop_();
-                    _loop_update_stack.emplace_back(LoopUpdateContext{loop->prepare_block(), loop->update_block()});
+                    _loop_update_stack.emplace_back(
+                        LoopUpdateContext{
+                            loop->prepare_block(),
+                            loop->update_block(),
+                            true});
                     _current_builder()->with(ast_loop->body(), [&] {
                         _with_value_map_checkpoint([&] {
                             _emit_loop_prepare_prefix(loop->prepare_block());
@@ -1534,6 +1661,24 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     });
     pipeline.add("reg2mem-pre", [](Module *m, PassReport &r) {
         auto i = reg2mem_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    // Coroutine splitting can cut a reducible source loop at a suspend-scope
+    // boundary, leaving the source coroutine and one or more generated
+    // continuations with multi-entry cyclic SCCs. More generally, XIR-to-AST
+    // normalization accepts raw CFG, so make reducibility an explicit pipeline
+    // invariant before the strictly structural rewriter. The lowering is
+    // semantics-preserving and linear: incoming edges select their original
+    // target through one dispatcher instead of cloning any shader body.
+    pipeline.add("lower-irreducible-cfg", [](Module *m, PassReport &r) {
+        auto i = lower_irreducible_cfg_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR-to-AST irreducible-CFG lowering failed "
+                "(remaining={}, errors={}).",
+                i.remaining_irreducible_region_count,
+                i.error_count);
+        }
         return i.changed();
     });
     pipeline.add("restructure-cfg", [](Module *m, PassReport &r) {
