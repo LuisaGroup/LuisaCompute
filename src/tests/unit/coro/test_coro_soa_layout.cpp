@@ -10,6 +10,9 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
+#include <algorithm>
+#include <utility>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
@@ -17,6 +20,85 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
+
+    "runtime_soa_layout_is_linear_and_capacity_invariant"_test = [] {
+        auto coro = Coroutine<void(Buffer<float4>)>([](BufferFloat4 output) {
+            auto i = dispatch_x();
+            auto scalar = def(cast<float>(i) + 0.5f);
+            auto vector = make_float3(scalar, scalar + 1.0f, scalar + 2.0f);
+            auto tag = def(i * 7u + 3u);
+            $suspend("mixed_alignment");
+            output.write(i, make_float4(vector * scalar, cast<float>(tag)));
+        });
+
+        constexpr size_t small_capacity = 17u;
+        constexpr size_t large_capacity = 257u;
+        auto small = CoroFrameStorageLayout::make_runtime_soa(
+            coro.frame(), small_capacity);
+        auto large = CoroFrameStorageLayout::make_runtime_soa(
+            coro.frame(), large_capacity);
+        expect(small.has_runtime_capacity());
+        expect(large.has_runtime_capacity());
+        expect(small.frame_stride == large.frame_stride);
+        expect(small.field_strides == large.field_strides);
+        expect(small.field_capacity_strides ==
+               large.field_capacity_strides);
+        expect(small.size_bytes == small.frame_stride * small_capacity);
+        expect(large.size_bytes == large.frame_stride * large_capacity);
+
+        for (auto capacity : {small_capacity, large_capacity}) {
+            luisa::vector<std::pair<size_t, size_t>> ranges;
+            ranges.reserve(coro.frame().frame_field_count());
+            for (auto i = 0u; i < coro.frame().frame_field_count(); i++) {
+                auto alignment = std::max<size_t>(
+                    coro.frame().frame_field_type(i)->alignment(), 4u);
+                auto begin = small.field_offsets[i] +
+                             capacity * small.field_capacity_strides[i];
+                auto end = begin + capacity * small.field_strides[i];
+                expect(begin % alignment == 0u)
+                    << "every field array base must satisfy its ABI alignment";
+                ranges.emplace_back(begin, end);
+            }
+            std::sort(ranges.begin(), ranges.end());
+            auto cursor = size_t{0u};
+            for (auto [begin, end] : ranges) {
+                expect(begin == cursor)
+                    << "runtime SoA field arrays must form one disjoint partition";
+                expect(end >= begin);
+                cursor = end;
+            }
+            expect(cursor == small.frame_stride * capacity);
+        }
+    };
+
+    "wavefront_shader_structure_does_not_hash_pool_capacity"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto value = def(dispatch_x() * 11u + 5u);
+            $suspend("live_value");
+            output.write(dispatch_x(), value);
+        });
+        auto make_config = [](uint capacity) noexcept {
+            return WavefrontCoroSchedulerConfig{
+                .thread_count = capacity,
+                .global_memory_soa = true,
+                .gather_by_sorting = false,
+                .frame_buffer_compaction = true};
+        };
+        WavefrontCoroScheduler<Buffer<uint>> small{
+            device, coro, make_config(17u)};
+        WavefrontCoroScheduler<Buffer<uint>> large{
+            device, coro, make_config(257u)};
+        auto small_hashes = small.shader_structure_hashes();
+        auto large_hashes = large.shader_structure_hashes();
+        expect(!small_hashes.empty());
+        expect(small_hashes.size() == large_hashes.size());
+        expect(std::equal(small_hashes.begin(), small_hashes.end(),
+                          large_hashes.begin(), large_hashes.end()))
+            << "frame-pool capacity is an allocation/runtime parameter and "
+               "must not invalidate scheduler shader caches";
+    };
 
     "soa_layout_constructs_and_has_correct_config"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);

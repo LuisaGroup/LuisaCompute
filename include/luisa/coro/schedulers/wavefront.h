@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <utility>
 
 #include <luisa/coro/coro_frame_storage.h>
 #include <luisa/coro/schedulers/detail/token_index.h>
@@ -41,13 +42,13 @@ public:
 private:
     Config _config;
     ByteBuffer _frame_buffer;
-    Shader1D<ByteBuffer, Buffer<uint>, uint, uint, uint, uint, uint3, Args...> _gen_kernel;
-    luisa::vector<Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Args...>> _resume_kernels;
-    Shader1D<ByteBuffer, uint> _initialize_shader;
+    Shader1D<ByteBuffer, uint, Buffer<uint>, uint, uint, uint, uint, uint3, Args...> _gen_kernel;
+    luisa::vector<Shader1D<ByteBuffer, uint, Buffer<uint>, uint, uint, Args...>> _resume_kernels;
+    Shader1D<ByteBuffer, uint, uint> _initialize_shader;
     Shader1D<Buffer<uint>, uint> _clear_count_shader;
-    Shader1D<ByteBuffer, Buffer<uint>, uint> _count_shader;
-    Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
-    Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>, uint, uint, uint> _compact_shader;
+    Shader1D<ByteBuffer, uint, Buffer<uint>, uint> _count_shader;
+    Shader1D<ByteBuffer, uint, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
+    Shader1D<ByteBuffer, uint, Buffer<uint>, Buffer<uint>, uint, uint, uint> _compact_shader;
     Buffer<uint> _resume_index;
     Buffer<uint> _resume_count;
     Buffer<uint> _resume_offset;
@@ -55,8 +56,8 @@ private:
     Buffer<uint> _sort_key[2];
     Buffer<uint> _sort_index;
     radix_sort::temp_storage _sort_temp_storage;
-    radix_sort::instance<ByteBuffer> _sort_token;
-    radix_sort::instance<Buffer<uint>, ByteBuffer> _sort_hint;
+    radix_sort::instance<ByteBuffer, uint> _sort_token;
+    radix_sort::instance<Buffer<uint>, ByteBuffer, uint> _sort_hint;
     luisa::vector<uint> _host_count;
     luisa::vector<uint> _host_offset;
     luisa::vector<bool> _have_hint;
@@ -64,6 +65,7 @@ private:
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
     luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
+    luisa::vector<uint64_t> _shader_structure_hashes;
     size_t _hint_field_index{static_cast<size_t>(-1)};
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
@@ -112,10 +114,20 @@ private:
         return count;
     }
 
+    template<typename Kernel>
+    [[nodiscard]] auto _compile_shader(
+        Device &device, const Kernel &kernel,
+        ShaderOption option) noexcept {
+        _shader_structure_hashes.emplace_back(
+            kernel.function()->function().hash());
+        return device.compile(kernel, std::move(option));
+    }
+
     void _create_shader(Device &device, const Coro &coro) {
+        _shader_structure_hashes.clear();
         size_t nc = coro.subroutine_count();
         _frame_layout = _config.global_memory_soa ?
-                            CoroFrameStorageLayout::make_soa(coro.frame(), _config.thread_count) :
+                            CoroFrameStorageLayout::make_runtime_soa(coro.frame(), _config.thread_count) :
                             CoroFrameStorageLayout::make_aos(coro.frame(), _config.thread_count);
         _input_fields.resize(nc);
         _output_fields.resize(nc);
@@ -196,44 +208,55 @@ private:
         }
 
         auto token_to_index = detail::make_coro_token_index_callable(coro);
-        Callable<uint(uint, ByteBuffer)> read_scheduler_token = [layout = _frame_layout, soa = _config.global_memory_soa](
-                                                                    UInt index, ByteBufferVar frame_buf) noexcept {
-            return coro_frame_read_field<uint>(frame_buf, index, layout, soa, 6u);
+        Callable<uint(uint, ByteBuffer, uint)> read_scheduler_token = [layout = _frame_layout, soa = _config.global_memory_soa](
+                                                                          UInt index, ByteBufferVar frame_buf,
+                                                                          UInt frame_capacity) noexcept {
+            return coro_frame_read_field<uint>(
+                frame_buf, index, frame_capacity, layout, soa, 6u);
         };
 
-        Callable<uint(uint, ByteBuffer)> get_scheduler_token = [read_scheduler_token](
-                                                                   UInt index, ByteBufferVar frame_buf) noexcept {
-            return read_scheduler_token(index, frame_buf);
+        Callable<uint(uint, ByteBuffer, uint)> get_scheduler_token = [read_scheduler_token](
+                                                                         UInt index, ByteBufferVar frame_buf,
+                                                                         UInt frame_capacity) noexcept {
+            return read_scheduler_token(index, frame_buf, frame_capacity);
         };
-        Callable<uint(uint, ByteBuffer)> identity_index = [](UInt index, ByteBufferVar) noexcept {
+        Callable<uint(uint, ByteBuffer, uint)> identity_index = [](
+                                                                    UInt index, ByteBufferVar,
+                                                                    UInt) noexcept {
             return index;
         };
         if (_config.gather_by_sorting) {
-            _sort_token = radix_sort::instance<ByteBuffer>{
+            _sort_token = radix_sort::instance<ByteBuffer, uint>{
                 device, _config.thread_count, _sort_temp_storage,
                 &get_scheduler_token, &identity_index, &get_scheduler_token,
                 1u, static_cast<uint>(nc)};
         }
         if (_has_hint_sort) {
-            Callable<uint(uint, Buffer<uint>, ByteBuffer)> keep_index = [](UInt index, BufferUInt values, ByteBufferVar) noexcept {
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> keep_index = [](
+                                                                               UInt index, BufferUInt values,
+                                                                               ByteBufferVar, UInt) noexcept {
                 return values.read(index);
             };
-            Callable<uint(uint, Buffer<uint>, ByteBuffer)> get_coro_hint = [layout = _frame_layout, soa = _config.global_memory_soa,
-                                                                            hint_field_index = static_cast<uint>(_hint_field_index)](
-                                                                               UInt index, BufferUInt values, ByteBufferVar frame_buf) noexcept {
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> get_coro_hint = [layout = _frame_layout, soa = _config.global_memory_soa,
+                                                                                  hint_field_index = static_cast<uint>(_hint_field_index)](
+                                                                                     UInt index, BufferUInt values,
+                                                                                     ByteBufferVar frame_buf,
+                                                                                     UInt frame_capacity) noexcept {
                 auto frame_index = values.read(index);
-                return coro_frame_read_field<uint>(frame_buf, frame_index, layout, soa, hint_field_index);
+                return coro_frame_read_field<uint>(
+                    frame_buf, frame_index, frame_capacity,
+                    layout, soa, hint_field_index);
             };
             if (_config.hint_range <= radix_sort::hist_block_size) {
                 auto hint_digit = std::max<uint>(_config.hint_range, 1u);
-                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer>{
+                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
                     1u, hint_digit};
             } else {
                 auto high_bit = 0u;
                 while ((_config.hint_range >> high_bit) != 1u) { high_bit++; }
-                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer>{
+                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
                     0u, radix_sort::hist_block_size, 0u, high_bit};
@@ -244,7 +267,8 @@ private:
             Kernel1D k_gen = [&coro, layout = _frame_layout, output_fields = _transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
                               token_to_index](
-                                 ByteBufferVar frame_buf, BufferUInt resume_index,
+                                 ByteBufferVar frame_buf, UInt frame_capacity,
+                                 BufferUInt resume_index,
                                  UInt index_offset, UInt frame_offset, UInt global_start,
                                  UInt count, UInt3 dispatch_shape,
                                  Var<Args>... k_args) noexcept {
@@ -259,11 +283,14 @@ private:
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
                     $if (next == static_cast<uint>(target)) {
-                        coro_frame_store(frame_buf, frame_id, frame, layout, soa, luisa::span{output_fields[target]});
+                        coro_frame_store(
+                            frame_buf, frame_id, frame_capacity, frame,
+                            layout, soa, luisa::span{output_fields[target]});
                     };
                 }
             };
-            _gen_kernel = device.compile(
+            _gen_kernel = _compile_shader(
+                device,
                 k_gen,
                 detail::coro_scheduler_shader_option(
                     _config.shader_option, "wavefront_generate"));
@@ -275,81 +302,106 @@ private:
             Kernel1D k_cont = [&coro, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
                                read_scheduler_token, token_to_index](
-                                  ByteBufferVar frame_buf, BufferUInt resume_index,
+                                  ByteBufferVar frame_buf, UInt frame_capacity,
+                                  BufferUInt resume_index,
                                   UInt resume_offset, UInt count,
                                   Var<Args>... k_args) noexcept {
                 auto x = dispatch_x();
                 $if (x >= count) { $return(); };
                 auto idx = resume_index.read(resume_offset + x);
-                auto tok = read_scheduler_token(idx, frame_buf);
+                auto tok = read_scheduler_token(idx, frame_buf, frame_capacity);
                 $if (tok != static_cast<uint>(i)) { $return(); };
-                auto frame = coro_frame_load(&coro.frame(), frame_buf, idx, layout, soa, luisa::span{input_fields});
+                auto frame = coro_frame_load(
+                    &coro.frame(), frame_buf, idx, frame_capacity,
+                    layout, soa, luisa::span{input_fields});
                 frame.target_token = CoroFrame::TERMINAL_TOKEN;
                 coro[i](frame, k_args...);
                 auto next = token_to_index(frame.target_token);
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
                     $if (next == static_cast<uint>(target)) {
-                        coro_frame_store(frame_buf, idx, frame, layout, soa, luisa::span{output_fields[target]});
+                        coro_frame_store(
+                            frame_buf, idx, frame_capacity, frame,
+                            layout, soa, luisa::span{output_fields[target]});
                     };
                 }
             };
-            _resume_kernels[i] = device.compile(
+            _resume_kernels[i] = _compile_shader(
+                device,
                 k_cont,
                 detail::coro_scheduler_shader_option(
                     _config.shader_option,
                     luisa::format("wavefront_resume_{}", i)));
         }
 
-        _initialize_shader = device.compile<1>([layout = _frame_layout, soa = _config.global_memory_soa](ByteBufferVar buf, UInt n) {
+        Kernel1D initialize_kernel = [layout = _frame_layout, soa = _config.global_memory_soa](
+                                         ByteBufferVar buf, UInt frame_capacity,
+                                         UInt n) {
             auto x = dispatch_x();
             $if (x < n) {
-                coro_frame_write_field(buf, x, layout, soa, 6u, 0u);
+                coro_frame_write_field(
+                    buf, x, frame_capacity, layout, soa, 6u, 0u);
             };
-        }, detail::coro_scheduler_shader_option(
-               _config.shader_option, "wavefront_initialize"));
+        };
+        _initialize_shader = _compile_shader(
+            device, initialize_kernel,
+            detail::coro_scheduler_shader_option(
+                _config.shader_option, "wavefront_initialize"));
 
-        _clear_count_shader = device.compile<1>([](BufferUInt buffer, UInt n) {
+        Kernel1D clear_count_kernel = [](BufferUInt buffer, UInt n) {
             auto x = dispatch_x();
             $if (x < n) { buffer.write(x, 0u); };
-        }, detail::coro_scheduler_shader_option(
-               _config.shader_option, "wavefront_clear_count"));
+        };
+        _clear_count_shader = _compile_shader(
+            device, clear_count_kernel,
+            detail::coro_scheduler_shader_option(
+                _config.shader_option, "wavefront_clear_count"));
 
-        _count_shader = device.compile<1>(
-            [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token,
-             node_count = static_cast<uint>(nc)](
-                ByteBufferVar frame_buf, BufferUInt count, UInt n) noexcept {
-                auto x = dispatch_x();
-                $if (x >= n) { $return(); };
-                auto tok = read_scheduler_token(x, frame_buf);
-                $if (tok < node_count) {
-                    count.atomic(tok).fetch_add(1u);
-                };
-            }, detail::coro_scheduler_shader_option(
-                   _config.shader_option, "wavefront_count"));
+        Kernel1D count_kernel =
+            [layout = _frame_layout, soa = _config.global_memory_soa,
+             read_scheduler_token, node_count = static_cast<uint>(nc)](
+                ByteBufferVar frame_buf, UInt frame_capacity,
+                BufferUInt count, UInt n) noexcept {
+            auto x = dispatch_x();
+            $if (x >= n) { $return(); };
+            auto tok = read_scheduler_token(x, frame_buf, frame_capacity);
+            $if (tok < node_count) {
+                count.atomic(tok).fetch_add(1u);
+            };
+        };
+        _count_shader = _compile_shader(
+            device, count_kernel,
+            detail::coro_scheduler_shader_option(
+                _config.shader_option, "wavefront_count"));
 
-        _gather_shader = device.compile<1>(
-            [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token,
-             node_count = static_cast<uint>(nc)](
-                ByteBufferVar frame_buf, BufferUInt index, BufferUInt offset, UInt n) noexcept {
-                auto x = dispatch_x();
-                $if (x >= n) { $return(); };
-                auto tok = read_scheduler_token(x, frame_buf);
-                $if (tok < node_count) {
-                    auto slot = offset.atomic(tok).fetch_add(1u);
-                    index.write(slot, x);
-                };
-            }, detail::coro_scheduler_shader_option(
-                   _config.shader_option, "wavefront_gather"));
+        Kernel1D gather_kernel =
+            [layout = _frame_layout, soa = _config.global_memory_soa,
+             read_scheduler_token, node_count = static_cast<uint>(nc)](
+                ByteBufferVar frame_buf, UInt frame_capacity,
+                BufferUInt index, BufferUInt offset, UInt n) noexcept {
+            auto x = dispatch_x();
+            $if (x >= n) { $return(); };
+            auto tok = read_scheduler_token(x, frame_buf, frame_capacity);
+            $if (tok < node_count) {
+                auto slot = offset.atomic(tok).fetch_add(1u);
+                index.write(slot, x);
+            };
+        };
+        _gather_shader = _compile_shader(
+            device, gather_kernel,
+            detail::coro_scheduler_shader_option(
+                _config.shader_option, "wavefront_gather"));
 
-        _compact_shader = device.compile<1>(
-            [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token, desc = &coro.frame()](
-                ByteBufferVar frame_buf, BufferUInt index, BufferUInt global,
+        Kernel1D compact_kernel =
+            [layout = _frame_layout, soa = _config.global_memory_soa,
+             read_scheduler_token, desc = &coro.frame()](
+                ByteBufferVar frame_buf, UInt frame_capacity,
+                BufferUInt index, BufferUInt global,
                 UInt active_count, UInt empty_count, UInt scan_count) noexcept {
                 auto x = dispatch_x();
                 auto src = active_count + x;
                 $if (src >= scan_count) { $return(); };
-                auto tok = read_scheduler_token(src, frame_buf);
+                auto tok = read_scheduler_token(src, frame_buf, frame_capacity);
                 $if (tok != 0u) {
                     auto dst = def(0u);
                     auto found_dst = def(false);
@@ -360,13 +412,20 @@ private:
                         found_dst = dst < active_count;
                     };
                     $if (found_dst) {
-                        auto frame = coro_frame_load(desc, frame_buf, src, layout, soa);
-                        coro_frame_store(frame_buf, dst, frame, layout, soa);
-                        coro_frame_write_field(frame_buf, src, layout, soa, 6u, 0u);
+                        auto frame = coro_frame_load(
+                            desc, frame_buf, src, frame_capacity, layout, soa);
+                        coro_frame_store(
+                            frame_buf, dst, frame_capacity, frame, layout, soa);
+                        coro_frame_write_field(
+                            frame_buf, src, frame_capacity,
+                            layout, soa, 6u, 0u);
                     };
                 };
-            }, detail::coro_scheduler_shader_option(
-                   _config.shader_option, "wavefront_compact"));
+            };
+        _compact_shader = _compile_shader(
+            device, compact_kernel,
+            detail::coro_scheduler_shader_option(
+                _config.shader_option, "wavefront_compact"));
     }
 
     void _sort_token_buckets(Stream &stream, uint count) noexcept {
@@ -377,7 +436,7 @@ private:
         }
         _sort_token.sort(stream, _sort_key[0].view(), _resume_index.view(),
                          _sort_key[1].view(), _resume_index.view(),
-                         count, _frame_buffer);
+                         count, _frame_buffer, _config.thread_count);
         stream << _sort_temp_storage.hist_buffer.view()
                       .subview(0u, _host_offset.size())
                       .copy_to(luisa::span{_host_offset.data(), _host_offset.size()})
@@ -397,7 +456,7 @@ private:
             _sort_key[1].view().subview(offset, count)};
         return _sort_hint.sort_switch(stream, keys, indices, count,
                                       _resume_index.view().subview(offset, count),
-                                      _frame_buffer);
+                                      _frame_buffer, _config.thread_count);
     }
 
     void _dispatch(
@@ -410,7 +469,10 @@ private:
         // only logical instances that can exist in this dispatch are active.
         _active_frame_capacity = std::min(_config.thread_count, N);
         if (_active_frame_capacity == 0u) { return; }
-        stream << _initialize_shader(_frame_buffer, _active_frame_capacity).dispatch(_active_frame_capacity);
+        stream << _initialize_shader(
+                      _frame_buffer, _config.thread_count,
+                      _active_frame_capacity)
+                      .dispatch(_active_frame_capacity);
         _used_frame_count = 0u;
 
         auto nc = _resume_kernels.size();
@@ -422,6 +484,10 @@ private:
 
         auto dispatch_counter = 0u;
         auto report_stats = _config.report_stats || std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr;
+        auto trace_iterations =
+            std::getenv("LUISA_CORO_WAVEFRONT_TRACE_ITERATIONS") != nullptr;
+        auto verify_queues =
+            std::getenv("LUISA_CORO_WAVEFRONT_VERIFY_QUEUES") != nullptr;
         auto iteration_count = uint64_t{0u};
         auto gather_scan_count = uint64_t{0u};
         auto compact_scan_count = uint64_t{0u};
@@ -433,14 +499,52 @@ private:
         while (true) {
             iteration_count++;
             auto scan_count = _config.frame_buffer_compaction ? _used_frame_count : _active_frame_capacity;
+            // A non-draining queue may execute indefinitely. Keep explicit
+            // diagnostics useful without turning the failure mode into an
+            // unbounded log producer: retain the prefix and then sample at
+            // powers of two.
+            auto trace_this_iteration =
+                trace_iterations &&
+                (iteration_count <= 64u ||
+                 (iteration_count & (iteration_count - 1u)) == 0u);
+            if (trace_this_iteration) {
+                LUISA_INFO(
+                    "Wavefront iteration {} begin: dispatched={} used={} scan={} capacity={}.",
+                    iteration_count, dispatch_counter, _used_frame_count,
+                    scan_count, _active_frame_capacity);
+            }
             gather_scan_count += scan_count;
             max_scan_count = std::max(max_scan_count, scan_count);
             if (_config.gather_by_sorting) {
                 _sort_token_buckets(stream, scan_count);
+                if (verify_queues && scan_count != 0u) {
+                    luisa::vector<uint> indices(scan_count);
+                    stream << _resume_index.view().subview(0u, scan_count)
+                                  .copy_to(luisa::span{indices})
+                           << synchronize();
+                    luisa::vector<uint> seen(scan_count, 0u);
+                    for (auto slot = 0u; slot < scan_count; slot++) {
+                        auto index = indices[slot];
+                        LUISA_ASSERT(
+                            index < scan_count,
+                            "Wavefront sorted queue invariant violation at iteration {}, slot {}: "
+                            "frame index {} exceeds scanned prefix {}.",
+                            iteration_count, slot, index, scan_count);
+                        LUISA_ASSERT(
+                            seen[index] == 0u,
+                            "Wavefront sorted queue invariant violation at iteration {}, slot {}: "
+                            "frame index {} appears more than once.",
+                            iteration_count, slot, index);
+                        seen[index] = 1u;
+                    }
+                }
             } else {
                 stream << _clear_count_shader(_resume_count, static_cast<uint>(nc)).dispatch(static_cast<uint>(nc));
                 if (scan_count != 0u) {
-                    stream << _count_shader(_frame_buffer, _resume_count, scan_count).dispatch(scan_count);
+                    stream << _count_shader(
+                                  _frame_buffer, _config.thread_count,
+                                  _resume_count, scan_count)
+                                  .dispatch(scan_count);
                 }
                 stream << _resume_count.copy_to(luisa::span{_host_count.data(), _host_count.size()})
                        << synchronize();
@@ -461,6 +565,12 @@ private:
                                            scan_count - active_count :
                                            empty_count;
             _host_count[0u] = compact_empty_count;
+            if (trace_this_iteration) {
+                LUISA_INFO(
+                    "Wavefront iteration {} gathered: active={} empty={} compact_empty={}.",
+                    iteration_count, active_count, empty_count,
+                    compact_empty_count);
+            }
 
             auto active_offset = 0u;
             for (size_t i = 0u; i < nc; ++i) {
@@ -471,7 +581,10 @@ private:
 
             if (!_config.gather_by_sorting && scan_count != 0u) {
                 stream << _resume_offset.copy_from(luisa::span{_host_offset.data(), _host_offset.size()});
-                stream << _gather_shader(_frame_buffer, _resume_index, _resume_offset, scan_count).dispatch(scan_count);
+                stream << _gather_shader(
+                              _frame_buffer, _config.thread_count,
+                              _resume_index, _resume_offset, scan_count)
+                              .dispatch(scan_count);
             }
 
             if (empty_count > _active_frame_capacity / 2u && dispatch_counter < N) {
@@ -479,12 +592,14 @@ private:
                 auto frame_offset = active_count;
                 if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
                     stream << _clear_count_shader(_global_buffer, 1u).dispatch(1u);
-                    stream << _compact_shader(_frame_buffer, _resume_index, _global_buffer,
+                    stream << _compact_shader(_frame_buffer, _config.thread_count,
+                                              _resume_index, _global_buffer,
                                               frame_offset, compact_empty_count, scan_count)
                                   .dispatch(scan_count - frame_offset);
                     compact_scan_count += scan_count - frame_offset;
                 }
-                stream << _gen_kernel(_frame_buffer, _resume_index,
+                stream << _gen_kernel(_frame_buffer, _config.thread_count,
+                                      _resume_index,
                                       _host_offset[0u], frame_offset,
                                       dispatch_counter, gen_count, dispatch_size, args...)
                               .dispatch(gen_count);
@@ -503,17 +618,17 @@ private:
                         BufferView<uint> indices[2] = {
                             _resume_index.view().subview(_host_offset[i], count),
                             _sort_index.view().subview(_host_offset[i], count)};
-                        stream << _resume_kernels[i](_frame_buffer, indices[sorted_index],
+                        stream << _resume_kernels[i](_frame_buffer, _config.thread_count,
+                                                     indices[sorted_index],
                                                      0u, count, args...)
                                       .dispatch(count);
                     } else {
-                        stream << _resume_kernels[i](_frame_buffer, _resume_index,
+                        stream << _resume_kernels[i](_frame_buffer, _config.thread_count,
+                                                     _resume_index,
                                                      _host_offset[i], count, args...)
                                       .dispatch(count);
                     }
                 }
-            }
-            if (!_config.gather_by_sorting) {
             }
         }
         if (report_stats) {
@@ -527,6 +642,14 @@ private:
 public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
     [[nodiscard]] uint active_frame_capacity() const noexcept { return _active_frame_capacity; }
+    /// Structural hashes of the scheduler-owned generate, continuation, and
+    /// queue-management kernels. These exclude allocation sizes and provide a
+    /// direct cache-identity diagnostic for scheduler configuration changes.
+    [[nodiscard]] luisa::span<const uint64_t>
+    shader_structure_hashes() const noexcept {
+        return {_shader_structure_hashes.data(),
+                _shader_structure_hashes.size()};
+    }
 
     WavefrontCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
         : _config{config} {
