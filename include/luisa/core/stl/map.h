@@ -1,59 +1,104 @@
 #pragma once
 
-#ifdef LUISA_USE_SYSTEM_STL
-#include <map>
-#include <set>
-#else
-#include <EASTL/map.h>
-#include <EASTL/set.h>
-#endif
+#include <functional>
+#include <stdexcept>
+#include <utility>
+
+#include <fc/btree.h>
+
+#include <luisa/core/stl/memory.h>
 
 namespace luisa {
 
-#ifdef LUISA_USE_SYSTEM_STL
+namespace detail {
 
-template<typename Key,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<Key>>
-using set = std::set<Key, Compare, allocator>;
+template<typename Key, typename Value, typename Compare, template<typename> class Allocator, bool AllowDup>
+class btree_map_base
+    : public std::conditional_t<AllowDup,
+                                frozenca::BTreeMultiMap<Key, Value, 64, Compare, Allocator>,
+                                frozenca::BTreeMap<Key, Value, 64, Compare, Allocator>> {
+    using Base = std::conditional_t<AllowDup,
+                                    frozenca::BTreeMultiMap<Key, Value, 64, Compare, Allocator>,
+                                    frozenca::BTreeMap<Key, Value, 64, Compare, Allocator>>;
 
-template<typename Key, typename Value,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<std::pair<const Key, Value>>>
-using map = std::map<Key, Value, Compare, allocator>;
+public:
+    using Base::Base;
+    using Base::emplace;
 
-template<typename Key,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<Key>>
-using multiset = std::multiset<Key, Compare, allocator>;
+    // two-argument emplace that also accepts lvalue keys/values
+    template<typename K_, typename V_>
+    auto emplace(K_ &&k, V_ &&v) {
+        Key kk{std::forward<K_>(k)};
+        Value vv{std::forward<V_>(v)};
+        return Base::emplace(std::move(kk), std::move(vv));
+    }
 
-template<typename Key, typename Value,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<std::pair<const Key, Value>>>
-using multimap = std::multimap<Key, Value, Compare, allocator>;
+    using mapped_type = Value;
+    using key_type = typename Base::key_type;
+    using value_type = typename Base::value_type;
+    using size_type = typename Base::size_type;
+    using iterator = typename Base::iterator_type;
+    using const_iterator = typename Base::const_iterator_type;
+    using reverse_iterator = typename Base::reverse_iterator_type;
+    using const_reverse_iterator = typename Base::const_reverse_iterator_type;
+};
 
-#else
-
-template<typename Key,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<Key>>
-using set = eastl::set<Key, Compare, allocator>;
-
-template<typename Key, typename Value,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<std::pair<const Key, Value>>>
-using map = eastl::map<Key, Value, Compare, allocator>;
-
-template<typename Key,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<Key>>
-using multiset = eastl::multiset<Key, Compare, allocator>;
+} // namespace detail
 
 template<typename Key, typename Value,
-         typename Compare = std::less<>,
-         typename allocator = luisa::allocator<std::pair<const Key, Value>>>
-using multimap = eastl::multimap<Key, Value, Compare, allocator>;
+         typename Compare = std::less<Key>,
+         template<typename> class Allocator = luisa::allocator>
+class map : public detail::btree_map_base<Key, Value, Compare, Allocator, false> {
+    using Base = detail::btree_map_base<Key, Value, Compare, Allocator, false>;
 
-#endif
+public:
+    using Base::Base;
+    [[nodiscard]] typename Base::size_type count(const Key &key) const {
+        return Base::contains(key) ? 1u : 0u;
+    }
+    [[nodiscard]] Value &at(const Key &key) {
+        auto it = Base::find(key);
+        if (it == Base::end()) { throw std::out_of_range{"luisa::map::at"}; }
+        return it->second;
+    }
+    [[nodiscard]] const Value &at(const Key &key) const {
+        auto it = Base::find(key);
+        if (it == Base::end()) { throw std::out_of_range{"luisa::map::at"}; }
+        return it->second;
+    }
+};
 
-}// namespace luisa
+template<typename Key, typename Value,
+         typename Compare = std::less<Key>,
+         template<typename> class Allocator = luisa::allocator>
+class multimap : public detail::btree_map_base<Key, Value, Compare, Allocator, true> {
+    using Base = detail::btree_map_base<Key, Value, Compare, Allocator, true>;
+
+public:
+    using Base::Base;
+};
+
+template<typename Key,
+         typename Compare = std::less<Key>,
+         template<typename> class Allocator = luisa::allocator>
+class set : public frozenca::BTreeSet<Key, 64, Compare, Allocator> {
+    using Base = frozenca::BTreeSet<Key, 64, Compare, Allocator>;
+
+public:
+    using Base::Base;
+    [[nodiscard]] typename Base::size_type count(const Key &key) const {
+        return Base::contains(key) ? 1u : 0u;
+    }
+};
+
+template<typename Key,
+         typename Compare = std::less<Key>,
+         template<typename> class Allocator = luisa::allocator>
+class multiset : public frozenca::BTreeMultiSet<Key, 64, Compare, Allocator> {
+    using Base = frozenca::BTreeMultiSet<Key, 64, Compare, Allocator>;
+
+public:
+    using Base::Base;
+};
+
+} // namespace luisa

@@ -158,7 +158,7 @@ struct VectorizationPlan {
     Instruction *recurrence{nullptr};
 };
 
-[[nodiscard]] bool loop_has_external_value_uses(
+[[nodiscard]] bool loop_vectorization_has_external_value_uses(
     const NaturalLoop &loop) noexcept {
     auto found = false;
     auto scan = [&](BasicBlock *block) noexcept {
@@ -657,7 +657,7 @@ namespace {
         // peeled IV. A loop-defined value observed after the loop would then
         // differ from the scalar loop's value at the original failing check.
         // Until the peel chain explicitly carries those live-outs, reject.
-        if (loop_has_external_value_uses(loop)) { return false; }
+        if (loop_vectorization_has_external_value_uses(loop)) { return false; }
         auto *exit_block = loop.exit_blocks.front();
         // Exit phis may only consume loop-invariant values from the header
         // edge (the peeled clones cannot reproduce loop-defined values on

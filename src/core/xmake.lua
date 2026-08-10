@@ -43,6 +43,7 @@ on_load(function(target)
     end
     target:add("defines", "LUISA_CORE_EXPORT_DLL")
     target:add("deps", "eastl")
+    target:add("deps", "btree")
     if has_config("lc_spdlog_use_xrepo") then
         target:add("packages", "spdlog")
     else
