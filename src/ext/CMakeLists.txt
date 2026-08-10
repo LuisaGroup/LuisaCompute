@@ -33,6 +33,20 @@ function(luisa_compute_install_extension target)
     endif ()
 endfunction()
 
+# luisa/core/stl/map.h publicly includes <fc/btree.h>. Keep the bundled
+# header-only dependency on the same transitive interface as the other core
+# STL dependencies so every CMake consumer sees it in both build and install
+# trees. The upstream BTree project is intentionally not added as a CMake
+# subdirectory: its standalone build config enables tests and mutates the
+# enclosing project, while Luisa only consumes its public headers.
+add_library(luisa-compute-ext-btree INTERFACE)
+target_include_directories(luisa-compute-ext-btree INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/BTree/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
+target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-btree)
+luisa_compute_install_extension(luisa-compute-ext-btree
+        INCLUDE BTree/include/fc)
+
 if (LUISA_COMPUTE_USE_SYSTEM_SPDLOG)
     find_package(spdlog REQUIRED)
     target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog_header_only)
