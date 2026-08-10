@@ -14,6 +14,7 @@ struct StateMachineCoroSchedulerConfig {
     uint3 block_size = luisa::make_uint3(128, 1, 1);
     bool shared_memory = false;
     bool shared_memory_soa = true;
+    ShaderOption shader_option{};
 };
 
 template<typename... Args>
@@ -40,7 +41,10 @@ private:
                 }
             };
         };
-        _shader = device.compile(kernel);
+        _shader = device.compile(
+            kernel,
+            detail::coro_scheduler_shader_option(
+                config.shader_option, "state_machine"));
     }
 
     void _dispatch(Stream &stream, uint3 dispatch_size,

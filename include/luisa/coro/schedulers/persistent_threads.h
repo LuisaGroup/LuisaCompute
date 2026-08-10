@@ -22,6 +22,7 @@ struct PersistentThreadsCoroSchedulerConfig {
     uint fetch_size = 4u;      // blocks per atomic fetch
     bool shared_memory_soa = false;
     bool global_memory_ext = false;
+    ShaderOption shader_option{};
 };
 
 template<typename... Args>
@@ -294,25 +295,22 @@ private:
             };
             sync_block();
         };
-        ShaderOption main_shader_option{
-            .name = luisa::format(
-                "coro_persistent_{:016x}_n{}_f{}_s{}_tc{}_bs{}_fs{}_soa{}_gme{}",
-                coro.function_builder()->hash(), coro.subroutine_count(),
-                coro.frame().frame_field_count(), coro.frame().frame_type()->size(),
-                _config.thread_count, _config.block_size, _config.fetch_size,
-                _config.shared_memory_soa ? 1u : 0u,
-                _config.global_memory_ext ? 1u : 0u)};
+        auto main_shader_option =
+            detail::coro_scheduler_shader_option(
+                _config.shader_option, "persistent_main");
         _pt_shader = device.compile(main_kernel, main_shader_option);
 
         _clear_shader = device.compile<1>([](BufferUInt g) {
             g.write(dispatch_x(), 0u);
-        });
+        }, detail::coro_scheduler_shader_option(
+               _config.shader_option, "persistent_clear"));
         _clear_global_frames_shader = device.compile<1>([](ByteBufferVar buffer, UInt word_count) {
             auto x = dispatch_x();
             $if (x < word_count) {
                 buffer.write(x * 4u, 0u);
             };
-        });
+        }, detail::coro_scheduler_shader_option(
+               _config.shader_option, "persistent_clear_global_frames"));
     }
 
     void _dispatch(

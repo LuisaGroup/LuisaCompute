@@ -27,6 +27,7 @@ struct WavefrontCoroSchedulerConfig {
     uint hint_range = 0xffffffffu;
     luisa::vector<luisa::string> hint_fields;
     bool report_stats = false;
+    ShaderOption shader_option{};
 };
 
 template<typename... Args>
@@ -270,7 +271,10 @@ private:
                     };
                 }
             };
-            _gen_kernel = device.compile(k_gen);
+            _gen_kernel = device.compile(
+                k_gen,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option, "wavefront_generate"));
         }
 
         for (size_t i = 1u; i < nc; ++i) {
@@ -298,7 +302,11 @@ private:
                     };
                 }
             };
-            _resume_kernels[i] = device.compile(k_cont);
+            _resume_kernels[i] = device.compile(
+                k_cont,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option,
+                    luisa::format("wavefront_resume_{}", i)));
         }
 
         _initialize_shader = device.compile<1>([layout = _frame_layout, soa = _config.global_memory_soa](ByteBufferVar buf, UInt n) {
@@ -306,12 +314,14 @@ private:
             $if (x < n) {
                 coro_frame_write_field(buf, x, layout, soa, 6u, 0u);
             };
-        });
+        }, detail::coro_scheduler_shader_option(
+               _config.shader_option, "wavefront_initialize"));
 
         _clear_count_shader = device.compile<1>([](BufferUInt buffer, UInt n) {
             auto x = dispatch_x();
             $if (x < n) { buffer.write(x, 0u); };
-        });
+        }, detail::coro_scheduler_shader_option(
+               _config.shader_option, "wavefront_clear_count"));
 
         _count_shader = device.compile<1>(
             [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token,
@@ -323,7 +333,8 @@ private:
                 $if (tok < node_count) {
                     count.atomic(tok).fetch_add(1u);
                 };
-            });
+            }, detail::coro_scheduler_shader_option(
+                   _config.shader_option, "wavefront_count"));
 
         _gather_shader = device.compile<1>(
             [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token,
@@ -336,7 +347,8 @@ private:
                     auto slot = offset.atomic(tok).fetch_add(1u);
                     index.write(slot, x);
                 };
-            });
+            }, detail::coro_scheduler_shader_option(
+                   _config.shader_option, "wavefront_gather"));
 
         _compact_shader = device.compile<1>(
             [layout = _frame_layout, soa = _config.global_memory_soa, read_scheduler_token, desc = &coro.frame()](
@@ -361,7 +373,8 @@ private:
                         coro_frame_write_field(frame_buf, src, layout, soa, 6u, 0u);
                     };
                 };
-            });
+            }, detail::coro_scheduler_shader_option(
+                   _config.shader_option, "wavefront_compact"));
     }
 
     void _sort_token_buckets(Stream &stream, uint count) noexcept {
