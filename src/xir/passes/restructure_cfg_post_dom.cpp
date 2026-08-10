@@ -16,7 +16,7 @@ namespace luisa::compute::xir::detail {
 
 namespace {
 
-constexpr auto invalid_index = std::numeric_limits<size_t>::max();
+constexpr auto post_dom_invalid_index = std::numeric_limits<size_t>::max();
 
 struct NumberedEdge {
     size_t source;
@@ -110,9 +110,9 @@ RestructurePostDomInfo compute_restructure_post_dom(
             predecessor_offsets[index];
     }
     luisa::vector<size_t> successor_indices(
-        edges.size(), invalid_index);
+        edges.size(), post_dom_invalid_index);
     luisa::vector<size_t> predecessor_indices(
-        edges.size(), invalid_index);
+        edges.size(), post_dom_invalid_index);
     auto successor_cursors = successor_offsets;
     auto predecessor_cursors = predecessor_offsets;
     for (auto edge : edges) {
@@ -176,13 +176,13 @@ RestructurePostDomInfo compute_restructure_post_dom(
     // Cooper-Harvey-Kennedy on the reversed CFG. Solver indices are reverse-
     // postorder IDs, so every resolved idom moves toward a smaller ID.
     luisa::vector<size_t> solver_indices(
-        block_count + 1u, invalid_index);
+        block_count + 1u, post_dom_invalid_index);
     for (auto index = size_t{0u};
          index < reverse_postorder.size(); ++index) {
         solver_indices[reverse_postorder[index]] = index;
     }
     luisa::vector<size_t> immediate_dominators(
-        reverse_postorder.size(), invalid_index);
+        reverse_postorder.size(), post_dom_invalid_index);
     immediate_dominators.front() = 0u;
     const auto intersect = [&](size_t lhs,
                                size_t rhs) noexcept {
@@ -207,7 +207,7 @@ RestructurePostDomInfo compute_restructure_post_dom(
             ++local_stats.fixed_point_block_visit_count;
             const auto block_index =
                 reverse_postorder[solver_index];
-            auto new_idom = invalid_index;
+            auto new_idom = post_dom_invalid_index;
             if (sinks[block_index] != 0u) {
                 ++local_stats.fixed_point_edge_visit_count;
                 new_idom = 0u;
@@ -220,19 +220,19 @@ RestructurePostDomInfo compute_restructure_post_dom(
                     ++local_stats.fixed_point_edge_visit_count;
                     const auto successor_solver_index =
                         solver_indices[successor_indices[edge_index]];
-                    if (successor_solver_index == invalid_index ||
+                    if (successor_solver_index == post_dom_invalid_index ||
                         immediate_dominators[successor_solver_index] ==
-                            invalid_index) {
+                            post_dom_invalid_index) {
                         continue;
                     }
-                    new_idom = new_idom == invalid_index ?
+                    new_idom = new_idom == post_dom_invalid_index ?
                                    successor_solver_index :
                                    intersect(
                                        successor_solver_index,
                                        new_idom);
                 }
             }
-            if (new_idom != invalid_index &&
+            if (new_idom != post_dom_invalid_index &&
                 immediate_dominators[solver_index] !=
                     new_idom) {
                 immediate_dominators[solver_index] =
@@ -244,7 +244,7 @@ RestructurePostDomInfo compute_restructure_post_dom(
     }
     for (auto idom : immediate_dominators) {
         LUISA_ASSERT(
-            idom != invalid_index,
+            idom != post_dom_invalid_index,
             "Sink-reachable restructure CFG block has no "
             "immediate post-dominator.");
     }

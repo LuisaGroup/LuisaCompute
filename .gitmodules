@@ -44,3 +44,6 @@
 [submodule "src/ext/spirv-headers"]
 	path = src/ext/spirv-headers
 	url = https://github.com/KhronosGroup/SPIRV-Headers.git
+[submodule "src/ext/BTree"]
+	path = src/ext/BTree
+	url = https://github.com/frozenca/BTree.git

@@ -300,6 +300,32 @@ void accumulate_inline_info(
         increment.call_site_cached_apply_count;
     total.call_site_revalidated_apply_count +=
         increment.call_site_revalidated_apply_count;
+    total.call_site_clone_layout_function_count +=
+        increment.call_site_clone_layout_function_count;
+    total.call_site_clone_layout_value_count +=
+        increment.call_site_clone_layout_value_count;
+    total.call_site_dense_resolver_apply_count +=
+        increment.call_site_dense_resolver_apply_count;
+    total.call_site_dense_resolver_fallback_count +=
+        increment.call_site_dense_resolver_fallback_count;
+    total.inline_pass_summary_function_count +=
+        increment.inline_pass_summary_function_count;
+    total.inline_pass_summary_instruction_scan_count +=
+        increment.inline_pass_summary_instruction_scan_count;
+    total.inline_pass_clone_layout_function_count +=
+        increment.inline_pass_clone_layout_function_count;
+    total.inline_pass_clone_layout_value_count +=
+        increment.inline_pass_clone_layout_value_count;
+    total.inline_pass_dense_resolver_apply_count +=
+        increment.inline_pass_dense_resolver_apply_count;
+    total.inline_pass_dense_resolver_fallback_count +=
+        increment.inline_pass_dense_resolver_fallback_count;
+    total.inline_pass_caller_barrier_function_count +=
+        increment.inline_pass_caller_barrier_function_count;
+    total.inline_pass_caller_barrier_instruction_scan_count +=
+        increment.inline_pass_caller_barrier_instruction_scan_count;
+    total.inline_pass_caller_barrier_cache_hit_count +=
+        increment.inline_pass_caller_barrier_cache_hit_count;
     total.recursion_analysis_function_count +=
         increment.recursion_analysis_function_count;
     total.recursion_analysis_call_use_visit_count +=

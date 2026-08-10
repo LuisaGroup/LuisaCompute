@@ -1,6 +1,10 @@
 table.insert(_config_rules, "lc-rename-ext")
 local rename_rule_idx = table.getn(_config_rules)
 includes("volk", "stb")
+target("btree")
+set_kind("headeronly")
+add_includedirs("BTree/include", {public = true})
+target_end()
 -- ext
 lc_eastl_enable_custom_malloc = has_config("lc_enable_custom_malloc")
 lc_eastl_enable_mimalloc = has_config("lc_enable_mimalloc")
