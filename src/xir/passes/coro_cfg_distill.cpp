@@ -2,6 +2,7 @@
 #include <bit>
 #include <cstdlib>
 #include <type_traits>
+#include <utility>
 
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
@@ -25,6 +26,7 @@
 #include <luisa/xir/verifier.h>
 
 #include "../pointer_containers.h"
+#include "coro_frame_abi.h"
 #include "coro_frame_access.h"
 #include "coro_replayable.h"
 #include "helpers.h"
@@ -390,19 +392,6 @@ static void hash_optional_token(DistillCertificateHasher &h,
         }
     }
     return luisa::format("_coro_frame_{}", index);
-}
-
-static void sort_frame_atoms_by_layout(
-    luisa::vector<size_t> &atoms,
-    const detail::CoroFrameAtomDomain &domain) noexcept {
-    std::stable_sort(atoms.begin(), atoms.end(), [&](auto lhs, auto rhs) noexcept {
-        auto *lt = domain.atom(lhs).type;
-        auto *rt = domain.atom(rhs).type;
-        if (lt->alignment() != rt->alignment()) {
-            return lt->alignment() > rt->alignment();
-        }
-        return lt->size() > rt->size();
-    });
 }
 
 template<typename T>
@@ -1085,14 +1074,17 @@ static void append_legacy_values(
 
 static void append_frame_value_indices(
     luisa::vector<size_t> &dst, const DenseValueSet &atoms,
-    luisa::span<const size_t> atom_to_frame_value) noexcept {
+    luisa::span<const std::pair<size_t, size_t>>
+        atom_to_frame_value_range) noexcept {
     dst.clear();
     atoms.for_each_set_bit([&](size_t atom_index) noexcept {
-        LUISA_DEBUG_ASSERT(atom_index < atom_to_frame_value.size(),
+        LUISA_DEBUG_ASSERT(atom_index < atom_to_frame_value_range.size(),
                            "Coroutine atom index is out of range.");
-        auto frame_index = atom_to_frame_value[atom_index];
-        if (frame_index != static_cast<size_t>(-1)) {
-            dst.emplace_back(frame_index);
+        auto [first, count] = atom_to_frame_value_range[atom_index];
+        if (first != static_cast<size_t>(-1)) {
+            for (size_t i = 0u; i < count; ++i) {
+                dst.emplace_back(first + i);
+            }
         }
     });
 }
@@ -1155,6 +1147,14 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
         if (inserted) { type_order.emplace_back(type); }
         iter->second.emplace_back(i);
     }
+    std::stable_sort(
+        type_order.begin(), type_order.end(),
+        [](auto *lhs, auto *rhs) noexcept {
+            if (lhs->alignment() != rhs->alignment()) {
+                return lhs->alignment() > rhs->alignment();
+            }
+            return lhs->size() > rhs->size();
+        });
 
     luisa::vector<luisa::vector<size_t>> slot_occupants;
     luisa::unordered_map<const Type *, luisa::vector<size_t>> slots_by_type;
@@ -1387,34 +1387,69 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         frame_value_set.union_with(live_out[i]);
     }
 
-    result.frame_values.clear();
-    result.frame_values.reserve(frame_value_set.count_size());
-    luisa::vector<size_t> ordered_frame_atoms;
-    value_domain.append_indices(ordered_frame_atoms, frame_value_set);
-    sort_frame_atoms_by_layout(
-        ordered_frame_atoms, value_domain.atom_domain());
-    luisa::vector<size_t> atom_to_frame_value(
-        value_count, static_cast<size_t>(-1));
-    luisa::unordered_set<luisa::string> used_names;
-    for (auto atom_index : ordered_frame_atoms) {
-        auto &atom = value_domain.atom(atom_index);
-        auto name = frame_value_name(
-            atom.root, atom.access_chain, result.frame_values.size());
-        if (!used_names.emplace(name).second) {
-            auto base = name;
-            auto suffix = result.frame_values.size();
-            do {
-                name = luisa::format("{}#{}", base, suffix++);
-            } while (!used_names.emplace(name).second);
+    struct PlannedFrameAtom {
+        size_t atom_index;
+        detail::CoroFrameAbiPlan abi;
+    };
+    luisa::vector<size_t> frame_atoms;
+    value_domain.append_indices(frame_atoms, frame_value_set);
+    luisa::vector<PlannedFrameAtom> planned_frame_atoms;
+    planned_frame_atoms.reserve(frame_atoms.size());
+    auto abi_decomposed_atom_count = size_t{0u};
+    auto abi_nominal_padding_saved = size_t{0u};
+    for (auto atom_index : frame_atoms) {
+        auto abi = detail::plan_coro_frame_atom_abi(
+            value_domain.atom(atom_index));
+        if (abi.decomposed) {
+            ++abi_decomposed_atom_count;
+            abi_nominal_padding_saved +=
+                value_domain.atom(atom_index).type->size() -
+                abi.payload_size;
         }
-        atom_to_frame_value[atom_index] = result.frame_values.size();
-        result.frame_values.emplace_back(CoroCfgDistillResult::FrameValue{
-            .value = atom.root,
-            .access_chain = atom.access_chain,
-            .name = std::move(name),
-            .type = atom.type,
-            .slot = 0u,
+        planned_frame_atoms.emplace_back(PlannedFrameAtom{
+            .atom_index = atom_index,
+            .abi = std::move(abi)});
+    }
+    std::stable_sort(
+        planned_frame_atoms.begin(), planned_frame_atoms.end(),
+        [](auto &lhs, auto &rhs) noexcept {
+            if (lhs.abi.max_alignment != rhs.abi.max_alignment) {
+                return lhs.abi.max_alignment > rhs.abi.max_alignment;
+            }
+            return lhs.abi.payload_size > rhs.abi.payload_size;
         });
+
+    result.frame_values.clear();
+    result.frame_values.reserve(
+        frame_value_set.count_size() + abi_decomposed_atom_count);
+    luisa::vector<std::pair<size_t, size_t>> atom_to_frame_value_range(
+        value_count, {static_cast<size_t>(-1), 0u});
+    luisa::unordered_set<luisa::string> used_names;
+    for (auto &planned : planned_frame_atoms) {
+        auto &atom = value_domain.atom(planned.atom_index);
+        auto first = result.frame_values.size();
+        for (auto &field : planned.abi.fields) {
+            auto name = frame_value_name(
+                atom.root, field.access_chain,
+                result.frame_values.size());
+            if (!used_names.emplace(name).second) {
+                auto base = name;
+                auto suffix = result.frame_values.size();
+                do {
+                    name = luisa::format("{}#{}", base, suffix++);
+                } while (!used_names.emplace(name).second);
+            }
+            result.frame_values.emplace_back(
+                CoroCfgDistillResult::FrameValue{
+                    .value = atom.root,
+                    .access_chain = field.access_chain,
+                    .name = std::move(name),
+                    .type = field.type,
+                    .slot = 0u,
+                });
+        }
+        atom_to_frame_value_range[planned.atom_index] = {
+            first, result.frame_values.size() - first};
     }
 
     for (size_t i = 0u; i < n; ++i) {
@@ -1427,16 +1462,16 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         append_legacy_values(scope.live_out_values, live_out[i], value_domain);
         append_frame_value_indices(
             scope.external_frame_value_indices, scope_data[i].external,
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_frame_value_indices(
             scope.touched_frame_value_indices, scope_data[i].touched,
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_frame_value_indices(
             scope.live_in_frame_value_indices, live_in[i],
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_frame_value_indices(
             scope.live_out_frame_value_indices, live_out[i],
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_names_from_frame_values(
             scope.external_variables, scope.external_frame_value_indices,
             result);
@@ -1461,16 +1496,16 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         append_legacy_values(edge.store_values, dense.store, value_domain);
         append_frame_value_indices(
             edge.killed_frame_value_indices, dense.killed,
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_frame_value_indices(
             edge.touched_frame_value_indices, dense.touched,
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_frame_value_indices(
             edge.live_frame_value_indices, dense.live,
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_frame_value_indices(
             edge.store_frame_value_indices, dense.store,
-            atom_to_frame_value);
+            atom_to_frame_value_range);
         append_names_from_frame_values(
             edge.killed_variables, edge.killed_frame_value_indices, result);
         append_names_from_frame_values(
@@ -1638,6 +1673,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             "scope_evaluations={} replayable_values={} "
             "rejected_replay_values={} logical_frame_values={} "
             "named_frame_alloca_roots={} split_allocas={} split_atoms={} "
+            "abi_decomposed_atoms={} abi_nominal_padding_saved={} "
             "physical_frame_slots={}.",
             value_count, (value_count + 63u) / 64u, n,
             block_memberships, block_evaluations,
@@ -1647,6 +1683,8 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             result.frame_values.size(), named_alloca_roots.size(),
             value_domain.split_alloca_count(),
             value_domain.split_atom_count(),
+            abi_decomposed_atom_count,
+            abi_nominal_padding_saved,
             result.frame_slots.size());
     }
     if (auto *flag = std::getenv("LUISA_CORO_DUMP_FRAME_LAYOUT");

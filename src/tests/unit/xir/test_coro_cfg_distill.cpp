@@ -872,7 +872,7 @@ void reg_coro_cfg_distill() {
         auto *one_i = m.create_constant_one(Type::of<int>());
         auto *one_f = m.create_constant_one(Type::of<float>());
         auto *cond = m.create_constant_one(Type::of<bool>());
-        auto *float3_ty = Type::of<float3>();
+        auto *float2_ty = Type::of<float2>();
 
         auto *suspend_bb = k->create_basic_block();
         auto *resume_bb = k->create_basic_block();
@@ -882,11 +882,12 @@ void reg_coro_cfg_distill() {
         small->set_name("small");
         auto *medium = b.alloca_local(Type::of<float>());
         medium->set_name("medium");
-        auto *large = b.alloca_local(float3_ty);
+        auto *large = b.alloca_local(float2_ty);
         large->set_name("large");
         b.store(small, one_i);
         b.store(medium, one_f);
-        auto *large_value = b.call(float3_ty, ArithmeticOp::AGGREGATE, {one_f, one_f, one_f});
+        auto *large_value = b.call(
+            float2_ty, ArithmeticOp::AGGREGATE, {one_f, one_f});
         b.store(large, large_value);
         b.cond_br(cond, suspend_bb, resume_bb);
 
@@ -897,7 +898,7 @@ void reg_coro_cfg_distill() {
         b.coro_resume(1u, nullptr);
         auto *loaded_small = b.load(Type::of<int>(), small);
         auto *loaded_medium = b.load(Type::of<float>(), medium);
-        auto *loaded_large = b.load(float3_ty, large);
+        auto *loaded_large = b.load(float2_ty, large);
         auto *loaded_large_x = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {loaded_large, m.create_constant_zero(Type::of<uint32_t>())});
         auto *medium_i = b.static_cast_(Type::of<int>(), loaded_medium);
         auto *large_i = b.static_cast_(Type::of<int>(), loaded_large_x);
@@ -909,8 +910,120 @@ void reg_coro_cfg_distill() {
         auto result = coro_cfg_distill_pass_run_on_function(k);
         expect(result.frame_values.size() == 3u);
         expect(result.frame_values[0u].name == "large");
-        expect(result.frame_values[0u].type == float3_ty);
+        expect(result.frame_values[0u].type == float2_ty);
         expect(result.frame_values[1u].type->alignment() >= result.frame_values[2u].type->alignment());
+    };
+
+    "frame_abi_decomposes_padding_into_minimal_packed_fields"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *padded = Type::structure(
+            {Type::of<float2>(), Type::of<float>()});
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(padded);
+        state->set_name("padded_state");
+        b.store(state, m.create_constant_zero(padded));
+        b.coro_suspend(211u, "padded", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(211u, nullptr);
+        static_cast<void>(b.load(padded, state));
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        if (result.frame_values.size() == 2u) {
+            expect(result.frame_values[0u].value == state);
+            expect(result.frame_values[0u].access_chain ==
+                   luisa::vector<uint32_t>{0u});
+            expect(result.frame_values[0u].type == Type::of<float2>());
+            expect(result.frame_values[1u].value == state);
+            expect(result.frame_values[1u].access_chain ==
+                   luisa::vector<uint32_t>{1u});
+            expect(result.frame_values[1u].type == Type::of<float>());
+        }
+        expect(result.scopes.size() == 2u);
+        if (result.scopes.size() == 2u) {
+            expect(result.scopes[1u].live_in_frame_value_indices ==
+                   luisa::vector<size_t>{0u, 1u});
+        }
+        const CoroCfgDistillResult::Edge *suspend_edge = nullptr;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.token == 211u) {
+                suspend_edge = &edge;
+                break;
+            }
+        }
+        expect(suspend_edge != nullptr);
+        if (suspend_edge != nullptr) {
+            expect(suspend_edge->live_frame_value_indices ==
+                   luisa::vector<size_t>{0u, 1u});
+            expect(suspend_edge->store_frame_value_indices ==
+                   luisa::vector<size_t>{0u, 1u});
+        }
+    };
+
+    "frame_abi_keeps_no_padding_aggregate_whole"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *packed = Type::of<float2>();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(packed);
+        state->set_name("packed_state");
+        b.store(state, m.create_constant_zero(packed));
+        b.coro_suspend(223u, "packed", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(223u, nullptr);
+        static_cast<void>(b.load(packed, state));
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 1u);
+        if (result.frame_values.size() == 1u) {
+            expect(result.frame_values.front().value == state);
+            expect(result.frame_values.front().access_chain.empty());
+            expect(result.frame_values.front().type == packed);
+        }
+    };
+
+    "frame_abi_field_limit_keeps_large_aggregate_whole"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        // Eleven padded float3 elements would require 33 scalar fields. The
+        // bounded planner must retain the aggregate instead of exploding the
+        // generated continuation ABI and spill code.
+        auto *large = Type::array(Type::of<float3>(), 11u);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(large);
+        state->set_name("large_state");
+        b.store(state, m.create_constant_zero(large));
+        b.coro_suspend(227u, "large", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(227u, nullptr);
+        static_cast<void>(b.load(large, state));
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 1u);
+        if (result.frame_values.size() == 1u) {
+            expect(result.frame_values.front().value == state);
+            expect(result.frame_values.front().access_chain.empty());
+            expect(result.frame_values.front().type == large);
+        }
     };
 
     "disjoint_partial_store_preserves_dormant_field_in_frame"_test = [] {

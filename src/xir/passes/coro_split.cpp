@@ -436,6 +436,13 @@ public:
     return type;
 }
 
+[[nodiscard]] static bool static_access_path_is_prefix(
+    luisa::span<const uint32_t> prefix,
+    luisa::span<const uint32_t> path) noexcept {
+    return prefix.size() <= path.size() &&
+           std::equal(prefix.begin(), prefix.end(), path.begin());
+}
+
 [[nodiscard]] static bool validate_distilled_cfg(FunctionDefinition *def,
                                                  const CoroCfgDistillResult &result) noexcept {
     if (def == nullptr || !result.succeeded() || result.scopes.empty() ||
@@ -542,16 +549,26 @@ public:
                 frame_value.type) {
             return false;
         }
-        auto &paths = value_paths[frame_value.value];
-        if (std::find(paths.begin(), paths.end(),
-                      frame_value.access_chain) != paths.end()) {
-            return false;
-        }
-        paths.emplace_back(frame_value.access_chain);
+        value_paths[frame_value.value].emplace_back(
+            frame_value.access_chain);
         occupied_slots[frame_value.slot] = 1u;
         if (frame_value.value->isa<Instruction>()) {
             auto *inst = static_cast<Instruction *>(frame_value.value);
             if (inst->parent_block() == nullptr || inst->parent_block()->parent_function() != def) {
+                return false;
+            }
+        }
+    }
+    // Frame fields for one root must denote a partition: duplicate paths and
+    // ancestor/descendant pairs overlap the same storage and would make spill
+    // order observable. In lexicographic order every descendant interval
+    // starts immediately after its prefix, so adjacent-prefix checks are both
+    // necessary and sufficient (and avoid a quadratic pairwise scan).
+    for (auto &[value, paths] : value_paths) {
+        static_cast<void>(value);
+        std::sort(paths.begin(), paths.end());
+        for (size_t i = 1u; i < paths.size(); ++i) {
+            if (static_access_path_is_prefix(paths[i - 1u], paths[i])) {
                 return false;
             }
         }

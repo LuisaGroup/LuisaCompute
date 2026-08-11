@@ -1668,6 +1668,64 @@ void reg_coro_split() {
                     "unknown XIR verification error" :
                     verification.errors.front().message.c_str());
     };
+
+    "split_materializes_padded_aggregate_as_packed_abi_fields"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *padded = Type::structure(
+            {Type::of<float2>(), Type::of<float>()});
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(padded);
+        state->set_name("padded_state");
+        b.store(state, m.create_constant_zero(padded));
+        b.coro_suspend(229u, "padded", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(229u, nullptr);
+        static_cast<void>(b.load(padded, state));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 2u);
+        expect(cfg.frame_slots.size() == 2u);
+
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                auto members = subroutine.frame_argument->type()->members();
+                expect(members.size() ==
+                       CoroFrameDesc::reserved_field_count + 2u);
+                expect(members[CoroFrameDesc::reserved_field_count] ==
+                       Type::of<float2>());
+                expect(members[CoroFrameDesc::reserved_field_count + 1u] ==
+                       Type::of<float>());
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 2u);
+        expect(materialized.frame_fields.size() == 2u);
+        expect(materialized.name_to_type.at("padded_state.0") ==
+               Type::of<float2>());
+        expect(materialized.name_to_type.at("padded_state.1") ==
+               Type::of<float>());
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
+    };
 }
 
 int main(int argc, char *argv[]) {
