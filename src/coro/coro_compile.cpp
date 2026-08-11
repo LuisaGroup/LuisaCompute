@@ -21,6 +21,7 @@
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/defer_local_aggregate_load.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
@@ -216,6 +217,24 @@ void verify_coro_xir_or_error(
         r.set("removed_noop_gep", i.removed_noop_gep_count);
         return i.changed();
     });
+    // Preserve the aggregate load's memory snapshot while exposing only the
+    // statically projected fields to SROA and coroutine liveness. Running this
+    // before the one-level SROA pass avoids recursively scalarizing the whole
+    // source IR merely to discover a small live access path.
+    p.add("defer-local-aggregate-load",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::defer_local_aggregate_load_pass_run_on_function(
+                  coroutine);
+              r.set("aggregate_load", i.aggregate_load_count);
+              r.set("candidate_extract", i.candidate_extract_count);
+              r.set("rewritten_extract", i.rewritten_extract_count);
+              r.set("inserted_gep", i.inserted_gep_count);
+              r.set("inserted_load", i.inserted_load_count);
+              r.set("reused_projection", i.reused_projection_count);
+              r.set("removed_aggregate_load",
+                    i.removed_aggregate_load_count);
+              return i.changed();
+          });
     p.add("sroa", [coroutine](xir::Module *, xir::PassReport &r) {
         auto i = xir::sroa_pass_run_on_function(
             coroutine, {.decompose_vectors = true});
@@ -223,6 +242,44 @@ void verify_coro_xir_or_error(
         r.set("inserted_alloca", i.inserted_alloca_count);
         return i.changed();
     });
+    // One-level SROA deliberately does not recurse, but it reconstructs a
+    // parent aggregate from loads of its new child allocas. Fold projections
+    // of that reconstruction once, then apply the same snapshot-preserving
+    // load projection to the now-visible child aggregate. This is bounded to
+    // one cleanup round; it does not recursively scalarize the source IR.
+    p.add("post-sroa-algebraic-simplify",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::algebraic_simplify_pass_run_on_function(
+                  coroutine);
+              r.set("simplified_inst", i.simplified_inst_count);
+              return i.simplified_inst_count > 0u;
+          });
+    p.add("post-sroa-defer-local-aggregate-load",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::defer_local_aggregate_load_pass_run_on_function(
+                  coroutine);
+              r.set("aggregate_load", i.aggregate_load_count);
+              r.set("candidate_extract", i.candidate_extract_count);
+              r.set("rewritten_extract", i.rewritten_extract_count);
+              r.set("inserted_gep", i.inserted_gep_count);
+              r.set("inserted_load", i.inserted_load_count);
+              r.set("reused_projection", i.reused_projection_count);
+              r.set("removed_aggregate_load",
+                    i.removed_aggregate_load_count);
+              return i.changed();
+          });
+    p.add("post-sroa-dce",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::dce_pass_run_on_function(coroutine);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("removed_block", i.removed_block_count);
+              r.set("inserted_terminator", i.inserted_terminator_count);
+              r.set("dead_code_instruction_scan",
+                    i.dead_code_instruction_scan_count);
+              r.set("dead_code_worklist_pop",
+                    i.dead_code_worklist_pop_count);
+              return i.changed();
+          });
     return p;
 }
 

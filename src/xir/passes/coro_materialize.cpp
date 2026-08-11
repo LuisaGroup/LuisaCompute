@@ -446,32 +446,36 @@ static void populate_transition_edges(CoroMaterializeInfo &info,
     }
 }
 
-static void append_value_field_indices(luisa::vector<size_t> &dst,
-                                       const luisa::vector<Value *> &values,
-                                       const luisa::unordered_map<Value *, size_t> &field_map) noexcept {
+static void append_frame_value_field_indices(
+    luisa::vector<size_t> &dst,
+    luisa::span<const size_t> frame_value_indices,
+    const CoroCfgDistillResult &cfg) noexcept {
     luisa::unordered_set<size_t> seen;
-    for (auto *value : values) {
-        if (auto it = field_map.find(value); it != field_map.end()) {
-            auto field_index = it->second;
-            if (seen.emplace(field_index).second) {
-                dst.emplace_back(field_index);
-            }
+    for (auto frame_value_index : frame_value_indices) {
+        if (frame_value_index >= cfg.frame_values.size()) { continue; }
+        auto field_index = FRAME_RESERVED_FIELD_COUNT +
+                           cfg.frame_values[frame_value_index].slot;
+        if (seen.emplace(field_index).second) {
+            dst.emplace_back(field_index);
         }
     }
     luisa::sort(dst.begin(), dst.end());
 }
 
 static void populate_value_transition_edges(CoroMaterializeInfo &info,
-                                            const CoroCfgDistillResult &cfg,
-                                            const luisa::unordered_map<Value *, size_t> &field_map) noexcept {
+                                            const CoroCfgDistillResult &cfg) noexcept {
     info.edges.clear();
     for (auto &transition : cfg.transition_edges) {
         if (transition.to_scope >= cfg.scopes.size()) { continue; }
         CoroMaterializeInfo::TransitionEdge edge;
         edge.from_scope = transition.from_scope;
         edge.to_scope = transition.to_scope;
-        append_value_field_indices(edge.store_fields, transition.store_values, field_map);
-        append_value_field_indices(edge.load_fields, cfg.scopes[transition.to_scope].live_in_values, field_map);
+        append_frame_value_field_indices(
+            edge.store_fields, transition.store_frame_value_indices, cfg);
+        append_frame_value_field_indices(
+            edge.load_fields,
+            cfg.scopes[transition.to_scope].live_in_frame_value_indices,
+            cfg);
         info.edges.emplace_back(std::move(edge));
     }
 }
@@ -706,7 +710,6 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     for (auto &subroutine : split.subroutines) {
         subroutines[subroutine.scope_index] = &subroutine;
     }
-    luisa::unordered_map<Value *, size_t> value_field_map;
     info.register_count = cfg.frame_values.size();
     info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_slots.size();
     info.frame_fields.reserve(cfg.frame_slots.size());
@@ -733,7 +736,6 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     for (auto &value : cfg.frame_values) {
         auto field_index =
             detail::FRAME_RESERVED_FIELD_COUNT + value.slot;
-        value_field_map.emplace(value.value, field_index);
         auto [field_iter, field_inserted] =
             info.name_to_field.emplace(value.name, field_index);
         auto [type_iter, type_inserted] =
@@ -745,7 +747,7 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
             "physical slot.",
             value.name);
     }
-    detail::populate_value_transition_edges(info, cfg, value_field_map);
+    detail::populate_value_transition_edges(info, cfg);
 
     for (auto *subroutine : subroutines) {
         if (subroutine == nullptr) { continue; }

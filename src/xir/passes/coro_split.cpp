@@ -338,6 +338,14 @@ public:
             lhs.touched_values != rhs.touched_values ||
             lhs.live_in_values != rhs.live_in_values ||
             lhs.live_out_values != rhs.live_out_values ||
+            lhs.external_frame_value_indices !=
+                rhs.external_frame_value_indices ||
+            lhs.touched_frame_value_indices !=
+                rhs.touched_frame_value_indices ||
+            lhs.live_in_frame_value_indices !=
+                rhs.live_in_frame_value_indices ||
+            lhs.live_out_frame_value_indices !=
+                rhs.live_out_frame_value_indices ||
             lhs.external_variables != rhs.external_variables ||
             lhs.touched_variables != rhs.touched_variables ||
             lhs.live_in_variables != rhs.live_in_variables ||
@@ -367,6 +375,14 @@ public:
             lhs.touched_values != rhs.touched_values ||
             lhs.live_values != rhs.live_values ||
             lhs.store_values != rhs.store_values ||
+            lhs.killed_frame_value_indices !=
+                rhs.killed_frame_value_indices ||
+            lhs.touched_frame_value_indices !=
+                rhs.touched_frame_value_indices ||
+            lhs.live_frame_value_indices !=
+                rhs.live_frame_value_indices ||
+            lhs.store_frame_value_indices !=
+                rhs.store_frame_value_indices ||
             lhs.killed_variables != rhs.killed_variables ||
             lhs.touched_variables != rhs.touched_variables ||
             lhs.live_variables != rhs.live_variables ||
@@ -377,7 +393,9 @@ public:
     for (auto i = 0u; i < result.frame_values.size(); ++i) {
         auto &lhs = result.frame_values[i];
         auto &rhs = canonical.frame_values[i];
-        if (lhs.value != rhs.value || lhs.name != rhs.name ||
+        if (lhs.value != rhs.value ||
+            lhs.access_chain != rhs.access_chain ||
+            lhs.name != rhs.name ||
             lhs.type != rhs.type || lhs.slot != rhs.slot) {
             return false;
         }
@@ -390,6 +408,32 @@ public:
         }
     }
     return true;
+}
+
+[[nodiscard]] static const Type *resolve_static_access_type(
+    const Type *type, luisa::span<const uint32_t> access_chain) noexcept {
+    for (auto index : access_chain) {
+        if (type == nullptr) { return nullptr; }
+        switch (type->tag()) {
+            case Type::Tag::ARRAY:
+            case Type::Tag::VECTOR:
+                if (index >= type->dimension()) { return nullptr; }
+                type = type->element();
+                break;
+            case Type::Tag::MATRIX:
+                if (index >= type->dimension()) { return nullptr; }
+                type = Type::vector(type->element(), type->dimension());
+                break;
+            case Type::Tag::STRUCTURE: {
+                auto members = type->members();
+                if (index >= members.size()) { return nullptr; }
+                type = members[index];
+                break;
+            }
+            default: return nullptr;
+        }
+    }
+    return type;
 }
 
 [[nodiscard]] static bool validate_distilled_cfg(FunctionDefinition *def,
@@ -471,7 +515,9 @@ public:
     for (auto token : suspends) {
         if (!triggers.contains(token)) { return false; }
     }
-    luisa::unordered_set<const Value *> values;
+    luisa::unordered_map<const Value *,
+                         luisa::vector<luisa::vector<uint32_t>>>
+        value_paths;
     luisa::vector<uint8_t> occupied_slots(
         result.frame_slots.size(), 0u);
     luisa::unordered_set<luisa::string> slot_names;
@@ -482,13 +528,26 @@ public:
         }
     }
     for (auto &frame_value : result.frame_values) {
+        auto path_root_is_local_alloca =
+            frame_value.access_chain.empty() ||
+            (frame_value.value != nullptr &&
+             frame_value.value->isa<AllocaInst>() &&
+             static_cast<AllocaInst *>(frame_value.value)->is_local());
         if (frame_value.value == nullptr || frame_value.type == nullptr ||
-            frame_value.value->type() != frame_value.type ||
+            !path_root_is_local_alloca ||
             frame_value.slot >= result.frame_slots.size() ||
             result.frame_slots[frame_value.slot].type != frame_value.type ||
-            !values.emplace(frame_value.value).second) {
+            resolve_static_access_type(
+                frame_value.value->type(), frame_value.access_chain) !=
+                frame_value.type) {
             return false;
         }
+        auto &paths = value_paths[frame_value.value];
+        if (std::find(paths.begin(), paths.end(),
+                      frame_value.access_chain) != paths.end()) {
+            return false;
+        }
+        paths.emplace_back(frame_value.access_chain);
         occupied_slots[frame_value.slot] = 1u;
         if (frame_value.value->isa<Instruction>()) {
             auto *inst = static_cast<Instruction *>(frame_value.value);
@@ -501,12 +560,18 @@ public:
         occupied_slots.end()) {
         return false;
     }
-    for (auto &scope : result.scopes) {
-        for (auto *value : scope.live_in_values) {
-            if (!values.contains(value)) { return false; }
+    auto valid_frame_indices = [&](luisa::span<const size_t> indices) noexcept {
+        for (auto index : indices) {
+            if (index >= result.frame_values.size()) { return false; }
         }
-        for (auto *value : scope.live_out_values) {
-            if (!values.contains(value)) { return false; }
+        return true;
+    };
+    for (auto &scope : result.scopes) {
+        if (!valid_frame_indices(scope.external_frame_value_indices) ||
+            !valid_frame_indices(scope.touched_frame_value_indices) ||
+            !valid_frame_indices(scope.live_in_frame_value_indices) ||
+            !valid_frame_indices(scope.live_out_frame_value_indices)) {
+            return false;
         }
     }
     for (auto &edge : result.transition_edges) {
@@ -514,11 +579,11 @@ public:
             edge.token != result.scopes[edge.to_scope].trigger_token) {
             return false;
         }
-        for (auto *value : edge.live_values) {
-            if (!values.contains(value)) { return false; }
-        }
-        for (auto *value : edge.store_values) {
-            if (!values.contains(value)) { return false; }
+        if (!valid_frame_indices(edge.killed_frame_value_indices) ||
+            !valid_frame_indices(edge.touched_frame_value_indices) ||
+            !valid_frame_indices(edge.live_frame_value_indices) ||
+            !valid_frame_indices(edge.store_frame_value_indices)) {
+            return false;
         }
     }
     return true;
@@ -542,6 +607,23 @@ static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint
            static_cast<const Instruction *>(value)->derived_instruction_tag() == DerivedInstructionTag::ALLOCA;
 }
 
+[[nodiscard]] static Value *frame_value_memory_pointer(
+    XIRBuilder &b, Module *mod,
+    const CoroCfgDistillResult::FrameValue &frame_value,
+    CoroSplitValueResolver &resolver) noexcept {
+    LUISA_DEBUG_ASSERT(is_memory_frame_value(frame_value.value),
+                       "Coroutine memory frame value must be a local alloca.");
+    auto *root = resolver.resolve(frame_value.value);
+    if (frame_value.access_chain.empty()) { return root; }
+    luisa::vector<Value *> indices;
+    indices.reserve(frame_value.access_chain.size());
+    for (auto component : frame_value.access_chain) {
+        indices.emplace_back(
+            mod->create_constant(Type::of<uint32_t>(), &component));
+    }
+    return b.gep(frame_value.type, root, indices);
+}
+
 [[nodiscard]] static Value *frame_field_ptr(XIRBuilder &b, Module *mod, Value *frame_arg,
                                             const Type *type, size_t field_index) noexcept {
     LUISA_ASSERT(field_index <= std::numeric_limits<uint32_t>::max(),
@@ -553,36 +635,36 @@ static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint
 
 static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
                                        const CoroCfgDistillResult &result,
-                                       luisa::span<Value *const> values,
-                                       const luisa::unordered_map<const Value *, size_t> &field_indices,
+                                       luisa::span<const size_t> frame_value_indices,
                                        CoroSplitValueResolver &resolver) noexcept {
-    for (auto *value : values) {
-        auto it = field_indices.find(value);
-        if (it == field_indices.end()) { continue; }
-        auto &frame_value = result.frame_values[it->second];
+    for (auto frame_value_index : frame_value_indices) {
+        LUISA_DEBUG_ASSERT(frame_value_index < result.frame_values.size(),
+                           "Coroutine frame value index is out of range.");
+        auto &frame_value = result.frame_values[frame_value_index];
         auto field_index = FRAME_USER_FIELD_OFFSET + frame_value.slot;
         auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
-        auto *cloned = resolver.resolve(value);
-        if (is_memory_frame_value(value)) {
-            auto *loaded = b.load(frame_value.type, cloned);
+        if (is_memory_frame_value(frame_value.value)) {
+            auto *pointer = frame_value_memory_pointer(
+                b, mod, frame_value, resolver);
+            auto *loaded = b.load(frame_value.type, pointer);
             b.store(field, loaded);
         } else {
-            b.store(field, cloned);
+            b.store(field, resolver.resolve(frame_value.value));
         }
     }
 }
 
-[[nodiscard]] static luisa::span<Value *const> store_values_for_suspend(
+[[nodiscard]] static luisa::span<const size_t> store_values_for_suspend(
     const CoroCfgDistillResult &result, size_t scope_index, uint32_t token) noexcept {
     for (auto &edge : result.transition_edges) {
         if (edge.is_suspend && edge.from_scope == scope_index && edge.token == token) {
-            return luisa::span{edge.store_values};
+            return luisa::span<const size_t>{edge.store_frame_value_indices};
         }
     }
     return {};
 }
 
-[[nodiscard]] static luisa::span<Value *const> store_values_for_branch_transition(
+[[nodiscard]] static luisa::span<const size_t> store_values_for_branch_transition(
     const CoroCfgDistillResult &result, size_t scope_index,
     const BasicBlock *exit_block, size_t target_scope) noexcept {
     for (auto &edge : result.transition_edges) {
@@ -590,7 +672,7 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
             edge.from_scope == scope_index &&
             edge.to_scope == target_scope &&
             edge.exit_block == exit_block) {
-            return luisa::span{edge.store_values};
+            return luisa::span<const size_t>{edge.store_frame_value_indices};
         }
     }
     return {};
@@ -599,20 +681,20 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
 static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
                                         const CoroCfgDistillResult &result,
                                         const CoroCfgDistillResult::Scope &scope,
-                                        const luisa::unordered_map<const Value *, size_t> &field_indices,
                                         CoroSplitValueResolver &resolver) noexcept {
-    for (auto *value : scope.live_in_values) {
-        auto it = field_indices.find(value);
-        if (it == field_indices.end()) { continue; }
-        auto &frame_value = result.frame_values[it->second];
+    for (auto frame_value_index : scope.live_in_frame_value_indices) {
+        LUISA_DEBUG_ASSERT(frame_value_index < result.frame_values.size(),
+                           "Coroutine frame value index is out of range.");
+        auto &frame_value = result.frame_values[frame_value_index];
         auto field_index = FRAME_USER_FIELD_OFFSET + frame_value.slot;
         auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
         auto *loaded = b.load(frame_value.type, field);
-        if (is_memory_frame_value(value)) {
-            auto *cloned = resolver.resolve(value);
-            b.store(cloned, loaded);
+        if (is_memory_frame_value(frame_value.value)) {
+            auto *pointer = frame_value_memory_pointer(
+                b, mod, frame_value, resolver);
+            b.store(pointer, loaded);
         } else {
-            resolver.map_entry_value(value, loaded);
+            resolver.map_entry_value(frame_value.value, loaded);
         }
     }
 }
@@ -620,7 +702,6 @@ static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame
 static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                         CallableFunction *new_func, Value *frame_arg,
                         const CoroCfgDistillResult &result,
-                        const luisa::unordered_map<const Value *, size_t> &field_indices,
                         CoroSplitValueResolver &resolver) noexcept {
 
     luisa::unordered_set<const BasicBlock *> scope_block_set;
@@ -706,7 +787,8 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
     }
 
     b.set_insertion_point(first_cloned_bb);
-    load_live_values_from_frame(b, mod, frame_arg, result, scope, field_indices, resolver);
+    load_live_values_from_frame(
+        b, mod, frame_arg, result, scope, resolver);
 
     auto resolve_branch_target = [&](const BasicBlock *source, BasicBlock *target) noexcept -> BasicBlock * {
         if (target == nullptr) { return nullptr; }
@@ -724,12 +806,14 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
             target_scope != block_to_scope_index.end()) {
             auto values = store_values_for_branch_transition(
                 result, static_cast<size_t>(scope.scope_id), source, target_scope->second);
-            store_live_values_to_frame(fb_builder, mod, frame_arg, result, values, field_indices, resolver);
+            store_live_values_to_frame(
+                fb_builder, mod, frame_arg, result, values, resolver);
             store_frame_token(fb_builder, frame_arg, mod, result.scopes[target_scope->second].trigger_token);
         } else {
             store_live_values_to_frame(fb_builder, mod, frame_arg, result,
-                                       luisa::span{scope.live_out_values},
-                                       field_indices, resolver);
+                                       luisa::span<const size_t>{
+                                           scope.live_out_frame_value_indices},
+                                       resolver);
             store_frame_token(fb_builder, frame_arg, mod, TERMINAL_TOKEN);
         }
         fb_builder.return_void();
@@ -751,7 +835,8 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                     auto *s = static_cast<CoroSuspendInst *>(inst);
                     b.set_insertion_point(cloned_bb);
                     auto values = store_values_for_suspend(result, static_cast<size_t>(scope.scope_id), s->token());
-                    store_live_values_to_frame(b, mod, frame_arg, result, values, field_indices, resolver);
+                    store_live_values_to_frame(
+                        b, mod, frame_arg, result, values, resolver);
                     store_frame_token(b, frame_arg, mod, s->token());
                     auto *cloned = b.return_void();
                     coro_split_clone_instruction_metadata(inst, cloned);
@@ -760,8 +845,9 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                 case DerivedInstructionTag::CORO_TERMINATE: {
                     b.set_insertion_point(cloned_bb);
                     store_live_values_to_frame(b, mod, frame_arg, result,
-                                               luisa::span{scope.live_out_values},
-                                               field_indices, resolver);
+                                               luisa::span<const size_t>{
+                                                   scope.live_out_frame_value_indices},
+                                               resolver);
                     store_frame_token(b, frame_arg, mod, TERMINAL_TOKEN);
                     auto *cloned = b.return_void();
                     coro_split_clone_instruction_metadata(inst, cloned);
@@ -838,7 +924,6 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
 
 static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult::Scope &scope,
                                         Value *frame_arg, const CoroCfgDistillResult &result,
-                                        const luisa::unordered_map<const Value *, size_t> &field_indices,
                                         CoroSplitValueResolver &resolver) noexcept {
     XIRBuilder b;
     for (auto *orig_bb : scope.blocks) {
@@ -855,8 +940,9 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
             b.set_insertion_point(term->prev());
             if (!was_suspend && !was_terminal) {
                 store_live_values_to_frame(b, mod, frame_arg, result,
-                                           luisa::span{scope.live_out_values},
-                                           field_indices, resolver);
+                                           luisa::span<const size_t>{
+                                               scope.live_out_frame_value_indices},
+                                           resolver);
                 store_frame_token(b, frame_arg, mod, TERMINAL_TOKEN);
             }
         }
@@ -896,11 +982,6 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
             "IR was left unchanged.");
         return info;
     }
-    luisa::unordered_map<const Value *, size_t> frame_value_indices;
-    for (size_t i = 0u; i < result.frame_values.size(); ++i) {
-        frame_value_indices.emplace(result.frame_values[i].value, i);
-    }
-
     info.subroutines.reserve(result.scopes.size());
     for (size_t i = 0; i < result.scopes.size(); ++i) {
         auto &scope = result.scopes[i];
@@ -928,9 +1009,10 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
 
         new_func->set_body_block(body_entry);
 
-        clone_scope(mod, scope, new_func, frame_arg, result, frame_value_indices, resolver);
+        clone_scope(mod, scope, new_func, frame_arg, result, resolver);
 
-        instrument_terminal_returns(mod, scope, frame_arg, result, frame_value_indices, resolver);
+        instrument_terminal_returns(
+            mod, scope, frame_arg, result, resolver);
 
         info.subroutines.emplace_back(CoroSplitInfo::Subroutine{
             .scope_index = i,

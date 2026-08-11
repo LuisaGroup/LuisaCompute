@@ -98,7 +98,7 @@ void reg_coro_compile_trigger() {
         expect(static_cast<bool>(c[1u]));
     };
 
-    "aggregate_vector_local_frame_is_split"_test = [] {
+    "aggregate_vector_frame_keeps_only_observed_components"_test = [] {
         auto c = Coroutine<void(Buffer<float>, int)>{[](Var<Buffer<float>> output, Var<int> x) {
             Float3 v = make_float3(cast<float>(x), 2.0f, 3.0f);
             $suspend("vector");
@@ -109,12 +109,14 @@ void reg_coro_compile_trigger() {
             output.write(0u, y);
         }};
         auto &fd = c.frame_desc();
-        expect(fd.field_count() == 3u);
-        if (fd.field_count() != 3u) { return; }
+        // v.z is never observed after the suspension. Snapshot projection and
+        // one-level SROA must not retain it merely because it shares a source
+        // aggregate with x and y.
+        expect(fd.field_count() == 2u);
+        if (fd.field_count() != 2u) { return; }
         expect(fd.field(0u).type == Type::of<float>());
         expect(fd.field(1u).type == Type::of<float>());
-        expect(fd.field(2u).type == Type::of<float>());
-        expect(fd.total_size() == 12u);
+        expect(fd.total_size() == 8u);
     };
 }
 

@@ -25,6 +25,7 @@
 #include <luisa/xir/verifier.h>
 
 #include "../pointer_containers.h"
+#include "coro_frame_access.h"
 #include "coro_replayable.h"
 #include "helpers.h"
 
@@ -77,7 +78,7 @@ static void hash_optional_token(DistillCertificateHasher &h,
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{2u});
+    h.add(uint64_t{3u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -148,10 +149,18 @@ static void hash_optional_token(DistillCertificateHasher &h,
             h.add(names.size());
             for (auto &name : names) { h.add_string(name); }
         };
+        auto hash_indices = [&](auto &indices) noexcept {
+            h.add(indices.size());
+            for (auto index : indices) { h.add(index); }
+        };
         hash_values(scope.external_values);
         hash_values(scope.touched_values);
         hash_values(scope.live_in_values);
         hash_values(scope.live_out_values);
+        hash_indices(scope.external_frame_value_indices);
+        hash_indices(scope.touched_frame_value_indices);
+        hash_indices(scope.live_in_frame_value_indices);
+        hash_indices(scope.live_out_frame_value_indices);
         hash_names(scope.external_variables);
         hash_names(scope.touched_variables);
         hash_names(scope.live_in_variables);
@@ -180,10 +189,18 @@ static void hash_optional_token(DistillCertificateHasher &h,
             h.add(names.size());
             for (auto &name : names) { h.add_string(name); }
         };
+        auto hash_indices = [&](auto &indices) noexcept {
+            h.add(indices.size());
+            for (auto index : indices) { h.add(index); }
+        };
         hash_values(edge.killed_values);
         hash_values(edge.touched_values);
         hash_values(edge.live_values);
         hash_values(edge.store_values);
+        hash_indices(edge.killed_frame_value_indices);
+        hash_indices(edge.touched_frame_value_indices);
+        hash_indices(edge.live_frame_value_indices);
+        hash_indices(edge.store_frame_value_indices);
         hash_names(edge.killed_variables);
         hash_names(edge.touched_variables);
         hash_names(edge.live_variables);
@@ -193,6 +210,8 @@ static void hash_optional_token(DistillCertificateHasher &h,
     h.add(result.frame_values.size());
     for (auto &frame_value : result.frame_values) {
         h.add_pointer(frame_value.value);
+        h.add(frame_value.access_chain.size());
+        for (auto index : frame_value.access_chain) { h.add(index); }
         h.add_string(frame_value.name);
         h.add_pointer(frame_value.type);
         h.add(frame_value.slot);
@@ -358,31 +377,27 @@ static void hash_optional_token(DistillCertificateHasher &h,
     return true;
 }
 
-[[nodiscard]] static bool is_frameable_ssa_value(Value *value) noexcept {
-    if (value == nullptr || value->type() == nullptr || value->is_lvalue()) { return false; }
-    if (value->derived_value_tag() != DerivedValueTag::INSTRUCTION) { return false; }
-    auto *inst = static_cast<Instruction *>(value);
-    return !inst->is_terminator();
-}
-
-[[nodiscard]] static Value *frame_value_for_operand(Value *value) noexcept {
-    if (auto *alloca = trace_local_alloca(value)) { return alloca; }
-    return is_frameable_ssa_value(value) ? value : nullptr;
-}
-
-[[nodiscard]] static luisa::string frame_value_name(Value *value, size_t index) noexcept {
+[[nodiscard]] static luisa::string frame_value_name(
+    Value *value, luisa::span<const uint32_t> access_chain,
+    size_t index) noexcept {
     if (auto *alloca = trace_local_alloca(value)) {
         if (auto name = alloca->name()) {
-            return luisa::string{name.value()};
+            auto result = luisa::string{name.value()};
+            for (auto component : access_chain) {
+                result.append(luisa::format(".{}", component));
+            }
+            return result;
         }
     }
     return luisa::format("_coro_frame_{}", index);
 }
 
-static void sort_frame_values_by_layout(luisa::vector<Value *> &values) noexcept {
-    std::stable_sort(values.begin(), values.end(), [](auto *lhs, auto *rhs) noexcept {
-        auto *lt = lhs->type();
-        auto *rt = rhs->type();
+static void sort_frame_atoms_by_layout(
+    luisa::vector<size_t> &atoms,
+    const detail::CoroFrameAtomDomain &domain) noexcept {
+    std::stable_sort(atoms.begin(), atoms.end(), [&](auto lhs, auto rhs) noexcept {
+        auto *lt = domain.atom(lhs).type;
+        auto *rt = domain.atom(rhs).type;
         if (lt->alignment() != rt->alignment()) {
             return lt->alignment() > rt->alignment();
         }
@@ -390,8 +405,9 @@ static void sort_frame_values_by_layout(luisa::vector<Value *> &values) noexcept
     });
 }
 
-[[nodiscard]] static bool same_set(const luisa::unordered_set<Value *> &a,
-                                   const luisa::unordered_set<Value *> &b) noexcept {
+template<typename T>
+[[nodiscard]] static bool same_set(const luisa::unordered_set<T> &a,
+                                   const luisa::unordered_set<T> &b) noexcept {
     if (a.size() != b.size()) { return false; }
     for (auto &v : a) {
         if (!b.contains(v)) { return false; }
@@ -480,70 +496,70 @@ public:
 class DenseValueDomain {
 
 private:
-    DensePointerMap<Value *, size_t> _indices;
-    luisa::vector<Value *> _values;
+    detail::CoroFrameAtomDomain _atoms;
 
 public:
-    explicit DenseValueDomain(FunctionDefinition *definition) noexcept {
-        if (definition == nullptr) { return; }
-        // Raw coroutine CFG disconnects each resume root from the entry root;
-        // ordinary entry-reachable traversal therefore omits precisely the
-        // continuation values that this analysis must frame. Number the
-        // definition's complete intrusive block list in stable source order.
-        for (auto *block : definition->basic_blocks()) {
-            for (auto *instruction : block->instructions()) {
-                if (instruction->derived_instruction_tag() !=
-                        DerivedInstructionTag::ALLOCA &&
-                    !is_frameable_ssa_value(instruction)) {
-                    continue;
-                }
-                auto index = _values.size();
-                if (_indices.try_emplace(instruction, index).second) {
-                    _values.emplace_back(instruction);
-                }
-            }
-        }
+    explicit DenseValueDomain(FunctionDefinition *definition) noexcept
+        : _atoms{definition} {}
+
+    [[nodiscard]] size_t size() const noexcept { return _atoms.size(); }
+
+    [[nodiscard]] luisa::optional<size_t> ssa_index(
+        Value *value) const noexcept {
+        return _atoms.ssa_index(value);
     }
 
-    [[nodiscard]] size_t size() const noexcept { return _values.size(); }
-
-    [[nodiscard]] size_t index(Value *value) const noexcept {
-        auto iter = _indices.find(value);
-        LUISA_ASSERT(
-            iter != _indices.end(),
-            "Coroutine dataflow encountered an unnumbered frame value.");
-        return iter->second;
+    [[nodiscard]] luisa::span<const detail::CoroFrameAtomDomain::MemoryAccess>
+    memory_accesses(
+        Value *pointer) const noexcept {
+        return _atoms.memory_accesses(pointer);
     }
 
-    void append_values(luisa::vector<Value *> &destination,
-                       const DenseValueSet &source) const noexcept {
+    [[nodiscard]] const auto &atom(size_t index) const noexcept {
+        return _atoms.atom(index);
+    }
+
+    [[nodiscard]] const auto &atom_domain() const noexcept { return _atoms; }
+
+    [[nodiscard]] size_t split_alloca_count() const noexcept {
+        return _atoms.split_alloca_count();
+    }
+
+    [[nodiscard]] size_t split_atom_count() const noexcept {
+        return _atoms.split_atom_count();
+    }
+
+    void append_indices(luisa::vector<size_t> &destination,
+                        const DenseValueSet &source) const noexcept {
         destination.clear();
         destination.reserve(source.count_size());
         source.for_each_set_bit([&](size_t i) noexcept {
-            LUISA_DEBUG_ASSERT(i < _values.size(),
-                               "Coroutine value bit exceeds its domain.");
-            destination.emplace_back(_values[i]);
+            LUISA_DEBUG_ASSERT(i < _atoms.size(),
+                               "Coroutine atom bit exceeds its domain.");
+            destination.emplace_back(i);
         });
     }
 };
 
 struct PointerScopeDataflowState {
+    const DenseValueDomain *domain{nullptr};
     detail::CoroReplayableValueAnalysis *replayable{nullptr};
-    luisa::unordered_set<Value *> killed;
-    luisa::unordered_set<Value *> external;
-    luisa::unordered_set<Value *> touched;
+    luisa::unordered_set<size_t> killed;
+    luisa::unordered_set<size_t> external;
+    luisa::unordered_set<size_t> touched;
 
     PointerScopeDataflowState() noexcept = default;
 
     explicit PointerScopeDataflowState(
+        const DenseValueDomain &value_domain,
         detail::CoroReplayableValueAnalysis &analysis) noexcept
-        : replayable{&analysis} {}
+        : domain{&value_domain}, replayable{&analysis} {}
 
-    void kill(Value *value) noexcept { killed.emplace(value); }
-    void expose(Value *value) noexcept { external.emplace(value); }
-    void touch(Value *value) noexcept { touched.emplace(value); }
-    [[nodiscard]] bool is_killed(Value *value) const noexcept {
-        return killed.contains(value);
+    void kill(size_t index) noexcept { killed.emplace(index); }
+    void expose(size_t index) noexcept { external.emplace(index); }
+    void touch(size_t index) noexcept { touched.emplace(index); }
+    [[nodiscard]] bool is_killed(size_t index) const noexcept {
+        return killed.contains(index);
     }
 };
 
@@ -563,41 +579,74 @@ struct DenseScopeDataflowState {
           external{value_domain.size()},
           touched{value_domain.size()} {}
 
-    void kill(Value *value) noexcept {
-        killed.set(domain->index(value));
+    void kill(size_t index) noexcept {
+        killed.set(index);
     }
-    void expose(Value *value) noexcept {
-        external.set(domain->index(value));
+    void expose(size_t index) noexcept {
+        external.set(index);
     }
-    void touch(Value *value) noexcept {
-        touched.set(domain->index(value));
+    void touch(size_t index) noexcept {
+        touched.set(index);
     }
-    [[nodiscard]] bool is_killed(Value *value) const noexcept {
-        return killed.test(domain->index(value));
+    [[nodiscard]] bool is_killed(size_t index) const noexcept {
+        return killed.test(index);
     }
 };
 
 template<typename State>
-static void touch_value(Value *value, State &state) noexcept {
-    if (value == nullptr) { return; }
-    state.kill(value);
-    state.touch(value);
+static void touch_index(size_t index, State &state) noexcept {
+    state.kill(index);
+    state.touch(index);
 }
 
 template<typename State>
-static void may_touch_value(Value *value, State &state) noexcept {
-    if (value == nullptr) { return; }
-    state.touch(value);
+static void use_index(size_t index, State &state) noexcept {
+    if (!state.is_killed(index)) { state.expose(index); }
 }
 
 template<typename State>
 static void use_value(Value *value, State &state) noexcept {
     if (is_always_available(value)) { return; }
     if (state.replayable->detect(value)) { return; }
-    if (auto *frame_value = frame_value_for_operand(value)) {
-        if (!state.is_killed(frame_value)) {
-            state.expose(frame_value);
+    if (auto index = state.domain->ssa_index(value)) {
+        use_index(*index, state);
+        return;
+    }
+    for (auto access : state.domain->memory_accesses(value)) {
+        use_index(access.atom_index, state);
+    }
+}
+
+template<typename State>
+static void touch_value(Value *value, State &state) noexcept {
+    if (value == nullptr) { return; }
+    if (auto index = state.domain->ssa_index(value)) {
+        touch_index(*index, state);
+    }
+}
+
+template<typename State>
+static void use_memory(Value *pointer, State &state) noexcept {
+    for (auto access : state.domain->memory_accesses(pointer)) {
+        use_index(access.atom_index, state);
+    }
+}
+
+template<typename State>
+static void touch_memory(Value *pointer, State &state,
+                         bool definite) noexcept {
+    for (auto access : state.domain->memory_accesses(pointer)) {
+        if (definite) {
+            if (access.covers_atom) {
+                state.kill(access.atom_index);
+            } else {
+                // A partial store must preserve the bytes outside its path.
+                // Model that dependence before recording the write so a live
+                // outgoing aggregate is reloaded on entry to this scope.
+                use_index(access.atom_index, state);
+            }
         }
+        state.touch(access.atom_index);
     }
 }
 
@@ -623,8 +672,9 @@ static void transfer_call_instruction(CallInst *call, State &state) noexcept {
             (*arg_iter)->is_reference()) {
             use_pointer_indices(argument, state);
             if (auto *alloca = trace_local_alloca(argument)) {
-                use_value(alloca, state);
-                may_touch_value(alloca, state);
+                static_cast<void>(alloca);
+                use_memory(argument, state);
+                touch_memory(argument, state, false);
             } else {
                 use_value(argument, state);
             }
@@ -643,6 +693,13 @@ static void transfer_instruction(Instruction *inst, State &state) noexcept {
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::ALLOCA:
             break;
+        case DerivedInstructionTag::GEP: {
+            // Computing an address does not read the pointee. Only the index
+            // expressions are SSA uses; the eventual load/store/call models
+            // the selected memory atom.
+            use_pointer_indices(inst, state);
+            break;
+        }
         case DerivedInstructionTag::CALL: {
             transfer_call_instruction(static_cast<CallInst *>(inst), state);
             break;
@@ -651,7 +708,8 @@ static void transfer_instruction(Instruction *inst, State &state) noexcept {
             auto *load = static_cast<LoadInst *>(inst);
             use_pointer_indices(load->variable(), state);
             if (auto *alloca = trace_local_alloca(load->variable())) {
-                use_value(alloca, state);
+                static_cast<void>(alloca);
+                use_memory(load->variable(), state);
                 touch_value(inst, state);
             } else {
                 use_value(load->variable(), state);
@@ -664,12 +722,8 @@ static void transfer_instruction(Instruction *inst, State &state) noexcept {
             use_value(store->value(), state);
             use_pointer_indices(store->variable(), state);
             if (auto *alloca = trace_local_alloca(store->variable())) {
-                if (store->variable() == alloca) {
-                    touch_value(alloca, state);
-                } else {
-                    use_value(alloca, state);
-                    may_touch_value(alloca, state);
-                }
+                static_cast<void>(alloca);
+                touch_memory(store->variable(), state, true);
             } else {
                 use_value(store->variable(), state);
             }
@@ -680,8 +734,9 @@ static void transfer_instruction(Instruction *inst, State &state) noexcept {
             for (auto *index : atomic->index_uses()) { use_value(index->value(), state); }
             for (auto *value : atomic->value_uses()) { use_value(value->value(), state); }
             if (auto *alloca = trace_local_alloca(atomic->base())) {
-                use_value(alloca, state);
-                may_touch_value(alloca, state);
+                static_cast<void>(alloca);
+                use_memory(atomic->base(), state);
+                touch_memory(atomic->base(), state, false);
             } else {
                 use_value(atomic->base(), state);
             }
@@ -704,10 +759,10 @@ static void transfer_instruction(Instruction *inst, State &state) noexcept {
 }
 
 struct PointerScopeDataflowResult {
-    luisa::unordered_set<Value *> external;
-    luisa::unordered_set<Value *> touched;
-    luisa::unordered_map<BasicBlock *, luisa::unordered_set<Value *>> killed_at_exit;
-    luisa::unordered_map<BasicBlock *, luisa::unordered_set<Value *>> touched_at_exit;
+    luisa::unordered_set<size_t> external;
+    luisa::unordered_set<size_t> touched;
+    luisa::unordered_map<BasicBlock *, luisa::unordered_set<size_t>> killed_at_exit;
+    luisa::unordered_map<BasicBlock *, luisa::unordered_set<size_t>> touched_at_exit;
 };
 
 [[nodiscard]] static bool same_pointer_state(
@@ -722,13 +777,13 @@ static void merge_pointer_state_into_entry(
     PointerScopeDataflowState &dst,
     const PointerScopeDataflowState &src,
     bool first_predecessor) noexcept {
-    for (auto *value : src.external) { dst.external.emplace(value); }
-    for (auto *value : src.touched) { dst.touched.emplace(value); }
+    for (auto value : src.external) { dst.external.emplace(value); }
+    for (auto value : src.touched) { dst.touched.emplace(value); }
     if (first_predecessor) {
         dst.killed = src.killed;
     } else {
-        luisa::unordered_set<Value *> killed;
-        for (auto *value : dst.killed) {
+        luisa::unordered_set<size_t> killed;
+        for (auto value : dst.killed) {
             if (src.killed.contains(value)) { killed.emplace(value); }
         }
         dst.killed = std::move(killed);
@@ -738,6 +793,7 @@ static void merge_pointer_state_into_entry(
 [[nodiscard]] static PointerScopeDataflowResult
 analyze_scope_use_def_pointer_oracle(
     const CoroCfgDistillResult::Scope &scope,
+    const DenseValueDomain &value_domain,
     detail::CoroReplayableValueAnalysis &replayable) noexcept {
     PointerScopeDataflowResult result;
     if (scope.blocks.empty()) { return result; }
@@ -748,7 +804,7 @@ analyze_scope_use_def_pointer_oracle(
     for (;;) {
         auto changed = false;
         for (auto *block : scope.blocks) {
-            PointerScopeDataflowState next_in{replayable};
+            PointerScopeDataflowState next_in{value_domain, replayable};
             auto first_predecessor = block != scope.blocks.front();
             block->traverse_predecessors(
                 false, [&](BasicBlock *predecessor) noexcept {
@@ -788,8 +844,8 @@ analyze_scope_use_def_pointer_oracle(
     }
     for (auto &[block, state] : out_states) {
         static_cast<void>(block);
-        for (auto *value : state.external) { result.external.emplace(value); }
-        for (auto *value : state.touched) { result.touched.emplace(value); }
+        for (auto value : state.external) { result.external.emplace(value); }
+        for (auto value : state.touched) { result.touched.emplace(value); }
     }
     return result;
 }
@@ -950,18 +1006,17 @@ struct DenseScopeDataflowResult {
     if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
         flag != nullptr && luisa::string_view{flag} == "1") {
         auto oracle = analyze_scope_use_def_pointer_oracle(
-            scope, replayable);
+            scope, value_domain, replayable);
         auto to_pointer_set = [&](const DenseValueSet &dense) noexcept {
-            luisa::unordered_set<Value *> pointers;
-            luisa::vector<Value *> values;
-            value_domain.append_values(values, dense);
-            pointers.reserve(values.size());
-            for (auto *value : values) { pointers.emplace(value); }
-            return pointers;
+            luisa::unordered_set<size_t> indices;
+            dense.for_each_set_bit([&](size_t index) noexcept {
+                indices.emplace(index);
+            });
+            return indices;
         };
         auto pointer_set_difference = [](auto &a, auto &b) noexcept {
-            luisa::unordered_set<Value *> difference;
-            for (auto *value : a) {
+            luisa::unordered_set<size_t> difference;
+            for (auto value : a) {
                 if (!b.contains(value)) { difference.emplace(value); }
             }
             return difference;
@@ -997,7 +1052,7 @@ struct DenseScopeDataflowResult {
                 to_pointer_set(result.touched_at_exit[block_index]);
             auto oracle_killed = oracle.killed_at_exit.find(block);
             auto oracle_touched = oracle.touched_at_exit.find(block);
-            auto empty = luisa::unordered_set<Value *>{};
+            auto empty = luisa::unordered_set<size_t>{};
             auto &oracle_killed_set = oracle_killed == oracle.killed_at_exit.end() ?
                                           empty :
                                           oracle_killed->second;
@@ -1015,15 +1070,43 @@ struct DenseScopeDataflowResult {
     return result;
 }
 
-static void append_names_from_values(luisa::vector<luisa::string> &dst,
-                                     const luisa::vector<Value *> &values,
-                                     const DensePointerMap<Value *, luisa::string> &names) noexcept {
+static void append_legacy_values(
+    luisa::vector<Value *> &dst, const DenseValueSet &atoms,
+    const DenseValueDomain &domain) noexcept {
     dst.clear();
-    dst.reserve(values.size());
-    for (auto *value : values) {
-        if (auto it = names.find(value); it != names.end()) {
-            dst.emplace_back(it->second);
+    luisa::unordered_set<Value *> seen;
+    atoms.for_each_set_bit([&](size_t atom_index) noexcept {
+        auto *root = domain.atom(atom_index).root;
+        if (root != nullptr && seen.emplace(root).second) {
+            dst.emplace_back(root);
         }
+    });
+}
+
+static void append_frame_value_indices(
+    luisa::vector<size_t> &dst, const DenseValueSet &atoms,
+    luisa::span<const size_t> atom_to_frame_value) noexcept {
+    dst.clear();
+    atoms.for_each_set_bit([&](size_t atom_index) noexcept {
+        LUISA_DEBUG_ASSERT(atom_index < atom_to_frame_value.size(),
+                           "Coroutine atom index is out of range.");
+        auto frame_index = atom_to_frame_value[atom_index];
+        if (frame_index != static_cast<size_t>(-1)) {
+            dst.emplace_back(frame_index);
+        }
+    });
+}
+
+static void append_names_from_frame_values(
+    luisa::vector<luisa::string> &dst,
+    luisa::span<const size_t> frame_value_indices,
+    const CoroCfgDistillResult &result) noexcept {
+    dst.clear();
+    dst.reserve(frame_value_indices.size());
+    for (auto index : frame_value_indices) {
+        LUISA_DEBUG_ASSERT(index < result.frame_values.size(),
+                           "Coroutine frame value index is out of range.");
+        dst.emplace_back(result.frame_values[index].name);
     }
 }
 
@@ -1032,30 +1115,20 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
     result.frame_slots.clear();
     if (value_count == 0u) { return; }
 
-    DensePointerMap<Value *, size_t> value_indices;
-    value_indices.reserve(value_count);
-    for (size_t i = 0u; i < value_count; ++i) {
-        value_indices.emplace(result.frame_values[i].value, i);
-    }
-
     luisa::vector<DenseValueSet> interference;
     interference.reserve(value_count);
     for (size_t i = 0u; i < value_count; ++i) {
         interference.emplace_back(value_count);
     }
-    auto add_clique = [&](luisa::span<Value *const> values) noexcept {
-        luisa::vector<size_t> indices;
-        indices.reserve(values.size());
-        for (auto *value : values) {
-            if (auto iter = value_indices.find(value);
-                iter != value_indices.end()) {
-                indices.emplace_back(iter->second);
-            }
-        }
-        for (size_t i = 0u; i < indices.size(); ++i) {
-            for (size_t j = i + 1u; j < indices.size(); ++j) {
-                interference[indices[i]].set(indices[j]);
-                interference[indices[j]].set(indices[i]);
+    auto add_clique = [&](luisa::span<const size_t> values) noexcept {
+        for (size_t i = 0u; i < values.size(); ++i) {
+            LUISA_DEBUG_ASSERT(values[i] < value_count,
+                               "Coroutine frame value index is out of range.");
+            for (size_t j = i + 1u; j < values.size(); ++j) {
+                LUISA_DEBUG_ASSERT(values[j] < value_count,
+                                   "Coroutine frame value index is out of range.");
+                interference[values[i]].set(values[j]);
+                interference[values[j]].set(values[i]);
             }
         }
     };
@@ -1068,10 +1141,10 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
     // only occur in disjoint post-transition live sets intentionally do not
     // interfere.
     for (auto &scope : result.scopes) {
-        add_clique(scope.live_in_values);
+        add_clique(scope.live_in_frame_value_indices);
     }
     for (auto &edge : result.transition_edges) {
-        add_clique(edge.live_values);
+        add_clique(edge.live_frame_value_indices);
     }
 
     luisa::vector<const Type *> type_order;
@@ -1316,14 +1389,17 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
 
     result.frame_values.clear();
     result.frame_values.reserve(frame_value_set.count_size());
-    luisa::vector<Value *> ordered_frame_values;
-    value_domain.append_values(ordered_frame_values, frame_value_set);
-    sort_frame_values_by_layout(ordered_frame_values);
-    DensePointerMap<Value *, luisa::string> names;
-    names.reserve(ordered_frame_values.size());
+    luisa::vector<size_t> ordered_frame_atoms;
+    value_domain.append_indices(ordered_frame_atoms, frame_value_set);
+    sort_frame_atoms_by_layout(
+        ordered_frame_atoms, value_domain.atom_domain());
+    luisa::vector<size_t> atom_to_frame_value(
+        value_count, static_cast<size_t>(-1));
     luisa::unordered_set<luisa::string> used_names;
-    for (auto *value : ordered_frame_values) {
-        auto name = frame_value_name(value, result.frame_values.size());
+    for (auto atom_index : ordered_frame_atoms) {
+        auto &atom = value_domain.atom(atom_index);
+        auto name = frame_value_name(
+            atom.root, atom.access_chain, result.frame_values.size());
         if (!used_names.emplace(name).second) {
             auto base = name;
             auto suffix = result.frame_values.size();
@@ -1331,44 +1407,78 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
                 name = luisa::format("{}#{}", base, suffix++);
             } while (!used_names.emplace(name).second);
         }
-        names.emplace(value, name);
+        atom_to_frame_value[atom_index] = result.frame_values.size();
         result.frame_values.emplace_back(CoroCfgDistillResult::FrameValue{
-            .value = value,
+            .value = atom.root,
+            .access_chain = atom.access_chain,
             .name = std::move(name),
-            .type = value->type(),
+            .type = atom.type,
             .slot = 0u,
         });
     }
 
     for (size_t i = 0u; i < n; ++i) {
-        value_domain.append_values(
-            result.scopes[i].external_values,
-            scope_data[i].external);
-        value_domain.append_values(
-            result.scopes[i].touched_values,
-            scope_data[i].touched);
-        value_domain.append_values(
-            result.scopes[i].live_in_values, live_in[i]);
-        value_domain.append_values(
-            result.scopes[i].live_out_values, live_out[i]);
-        append_names_from_values(result.scopes[i].external_variables, result.scopes[i].external_values, names);
-        append_names_from_values(result.scopes[i].touched_variables, result.scopes[i].touched_values, names);
-        append_names_from_values(result.scopes[i].live_in_variables, result.scopes[i].live_in_values, names);
-        append_names_from_values(result.scopes[i].live_out_variables, result.scopes[i].live_out_values, names);
+        auto &scope = result.scopes[i];
+        append_legacy_values(
+            scope.external_values, scope_data[i].external, value_domain);
+        append_legacy_values(
+            scope.touched_values, scope_data[i].touched, value_domain);
+        append_legacy_values(scope.live_in_values, live_in[i], value_domain);
+        append_legacy_values(scope.live_out_values, live_out[i], value_domain);
+        append_frame_value_indices(
+            scope.external_frame_value_indices, scope_data[i].external,
+            atom_to_frame_value);
+        append_frame_value_indices(
+            scope.touched_frame_value_indices, scope_data[i].touched,
+            atom_to_frame_value);
+        append_frame_value_indices(
+            scope.live_in_frame_value_indices, live_in[i],
+            atom_to_frame_value);
+        append_frame_value_indices(
+            scope.live_out_frame_value_indices, live_out[i],
+            atom_to_frame_value);
+        append_names_from_frame_values(
+            scope.external_variables, scope.external_frame_value_indices,
+            result);
+        append_names_from_frame_values(
+            scope.touched_variables, scope.touched_frame_value_indices,
+            result);
+        append_names_from_frame_values(
+            scope.live_in_variables, scope.live_in_frame_value_indices,
+            result);
+        append_names_from_frame_values(
+            scope.live_out_variables, scope.live_out_frame_value_indices,
+            result);
     }
 
     for (size_t edge_index = 0u;
          edge_index < result.transition_edges.size(); ++edge_index) {
         auto &edge = result.transition_edges[edge_index];
         auto &dense = edge_data[edge_index];
-        value_domain.append_values(edge.killed_values, dense.killed);
-        value_domain.append_values(edge.touched_values, dense.touched);
-        value_domain.append_values(edge.live_values, dense.live);
-        value_domain.append_values(edge.store_values, dense.store);
-        append_names_from_values(edge.killed_variables, edge.killed_values, names);
-        append_names_from_values(edge.touched_variables, edge.touched_values, names);
-        append_names_from_values(edge.live_variables, edge.live_values, names);
-        append_names_from_values(edge.store_variables, edge.store_values, names);
+        append_legacy_values(edge.killed_values, dense.killed, value_domain);
+        append_legacy_values(edge.touched_values, dense.touched, value_domain);
+        append_legacy_values(edge.live_values, dense.live, value_domain);
+        append_legacy_values(edge.store_values, dense.store, value_domain);
+        append_frame_value_indices(
+            edge.killed_frame_value_indices, dense.killed,
+            atom_to_frame_value);
+        append_frame_value_indices(
+            edge.touched_frame_value_indices, dense.touched,
+            atom_to_frame_value);
+        append_frame_value_indices(
+            edge.live_frame_value_indices, dense.live,
+            atom_to_frame_value);
+        append_frame_value_indices(
+            edge.store_frame_value_indices, dense.store,
+            atom_to_frame_value);
+        append_names_from_frame_values(
+            edge.killed_variables, edge.killed_frame_value_indices, result);
+        append_names_from_frame_values(
+            edge.touched_variables, edge.touched_frame_value_indices, result);
+        append_names_from_frame_values(
+            edge.live_variables, edge.live_frame_value_indices, result);
+        append_names_from_frame_values(
+            edge.store_variables, edge.store_frame_value_indices, result);
     }
 
     color_frame_slots(result);
@@ -1376,39 +1486,38 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
         flag != nullptr && luisa::string_view{flag} == "1") {
         auto to_pointer_set = [&](const DenseValueSet &dense) noexcept {
-            luisa::unordered_set<Value *> pointers;
-            luisa::vector<Value *> values;
-            value_domain.append_values(values, dense);
-            pointers.reserve(values.size());
-            for (auto *value : values) { pointers.emplace(value); }
-            return pointers;
+            luisa::unordered_set<size_t> indices;
+            dense.for_each_set_bit([&](size_t index) noexcept {
+                indices.emplace(index);
+            });
+            return indices;
         };
         auto difference = [](const auto &lhs,
                              const auto &rhs) noexcept {
-            auto result = luisa::unordered_set<Value *>{};
-            for (auto *value : lhs) {
+            auto result = luisa::unordered_set<size_t>{};
+            for (auto value : lhs) {
                 if (!rhs.contains(value)) { result.emplace(value); }
             }
             return result;
         };
         auto append = [](auto &destination,
                          const auto &source) noexcept {
-            for (auto *value : source) {
+            for (auto value : source) {
                 destination.emplace(value);
             }
         };
         auto intersection = [](const auto &lhs,
                                const auto &rhs) noexcept {
-            auto result = luisa::unordered_set<Value *>{};
-            for (auto *value : lhs) {
+            auto result = luisa::unordered_set<size_t>{};
+            for (auto value : lhs) {
                 if (rhs.contains(value)) { result.emplace(value); }
             }
             return result;
         };
 
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_external;
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_touched;
         oracle_external.reserve(n);
         oracle_touched.reserve(n);
@@ -1418,9 +1527,9 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             oracle_touched.emplace_back(
                 to_pointer_set(data.touched));
         }
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_killed;
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_touched;
         oracle_edge_killed.reserve(edge_data.size());
         oracle_edge_touched.reserve(edge_data.size());
@@ -1431,7 +1540,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
                 to_pointer_set(data.touched));
         }
 
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_live_begin(n);
         for (;;) {
             auto changed = false;
@@ -1454,13 +1563,13 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             if (!changed) { break; }
         }
 
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_live_in(n);
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_live_out(n);
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_live(edge_data.size());
-        luisa::vector<luisa::unordered_set<Value *>>
+        luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_store(edge_data.size());
         for (size_t scope = 0u; scope < n; ++scope) {
             oracle_live_in[scope] = oracle_external[scope];
@@ -1516,27 +1625,28 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             block_evaluations +=
                 scope_data[i].fixed_point_block_evaluations;
         }
-        auto named_frame_allocas = static_cast<size_t>(std::count_if(
-            result.frame_values.begin(), result.frame_values.end(),
-            [](const auto &value) noexcept {
-                return value.value != nullptr &&
-                       value.value->template isa<AllocaInst>() &&
-                       static_cast<Instruction *>(value.value)
-                           ->name()
-                           .has_value();
-            }));
+        luisa::unordered_set<Value *> named_alloca_roots;
+        for (auto &value : result.frame_values) {
+            if (value.value != nullptr && value.value->isa<AllocaInst>() &&
+                static_cast<Instruction *>(value.value)->name().has_value()) {
+                named_alloca_roots.emplace(value.value);
+            }
+        }
         LUISA_INFO(
-            "Coroutine dense dataflow: values={} words={} scopes={} "
+            "Coroutine dense dataflow: atoms={} words={} scopes={} "
             "block_memberships={} block_evaluations={} transitions={} "
             "scope_evaluations={} replayable_values={} "
             "rejected_replay_values={} logical_frame_values={} "
-            "named_frame_allocas={} physical_frame_slots={}.",
+            "named_frame_alloca_roots={} split_allocas={} split_atoms={} "
+            "physical_frame_slots={}.",
             value_count, (value_count + 63u) / 64u, n,
             block_memberships, block_evaluations,
             result.transition_edges.size(), inter_scope_evaluations,
             replayable.replayable_value_count(),
             replayable.rejected_value_count(),
-            result.frame_values.size(), named_frame_allocas,
+            result.frame_values.size(), named_alloca_roots.size(),
+            value_domain.split_alloca_count(),
+            value_domain.split_atom_count(),
             result.frame_slots.size());
     }
     if (auto *flag = std::getenv("LUISA_CORO_DUMP_FRAME_LAYOUT");
@@ -1550,8 +1660,8 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             }
             LUISA_INFO(
                 "Coroutine logical frame value {}: name='{}' kind={} "
-                "type={} size={} align={} physical_slot={}.",
-                i, value.name, tag,
+                "path_depth={} type={} size={} align={} physical_slot={}.",
+                i, value.name, tag, value.access_chain.size(),
                 value.type == nullptr ? luisa::string_view{"void"} :
                                         value.type->description(),
                 value.type == nullptr ? 0u : value.type->size(),

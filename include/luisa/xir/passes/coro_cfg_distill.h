@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/optional.h>
@@ -27,7 +28,13 @@ namespace luisa::compute::xir {
 struct CoroCfgDistillResult {
 
     struct FrameValue {
+        // Root SSA value or local allocation. A non-empty access chain
+        // identifies a disjoint statically indexed subobject of a local
+        // allocation. Frame analysis operates on this (root, path) identity;
+        // source XIR is deliberately left aggregate so frame minimization
+        // does not inflate the computation IR.
         Value *value{nullptr};
+        luisa::vector<uint32_t> access_chain;
         luisa::string name;
         const Type *type{nullptr};
         // Physical payload slot assigned by interference coloring. Several
@@ -59,6 +66,13 @@ struct CoroCfgDistillResult {
         luisa::vector<Value *> touched_values;
         luisa::vector<Value *> live_in_values;
         luisa::vector<Value *> live_out_values;
+        // Primary lossless frame-state relations. The legacy Value* vectors
+        // above contain unique roots for source-level diagnostics; one root
+        // can correspond to several access-path frame values.
+        luisa::vector<size_t> external_frame_value_indices;
+        luisa::vector<size_t> touched_frame_value_indices;
+        luisa::vector<size_t> live_in_frame_value_indices;
+        luisa::vector<size_t> live_out_frame_value_indices;
         luisa::vector<luisa::string> external_variables;
         luisa::vector<luisa::string> touched_variables;
         luisa::vector<luisa::string> live_in_variables;
@@ -76,6 +90,10 @@ struct CoroCfgDistillResult {
         luisa::vector<Value *> touched_values;
         luisa::vector<Value *> live_values;
         luisa::vector<Value *> store_values;
+        luisa::vector<size_t> killed_frame_value_indices;
+        luisa::vector<size_t> touched_frame_value_indices;
+        luisa::vector<size_t> live_frame_value_indices;
+        luisa::vector<size_t> store_frame_value_indices;
         luisa::vector<luisa::string> killed_variables;
         luisa::vector<luisa::string> touched_variables;
         luisa::vector<luisa::string> live_variables;
