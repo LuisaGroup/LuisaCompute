@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -461,6 +463,141 @@ template<size_t Width>
         make_large_cfg(4u, 96u), "schedule_large_cfg_w4", 0u);
 }
 
+[[nodiscard]] bool run_uniform_value_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto left_addend = uint32_t{0x13579bdfu};
+    static constexpr auto right_addend = uint32_t{0x2468ace0u};
+    xir::Module xir_module;
+    auto *kernel = xir_module.create_kernel();
+    kernel->set_name("uniform_values");
+    auto *condition = kernel->create_value_argument(Type::of<bool>());
+    auto *bias = kernel->create_value_argument(Type::of<uint32_t>());
+    auto *entry = kernel->create_body_block();
+    auto *left = kernel->create_basic_block();
+    auto *right = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    left->set_name("left");
+    right->set_name("right");
+    merge->set_name("merge");
+    auto *left_constant = xir_module.create_constant(
+        Type::of<uint32_t>(), &left_addend);
+    auto *right_constant = xir_module.create_constant(
+        Type::of<uint32_t>(), &right_addend);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.cond_br(condition, left, right);
+    builder.set_insertion_point(left);
+    auto *left_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {bias, left_constant});
+    left_value->set_name("left_uniform_add");
+    builder.br(merge);
+    builder.set_insertion_point(right);
+    auto *right_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {bias, right_constant});
+    right_value->set_name("right_uniform_add");
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *selected = builder.phi(
+        Type::of<uint32_t>(),
+        {{left_value, left}, {right_value, right}});
+    selected->set_name("selected_uniform_phi");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    std::optional<schedule::ValueId> selected_id;
+    for (auto &&value : lowered.function->values()) {
+        if (value.origin == schedule::ValueOrigin::parameter) {
+            CHECK(value.value_class == schedule::ValueClass::warp_uniform);
+        }
+        if (value.name == "left_uniform_add" ||
+            value.name == "right_uniform_add") {
+            CHECK(value.value_class == schedule::ValueClass::warp_uniform);
+        }
+        if (value.name == "selected_uniform_phi") {
+            CHECK(value.value_class == schedule::ValueClass::warp_uniform);
+            selected_id = value.id;
+        }
+    }
+    CHECK(selected_id.has_value());
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{selected_id};
+        }
+    }
+
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-uniform-values", *context);
+    auto name = std::string{"simd_uniform_values"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(codegen.argument_buffer_size == 32u);
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("selected_uniform_phi.slot = alloca i32") !=
+          std::string::npos);
+    auto check_scalar_add = [&](uint32_t addend) noexcept {
+        auto literal = std::to_string(addend);
+        auto position = ir.find(literal);
+        while (position != std::string::npos) {
+            auto line_begin = ir.rfind('\n', position);
+            line_begin = line_begin == std::string::npos ?
+                0u :
+                line_begin + 1u;
+            auto line_end = ir.find('\n', position);
+            auto line = std::string_view{ir}.substr(
+                line_begin, line_end - line_begin);
+            if (line.find("add i32") != std::string_view::npos) {
+                return line.find("<8 x i32>") == std::string_view::npos;
+            }
+            position = ir.find(literal, position + literal.size());
+        }
+        return false;
+    };
+    CHECK(check_scalar_add(left_addend));
+    CHECK(check_scalar_add(right_addend));
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    alignas(16) std::array<std::byte, 32u> arguments{};
+    auto config = launch_1d(width, 32u);
+    for (auto take_left : {false, true}) {
+        arguments[0u] = static_cast<std::byte>(take_left);
+        auto bias_value = uint32_t{17u};
+        std::memcpy(arguments.data() + 16u,
+                    &bias_value, sizeof(bias_value));
+        std::array<uint32_t, width> output{};
+        output.fill(0xdeadbeefu);
+        function(arguments.data(), output.data(), &config, width);
+        auto expected = bias_value +
+                        (take_left ? left_addend : right_addend);
+        for (auto value : output) { CHECK(value == expected); }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_compiler_facade() {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -666,6 +803,7 @@ int main() {
         {"Schedule IR loop warp8", &run_loop_codegen<8u>},
         {"Schedule IR nested convergence", &run_nested_codegen},
         {"Schedule IR 96-block CFG", &run_large_cfg_codegen},
+        {"scalar uniform values", &run_uniform_value_codegen},
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},

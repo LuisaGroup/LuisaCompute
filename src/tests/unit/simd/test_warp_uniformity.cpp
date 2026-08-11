@@ -24,6 +24,8 @@ void register_basic_uniformity_tests() {
         Module module;
         auto *kernel = module.create_kernel();
         auto *argument = kernel->create_value_argument(Type::of<uint>());
+        auto *resource = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint>()));
         auto *body = kernel->create_body_block();
         auto *one = module.create_constant_one(Type::of<uint>());
         auto *lane = module.create_special_register(
@@ -49,6 +51,8 @@ void register_basic_uniformity_tests() {
         analysis.analyze(kernel);
         expect(analysis.is_uniform(argument));
         expect(analysis.is_warp_uniform(argument));
+        expect(analysis.is_uniform(resource));
+        expect(analysis.is_warp_uniform(resource));
         expect(analysis.is_uniform(one));
         expect(analysis.is_warp_uniform(one));
         expect(analysis.is_uniform(uniform_sum));
@@ -60,7 +64,7 @@ void register_basic_uniformity_tests() {
         expect(!analysis.is_uniform(dispatch_id));
     };
 
-    "simd_warp_uniformity_is_conservative_at_phi"_test = [] {
+    "simd_warp_uniformity_preserves_uniform_control_phi"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *condition = kernel->create_value_argument(Type::of<bool>());
@@ -89,7 +93,81 @@ void register_basic_uniformity_tests() {
         WarpUniformityAnalysis analysis;
         analysis.analyze(kernel);
         expect(analysis.is_uniform(same));
+        expect(analysis.is_warp_uniform(same));
+        expect(analysis.is_uniform(different));
+        expect(analysis.is_warp_uniform(different));
+    };
+
+    "simd_warp_uniformity_rejects_varying_control_phi"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *lane = module.create_special_register(
+            DerivedSpecialRegisterTag::WARP_LANE_ID);
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        auto *one = module.create_constant_one(Type::of<uint>());
+        uint32_t two_value = 2u;
+        auto *two = module.create_constant(Type::of<uint>(), &two_value);
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *condition = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+            {lane, zero});
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *same = builder.phi(
+            Type::of<uint>(), {{one, true_block}, {one, false_block}});
+        auto *different = builder.phi(
+            Type::of<uint>(), {{one, true_block}, {two, false_block}});
+        builder.return_void();
+
+        WarpUniformityAnalysis analysis;
+        analysis.analyze(kernel);
+        expect(analysis.is_warp_uniform(same));
         expect(!analysis.is_uniform(different));
+    };
+
+    "simd_warp_uniformity_keeps_recurrent_uniform_phi_cohort_local"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *keep_iterating =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *entry = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *body = kernel->create_basic_block();
+        auto *exit = kernel->create_basic_block();
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        auto *one = module.create_constant_one(Type::of<uint>());
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.br(header);
+        builder.set_insertion_point(header);
+        auto *iteration = builder.phi(Type::of<uint>());
+        builder.cond_br(keep_iterating, body, exit);
+        builder.set_insertion_point(body);
+        auto *next = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {iteration, one});
+        builder.br(header);
+        iteration->add_incoming(zero, entry);
+        iteration->add_incoming(next, body);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        WarpUniformityAnalysis analysis;
+        analysis.analyze(kernel);
+        expect(analysis.is_cohort_uniform(iteration));
+        expect(analysis.is_cohort_uniform(next));
+        expect(!analysis.is_warp_uniform(iteration));
     };
 }
 

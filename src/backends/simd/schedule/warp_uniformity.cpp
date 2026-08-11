@@ -1,5 +1,6 @@
 #include "warp_uniformity.h"
 
+#include <deque>
 #include <vector>
 
 #include <luisa/xir/argument.h>
@@ -7,6 +8,8 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instruction.h>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/special_register.h>
@@ -55,7 +58,10 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
             }
             return State::varying;
         }
-        case Tag::INSTRUCTION: return State::unknown;
+        // Every reachable instruction is seeded before dependency
+        // propagation begins. An instruction absent from the table is
+        // unreachable, foreign, or malformed and must stay conservative.
+        case Tag::INSTRUCTION: return State::varying;
     }
     return State::varying;
 }
@@ -69,11 +75,33 @@ void WarpUniformityAnalysis::analyze(
         return;
     }
 
-    std::vector<const xir::Instruction *> instructions;
-    function->definition()->traverse_instructions(
-        [&](const xir::Instruction *instruction) noexcept {
-            instructions.emplace_back(instruction);
+    // Values form a monotone lattice:
+    //
+    //   warp_uniform < cohort_uniform < varying
+    //
+    // Start pure SSA cycles optimistically and only move downward. This proves
+    // uniform loop-carried expressions without whole-function rescans. Each
+    // value changes class at most twice and each use is therefore visited at
+    // most twice after graph construction.
+    std::vector<const xir::BasicBlock *> blocks;
+    function->definition()->traverse_basic_blocks(
+        xir::BasicBlockTraversalOrder::REVERSE_POST_ORDER,
+        [&](const xir::BasicBlock *block) noexcept {
+            blocks.emplace_back(block);
         });
+    std::unordered_map<const xir::BasicBlock *, size_t> block_indices;
+    block_indices.reserve(blocks.size());
+    for (auto i = size_t{0u}; i < blocks.size(); i++) {
+        block_indices.emplace(blocks[i], i);
+    }
+
+    std::vector<const xir::Instruction *> instructions;
+    for (auto *block : blocks) {
+        block->traverse_instructions(
+            [&](const xir::Instruction *instruction) noexcept {
+                instructions.emplace_back(instruction);
+            });
+    }
     auto argument_count = size_t{0u};
     for (auto *argument : function->arguments()) {
         static_cast<void>(argument);
@@ -88,18 +116,6 @@ void WarpUniformityAnalysis::analyze(
                 State::varying);
     }
 
-    struct Pending {
-        uint32_t unresolved_count{0u};
-        State state{State::warp_uniform};
-    };
-    std::unordered_map<const xir::Instruction *, Pending> pending;
-    std::unordered_map<
-        const xir::Value *, std::vector<const xir::Instruction *>>
-        dependents;
-    std::vector<std::pair<const xir::Instruction *, State>> ready;
-    pending.reserve(instructions.size());
-    dependents.reserve(instructions.size());
-    ready.reserve(instructions.size());
     auto join_state = [](State lhs, State rhs) noexcept {
         if (lhs == State::unknown) { return rhs; }
         if (rhs == State::unknown) { return lhs; }
@@ -107,22 +123,30 @@ void WarpUniformityAnalysis::analyze(
                    lhs :
                    rhs;
     };
-    auto resolve = [&](const xir::Instruction *instruction,
-                       State state) noexcept {
-        if (_states.emplace(instruction, state).second) {
-            ready.emplace_back(instruction, state);
-        }
-    };
 
-    std::vector<const xir::Value *> dependencies;
-    for (auto *instruction : instructions) {
-        dependencies.clear();
-        auto has_immediate = false;
-        auto immediate = State::varying;
-        auto floor = State::warp_uniform;
+    struct Rule {
+        State floor{State::warp_uniform};
+        std::vector<const xir::Value *> dependencies;
+        bool distinct_phi{false};
+    };
+    std::vector<Rule> rules(instructions.size());
+    std::unordered_map<
+        const xir::Value *, std::vector<size_t>>
+        dependents;
+    dependents.reserve(instructions.size());
+
+    for (auto instruction_index = size_t{0u};
+         instruction_index < instructions.size(); instruction_index++) {
+        auto *instruction = instructions[instruction_index];
+        auto &rule = rules[instruction_index];
         auto set_immediate = [&](State state) noexcept {
-            has_immediate = true;
-            immediate = state;
+            rule.floor = state;
+            rule.dependencies.clear();
+        };
+        auto add_all_operands = [&] {
+            for (auto *operand_use : instruction->operand_uses()) {
+                rule.dependencies.emplace_back(operand_use->value());
+            }
         };
 
         using Tag = xir::DerivedInstructionTag;
@@ -131,9 +155,7 @@ void WarpUniformityAnalysis::analyze(
             case Tag::CAST:
             case Tag::GEP:
             case Tag::RESOURCE_QUERY:
-                for (auto *operand_use : instruction->operand_uses()) {
-                    dependencies.emplace_back(operand_use->value());
-                }
+                add_all_operands();
                 break;
             case Tag::PHI: {
                 auto *phi = static_cast<const xir::PhiInst *>(instruction);
@@ -146,13 +168,31 @@ void WarpUniformityAnalysis::analyze(
                 for (auto i = 1u; i < phi->incoming_count(); i++) {
                     same_value &= phi->incoming(i).value == first;
                 }
-                // Selecting distinct definitions may vary even if each one is
-                // independently uniform. A later control-dependence analysis
-                // may refine this conservative result.
-                if (!same_value) {
-                    set_immediate(State::varying);
-                } else {
-                    dependencies.emplace_back(first);
+                if (same_value) {
+                    rule.dependencies.emplace_back(first);
+                    break;
+                }
+                rule.distinct_phi = true;
+                add_all_operands();
+
+                // A PHI selected once by warp-uniform acyclic control can be
+                // warp-global. A recurrent PHI changes by dynamic loop epoch,
+                // so even a lane-coherent loop needs lane-wise state whenever
+                // it crosses a scheduler suspension.
+                auto *phi_block = instruction->parent_block();
+                auto phi_block_iter = block_indices.find(phi_block);
+                if (phi_block_iter == block_indices.end()) {
+                    rule.floor = State::varying;
+                    break;
+                }
+                for (auto i = size_t{0u}; i < phi->incoming_count(); i++) {
+                    auto incoming_iter = block_indices.find(
+                        phi->incoming(i).block);
+                    if (incoming_iter != block_indices.end() &&
+                        incoming_iter->second >= phi_block_iter->second) {
+                        rule.floor = State::cohort_uniform;
+                        break;
+                    }
                 }
                 break;
             }
@@ -190,8 +230,8 @@ void WarpUniformityAnalysis::analyze(
                             // broadcast value for the current cohort. It is
                             // not warp-global because the participating set
                             // and source value can differ by dynamic instance.
-                            floor = State::cohort_uniform;
-                            dependencies.emplace_back(
+                            rule.floor = State::cohort_uniform;
+                            rule.dependencies.emplace_back(
                                 thread_group->operand(1u));
                         }
                         break;
@@ -251,69 +291,151 @@ void WarpUniformityAnalysis::analyze(
                 set_immediate(State::warp_uniform);
                 break;
         }
-
-        if (has_immediate) {
-            resolve(instruction, immediate);
-            continue;
-        }
-        auto resolved_state = floor;
-        auto has_varying = false;
-        for (auto *dependency : dependencies) {
-            auto dependency_state = _state(dependency);
-            if (dependency_state == State::varying) {
-                has_varying = true;
-                break;
-            }
-            if (dependency_state != State::unknown) {
-                resolved_state = join_state(
-                    resolved_state, dependency_state);
-            }
-        }
-        if (has_varying) {
-            resolve(instruction, State::varying);
-            continue;
-        }
-        auto unresolved_count = uint32_t{0u};
-        for (auto *dependency : dependencies) {
-            if (_state(dependency) == State::unknown) {
-                ++unresolved_count;
-                dependents[dependency].emplace_back(instruction);
-            }
-        }
-        if (unresolved_count == 0u) {
-            resolve(instruction, resolved_state);
-        } else {
-            pending.emplace(
-                instruction,
-                Pending{unresolved_count, resolved_state});
+        _states.emplace(instruction, rule.floor);
+        for (auto *dependency : rule.dependencies) {
+            dependents[dependency].emplace_back(instruction_index);
         }
     }
 
-    for (auto ready_index = size_t{0u};
-         ready_index < ready.size(); ready_index++) {
-        auto [resolved_value, resolved_state] = ready[ready_index];
-        auto iter = dependents.find(resolved_value);
-        if (iter == dependents.end()) { continue; }
-        for (auto *dependent : iter->second) {
-            auto pending_iter = pending.find(dependent);
-            if (pending_iter == pending.end()) { continue; }
-            if (resolved_state == State::varying) {
-                pending.erase(pending_iter);
-                resolve(dependent, State::varying);
-            } else {
-                pending_iter->second.state = join_state(
-                    pending_iter->second.state, resolved_state);
-                if (--pending_iter->second.unresolved_count == 0u) {
-                    auto state = pending_iter->second.state;
-                    pending.erase(pending_iter);
-                    resolve(dependent, state);
+    std::deque<size_t> value_worklist;
+    std::vector<uint8_t> value_queued(instructions.size(), uint8_t{0u});
+    auto enqueue_value = [&](size_t index) noexcept {
+        if (value_queued[index] == 0u) {
+            value_queued[index] = 1u;
+            value_worklist.emplace_back(index);
+        }
+    };
+    auto degrade_value = [&](size_t index, State state) noexcept {
+        auto *instruction = instructions[index];
+        auto old_state = _states.at(instruction);
+        auto new_state = join_state(old_state, state);
+        if (new_state != old_state) {
+            _states[instruction] = new_state;
+            enqueue_value(index);
+            return true;
+        }
+        return false;
+    };
+
+    // Fold external facts and the optimistic initial states into every rule
+    // once. Later propagation is incremental over use edges.
+    for (auto instruction_index = size_t{0u};
+         instruction_index < instructions.size(); instruction_index++) {
+        auto state = rules[instruction_index].floor;
+        for (auto *dependency : rules[instruction_index].dependencies) {
+            state = join_state(state, _state(dependency));
+        }
+        _states[instructions[instruction_index]] = state;
+        if (state != State::warp_uniform) {
+            enqueue_value(instruction_index);
+        }
+    }
+
+    // Track whether every static path decision reaching a block is provably
+    // warp-uniform. A single non-uniform incoming edge permanently downgrades
+    // the block, so propagation touches every CFG edge at most once.
+    std::vector<std::vector<size_t>> successors(blocks.size());
+    for (auto block_index = size_t{0u}; block_index < blocks.size();
+         block_index++) {
+        blocks[block_index]->traverse_successors(
+            false, [&](const xir::BasicBlock *successor) noexcept {
+                if (auto iter = block_indices.find(successor);
+                    iter != block_indices.end()) {
+                    successors[block_index].emplace_back(iter->second);
+                }
+            });
+    }
+    std::vector<std::vector<size_t>> block_phis(blocks.size());
+    for (auto instruction_index = size_t{0u};
+         instruction_index < instructions.size(); instruction_index++) {
+        if (!rules[instruction_index].distinct_phi) { continue; }
+        auto iter = block_indices.find(
+            instructions[instruction_index]->parent_block());
+        if (iter != block_indices.end()) {
+            block_phis[iter->second].emplace_back(instruction_index);
+        }
+    }
+    std::vector<uint8_t> warp_uniform_path(blocks.size(), uint8_t{1u});
+    std::deque<size_t> block_worklist;
+    auto degrade_block = [&](size_t index) noexcept {
+        if (warp_uniform_path[index] != 0u) {
+            warp_uniform_path[index] = 0u;
+            block_worklist.emplace_back(index);
+        }
+    };
+    std::unordered_map<const xir::Value *, std::vector<size_t>>
+        selector_blocks;
+    selector_blocks.reserve(blocks.size());
+    for (auto block_index = size_t{0u}; block_index < blocks.size();
+         block_index++) {
+        auto *terminator = blocks[block_index]->terminator();
+        const xir::Value *selector = nullptr;
+        if (terminator != nullptr) {
+            using Tag = xir::DerivedInstructionTag;
+            switch (terminator->derived_instruction_tag()) {
+                case Tag::CONDITIONAL_BRANCH:
+                    selector = static_cast<
+                        const xir::ConditionalBranchInst *>(terminator)
+                                   ->condition();
+                    break;
+                case Tag::INDEXED_BRANCH:
+                    selector = static_cast<
+                        const xir::IndexedBranchInst *>(terminator)
+                                   ->value();
+                    break;
+                default: break;
+            }
+        }
+        if (selector != nullptr) {
+            selector_blocks[selector].emplace_back(block_index);
+            if (_state(selector) != State::warp_uniform) {
+                for (auto successor : successors[block_index]) {
+                    degrade_block(successor);
+                }
+            }
+        } else if (successors[block_index].size() > 1u) {
+            // Structured/multi-way control should be destructured before this
+            // analysis. Stay conservative if an unrecognized split remains.
+            for (auto successor : successors[block_index]) {
+                degrade_block(successor);
+            }
+        }
+    }
+
+    while (!value_worklist.empty() || !block_worklist.empty()) {
+        while (!value_worklist.empty()) {
+            auto instruction_index = value_worklist.front();
+            value_worklist.pop_front();
+            value_queued[instruction_index] = 0u;
+            auto *instruction = instructions[instruction_index];
+            auto state = _states.at(instruction);
+            if (auto iter = dependents.find(instruction);
+                iter != dependents.end()) {
+                for (auto dependent : iter->second) {
+                    degrade_value(dependent, state);
+                }
+            }
+            if (state != State::warp_uniform) {
+                if (auto iter = selector_blocks.find(instruction);
+                    iter != selector_blocks.end()) {
+                    for (auto source : iter->second) {
+                        for (auto successor : successors[source]) {
+                            degrade_block(successor);
+                        }
+                    }
                 }
             }
         }
-    }
-    // Cycles through PHIs or other facts that remain unproven are varying.
-    for (auto instruction : instructions) {
-        _states.try_emplace(instruction, State::varying);
+        if (!block_worklist.empty()) {
+            auto block_index = block_worklist.front();
+            block_worklist.pop_front();
+            for (auto phi : block_phis[block_index]) {
+                degrade_value(phi, State::varying);
+            }
+            for (auto successor : successors[block_index]) {
+                degrade_block(successor);
+            }
+        }
     }
 }
 

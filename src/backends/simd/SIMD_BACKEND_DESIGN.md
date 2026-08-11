@@ -38,6 +38,10 @@ as an LLVM fixed vector `<W x T>` and every execution mask as `<W x i1>`.
 Varying aggregates use structure of arrays, so `varying<float3, 8>` is three
 `<8 x float>` values. Warp- and cohort-uniform expressions may remain scalar;
 cohort-uniform state is widened when it crosses a scheduler suspension.
+Kernel value/resource arguments, constants, and warp-uniform launch metadata
+use the scalar Luisa ABI and are never eagerly expanded to `<W x T>`. A scalar
+is splatted only at a use that semantically requires one lane value per SIMD
+element, such as mixed uniform/varying arithmetic or masked lane memory.
 
 The backend emits only target-independent LLVM operations, including vector
 arithmetic, `shufflevector`, `llvm.vector.reduce.*`, and masked memory. It must
@@ -86,6 +90,11 @@ The XIR handoff is unstructured, reducible CFG in the first milestone. XIR
 structured constructs are destructured before Schedule IR construction.
 Schedule IR eventually supports arbitrary CFG, but irreducible CFG is rejected
 with a precise diagnostic until its convergence rules are implemented.
+At the current checkpoint, conditional branches, natural-loop back-edges,
+nested reconvergence, and early returns execute end to end. Raw indexed
+branches are represented in Schedule IR but LLVM `SwitchTerminator` emission is
+still pending, so the implementation does not yet claim complete reducible-CFG
+coverage.
 
 The intended initial XIR pipeline is:
 
@@ -283,8 +292,19 @@ Memory layout remains the existing Luisa scalar ABI.
 
 Uniformity is warp-relative. The existing XIR `UniformityAnalysis` proves
 workgroup uniformity for SPIR-V descriptor indexing and is not reused as-is.
-The SIMD backend adds an interprocedural `WarpUniformityAnalysis` with
-conservative fallback to varying.
+The SIMD backend runs its own intraprocedural `WarpUniformityAnalysis` after
+callable inlining, with conservative fallback to varying if an uninlined or
+foreign value remains.
+
+The analysis is a monotone dependency worklist over
+`warp_uniform < cohort_uniform < varying`. Kernel arguments are seeded as
+`warp_uniform`; pure arithmetic/casts/GEPs/resource queries propagate the join
+of their operands. A distinct-input PHI remains scalar only when every path
+decision reaching it is warp-uniform. Recurrent PHIs are at least
+`cohort_uniform`, because their value can change by loop epoch. Any varying
+control path downgrades a distinct-input PHI to `varying`. Value propagation is
+`O(I + U)` and the accompanying one-way control-path propagation is
+`O(B + E)`; neither performs whole-function fixed-point rescans.
 
 `cohort_uniform` is an expression representation, not permission to use one
 global warp-state slot. If such a value survives a scheduler suspension, its
@@ -364,7 +384,8 @@ The Phase 1 implementation has the following budget:
 | Operation | Time | Additional space |
 | --- | --- | --- |
 | CFG indexing | expected `O(B + E)` | `O(B + E)` |
-| warp uniformity | `O(I + U)` worklist propagation | `O(I + U)` |
+| warp uniformity | `O(I + U)` monotone value propagation | `O(I + U)` |
+| uniform-control paths | `O(B + E)` one-way downgrade propagation | `O(B + E)` |
 | reducibility check after natural-loop discovery | expected `O(B + E)` | `O(B + E)` |
 | loop-parent projection | `O(M)` plus deterministic exit sorting | `O(M)` |
 | convergence-parent construction | `O(B + C)` dominator-tree walk | `O(B + C)` |
@@ -415,10 +436,20 @@ Conflicting non-atomic stores from different active lanes remain unordered,
 as on GPU backends. Atomics execute once per active lane and preserve the
 declared atomic semantics; they may initially scalarize.
 
-Embree remains the CPU ray-tracing implementation. Correctness can start with
-per-active-lane scalar Embree calls. Packet traversal (`rtcIntersect4/8/16` and
-occlusion counterparts) is a later optimization and must preserve inactive
-lane and ray-query callback semantics.
+Embree remains the CPU ray-tracing implementation. Width-specialized kernels
+must use the matching packet traversal interfaces (`rtcIntersect4/8/16` and
+`rtcOccluded4/8/16`) with the scheduler mask wired to Embree's valid-lane mask.
+Per-active-lane scalar traversal is allowed only for width 1, a documented
+sparse-cohort fallback, or a temporary bring-up fixture; it is not the final
+SIMD4/8/16 implementation. Packet traversal must preserve inactive-lane,
+instance-stack, motion, and ray-query callback semantics.
+
+The same rule applies to the rest of the device library. Math, bit, packing,
+texture helper, transform, and ray utility operations need scalar-uniform and
+native `<W x T>` implementations. A hidden loop that calls the scalar builtin
+once per active lane is a correctness fallback, not feature completion; every
+such fallback must be identified in generated-IR diagnostics and replaced or
+justified by a sparse-cohort policy.
 
 ## 10. LLVM lowering and target selection
 
@@ -646,8 +677,8 @@ Exit criteria:
 
 Deliverables:
 
-- acceleration structure and ray-query parity through scalarized Embree calls;
-- packet traversal optimization where valid;
+- acceleration structure and ray-query parity through Embree packet traversal;
+- width-1 and explicitly sparse scalar traversal fallback where valid;
 - ray-query callbacks integrated with cohort scheduling.
 
 Exit criteria:
@@ -724,6 +755,8 @@ on 2026-08-11. The repository now contains:
   convergence, and warp collectives;
 - an `O(I + U)` dependency-worklist warp-uniformity analysis and indexed CFG,
   loop, convergence, and PHI lowering paths that avoid global pairwise scans;
+- scalar kernel-argument/resource ABI and scalar uniform expression/state
+  lowering, with lane splats introduced only at varying use sites;
 - a width-specialized LLVM value layout where varying scalars are exactly
   `<W x T>`, masks are `<W x i1>`, and varying aggregates are structure of
   arrays;
@@ -783,7 +816,9 @@ on 2026-08-11. The repository now contains:
   tests, plus device-level specialization across warp1/4/8/16, local-memory
   isolation under divergence, and conflicting direct-buffer atomics.
 
-The next implementation boundary is callable conformance and bindless texture
-access/sampling, followed by cooperative shared memory and block barriers. The
-current compiler returns precise diagnostics for unsupported features rather
-than silently accepting them.
+The next implementation boundary is complete reducible-CFG control emission
+(`SwitchTerminator` plus nested switch/loop/multi-exit conformance), then
+callable conformance and bindless texture access/sampling, followed by
+cooperative shared memory and block barriers. The current compiler returns
+precise diagnostics for unsupported features rather than silently accepting
+them.
