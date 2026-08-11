@@ -1,17 +1,21 @@
 #pragma once
 
+#include <luisa/core/stl/memory.h>
 #include <luisa/runtime/device.h>
 
 namespace luisa::compute::simd {
+
+class SIMDThreadPool;
 
 class SIMDDevice final : public DeviceInterface {
 
 private:
     uint _warp_width{8u};
+    luisa::unique_ptr<SIMDThreadPool> _thread_pool;
 
 public:
     explicit SIMDDevice(Context &&context, const DeviceConfig *config) noexcept;
-    ~SIMDDevice() noexcept override = default;
+    ~SIMDDevice() noexcept override;
 
     [[nodiscard]] void *native_handle() const noexcept override;
     [[nodiscard]] uint compute_warp_size() const noexcept override;

@@ -5,13 +5,17 @@
 
 namespace luisa::compute::simd {
 
+class SIMDThreadPool;
+
 class SIMDStream {
 
 private:
+    SIMDThreadPool *_thread_pool;
     DeviceInterface::StreamLogCallback _log_callback;
 
 public:
-    SIMDStream() noexcept = default;
+    explicit SIMDStream(SIMDThreadPool *thread_pool) noexcept
+        : _thread_pool{thread_pool} {}
     ~SIMDStream() noexcept = default;
 
     void dispatch(CommandList &&list) noexcept;

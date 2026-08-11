@@ -108,6 +108,28 @@ Target legalization may split `<16 x float>` into two or four physical vector
 instructions. That still satisfies `native`: the split is by physical vector
 width, not a hidden source-level lane loop or scalar device-library call.
 
+### 4.1 Host block concurrency
+
+A shader dispatch is synchronous at the stream boundary but parallel across
+thread blocks. The device-owned persistent worker pool dynamically partitions
+the flattened block interval `[0, grid_size.x * grid_size.y * grid_size.z)`.
+All packet calls for one block execute serially in increasing warp order on a
+single worker; different blocks may execute concurrently and in any order.
+The pool joins before the next command, dispatch size, download, or callback in
+the same command list becomes observable.
+
+Each block job owns its `SIMDPacketLaunchConfig`; the argument descriptor buffer
+is immutable for the duration of the dispatch. Dispatch-edge packet masks are
+therefore unchanged by host scheduling. Concurrent non-atomic conflicting
+access from different blocks remains a source-level data race, while existing
+LLVM atomic lowering supplies the required cross-worker ordering. Shader
+submissions sharing one device pool are serialized to protect pool state; no
+additional ordering between independent host streams is implied.
+
+`SIMDDeviceConfigExt::worker_count()` defines the host execution width. Zero
+selects `max(hardware_concurrency, 1)` and one executes block ranges inline for
+diagnostics and serial differential benchmarks.
+
 ## 5. Vector-math providers
 
 Provider selection is ordered:

@@ -6,6 +6,7 @@
 
 #include "simd_bindless_array.h"
 #include "simd_buffer.h"
+#include "simd_thread_pool.h"
 #include "simd_texture.h"
 
 namespace luisa::compute::simd {
@@ -92,13 +93,14 @@ void SIMDShader::_build_bound_arguments(
 }
 
 void SIMDShader::_dispatch_once(
+    SIMDThreadPool &thread_pool,
     const void *argument_buffer, uint3 dispatch_size) const noexcept {
     auto block_size = _block_size;
     LUISA_ASSERT(
         block_size.x != 0u && block_size.y != 0u && block_size.z != 0u,
         "SIMD kernel block size must be nonzero.");
     auto ceil_div = [](uint32_t n, uint32_t d) noexcept {
-        return (n + d - 1u) / d;
+        return n / d + static_cast<uint32_t>(n % d != 0u);
     };
     auto grid_size = make_uint3(
         ceil_div(dispatch_size.x, block_size.x),
@@ -112,9 +114,23 @@ void SIMDShader::_dispatch_once(
         threads_per_block, _compiled.warp_width);
     auto warps_per_block =
         threads_per_block / _compiled.warp_width;
-    for (auto bz = uint32_t{0u}; bz < grid_size.z; bz++) {
-        for (auto by = uint32_t{0u}; by < grid_size.y; by++) {
-            for (auto bx = uint32_t{0u}; bx < grid_size.x; bx++) {
+    auto grid_xy = static_cast<uint64_t>(grid_size.x) * grid_size.y;
+    auto grid_count = grid_xy * grid_size.z;
+    constexpr auto target_chunks_per_worker = uint64_t{32u};
+    auto target_chunks = static_cast<uint64_t>(
+                             thread_pool.worker_count()) *
+                         target_chunks_per_worker;
+    auto grain_size = grid_count == 0u ?
+                          uint64_t{1u} :
+                          (grid_count - 1u) / target_chunks + 1u;
+    thread_pool.parallel_for(
+        grid_count, grain_size,
+        [&](uint64_t begin, uint64_t end) noexcept {
+            for (auto block = begin; block < end; block++) {
+                auto bx = static_cast<uint32_t>(block % grid_size.x);
+                auto by = static_cast<uint32_t>(
+                    (block / grid_size.x) % grid_size.y);
+                auto bz = static_cast<uint32_t>(block / grid_xy);
                 SIMDPacketLaunchConfig config{};
                 config.block_id[0u] = bx;
                 config.block_id[1u] = by;
@@ -134,11 +150,11 @@ void SIMDShader::_dispatch_once(
                         _compiled.warp_width);
                 }
             }
-        }
-    }
+        });
 }
 
 void SIMDShader::dispatch(
+    SIMDThreadPool &thread_pool,
     luisa::unique_ptr<ShaderDispatchCommand> command) const noexcept {
     luisa::vector<std::byte> argument_buffer(
         _compiled.argument_buffer_size, std::byte{});
@@ -208,10 +224,11 @@ void SIMDShader::dispatch(
     }
     if (command->is_multiple_dispatch()) {
         for (auto dispatch_size : command->dispatch_sizes()) {
-            _dispatch_once(arguments, dispatch_size);
+            _dispatch_once(thread_pool, arguments, dispatch_size);
         }
     } else {
-        _dispatch_once(arguments, command->dispatch_size());
+        _dispatch_once(
+            thread_pool, arguments, command->dispatch_size());
     }
 }
 

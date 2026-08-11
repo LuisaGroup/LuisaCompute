@@ -72,6 +72,20 @@ add_test(NAME test_simd_schedule_ir
 set_tests_properties(test_simd_schedule_ir PROPERTIES
         LABELS "unit;unit_simd")
 
+add_executable(test_simd_thread_pool
+        unit/simd/test_simd_thread_pool.cpp
+        ../backends/simd/runtime/simd_thread_pool.cpp)
+target_compile_features(test_simd_thread_pool PRIVATE cxx_std_20)
+target_include_directories(test_simd_thread_pool PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/runtime)
+target_link_libraries(test_simd_thread_pool PRIVATE
+        luisa-compute-core)
+add_test(NAME test_simd_thread_pool
+        COMMAND test_simd_thread_pool)
+set_tests_properties(test_simd_thread_pool PROPERTIES
+        LABELS "unit;unit_simd")
+
 luisa_compute_add_test(test_simd_warp_uniformity
         unit/simd/test_warp_uniformity.cpp
         LABELS "unit;unit_simd;unit_xir")

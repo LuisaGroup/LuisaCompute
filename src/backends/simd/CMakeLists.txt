@@ -120,6 +120,7 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_event.cpp
         runtime/simd_shader.cpp
         runtime/simd_stream.cpp
+        runtime/simd_thread_pool.cpp
         runtime/simd_texture.cpp)
 target_link_libraries(luisa-compute-backend-simd PRIVATE
         luisa-compute-simd-compiler)

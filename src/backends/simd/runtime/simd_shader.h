@@ -12,6 +12,8 @@
 
 namespace luisa::compute::simd {
 
+class SIMDThreadPool;
+
 class SIMDShader {
 
 public:
@@ -29,6 +31,7 @@ private:
     void _build_bound_arguments(
         luisa::span<const Function::Binding> bindings) noexcept;
     void _dispatch_once(
+        SIMDThreadPool &thread_pool,
         const void *argument_buffer, uint3 dispatch_size) const noexcept;
 
 public:
@@ -38,6 +41,7 @@ public:
     ~SIMDShader() noexcept = default;
 
     void dispatch(
+        SIMDThreadPool &thread_pool,
         luisa::unique_ptr<ShaderDispatchCommand> command) const noexcept;
     [[nodiscard]] Usage argument_usage(size_t index) const noexcept;
     [[nodiscard]] auto native_handle() const noexcept { return _entry; }

@@ -1,5 +1,8 @@
 #include "simd_device.h"
 
+#include <algorithm>
+#include <thread>
+
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -12,6 +15,7 @@
 #include "simd_event.h"
 #include "simd_shader.h"
 #include "simd_stream.h"
+#include "simd_thread_pool.h"
 #include "simd_texture.h"
 
 namespace luisa::compute::simd {
@@ -19,6 +23,7 @@ namespace luisa::compute::simd {
 SIMDDevice::SIMDDevice(
     Context &&context, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(context)} {
+    auto requested_worker_count = uint32_t{0u};
     if (config != nullptr && config->extension != nullptr) {
         auto *simd_config = static_cast<const SIMDDeviceConfigExt *>(
             config->extension.get());
@@ -31,8 +36,17 @@ SIMDDevice::SIMDDevice(
                 requested_width);
             _warp_width = requested_width;
         }
+        requested_worker_count = simd_config->worker_count();
     }
+    auto hardware_worker_count = static_cast<uint32_t>(
+        std::max(std::thread::hardware_concurrency(), 1u));
+    _thread_pool = luisa::make_unique<SIMDThreadPool>(
+        requested_worker_count == 0u ?
+            hardware_worker_count :
+            requested_worker_count);
 }
+
+SIMDDevice::~SIMDDevice() noexcept = default;
 
 void *SIMDDevice::native_handle() const noexcept {
     return const_cast<SIMDDevice *>(this);
@@ -47,13 +61,14 @@ BufferCreationInfo SIMDDevice::create_buffer(
     void *external_memory) noexcept {
     BufferCreationInfo info{};
     info.element_stride = element == Type::of<void>() ?
-                              1u : element->size();
+                              1u :
+                              element->size();
     info.total_size_bytes = info.element_stride * elem_count;
     auto *buffer = external_memory == nullptr ?
-        luisa::new_with_allocator<SIMDBuffer>(info.total_size_bytes) :
-        luisa::new_with_allocator<SIMDBuffer>(
-            static_cast<std::byte *>(external_memory),
-            info.total_size_bytes);
+                       luisa::new_with_allocator<SIMDBuffer>(info.total_size_bytes) :
+                       luisa::new_with_allocator<SIMDBuffer>(
+                           static_cast<std::byte *>(external_memory),
+                           info.total_size_bytes);
     info.handle = reinterpret_cast<uint64_t>(buffer);
     info.native_handle = buffer->data();
     return info;
@@ -70,11 +85,11 @@ ResourceCreationInfo SIMDDevice::create_texture(
     auto storage = pixel_format_to_storage(format);
     auto size = make_uint3(width, height, depth);
     auto *texture = external_native_handle == nullptr ?
-        luisa::new_with_allocator<SIMDTexture>(
-            storage, dimension, size, mipmap_levels) :
-        luisa::new_with_allocator<SIMDTexture>(
-            storage, dimension, size, mipmap_levels,
-            static_cast<std::byte *>(external_native_handle));
+                        luisa::new_with_allocator<SIMDTexture>(
+                            storage, dimension, size, mipmap_levels) :
+                        luisa::new_with_allocator<SIMDTexture>(
+                            storage, dimension, size, mipmap_levels,
+                            static_cast<std::byte *>(external_native_handle));
     return {
         .handle = reinterpret_cast<uint64_t>(texture),
         .native_handle = texture->native_handle(),
@@ -101,7 +116,8 @@ void SIMDDevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo SIMDDevice::create_stream(StreamTag) noexcept {
-    auto *stream = luisa::new_with_allocator<SIMDStream>();
+    auto *stream = luisa::new_with_allocator<SIMDStream>(
+        _thread_pool.get());
     return {
         .handle = reinterpret_cast<uint64_t>(stream),
         .native_handle = stream->native_handle(),
@@ -118,8 +134,7 @@ void SIMDDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 
 void SIMDDevice::dispatch(
     uint64_t stream_handle, CommandList &&list) noexcept {
-    reinterpret_cast<SIMDStream *>(stream_handle)->dispatch(
-        std::move(list));
+    reinterpret_cast<SIMDStream *>(stream_handle)->dispatch(std::move(list));
 }
 
 void SIMDDevice::set_stream_log_callback(

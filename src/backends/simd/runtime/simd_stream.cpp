@@ -20,7 +20,7 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 auto *upload = static_cast<BufferUploadCommand *>(
                     command.get());
                 auto destination = reinterpret_cast<SIMDBuffer *>(
-                    upload->handle())
+                                       upload->handle())
                                        ->view(upload->offset(), upload->size());
                 std::memcpy(
                     destination.data, upload->data(),
@@ -31,7 +31,7 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 auto *download = static_cast<BufferDownloadCommand *>(
                     command.get());
                 auto source = reinterpret_cast<SIMDBuffer *>(
-                    download->handle())
+                                  download->handle())
                                   ->view(download->offset(), download->size());
                 std::memcpy(
                     download->data(), source.data, source.size_bytes);
@@ -40,10 +40,10 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
             case Command::Tag::EBufferCopyCommand: {
                 auto *copy = static_cast<BufferCopyCommand *>(command.get());
                 auto source = reinterpret_cast<SIMDBuffer *>(
-                    copy->src_handle())
+                                  copy->src_handle())
                                   ->view(copy->src_offset(), copy->size());
                 auto destination = reinterpret_cast<SIMDBuffer *>(
-                    copy->dst_handle())
+                                       copy->dst_handle())
                                        ->view(copy->dst_offset(), copy->size());
                 std::memmove(
                     destination.data, source.data, source.size_bytes);
@@ -54,6 +54,7 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                     command.release());
                 auto shader = reinterpret_cast<SIMDShader *>(raw->handle());
                 shader->dispatch(
+                    *_thread_pool,
                     luisa::unique_ptr<ShaderDispatchCommand>{raw});
                 break;
             }

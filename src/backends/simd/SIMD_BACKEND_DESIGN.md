@@ -595,12 +595,21 @@ backends consume the same tested implementation. The first Schedule IR tests
 must not depend on LLVM or Embree, which keeps control-flow work buildable in a
 small configuration.
 
-Launch order follows Luisa's flattened block-thread convention. Within a
+Launch indexing follows Luisa's flattened block-thread convention. Within a
 block, lane ID is `linear_thread_id % W`. The runtime requires the block thread
 count to be divisible by `W` and loops over exactly `block_threads / W` full
 warps. Dispatch-edge warps receive an initial mask for invocations outside the
 exact dispatch size. As in fallback, the AST block-size contract remains
 independent of the backend warp width.
+
+Shader dispatches use a device-owned persistent worker pool. The flattened
+block range is split into dynamically claimed chunks; all warps belonging to
+one block execute sequentially on the worker that claimed that block, while
+different blocks may execute in any order and concurrently. A dispatch joins
+all of its block jobs before the stream advances to the next command or invokes
+command-list callbacks. Multiple dispatch sizes in one command also remain
+ordered. `SIMDDeviceConfigExt::worker_count()` selects the pool size: zero uses
+host hardware concurrency and one provides a serial diagnostic path.
 
 ## 12. Diagnostics and observability
 
@@ -676,6 +685,16 @@ track:
 
 Assembly checks should diagnose regressions but should not assert one brittle
 instruction spelling across LLVM versions.
+
+The first end-to-end runtime gate uses the standard non-coroutine
+`example_sdf_renderer`, not `coro_sdf_renderer`. On the recorded Ryzen 9
+9950X3D / LLVM 22.1.8 Release host at 1280x720 and SPP 4, three interleaved
+runs gave a median 5.690 samples/s for default SIMD W8 after parallel block
+dispatch, versus 0.242 samples/s for the prior serial SIMD runtime: a 23.47x
+throughput increase. The 32-worker fallback median was 8.823 samples/s, so
+this checkpoint reaches 64.49% of fallback throughput and does not yet claim
+performance parity. Every SIMD run produced the same PNG byte-for-byte, and
+that output also matched the prior serial SIMD output byte-for-byte.
 
 ## 14. Delivery plan
 
@@ -865,7 +884,11 @@ on 2026-08-11. The repository now contains:
   Buffer kernel through ORC;
 - a runnable `DeviceInterface` module with host buffers, 2D/3D textures,
   streams, events, direct dispatch, and a public `SIMDDeviceConfigExt` that
-  specializes every shader on the device to warp1/4/8/16;
+  specializes every shader on the device to warp1/4/8/16 and selects the
+  device worker count;
+- a device-owned persistent worker pool that dynamically schedules flattened
+  block ranges, keeps all warps of one block together, joins before the next
+  stream command, and retains a one-worker serial diagnostic mode;
 - the backend-neutral DSL and XIR block-size contract remains a multiple of
   32; SIMD partitions each thread block into independent width-1/4/8/16
   packets, matching fallback's separation of block size from warp size;
@@ -894,8 +917,10 @@ on 2026-08-11. The repository now contains:
   loop;
 - unattended runtime coverage from the repository's existing multidimensional
   lane-ID, warp matmul, sparse reduction/prefix, and aggregate lane-shuffle
-  tests, plus device-level specialization across warp1/4/8/16, local-memory
-  isolation under divergence, and conflicting direct-buffer atomics.
+  tests, plus device-level specialization across warp1/4/8/16, persistent-pool
+  exactly-once and concurrent-submission checks, local-memory isolation under
+  divergence, and conflicting direct-buffer atomics across parallel blocks
+  with a partial dispatch tail.
 
 The next implementation boundary is callable conformance and bindless texture
 access/sampling, followed by cooperative shared memory and block barriers.

@@ -4,6 +4,7 @@
 #include <array>
 #include <cstring>
 
+#include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 
@@ -15,9 +16,14 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     Context context{argc > 0 ? argv[0] : ""};
-    auto device = context.create_device("simd");
+    DeviceConfig config{};
+    config.extension =
+        luisa::make_unique<SIMDDeviceConfigExt>(8u, 4u);
+    auto device = context.create_device("simd", &config);
 
-    constexpr auto thread_count = 96u;
+    // Exercise conflicting atomics across many concurrently scheduled blocks
+    // and a non-divisible dispatch tail.
+    constexpr auto thread_count = 32u * 17u + 7u;
     auto counter = device.create_buffer<uint>(1u);
     auto old_values = device.create_buffer<uint>(thread_count);
     auto filtered_counter = device.create_buffer<uint>(1u);
