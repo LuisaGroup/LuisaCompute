@@ -112,11 +112,19 @@ CoroFrameAbiPlan plan_coro_frame_atom_abi(
     size_t field_limit) noexcept {
     auto whole = whole_plan(atom.type, atom.access_chain);
     if (atom.root == nullptr || atom.type == nullptr ||
-        !atom.root->isa<AllocaInst>() ||
-        !static_cast<AllocaInst *>(atom.root)->is_local() ||
         field_limit < 2u) {
         return whole;
     }
+    auto is_local_allocation =
+        atom.root->isa<AllocaInst>() &&
+        static_cast<AllocaInst *>(atom.root)->is_local();
+    // CoroFrameAtomDomain gives every non-lvalue instruction one whole-value
+    // atom. Restrict SSA decomposition to that complete atom: recursively
+    // partitioning a partial SSA projection would not provide enough leaves
+    // to reconstruct the original typed value at a continuation entry.
+    auto is_complete_ssa_value =
+        !atom.root->is_lvalue() && atom.access_chain.empty();
+    if (!is_local_allocation && !is_complete_ssa_value) { return whole; }
     return plan_type(atom.type, atom.access_chain, field_limit);
 }
 

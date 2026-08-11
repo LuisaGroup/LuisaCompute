@@ -967,6 +967,52 @@ void reg_coro_cfg_distill() {
         }
     };
 
+    "frame_abi_decomposes_complete_ssa_float3_value"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *tick = b.clock();
+        auto *x = b.static_cast_(Type::of<float>(), tick);
+        auto *one = m.create_constant_one(Type::of<float>());
+        auto *y = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *z = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD, {y, one});
+        auto *state = b.call(
+            Type::of<float3>(), ArithmeticOp::AGGREGATE, {x, y, z});
+        state->set_name("ssa_float3_state");
+        b.coro_suspend(213u, "ssa-float3", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(213u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<float3>(), ArithmeticOp::BINARY_ADD,
+            {state, m.create_constant_zero(Type::of<float3>())}));
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(Type::of<float3>()->size() == 16u);
+        expect(result.frame_values.size() == 3u);
+        if (result.frame_values.size() == 3u) {
+            for (auto i = 0u; i < 3u; ++i) {
+                expect(result.frame_values[i].value == state);
+                expect(result.frame_values[i].access_chain ==
+                       luisa::vector<uint32_t>{i});
+                expect(result.frame_values[i].type == Type::of<float>());
+            }
+        }
+        expect(result.frame_slots.size() == 3u);
+        expect(result.scopes.size() == 2u);
+        if (result.scopes.size() == 2u) {
+            expect(result.scopes[1u].live_in_frame_value_indices ==
+                   luisa::vector<size_t>{0u, 1u, 2u});
+        }
+    };
+
     "frame_abi_keeps_no_padding_aggregate_whole"_test = [] {
         Module m;
         BasicBlock *entry;

@@ -19,6 +19,7 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/op.h>
+#include <luisa/xir/passes/aggregate_field_bitmask.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/special_register.h>
@@ -535,13 +536,15 @@ public:
         }
     }
     for (auto &frame_value : result.frame_values) {
-        auto path_root_is_local_alloca =
+        auto path_root_is_supported =
             frame_value.access_chain.empty() ||
             (frame_value.value != nullptr &&
              frame_value.value->isa<AllocaInst>() &&
-             static_cast<AllocaInst *>(frame_value.value)->is_local());
+             static_cast<AllocaInst *>(frame_value.value)->is_local()) ||
+            (frame_value.value != nullptr &&
+             !frame_value.value->is_lvalue());
         if (frame_value.value == nullptr || frame_value.type == nullptr ||
-            !path_root_is_local_alloca ||
+            !path_root_is_supported ||
             frame_value.slot >= result.frame_slots.size() ||
             result.frame_slots[frame_value.slot].type != frame_value.type ||
             resolve_static_access_type(
@@ -565,12 +568,27 @@ public:
     // starts immediately after its prefix, so adjacent-prefix checks are both
     // necessary and sufficient (and avoid a quadratic pairwise scan).
     for (auto &[value, paths] : value_paths) {
-        static_cast<void>(value);
         std::sort(paths.begin(), paths.end());
         for (size_t i = 1u; i < paths.size(); ++i) {
             if (static_access_path_is_prefix(paths[i - 1u], paths[i])) {
                 return false;
             }
+        }
+        // A decomposed SSA root is restored as a value rather than as mutable
+        // storage. Its paths must therefore cover every primitive leaf exactly
+        // once. Padding has no XIR value semantics and is intentionally absent
+        // from AggregateFieldBitmask, which is precisely the desired ABI model.
+        if (!value->is_lvalue() && !paths.front().empty()) {
+            AggregateFieldBitmask coverage{value->type()};
+            for (auto &path : paths) {
+                luisa::vector<size_t> indices;
+                indices.reserve(path.size());
+                for (auto index : path) { indices.emplace_back(index); }
+                auto span = coverage.access(luisa::span{indices});
+                if (span.any()) { return false; }
+                span.set(true);
+            }
+            if (!coverage.access().all()) { return false; }
         }
     }
     if (std::find(occupied_slots.begin(), occupied_slots.end(), 0u) !=
@@ -650,6 +668,39 @@ static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint
     return b.gep(type, frame_arg, {idx});
 }
 
+[[nodiscard]] static Value *extract_static_frame_path(
+    XIRBuilder &b, Module *mod, Value *root,
+    const CoroCfgDistillResult::FrameValue &frame_value) noexcept {
+    if (frame_value.access_chain.empty()) { return root; }
+    LUISA_DEBUG_ASSERT(root != nullptr && !root->is_lvalue(),
+                       "Coroutine SSA frame root must be a value.");
+    luisa::vector<Value *> operands;
+    operands.reserve(frame_value.access_chain.size() + 1u);
+    operands.emplace_back(root);
+    for (auto component : frame_value.access_chain) {
+        operands.emplace_back(
+            mod->create_constant(Type::of<uint32_t>(), &component));
+    }
+    return b.call(frame_value.type, ArithmeticOp::EXTRACT, operands);
+}
+
+[[nodiscard]] static Value *insert_static_frame_path(
+    XIRBuilder &b, Module *mod, Value *base, Value *field,
+    const CoroCfgDistillResult::FrameValue &frame_value) noexcept {
+    LUISA_DEBUG_ASSERT(base != nullptr && field != nullptr &&
+                           !frame_value.access_chain.empty(),
+                       "Coroutine SSA frame insertion requires a path.");
+    luisa::vector<Value *> operands;
+    operands.reserve(frame_value.access_chain.size() + 2u);
+    operands.emplace_back(base);
+    operands.emplace_back(field);
+    for (auto component : frame_value.access_chain) {
+        operands.emplace_back(
+            mod->create_constant(Type::of<uint32_t>(), &component));
+    }
+    return b.call(base->type(), ArithmeticOp::INSERT, operands);
+}
+
 static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
                                        const CoroCfgDistillResult &result,
                                        luisa::span<const size_t> frame_value_indices,
@@ -666,7 +717,9 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
             auto *loaded = b.load(frame_value.type, pointer);
             b.store(field, loaded);
         } else {
-            b.store(field, resolver.resolve(frame_value.value));
+            auto *root = resolver.resolve(frame_value.value);
+            b.store(field, extract_static_frame_path(
+                               b, mod, root, frame_value));
         }
     }
 }
@@ -699,6 +752,12 @@ static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame
                                         const CoroCfgDistillResult &result,
                                         const CoroCfgDistillResult::Scope &scope,
                                         CoroSplitValueResolver &resolver) noexcept {
+    struct AggregateReload {
+        Value *root{nullptr};
+        Value *value{nullptr};
+    };
+    luisa::vector<AggregateReload> aggregate_reloads;
+    luisa::unordered_map<Value *, size_t> aggregate_reload_indices;
     for (auto frame_value_index : scope.live_in_frame_value_indices) {
         LUISA_DEBUG_ASSERT(frame_value_index < result.frame_values.size(),
                            "Coroutine frame value index is out of range.");
@@ -710,9 +769,27 @@ static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame
             auto *pointer = frame_value_memory_pointer(
                 b, mod, frame_value, resolver);
             b.store(pointer, loaded);
-        } else {
+        } else if (frame_value.access_chain.empty()) {
             resolver.map_entry_value(frame_value.value, loaded);
+        } else {
+            auto [iter, inserted] = aggregate_reload_indices.try_emplace(
+                frame_value.value, aggregate_reloads.size());
+            if (inserted) {
+                aggregate_reloads.emplace_back(AggregateReload{
+                    .root = frame_value.value,
+                    .value = mod->create_undefined(
+                        frame_value.value->type())});
+            }
+            auto &reload = aggregate_reloads[iter->second];
+            reload.value = insert_static_frame_path(
+                b, mod, reload.value, loaded, frame_value);
         }
+    }
+    for (auto &reload : aggregate_reloads) {
+        // validate_distilled_cfg proves that these disjoint paths cover every
+        // primitive leaf, so no observable component of the reconstructed SSA
+        // value remains undefined.
+        resolver.map_entry_value(reload.root, reload.value);
     }
 }
 

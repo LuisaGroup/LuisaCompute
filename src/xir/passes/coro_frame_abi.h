@@ -30,8 +30,10 @@ struct CoroFrameAbiPlan {
 // remain one field unless recursively decomposing them strictly reduces the
 // sum of represented type sizes. Packed children are retained as aggregates,
 // so the plan removes padding with the fewest fields found by this recursion
-// rather than blindly scalarizing every primitive. Only local allocations are
-// decomposed; SSA values and plans exceeding field_limit remain whole.
+// rather than blindly scalarizing every primitive. Local-allocation atoms and
+// complete non-lvalue SSA aggregates may be decomposed; plans exceeding
+// field_limit remain whole. An SSA plan always partitions the complete value,
+// so split can reconstruct it without introducing an undefined component.
 [[nodiscard]] CoroFrameAbiPlan plan_coro_frame_atom_abi(
     const CoroFrameAtomDomain::Atom &atom,
     size_t field_limit = CORO_FRAME_ABI_FIELD_LIMIT) noexcept;

@@ -696,6 +696,89 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 << "wavefront continuation must receive the exact aggregate argument";
         };
 
+    "ssa_float3_frame_partition_is_exact_in_all_schedulers"_test =
+        [options] {
+            constexpr uint N = 64u;
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto input = device.create_buffer<float3>(N);
+            auto output = device.create_buffer<float3>(N);
+
+            luisa::vector<float3> source(N);
+            for (auto i = 0u; i < N; ++i) {
+                source[i] = float3{
+                    static_cast<float>(i),
+                    static_cast<float>(i + 100u),
+                    static_cast<float>(i + 200u)};
+            }
+            stream << input.copy_from(luisa::span{source})
+                   << synchronize();
+
+            auto coroutine = Coroutine<
+                void(Buffer<float3>, Buffer<float3>)>(
+                [](BufferFloat3 input, BufferFloat3 output) noexcept {
+                    auto tid = dispatch_x();
+                    auto carried = input.read(tid);
+                    $suspend("after-float3-read");
+                    output.write(
+                        tid, carried + make_float3(1.0f, 2.0f, 3.0f));
+                });
+
+            // Seven uint scheduler fields plus three scalar payload fields.
+            // Keeping the ABI-padded float3 whole would require 48 bytes.
+            expect(coroutine.frame().frame_type()->size() == 40u);
+
+            auto clear_and_check =
+                [&](auto &&dispatch, luisa::string_view label) noexcept {
+                    luisa::vector<float3> zero(N);
+                    stream << output.copy_from(luisa::span{zero});
+                    dispatch();
+                    luisa::vector<float3> host(N);
+                    stream << output.copy_to(luisa::span{host})
+                           << synchronize();
+                    auto ok = true;
+                    for (auto i = 0u; i < N; ++i) {
+                        auto expected =
+                            source[i] + float3{1.0f, 2.0f, 3.0f};
+                        if (any(host[i] != expected)) {
+                            LUISA_WARNING(
+                                "{} mismatch at {}: got {}, expected {}",
+                                label, i, host[i], expected);
+                            ok = false;
+                            break;
+                        }
+                    }
+                    expect(ok) << label;
+                };
+
+            StateMachineCoroScheduler<
+                Buffer<float3>, Buffer<float3>>
+                state_machine{device, coroutine};
+            clear_and_check(
+                [&] {
+                    state_machine(input, output).dispatch(N)(stream);
+                },
+                "ssa_float3_state_machine");
+
+            WavefrontCoroScheduler<
+                Buffer<float3>, Buffer<float3>>
+                wavefront{device, coroutine};
+            clear_and_check(
+                [&] { wavefront(input, output).dispatch(N)(stream); },
+                "ssa_float3_wavefront");
+
+            PersistentThreadsCoroScheduler<
+                Buffer<float3>, Buffer<float3>>
+                persistent{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+            clear_and_check(
+                [&] { persistent(input, output).dispatch(N)(stream); },
+                "ssa_float3_persistent");
+        };
+
     "coroutine_lowering_preserves_structured_helper_identity"_test = [] {
         // An ordinary helper is a dependency of the coroutine, not a member of
         // its state machine. Coroutine CFG passes must therefore leave the

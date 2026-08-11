@@ -29,10 +29,12 @@ struct CoroCfgDistillResult {
 
     struct FrameValue {
         // Root SSA value or local allocation. A non-empty access chain
-        // identifies a disjoint statically indexed subobject of a local
-        // allocation. Frame analysis operates on this (root, path) identity;
-        // source XIR is deliberately left aggregate so frame minimization
-        // does not inflate the computation IR.
+        // identifies a disjoint statically indexed subobject. Paths of an SSA
+        // root form a complete partition and are reconstructed at continuation
+        // entry; local-allocation paths may be only the live subset. Frame
+        // analysis operates on this (root, path) identity; source XIR is
+        // deliberately left aggregate so frame minimization does not inflate
+        // the computation IR.
         Value *value{nullptr};
         luisa::vector<uint32_t> access_chain;
         luisa::string name;
