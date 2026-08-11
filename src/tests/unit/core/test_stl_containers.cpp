@@ -206,6 +206,33 @@ void reg_map_basic() {
     };
 }
 
+void reg_map_at_missing_key() {
+
+#if __cpp_exceptions
+    "map_at_missing_key_throws"_test = [] {
+        luisa::map<int, luisa::string> m;
+        m.emplace(1, "one");
+
+        auto mutable_threw = false;
+        try {
+            static_cast<void>(m.at(2));
+        } catch (const std::out_of_range &) {
+            mutable_threw = true;
+        }
+        expect(mutable_threw);
+
+        auto const_threw = false;
+        try {
+            const auto &cm = m;
+            static_cast<void>(cm.at(2));
+        } catch (const std::out_of_range &) {
+            const_threw = true;
+        }
+        expect(const_threw);
+    };
+#endif
+}
+
 void reg_set_basic() {
 
     "set_basic"_test = [] {
@@ -515,6 +542,7 @@ int main(int argc, char *argv[]) {
     reg_format_basic();
     reg_format_hash_to_string();
     reg_map_basic();
+    reg_map_at_missing_key();
     reg_set_basic();
     reg_unordered_map_basic();
     reg_unordered_set_basic();

@@ -21,7 +21,11 @@ namespace detail {
 // Reports a missing key in luisa::map::at().
 // Keeps throwing semantics when exceptions are enabled and falls back
 // to a fatal abort so the header also compiles with -fno-exceptions.
-[[noreturn]] inline void map_at_error() noexcept {
+[[noreturn]] inline void map_at_error()
+#if !__cpp_exceptions
+    noexcept
+#endif
+{
 #if __cpp_exceptions
     throw std::out_of_range{"luisa::map::at"};
 #else
