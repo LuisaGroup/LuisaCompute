@@ -1,8 +1,8 @@
 # SIMD CPU backend design
 
 Status: Phase 2 fixed-vector codegen checkpoint. XIR-to-Schedule lowering,
-the dependency-light cohort semantic model, and the first acyclic LLVM packet
-dispatcher are implemented behind `LUISA_COMPUTE_ENABLE_SIMD`.
+the dependency-light cohort semantic model, and the independent-thread LLVM
+packet dispatcher are implemented behind `LUISA_COMPUTE_ENABLE_SIMD`.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `74cde8c2acca8ef3d8061a0536c5dfaccba46670` (2026-08-11).
@@ -703,8 +703,13 @@ on 2026-08-11. The repository now contains:
   arrays;
 - target-independent LLVM lowering for the core scalar warp reductions,
   votes, ballot, prefix operations, and lane reads;
-- an acyclic packet dispatcher with masked state copies, divergent splits,
-  single-level reconvergence, partial tail masks, and masked scalar returns;
+- an independent-thread packet dispatcher whose per-lane fixed-vector state
+  contains the current PC, dynamic convergence token, runnable/live bits, and
+  one epoch vector per natural loop;
+- bounded dynamic convergence frames (at most `W` for a `W`-lane packet),
+  cascading inner-to-outer joins, loop-gate reuse, partial tail masks, and
+  masked scalar returns; the old 64-block ready bitmap and its CFG-size limit
+  have been removed;
 - a host-target compiler facade and O2 ORC JIT boundary that delegates
   legalization, instruction selection, register allocation, and machine
   scheduling to LLVM;
@@ -714,10 +719,13 @@ on 2026-08-11. The repository now contains:
   diagnostics, and irreducible-CFG diagnostics;
 - IR-shape assertions that reject target-specific intrinsic namespaces and ORC
   execution tests for warp1/4/8/16, including a divergent cohort-uniform lane
-  read, lane-wise suspension spill, reconvergence, and active sum.
+  read, lane-wise suspension spill, reconvergence, and active sum;
+- ORC execution fixtures for lane-dependent loops at warp4/8, nested dynamic
+  reconvergence, and a 96-block CFG. Loop membership is explicit in Schedule
+  IR so epochs are compared only while a cohort remains inside that loop.
 
 The next implementation boundary is completing aggregate arithmetic and
-collectives, loop-epoch/nested-gate LLVM execution, resource memory lowering,
-and the `DeviceInterface` runtime module. The current compiler returns precise
-diagnostics for those unsupported Phase 2 features rather than silently
+collectives, resource memory lowering, dispatch special registers, and the
+`DeviceInterface` runtime module. The current compiler returns precise
+diagnostics for unsupported value/resource features rather than silently
 scalarizing them.

@@ -48,12 +48,14 @@ ConvergenceId Function::add_convergence(
     return id;
 }
 
-LoopId Function::add_loop(BlockId header, std::vector<BlockId> exits,
+LoopId Function::add_loop(BlockId header, std::vector<BlockId> blocks,
+                          std::vector<BlockId> exits,
                           std::optional<LoopId> parent) {
     auto id = LoopId{static_cast<uint32_t>(_loops.size())};
     _loops.emplace_back(Loop{
         .id = id,
         .header = header,
+        .blocks = std::move(blocks),
         .exits = std::move(exits),
         .parent = parent,
     });
@@ -313,6 +315,16 @@ VerificationResult verify(const Function &function) {
         }
         if (!valid_block(loop.header)) {
             add_error(result, "loop has an invalid header");
+        }
+        auto contains_header = false;
+        for (auto block : loop.blocks) {
+            if (!valid_block(block)) {
+                add_error(result, "loop has an invalid member block");
+            }
+            contains_header |= block == loop.header;
+        }
+        if (!contains_header) {
+            add_error(result, "loop membership does not contain its header");
         }
         for (auto exit : loop.exits) {
             if (!valid_block(exit)) {
@@ -665,7 +677,12 @@ std::string to_string(const Function &function) {
     }
     for (auto &&loop : function.loops()) {
         out << "  loop l" << loop.id.value << " header=bb"
-            << loop.header.value << " exits=[";
+            << loop.header.value << " blocks=[";
+        for (auto i = size_t{0u}; i < loop.blocks.size(); i++) {
+            if (i != 0u) { out << ", "; }
+            out << "bb" << loop.blocks[i].value;
+        }
+        out << "] exits=[";
         for (auto i = size_t{0u}; i < loop.exits.size(); i++) {
             if (i != 0u) { out << ", "; }
             out << "bb" << loop.exits[i].value;

@@ -144,7 +144,7 @@ namespace {
     auto result = verify(function);
     CHECK(result.succeeded());
     auto text = to_string(function);
-    CHECK(text.find("loop l0 header=bb1 exits=[bb3]") !=
+    CHECK(text.find("loop l0 header=bb1 blocks=[bb1] exits=[bb3]") !=
           std::string::npos);
     CHECK(text.find("loop_back l0") != std::string::npos);
     return true;

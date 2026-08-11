@@ -399,6 +399,18 @@ private:
         }
         _loop_back_ids.reserve(back_edge_count);
         for (auto &&source_loop : natural_loops) {
+            std::vector<BlockId> blocks;
+            blocks.reserve(source_loop.body_blocks.size() + 1u);
+            blocks.emplace_back(_block_ids.at(source_loop.header));
+            for (auto *block : source_loop.body_blocks) {
+                blocks.emplace_back(_block_ids.at(block));
+            }
+            std::sort(blocks.begin(), blocks.end(),
+                      [](BlockId lhs, BlockId rhs) noexcept {
+                          return lhs.value < rhs.value;
+                      });
+            blocks.erase(std::unique(blocks.begin(), blocks.end()),
+                         blocks.end());
             std::vector<BlockId> exits;
             exits.reserve(source_loop.exit_blocks.size());
             for (auto *exit : source_loop.exit_blocks) {
@@ -413,7 +425,8 @@ private:
                       });
             exits.erase(std::unique(exits.begin(), exits.end()), exits.end());
             auto id = _function->add_loop(
-                _block_ids.at(source_loop.header), std::move(exits));
+                _block_ids.at(source_loop.header), std::move(blocks),
+                std::move(exits));
             _loops.emplace_back(LoopRecord{
                 .source = &source_loop,
                 .id = id,

@@ -238,6 +238,10 @@ struct ConvergencePoint {
 struct Loop {
     LoopId id{};
     BlockId header{};
+    // Blocks whose dynamic instances are distinguished by this loop's epoch.
+    // Exit blocks are deliberately excluded so lanes that took different
+    // iteration counts may reconverge after leaving the loop.
+    std::vector<BlockId> blocks{};
     // Intentional infinite loops have an empty exit set.
     std::vector<BlockId> exits{};
     std::optional<LoopId> parent{};
@@ -269,12 +273,14 @@ public:
         BlockId target,
         std::optional<ConvergenceId> parent = std::nullopt);
     [[nodiscard]] LoopId add_loop(
-        BlockId header, std::vector<BlockId> exits,
+        BlockId header, std::vector<BlockId> blocks,
+        std::vector<BlockId> exits,
         std::optional<LoopId> parent = std::nullopt);
     [[nodiscard]] LoopId add_loop(
         BlockId header, BlockId exit,
         std::optional<LoopId> parent = std::nullopt) {
-        return add_loop(header, std::vector<BlockId>{exit}, parent);
+        return add_loop(header, std::vector<BlockId>{header},
+                        std::vector<BlockId>{exit}, parent);
     }
 
     void set_entry(BlockId entry) noexcept { _entry = entry; }

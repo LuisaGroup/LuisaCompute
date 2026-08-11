@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -50,16 +51,23 @@ private:
     ::llvm::Value *_return_buffer{nullptr};
     ::llvm::Value *_active_lane_count{nullptr};
     ::llvm::BasicBlock *_scheduler_loop{nullptr};
-    ::llvm::AllocaInst *_ready_bits{nullptr};
     ::llvm::AllocaInst *_live_mask{nullptr};
-    std::vector<::llvm::AllocaInst *> _pending_masks{};
-    std::vector<::llvm::AllocaInst *> _convergence_expected{};
-    std::vector<::llvm::AllocaInst *> _convergence_arrived{};
+    ::llvm::AllocaInst *_runnable_mask{nullptr};
+    ::llvm::AllocaInst *_pc_state{nullptr};
+    ::llvm::AllocaInst *_token_state{nullptr};
+    ::llvm::AllocaInst *_frame_active{nullptr};
+    ::llvm::AllocaInst *_frame_static_id{nullptr};
+    ::llvm::AllocaInst *_frame_parent_token{nullptr};
+    ::llvm::AllocaInst *_frame_expected{nullptr};
+    ::llvm::AllocaInst *_frame_arrived{nullptr};
+    std::vector<::llvm::AllocaInst *> _loop_epochs{};
+    std::vector<std::vector<schedule::LoopId>> _block_loops{};
     std::vector<::llvm::AllocaInst *> _state_slots{};
     std::vector<::llvm::Value *> _external_values{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
     ::llvm::Value *_active_mask{nullptr};
+    ::llvm::Value *_seed_lane{nullptr};
 
 private:
     void _fail(std::string message) {
@@ -82,22 +90,16 @@ private:
 
     void _preflight_edge(const schedule::ControlEdge &edge,
                          bool split_edge) {
-        if (edge.loop_back) {
-            _fail("Phase-2 LLVM packet codegen does not support loop epochs yet");
+        static_cast<void>(split_edge);
+        if (edge.loop_back && _source.loop(*edge.loop_back) == nullptr) {
+            _fail("control edge references an invalid loop back-edge");
             return;
         }
-        if (edge.joins.size() > 1u) {
-            _fail("Phase-2 LLVM packet codegen does not support cascading nested convergence yet");
-            return;
-        }
-        if (split_edge && !edge.joins.empty()) {
-            _fail("a divergent split edge must not close a convergence gate directly");
-            return;
-        }
-        if (!edge.joins.empty()) {
-            auto *point = _source.convergence(edge.joins.front());
+        for (auto convergence : edge.joins) {
+            auto *point = _source.convergence(convergence);
             if (point == nullptr || point->target != edge.target) {
                 _fail("convergence arrival edge does not target its gate block");
+                return;
             }
         }
     }
@@ -118,19 +120,10 @@ private:
                   verification.errors.front().message);
             return;
         }
-        if (_source.blocks().size() > 64u) {
-            _fail("Phase-2 LLVM packet dispatcher supports at most 64 blocks");
+        if (_source.blocks().size() >
+            static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+            _fail("Schedule IR block count exceeds the packet PC width");
             return;
-        }
-        if (!_source.loops().empty()) {
-            _fail("Phase-2 LLVM packet codegen supports acyclic Schedule IR only");
-            return;
-        }
-        for (auto &&point : _source.convergence_points()) {
-            if (point.parent) {
-                _fail("Phase-2 LLVM packet codegen does not support nested convergence yet");
-                return;
-            }
         }
 
         std::vector<const schedule::Value *> parameters;
@@ -700,64 +693,264 @@ private:
         }
     }
 
-    void _enqueue(schedule::BlockId target, ::llvm::Value *mask) {
-        auto *slot = _pending_masks[target.value];
-        auto *pending = _builder.CreateLoad(slot->getAllocatedType(), slot);
-        _builder.CreateStore(_builder.CreateOr(pending, mask), slot);
+    [[nodiscard]] ::llvm::Value *_zero_mask() noexcept {
+        return ::llvm::Constant::getNullValue(_layout.mask_type());
+    }
+
+    [[nodiscard]] ::llvm::Value *_splat(::llvm::Value *scalar) {
+        return scalar->getType()->isVectorTy() ? scalar :
+                                                _builder.CreateVectorSplat(
+                                                    _width, scalar);
+    }
+
+    [[nodiscard]] ::llvm::Value *_safe_first_lane(::llvm::Value *mask) {
         auto *any = _builder.CreateOrReduce(mask);
-        auto bit = uint64_t{1u} << target.value;
-        auto *ready = _builder.CreateLoad(
-            _ready_bits->getAllocatedType(), _ready_bits);
-        auto *bit_value = _builder.CreateSelect(
-            any, _builder.getInt64(bit), _builder.getInt64(0u));
-        _builder.CreateStore(_builder.CreateOr(ready, bit_value), _ready_bits);
+        auto *first = _collectives.first_active_lane(_builder, mask);
+        return _builder.CreateSelect(any, first, _builder.getInt32(0u));
+    }
+
+    void _masked_write(::llvm::AllocaInst *slot, ::llvm::Value *value,
+                       ::llvm::Value *mask) {
+        auto *old = _builder.CreateLoad(slot->getAllocatedType(), slot);
+        auto *lanes = _splat(value);
+        _builder.CreateStore(_builder.CreateSelect(mask, lanes, old), slot);
+    }
+
+    [[nodiscard]] ::llvm::Value *_frame_mask_pointer(
+        ::llvm::AllocaInst *frames, ::llvm::Value *index) {
+        auto *array = ::llvm::cast<::llvm::ArrayType>(
+            frames->getAllocatedType());
+        return _builder.CreateInBoundsGEP(
+            array, frames, {_builder.getInt32(0u), index});
+    }
+
+    void _trap_if(::llvm::Value *condition, std::string_view label) {
+        auto *trap = ::llvm::BasicBlock::Create(
+            _module.getContext(), std::string{label} + ".trap", _entry);
+        auto *resume = ::llvm::BasicBlock::Create(
+            _module.getContext(), std::string{label} + ".resume", _entry);
+        _builder.CreateCondBr(condition, trap, resume);
+        _builder.SetInsertPoint(trap);
+#if LLVM_VERSION_MAJOR >= 22
+        auto *intrinsic = ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+        auto *intrinsic = ::llvm::Intrinsic::getDeclaration(
+#endif
+            &_module, ::llvm::Intrinsic::trap);
+        _builder.CreateCall(intrinsic);
+        _builder.CreateUnreachable();
+        _builder.SetInsertPoint(resume);
+    }
+
+    [[nodiscard]] ::llvm::Value *_current_token(::llvm::Value *mask) {
+        auto *tokens = _builder.CreateLoad(
+            _token_state->getAllocatedType(), _token_state);
+        return _builder.CreateExtractElement(
+            tokens, _safe_first_lane(mask));
+    }
+
+    // Allocate one of at most W simultaneously live divergence frames. Every
+    // real allocation partitions a non-empty cohort into two non-empty sets,
+    // so a W-lane warp can have at most W-1 such frames. Re-entering the same
+    // convergence while traversing a loop reuses the current frame.
+    void _declare_convergence(schedule::ConvergenceId convergence,
+                              ::llvm::Value *true_mask,
+                              ::llvm::Value *false_mask) {
+        auto *has_true = _builder.CreateOrReduce(true_mask);
+        auto *has_false = _builder.CreateOrReduce(false_mask);
+        auto *divergent = _builder.CreateAnd(has_true, has_false);
+        auto *current_token = _current_token(_active_mask);
+        auto *has_current = _builder.CreateICmpNE(
+            current_token, _builder.getInt32(0u));
+        auto *current_index = _builder.CreateSelect(
+            has_current,
+            _builder.CreateSub(current_token, _builder.getInt32(1u)),
+            _builder.getInt32(0u));
+        auto *active_frames = _builder.CreateLoad(
+            _frame_active->getAllocatedType(), _frame_active);
+        auto *current_active = _builder.CreateExtractElement(
+            active_frames, current_index);
+        auto *static_ids = _builder.CreateLoad(
+            _frame_static_id->getAllocatedType(), _frame_static_id);
+        auto *current_static = _builder.CreateExtractElement(
+            static_ids, current_index);
+        auto *reuse = _builder.CreateAnd(
+            has_current,
+            _builder.CreateAnd(
+                current_active,
+                _builder.CreateICmpEQ(
+                    current_static,
+                    _builder.getInt32(convergence.value))));
+        auto *allocate = _builder.CreateAnd(divergent,
+                                            _builder.CreateNot(reuse));
+        auto *free_frames = _builder.CreateNot(active_frames);
+        auto *has_free = _builder.CreateOrReduce(free_frames);
+        _trap_if(_builder.CreateAnd(allocate, _builder.CreateNot(has_free)),
+                 "convergence.overflow");
+        auto *free_index = _safe_first_lane(free_frames);
+
+        auto *old_free_active = _builder.CreateExtractElement(
+            active_frames, free_index);
+        auto *new_free_active = _builder.CreateSelect(
+            allocate, _builder.getTrue(), old_free_active);
+        _builder.CreateStore(
+            _builder.CreateInsertElement(
+                active_frames, new_free_active, free_index),
+            _frame_active);
+
+        auto *old_static = _builder.CreateExtractElement(
+            static_ids, free_index);
+        auto *new_static = _builder.CreateSelect(
+            allocate, _builder.getInt32(convergence.value), old_static);
+        _builder.CreateStore(
+            _builder.CreateInsertElement(
+                static_ids, new_static, free_index),
+            _frame_static_id);
+
+        auto *parents = _builder.CreateLoad(
+            _frame_parent_token->getAllocatedType(), _frame_parent_token);
+        auto *old_parent = _builder.CreateExtractElement(parents, free_index);
+        auto *new_parent = _builder.CreateSelect(
+            allocate, current_token, old_parent);
+        _builder.CreateStore(
+            _builder.CreateInsertElement(parents, new_parent, free_index),
+            _frame_parent_token);
+
+        auto *expected_ptr = _frame_mask_pointer(
+            _frame_expected, free_index);
+        auto *arrived_ptr = _frame_mask_pointer(
+            _frame_arrived, free_index);
+        auto *old_expected = _builder.CreateLoad(
+            _layout.mask_type(), expected_ptr);
+        auto *old_arrived = _builder.CreateLoad(
+            _layout.mask_type(), arrived_ptr);
+        _builder.CreateStore(
+            _builder.CreateSelect(allocate, _active_mask, old_expected),
+            expected_ptr);
+        _builder.CreateStore(
+            _builder.CreateSelect(allocate, _zero_mask(), old_arrived),
+            arrived_ptr);
+
+        auto *allocated_token = _builder.CreateAdd(
+            free_index, _builder.getInt32(1u));
+        auto *gate_token = _builder.CreateSelect(
+            reuse, current_token, allocated_token);
+        auto *next_token = _builder.CreateSelect(
+            divergent, gate_token, current_token);
+        _masked_write(_token_state, next_token, _active_mask);
+    }
+
+    void _advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *mask) {
+        auto *slot = _loop_epochs[loop.value];
+        auto *old = _builder.CreateLoad(slot->getAllocatedType(), slot);
+        auto *one = _builder.CreateVectorSplat(
+            _width, _builder.getInt32(1u));
+        _builder.CreateStore(
+            _builder.CreateSelect(mask, _builder.CreateAdd(old, one), old),
+            slot);
+    }
+
+    [[nodiscard]] ::llvm::Value *_arrive_at_convergence(
+        schedule::ConvergenceId convergence, ::llvm::Value *flow) {
+        auto *any = _builder.CreateOrReduce(flow);
+        auto *token = _current_token(flow);
+        auto *has_token = _builder.CreateAnd(
+            any, _builder.CreateICmpNE(token, _builder.getInt32(0u)));
+        auto *index = _builder.CreateSelect(
+            has_token,
+            _builder.CreateSub(token, _builder.getInt32(1u)),
+            _builder.getInt32(0u));
+        auto *active_frames = _builder.CreateLoad(
+            _frame_active->getAllocatedType(), _frame_active);
+        auto *frame_active = _builder.CreateExtractElement(
+            active_frames, index);
+        auto *static_ids = _builder.CreateLoad(
+            _frame_static_id->getAllocatedType(), _frame_static_id);
+        auto *static_id = _builder.CreateExtractElement(static_ids, index);
+        auto *matches = _builder.CreateAnd(
+            has_token,
+            _builder.CreateAnd(
+                frame_active,
+                _builder.CreateICmpEQ(
+                    static_id,
+                    _builder.getInt32(convergence.value))));
+
+        auto *expected_ptr = _frame_mask_pointer(_frame_expected, index);
+        auto *arrived_ptr = _frame_mask_pointer(_frame_arrived, index);
+        auto *expected = _builder.CreateLoad(
+            _layout.mask_type(), expected_ptr);
+        auto *arrived = _builder.CreateLoad(
+            _layout.mask_type(), arrived_ptr);
+        auto *new_arrived = _builder.CreateOr(arrived, flow);
+        auto *live = _builder.CreateLoad(
+            _live_mask->getAllocatedType(), _live_mask);
+        auto *expected_live = _builder.CreateAnd(expected, live);
+        auto *complete = _builder.CreateAnd(
+            matches,
+            _builder.CreateAndReduce(
+                _builder.CreateICmpEQ(new_arrived, expected_live)));
+        auto *stored_arrived = _builder.CreateSelect(
+            matches,
+            _builder.CreateSelect(complete, _zero_mask(), new_arrived),
+            arrived);
+        _builder.CreateStore(stored_arrived, arrived_ptr);
+        _builder.CreateStore(
+            _builder.CreateSelect(complete, _zero_mask(), expected),
+            expected_ptr);
+
+        auto *old_frame_active = _builder.CreateExtractElement(
+            active_frames, index);
+        _builder.CreateStore(
+            _builder.CreateInsertElement(
+                active_frames,
+                _builder.CreateSelect(
+                    complete, _builder.getFalse(), old_frame_active),
+                index),
+            _frame_active);
+
+        auto *matching_lanes = _builder.CreateAnd(flow, _splat(matches));
+        auto *runnable = _builder.CreateLoad(
+            _runnable_mask->getAllocatedType(), _runnable_mask);
+        _builder.CreateStore(
+            _builder.CreateAnd(runnable,
+                               _builder.CreateNot(matching_lanes)),
+            _runnable_mask);
+
+        auto *released = _builder.CreateSelect(
+            _splat(complete), new_arrived, _zero_mask());
+        auto *parents = _builder.CreateLoad(
+            _frame_parent_token->getAllocatedType(), _frame_parent_token);
+        auto *parent_token = _builder.CreateExtractElement(parents, index);
+        _masked_write(_token_state, parent_token, released);
+        return _builder.CreateSelect(_splat(matches), released, flow);
+    }
+
+    void _resume(schedule::BlockId target, ::llvm::Value *mask) {
+        _masked_write(_pc_state, _builder.getInt32(target.value), mask);
+        auto *runnable = _builder.CreateLoad(
+            _runnable_mask->getAllocatedType(), _runnable_mask);
+        _builder.CreateStore(_builder.CreateOr(runnable, mask),
+                             _runnable_mask);
+    }
+
+    void _route_edge(const schedule::ControlEdge &edge,
+                     ::llvm::Value *mask) {
+        _apply_assignments(edge.assignments, mask);
+        if (_failed()) { return; }
+        if (edge.loop_back) {
+            _advance_loop_epoch(*edge.loop_back, mask);
+        }
+        auto *flow = mask;
+        for (auto convergence : edge.joins) {
+            flow = _arrive_at_convergence(convergence, flow);
+        }
+        _resume(edge.target, flow);
     }
 
     void _emit_arrival(const schedule::ControlEdge &edge,
                        ::llvm::Value *mask) {
-        _apply_assignments(edge.assignments, mask);
-        if (_failed()) { return; }
-        if (edge.joins.empty()) {
-            _enqueue(edge.target, mask);
-            _builder.CreateBr(_scheduler_loop);
-            return;
-        }
-        auto convergence = edge.joins.front();
-        auto *arrived_slot = _convergence_arrived[convergence.value];
-        ::llvm::Value *arrived = _builder.CreateLoad(
-            arrived_slot->getAllocatedType(), arrived_slot);
-        arrived = _builder.CreateOr(arrived, mask);
-        _builder.CreateStore(arrived, arrived_slot);
-        auto *expected_slot = _convergence_expected[convergence.value];
-        auto *expected = _builder.CreateLoad(
-            expected_slot->getAllocatedType(), expected_slot);
-        auto *complete = _builder.CreateAndReduce(
-            _builder.CreateICmpEQ(arrived, expected));
-        auto *release = ::llvm::BasicBlock::Create(
-            _module.getContext(), "convergence.release", _entry);
-        auto *wait = ::llvm::BasicBlock::Create(
-            _module.getContext(), "convergence.wait", _entry);
-        _builder.CreateCondBr(complete, release, wait);
-
-        _builder.SetInsertPoint(release);
-        auto *zero = ::llvm::Constant::getNullValue(
-            arrived_slot->getAllocatedType());
-        _builder.CreateStore(zero, arrived_slot);
-        _builder.CreateStore(zero, expected_slot);
-        _enqueue(edge.target, arrived);
+        _route_edge(edge, mask);
         _builder.CreateBr(_scheduler_loop);
-
-        _builder.SetInsertPoint(wait);
-        _builder.CreateBr(_scheduler_loop);
-    }
-
-    void _declare_convergence(schedule::ConvergenceId convergence) {
-        auto *expected = _convergence_expected[convergence.value];
-        auto *arrived = _convergence_arrived[convergence.value];
-        _builder.CreateStore(_active_mask, expected);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(arrived->getAllocatedType()),
-            arrived);
     }
 
     void _emit_terminator(const schedule::Terminator &terminator) {
@@ -773,22 +966,20 @@ private:
                     if (condition == nullptr || condition_value == nullptr) {
                         return;
                     }
-                    if (control.convergence) {
-                        _declare_convergence(*control.convergence);
-                    }
                     if (condition_value->value_class ==
                         schedule::ValueClass::varying) {
                         auto *true_mask = _builder.CreateAnd(
                             _active_mask, condition);
                         auto *false_mask = _builder.CreateAnd(
                             _active_mask, _builder.CreateNot(condition));
-                        _apply_assignments(
-                            control.true_edge.assignments, true_mask);
-                        _apply_assignments(
-                            control.false_edge.assignments, false_mask);
+                        if (control.convergence) {
+                            _declare_convergence(
+                                *control.convergence,
+                                true_mask, false_mask);
+                        }
+                        _route_edge(control.true_edge, true_mask);
+                        _route_edge(control.false_edge, false_mask);
                         if (_failed()) { return; }
-                        _enqueue(control.true_edge.target, true_mask);
-                        _enqueue(control.false_edge.target, false_mask);
                         _builder.CreateBr(_scheduler_loop);
                     } else {
                         auto *true_path = ::llvm::BasicBlock::Create(
@@ -827,36 +1018,89 @@ private:
                     auto *new_live = _builder.CreateAnd(
                         live, _builder.CreateNot(_active_mask));
                     _builder.CreateStore(new_live, _live_mask);
-                    auto *zero_mask = ::llvm::Constant::getNullValue(
-                        _layout.mask_type());
-                    // Terminated lanes no longer count toward any open gate.
-                    // Release a gate immediately if its remaining expected
-                    // live mask has now fully arrived.
+                    auto *runnable = _builder.CreateLoad(
+                        _runnable_mask->getAllocatedType(),
+                        _runnable_mask);
+                    _builder.CreateStore(
+                        _builder.CreateAnd(
+                            runnable, _builder.CreateNot(_active_mask)),
+                        _runnable_mask);
+
+                    // A lane that terminates is removed from every frame's
+                    // expected mask. Frame storage is bounded by W rather
+                    // than the number of static CFG convergence points.
+                    std::vector<::llvm::Constant *> targets;
+                    targets.reserve(_source.convergence_points().size());
                     for (auto &&point : _source.convergence_points()) {
-                        auto *expected_slot =
-                            _convergence_expected[point.id.value];
-                        auto *arrived_slot =
-                            _convergence_arrived[point.id.value];
-                        auto *expected = _builder.CreateAnd(
-                            _builder.CreateLoad(
-                                expected_slot->getAllocatedType(),
-                                expected_slot),
-                            new_live);
+                        targets.emplace_back(
+                            _builder.getInt32(point.target.value));
+                    }
+                    auto *target_table = targets.empty() ? nullptr :
+                        ::llvm::ConstantVector::get(targets);
+                    for (auto frame = uint32_t{0u}; frame < _width; frame++) {
+                        auto *index = _builder.getInt32(frame);
+                        auto *active_frames = _builder.CreateLoad(
+                            _frame_active->getAllocatedType(),
+                            _frame_active);
+                        auto *frame_active = _builder.CreateExtractElement(
+                            active_frames, index);
+                        auto *expected_ptr = _frame_mask_pointer(
+                            _frame_expected, index);
+                        auto *arrived_ptr = _frame_mask_pointer(
+                            _frame_arrived, index);
+                        auto *expected = _builder.CreateLoad(
+                            _layout.mask_type(), expected_ptr);
                         auto *arrived = _builder.CreateLoad(
-                            arrived_slot->getAllocatedType(), arrived_slot);
-                        auto *complete = _builder.CreateAndReduce(
-                            _builder.CreateICmpEQ(arrived, expected));
+                            _layout.mask_type(), arrived_ptr);
+                        auto *expected_live = _builder.CreateAnd(
+                            expected, new_live);
+                        auto *complete = _builder.CreateAnd(
+                            frame_active,
+                            _builder.CreateAndReduce(
+                                _builder.CreateICmpEQ(
+                                    arrived, expected_live)));
                         auto *released = _builder.CreateSelect(
-                            complete, arrived, zero_mask);
+                            _splat(complete), arrived, _zero_mask());
                         _builder.CreateStore(
                             _builder.CreateSelect(
-                                complete, zero_mask, expected),
-                            expected_slot);
+                                complete, _zero_mask(), expected_live),
+                            expected_ptr);
                         _builder.CreateStore(
                             _builder.CreateSelect(
-                                complete, zero_mask, arrived),
-                            arrived_slot);
-                        _enqueue(point.target, released);
+                                complete, _zero_mask(), arrived),
+                            arrived_ptr);
+                        _builder.CreateStore(
+                            _builder.CreateInsertElement(
+                                active_frames,
+                                _builder.CreateSelect(
+                                    complete, _builder.getFalse(),
+                                    frame_active),
+                                index),
+                            _frame_active);
+
+                        auto *parents = _builder.CreateLoad(
+                            _frame_parent_token->getAllocatedType(),
+                            _frame_parent_token);
+                        auto *parent = _builder.CreateExtractElement(
+                            parents, index);
+                        _masked_write(_token_state, parent, released);
+                        auto *static_ids = _builder.CreateLoad(
+                            _frame_static_id->getAllocatedType(),
+                            _frame_static_id);
+                        auto *static_id = _builder.CreateExtractElement(
+                            static_ids, index);
+                        if (target_table != nullptr) {
+                            auto *target = _builder.CreateExtractElement(
+                                target_table, static_id);
+                            _masked_write(_pc_state, target, released);
+                        }
+                        auto *current_runnable = _builder.CreateLoad(
+                            _runnable_mask->getAllocatedType(),
+                            _runnable_mask);
+                        _builder.CreateStore(
+                            _builder.CreateOr(
+                                current_runnable, released),
+                            _runnable_mask);
                     }
                     _builder.CreateBr(_scheduler_loop);
                 } else if constexpr (
@@ -872,33 +1116,51 @@ private:
     void _allocate_state() {
         auto *mask_type = _layout.mask_type();
         auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
-        _ready_bits = _builder.CreateAlloca(
-            _builder.getInt64Ty(), nullptr, "ready.bits");
+        auto *i32_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt32Ty(), _width);
+        auto *zero_i32_lanes = ::llvm::Constant::getNullValue(i32_lanes);
         _live_mask = _builder.CreateAlloca(
             mask_type, nullptr, "live.mask");
-        _pending_masks.resize(_source.blocks().size());
-        for (auto &&block : _source.blocks()) {
-            auto *slot = _builder.CreateAlloca(
-                mask_type, nullptr,
-                "pending." + std::to_string(block.id.value));
-            _builder.CreateStore(zero_mask, slot);
-            _pending_masks[block.id.value] = slot;
-        }
-        _convergence_expected.resize(
-            _source.convergence_points().size());
-        _convergence_arrived.resize(
-            _source.convergence_points().size());
-        for (auto &&point : _source.convergence_points()) {
-            auto *expected = _builder.CreateAlloca(
-                mask_type, nullptr,
-                "convergence.expected." + std::to_string(point.id.value));
-            auto *arrived = _builder.CreateAlloca(
-                mask_type, nullptr,
-                "convergence.arrived." + std::to_string(point.id.value));
-            _builder.CreateStore(zero_mask, expected);
-            _builder.CreateStore(zero_mask, arrived);
-            _convergence_expected[point.id.value] = expected;
-            _convergence_arrived[point.id.value] = arrived;
+        _runnable_mask = _builder.CreateAlloca(
+            mask_type, nullptr, "runnable.mask");
+        _pc_state = _builder.CreateAlloca(
+            i32_lanes, nullptr, "lane.pc");
+        _token_state = _builder.CreateAlloca(
+            i32_lanes, nullptr, "lane.convergence.token");
+        _frame_active = _builder.CreateAlloca(
+            mask_type, nullptr, "frame.active");
+        _frame_static_id = _builder.CreateAlloca(
+            i32_lanes, nullptr, "frame.static.id");
+        _frame_parent_token = _builder.CreateAlloca(
+            i32_lanes, nullptr, "frame.parent.token");
+        auto *frame_masks = ::llvm::ArrayType::get(mask_type, _width);
+        _frame_expected = _builder.CreateAlloca(
+            frame_masks, nullptr, "frame.expected");
+        _frame_arrived = _builder.CreateAlloca(
+            frame_masks, nullptr, "frame.arrived");
+        _builder.CreateStore(zero_mask, _live_mask);
+        _builder.CreateStore(zero_mask, _runnable_mask);
+        _builder.CreateStore(zero_i32_lanes, _pc_state);
+        _builder.CreateStore(zero_i32_lanes, _token_state);
+        _builder.CreateStore(zero_mask, _frame_active);
+        _builder.CreateStore(zero_i32_lanes, _frame_static_id);
+        _builder.CreateStore(zero_i32_lanes, _frame_parent_token);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(frame_masks), _frame_expected);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(frame_masks), _frame_arrived);
+
+        _loop_epochs.resize(_source.loops().size());
+        _block_loops.resize(_source.blocks().size());
+        for (auto &&loop : _source.loops()) {
+            auto *epoch = _builder.CreateAlloca(
+                i32_lanes, nullptr,
+                "loop.epoch." + std::to_string(loop.id.value));
+            _builder.CreateStore(zero_i32_lanes, epoch);
+            _loop_epochs[loop.id.value] = epoch;
+            for (auto block : loop.blocks) {
+                _block_loops[block.value].emplace_back(loop.id);
+            }
         }
         _state_slots.resize(_source.values().size(), nullptr);
         for (auto &&value : _source.values()) {
@@ -958,14 +1220,11 @@ private:
             _width, _active_lane_count);
         auto *initial_mask = _builder.CreateICmpULT(lane_ids, count);
         _builder.CreateStore(initial_mask, _live_mask);
+        _builder.CreateStore(initial_mask, _runnable_mask);
         _builder.CreateStore(
-            initial_mask, _pending_masks[_source.entry().value]);
-        auto entry_bit = uint64_t{1u} << _source.entry().value;
-        _builder.CreateStore(
-            _builder.CreateSelect(
-                _builder.CreateOrReduce(initial_mask),
-                _builder.getInt64(entry_bit), _builder.getInt64(0u)),
-            _ready_bits);
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt32(_source.entry().value)),
+            _pc_state);
 
         _scheduler_loop = ::llvm::BasicBlock::Create(
             context, "scheduler.loop", _entry);
@@ -973,6 +1232,10 @@ private:
             context, "scheduler.dispatch", _entry);
         auto *done = ::llvm::BasicBlock::Create(
             context, "scheduler.done", _entry);
+        auto *exit = ::llvm::BasicBlock::Create(
+            context, "scheduler.exit", _entry);
+        auto *stalled = ::llvm::BasicBlock::Create(
+            context, "scheduler.stalled", _entry);
         auto *invalid = ::llvm::BasicBlock::Create(
             context, "scheduler.invalid", _entry);
         std::vector<::llvm::BasicBlock *> cases;
@@ -985,25 +1248,19 @@ private:
         _builder.CreateBr(_scheduler_loop);
 
         _builder.SetInsertPoint(_scheduler_loop);
-        auto *ready = _builder.CreateLoad(
-            _ready_bits->getAllocatedType(), _ready_bits);
+        auto *runnable = _builder.CreateLoad(
+            _runnable_mask->getAllocatedType(), _runnable_mask);
         _builder.CreateCondBr(
-            _builder.CreateICmpNE(ready, _builder.getInt64(0u)),
+            _builder.CreateOrReduce(runnable),
             dispatch, done);
 
         _builder.SetInsertPoint(dispatch);
-        auto *cttz =
-#if LLVM_VERSION_MAJOR >= 22
-            ::llvm::Intrinsic::getOrInsertDeclaration(
-#else
-            ::llvm::Intrinsic::getDeclaration(
-#endif
-            &_module, ::llvm::Intrinsic::cttz,
-            {_builder.getInt64Ty()});
-        auto *pc = _builder.CreateCall(
-            cttz, {ready, _builder.getFalse()});
+        _seed_lane = _safe_first_lane(runnable);
+        auto *pcs = _builder.CreateLoad(
+            _pc_state->getAllocatedType(), _pc_state);
+        auto *pc = _builder.CreateExtractElement(pcs, _seed_lane);
         auto *dispatch_switch = _builder.CreateSwitch(
-            _builder.CreateTrunc(pc, _builder.getInt32Ty()),
+            pc,
             invalid, static_cast<unsigned>(cases.size()));
         for (auto &&block : _source.blocks()) {
             dispatch_switch->addCase(
@@ -1011,27 +1268,72 @@ private:
         }
 
         _builder.SetInsertPoint(invalid);
+        auto *invalid_trap =
+#if LLVM_VERSION_MAJOR >= 22
+            ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+            ::llvm::Intrinsic::getDeclaration(
+#endif
+                &_module, ::llvm::Intrinsic::trap);
+        _builder.CreateCall(invalid_trap);
         _builder.CreateUnreachable();
 
         _builder.SetInsertPoint(done);
+        auto *live = _builder.CreateLoad(
+            _live_mask->getAllocatedType(), _live_mask);
+        _builder.CreateCondBr(
+            _builder.CreateOrReduce(live), stalled, exit);
+
+        _builder.SetInsertPoint(stalled);
+        auto *stalled_trap =
+#if LLVM_VERSION_MAJOR >= 22
+            ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+            ::llvm::Intrinsic::getDeclaration(
+#endif
+                &_module, ::llvm::Intrinsic::trap);
+        _builder.CreateCall(stalled_trap);
+        _builder.CreateUnreachable();
+
+        _builder.SetInsertPoint(exit);
         _builder.CreateRetVoid();
 
-        auto *zero_mask = ::llvm::Constant::getNullValue(
-            _layout.mask_type());
         for (auto &&block : _source.blocks()) {
             _builder.SetInsertPoint(cases[block.id.value]);
             _locals.clear();
-            auto *pending = _pending_masks[block.id.value];
-            _active_mask = _builder.CreateLoad(
-                pending->getAllocatedType(), pending, "active.mask");
-            _builder.CreateStore(zero_mask, pending);
-            auto *current_ready = _builder.CreateLoad(
-                _ready_bits->getAllocatedType(), _ready_bits);
-            auto bit = uint64_t{1u} << block.id.value;
-            _builder.CreateStore(
+            auto *current_runnable = _builder.CreateLoad(
+                _runnable_mask->getAllocatedType(), _runnable_mask);
+            auto *current_pcs = _builder.CreateLoad(
+                _pc_state->getAllocatedType(), _pc_state);
+            auto *current_tokens = _builder.CreateLoad(
+                _token_state->getAllocatedType(), _token_state);
+            auto *seed_token = _builder.CreateExtractElement(
+                current_tokens, _seed_lane);
+            _active_mask = _builder.CreateAnd(
+                current_runnable,
                 _builder.CreateAnd(
-                    current_ready, _builder.getInt64(~bit)),
-                _ready_bits);
+                    _builder.CreateICmpEQ(
+                        current_pcs,
+                        _builder.CreateVectorSplat(
+                            _width,
+                            _builder.getInt32(block.id.value))),
+                    _builder.CreateICmpEQ(
+                        current_tokens,
+                        _builder.CreateVectorSplat(
+                            _width, seed_token))));
+            for (auto loop : _block_loops[block.id.value]) {
+                auto *epochs = _builder.CreateLoad(
+                    _loop_epochs[loop.value]->getAllocatedType(),
+                    _loop_epochs[loop.value]);
+                auto *seed_epoch = _builder.CreateExtractElement(
+                    epochs, _seed_lane);
+                _active_mask = _builder.CreateAnd(
+                    _active_mask,
+                    _builder.CreateICmpEQ(
+                        epochs,
+                        _builder.CreateVectorSplat(
+                            _width, seed_epoch)));
+            }
             for (auto &&instruction : block.instructions) {
                 _emit_instruction(instruction);
                 if (_failed()) { return; }
