@@ -31,7 +31,8 @@ int main() {
             auto one = cur.literal(Type::of<uint32_t>(), 1u);
             auto dst_elem = cur.access(Type::of<uint32_t>(), shared, zero);
             auto src_elem = cur.access(Type::of<uint32_t>(), shared, one);
-            auto src = cur.call(Type::of<ulong>(), CallOp::ADDRESS_OF, {src_elem});
+            auto src = cur.call(
+                Type::of<luisa::ulong>(), CallOp::ADDRESS_OF, {src_elem});
 
             // ASYNC_COPY arguments: scope, dst_lvalue, src_addr, elem_bytes, num_elements, stride, event.
             auto scope = cur.literal(Type::of<uint32_t>(), 2u);

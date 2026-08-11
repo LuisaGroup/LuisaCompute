@@ -45,13 +45,13 @@ int main(int argc, char *argv[]) {
         // Stage 1: Prefetch first tile into tile_a
         $uint base_a = block_x() * 2u * block_size + tid;
         async_copy(1u, tile_a[tid],
-                   src_base + cast<ulong>(base_a * 4u), 4u, 1u, 4u, 0u);
+                   src_base + cast<luisa::ulong>(base_a * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Stage 2: Prefetch second tile into tile_b
         $uint base_b = base_a + block_size;
         async_copy(1u, tile_b[tid],
-                   src_base + cast<ulong>(base_b * 4u), 4u, 1u, 4u, 0u);
+                   src_base + cast<luisa::ulong>(base_b * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Wait for stage 1 to complete (1 prior stage still in flight)

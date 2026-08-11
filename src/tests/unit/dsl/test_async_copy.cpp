@@ -51,7 +51,7 @@ void test_async_copy_basic(Device &device) {
         // Async copy one float (4 bytes) from global to shared. dst is the
         // shared-memory lvalue; src is the global source address.
         async_copy(1u, tile[tid],
-                   src_buf.device_address() + cast<ulong>(base * 4u),
+                   src_buf.device_address() + cast<luisa::ulong>(base * 4u),
                    4u, 1u, 4u, 0u);
         pipeline_commit();
         pipeline_wait_prior(0u);
@@ -110,13 +110,13 @@ void test_async_copy_two_stage(Device &device) {
         // Stage 1: prefetch tile A.
         $uint base_a = block_x() * elements_per_block + tid;
         async_copy(1u, tile_a[tid],
-                   src_base + cast<ulong>(base_a * 4u), 4u, 1u, 4u, 0u);
+                   src_base + cast<luisa::ulong>(base_a * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Stage 2: prefetch tile B.
         $uint base_b = base_a + block_size;
         async_copy(1u, tile_b[tid],
-                   src_base + cast<ulong>(base_b * 4u), 4u, 1u, 4u, 0u);
+                   src_base + cast<luisa::ulong>(base_b * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Wait for tile A (one stage still in flight).
@@ -183,7 +183,7 @@ void test_async_copy_float4(Device &device) {
 
         // Async copy one float4 (16 bytes) from global to shared.
         async_copy(1u, tile[tid],
-                   src_buf.device_address() + cast<ulong>(base * 16u),
+                   src_buf.device_address() + cast<luisa::ulong>(base * 16u),
                    16u, 1u, 16u, 0u);
         pipeline_commit();
         pipeline_wait_prior(0u);
