@@ -217,6 +217,8 @@ static void hash_optional_token(DistillCertificateHasher &h,
         h.add_string(frame_value.name);
         h.add_pointer(frame_value.type);
         h.add(frame_value.slot);
+        h.add(frame_value.bit_offset.has_value());
+        if (frame_value.bit_offset) { h.add(*frame_value.bit_offset); }
     }
     h.add(result.frame_slots.size());
     for (auto &frame_slot : result.frame_slots) {
@@ -1118,6 +1120,105 @@ static void append_names_from_frame_values(
     }
 }
 
+[[nodiscard]] static size_t frame_slot_abi_size(
+    luisa::span<const size_t> order,
+    luisa::span<const CoroCfgDistillResult::FrameSlot> slots) noexcept {
+    auto offset = size_t{0u};
+    auto structure_alignment = Type::of<uint>()->alignment();
+    auto append = [&](const Type *type) noexcept {
+        LUISA_DEBUG_ASSERT(type != nullptr && type->alignment() != 0u,
+                           "Invalid coroutine frame field type.");
+        auto alignment = type->alignment();
+        offset = (offset + alignment - 1u) / alignment * alignment;
+        offset += type->size();
+        structure_alignment =
+            std::max(structure_alignment, alignment);
+    };
+    // The scheduler ABI fixes seven uint fields before user state.
+    for (auto i = 0u; i < CORO_FRAME_RESERVED_FIELD_COUNT; ++i) {
+        append(Type::of<uint>());
+    }
+    for (auto index : order) {
+        LUISA_DEBUG_ASSERT(index < slots.size(),
+                           "Coroutine frame slot index is out of range.");
+        append(slots[index].type);
+    }
+    return (offset + structure_alignment - 1u) /
+           structure_alignment * structure_alignment;
+}
+
+static void optimize_frame_slot_abi_order(
+    CoroCfgDistillResult &result) noexcept {
+    auto slot_count = result.frame_slots.size();
+    if (slot_count < 2u) { return; }
+
+    // Slot identities are purely physical: any permutation is semantics
+    // preserving when every logical value is remapped by the same bijection.
+    // Choose an ABI order against the real fixed-prefix offset rather than
+    // assuming the user payload starts at its maximum alignment. At each
+    // offset, list scheduling first minimizes the padding inserted before the
+    // next field and then prefers the most aligned field. The candidate is
+    // accepted only when the exact structure-layout objective is strictly
+    // smaller, so heuristic quality can affect opportunity but never regress
+    // frame size or correctness.
+    luisa::vector<size_t> original_order;
+    original_order.reserve(slot_count);
+    for (size_t i = 0u; i < slot_count; ++i) {
+        original_order.emplace_back(i);
+    }
+    auto candidate_order = luisa::vector<size_t>{};
+    candidate_order.reserve(slot_count);
+    auto remaining = original_order;
+    auto offset = CORO_FRAME_RESERVED_FIELD_COUNT *
+                  Type::of<uint>()->size();
+    while (!remaining.empty()) {
+        auto best = size_t{0u};
+        auto best_padding = static_cast<size_t>(-1);
+        auto best_alignment = size_t{0u};
+        for (size_t i = 0u; i < remaining.size(); ++i) {
+            auto *type = result.frame_slots[remaining[i]].type;
+            auto alignment = type->alignment();
+            auto aligned =
+                (offset + alignment - 1u) / alignment * alignment;
+            auto padding = aligned - offset;
+            if (padding < best_padding ||
+                (padding == best_padding &&
+                 alignment > best_alignment)) {
+                best = i;
+                best_padding = padding;
+                best_alignment = alignment;
+            }
+        }
+        auto slot = remaining[best];
+        auto *type = result.frame_slots[slot].type;
+        offset += best_padding + type->size();
+        candidate_order.emplace_back(slot);
+        remaining.erase(remaining.begin() + best);
+    }
+    auto original_size = frame_slot_abi_size(
+        original_order, result.frame_slots);
+    auto candidate_size = frame_slot_abi_size(
+        candidate_order, result.frame_slots);
+    if (candidate_size >= original_size) { return; }
+
+    luisa::vector<size_t> old_to_new(slot_count);
+    luisa::vector<CoroCfgDistillResult::FrameSlot> reordered;
+    reordered.reserve(slot_count);
+    for (size_t new_index = 0u;
+         new_index < candidate_order.size(); ++new_index) {
+        auto old_index = candidate_order[new_index];
+        old_to_new[old_index] = new_index;
+        reordered.emplace_back(
+            std::move(result.frame_slots[old_index]));
+    }
+    for (auto &value : result.frame_values) {
+        LUISA_DEBUG_ASSERT(value.slot < old_to_new.size(),
+                           "Coroutine frame slot index is out of range.");
+        value.slot = old_to_new[value.slot];
+    }
+    result.frame_slots = std::move(reordered);
+}
+
 static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
     auto value_count = result.frame_values.size();
     result.frame_slots.clear();
@@ -1157,8 +1258,14 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
 
     luisa::vector<const Type *> type_order;
     luisa::unordered_map<const Type *, luisa::vector<size_t>> values_by_type;
+    luisa::vector<size_t> bool_values;
     for (size_t i = 0u; i < value_count; ++i) {
         auto *type = result.frame_values[i].type;
+        result.frame_values[i].bit_offset.reset();
+        if (type == Type::of<bool>()) {
+            bool_values.emplace_back(i);
+            continue;
+        }
         auto [iter, inserted] = values_by_type.try_emplace(type);
         if (inserted) { type_order.emplace_back(type); }
         iter->second.emplace_back(i);
@@ -1211,6 +1318,53 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
             slot_occupants[slot_index].emplace_back(value_index);
         }
     }
+
+    // Boolean storage is a graph-coloring problem at bit granularity. Each
+    // lane is one interference color: values assigned to it never coexist.
+    // Thirty-two lanes share one dedicated uint field, while distinct lanes
+    // preserve simultaneously live Boolean values in distinct bits.
+    std::stable_sort(
+        bool_values.begin(), bool_values.end(),
+        [&](size_t lhs, size_t rhs) noexcept {
+            return interference[lhs].count_size() >
+                   interference[rhs].count_size();
+        });
+    luisa::vector<luisa::vector<size_t>> bool_lane_occupants;
+    luisa::vector<size_t> bool_lane_slots;
+    for (auto value_index : bool_values) {
+        auto lane_index = static_cast<size_t>(-1);
+        for (size_t candidate = 0u;
+             candidate < bool_lane_occupants.size(); ++candidate) {
+            auto conflict = false;
+            for (auto occupant : bool_lane_occupants[candidate]) {
+                if (interference[value_index].test(occupant)) {
+                    conflict = true;
+                    break;
+                }
+            }
+            if (!conflict) {
+                lane_index = candidate;
+                break;
+            }
+        }
+        if (lane_index == static_cast<size_t>(-1)) {
+            lane_index = bool_lane_occupants.size();
+            bool_lane_occupants.emplace_back();
+            if (lane_index % 32u == 0u) {
+                result.frame_slots.emplace_back(
+                    CoroCfgDistillResult::FrameSlot{
+                        .name = result.frame_values[value_index].name,
+                        .type = Type::of<uint>()});
+            }
+            bool_lane_slots.emplace_back(
+                result.frame_slots.size() - 1u);
+        }
+        auto &value = result.frame_values[value_index];
+        value.slot = bool_lane_slots[lane_index];
+        value.bit_offset = static_cast<uint32_t>(lane_index % 32u);
+        bool_lane_occupants[lane_index].emplace_back(value_index);
+    }
+    optimize_frame_slot_abi_order(result);
 }
 
 static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinition *def) noexcept {
@@ -1462,6 +1616,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
                     .name = std::move(name),
                     .type = field.type,
                     .slot = 0u,
+                    .bit_offset = luisa::nullopt,
                 });
         }
         atom_to_frame_value_range[planned.atom_index] = {
@@ -1740,13 +1895,17 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             }
             LUISA_INFO(
                 "Coroutine logical frame value {}: name='{}' kind={} "
-                "path_depth={} type={} size={} align={} physical_slot={}.",
+                "path_depth={} type={} size={} align={} physical_slot={} "
+                "bit_offset={}.",
                 i, value.name, tag, value.access_chain.size(),
                 value.type == nullptr ? luisa::string_view{"void"} :
                                         value.type->description(),
                 value.type == nullptr ? 0u : value.type->size(),
                 value.type == nullptr ? 0u : value.type->alignment(),
-                value.slot);
+                value.slot,
+                value.bit_offset ?
+                    luisa::format("{}", *value.bit_offset) :
+                    luisa::string{"none"});
         }
     }
 }

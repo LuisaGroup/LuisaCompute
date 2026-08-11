@@ -58,8 +58,10 @@ struct CoroMaterializeInfo {
     };
     luisa::vector<TransitionEdge> edges;
     // frame_fields describes physical storage exactly once per field.
-    // name_to_field/name_to_type describe logical names and may contain
-    // several exact-typed aliases for one interference-colored field.
+    // name_to_field/name_to_type describe physical field aliases and may
+    // contain several names for one interference-colored field. A logical
+    // Boolean packed into a uint bit lane consequently has uint here: its
+    // Boolean extraction/insertion is already explicit in split XIR.
     luisa::vector<FrameField> frame_fields;
     luisa::unordered_map<luisa::string, size_t> name_to_field;
     luisa::unordered_map<luisa::string, const Type *> name_to_type;

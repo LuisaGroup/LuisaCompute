@@ -1,6 +1,7 @@
 #include "ut/ut.hpp"
 #include "coro_test_utils.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 
@@ -777,6 +778,104 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             clear_and_check(
                 [&] { persistent(input, output).dispatch(N)(stream); },
                 "ssa_float3_persistent");
+        };
+
+    "packed_boolean_rmw_preserves_dormant_bits_in_all_schedulers"_test =
+        [options] {
+            constexpr uint N = 64u;
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto input = device.create_buffer<uint>(N * 2u);
+            auto output = device.create_buffer<uint>(N);
+
+            luisa::vector<uint> source(N * 2u);
+            for (auto i = 0u; i < N; ++i) {
+                source[i] = i & 1u;
+                source[N + i] = (i & 2u) != 0u ? 2u : 0u;
+            }
+            stream << input.copy_from(luisa::span{source})
+                   << synchronize();
+
+            auto coroutine = Coroutine<
+                void(Buffer<uint>, Buffer<uint>)>(
+                [](BufferUInt input, BufferUInt output) noexcept {
+                    auto tid = dispatch_x();
+                    auto first = (input.read(tid) & 1u) != 0u;
+                    $suspend("remember-first-bit");
+                    auto second =
+                        (input.read(dispatch_size_x() + tid) & 2u) != 0u;
+                    $suspend("add-second-bit");
+                    output.write(
+                        tid,
+                        ite(first, 1u, 0u) |
+                            ite(second, 2u, 0u));
+                });
+
+            // Both logical booleans coexist at the second transition but
+            // occupy distinct bits of one physical uint frame word.
+            expect(coroutine.frame().frame_type()->size() == 32u);
+            auto *partial_update_node =
+                coroutine.graph().node_by_name("remember-first-bit");
+            expect(partial_update_node != nullptr);
+            if (partial_update_node != nullptr) {
+                auto packed_word_field =
+                    CoroFrameDesc::reserved_field_count;
+                expect(std::find(
+                           partial_update_node->input_fields.begin(),
+                           partial_update_node->input_fields.end(),
+                           packed_word_field) !=
+                       partial_update_node->input_fields.end())
+                    << "partial packed-word update must load pass-through bits";
+            }
+
+            auto clear_and_check =
+                [&](auto &&dispatch, luisa::string_view label) noexcept {
+                    luisa::vector<uint> zero(N);
+                    stream << output.copy_from(luisa::span{zero});
+                    dispatch();
+                    luisa::vector<uint> host(N);
+                    stream << output.copy_to(luisa::span{host})
+                           << synchronize();
+                    auto ok = true;
+                    for (auto i = 0u; i < N; ++i) {
+                        auto expected = source[i] | source[N + i];
+                        if (host[i] != expected) {
+                            LUISA_WARNING(
+                                "{} mismatch at {}: got {}, expected {}",
+                                label, i, host[i], expected);
+                            ok = false;
+                            break;
+                        }
+                    }
+                    expect(ok) << label;
+                };
+
+            StateMachineCoroScheduler<
+                Buffer<uint>, Buffer<uint>>
+                state_machine{device, coroutine};
+            clear_and_check(
+                [&] {
+                    state_machine(input, output).dispatch(N)(stream);
+                },
+                "packed_bool_state_machine");
+
+            WavefrontCoroScheduler<
+                Buffer<uint>, Buffer<uint>>
+                wavefront{device, coroutine};
+            clear_and_check(
+                [&] { wavefront(input, output).dispatch(N)(stream); },
+                "packed_bool_wavefront");
+
+            PersistentThreadsCoroScheduler<
+                Buffer<uint>, Buffer<uint>>
+                persistent{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+            clear_and_check(
+                [&] { persistent(input, output).dispatch(N)(stream); },
+                "packed_bool_persistent");
         };
 
     "coroutine_lowering_preserves_structured_helper_identity"_test = [] {

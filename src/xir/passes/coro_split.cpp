@@ -3,6 +3,7 @@
 #include <limits>
 
 #include "helpers.h"
+#include "coro_frame_abi.h"
 #include "coro_replayable.h"
 
 #include <luisa/ast/type.h>
@@ -42,7 +43,8 @@ static constexpr uint32_t FRAME_FIELD_SIZE_X = 3u;
 static constexpr uint32_t FRAME_FIELD_SIZE_Y = 4u;
 static constexpr uint32_t FRAME_FIELD_SIZE_Z = 5u;
 static constexpr uint32_t FRAME_FIELD_TOKEN = 6u;
-static constexpr uint32_t FRAME_USER_FIELD_OFFSET = 7u;
+static constexpr uint32_t FRAME_USER_FIELD_OFFSET =
+    CORO_FRAME_RESERVED_FIELD_COUNT;
 
 static void coro_split_clone_metadata(const MetadataListMixin &source,
                            MetadataListMixin &target) noexcept {
@@ -397,7 +399,8 @@ public:
         if (lhs.value != rhs.value ||
             lhs.access_chain != rhs.access_chain ||
             lhs.name != rhs.name ||
-            lhs.type != rhs.type || lhs.slot != rhs.slot) {
+            lhs.type != rhs.type || lhs.slot != rhs.slot ||
+            lhs.bit_offset != rhs.bit_offset) {
             return false;
         }
     }
@@ -543,10 +546,22 @@ public:
              static_cast<AllocaInst *>(frame_value.value)->is_local()) ||
             (frame_value.value != nullptr &&
              !frame_value.value->is_lvalue());
+        auto direct_slot_type =
+            frame_value.slot < result.frame_slots.size() ?
+                result.frame_slots[frame_value.slot].type :
+                nullptr;
+        auto packed_bool_valid =
+            frame_value.bit_offset.has_value() &&
+            frame_value.type == Type::of<bool>() &&
+            direct_slot_type == Type::of<uint>() &&
+            *frame_value.bit_offset < 32u;
+        auto direct_value_valid =
+            !frame_value.bit_offset.has_value() &&
+            direct_slot_type == frame_value.type;
         if (frame_value.value == nullptr || frame_value.type == nullptr ||
             !path_root_is_supported ||
             frame_value.slot >= result.frame_slots.size() ||
-            result.frame_slots[frame_value.slot].type != frame_value.type ||
+            (!packed_bool_valid && !direct_value_valid) ||
             resolve_static_access_type(
                 frame_value.value->type(), frame_value.access_chain) !=
                 frame_value.type) {
@@ -595,6 +610,28 @@ public:
         occupied_slots.end()) {
         return false;
     }
+    auto coexisting_frame_values_are_disjoint =
+        [&](luisa::span<const size_t> indices) noexcept {
+            luisa::unordered_set<size_t> direct_slots;
+            luisa::unordered_map<size_t, uint32_t> packed_bits;
+            for (auto index : indices) {
+                if (index >= result.frame_values.size()) { return false; }
+                auto &value = result.frame_values[index];
+                if (value.bit_offset) {
+                    if (direct_slots.contains(value.slot)) { return false; }
+                    auto mask = uint32_t{1u} << *value.bit_offset;
+                    auto &occupied = packed_bits[value.slot];
+                    if ((occupied & mask) != 0u) { return false; }
+                    occupied |= mask;
+                } else {
+                    if (packed_bits.contains(value.slot) ||
+                        !direct_slots.emplace(value.slot).second) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
     auto valid_frame_indices = [&](luisa::span<const size_t> indices) noexcept {
         for (auto index : indices) {
             if (index >= result.frame_values.size()) { return false; }
@@ -605,7 +642,9 @@ public:
         if (!valid_frame_indices(scope.external_frame_value_indices) ||
             !valid_frame_indices(scope.touched_frame_value_indices) ||
             !valid_frame_indices(scope.live_in_frame_value_indices) ||
-            !valid_frame_indices(scope.live_out_frame_value_indices)) {
+            !valid_frame_indices(scope.live_out_frame_value_indices) ||
+            !coexisting_frame_values_are_disjoint(
+                scope.live_in_frame_value_indices)) {
             return false;
         }
     }
@@ -617,7 +656,9 @@ public:
         if (!valid_frame_indices(edge.killed_frame_value_indices) ||
             !valid_frame_indices(edge.touched_frame_value_indices) ||
             !valid_frame_indices(edge.live_frame_value_indices) ||
-            !valid_frame_indices(edge.store_frame_value_indices)) {
+            !valid_frame_indices(edge.store_frame_value_indices) ||
+            !coexisting_frame_values_are_disjoint(
+                edge.live_frame_value_indices)) {
             return false;
         }
     }
@@ -701,26 +742,72 @@ static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint
     return b.call(base->type(), ArithmeticOp::INSERT, operands);
 }
 
+[[nodiscard]] static Value *resolve_frame_value_for_store(
+    XIRBuilder &b, Module *mod,
+    const CoroCfgDistillResult::FrameValue &frame_value,
+    CoroSplitValueResolver &resolver) noexcept {
+    if (is_memory_frame_value(frame_value.value)) {
+        auto *pointer = frame_value_memory_pointer(
+            b, mod, frame_value, resolver);
+        return b.load(frame_value.type, pointer);
+    }
+    auto *root = resolver.resolve(frame_value.value);
+    return extract_static_frame_path(b, mod, root, frame_value);
+}
+
 static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
                                        const CoroCfgDistillResult &result,
                                        luisa::span<const size_t> frame_value_indices,
                                        CoroSplitValueResolver &resolver) noexcept {
+    struct PackedBoolStore {
+        Value *field{nullptr};
+        Value *word{nullptr};
+    };
+    luisa::vector<PackedBoolStore> packed_bool_stores;
+    luisa::unordered_map<size_t, size_t> packed_bool_store_indices;
     for (auto frame_value_index : frame_value_indices) {
         LUISA_DEBUG_ASSERT(frame_value_index < result.frame_values.size(),
                            "Coroutine frame value index is out of range.");
         auto &frame_value = result.frame_values[frame_value_index];
         auto field_index = FRAME_USER_FIELD_OFFSET + frame_value.slot;
-        auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
-        if (is_memory_frame_value(frame_value.value)) {
-            auto *pointer = frame_value_memory_pointer(
-                b, mod, frame_value, resolver);
-            auto *loaded = b.load(frame_value.type, pointer);
-            b.store(field, loaded);
+        auto *physical_type = result.frame_slots[frame_value.slot].type;
+        auto *field = frame_field_ptr(
+            b, mod, frame_arg, physical_type, field_index);
+        auto *logical_value = resolve_frame_value_for_store(
+            b, mod, frame_value, resolver);
+        if (frame_value.bit_offset) {
+            auto [iter, inserted] = packed_bool_store_indices.try_emplace(
+                frame_value.slot, packed_bool_stores.size());
+            if (inserted) {
+                packed_bool_stores.emplace_back(PackedBoolStore{
+                    .field = field,
+                    .word = b.load(Type::of<uint>(), field)});
+            }
+            auto &packed = packed_bool_stores[iter->second];
+            auto bit_mask = uint32_t{1u} << *frame_value.bit_offset;
+            auto clear_mask = ~bit_mask;
+            auto zero_value = uint32_t{0u};
+            auto *mask = mod->create_constant(
+                Type::of<uint>(), &bit_mask);
+            auto *clear = mod->create_constant(
+                Type::of<uint>(), &clear_mask);
+            auto *zero = mod->create_constant(
+                Type::of<uint>(), &zero_value);
+            auto *cleared = b.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+                {packed.word, clear});
+            auto *encoded = b.call(
+                Type::of<uint>(), ArithmeticOp::SELECT,
+                {zero, mask, logical_value});
+            packed.word = b.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+                {cleared, encoded});
         } else {
-            auto *root = resolver.resolve(frame_value.value);
-            b.store(field, extract_static_frame_path(
-                               b, mod, root, frame_value));
+            b.store(field, logical_value);
         }
+    }
+    for (auto &packed : packed_bool_stores) {
+        b.store(packed.field, packed.word);
     }
 }
 
@@ -758,13 +845,39 @@ static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame
     };
     luisa::vector<AggregateReload> aggregate_reloads;
     luisa::unordered_map<Value *, size_t> aggregate_reload_indices;
+    luisa::vector<Value *> packed_bool_words;
+    luisa::unordered_map<size_t, size_t> packed_bool_word_indices;
     for (auto frame_value_index : scope.live_in_frame_value_indices) {
         LUISA_DEBUG_ASSERT(frame_value_index < result.frame_values.size(),
                            "Coroutine frame value index is out of range.");
         auto &frame_value = result.frame_values[frame_value_index];
         auto field_index = FRAME_USER_FIELD_OFFSET + frame_value.slot;
-        auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
-        auto *loaded = b.load(frame_value.type, field);
+        auto *physical_type = result.frame_slots[frame_value.slot].type;
+        auto *field = frame_field_ptr(
+            b, mod, frame_arg, physical_type, field_index);
+        Value *loaded = nullptr;
+        if (frame_value.bit_offset) {
+            auto [iter, inserted] = packed_bool_word_indices.try_emplace(
+                frame_value.slot, packed_bool_words.size());
+            if (inserted) {
+                packed_bool_words.emplace_back(
+                    b.load(Type::of<uint>(), field));
+            }
+            auto bit_mask = uint32_t{1u} << *frame_value.bit_offset;
+            auto zero_value = uint32_t{0u};
+            auto *mask = mod->create_constant(
+                Type::of<uint>(), &bit_mask);
+            auto *zero = mod->create_constant(
+                Type::of<uint>(), &zero_value);
+            auto *masked = b.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+                {packed_bool_words[iter->second], mask});
+            loaded = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+                {masked, zero});
+        } else {
+            loaded = b.load(frame_value.type, field);
+        }
         if (is_memory_frame_value(frame_value.value)) {
             auto *pointer = frame_value_memory_pointer(
                 b, mod, frame_value, resolver);

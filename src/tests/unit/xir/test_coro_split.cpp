@@ -2,6 +2,7 @@
 
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
@@ -1720,9 +1721,10 @@ void reg_coro_split() {
                 expect(members.size() ==
                        CoroFrameDesc::reserved_field_count + 2u);
                 expect(members[CoroFrameDesc::reserved_field_count] ==
-                       Type::of<float2>());
-                expect(members[CoroFrameDesc::reserved_field_count + 1u] ==
                        Type::of<float>());
+                expect(members[CoroFrameDesc::reserved_field_count + 1u] ==
+                       Type::of<float2>());
+                expect(subroutine.frame_argument->type()->size() == 40u);
             }
         }
         auto materialized =
@@ -1798,6 +1800,85 @@ void reg_coro_split() {
         expect(materialized.succeeded());
         expect(materialized.register_count == 3u);
         expect(materialized.frame_fields.size() == 3u);
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
+    };
+
+    "split_materializes_interfering_booleans_as_one_uint_word"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *tick = b.clock();
+        luisa::vector<Value *> flags;
+        for (auto i = 0u; i < 6u; ++i) {
+            auto threshold = uint64_t{i + 1u};
+            auto *limit = m.create_constant(
+                Type::of<uint64_t>(), &threshold);
+            auto *flag = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                {tick, limit});
+            auto name = luisa::format("packed_flag_{}", i);
+            flag->set_name(name);
+            flags.emplace_back(flag);
+        }
+        b.coro_suspend(239u, "packed-bools", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(239u, nullptr);
+        auto *combined = flags.front();
+        for (auto *flag : luisa::span{flags}.subspan(1u)) {
+            combined = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                {combined, flag});
+        }
+        static_cast<void>(combined);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 6u);
+        expect(cfg.frame_slots.size() == 1u);
+        luisa::vector<luisa::string> frame_value_names;
+        for (auto &value : cfg.frame_values) {
+            frame_value_names.emplace_back(value.name);
+        }
+        if (cfg.frame_slots.size() == 1u) {
+            expect(cfg.frame_slots.front().type == Type::of<uint>());
+        }
+
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                auto members = subroutine.frame_argument->type()->members();
+                expect(members.size() ==
+                       CoroFrameDesc::reserved_field_count + 1u);
+                expect(members.back() == Type::of<uint>());
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 6u);
+        expect(materialized.frame_fields.size() == 1u);
+        for (auto &name : frame_value_names) {
+            auto iter = materialized.name_to_type.find(name);
+            expect(iter != materialized.name_to_type.end());
+            if (iter != materialized.name_to_type.end()) {
+                expect(iter->second == Type::of<uint>());
+            }
+        }
         auto verification = xir_verify_module(&m);
         expect(verification.succeeded())
             << (verification.errors.empty() ?

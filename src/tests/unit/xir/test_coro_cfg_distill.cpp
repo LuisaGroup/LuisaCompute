@@ -2,6 +2,7 @@
 
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -1013,6 +1014,58 @@ void reg_coro_cfg_distill() {
         }
     };
 
+    "interfering_boolean_frame_values_pack_into_distinct_uint_bits"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *tick = b.clock();
+        luisa::vector<Value *> flags;
+        for (auto i = 0u; i < 6u; ++i) {
+            auto threshold = uint64_t{i + 1u};
+            auto *limit = m.create_constant(
+                Type::of<uint64_t>(), &threshold);
+            auto *flag = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                {tick, limit});
+            flag->set_name(luisa::format("packed_flag_{}", i));
+            flags.emplace_back(flag);
+        }
+        b.coro_suspend(217u, "packed-bools", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(217u, nullptr);
+        auto *combined = flags.front();
+        for (auto *flag : luisa::span{flags}.subspan(1u)) {
+            combined = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                {combined, flag});
+        }
+        static_cast<void>(combined);
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 6u);
+        expect(result.frame_slots.size() == 1u);
+        if (result.frame_slots.size() == 1u) {
+            expect(result.frame_slots.front().type == Type::of<uint>());
+        }
+        if (result.frame_values.size() == 6u) {
+            for (auto i = 0u; i < 6u; ++i) {
+                expect(result.frame_values[i].value == flags[i]);
+                expect(result.frame_values[i].type == Type::of<bool>());
+                expect(result.frame_values[i].slot == 0u);
+                expect(result.frame_values[i].bit_offset.has_value());
+                if (result.frame_values[i].bit_offset) {
+                    expect(*result.frame_values[i].bit_offset == i);
+                }
+            }
+        }
+    };
+
     "frame_abi_keeps_no_padding_aggregate_whole"_test = [] {
         Module m;
         BasicBlock *entry;
@@ -1038,6 +1091,52 @@ void reg_coro_cfg_distill() {
             expect(result.frame_values.front().value == state);
             expect(result.frame_values.front().access_chain.empty());
             expect(result.frame_values.front().type == packed);
+        }
+    };
+
+    "frame_slot_order_fills_fixed_prefix_alignment_hole"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *packed_type = Type::of<float2>();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *packed = b.alloca_local(packed_type);
+        auto *scalar = b.alloca_local(Type::of<float>());
+        packed->set_name("packed_state");
+        scalar->set_name("scalar_state");
+        b.store(packed, m.create_constant_zero(packed_type));
+        b.store(scalar, m.create_constant_zero(Type::of<float>()));
+        b.coro_suspend(225u, "prefix-hole", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(225u, nullptr);
+        static_cast<void>(b.load(packed_type, packed));
+        static_cast<void>(b.load(Type::of<float>(), scalar));
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_slots.size() == 2u);
+        if (result.frame_slots.size() == 2u) {
+            // Seven reserved uints end at byte 28. Scheduling the scalar first
+            // reaches byte 32 without padding, so float2 can follow at its
+            // natural alignment. Alignment-descending order would occupy 48 B.
+            expect(result.frame_slots[0u].type == Type::of<float>());
+            expect(result.frame_slots[1u].type == packed_type);
+            constexpr size_t scheduler_reserved_field_count = 7u;
+            luisa::vector<const Type *> members(
+                scheduler_reserved_field_count, Type::of<uint>());
+            for (auto &slot : result.frame_slots) {
+                members.emplace_back(slot.type);
+            }
+            expect(Type::structure(members)->size() == 40u);
+        }
+        for (auto &value : result.frame_values) {
+            if (value.value == scalar) { expect(value.slot == 0u); }
+            if (value.value == packed) { expect(value.slot == 1u); }
         }
     };
 

@@ -41,9 +41,15 @@ struct CoroCfgDistillResult {
         const Type *type{nullptr};
         // Physical payload slot assigned by interference coloring. Several
         // exact-typed logical values may share a slot when their
-        // continuation/transition lifetimes do not overlap; their logical
-        // names remain aliases in CoroMaterializeInfo.
+        // continuation/transition lifetimes do not overlap; Boolean values
+        // additionally share a uint slot through distinct bit offsets. Their
+        // names remain physical-field aliases in CoroMaterializeInfo.
         size_t slot{0u};
+        // Boolean values are colored at bit granularity. A present offset
+        // selects one bit in a physical uint slot; interfering values receive
+        // distinct (slot, bit) identities, while disjoint lifetimes may reuse
+        // the same bit. Non-Boolean values keep this empty.
+        luisa::optional<uint32_t> bit_offset;
     };
 
     struct FrameSlot {

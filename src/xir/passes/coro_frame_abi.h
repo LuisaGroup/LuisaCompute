@@ -9,6 +9,10 @@
 
 namespace luisa::compute::xir::detail {
 
+// Coroutine schedulers prepend dispatch identity, dispatch size, and the
+// continuation token before compiler-managed user state.
+inline constexpr size_t CORO_FRAME_RESERVED_FIELD_COUNT = 7u;
+
 // ABI decomposition is deliberately bounded. The vector is intentionally
 // simple; if profiling later identifies planning allocation as material, this
 // is the single container to specialize without changing the analysis model.
