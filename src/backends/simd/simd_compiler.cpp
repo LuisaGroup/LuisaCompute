@@ -20,7 +20,9 @@
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/translators/ast2xir.h>
 
+#include "../common/env_flag.h"
 #include "llvm/llvm_schedule_codegen.h"
+#include "schedule/loop_unswitch.h"
 #include "schedule/predicated_if_conversion.h"
 #include "schedule/xir_to_schedule.h"
 
@@ -129,8 +131,23 @@ SIMDCompiledKernel compile_simd_kernel(
         }
     }
     auto predication_info =
-        schedule::predicate_small_varying_diamonds(xir_kernel);
+        schedule::PredicatedIfConversionInfo{};
+    if (!detail::env_flag(
+            "LUISA_SIMD_DISABLE_PREDICATED_IF")) {
+        predication_info =
+            schedule::predicate_small_varying_diamonds(xir_kernel);
+    }
     if (predication_info.changed()) {
+        static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    }
+    auto loop_unswitch_info = schedule::SIMDLoopUnswitchInfo{};
+    if (!detail::env_flag(
+            "LUISA_SIMD_DISABLE_LOOP_UNSWITCH")) {
+        loop_unswitch_info =
+            schedule::unswitch_invariant_varying_loop_condition(
+                xir_kernel);
+    }
+    if (loop_unswitch_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
     }
     auto result = compile_simd_kernel(
@@ -145,6 +162,14 @@ SIMDCompiledKernel compile_simd_kernel(
         predication_info.if_conversion.replaced_phi_count;
     result.factored_select_count =
         predication_info.select_factoring.factored_select_count;
+    result.unswitched_loop_count =
+        loop_unswitch_info.unswitch.unswitched_loop_count;
+    result.unswitched_cloned_block_count =
+        loop_unswitch_info.unswitch.cloned_block_count;
+    result.unswitched_cloned_instruction_count =
+        loop_unswitch_info.unswitch.cloned_instruction_count;
+    result.unswitched_live_out_count =
+        loop_unswitch_info.unswitch.merged_live_out_count;
     return result;
 }
 

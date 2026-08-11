@@ -153,6 +153,15 @@ additional ordering between independent host streams is implied.
 selects `max(hardware_concurrency, 1)` and one executes block ranges inline for
 diagnostics and serial differential benchmarks.
 
+Reproducible example sweeps may use `LUISA_SIMD_WARP_WIDTH=1|2|4|8|16` when
+the application does not construct `SIMDDeviceConfigExt`; an explicit nonzero
+API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
+`LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide same-binary compiler A/B controls,
+and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` logs per-shader transform counters.
+These process-wide variables are diagnostic controls, not shader semantics or
+a replacement for the public configuration extension. Invalid width text or a
+width outside the supported set is rejected.
+
 ### 4.3 Static power-of-two block specialization
 
 The production compiler forwards a kernel's declared three-dimensional block
@@ -198,6 +207,50 @@ that failed the original safety test or introduce a fast-math domain
 extension. IR-shape, inactive-tail execution, final assembly, and throughput
 are permanent gates in `benchmark_simd_predicated_if` and the Schedule-codegen
 regressions.
+
+### 4.5 Bounded loop-unswitch refinement
+
+The production SIMD compiler may replace a repeated internal conditional with
+one conditional before two cloned loop versions. This is permitted only when
+all of the following hold:
+
+- the destructured natural loop is innermost, has one preheader, latch, exit
+  edge, and exit block, and has a statically proven trip count greater than
+  one;
+- the complete loop has at most 48 instructions and the compiler transforms at
+  most one loop per function;
+- the selected conditional dominates the latch, both targets remain inside the
+  loop and are not the header, and its nonconstant, non-`undef` Boolean
+  selector is defined outside the loop;
+- the SIMD uniformity analysis classifies the selector exactly `varying`;
+- every loop terminator is a plain conditional/unconditional branch and the
+  body contains no clock, volatile instruction, write, call, collective, or
+  other operation modeled as cohort-sensitive;
+- every direct live-out is an rvalue whose external ordinary uses are dominated
+  by the unique exit. Existing exit PHIs must have exactly one incoming value
+  from the original exit edge.
+
+The original loop is specialized to the true edge and the clone to the false
+edge. The old preheader dispatches to two canonical preheaders. Existing exit
+PHIs receive the cloned incoming edge; direct live-outs receive one new exit
+PHI. Candidate branch metadata moves to the outer dispatch, and structured CFG
+causes atomic rejection before mutation. Rejecting unknown/zero-trip loops is
+semantic, not merely a cost choice: it prevents consuming a selector on a lane
+where the source branch would never execute. Rejecting writes and clocks
+prevents the cohort-order change from becoming observable.
+
+The outer selector still follows the ordinary scheduler rule. If its active
+values happen to agree at runtime, the dynamically coherent fast path directly
+enters one specialized loop; otherwise the packet splits once and each cohort
+executes its selected version. Inactive tail lanes remain outside both masks.
+The rewrite introduces no speculative arm evaluation and does not relax the
+operand-sanitization requirement.
+
+Correctness gates cover cloning, cyclic PHIs, exit-PHI and direct-live-out
+repair, metadata, structured-module atomicity, unknown trip counts, `undef`,
+clock/write rejection, all supported SIMD widths, and inactive tails.
+`benchmark_simd_loop_unswitch` additionally audits optimized assembly, calls,
+stack references, and repeated throughput.
 
 ## 5. Vector-math providers
 

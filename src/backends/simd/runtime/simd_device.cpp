@@ -1,6 +1,9 @@
 #include "simd_device.h"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdlib>
+#include <string_view>
 #include <thread>
 
 #include <luisa/ast/type_registry.h>
@@ -24,20 +27,38 @@ SIMDDevice::SIMDDevice(
     Context &&context, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(context)} {
     auto requested_worker_count = uint32_t{0u};
+    auto requested_width = uint32_t{0u};
     if (config != nullptr && config->extension != nullptr) {
         auto *simd_config = static_cast<const SIMDDeviceConfigExt *>(
             config->extension.get());
-        auto requested_width = simd_config->warp_width();
-        if (requested_width != 0u) {
-            LUISA_ASSERT(
-                requested_width == 1u || requested_width == 2u ||
-                    requested_width == 4u || requested_width == 8u ||
-                    requested_width == 16u,
-                "Invalid SIMD warp width {}. Expected 1, 2, 4, 8, or 16.",
-                requested_width);
-            _warp_width = requested_width;
-        }
+        requested_width = simd_config->warp_width();
         requested_worker_count = simd_config->worker_count();
+    }
+    // Diagnostic/benchmark override for examples that do not construct a
+    // SIMDDeviceConfigExt. An explicit nonzero API setting always wins.
+    if (requested_width == 0u) {
+        if (auto *environment =
+                std::getenv("LUISA_SIMD_WARP_WIDTH");
+            environment != nullptr) {
+            auto text = std::string_view{environment};
+            auto result = std::from_chars(
+                text.data(), text.data() + text.size(),
+                requested_width);
+            LUISA_ASSERT(
+                result.ec == std::errc{} &&
+                    result.ptr == text.data() + text.size(),
+                "Invalid LUISA_SIMD_WARP_WIDTH value '{}'.",
+                text);
+        }
+    }
+    if (requested_width != 0u) {
+        LUISA_ASSERT(
+            requested_width == 1u || requested_width == 2u ||
+                requested_width == 4u || requested_width == 8u ||
+                requested_width == 16u,
+            "Invalid SIMD warp width {}. Expected 1, 2, 4, 8, or 16.",
+            requested_width);
+        _warp_width = requested_width;
     }
     auto hardware_worker_count = static_cast<uint32_t>(
         std::max(std::thread::hardware_concurrency(), 1u));

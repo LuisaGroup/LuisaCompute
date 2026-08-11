@@ -38,6 +38,7 @@
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/loop_fusion.h>
 #include <luisa/xir/passes/loop_rotation.h>
+#include <luisa/xir/passes/loop_unswitch.h>
 #include <luisa/xir/passes/loop_vectorization.h>
 #include <luisa/xir/passes/lower_break_continue.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
@@ -273,6 +274,10 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)loop_rotation_pass_run_on_module(nullptr, report);
         });
+        check_zero_report(6u, [](PassReport *report) noexcept {
+            (void)loop_unswitch_pass_run_on_module(
+                nullptr, {}, report);
+        });
         check_zero_report(3u, [](PassReport *report) noexcept {
             (void)loop_vectorization_pass_run_on_module(
                 nullptr, report);
@@ -402,6 +407,7 @@ void reg_pass_entry_totality() {
         (void)if_conversion_pass_run_on_function(declaration);
         (void)licm_pass_run_on_function(declaration);
         (void)loop_rotation_pass_run_on_function(declaration);
+        (void)loop_unswitch_pass_run_on_function(declaration);
         (void)loop_fusion_pass_run_on_function(declaration);
         (void)loop_vectorization_pass_run_on_function(declaration);
         (void)lower_break_continue_pass_run_on_function(declaration);
@@ -5218,6 +5224,336 @@ void reg_dead_store_elimination() {
 }
 
 // ---- loop_rotation ----
+
+void reg_loop_unswitch() {
+    struct Fixture {
+        CallableFunction *function{nullptr};
+        Value *selector{nullptr};
+        ConditionalBranchInst *candidate{nullptr};
+        BasicBlock *preheader{nullptr};
+        BasicBlock *header{nullptr};
+        BasicBlock *exit{nullptr};
+        PhiInst *accumulator{nullptr};
+        ReturnInst *return_inst{nullptr};
+    };
+    auto make_fixture = [](Module &module, bool write_in_loop,
+                           bool condition_in_loop,
+                           bool annotate_candidate,
+                           bool dynamic_trip_count = false) noexcept {
+        Fixture fixture;
+        fixture.function =
+            module.create_callable(Type::of<uint32_t>());
+        fixture.selector = fixture.function->create_value_argument(
+            Type::of<bool>());
+        auto *input = fixture.function->create_value_argument(
+            Type::of<uint32_t>());
+        auto *preheader = fixture.function->create_body_block();
+        auto *header = fixture.function->create_basic_block();
+        auto *body = fixture.function->create_basic_block();
+        auto *true_block = fixture.function->create_basic_block();
+        auto *false_block = fixture.function->create_basic_block();
+        auto *latch = fixture.function->create_basic_block();
+        auto *exit = fixture.function->create_basic_block();
+        fixture.preheader = preheader;
+        fixture.header = header;
+        fixture.exit = exit;
+        auto *zero = module.create_constant_zero(
+            Type::of<uint32_t>());
+        auto *one = module.create_constant_one(
+            Type::of<uint32_t>());
+        auto two_value = uint32_t{2u};
+        auto four_value = uint32_t{4u};
+        auto *two = module.create_constant(
+            Type::of<uint32_t>(), &two_value);
+        auto *four = module.create_constant(
+            Type::of<uint32_t>(), &four_value);
+        XIRBuilder builder;
+        builder.set_insertion_point(preheader);
+        auto *local = write_in_loop ?
+                          builder.alloca_local(Type::of<uint32_t>()) :
+                          nullptr;
+        builder.br(header);
+        builder.set_insertion_point(header);
+        auto *index = builder.phi(Type::of<uint32_t>());
+        auto *accumulator = builder.phi(Type::of<uint32_t>());
+        fixture.accumulator = accumulator;
+        auto *continue_condition = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {index, dynamic_trip_count ?
+                        static_cast<Value *>(input) :
+                        static_cast<Value *>(four)});
+        builder.cond_br(continue_condition, body, exit);
+        builder.set_insertion_point(body);
+        auto *condition = fixture.selector;
+        if (condition_in_loop) {
+            condition = builder.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                {index, zero});
+        }
+        fixture.candidate = builder.cond_br(
+            condition, true_block, false_block);
+        if (annotate_candidate) {
+            fixture.candidate->add_comment(
+                "retain annotated loop branch");
+        }
+        builder.set_insertion_point(true_block);
+        auto *true_value = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {accumulator, input});
+        if (local != nullptr) { builder.store(local, true_value); }
+        builder.br(latch);
+        builder.set_insertion_point(false_block);
+        auto *false_value = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {accumulator, two});
+        builder.br(latch);
+        builder.set_insertion_point(latch);
+        auto *next_accumulator = builder.phi(
+            Type::of<uint32_t>(),
+            {{true_value, true_block},
+             {false_value, false_block}});
+        auto *next_index = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {index, one});
+        builder.br(header);
+        index->add_incoming(zero, preheader);
+        index->add_incoming(next_index, latch);
+        accumulator->add_incoming(zero, preheader);
+        accumulator->add_incoming(next_accumulator, latch);
+        builder.set_insertion_point(exit);
+        fixture.return_inst = builder.return_(accumulator);
+        return fixture;
+    };
+
+    "loop_unswitch_clones_invariant_diamond_and_merges_live_out"_test =
+        [&] {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            auto transformed_verification =
+                xir_verify_module(&module);
+            expect(transformed_verification.succeeded())
+                << (transformed_verification.errors.empty() ?
+                        "unexpected loop-unswitch verification failure" :
+                        transformed_verification.errors.front()
+                            .message.c_str());
+
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(info.succeeded());
+            expect(info.unswitched_loop_count == 1u);
+            expect(info.cloned_block_count == 5u);
+            expect(info.cloned_instruction_count == 12u);
+            expect(info.created_preheader_count == 2u);
+            expect(info.merged_live_out_count == 1u);
+            auto cleaned_verification = xir_verify_module(&module);
+            expect(cleaned_verification.succeeded())
+                << (cleaned_verification.errors.empty() ?
+                        "unexpected cleaned loop verification failure" :
+                        cleaned_verification.errors.front()
+                            .message.c_str());
+            expect(fixture.preheader->terminator()
+                       ->isa<ConditionalBranchInst>());
+            auto *dispatch = static_cast<ConditionalBranchInst *>(
+                fixture.preheader->terminator());
+            expect(dispatch->condition() == fixture.selector);
+            expect(fixture.return_inst->return_value()->isa<PhiInst>());
+            auto *merged = static_cast<PhiInst *>(
+                fixture.return_inst->return_value());
+            expect(merged->parent_block() == fixture.exit);
+            expect(merged->incoming_count() == 2u);
+
+            auto cleanup = simplify_cfg_pass_run_on_function(
+                fixture.function);
+            expect(cleanup.changed());
+            auto selector_branch_count = size_t{0u};
+            fixture.function->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (instruction->isa<ConditionalBranchInst>() &&
+                        static_cast<ConditionalBranchInst *>(instruction)
+                                ->condition() == fixture.selector) {
+                        selector_branch_count++;
+                    }
+                });
+            expect(selector_branch_count == 1u);
+            expect(xir_verify_module(&module).succeeded());
+        };
+
+    "loop_unswitch_filter_and_cost_cap_are_fail_closed"_test = [&] {
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function,
+                {.candidate_filter =
+                     [](const ConditionalBranchInst *,
+                        const void *) noexcept { return false; }});
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function,
+                {.max_loop_instruction_count = 11u});
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+    };
+
+    "loop_unswitch_rejects_writes_and_variant_conditions"_test =
+        [&] {
+            for (auto mode = 0u; mode < 2u; mode++) {
+                Module module;
+                auto fixture = make_fixture(
+                    module, mode == 0u, mode == 1u, false);
+                auto info = loop_unswitch_pass_run_on_function(
+                    fixture.function);
+                expect(!info.changed());
+                expect(fixture.preheader->terminator()
+                           ->isa<BranchInst>());
+                expect(fixture.candidate->parent_block() != nullptr);
+                expect(xir_verify_module(&module).succeeded());
+            }
+        };
+
+    "loop_unswitch_rejects_unknown_trip_undef_and_clock"_test = [&] {
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false, true);
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            fixture.candidate->set_condition(
+                module.create_undefined(Type::of<bool>()));
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            XIRBuilder builder;
+            builder.set_insertion_point(fixture.candidate->prev());
+            builder.clock();
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+    };
+
+    "loop_unswitch_moves_candidate_metadata_to_dispatch"_test = [&] {
+        Module module;
+        auto fixture = make_fixture(
+            module, false, false, true);
+        auto info = loop_unswitch_pass_run_on_function(
+            fixture.function);
+        expect(info.unswitched_loop_count == 1u);
+        auto *dispatch = static_cast<ConditionalBranchInst *>(
+            fixture.preheader->terminator());
+        auto *comment = dispatch->find_metadata<CommentMD>();
+        expect(comment != nullptr);
+        expect(comment != nullptr &&
+               comment->comment() ==
+                   "retain annotated loop branch");
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_unswitch_extends_existing_exit_phi"_test = [&] {
+        Module module;
+        auto fixture = make_fixture(
+            module, false, false, false);
+        XIRBuilder builder;
+        builder.set_insertion_point(fixture.return_inst->prev());
+        auto *exit_phi = builder.phi(
+            Type::of<uint32_t>(),
+            {{fixture.accumulator, fixture.header}});
+        fixture.return_inst->set_operand(0u, exit_phi);
+        expect(xir_verify_module(&module).succeeded());
+
+        auto info = loop_unswitch_pass_run_on_function(
+            fixture.function);
+        expect(info.unswitched_loop_count == 1u);
+        expect(info.merged_live_out_count == 0u);
+        expect(exit_phi->incoming_count() == 2u);
+        expect(fixture.return_inst->return_value() == exit_phi);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_unswitch_module_rejection_is_atomic"_test = [&] {
+        Module module;
+        auto plain = make_fixture(
+            module, false, false, false);
+        auto *structured = module.create_callable(nullptr);
+        auto *structured_body = structured->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(structured_body);
+        auto *structured_if = builder.if_(
+            module.create_constant_one(Type::of<bool>()));
+        auto *true_block = structured_if->create_true_block();
+        auto *false_block = structured_if->create_false_block();
+        auto *merge = structured_if->create_merge_block();
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        auto info = loop_unswitch_pass_run_on_module(&module);
+        expect(!info.succeeded());
+        expect(!info.changed());
+        expect(info.structured_cfg_error_count == 1u);
+        expect(plain.preheader->terminator()->isa<BranchInst>());
+        expect(plain.candidate->parent_block() != nullptr);
+        expect(structured_body->terminator() == structured_if);
+    };
+
+    "loop_unswitch_module_limit_is_per_function"_test = [&] {
+        Module module;
+        auto first = make_fixture(
+            module, false, false, false);
+        auto second = make_fixture(
+            module, false, false, false);
+        auto info = loop_unswitch_pass_run_on_module(
+            &module, {.max_unswitched_loop_count = 1u});
+        expect(info.succeeded());
+        expect(info.unswitched_loop_count == 2u);
+        expect(first.preheader->terminator()
+                   ->isa<ConditionalBranchInst>());
+        expect(second.preheader->terminator()
+                   ->isa<ConditionalBranchInst>());
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_unswitch_null_entries_are_total"_test = [] {
+        expect(!loop_unswitch_pass_run_on_function(nullptr).changed());
+        PassReport report;
+        auto info = loop_unswitch_pass_run_on_module(
+            nullptr, {}, &report);
+        expect(!info.changed());
+        expect(info.succeeded());
+        expect(report.entries().size() == 6u);
+    };
+}
 
 void reg_loop_rotation() {
 
@@ -11871,6 +12207,7 @@ int main(int argc, char *argv[]) {
     reg_local_load_elimination();
     reg_local_store_forward();
     reg_dead_store_elimination();
+    reg_loop_unswitch();
     reg_loop_rotation();
     reg_scalar_evolution();
     reg_scalarizer();

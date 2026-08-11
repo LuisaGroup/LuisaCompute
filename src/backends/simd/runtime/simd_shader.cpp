@@ -4,6 +4,7 @@
 
 #include <luisa/core/logging.h>
 
+#include "../../common/env_flag.h"
 #include "simd_bindless_array.h"
 #include "simd_buffer.h"
 #include "simd_thread_pool.h"
@@ -50,6 +51,20 @@ SIMDShader::SIMDShader(
         LUISA_ERROR_WITH_LOCATION(
             "Failed to compile SIMD kernel (warp width {}):\n{}",
             warp_width, diagnostics);
+    }
+    if (detail::env_flag(
+            "LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
+        LUISA_INFO(
+            "SIMD optimization report [{} W{}]: predicated_diamonds={}, "
+            "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
+            "cloned_instructions={}, merged_live_outs={}.",
+            kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
+            warp_width, _compiled.predicated_diamond_count,
+            _compiled.factored_select_count,
+            _compiled.unswitched_loop_count,
+            _compiled.unswitched_cloned_block_count,
+            _compiled.unswitched_cloned_instruction_count,
+            _compiled.unswitched_live_out_count);
     }
     _entry = reinterpret_cast<Entry *>(_compiled.entry);
     _build_bound_arguments(kernel.bound_arguments());

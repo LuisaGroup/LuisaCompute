@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -49,6 +50,44 @@ namespace {
             return false;                                                 \
         }                                                                 \
     } while (false)
+
+void set_environment_variable(
+    const char *name, const char *value) noexcept {
+#ifdef _WIN32
+    _putenv_s(name, value == nullptr ? "" : value);
+#else
+    if (value == nullptr) {
+        unsetenv(name);
+    } else {
+        setenv(name, value, 1);
+    }
+#endif
+}
+
+struct ScopedEnvironmentVariable {
+    std::string name;
+    std::optional<std::string> previous;
+
+    explicit ScopedEnvironmentVariable(
+        const char *env_name, const char *value)
+        : name{env_name} {
+        if (auto *old_value = std::getenv(env_name)) {
+            previous.emplace(old_value);
+        }
+        set_environment_variable(name.c_str(), value);
+    }
+
+    ~ScopedEnvironmentVariable() noexcept {
+        set_environment_variable(
+            name.c_str(),
+            previous ? previous->c_str() : nullptr);
+    }
+
+    ScopedEnvironmentVariable(
+        const ScopedEnvironmentVariable &) = delete;
+    ScopedEnvironmentVariable &operator=(
+        const ScopedEnvironmentVariable &) = delete;
+};
 
 [[nodiscard]] SIMDPacketLaunchConfig launch_1d(
     uint32_t dispatch_size, uint32_t block_size) noexcept {
@@ -2299,6 +2338,19 @@ uint32_t texture_packet_size_probe(
     CHECK(varying.predicated_phi_count == 1u);
     CHECK(varying.factored_select_count == 2u);
 
+    {
+        ScopedEnvironmentVariable disable_predication{
+            "LUISA_SIMD_DISABLE_PREDICATED_IF", "1"};
+        auto scheduled = compile_simd_kernel(
+            varying_kernel.function()->function(), width,
+            "simd_ast_scheduled_diamond");
+        CHECK(scheduled.succeeded());
+        CHECK(scheduled.predicated_diamond_count == 0u);
+        CHECK(scheduled.predicated_instruction_count == 0u);
+        CHECK(scheduled.predicated_phi_count == 0u);
+        CHECK(scheduled.factored_select_count == 0u);
+    }
+
     std::array<uint32_t, count> output{};
     output.fill(0xdeadbeefu);
     alignas(16) SIMDHostBufferView argument{
@@ -2382,6 +2434,84 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_loop_unswitch() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D varying_kernel = [](BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        auto choose_left = (index & 1u) == 0u;
+        $uint value = 1u;
+        $for (iteration, 8u) {
+            $if (choose_left) {
+                value = value * 3u + index;
+                value = value ^ (iteration + 9u);
+            }
+            $else {
+                value = value * 5u + index;
+                value = value ^ (iteration + 17u);
+            };
+        };
+        output.write(index, value);
+    };
+    auto varying = compile_simd_kernel(
+        varying_kernel.function()->function(), width,
+        "simd_ast_loop_unswitch");
+    if (!varying.succeeded()) {
+        for (auto &&diagnostic : varying.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(varying.predicated_diamond_count == 0u);
+    CHECK(varying.unswitched_loop_count == 1u);
+    CHECK(varying.unswitched_cloned_block_count != 0u);
+    CHECK(varying.unswitched_cloned_instruction_count != 0u);
+    CHECK(varying.unswitched_live_out_count != 0u);
+
+    {
+        ScopedEnvironmentVariable disable_loop_unswitch{
+            "LUISA_SIMD_DISABLE_LOOP_UNSWITCH", "1"};
+        auto scheduled = compile_simd_kernel(
+            varying_kernel.function()->function(), width,
+            "simd_ast_scheduled_loop");
+        CHECK(scheduled.succeeded());
+        CHECK(scheduled.unswitched_loop_count == 0u);
+        CHECK(scheduled.unswitched_cloned_block_count == 0u);
+        CHECK(scheduled.unswitched_cloned_instruction_count == 0u);
+        CHECK(scheduled.unswitched_live_out_count == 0u);
+    }
+
+    std::array<uint32_t, count> output{};
+    output.fill(0xdeadbeefu);
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(varying.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&argument, nullptr, &config, width);
+    }
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        auto value = uint32_t{1u};
+        auto choose_left = (index & 1u) == 0u;
+        for (auto iteration = uint32_t{0u}; iteration < 8u;
+             iteration++) {
+            if (choose_left) {
+                value = value * 3u + index;
+                value = value ^ (iteration + 9u);
+            } else {
+                value = value * 5u + index;
+                value = value ^ (iteration + 17u);
+            }
+        }
+        CHECK(output[index] == value);
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -2428,6 +2558,8 @@ int main() {
          &run_ast_fast_math_canonicalization},
         {"AST predicated varying diamond",
          &run_ast_predicated_diamond},
+        {"AST invariant varying loop unswitch",
+         &run_ast_loop_unswitch},
     };
     auto failures = 0u;
     for (auto test : tests) {

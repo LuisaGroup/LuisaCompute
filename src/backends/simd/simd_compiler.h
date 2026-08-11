@@ -30,6 +30,10 @@ struct SIMDCompiledKernel {
     size_t predicated_instruction_count{0u};
     size_t predicated_phi_count{0u};
     size_t factored_select_count{0u};
+    size_t unswitched_loop_count{0u};
+    size_t unswitched_cloned_block_count{0u};
+    size_t unswitched_cloned_instruction_count{0u};
+    size_t unswitched_live_out_count{0u};
     uint32_t warp_width{0u};
     std::string target_triple{};
     std::vector<std::string> diagnostics{};

@@ -206,6 +206,49 @@ have exited. The same rule handles several loop exits that later share a real
 merge. Treating the back-edge as a virtual exit would omit this frame and let a
 post-loop collective execute once per exiting cohort.
 
+### 4.2.1 Static invariant-loop unswitching
+
+Loop unswitching is a pre-Schedule CFG refinement, not a new scheduler
+transition. Let `L` be an innermost natural loop with constant trip count
+`N > 1`, unique preheader/latch/exit edge, and an internal conditional `b`
+whose selector `c` is an SSA value defined outside `L`. The accepted transform
+constructs `L_t` and `L_f`, changes `b` in each version to its true or false
+edge, and replaces the preheader edge with
+
+```text
+c ? preheader_t : preheader_f
+```
+
+For every active lane `l`, SSA invariance gives one stable `c[l]`. Define a
+trace-erasure map `h` that maps blocks and values in either clone back to their
+source identity and erases the new preheaders. The lane trace through the
+selected version then satisfies
+
+```text
+h(trace_unswitched(l)) = trace_source(l)
+```
+
+including exactly `N` executions of the selected arm. Exit-edge PHIs are
+extended with the corresponding cloned incoming value, and an additional exit
+PHI merges any direct live-out, so the equality also holds for values used
+after `L`.
+
+The implementation requires a nonconstant, non-`undef`, exactly varying
+selector and rejects unknown/zero-trip loops. Thus the new outer branch never
+consumes a selector on a lane for which the source internal branch would not
+execute. It also rejects writes, clocks, volatile operations, calls,
+collectives, nested loops, and multiple exits/latches. Under those conditions,
+changing the interleaving from repeated true/false cohorts to one true loop
+cohort followed by one false loop cohort has no new observable effect. The
+outer branch still partitions only the current active mask `A`, so inactive
+tail lanes enter neither version.
+
+The transformed Schedule CFG can contain more static blocks and convergence
+plans than the source CFG. The refinement claim is about dynamic transitions:
+at most one partition by `c` is performed for a packet, instead of up to `N`.
+If `c` is dynamically coherent over `A`, the ordinary coherent fast path takes
+one direct edge and allocates no split frame.
+
 ### 4.3 Edge routing
 
 For an edge `e = (u, v)` and flow mask `M`:

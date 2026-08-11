@@ -1,6 +1,9 @@
 #include "ut/ut.hpp"
 
 #include <array>
+#include <cstdlib>
+#include <optional>
+#include <string>
 
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/luisa-compute.h>
@@ -11,10 +14,55 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+namespace {
+
+void set_environment_variable(
+    const char *name, const char *value) noexcept {
+#ifdef _WIN32
+    _putenv_s(name, value == nullptr ? "" : value);
+#else
+    if (value == nullptr) {
+        unsetenv(name);
+    } else {
+        setenv(name, value, 1);
+    }
+#endif
+}
+
+struct ScopedEnvironmentVariable {
+    std::string name;
+    std::optional<std::string> previous;
+
+    explicit ScopedEnvironmentVariable(
+        const char *env_name, const char *value)
+        : name{env_name} {
+        if (auto *old_value = std::getenv(env_name)) {
+            previous.emplace(old_value);
+        }
+        set_environment_variable(name.c_str(), value);
+    }
+
+    ~ScopedEnvironmentVariable() noexcept {
+        set_environment_variable(
+            name.c_str(),
+            previous ? previous->c_str() : nullptr);
+    }
+};
+
+}// namespace
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     Context context{argc > 0 ? argv[0] : ""};
+    ScopedEnvironmentVariable width_override{
+        "LUISA_SIMD_WARP_WIDTH", "2"};
+
+    {
+        auto device = context.create_device("simd");
+        expect(device.compute_warp_size() == 2u)
+            << "SIMD environment width override was not honored";
+    }
 
     for (auto width : std::array{1u, 2u, 4u, 8u, 16u}) {
         DeviceConfig config{};
@@ -22,7 +70,7 @@ int main(int argc, char *argv[]) {
             luisa::make_unique<SIMDDeviceConfigExt>(width);
         auto device = context.create_device("simd", &config);
         expect(device.compute_warp_size() == width)
-            << "SIMD device must expose its configured warp width";
+            << "explicit SIMD width must override the environment";
 
         constexpr auto block_threads = 32u;
         auto output = device.create_buffer<uint>(block_threads);

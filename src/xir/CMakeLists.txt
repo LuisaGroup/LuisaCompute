@@ -112,6 +112,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/natural_loop.cpp
         passes/loop_fusion.cpp
         passes/loop_rotation.cpp
+        passes/loop_unswitch.cpp
         passes/loop_vectorization.cpp
         passes/slp_vectorization.cpp
         passes/lower_break_continue.cpp

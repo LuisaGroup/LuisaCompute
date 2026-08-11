@@ -218,15 +218,26 @@ duplicated on every incoming edge. The executing cohort owns one scalar token,
 and each suspended record stores one scalar token; no per-lane token vector is
 materialized. Active convergence-frame slots use one scalar `iW` bitset.
 
-Loop unswitching is the next CFG-level pressure reduction. A warp-uniform
-loop-invariant condition can be hoisted as an ordinary scalar branch. A
-varying but loop-invariant condition may split cohorts once outside two cloned
-loop versions, removing a repeated scheduler transition from every iteration.
-A merely cohort-uniform value is not automatically invariant across loop
-epochs and cannot be hoisted without a separate proof. The profitability model
-must trade `trip_count * removed_transition_cost` against cloned code size,
-register pressure, exits/backedges, and JIT time; multi-exit or nested loops
-remain unchanged until their cloned convergence identities are verified.
+The first bounded loop-unswitch refinement is implemented before Schedule IR
+construction. It accepts one innermost, positive constant-trip natural loop per
+function, with at most 48 XIR instructions, one preheader/latch/exit edge, and
+one internal conditional whose block dominates the latch. The selector must be
+defined outside the loop and classified exactly `varying`; both successors stay
+inside the loop. Two loop versions replace that conditional with its true and
+false edge, while a new outer varying branch partitions the packet once. A
+runtime-coherent packet takes the ordinary direct edge; a divergent packet
+creates one split rather than one split per iteration.
+
+The initial legality rule is deliberately narrower than scalar LLVM loop
+unswitching. Unknown or zero/one trip counts are rejected so the selector is
+never consumed on a path where the source branch did not execute. Nested,
+multi-latch, and multi-exit loops, `undef`, clock reads, volatile operations,
+writes, calls, collectives, and other cohort-sensitive effects are rejected.
+Existing exit PHIs acquire the cloned edge, and an explicit exit PHI merges
+each otherwise-dominating live-out. Structured CFG is rejected atomically.
+A merely cohort-uniform value is not invariant across loop epochs and is not a
+candidate. The generic XIR pass exposes cloning and live-out counters; the SIMD
+policy and inactive-tail execution have permanent regressions.
 
 The O2 pipeline may otherwise promote every cross-block state slot through the
 global dispatcher and create more live vector PHIs than the physical register
@@ -1024,6 +1035,59 @@ of balanced W8 measured 237.59 -> 12.03 cycles, 774.15 -> 51.00 retired
 instructions, and 85.00 -> 7.00 branches per packet. Assembly uses YMM data
 registers with AVX-512VL masks for W8 on this host and ZMM for W16; width alone
 does not require AVX-512 on a different target.
+
+`benchmark_simd_loop_unswitch` compares the same 32-trip invariant-varying
+loop before and after the production policy, including coherent, balanced,
+sparse, and inactive-tail masks. Each process uses nine alternating samples of
+at least 20 ms and the complete sweep was repeated three times under unrelated
+host load. The median-of-run balanced results were:
+
+| Width | scheduled -> unswitched ns | speedup | native instructions | stack-reference instructions |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 680.57 -> 151.14 | 4.50x | 736 -> 699 | 117 -> 90 |
+| W4 | 782.28 -> 137.70 | 5.68x | 716 -> 742 | 126 -> 109 |
+| W8 | 612.82 -> 154.19 | 3.98x | 846 -> 868 | 177 -> 155 |
+| W16 | 667.33 -> 195.79 | 3.41x | 1287 -> 1262 | 273 -> 235 |
+
+The balanced speedup ranges across the three final processes were
+4.496--4.508x, 5.677--5.692x, 3.954--3.996x, and 3.402--3.423x for
+W2/W4/W8/W16 respectively.
+
+Every scenario passed. A separate two-trip audit still measured 1.43--1.91x
+for balanced divergent packets. On W8, three delayed-enable `perf stat` runs
+reduced medians from 3,450 to 855 cycles, 11,363 to 2,054 instructions, and
+1,429 to 342 branches per call. The optimized function has slightly more
+static instructions, so the fourfold runtime gain is specifically reduced
+dynamic scheduler-state execution rather than an accidental algebraic
+simplification. The W8 stack frame also falls from 672 to 448 bytes.
+
+A post-change real-example sweep used the same Release binaries,
+forward/reverse ordering, gallery validation on every graphics run, and nine
+repetitions (15 for noisy n-body). SDF used nine internal-throughput samples at
+SPP 4; W1/W2/W4/W8/W16 raw float accumulations were identical, and a separate
+W8 1024-SPP gallery run passed at 63.13 dB PSNR. The current
+fallback-relative speedups are:
+
+| Workload | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| non-coro SDF | 0.936x | 1.075x | 1.697x | 2.541x | 3.754x |
+| image processing | 0.748x | 0.727x | 0.739x | 0.736x | 0.712x |
+| voxel ray tracer | 0.880x | 0.344x | 0.392x | 0.407x | 0.379x |
+| shader toy | 1.083x | 1.179x | 1.352x | 1.432x | 1.389x |
+| game of life | 0.726x | 0.781x | 0.869x | 0.862x | 0.863x |
+| n-body | 0.689x | 0.366x | 0.490x | 0.549x | 0.506x |
+
+No current real-example shader reaches the conservative loop-unswitch domain:
+the optimization report records zero transformed loops for SDF, image
+processing, voxel, shader toy, game of life, n-body, fire, and the supported
+wave/visual shader prefixes. Consequently this pass contributes no claimed
+real-example speedup yet. Nine-run W8 on/off medians differ by only
+-0.69%--+0.31% across the five complete graphics examples, consistent with
+identical generated code and measurement noise. In contrast, voxel contains
+one small predicated diamond; a same-binary predication A/B improves W2/W4/W8/
+W16 by 3.9%/4.0%/1.7%/4.0% and is neutral at W1. This distinction is retained
+in the report rather than attributing the broader scheduler gains to the new
+loop pass.
 
 The updated graphics matrix uses 31 alternating whole-process runs per
 backend/width because other host workloads were active. SIMD groups are
