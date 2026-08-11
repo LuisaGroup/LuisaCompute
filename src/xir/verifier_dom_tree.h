@@ -1,7 +1,8 @@
 #pragma once
 
-#include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+
+#include "verifier_containers.h"
 
 namespace luisa::compute::xir {
 
@@ -10,9 +11,9 @@ class BasicBlock;
 namespace detail {
 
 using VerifierBlockSet =
-    luisa::unordered_set<const BasicBlock *>;
+    VerifierPointerSet<const BasicBlock *>;
 using VerifierBlockAdjacency =
-    luisa::unordered_map<const BasicBlock *, VerifierBlockSet>;
+    VerifierPointerMap<const BasicBlock *, VerifierBlockSet>;
 
 // Sparse immediate-dominator tree over a verifier-sanitized CFG.
 //
@@ -26,7 +27,7 @@ class VerifierSparseDomTree {
 
 private:
     static constexpr auto invalid_index = ~size_t{0u};
-    luisa::unordered_map<const BasicBlock *, size_t> _block_indices;
+    VerifierPointerMap<const BasicBlock *, size_t> _block_indices;
     luisa::vector<size_t> _immediate_dominators;
     luisa::vector<size_t> _depths;
     luisa::vector<size_t> _preorder_indices;

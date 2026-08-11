@@ -953,8 +953,8 @@ class XIRVerifier {
 private:
     const XIRVerificationOptions &_options;
     XIRVerificationResult &_result;
-    luisa::unordered_set<const Value *> _scanned_use_lists;
-    luisa::unordered_map<const Use *, const Value *>
+    VerifierPointerSet<const Value *> _scanned_use_lists;
+    VerifierPointerMap<const Use *, const Value *>
         _use_list_owners;
 
 private:
@@ -1044,11 +1044,11 @@ public:
                    "Function body block is not owned by the function.");
             return;
         }
-        luisa::unordered_map<const Instruction *, size_t> instruction_order;
-        luisa::unordered_map<const Instruction *, const BasicBlock *> instruction_blocks;
+        VerifierPointerMap<const Instruction *, size_t> instruction_order;
+        VerifierPointerMap<const Instruction *, const BasicBlock *> instruction_blocks;
         BlockAdjacency successors;
         BlockAdjacency predecessors;
-        luisa::unordered_map<const BasicBlock *, const Instruction *> merge_owners;
+        VerifierPointerMap<const BasicBlock *, const Instruction *> merge_owners;
 
         for (auto *block : blocks) {
             auto terminated = block->is_terminated();
