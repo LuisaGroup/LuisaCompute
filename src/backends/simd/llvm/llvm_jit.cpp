@@ -8,6 +8,7 @@
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
@@ -18,6 +19,24 @@
 #include <llvm/Target/TargetMachine.h>
 
 namespace luisa::compute::simd {
+
+namespace {
+
+// Module keeps a non-owning reference to its LLVMContext. Function parameters
+// are otherwise destroyed in the opposite order of this public (module,
+// context) API, so every early return must explicitly release the module
+// first. Moved-from pointers make the successful ORC path a no-op here.
+struct ModuleContextLifetime {
+    std::unique_ptr<::llvm::Module> &module;
+    std::unique_ptr<::llvm::LLVMContext> &context;
+
+    ~ModuleContextLifetime() noexcept {
+        module.reset();
+        context.reset();
+    }
+};
+
+}// namespace
 
 void LLVMJIT::_fail(std::string message) noexcept {
     if (_error.empty()) { _error = std::move(message); }
@@ -63,6 +82,7 @@ LLVMJIT &LLVMJIT::operator=(LLVMJIT &&) noexcept = default;
 bool LLVMJIT::add_module(
     std::unique_ptr<::llvm::Module> module,
     std::unique_ptr<::llvm::LLVMContext> context) noexcept {
+    ModuleContextLifetime lifetime{module, context};
     if (!succeeded()) { return false; }
     if (module == nullptr || context == nullptr ||
         &module->getContext() != context.get()) {
@@ -113,6 +133,7 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
 std::string LLVMJIT::emit_assembly(
     std::unique_ptr<::llvm::Module> module,
     std::unique_ptr<::llvm::LLVMContext> context) noexcept {
+    ModuleContextLifetime lifetime{module, context};
     if (!succeeded()) { return {}; }
     if (module == nullptr || context == nullptr ||
         &module->getContext() != context.get()) {

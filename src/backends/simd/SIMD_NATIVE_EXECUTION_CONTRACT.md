@@ -137,9 +137,11 @@ There are two semantic tiers:
 | `enable_fast_math = true` | fast | documented relaxed bound; no undefined domain extension |
 
 The precise algorithms use SLEEF as the primary implementation and accuracy
-reference. The fast tier may use the simpler ISPC standard-library
-approximations where their valid range and error have been independently
-audited. Adapted source must retain its upstream license and provenance.
+reference. The fast tier is a distinct set of lower-order range reductions
+and approximations; it does not acquire its semantics from whole-module LLVM
+fast-math flags. Adapted source retains its upstream license and provenance.
+The formula-level record is in
+[`../common/LLVM_NATIVE_MATH_PROVENANCE.md`](../common/LLVM_NATIVE_MATH_PROVENANCE.md).
 
 The current f32 implementation checkpoint is:
 
@@ -161,11 +163,61 @@ three, or four scalar libm calls. Its precise target options prohibit
 aggressive FP contraction; helper functions are excluded from the later
 whole-module fast-flag rewrite.
 
-The initial `fast` symbols deliberately share the audited precise bodies.
-This preserves semantics and the provider ABI while a distinct relaxed
-polynomial tier is audited; it is not yet claimed as a separate performance
-tier. `atan2`, power, and hyperbolic functions remain explicit audit backlog
-and are not yet marked SIMD-native by this checkpoint.
+For a finite fast-tier result `y` and the reference `R`, the accepted error is
+`abs(y - R) <= A + B * abs(R)`. The current contract is:
+
+| Operation | Fast algorithm | `A` | `B` |
+| --- | --- | ---: | ---: |
+| `sin`, `cos` | three-term Cody-Waite for `abs(x) < 128`, precise SLEEF-derived reduction outside it, degree-9 odd polynomial | `2e-5` | `2e-5` |
+| `tan` | the same common reduction, degree-11 odd polynomial, quadrant reciprocal | `2e-4` | `4e-4` |
+| `asin`, `acos` | half-domain square-root transform, `asin` series through degree 7 | `2e-4` | `0` |
+| `atan` | `pi/8` and `pi/4` identities, series through degree 9 | `1e-5` | `1e-5` |
+| `exp` | nearest-integer base-2 reduction, degree-4 exponential polynomial | `2e-7` | `1e-4` |
+| `exp2`, `exp10` | f32 input scaling followed by fast `exp` | `2e-7` | `2e-4` |
+| `log` | exponent extraction and an `atanh` series through degree 5 | `3e-6` | `1e-6` |
+| `log2` | fast `log` followed by f32 output scaling | `5e-6` | `2e-6` |
+| `log10` | fast `log` followed by f32 output scaling | `2e-6` | `1e-6` |
+
+For the four composed operations, `R` deliberately includes the same f32
+scale operation: `expf(x * ln(2))`, `expf(x * ln(10))`,
+`logf(x) * log2(e)`, or `logf(x) * log10(e)`. This makes their overflow and
+underflow transition deterministic while their independent mathematical
+error bounds remain the next math-library checkpoint. For fast `exp` and its
+compositions, `R` also maps positive subnormal outputs to `+0`.
+
+Fast special-value and domain behavior is defined, not inherited from LLVM
+undefined fast-math assumptions:
+
+- all NaN results use canonical quiet NaN `0x7fc00000`;
+- `sin`, `cos`, and `tan` map either infinity to NaN; `sin` and `tan`
+  preserve signed zero and every signed subnormal input, while `cos` maps
+  those inputs to `+1`;
+- `asin` and `acos` return NaN for `abs(x) > 1`; `asin(+-1) = +-pi/2`,
+  `acos(+1) = +0`, and `acos(-1) = pi`. `asin` preserves signed zero and
+  signed subnormal inputs; `acos` maps them to `pi/2`;
+- `atan(+-infinity) = +-pi/2` and preserves signed zero and signed
+  subnormal inputs;
+- `exp` maps either signed zero and every signed subnormal input to `1`,
+  `-infinity` to `+0`, and `+infinity` to `+infinity`. Every positive
+  subnormal result is flushed to `+0`;
+- `log` maps either signed zero and every positive subnormal input to
+  `-infinity`; negative finite values, negative subnormals, and
+  `-infinity` map to NaN; `log(+infinity) = +infinity` and `log(1) = +0`.
+  `log2` and `log10` inherit this classification.
+
+Only FP contraction is permitted inside the fast bodies. They do not set
+`nnan`, `ninf`, `nsz`, reassociation, approximate-function, or approximate-
+reciprocal flags. This is what keeps the special-value contract meaningful.
+Warp-uniform scalar expressions remain scalar and execute one LLVM/scalar
+math operation; they are never splatted into the vector fast provider.
+
+The regression instantiates precise and fast bodies at W2/W3/W4/W8/W16,
+checks fixed boundaries and special values, 8,192 deterministic raw float
+bit patterns, 8,192 domain-focused values, and 4,096 reduction/transition-
+focused values per operation and width. Schedule tests cover W4/W8/W16 and
+inactive tails. Optimized assembly is rejected if it contains a varying
+scalar libm symbol. `atan2`, power, and hyperbolic functions remain explicit
+audit backlog and are not yet marked SIMD-native by this checkpoint.
 
 ### 5.2 LLVM/system vector libraries
 

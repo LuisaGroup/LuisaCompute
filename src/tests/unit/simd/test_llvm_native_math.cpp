@@ -1,6 +1,7 @@
 #include "llvm_jit.h"
 #include "llvm_native_math.h"
 #include "llvm_schedule_codegen.h"
+#include "test_llvm_native_math_fast.h"
 #include "xir_to_schedule.h"
 
 #include <algorithm>
@@ -42,11 +43,11 @@ namespace {
     return condition;
 }
 
-#define CHECK(EXPR)                                                           \
-    do {                                                                      \
-        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) {     \
-            return false;                                                     \
-        }                                                                     \
+#define CHECK(EXPR)                                                       \
+    do {                                                                  \
+        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) { \
+            return false;                                                 \
+        }                                                                 \
     } while (false)
 
 struct MathModule {
@@ -84,7 +85,7 @@ enum struct ExtendedTrigOperation : uint8_t {
     auto *function_type = ::llvm::FunctionType::get(
         ::llvm::Type::getVoidTy(*context), {pointer, pointer}, false);
     auto entry_name = std::string{cosine ? "native_cos_w" :
-                                            "native_sin_w"} +
+                                           "native_sin_w"} +
                       std::to_string(width);
     auto *function = ::llvm::Function::Create(
         function_type, ::llvm::GlobalValue::ExternalLinkage,
@@ -95,12 +96,12 @@ enum struct ExtendedTrigOperation : uint8_t {
     auto *input = builder.CreateAlignedLoad(
         vector_type, function->getArg(0u), ::llvm::Align{4u});
     auto *result = cosine ?
-        cpu::LLVMNativeMath::emit_cos_f32(
-            *module, builder, input,
-            cpu::LLVMNativeMathMode::precise) :
-        cpu::LLVMNativeMath::emit_sin_f32(
-            *module, builder, input,
-            cpu::LLVMNativeMathMode::precise);
+                       cpu::LLVMNativeMath::emit_cos_f32(
+                           *module, builder, input,
+                           cpu::LLVMNativeMathMode::precise) :
+                       cpu::LLVMNativeMath::emit_sin_f32(
+                           *module, builder, input,
+                           cpu::LLVMNativeMathMode::precise);
     builder.CreateAlignedStore(
         result, function->getArg(1u), ::llvm::Align{4u});
     builder.CreateRetVoid();
@@ -118,7 +119,7 @@ enum struct ExtendedTrigOperation : uint8_t {
     auto *function_type = ::llvm::FunctionType::get(
         ::llvm::Type::getVoidTy(*context), {pointer, pointer}, false);
     auto entry_name = std::string{logarithm ? "native_log_w" :
-                                               "native_exp_w"} +
+                                              "native_exp_w"} +
                       std::to_string(width);
     auto *function = ::llvm::Function::Create(
         function_type, ::llvm::GlobalValue::ExternalLinkage,
@@ -129,12 +130,12 @@ enum struct ExtendedTrigOperation : uint8_t {
     auto *input = builder.CreateAlignedLoad(
         vector_type, function->getArg(0u), ::llvm::Align{4u});
     auto *result = logarithm ?
-        cpu::LLVMNativeMath::emit_log_f32(
-            *module, builder, input,
-            cpu::LLVMNativeMathMode::precise) :
-        cpu::LLVMNativeMath::emit_exp_f32(
-            *module, builder, input,
-            cpu::LLVMNativeMathMode::precise);
+                       cpu::LLVMNativeMath::emit_log_f32(
+                           *module, builder, input,
+                           cpu::LLVMNativeMathMode::precise) :
+                       cpu::LLVMNativeMath::emit_exp_f32(
+                           *module, builder, input,
+                           cpu::LLVMNativeMathMode::precise);
     builder.CreateAlignedStore(
         result, function->getArg(1u), ::llvm::Align{4u});
     builder.CreateRetVoid();
@@ -192,7 +193,7 @@ enum struct ExtendedTrigOperation : uint8_t {
 }
 
 [[nodiscard]] std::optional<MathModule>
-make_schedule_math_module(uint32_t width) {
+make_schedule_math_module(uint32_t width, bool fast_math = false) {
     xir::Module xir_module;
     auto *kernel = xir_module.create_kernel();
     kernel->set_name("schedule_native_math");
@@ -326,9 +327,10 @@ make_schedule_math_module(uint32_t width) {
     auto module = std::make_unique<::llvm::Module>(
         "schedule-native-math", *context);
     auto entry_name = std::string{"schedule_native_math_w"} +
-                      std::to_string(width);
+                      std::to_string(width) +
+                      (fast_math ? "_fast" : "_precise");
     auto codegen = simd::lower_schedule_to_llvm(
-        *module, *lowered.function, width, entry_name);
+        *module, *lowered.function, width, entry_name, fast_math);
     if (!codegen.succeeded()) {
         std::cerr << codegen.error << '\n';
         return std::nullopt;
@@ -342,7 +344,8 @@ make_schedule_math_module(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<MathModule>
-make_uniform_schedule_math_module(uint32_t width) {
+make_uniform_schedule_math_module(
+    uint32_t width, bool fast_math = false) {
     xir::Module xir_module;
     auto *kernel = xir_module.create_kernel();
     kernel->set_name("schedule_uniform_math");
@@ -419,9 +422,10 @@ make_uniform_schedule_math_module(uint32_t width) {
     auto module = std::make_unique<::llvm::Module>(
         "schedule-uniform-math", *context);
     auto entry_name = std::string{"schedule_uniform_math_w"} +
-                      std::to_string(width);
+                      std::to_string(width) +
+                      (fast_math ? "_fast" : "_precise");
     auto codegen = simd::lower_schedule_to_llvm(
-        *module, *lowered.function, width, entry_name);
+        *module, *lowered.function, width, entry_name, fast_math);
     if (!codegen.succeeded() || codegen.argument_buffer_size != 16u ||
         ::llvm::verifyModule(*module, &::llvm::errs())) {
         return std::nullopt;
@@ -468,7 +472,8 @@ make_uniform_schedule_math_module(uint32_t width) {
     auto ordered = [](float value) noexcept {
         auto bits = std::bit_cast<uint32_t>(value);
         return (bits & 0x80000000u) != 0u ?
-            ~bits : bits | 0x80000000u;
+                   ~bits :
+                   bits | 0x80000000u;
     };
     auto a = static_cast<uint64_t>(ordered(lhs));
     auto b = static_cast<uint64_t>(ordered(rhs));
@@ -615,8 +620,7 @@ template<size_t Width>
                           << " input=" << input[lane]
                           << " actual=" << output[lane]
                           << " expected=" << expected
-                          << " ulp=" << ulp_distance(
-                                 output[lane], expected) << '\n';
+                          << " ulp=" << ulp_distance(output[lane], expected) << '\n';
                 return false;
             }
         }
@@ -744,15 +748,15 @@ template<size_t Width>
         entry(input.data(), output.data());
         for (auto lane = size_t{0u}; lane < Width; lane++) {
             auto expected = cosine ?
-                std::cos(input[lane]) : std::sin(input[lane]);
+                                std::cos(input[lane]) :
+                                std::sin(input[lane]);
             if (!within_ulp(output[lane], expected, 4u)) {
                 std::cerr << "native " << (cosine ? "cos" : "sin")
                           << " W" << Width << " lane " << lane
                           << " input=" << input[lane]
                           << " actual=" << output[lane]
                           << " expected=" << expected
-                          << " ulp=" << ulp_distance(
-                                 output[lane], expected) << '\n';
+                          << " ulp=" << ulp_distance(output[lane], expected) << '\n';
                 return false;
             }
         }
@@ -771,7 +775,8 @@ template<size_t Width>
         entry(input.data(), output.data());
         for (auto lane = size_t{0u}; lane < Width; lane++) {
             auto expected = cosine ?
-                std::cos(input[lane]) : std::sin(input[lane]);
+                                std::cos(input[lane]) :
+                                std::sin(input[lane]);
             if (!within_ulp(output[lane], expected, 4u)) {
                 std::cerr << "native " << (cosine ? "cos" : "sin")
                           << " random W" << Width
@@ -782,8 +787,7 @@ template<size_t Width>
                           << " input=" << input[lane]
                           << " actual=" << output[lane]
                           << " expected=" << expected
-                          << " ulp=" << ulp_distance(
-                                 output[lane], expected) << '\n';
+                          << " ulp=" << ulp_distance(output[lane], expected) << '\n';
                 return false;
             }
         }
@@ -858,7 +862,8 @@ template<size_t Width>
         entry(input.data(), output.data());
         for (auto lane = size_t{0u}; lane < Width; lane++) {
             auto expected = logarithm ?
-                std::log(input[lane]) : std::exp(input[lane]);
+                                std::log(input[lane]) :
+                                std::exp(input[lane]);
             auto max_ulp = logarithm ? 5u : 4u;
             if (!within_ulp(output[lane], expected, max_ulp)) {
                 std::cerr << "native " << (logarithm ? "log" : "exp")
@@ -869,8 +874,7 @@ template<size_t Width>
                           << " input=" << input[lane]
                           << " actual=" << output[lane]
                           << " expected=" << expected
-                          << " ulp=" << ulp_distance(
-                                 output[lane], expected) << '\n';
+                          << " ulp=" << ulp_distance(output[lane], expected) << '\n';
                 return false;
             }
         }
@@ -894,8 +898,8 @@ template<size_t Width>
 }
 
 template<size_t Width>
-[[nodiscard]] bool test_schedule_width() {
-    auto shape_module = make_schedule_math_module(Width);
+[[nodiscard]] bool test_schedule_width(bool fast_math = false) {
+    auto shape_module = make_schedule_math_module(Width, fast_math);
     CHECK(shape_module.has_value());
     auto ir = module_text(*shape_module->module);
     CHECK(ir.find("llvm.sin.v" + std::to_string(Width) + "f32") ==
@@ -923,11 +927,16 @@ template<size_t Width>
     CHECK(ir.find("llvm.log10.v" + std::to_string(Width) + "f32") ==
           std::string::npos);
     CHECK(ir.find("luisa.cpu.native_math") != std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_sin_f32_v" +
+                  std::to_string(Width) +
+                  (fast_math ? "_fast" : "_u10")) !=
+          std::string::npos);
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
 
     if constexpr (Width == 8u) {
-        auto assembly_module = make_schedule_math_module(Width);
+        auto assembly_module = make_schedule_math_module(
+            Width, fast_math);
         CHECK(assembly_module.has_value());
         simd::LLVMJIT assembly_target;
         CHECK(assembly_target.succeeded());
@@ -953,7 +962,8 @@ template<size_t Width>
         CHECK(assembly.find("log10f") == std::string::npos);
     }
 
-    auto executable_module = make_schedule_math_module(Width);
+    auto executable_module = make_schedule_math_module(
+        Width, fast_math);
     CHECK(executable_module.has_value());
     auto entry_name = executable_module->entry_name;
     simd::LLVMJIT jit;
@@ -1000,17 +1010,21 @@ template<size_t Width>
                                 std::pow(10.0f, lane_f32 * 0.03125f) +
                                 std::log2(lane_f32 + 1.0f) +
                                 std::log10(lane_f32 + 1.0f);
-                CHECK(approximately_equal(
-                    output[lane], expected));
+                auto equal = fast_math ?
+                                 std::abs(output[lane] - expected) <=
+                                     2.0e-3f * (1.0f + std::abs(expected)) :
+                                 approximately_equal(output[lane], expected);
+                CHECK(equal);
             }
         }
     }
     return true;
 }
 
-[[nodiscard]] bool test_uniform_schedule_math() {
+[[nodiscard]] bool test_uniform_schedule_math(bool fast_math = false) {
     constexpr auto width = 8u;
-    auto shape_module = make_uniform_schedule_math_module(width);
+    auto shape_module = make_uniform_schedule_math_module(
+        width, fast_math);
     CHECK(shape_module.has_value());
     auto ir = module_text(*shape_module->module);
     CHECK(ir.find("__luisa_cpu_native_") == std::string::npos);
@@ -1031,7 +1045,8 @@ template<size_t Width>
     CHECK(ir.find("llvm.exp.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.log.v8f32") == std::string::npos);
 
-    auto executable = make_uniform_schedule_math_module(width);
+    auto executable = make_uniform_schedule_math_module(
+        width, fast_math);
     CHECK(executable.has_value());
     auto entry_name = executable->entry_name;
     simd::LLVMJIT jit;
@@ -1069,7 +1084,16 @@ template<size_t Width>
 
 }// namespace
 
-int main() {
+int main(int argc, char *argv[]) {
+    if (argc == 2 && std::string_view{argv[1]} == "--fast-only") {
+        return test_schedule_width<4u>(true) &&
+                       test_schedule_width<8u>(true) &&
+                       test_schedule_width<16u>(true) &&
+                       test_uniform_schedule_math(true) &&
+                       test_llvm_native_math_fast() ?
+                   0 :
+                   1;
+    }
     return test_width<2u>(false) &&
                    test_width<3u>(false) &&
                    test_width<4u>(false) &&
@@ -1102,7 +1126,12 @@ int main() {
                    test_schedule_width<4u>() &&
                    test_schedule_width<8u>() &&
                    test_schedule_width<16u>() &&
-                   test_uniform_schedule_math() ?
+                   test_uniform_schedule_math() &&
+                   test_schedule_width<4u>(true) &&
+                   test_schedule_width<8u>(true) &&
+                   test_schedule_width<16u>(true) &&
+                   test_uniform_schedule_math(true) &&
+                   test_llvm_native_math_fast() ?
                0 :
                1;
 }

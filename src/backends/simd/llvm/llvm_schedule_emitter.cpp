@@ -6,11 +6,12 @@ namespace luisa::compute::simd::detail {
 
 ScheduleEmitter::ScheduleEmitter(
     ::llvm::Module &module, const schedule::Function &source, uint32_t width,
-    std::string_view entry_name)
+    std::string_view entry_name, bool enable_fast_math)
     : _module{module},
       _source{source},
       _width{width},
       _entry_name{entry_name},
+      _enable_fast_math{enable_fast_math},
       _layout{module.getContext(), width},
       _collectives{width},
       _builder{module.getContext()} {}
@@ -24,9 +25,9 @@ void ScheduleEmitter::_fail(std::string message) {
 }
 
 [[nodiscard]] size_t ScheduleEmitter::_align_up(size_t value,
-                                      size_t alignment) noexcept {
+                                                size_t alignment) noexcept {
     return alignment == 0u ? value :
-                            (value + alignment - 1u) & ~(alignment - 1u);
+                             (value + alignment - 1u) & ~(alignment - 1u);
 }
 
 [[nodiscard]] bool ScheduleEmitter::_is_scalar_data(const Type *type) noexcept {
@@ -313,8 +314,7 @@ void ScheduleEmitter::_analyze_local_lvalues() {
                     _fail("shared allocation requires cooperative-block scheduling");
                     return;
                 }
-                _local_lvalue_values[
-                    instruction.result->value] = 1u;
+                _local_lvalue_values[instruction.result->value] = 1u;
                 ready.emplace_back(*instruction.result);
             } else if (instruction.opcode == schedule::Opcode::gep &&
                        instruction.result &&
@@ -373,7 +373,7 @@ void ScheduleEmitter::_analyze_local_lvalues() {
 }
 
 void ScheduleEmitter::_preflight_edge(const schedule::ControlEdge &edge,
-                     bool split_edge) {
+                                      bool split_edge) {
     static_cast<void>(split_edge);
     if (edge.loop_back && _source.loop(*edge.loop_back) == nullptr) {
         _fail("control edge references an invalid loop back-edge");
@@ -506,8 +506,8 @@ void ScheduleEmitter::_preflight() {
                         return;
                     }
                     auto bit_width = selector->type->is_bool() ?
-                        1u :
-                        static_cast<uint32_t>(selector->type->size() * 8u);
+                                         1u :
+                                         static_cast<uint32_t>(selector->type->size() * 8u);
                     std::unordered_set<uint64_t> labels;
                     for (auto &&item : terminator.cases) {
                         if ((bit_width < 64u &&
@@ -617,8 +617,7 @@ void ScheduleEmitter::_preflight() {
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_byte_pointer(
     ::llvm::Value *base, size_t offset) {
-    return offset == 0u ? base : _builder.CreateGEP(
-        _builder.getInt8Ty(), base, _builder.getInt64(offset));
+    return offset == 0u ? base : _builder.CreateGEP(_builder.getInt8Ty(), base, _builder.getInt64(offset));
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_uniform_data(

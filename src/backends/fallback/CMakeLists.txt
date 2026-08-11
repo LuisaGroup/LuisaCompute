@@ -51,6 +51,13 @@ if (LLVM_FOUND AND embree_FOUND)
             fallback_swapchain.cpp
             fallback_tex_compress.cpp
             ../common/llvm_native_math.cpp
+            ../common/llvm_native_math_fast_exp_log.cpp
+            ../common/llvm_native_math_fast_inverse_trig.cpp
+            ../common/llvm_native_math_fast_trig.cpp
+            ../common/llvm_native_math_precise_exp_log.cpp
+            ../common/llvm_native_math_precise_inverse_trig.cpp
+            ../common/llvm_native_math_precise_trig.cpp
+            ../common/llvm_native_math_range_reduction.cpp
             ../common/default_binary_io.cpp
     )
 

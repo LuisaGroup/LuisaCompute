@@ -23,7 +23,6 @@ SIMDShader::SIMDShader(
     const ShaderOption &option, Function kernel,
     uint32_t warp_width) noexcept
     : _block_size{kernel.block_size()} {
-    static_cast<void>(option);
     if (auto allowed = kernel.allowed_warp_size();
         allowed && *allowed != warp_width) {
         LUISA_ERROR_WITH_LOCATION(
@@ -39,7 +38,8 @@ SIMDShader::SIMDShader(
         block_threads, warp_width);
     _compiled = compile_simd_kernel(
         kernel, warp_width,
-        kernel.name().empty() ? "simd_runtime_kernel" : kernel.name());
+        kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
+        option.enable_fast_math);
     if (!_compiled.succeeded()) {
         luisa::string diagnostics;
         for (auto &&message : _compiled.diagnostics) {
@@ -201,7 +201,7 @@ void SIMDShader::dispatch(
         "SIMD shader argument count mismatch.");
 
     auto *arguments = argument_buffer.empty() ? nullptr :
-                                              argument_buffer.data();
+                                                argument_buffer.data();
     if (command->is_indirect()) {
         LUISA_ERROR_WITH_LOCATION(
             "Indirect SIMD dispatch is not implemented yet.");

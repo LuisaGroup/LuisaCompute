@@ -106,7 +106,8 @@ if (TARGET luisa-compute-simd-llvm)
             LABELS "unit;unit_fallback;unit_llvm;integration_fallback")
 
     add_executable(test_simd_llvm_native_math
-            unit/simd/test_llvm_native_math.cpp)
+            unit/simd/test_llvm_native_math.cpp
+            unit/simd/test_llvm_native_math_fast.cpp)
     target_compile_features(test_simd_llvm_native_math PRIVATE cxx_std_20)
     target_link_libraries(test_simd_llvm_native_math PRIVATE
             luisa-compute-simd-llvm)
@@ -116,6 +117,14 @@ if (TARGET luisa-compute-simd-llvm)
             COMMAND test_simd_llvm_native_math)
     set_tests_properties(test_simd_llvm_native_math PROPERTIES
             LABELS "unit;unit_simd;unit_llvm;integration_simd")
+
+    add_executable(benchmark_llvm_native_math
+            unit/simd/benchmark_llvm_native_math.cpp)
+    target_compile_features(benchmark_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(benchmark_llvm_native_math PRIVATE
+            ${LLVM_INCLUDE_DIRS})
 
     add_executable(test_simd_llvm_value_layout
             unit/simd/test_llvm_value_layout.cpp)

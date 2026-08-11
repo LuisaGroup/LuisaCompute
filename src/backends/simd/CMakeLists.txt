@@ -72,6 +72,13 @@ unset(_luisa_simd_codegen_line_count)
 
 add_library(luisa-compute-simd-llvm STATIC
         ../common/llvm_native_math.cpp
+        ../common/llvm_native_math_fast_exp_log.cpp
+        ../common/llvm_native_math_fast_inverse_trig.cpp
+        ../common/llvm_native_math_fast_trig.cpp
+        ../common/llvm_native_math_precise_exp_log.cpp
+        ../common/llvm_native_math_precise_inverse_trig.cpp
+        ../common/llvm_native_math_precise_trig.cpp
+        ../common/llvm_native_math_range_reduction.cpp
         llvm/llvm_jit.cpp
         ${LUISA_SIMD_LLVM_CODEGEN_SOURCES}
         llvm/llvm_value_layout.cpp

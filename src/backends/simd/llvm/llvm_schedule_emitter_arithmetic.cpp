@@ -29,9 +29,9 @@ namespace luisa::compute::simd::detail {
     return _assemble(result_type, varying, [&](uint32_t i) {
         auto scalar_operand = _is_scalar_data(operand_type);
         auto *child_operand_type = scalar_operand ? operand_type :
-                                                  _child_type(operand_type, i);
+                                                    _child_type(operand_type, i);
         auto *child_operand = scalar_operand ? operand :
-            _extract_child(operand, operand_type, i, varying);
+                                               _extract_child(operand, operand_type, i, varying);
         return _componentwise_unary(
             _child_type(result_type, i), child_operand,
             child_operand_type, varying, leaf);
@@ -49,13 +49,13 @@ namespace luisa::compute::simd::detail {
         auto lhs_scalar = _is_scalar_data(lhs_type);
         auto rhs_scalar = _is_scalar_data(rhs_type);
         auto *lhs_child_type = lhs_scalar ? lhs_type :
-                                           _child_type(lhs_type, i);
+                                            _child_type(lhs_type, i);
         auto *rhs_child_type = rhs_scalar ? rhs_type :
-                                           _child_type(rhs_type, i);
+                                            _child_type(rhs_type, i);
         auto *lhs_child = lhs_scalar ? lhs :
-            _extract_child(lhs, lhs_type, i, varying);
+                                       _extract_child(lhs, lhs_type, i, varying);
         auto *rhs_child = rhs_scalar ? rhs :
-            _extract_child(rhs, rhs_type, i, varying);
+                                       _extract_child(rhs, rhs_type, i, varying);
         return _componentwise_binary(
             _child_type(result_type, i), lhs_child, lhs_child_type,
             rhs_child, rhs_child_type, varying, leaf);
@@ -76,17 +76,17 @@ namespace luisa::compute::simd::detail {
         auto b_scalar = _is_scalar_data(b_type);
         auto c_scalar = _is_scalar_data(c_type);
         auto *a_child_type = a_scalar ? a_type :
-                                            _child_type(a_type, i);
+                                        _child_type(a_type, i);
         auto *b_child_type = b_scalar ? b_type :
-                                            _child_type(b_type, i);
+                                        _child_type(b_type, i);
         auto *c_child_type = c_scalar ? c_type :
-                                            _child_type(c_type, i);
+                                        _child_type(c_type, i);
         auto *a_child = a_scalar ? a :
-            _extract_child(a, a_type, i, varying);
+                                   _extract_child(a, a_type, i, varying);
         auto *b_child = b_scalar ? b :
-            _extract_child(b, b_type, i, varying);
+                                   _extract_child(b, b_type, i, varying);
         auto *c_child = c_scalar ? c :
-            _extract_child(c, c_type, i, varying);
+                                   _extract_child(c, c_type, i, varying);
         return _componentwise_ternary(
             _child_type(result_type, i),
             a_child, a_child_type, b_child, b_child_type,
@@ -212,7 +212,7 @@ namespace luisa::compute::simd::detail {
             old_child, child_type, replacement,
             indices, depth + 1u, varying);
         return new_child == nullptr ? nullptr :
-            _insert_child(aggregate, new_child, type, i, varying);
+                                      _insert_child(aggregate, new_child, type, i, varying);
     }
     if (type->is_structure()) {
         _fail("dynamic structure member insertion is invalid");
@@ -284,6 +284,9 @@ namespace luisa::compute::simd::detail {
         return true;
     };
     auto op = static_cast<xir::ArithmeticOp>(*instruction.source_op);
+    auto native_math_mode = _enable_fast_math ?
+                                cpu::LLVMNativeMathMode::fast :
+                                cpu::LLVMNativeMathMode::precise;
     if (op == xir::ArithmeticOp::AGGREGATE) {
         return _aggregate_operation(
             *result, instruction, operands, varying);
@@ -389,10 +392,10 @@ namespace luisa::compute::simd::detail {
     auto sanitize_inactive_integer = [&](::llvm::Value *value,
                                          uint64_t neutral) {
         return varying ?
-            _builder.CreateSelect(
-                _active_mask, value,
-                integer_constant_like(value, neutral)) :
-            value;
+                   _builder.CreateSelect(
+                       _active_mask, value,
+                       integer_constant_like(value, neutral)) :
+                   value;
     };
     auto minmax_leaf = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
                            const Type *type, bool maximum)
@@ -405,10 +408,10 @@ namespace luisa::compute::simd::detail {
                 {lhs, rhs});
         }
         auto predicate = maximum ?
-            type->is_int() ? ::llvm::CmpInst::ICMP_SGT :
-                             ::llvm::CmpInst::ICMP_UGT :
-            type->is_int() ? ::llvm::CmpInst::ICMP_SLT :
-                             ::llvm::CmpInst::ICMP_ULT;
+                             type->is_int() ? ::llvm::CmpInst::ICMP_SGT :
+                                              ::llvm::CmpInst::ICMP_UGT :
+                         type->is_int() ? ::llvm::CmpInst::ICMP_SLT :
+                                          ::llvm::CmpInst::ICMP_ULT;
         return _builder.CreateSelect(
             _builder.CreateICmp(predicate, lhs, rhs), lhs, rhs);
     };
@@ -634,7 +637,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 0.0));
                     auto *native = cpu::LLVMNativeMath::emit_acos_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD acos requires fixed f32 vectors");
                     }
@@ -651,7 +654,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 0.0));
                     auto *native = cpu::LLVMNativeMath::emit_asin_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD asin requires fixed f32 vectors");
                     }
@@ -668,7 +671,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 0.0));
                     auto *native = cpu::LLVMNativeMath::emit_atan_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD atan requires fixed f32 vectors");
                     }
@@ -687,7 +690,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 0.0));
                     auto *native = cpu::LLVMNativeMath::emit_cos_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD cos requires fixed f32 vectors");
                     }
@@ -707,7 +710,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 0.0));
                     auto *native = cpu::LLVMNativeMath::emit_sin_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD sin requires fixed f32 vectors");
                     }
@@ -724,7 +727,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 0.0));
                     auto *native = cpu::LLVMNativeMath::emit_tan_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD tan requires fixed f32 vectors");
                     }
@@ -747,7 +750,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 0.0));
                     auto *native = cpu::LLVMNativeMath::emit_exp_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD exp requires fixed f32 vectors");
                     }
@@ -767,7 +770,7 @@ namespace luisa::compute::simd::detail {
                                   value, 0.69314718055994530942));
                     auto *native = cpu::LLVMNativeMath::emit_exp_f32(
                         _module, _builder, scaled,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD exp2 requires fixed f32 vectors");
                     }
@@ -787,7 +790,7 @@ namespace luisa::compute::simd::detail {
                                   value, 2.3025850929940456840));
                     auto *native = cpu::LLVMNativeMath::emit_exp_f32(
                         _module, _builder, scaled,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD exp10 requires fixed f32 vectors");
                     }
@@ -804,7 +807,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 1.0));
                     auto *native = cpu::LLVMNativeMath::emit_log_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD log requires fixed f32 vectors");
                     }
@@ -821,7 +824,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 1.0));
                     auto *native = cpu::LLVMNativeMath::emit_log_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD log2 requires fixed f32 vectors");
                     }
@@ -840,7 +843,7 @@ namespace luisa::compute::simd::detail {
                         float_constant_like(value, 1.0));
                     auto *native = cpu::LLVMNativeMath::emit_log_f32(
                         _module, _builder, safe,
-                        cpu::LLVMNativeMathMode::precise);
+                        native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD log10 requires fixed f32 vectors");
                     }
@@ -900,7 +903,7 @@ namespace luisa::compute::simd::detail {
             auto *squared = dot(
                 operands[0u], operands[0u], operand_types[0u]);
             return squared == nullptr ? nullptr :
-                intrinsic(::llvm::Intrinsic::sqrt, {squared});
+                                        intrinsic(::llvm::Intrinsic::sqrt, {squared});
         }
         case xir::ArithmeticOp::NORMALIZE: {
             if (!require(1u) || !operand_types[0u]->is_vector()) {
@@ -988,37 +991,37 @@ namespace luisa::compute::simd::detail {
                                    source_type->is_float32() ||
                                    source_type->is_float64();
             auto *destination = scalar->getType()->isVectorTy() ?
-                static_cast<::llvm::Type *>(::llvm::FixedVectorType::get(
-                    _data_type(destination_type, false), _width)) :
-                _data_type(destination_type, false);
+                                    static_cast<::llvm::Type *>(::llvm::FixedVectorType::get(
+                                        _data_type(destination_type, false), _width)) :
+                                    _data_type(destination_type, false);
             if (destination_type->is_bool()) {
                 auto *zero = ::llvm::Constant::getNullValue(
                     scalar->getType());
                 return source_is_float ?
-                    _builder.CreateFCmpUNE(scalar, zero) :
-                    _builder.CreateICmpNE(scalar, zero);
+                           _builder.CreateFCmpUNE(scalar, zero) :
+                           _builder.CreateICmpNE(scalar, zero);
             }
             if (source_type->is_bool()) {
                 return destination_is_float ?
-                    _builder.CreateUIToFP(scalar, destination) :
-                    _builder.CreateZExtOrTrunc(scalar, destination);
+                           _builder.CreateUIToFP(scalar, destination) :
+                           _builder.CreateZExtOrTrunc(scalar, destination);
             }
             if (source_is_float && destination_is_float) {
                 return _builder.CreateFPCast(scalar, destination);
             }
             if (source_is_float) {
                 return destination_type->is_int() ?
-                    _builder.CreateFPToSI(scalar, destination) :
-                    _builder.CreateFPToUI(scalar, destination);
+                           _builder.CreateFPToSI(scalar, destination) :
+                           _builder.CreateFPToUI(scalar, destination);
             }
             if (destination_is_float) {
                 return source_type->is_int() ?
-                    _builder.CreateSIToFP(scalar, destination) :
-                    _builder.CreateUIToFP(scalar, destination);
+                           _builder.CreateSIToFP(scalar, destination) :
+                           _builder.CreateUIToFP(scalar, destination);
             }
             return source_type->is_int() ?
-                _builder.CreateSExtOrTrunc(scalar, destination) :
-                _builder.CreateZExtOrTrunc(scalar, destination);
+                       _builder.CreateSExtOrTrunc(scalar, destination) :
+                       _builder.CreateZExtOrTrunc(scalar, destination);
         });
 }
 

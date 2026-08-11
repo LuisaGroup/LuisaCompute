@@ -38,13 +38,13 @@ struct SIMDCompiledKernel {
 // diagnostics instead of being silently scalarized.
 [[nodiscard]] SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
-    std::string_view entry_name = {});
+    std::string_view entry_name = {}, bool enable_fast_math = false);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet
 // compiler above. This is the front door used by the runtime backend.
 [[nodiscard]] SIMDCompiledKernel compile_simd_kernel(
     const compute::Function &kernel, uint32_t warp_width,
-    std::string_view entry_name = {});
+    std::string_view entry_name = {}, bool enable_fast_math = false);
 
 }// namespace luisa::compute::simd

@@ -46,6 +46,7 @@ private:
     const schedule::Function &_source;
     uint32_t _width;
     std::string _entry_name;
+    bool _enable_fast_math;
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
     LLVMWarpCollectives _collectives;
@@ -302,7 +303,8 @@ private:
 public:
     ScheduleEmitter(::llvm::Module &module,
                     const schedule::Function &source, uint32_t width,
-                    std::string_view entry_name);
+                    std::string_view entry_name,
+                    bool enable_fast_math);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

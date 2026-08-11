@@ -54,11 +54,11 @@ namespace {
     return condition;
 }
 
-#define CHECK(EXPR)                                                           \
-    do {                                                                      \
-        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) {     \
-            return false;                                                     \
-        }                                                                     \
+#define CHECK(EXPR)                                                       \
+    do {                                                                  \
+        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) { \
+            return false;                                                 \
+        }                                                                 \
     } while (false)
 
 struct FallbackMathModule {
@@ -239,7 +239,8 @@ template<Operation Op>
 }
 
 template<size_t Width, Operation Op>
-[[nodiscard]] bool check_entry(simd::LLVMJIT &jit) {
+[[nodiscard]] bool check_entry(
+    simd::LLVMJIT &jit, bool fast_math) {
     using Entry = void(const float *, float *);
     auto name = function_name(Op, Width) + "_entry";
     auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
@@ -260,8 +261,14 @@ template<size_t Width, Operation Op>
     }
     entry(input.data(), output.data());
     for (auto lane = size_t{0u}; lane < Width; lane++) {
-        CHECK(approximately_equal(
-            output[lane], reference<Op>(input[lane])));
+        auto expected = reference<Op>(input[lane]);
+        auto matches = fast_math ?
+                           (std::isnan(expected) ? std::isnan(output[lane]) :
+                            std::isinf(expected) ? output[lane] == expected :
+                                                   std::abs(output[lane] - expected) <=
+                                                       2.0e-4f * (1.0f + std::abs(expected))) :
+                           approximately_equal(output[lane], expected);
+        CHECK(matches);
     }
     return true;
 }
@@ -284,21 +291,22 @@ template<size_t Width, Operation Op>
         auto ir = module_text(*shape.module);
         for (auto operation : operations) {
             auto provider = operation == Operation::exp ||
-                        operation == Operation::exp2 ||
-                        operation == Operation::exp10 ?
-                std::string_view{"exp"} :
-                operation == Operation::log ||
-                        operation == Operation::log2 ||
-                        operation == Operation::log10 ?
-                std::string_view{"log"} :
-                operation_name(operation);
+                                    operation == Operation::exp2 ||
+                                    operation == Operation::exp10 ?
+                                std::string_view{"exp"} :
+                            operation == Operation::log ||
+                                    operation == Operation::log2 ||
+                                    operation == Operation::log10 ?
+                                std::string_view{"log"} :
+                                operation_name(operation);
             auto suffix = fast_math ? "fast" :
                           provider == "log" ||
                                   provider == "tan" ||
                                   provider == "asin" ||
                                   provider == "acos" ||
                                   provider == "atan" ?
-                          "u35" : "u10";
+                                      "u35" :
+                                      "u10";
             for (auto width : {2u, 3u, 4u}) {
                 CHECK(ir.find("__luisa_cpu_native_" +
                               std::string{provider} + "_f32_v" +
@@ -312,64 +320,70 @@ template<size_t Width, Operation Op>
         }
         CHECK(ir.find("extractelement") == std::string::npos);
         CHECK(ir.find("insertelement") == std::string::npos);
+        CHECK(ir.find("llvm.x86.") == std::string::npos);
+        CHECK(ir.find("llvm.aarch64.") == std::string::npos);
     }
 
-    auto assembly_module = make_math_module(false);
-    add_entry_wrappers(*assembly_module.module);
-    simd::LLVMJIT assembly_target;
-    CHECK(assembly_target.succeeded());
-    auto assembly = assembly_target.emit_assembly(
-        std::move(assembly_module.module),
-        std::move(assembly_module.context));
-    std::transform(
-        assembly.begin(), assembly.end(), assembly.begin(),
-        [](unsigned char c) noexcept {
-            return static_cast<char>(std::tolower(c));
-        });
-    CHECK(assembly.find("sinf") == std::string::npos);
-    CHECK(assembly.find("cosf") == std::string::npos);
-    CHECK(assembly.find("tanf") == std::string::npos);
-    CHECK(assembly.find("asinf") == std::string::npos);
-    CHECK(assembly.find("acosf") == std::string::npos);
-    CHECK(assembly.find("atanf") == std::string::npos);
-    CHECK(assembly.find("expf") == std::string::npos);
-    CHECK(assembly.find("exp2f") == std::string::npos);
-    CHECK(assembly.find("exp10f") == std::string::npos);
-    CHECK(assembly.find("logf") == std::string::npos);
-    CHECK(assembly.find("log2f") == std::string::npos);
-    CHECK(assembly.find("log10f") == std::string::npos);
+    for (auto fast_math : {false, true}) {
+        auto assembly_module = make_math_module(fast_math);
+        add_entry_wrappers(*assembly_module.module);
+        simd::LLVMJIT assembly_target;
+        CHECK(assembly_target.succeeded());
+        auto assembly = assembly_target.emit_assembly(
+            std::move(assembly_module.module),
+            std::move(assembly_module.context));
+        std::transform(
+            assembly.begin(), assembly.end(), assembly.begin(),
+            [](unsigned char c) noexcept {
+                return static_cast<char>(std::tolower(c));
+            });
+        CHECK(assembly.find("sinf") == std::string::npos);
+        CHECK(assembly.find("cosf") == std::string::npos);
+        CHECK(assembly.find("tanf") == std::string::npos);
+        CHECK(assembly.find("asinf") == std::string::npos);
+        CHECK(assembly.find("acosf") == std::string::npos);
+        CHECK(assembly.find("atanf") == std::string::npos);
+        CHECK(assembly.find("expf") == std::string::npos);
+        CHECK(assembly.find("exp2f") == std::string::npos);
+        CHECK(assembly.find("exp10f") == std::string::npos);
+        CHECK(assembly.find("logf") == std::string::npos);
+        CHECK(assembly.find("log2f") == std::string::npos);
+        CHECK(assembly.find("log10f") == std::string::npos);
+    }
 
-    auto executable = make_math_module(false);
-    add_entry_wrappers(*executable.module);
-    simd::LLVMJIT jit;
-    CHECK(jit.succeeded());
-    CHECK(jit.add_module(
-        std::move(executable.module),
-        std::move(executable.context)));
-    CHECK((check_entry<2u, Operation::acos>(jit)));
-    CHECK((check_entry<3u, Operation::acos>(jit)));
-    CHECK((check_entry<4u, Operation::acos>(jit)));
-    CHECK((check_entry<2u, Operation::asin>(jit)));
-    CHECK((check_entry<3u, Operation::asin>(jit)));
-    CHECK((check_entry<4u, Operation::asin>(jit)));
-    CHECK((check_entry<2u, Operation::atan>(jit)));
-    CHECK((check_entry<3u, Operation::atan>(jit)));
-    CHECK((check_entry<4u, Operation::atan>(jit)));
-    CHECK((check_entry<2u, Operation::sin>(jit)));
-    CHECK((check_entry<3u, Operation::sin>(jit)));
-    CHECK((check_entry<4u, Operation::sin>(jit)));
-    CHECK((check_entry<2u, Operation::cos>(jit)));
-    CHECK((check_entry<3u, Operation::cos>(jit)));
-    CHECK((check_entry<4u, Operation::cos>(jit)));
-    CHECK((check_entry<2u, Operation::tan>(jit)));
-    CHECK((check_entry<3u, Operation::tan>(jit)));
-    CHECK((check_entry<4u, Operation::tan>(jit)));
-    CHECK((check_entry<2u, Operation::exp>(jit)));
-    CHECK((check_entry<3u, Operation::exp2>(jit)));
-    CHECK((check_entry<4u, Operation::exp10>(jit)));
-    CHECK((check_entry<2u, Operation::log>(jit)));
-    CHECK((check_entry<3u, Operation::log2>(jit)));
-    CHECK((check_entry<4u, Operation::log10>(jit)));
+    for (auto fast_math : {false, true}) {
+        auto executable = make_math_module(fast_math);
+        add_entry_wrappers(*executable.module);
+        simd::LLVMJIT jit;
+        CHECK(jit.succeeded());
+        CHECK(jit.add_module(
+            std::move(executable.module),
+            std::move(executable.context)));
+        CHECK((check_entry<2u, Operation::acos>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::acos>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::acos>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::asin>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::asin>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::asin>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::atan>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::atan>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::atan>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::sin>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::sin>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::sin>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::cos>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::cos>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::cos>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::tan>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::tan>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::tan>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::exp>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::exp2>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::exp10>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::log>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::log2>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::log10>(jit, fast_math)));
+    }
     return true;
 }
 

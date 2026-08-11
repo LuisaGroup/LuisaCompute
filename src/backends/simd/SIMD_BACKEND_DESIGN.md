@@ -4,10 +4,13 @@ Status: Phase 2 fixed-vector compute checkpoint. XIR-to-Schedule lowering,
 the dependency-light cohort semantic model, the independent-thread LLVM
 packet dispatcher, dispatch builtins, aggregate SoA values, and direct Buffer
 gather/scatter plus bindless buffer tables are implemented behind
-`LUISA_COMPUTE_ENABLE_SIMD`.
+`LUISA_COMPUTE_ENABLE_SIMD`. The shared LLVM native-math layer now has
+independently implemented precise and fast tiers for the initial twelve f32
+operations.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
-`74cde8c2acca8ef3d8061a0536c5dfaccba46670` (2026-08-11).
+`d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
+`7bd81e18cad2956d12afdb65d5a5d247346db392`.
 
 ## 1. Goal
 
@@ -511,6 +514,41 @@ shuffle vectors, and target-independent intrinsics. Backend code never inserts
 target-ISA intrinsics. If a target legalizes a canonical vector idiom poorly,
 the remedy is to improve the target-independent IR or LLVM's lowering—not to
 encode an x86 or Arm instruction in Schedule IR codegen.
+
+### 10.1 Native math tiers
+
+`ShaderOption::enable_fast_math` is carried by `SIMDShader` through the SIMD
+compiler and Schedule-to-LLVM emitter. A varying f32 math operation selects
+the precise or fast fixed-vector provider at its use site. The fallback XIR
+code generator uses the same selection for DSL float2/float3/float4. A
+warp-uniform value remains scalar and performs one scalar LLVM math operation;
+it is not broadcast and recomputed per lane.
+
+The provider facade remains in `backends/common/llvm_native_math.cpp`. The
+implementation is split by range reduction, precise trig, precise inverse
+trig, precise exp/log, and the corresponding fast responsibilities. This
+keeps the ABI and provider selection separate from formulas and keeps the
+precise expression order unchanged. Formula provenance, the numerical
+envelopes, and special-value behavior are linked from
+[`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md).
+
+Acceptance checks three layers:
+
+1. numerical execution at W2/W3/W4/W8/W16, including deterministic raw bits,
+   domain-focused samples, special values, large reductions, and inactive
+   tails;
+2. LLVM IR shape, including the absence of lane extraction/insertion loops and
+   target-specific intrinsics;
+3. optimized assembly, including the absence of varying scalar libm symbols.
+
+`benchmark_llvm_native_math` is an explicit benchmark target rather than a
+CTest timing test. It interleaves precise and fast samples for fallback
+float2/float3/float4 and SIMD W4/W8/W16 and enforces a 1.05x aggregate
+throughput gate per width. On the recorded LLVM 22.1.8 x86-64 audit host, the
+aggregate speedup was 1.370x-1.396x and every individual operation was faster.
+The benchmark also prints static instruction counts; instruction count alone
+is not the acceptance metric because the common trig path retains a cold
+large-argument correctness branch.
 
 ## 11. Runtime factoring
 
