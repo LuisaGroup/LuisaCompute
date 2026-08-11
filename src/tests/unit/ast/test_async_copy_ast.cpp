@@ -1,7 +1,8 @@
 // Test for CallOp::ASYNC_COPY manual AST construction.
-// This covers the currently supported front-end contract only; no backend
-// claims are made until the AST and XIR type systems can represent SPIR-V
-// event values and cross-workgroup pointers.
+// This covers the currently supported front-end contract only: dst/src are
+// 64-bit device addresses (e.g. produced by ADDRESS_OF / BUFFER_ADDRESS), and
+// the op may be emitted either as a statement (void) or with a uint event
+// return type. No backend claims are made here.
 
 #include "ut/ut.hpp"
 
@@ -21,16 +22,18 @@ int main() {
             auto &cur = *FuncBuilder::current();
             cur.set_block_size(uint3(64u, 1u, 1u));
 
-            // Shared array that serves as both source and destination.
+            // Shared array that serves as the destination.
             auto shared = cur.shared(Type::array(Type::of<uint32_t>(), 64u));
 
-            // Build lvalue references to source and destination elements.
+            // dst is an lvalue of the shared-memory destination; src is the
+            // 64-bit device address of the global source.
             auto zero = cur.literal(Type::of<uint32_t>(), 0u);
             auto one = cur.literal(Type::of<uint32_t>(), 1u);
-            auto dst = cur.access(Type::of<uint32_t>(), shared, zero);
-            auto src = cur.access(Type::of<uint32_t>(), shared, one);
+            auto dst_elem = cur.access(Type::of<uint32_t>(), shared, zero);
+            auto src_elem = cur.access(Type::of<uint32_t>(), shared, one);
+            auto src = cur.call(Type::of<ulong>(), CallOp::ADDRESS_OF, {src_elem});
 
-            // ASYNC_COPY arguments: scope, dst, src, elem_bytes, num_elements, stride, event.
+            // ASYNC_COPY arguments: scope, dst_lvalue, src_addr, elem_bytes, num_elements, stride, event.
             auto scope = cur.literal(Type::of<uint32_t>(), 2u);
             auto elem_bytes = cur.literal(Type::of<uint32_t>(), 4u);
             auto num_elements = cur.literal(Type::of<uint32_t>(), 1u);
@@ -39,7 +42,7 @@ int main() {
 
             [[maybe_unused]] auto async_copy_call = cur.call(
                 Type::of<uint32_t>(), CallOp::ASYNC_COPY,
-                {scope, dst, src, elem_bytes, num_elements, stride, event});
+                {scope, dst_elem, src, elem_bytes, num_elements, stride, event});
         });
 
         auto kernel = Function(kernel_builder.get());

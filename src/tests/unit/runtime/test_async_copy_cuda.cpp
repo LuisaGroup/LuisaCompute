@@ -1,11 +1,13 @@
-// Test for CUDA Async Copy (LDGSTS, CC 8.0+).
+// Test for CUDA Async Copy (cp.async / LDGSTS, CC 8.0+).
 // This test covers:
 // - Basic global→shared copy with pipeline wait
 // - Multi-stage prefetching (2-stage pipeline)
-// - Alignment and element-size edge cases
+// - 16-byte (float4) copies
 
 #include "ut/ut.hpp"
 #include "test_device.h"
+
+#include <cmath>
 
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
@@ -20,7 +22,6 @@ using namespace boost::ut::literals;
 void test_async_copy_basic(Device &device) {
     constexpr auto N = 1024u;
     constexpr auto block_size = 256u;
-    constexpr auto num_blocks = 4u;
 
     luisa::vector<float> host_src(N);
     for (auto i = 0u; i < N; ++i) {
@@ -37,16 +38,13 @@ void test_async_copy_basic(Device &device) {
 
         $shared<float> tile{block_size};
         $uint tid = thread_x();
-
-        // Each thread copies 4 elements (float = 4 bytes each)
         $uint base = block_x() * block_size + tid;
-        $uint dst_ptr = 0u; // shared address placeholder
-        $uint src_ptr = 0u; // global address placeholder
 
-        // Async copy: 4 elements per thread × 4 bytes = 16 bytes
-        dst_ptr = tid * 4u;
-        src_ptr = base;
-        async_copy(1u, dst_ptr, src_ptr, 4u, 4u, 4u, 0u);
+        // Async copy one float (4 bytes) from global to shared. dst is the
+        // shared-memory lvalue; src is the global source address.
+        async_copy(1u, tile[tid],
+                   src_buf.device_address() + cast<ulong>(base * 4u),
+                   4u, 1u, 4u, 0u);
         pipeline_commit();
         pipeline_wait_prior(0u);  // wait for all copies
 
@@ -54,26 +52,36 @@ void test_async_copy_basic(Device &device) {
 
         // Write shared→global
         $float val = tile[tid];
-        $uint gid = block_x() * block_size + tid;
-        $if (gid < N) {
-            dst_buf.write(gid, val);
+        $if (base < N) {
+            dst_buf.write(base, val);
         };
     };
 
     auto shader = device.compile(kernel);
-    stream << shader(src, dst).dispatch(num_blocks) << synchronize();
+    // dispatch(N) launches N total threads (ceil(N / block_size) blocks).
+    stream << shader(src, dst).dispatch(N) << synchronize();
 
     luisa::vector<float> result(N);
     stream << dst.copy_to(luisa::span{result}) << synchronize();
 
-    // Verify: each block writes its local copy; exact values depend on how
-    // async_copy address semantics work. For now, just verify no crash.
+    bool all_correct = true;
+    for (auto i = 0u; i < N; ++i) {
+        if (std::abs(result[i] - static_cast<float>(i)) > 1e-4f) {
+            LUISA_WARNING("async_copy_basic mismatch at [{}]: got {}, expected {}",
+                          i, result[i], i);
+            all_correct = false;
+            break;
+        }
+    }
+    expect(all_correct) << "basic async copy should copy src to shared and back";
     LUISA_INFO("Basic async copy test completed ({} elements)", N);
 }
 
 void test_async_copy_two_stage(Device &device) {
     constexpr auto N = 2048u;
     constexpr auto block_size = 256u;
+    constexpr auto elements_per_block = 2u * block_size;
+    constexpr auto num_blocks = N / elements_per_block;
 
     luisa::vector<float> host_src(N);
     for (auto i = 0u; i < N; ++i) {
@@ -92,14 +100,18 @@ void test_async_copy_two_stage(Device &device) {
         $shared<float> tile_b{block_size};
         $uint tid = thread_x();
 
+        auto src_base = src_buf.device_address();
+
         // Prefetch tile A
-        $uint base_a = block_x() * 2u * block_size + tid;
-        async_copy(1u, tid, base_a, 4u, 1u, 4u, 0u);
+        $uint base_a = block_x() * elements_per_block + tid;
+        async_copy(1u, tile_a[tid],
+                   src_base + cast<ulong>(base_a * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Prefetch tile B
         $uint base_b = base_a + block_size;
-        async_copy(1u, tid, base_b, 4u, 1u, 4u, 0u);
+        async_copy(1u, tile_b[tid],
+                   src_base + cast<ulong>(base_b * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Wait for tile A (1 stage prior)
@@ -108,9 +120,8 @@ void test_async_copy_two_stage(Device &device) {
 
         // Process tile A
         $float val = tile_a[tid];
-        $uint gid_a = block_x() * 2u * block_size + tid;
-        $if (gid_a < N) {
-            dst_buf.write(gid_a, val);
+        $if (base_a < N) {
+            dst_buf.write(base_a, val);
         };
 
         // Wait for tile B (0 stages prior)
@@ -119,38 +130,115 @@ void test_async_copy_two_stage(Device &device) {
 
         // Process tile B
         val = tile_b[tid];
-        $uint gid_b = gid_a + block_size;
-        $if (gid_b < N) {
-            dst_buf.write(gid_b, val);
+        $if (base_b < N) {
+            dst_buf.write(base_b, val);
         };
     };
 
     auto shader = device.compile(kernel);
-    auto num_blocks = (N + 2u * block_size - 1u) / (2u * block_size);
-    stream << shader(src, dst).dispatch(num_blocks) << synchronize();
+    // Each thread handles two elements (one per tile), so dispatch
+    // num_blocks * block_size total threads.
+    stream << shader(src, dst).dispatch(num_blocks * block_size) << synchronize();
 
     luisa::vector<float> result(N);
     stream << dst.copy_to(luisa::span{result}) << synchronize();
 
+    bool all_correct = true;
+    for (auto i = 0u; i < N; ++i) {
+        if (std::abs(result[i] - static_cast<float>(i)) > 1e-4f) {
+            LUISA_WARNING("async_copy_two_stage mismatch at [{}]: got {}, expected {}",
+                          i, result[i], i);
+            all_correct = false;
+            break;
+        }
+    }
+    expect(all_correct) << "two-stage prefetch should copy both tiles correctly";
     LUISA_INFO("Two-stage async copy test completed ({} elements)", N);
 }
 
-static inline const auto reg = [] {
-    "async_copy_basic"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_async_copy_basic(dc->device);
+void test_async_copy_float4(Device &device) {
+    constexpr auto N4 = 256u;
+    constexpr auto block_size = 64u;
+
+    luisa::vector<float4> host_src(N4);
+    for (auto i = 0u; i < N4; ++i) {
+        host_src[i] = make_float4(
+            static_cast<float>(4 * i),
+            static_cast<float>(4 * i + 1),
+            static_cast<float>(4 * i + 2),
+            static_cast<float>(4 * i + 3));
+    }
+
+    Buffer<float4> src = device.create_buffer<float4>(N4);
+    Buffer<float4> dst = device.create_buffer<float4>(N4);
+    Stream stream = device.create_stream();
+    stream << src.copy_from(luisa::span{host_src}) << synchronize();
+
+    Kernel1D kernel = [&](BufferVar<float4> src_buf, BufferVar<float4> dst_buf) noexcept {
+        set_block_size(block_size, 1u, 1u);
+
+        $shared<float4> tile{block_size};
+        $uint tid = thread_x();
+        $uint base = block_x() * block_size + tid;
+
+        // Async copy one float4 (16 bytes) from global to shared.
+        async_copy(1u, tile[tid],
+                   src_buf.device_address() + cast<ulong>(base * 16u),
+                   16u, 1u, 16u, 0u);
+        pipeline_commit();
+        pipeline_wait_prior(0u);
+
+        sync_block();
+
+        $float4 val = tile[tid];
+        $if (base < N4) {
+            dst_buf.write(base, val);
+        };
     };
-    "async_copy_two_stage"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        test_async_copy_two_stage(dc->device);
-    };
-    return 0;
-}();
+
+    auto shader = device.compile(kernel);
+    // dispatch(N4) launches N4 total threads (ceil(N4 / block_size) blocks).
+    stream << shader(src, dst).dispatch(N4) << synchronize();
+
+    luisa::vector<float4> result(N4);
+    stream << dst.copy_to(luisa::span{result}) << synchronize();
+
+    bool all_correct = true;
+    for (auto i = 0u; i < N4; ++i) {
+        auto expected = make_float4(
+            static_cast<float>(4 * i),
+            static_cast<float>(4 * i + 1),
+            static_cast<float>(4 * i + 2),
+            static_cast<float>(4 * i + 3));
+        if (std::abs(result[i].x - expected.x) > 1e-4f ||
+            std::abs(result[i].y - expected.y) > 1e-4f ||
+            std::abs(result[i].z - expected.z) > 1e-4f ||
+            std::abs(result[i].w - expected.w) > 1e-4f) {
+            LUISA_WARNING("async_copy_float4 mismatch at [{}]: got {}, expected {}",
+                          i, result[i], expected);
+            all_correct = false;
+            break;
+        }
+    }
+    expect(all_correct) << "16-byte async copy should copy float4 values correctly";
+    LUISA_INFO("16-byte async copy test completed ({} elements)", N4);
+}
 
 int main(int argc, char *argv[]) {
-    // Pass through to Boost.UT's stored args for create_device_from_ut()
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    if (device.backend_name() != "cuda") {
+        LUISA_INFO("Async copy is only supported on the CUDA backend (got '{}'); skipping.",
+                   device.backend_name());
+        return 0;
+    }
+    log_level_verbose();
+    test_async_copy_basic(device);
+    test_async_copy_two_stage(device);
+    test_async_copy_float4(device);
 }

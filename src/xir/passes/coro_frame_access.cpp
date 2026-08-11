@@ -164,7 +164,7 @@ void collect_static_accesses(Value *pointer,
     return result;
 }
 
-[[nodiscard]] AllocaInst *trace_local_alloca(Value *value) noexcept {
+[[nodiscard]] AllocaInst *frame_trace_local_alloca(Value *value) noexcept {
     while (value != nullptr && value->isa<Instruction>()) {
         auto *instruction = static_cast<Instruction *>(value);
         if (instruction->isa<AllocaInst>()) {
@@ -260,7 +260,7 @@ CoroFrameAtomDomain::CoroFrameAtomDomain(
                 _memory_accesses.contains(instruction)) {
                 continue;
             }
-            if (auto *alloca = trace_local_alloca(instruction)) {
+            if (auto *alloca = frame_trace_local_alloca(instruction)) {
                 if (auto iter = _memory_accesses.find(alloca);
                     iter != _memory_accesses.end()) {
                     auto accesses = iter->second;
