@@ -74,6 +74,12 @@ public:
     [[nodiscard]] bool dominates(
         BasicBlock *definition,
         BasicBlock *use) const noexcept;
+    // Returns the deepest block that dominates every input in the augmented
+    // coroutine CFG. Suspend(token) -> resume(token) edges participate in the
+    // same dominance relation, so the result is suitable for state whose
+    // lifetime is local to one continuation iteration.
+    [[nodiscard]] BasicBlock *nearest_common_dominator(
+        luisa::span<BasicBlock *const> blocks) const noexcept;
     // Returns true when one semantic suspend->resume edge lies on some block
     // path from definition to use. This is a cheap necessary condition used
     // before the exact reaching-state fixed point.

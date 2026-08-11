@@ -16,6 +16,7 @@
 #include <luisa/xir/passes/const_fold.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/coro_alloca_scope.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/passes/coro_rematerialize.h>
@@ -364,6 +365,55 @@ void verify_coro_xir_or_error(
                     i.dead_code_instruction_scan_count);
               r.set("dead_code_worklist_pop",
                     i.dead_code_worklist_pop_count);
+              return i.changed();
+          });
+    // Keep this last: SROA and its cleanup create the final local-allocation
+    // set consumed by coroutine liveness. After proving definite
+    // initialization, moving a lifetime start to the nearest augmented-CFG
+    // dominator lets a continuation loop begin with undefined scratch storage
+    // instead of preserving bytes from the previous iteration.
+    p.add("coro-alloca-scope",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::coro_alloca_scope_pass_run_on_function(
+                  coroutine);
+              r.set("semantic_block", i.semantic_block_count);
+              r.set("semantic_edge", i.semantic_edge_count);
+              r.set("scanned_local_alloca",
+                    i.scanned_local_alloca_count);
+              r.set("contracted_alloca", i.contracted_alloca_count);
+              r.set("cross_block_contraction",
+                    i.cross_block_contraction_count);
+              r.set("intra_block_contraction",
+                    i.intra_block_contraction_count);
+              r.set("rejected_phi_use", i.rejected_phi_use_count);
+              r.set("rejected_unreachable_use",
+                    i.rejected_unreachable_use_count);
+              r.set("rejected_non_dominating_alloca",
+                    i.rejected_non_dominating_alloca_count);
+              r.set("definite_initialization_proof",
+                    i.definite_initialization_proof_count);
+              r.set("rejected_prior_lifetime_observation",
+                    i.rejected_prior_lifetime_observation_count);
+              r.set("definite_initialization_block_evaluation",
+                    i.definite_initialization_block_evaluation_count);
+              r.set("invalid_semantic_cfg",
+                    i.invalid_semantic_cfg_count);
+              if (environment_flag_enabled(
+                      "LUISA_CORO_PROFILE_COMPILATION")) {
+                  LUISA_INFO(
+                      "Coroutine alloca lifetime contraction: "
+                      "allocas={} contracted={} cross_block={} "
+                      "intra_block={} definite_proofs={} "
+                      "rejected_prior_lifetime={} "
+                      "proof_block_evaluations={}.",
+                      i.scanned_local_alloca_count,
+                      i.contracted_alloca_count,
+                      i.cross_block_contraction_count,
+                      i.intra_block_contraction_count,
+                      i.definite_initialization_proof_count,
+                      i.rejected_prior_lifetime_observation_count,
+                      i.definite_initialization_block_evaluation_count);
+              }
               return i.changed();
           });
     return p;

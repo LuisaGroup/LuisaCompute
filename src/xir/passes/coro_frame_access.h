@@ -21,11 +21,13 @@ class Value;
 namespace detail {
 
 // Immutable value-numbering domain used by coroutine liveness. Ordinary SSA
-// values occupy one atom. A local aggregate may occupy several disjoint atoms
-// when every load is through a statically indexed, non-overlapping GEP path.
-// Static stores may cover or lie inside those read atoms and are transferred
-// to every overlapping atom. Dynamic access, overlapping loads, and pointer
-// escape all fall back to one whole-allocation atom.
+// values occupy one atom. Local aggregate pointers are interpreted in a
+// type-shaped leaf-mask domain: each projection has a May set of leaves it can
+// address and a Must set it definitely overwrites. The atoms are the maximal
+// type subtrees on which every observed May/Must mask is uniform. This is the
+// minimal tree-representable disjoint partition that preserves all transfer
+// functions; static, overlapping, and nested dynamic projections therefore do
+// not force unrelated sibling subaggregates into one whole-allocation atom.
 class CoroFrameAtomDomain {
 public:
     struct Atom {

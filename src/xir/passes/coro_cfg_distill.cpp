@@ -640,6 +640,17 @@ static void touch_memory(Value *pointer, State &state,
 }
 
 template<typename State>
+static void begin_memory_lifetime(Value *pointer, State &state) noexcept {
+    // ALLOCA denotes fresh, undefined storage each time execution reaches the
+    // instruction. This is a must-kill for every atom rooted at the local,
+    // including all leaves of a split aggregate, but it is not a write: no
+    // value becomes live or needs to be stored into the coroutine frame.
+    for (auto access : state.domain->memory_accesses(pointer)) {
+        state.kill(access.atom_index);
+    }
+}
+
+template<typename State>
 static void use_pointer_indices(Value *value, State &state) noexcept {
     while (value != nullptr && value->isa<Instruction>()) {
         auto *inst = static_cast<Instruction *>(value);
@@ -680,8 +691,13 @@ static void transfer_call_instruction(CallInst *call, State &state) noexcept {
 template<typename State>
 static void transfer_instruction(Instruction *inst, State &state) noexcept {
     switch (inst->derived_instruction_tag()) {
-        case DerivedInstructionTag::ALLOCA:
+        case DerivedInstructionTag::ALLOCA: {
+            auto *alloca = static_cast<AllocaInst *>(inst);
+            if (alloca->is_local()) {
+                begin_memory_lifetime(alloca, state);
+            }
             break;
+        }
         case DerivedInstructionTag::GEP: {
             // Computing an address does not read the pointee. Only the index
             // expressions are SSA uses; the eventual load/store/call models

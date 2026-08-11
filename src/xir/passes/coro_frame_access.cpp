@@ -4,6 +4,7 @@
 #include <limits>
 
 #include <luisa/ast/type.h>
+#include <luisa/core/logging.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instruction.h>
@@ -11,6 +12,7 @@
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/xir/passes/aggregate_field_bitmask.h>
 
 #include "helpers.h"
 
@@ -18,150 +20,268 @@ namespace luisa::compute::xir::detail {
 
 namespace {
 
-struct StaticAccessEndpoint {
+struct PointerProjection {
     Value *pointer{nullptr};
+    const Type *type{nullptr};
+    luisa::vector<luisa::optional<size_t>> access_pattern;
+    AggregateFieldBitmask may;
+    AggregateFieldBitmask must;
+    bool accessed{false};
+    bool observed{false};
+
+    PointerProjection(Value *p, const Type *pointer_type,
+                      const Type *root_type) noexcept
+        : pointer{p}, type{pointer_type}, may{root_type}, must{root_type} {}
+};
+
+struct AllocaProjectionAnalysis {
+    bool valid{true};
+    luisa::vector<PointerProjection> projections;
+    luisa::unordered_map<Value *, size_t> projection_indices;
+};
+
+struct ProjectedIndex {
+    bool valid{false};
+    luisa::optional<size_t> constant;
+};
+
+struct AtomEndpoint {
     luisa::vector<uint32_t> path;
     const Type *type{nullptr};
 };
 
-struct StaticAllocaAccess {
-    bool valid{true};
-    luisa::vector<StaticAccessEndpoint> endpoints;
-    luisa::unordered_map<Value *, luisa::vector<uint32_t>> pointer_paths;
-};
-
-[[nodiscard]] bool path_is_prefix(luisa::span<const uint32_t> prefix,
-                                  luisa::span<const uint32_t> path) noexcept {
-    return prefix.size() <= path.size() &&
-           std::equal(prefix.begin(), prefix.end(), path.begin());
-}
-
-[[nodiscard]] bool path_less(const StaticAccessEndpoint &lhs,
-                             const StaticAccessEndpoint &rhs) noexcept {
-    return std::lexicographical_compare(
-        lhs.path.begin(), lhs.path.end(), rhs.path.begin(), rhs.path.end());
-}
-
-[[nodiscard]] bool same_path(luisa::span<const uint32_t> lhs,
-                             luisa::span<const uint32_t> rhs) noexcept {
-    return lhs.size() == rhs.size() &&
-           std::equal(lhs.begin(), lhs.end(), rhs.begin());
-}
-
-void collect_static_accesses(Value *pointer,
-                             luisa::vector<uint32_t> path,
-                             StaticAllocaAccess &result,
-                             luisa::unordered_set<Value *> &visiting) noexcept {
-    if (!result.valid || pointer == nullptr) { return; }
-    if (auto iter = result.pointer_paths.find(pointer);
-        iter != result.pointer_paths.end()) {
-        if (!same_path(iter->second, path)) { result.valid = false; }
-        return;
+[[nodiscard]] bool is_integer_index_type(const Type *type) noexcept {
+    if (type == nullptr) { return false; }
+    switch (type->tag()) {
+        case Type::Tag::INT8:
+        case Type::Tag::UINT8:
+        case Type::Tag::INT16:
+        case Type::Tag::UINT16:
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32:
+        case Type::Tag::INT64:
+        case Type::Tag::UINT64: return true;
+        default: return false;
     }
-    if (!visiting.emplace(pointer).second) {
+}
+
+[[nodiscard]] ProjectedIndex decode_projected_index(Value *value) noexcept {
+    ProjectedIndex result;
+    if (value == nullptr || !is_integer_index_type(value->type())) {
+        return result;
+    }
+    result.valid = true;
+    if (!value->isa<Constant>()) { return result; }
+    uint64_t index = 0u;
+    if (!try_decode_constant_nonnegative_integer(value, index) ||
+        index > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
         result.valid = false;
-        return;
+        return result;
     }
-    result.pointer_paths.emplace(pointer, path);
-    for (auto *use : pointer->use_list()) {
-        auto *user = use == nullptr ? nullptr : use->user();
-        if (user == nullptr || !user->isa<Instruction>()) {
-            result.valid = false;
-            break;
-        }
-        auto *instruction = static_cast<Instruction *>(user);
-        switch (instruction->derived_instruction_tag()) {
-            case DerivedInstructionTag::GEP: {
-                auto *gep = static_cast<GEPInst *>(instruction);
-                if (gep->base() != pointer || gep->index_count() == 0u) {
-                    result.valid = false;
-                    break;
-                }
-                auto child_path = path;
-                for (size_t i = 0u; i < gep->index_count(); ++i) {
-                    uint64_t index = 0u;
-                    if (!try_decode_constant_nonnegative_integer(
-                            gep->index(i), index) ||
-                        index > std::numeric_limits<uint32_t>::max()) {
-                        result.valid = false;
-                        break;
-                    }
-                    child_path.emplace_back(static_cast<uint32_t>(index));
-                }
-                if (result.valid) {
-                    collect_static_accesses(
-                        gep, std::move(child_path), result, visiting);
-                }
-                break;
-            }
-            case DerivedInstructionTag::LOAD: {
-                auto *load = static_cast<LoadInst *>(instruction);
-                if (load->variable() != pointer || path.empty()) {
-                    result.valid = false;
-                    break;
-                }
-                result.endpoints.emplace_back(StaticAccessEndpoint{
-                    .pointer = pointer,
-                    .path = path,
-                    .type = pointer->type()});
-                break;
-            }
-            case DerivedInstructionTag::STORE: {
-                auto *store = static_cast<StoreInst *>(instruction);
-                if (store->variable() != pointer) {
-                    result.valid = false;
-                }
-                // Stores do not define observation granularity. A store to a
-                // parent subobject can kill every descendant read atom, while
-                // a store inside a coarser read atom kills that enclosing atom.
-                // Treating stores as leaf endpoints would make these perfectly
-                // representable overlaps force a whole-allocation fallback.
-                break;
-            }
-            default:
-                // Atomics, reference calls, and any other address escape can
-                // observe or modify an arbitrary overlapping subobject.
-                result.valid = false;
-                break;
-        }
-        if (!result.valid) { break; }
-    }
-    visiting.erase(pointer);
+    result.constant = static_cast<size_t>(index);
+    return result;
 }
 
-[[nodiscard]] StaticAllocaAccess analyze_static_alloca(
+[[nodiscard]] const Type *project_indexed_type(
+    const Type *type, const ProjectedIndex &index,
+    bool &selects_one_static_subtree) noexcept {
+    if (type == nullptr || !index.valid) { return nullptr; }
+    switch (type->tag()) {
+        case Type::Tag::VECTOR:
+        case Type::Tag::ARRAY: {
+            auto dimension = type->dimension();
+            if (index.constant) {
+                if (*index.constant >= dimension) { return nullptr; }
+            } else if (dimension > 1u) {
+                selects_one_static_subtree = false;
+            }
+            return type->element();
+        }
+        case Type::Tag::MATRIX: {
+            auto dimension = type->dimension();
+            if (index.constant) {
+                if (*index.constant >= dimension) { return nullptr; }
+            } else if (dimension > 1u) {
+                selects_one_static_subtree = false;
+            }
+            return Type::vector(type->element(), dimension);
+        }
+        case Type::Tag::STRUCTURE: {
+            if (!index.constant) { return nullptr; }
+            auto members = type->members();
+            return *index.constant < members.size() ?
+                       members[*index.constant] :
+                       nullptr;
+        }
+        default: return nullptr;
+    }
+}
+
+[[nodiscard]] AllocaProjectionAnalysis analyze_alloca_projections(
     AllocaInst *alloca) noexcept {
-    StaticAllocaAccess result;
+    AllocaProjectionAnalysis result;
     if (alloca == nullptr || alloca->type() == nullptr ||
         alloca->type()->is_scalar()) {
         result.valid = false;
         return result;
     }
-    luisa::unordered_set<Value *> visiting;
-    collect_static_accesses(alloca, {}, result, visiting);
-    if (!result.valid || result.endpoints.empty()) {
-        result.valid = false;
-        return result;
-    }
-    std::stable_sort(result.endpoints.begin(), result.endpoints.end(), path_less);
-    result.endpoints.erase(
-        std::unique(result.endpoints.begin(), result.endpoints.end(),
-                    [](auto &lhs, auto &rhs) noexcept {
-                        return same_path(lhs.path, rhs.path);
-                    }),
-        result.endpoints.end());
-    // Distinct atoms must denote disjoint storage. A whole subobject access
-    // overlapping a deeper field is kept as one conservative root atom.
-    for (size_t i = 0u; i < result.endpoints.size(); ++i) {
-        for (size_t j = i + 1u; j < result.endpoints.size(); ++j) {
-            if (path_is_prefix(result.endpoints[i].path,
-                               result.endpoints[j].path)) {
+    auto *root_type = alloca->type();
+    result.projections.emplace_back(alloca, root_type, root_type);
+    result.projections.front().may.set(true);
+    result.projections.front().must.set(true);
+    result.projection_indices.emplace(alloca, 0u);
+
+    for (size_t cursor = 0u;
+         cursor < result.projections.size() && result.valid; ++cursor) {
+        auto *pointer = result.projections[cursor].pointer;
+        // The vector may reallocate while discovering child GEPs. Snapshot
+        // the immutable parent projection before appending anything.
+        auto parent_pattern = result.projections[cursor].access_pattern;
+        auto *parent_type = result.projections[cursor].type;
+        for (auto *use : pointer->use_list()) {
+            auto *user = use == nullptr ? nullptr : use->user();
+            if (user == nullptr || !user->isa<Instruction>()) {
                 result.valid = false;
-                return result;
+                break;
+            }
+            auto *instruction = static_cast<Instruction *>(user);
+            if (instruction->isa<GEPInst>() &&
+                static_cast<GEPInst *>(instruction)->base() == pointer) {
+                auto *gep = static_cast<GEPInst *>(instruction);
+                auto pattern = parent_pattern;
+                auto *projected_type = parent_type;
+                auto selects_one_static_subtree = true;
+                for (size_t i = 0u; i < gep->index_count(); ++i) {
+                    auto index = decode_projected_index(gep->index(i));
+                    projected_type = project_indexed_type(
+                        projected_type, index,
+                        selects_one_static_subtree);
+                    if (projected_type == nullptr) {
+                        result.valid = false;
+                        break;
+                    }
+                    pattern.emplace_back(index.constant);
+                }
+                if (!result.valid || gep->type() != projected_type) {
+                    result.valid = false;
+                    break;
+                }
+                if (auto iter = result.projection_indices.find(gep);
+                    iter != result.projection_indices.end()) {
+                    if (result.projections[iter->second].access_pattern !=
+                        pattern) {
+                        result.valid = false;
+                    }
+                    continue;
+                }
+                auto projection_index = result.projections.size();
+                result.projections.emplace_back(
+                    gep, projected_type, root_type);
+                auto &projection = result.projections.back();
+                projection.access_pattern = std::move(pattern);
+                if (!projection.may.mark_access_pattern(
+                        projection.access_pattern)) {
+                    result.valid = false;
+                    break;
+                }
+                if (selects_one_static_subtree) {
+                    projection.must = projection.may;
+                }
+                result.projection_indices.emplace(
+                    gep, projection_index);
+                continue;
+            }
+            auto &projection = result.projections[cursor];
+            if (instruction->isa<LoadInst>() &&
+                static_cast<LoadInst *>(instruction)->variable() == pointer) {
+                projection.accessed = true;
+                projection.observed = true;
+            } else if (instruction->isa<StoreInst>() &&
+                       static_cast<StoreInst *>(instruction)->variable() ==
+                           pointer) {
+                projection.accessed = true;
+            } else {
+                // Calls, atomics, and any other address escape may observe
+                // and modify any leaf selected by this projection.
+                projection.accessed = true;
+                projection.observed = true;
             }
         }
     }
     return result;
+}
+
+[[nodiscard]] bool span_is_partial(
+    const AggregateFieldBitmask &mask,
+    luisa::span<const size_t> path) noexcept {
+    auto span = mask.access(path);
+    return span.any() && !span.all();
+}
+
+void collect_atom_partition(
+    const Type *type, luisa::vector<size_t> &path,
+    const AggregateFieldBitmask &relevant,
+    luisa::span<const PointerProjection> projections,
+    luisa::vector<AtomEndpoint> &atoms) noexcept {
+    auto relevant_span = relevant.access(luisa::span{path});
+    if (relevant_span.none()) { return; }
+    auto requires_split = !relevant_span.all();
+    if (!requires_split) {
+        for (auto &&projection : projections) {
+            if (!projection.accessed) { continue; }
+            if (span_is_partial(projection.may, luisa::span{path}) ||
+                span_is_partial(projection.must, luisa::span{path})) {
+                requires_split = true;
+                break;
+            }
+        }
+    }
+    if (!requires_split) {
+        luisa::vector<uint32_t> atom_path;
+        atom_path.reserve(path.size());
+        for (auto index : path) {
+            LUISA_DEBUG_ASSERT(
+                index <= std::numeric_limits<uint32_t>::max(),
+                "Aggregate access index exceeds frame ABI width.");
+            atom_path.emplace_back(static_cast<uint32_t>(index));
+        }
+        atoms.emplace_back(AtomEndpoint{
+            .path = std::move(atom_path), .type = type});
+        return;
+    }
+
+    auto descend = [&](size_t index, const Type *child) noexcept {
+        path.emplace_back(index);
+        collect_atom_partition(
+            child, path, relevant, projections, atoms);
+        path.pop_back();
+    };
+    switch (type->tag()) {
+        case Type::Tag::VECTOR:
+        case Type::Tag::ARRAY:
+            for (size_t i = 0u; i < type->dimension(); ++i) {
+                descend(i, type->element());
+            }
+            break;
+        case Type::Tag::MATRIX: {
+            auto *column = Type::vector(
+                type->element(), type->dimension());
+            for (size_t i = 0u; i < type->dimension(); ++i) {
+                descend(i, column);
+            }
+            break;
+        }
+        case Type::Tag::STRUCTURE: {
+            auto members = type->members();
+            for (size_t i = 0u; i < members.size(); ++i) {
+                descend(i, members[i]);
+            }
+            break;
+        }
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "A primitive aggregate leaf cannot be partially masked.");
+    }
 }
 
 [[nodiscard]] AllocaInst *frame_trace_local_alloca(Value *value) noexcept {
@@ -183,14 +303,15 @@ CoroFrameAtomDomain::CoroFrameAtomDomain(
     FunctionDefinition *definition) noexcept {
     if (definition == nullptr) { return; }
 
-    luisa::unordered_map<AllocaInst *, StaticAllocaAccess> alloca_accesses;
+    luisa::unordered_map<AllocaInst *, AllocaProjectionAnalysis>
+        alloca_accesses;
     for (auto *block : definition->basic_blocks()) {
         for (auto *instruction : block->instructions()) {
             if (instruction->isa<AllocaInst>()) {
                 auto *alloca = static_cast<AllocaInst *>(instruction);
                 if (alloca->is_local()) {
                     alloca_accesses.emplace(
-                        alloca, analyze_static_alloca(alloca));
+                        alloca, analyze_alloca_projections(alloca));
                 }
             }
         }
@@ -203,30 +324,56 @@ CoroFrameAtomDomain::CoroFrameAtomDomain(
                 if (!alloca->is_local()) { continue; }
                 auto &analysis = alloca_accesses.at(alloca);
                 if (analysis.valid) {
-                    ++_split_alloca_count;
+                    AggregateFieldBitmask relevant{alloca->type()};
+                    for (auto &&projection : analysis.projections) {
+                        if (projection.observed) {
+                            relevant |= projection.may;
+                        }
+                    }
+                    luisa::vector<AtomEndpoint> endpoints;
+                    luisa::vector<size_t> path;
+                    collect_atom_partition(
+                        alloca->type(), path, relevant,
+                        luisa::span{analysis.projections}, endpoints);
                     auto first = _atoms.size();
-                    for (auto &endpoint : analysis.endpoints) {
+                    for (auto &endpoint : endpoints) {
                         _atoms.emplace_back(Atom{
                             .root = alloca,
                             .access_chain = endpoint.path,
                             .type = endpoint.type});
                     }
-                    _split_atom_count += _atoms.size() - first;
-                    // Interior GEPs are address computations only. Map each
-                    // pointer to every overlapping read atom. A parent store
-                    // covers every descendant atom, while a child store only
-                    // partially updates a coarser enclosing atom. Loads are
-                    // non-overlapping by construction, so this relation is
-                    // exact and no byte-range approximation is needed.
-                    for (auto &[pointer, path] : analysis.pointer_paths) {
-                        auto &accesses = _memory_accesses[pointer];
+                    if (endpoints.size() > 1u) {
+                        ++_split_alloca_count;
+                        _split_atom_count += endpoints.size();
+                    }
+                    // The partition is induced by every memory-access May and
+                    // Must mask. Therefore an accessed pointer either covers
+                    // an atom completely or misses it completely; no aliasing
+                    // precision is lost when the tree is materialized as
+                    // disjoint frame values.
+                    luisa::vector<size_t> atom_path;
+                    for (auto &&projection : analysis.projections) {
+                        auto &accesses =
+                            _memory_accesses[projection.pointer];
                         for (size_t i = first; i < _atoms.size(); ++i) {
-                            if (path_is_prefix(path, _atoms[i].access_chain) ||
-                                path_is_prefix(_atoms[i].access_chain, path)) {
+                            atom_path.clear();
+                            for (auto index : _atoms[i].access_chain) {
+                                atom_path.emplace_back(index);
+                            }
+                            auto may = projection.may.access(
+                                luisa::span{atom_path});
+                            if (may.any()) {
+                                if (projection.accessed) {
+                                    LUISA_DEBUG_ASSERT(
+                                        may.all(),
+                                        "Frame atom partition does not refine "
+                                        "an accessed May mask.");
+                                }
+                                auto must = projection.must.access(
+                                    luisa::span{atom_path});
                                 accesses.emplace_back(MemoryAccess{
                                     .atom_index = i,
-                                    .covers_atom = path_is_prefix(
-                                        path, _atoms[i].access_chain)});
+                                    .covers_atom = must.all()});
                             }
                         }
                     }

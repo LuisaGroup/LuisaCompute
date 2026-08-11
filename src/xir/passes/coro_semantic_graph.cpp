@@ -264,6 +264,31 @@ bool CoroSemanticGraph::dominates(
            _preorder_indices[observed] < _subtree_end_indices[def];
 }
 
+BasicBlock *CoroSemanticGraph::nearest_common_dominator(
+    luisa::span<BasicBlock *const> blocks) const noexcept {
+    if (!_valid || blocks.empty()) { return nullptr; }
+    auto first = _block_ids.find(blocks.front());
+    if (first == _block_ids.end()) { return nullptr; }
+    auto common = first->second;
+    auto intersect = [&](size_t lhs, size_t rhs) noexcept {
+        while (lhs != rhs) {
+            while (lhs > rhs) {
+                lhs = _immediate_dominators[lhs];
+            }
+            while (rhs > lhs) {
+                rhs = _immediate_dominators[rhs];
+            }
+        }
+        return lhs;
+    };
+    for (size_t i = 1u; i < blocks.size(); ++i) {
+        auto iter = _block_ids.find(blocks[i]);
+        if (iter == _block_ids.end()) { return nullptr; }
+        common = intersect(common, iter->second);
+    }
+    return _blocks[common];
+}
+
 bool CoroSemanticGraph::may_cross_suspend_between(
     BasicBlock *definition, BasicBlock *use) const noexcept {
     if (!_valid || definition == nullptr || use == nullptr) {

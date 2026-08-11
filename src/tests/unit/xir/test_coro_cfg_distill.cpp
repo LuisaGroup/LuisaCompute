@@ -1099,7 +1099,7 @@ void reg_coro_cfg_distill() {
         }
     };
 
-    "descendant_store_preserves_unwritten_bytes_of_enclosing_atom"_test = [] {
+    "descendant_store_splits_enclosing_observation_without_reloading_sibling"_test = [] {
         Module m;
         BasicBlock *entry;
         auto *kernel = make_kernel_with_body(m, entry);
@@ -1136,19 +1136,24 @@ void reg_coro_cfg_distill() {
         auto result = coro_cfg_distill_pass_run_on_function(kernel);
 
         expect(result.succeeded());
-        expect(result.frame_values.size() == 1u);
-        if (result.frame_values.size() == 1u) {
-            expect(result.frame_values.front().value == state);
-            expect(result.frame_values.front().access_chain ==
-                   luisa::vector<uint32_t>{0u});
-            expect(result.frame_values.front().type == pair);
+        expect(result.frame_values.size() == 2u);
+        if (result.frame_values.size() == 2u) {
+            expect(result.frame_values[0u].value == state);
+            expect(result.frame_values[0u].access_chain ==
+                   (luisa::vector<uint32_t>{0u, 0u}));
+            expect(result.frame_values[0u].type == Type::of<float>());
+            expect(result.frame_values[1u].value == state);
+            expect(result.frame_values[1u].access_chain ==
+                   (luisa::vector<uint32_t>{0u, 1u}));
+            expect(result.frame_values[1u].type == Type::of<float>());
         }
         expect(result.scopes.size() == 3u);
         if (result.scopes.size() == 3u) {
-            // Writing pair.x does not define pair.y. The enclosing pair atom
-            // must therefore be restored before the partial write.
+            // pair.x is defined in this scope while pair.y remains resident
+            // in its independent frame slot. Neither field needs an entry
+            // reload before the write.
             expect(result.scopes[1u]
-                       .live_in_frame_value_indices.size() == 1u);
+                       .live_in_frame_value_indices.empty());
         }
         const CoroCfgDistillResult::Edge *first_edge = nullptr;
         const CoroCfgDistillResult::Edge *second_edge = nullptr;
@@ -1899,7 +1904,7 @@ void reg_coro_cfg_distill() {
         }
     };
 
-    "dynamic_aggregate_index_falls_back_to_whole_root_atom"_test = [] {
+    "flat_dynamic_aggregate_index_remains_one_whole_atom"_test = [] {
         Module m;
         BasicBlock *entry;
         auto *kernel = make_kernel_with_body(m, entry);
@@ -1935,7 +1940,52 @@ void reg_coro_cfg_distill() {
         }
     };
 
-    "reference_escape_falls_back_to_whole_root_atom"_test = [] {
+    "nested_dynamic_index_excludes_unrelated_sibling_subaggregate"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        auto *resume = kernel->create_basic_block();
+        auto *phase = Type::array(Type::of<float>(), 4u);
+        auto *unrelated = Type::array(Type::of<float>(), 8u);
+        auto *state_type = Type::structure({phase, unrelated});
+        uint32_t zero_value = 0u;
+        auto *zero = m.create_constant(
+            Type::of<uint32_t>(), &zero_value);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(state_type);
+        state->set_name("nested_dynamic_state");
+        auto *entry_element = b.gep(
+            Type::of<float>(), state, {zero, selector});
+        b.store(entry_element,
+                m.create_constant_one(Type::of<float>()));
+        b.coro_suspend(129u, "nested-dynamic-index", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(129u, nullptr);
+        auto *resume_element = b.gep(
+            Type::of<float>(), state, {zero, selector});
+        static_cast<void>(
+            b.load(Type::of<float>(), resume_element));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 1u);
+        if (result.frame_values.size() == 1u) {
+            expect(result.frame_values.front().value == state);
+            expect(result.frame_values.front().type == phase);
+            expect(result.frame_values.front().access_chain ==
+                   luisa::vector<uint32_t>{0u});
+            expect(result.frame_values.front().name ==
+                   "nested_dynamic_state.0");
+        }
+    };
+
+    "typed_reference_escape_preserves_only_later_observed_subtree"_test = [] {
         Module m;
         auto *pair = Type::structure(
             {Type::of<float>(), Type::of<float>()});
@@ -1970,8 +2020,9 @@ void reg_coro_cfg_distill() {
         expect(result.frame_values.size() == 1u);
         if (result.frame_values.size() == 1u) {
             expect(result.frame_values.front().value == state);
-            expect(result.frame_values.front().type == pair);
-            expect(result.frame_values.front().access_chain.empty());
+            expect(result.frame_values.front().type == Type::of<float>());
+            expect(result.frame_values.front().access_chain ==
+                   luisa::vector<uint32_t>{1u});
         }
     };
 }
