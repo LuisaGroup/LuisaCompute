@@ -536,6 +536,17 @@ pointer or storage format. Direct wide AoS loads/gathers require a separate
 proven safety and performance gate; the audited experiment reduced instruction
 count but regressed end-to-end graphics time and is not part of production.
 
+For a fully active fixed-width packet whose 2D coordinates are one bounded,
+increasing row span, native `FLOAT4` and `INT4` storage may use an
+alignment-safe packet copy followed by an AoS-to-SoA transpose on reads, and
+the inverse transpose on writes. The bounds check must prove the entire span
+before the copy. Sparse masks, inactive tails, row crossings, 3D resources,
+and every converting storage format retain the generic active-lane path. The
+diagnostic environment flag
+`LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1` disables this specialization
+for same-binary performance and fallback-path tests; it does not change the
+public texture layout or semantics.
+
 Embree traversal uses the packet API matching the specialization width:
 
 | Width | Trace | Occlusion | Validity |

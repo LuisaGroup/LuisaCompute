@@ -10,6 +10,7 @@ class SIMDTexture {
 private:
     fallback::FallbackTexture _texture;
     uint _dimension{2u};
+    bool _enable_contiguous_packets{true};
 
 private:
     static void _read_float(
@@ -51,6 +52,9 @@ public:
         return _texture.native_handle();
     }
     [[nodiscard]] auto dimension() const noexcept { return _dimension; }
+    [[nodiscard]] auto contiguous_packets_enabled() const noexcept {
+        return _enable_contiguous_packets;
+    }
 };
 
 }// namespace luisa::compute::simd

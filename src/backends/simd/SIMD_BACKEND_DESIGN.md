@@ -1151,6 +1151,62 @@ regression rejects masked gathers in the enabled IR, and the host-assembly
 audit rejects any remaining gather mnemonic. Every reported graphics run
 passed its repository reference.
 
+The next texture checkpoint keeps the public row-major AoS resource layout and
+uses the packet callback as a local layout boundary. A fully active fixed-width
+2D row span in native `FLOAT4` or `INT4` storage is copied with alignment-safe
+`memcpy` and transposed between AoS pixels and the callback's component-major
+SoA vectors. Every other shape or storage continues through the generic
+active-lane conversion path. The specialization is independently disabled by
+`LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1`; multi-width tests cover both
+paths, native float/integer pixels, full packets, and a one-lane tail.
+
+Real `image_processing` and `voxel_raytracer` runs separate repeated shader
+throughput from whole-process latency. Each cell below is the median of nine
+forward/reverse Release runs on the Ryzen 9 9950X3D / LLVM 22.1.8 host while
+unrelated host work remained active. Image processing repeats the complete
+four-dispatch blur/Sobel/composite pipeline 32 times per process; voxel repeats
+its render dispatch 16 times. One-time image pattern generation is explicitly
+synchronized before the timer. Every invocation compares its final PNG with
+the repository gallery reference. Values in parentheses are speedups over the
+paired fallback median:
+
+| Repeated real pipeline | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| image processing ms/iteration | 8.326 (1.000x) | 17.000 (0.490x) | 9.173 (0.908x) | 6.484 (1.284x) | 5.018 (1.659x) | 4.524 (1.840x) |
+| voxel ray tracer ms/iteration | 7.656 (1.000x) | 8.320 (0.920x) | 34.068 (0.225x) | 20.903 (0.366x) | 11.822 (0.648x) | 8.242 (0.929x) |
+
+Seven alternating same-binary W8 image pairs isolate the texture change: the
+enabled median is 5.013 ms per pipeline iteration versus 8.214 ms with the
+specialization disabled, a 1.639x gain, and all fourteen comparisons pass. A
+converting `BYTE4` packet prototype was rejected: its unrolled float-to-byte
+rounding raised W8 from about 5.15 to 6.61 ms per iteration. Production
+therefore specializes only native four-channel storage rather than assuming
+that wider conversion is profitable.
+
+The default one-iteration examples tell a different, equally important story.
+Nine `perf duration_time` runs include process startup, backend load, JIT,
+execution, readback, PNG encoding, and reference comparison:
+
+| Whole process | fallback ms | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| image processing | 155.596 | 206.172 (0.755x) | 209.550 (0.743x) | 204.779 (0.760x) | 206.442 (0.754x) | 213.647 (0.728x) |
+| voxel ray tracer | 62.659 | 72.162 (0.868x) | 184.849 (0.339x) | 164.990 (0.380x) | 158.054 (0.396x) | 166.214 (0.377x) |
+
+Thus the texture layout boundary is a genuine steady-state image-processing
+win at W4 and wider, but it does not claim a one-shot application win. Voxel's
+output remains converting `BYTE4`, and its varying DDA buffer reads are not a
+contiguous texture packet, so this change is deliberately neutral there.
+
+A 128-dispatch voxel `perf stat` audit attributes the remaining gap to dynamic
+JIT-kernel work rather than the host parallel loop. W2 retires 1.428 trillion
+instructions and consumes 132.0 seconds of aggregate task-clock versus
+fallback's 257.0 billion and 26.48 seconds: 5.55x instructions and 4.99x CPU
+work. W16 falls to 328.0 billion instructions and 32.00 seconds, but is still
+1.28x and 1.21x fallback. Flat sampling places 94.15%/98.03%/94.03% of cycles
+inside JIT code for fallback/W2/W16; the SIMD backend/runtime itself accounts
+for only 1.49% at W2 and 4.54% at W16. The divergent masked DDA state machine,
+not block dispatch or output texture code, is the next optimization target.
+
 Software prefetch is not enabled speculatively. LLVM's target-aware loop data
 prefetch pass inserted no prefetch into the post-scheduler masked-gather
 matmul, and the on/off assembly was identical. Hardware counters show that the

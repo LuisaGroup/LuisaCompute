@@ -126,22 +126,12 @@ int main(int argc, char *argv[]) {
         }
 
         // Exercise the runtime's fixed-width texture packet callback rather
-        // than only the generic Schedule-to-LLVM packet ABI. The non-multiple
-        // dispatch shape covers sparse edge masks and inactive tail lanes.
-        constexpr auto image_size = make_uint2(7u, 3u);
-        auto image = device.create_image<float>(
-            PixelStorage::FLOAT4, image_size);
-        luisa::vector<float4> image_input(image_size.x * image_size.y);
-        luisa::vector<float4> image_output(image_input.size());
-        for (auto y = 0u; y < image_size.y; y++) {
-            for (auto x = 0u; x < image_size.x; x++) {
-                image_input[y * image_size.x + x] = make_float4(
-                    static_cast<float>(x), static_cast<float>(y),
-                    static_cast<float>(x + y), 1.0f);
-            }
-        }
+        // than only the generic Schedule-to-LLVM packet ABI. The first
+        // 32-thread row is fully contiguous for every supported width, while
+        // the final texel exercises an inactive packet tail.
+        constexpr auto image_size = make_uint2(33u, 3u);
         Kernel2D image_kernel = [width](ImageFloat target) noexcept {
-            set_block_size(8u, 4u, 1u);
+            set_block_size(32u, 1u, 1u);
             set_warp_size(static_cast<uint8_t>(width));
             auto coordinate = dispatch_id().xy();
             auto value = target.read(coordinate);
@@ -150,15 +140,65 @@ int main(int argc, char *argv[]) {
                 value + make_float4(1.0f, 2.0f, 3.0f, 4.0f));
         };
         auto image_shader = device.compile(image_kernel);
-        stream << image.copy_from(luisa::span{image_input})
-               << image_shader(image).dispatch(image_size)
-               << image.copy_to(luisa::span{image_output})
+        auto check_float_image = [&](const char *failure_message) noexcept {
+            auto image = device.create_image<float>(
+                PixelStorage::FLOAT4, image_size);
+            luisa::vector<float4> image_input(image_size.x * image_size.y);
+            luisa::vector<float4> image_output(image_input.size());
+            for (auto y = 0u; y < image_size.y; y++) {
+                for (auto x = 0u; x < image_size.x; x++) {
+                    image_input[y * image_size.x + x] = make_float4(
+                        static_cast<float>(x), static_cast<float>(y),
+                        static_cast<float>(x + y), 1.0f);
+                }
+            }
+            stream << image.copy_from(luisa::span{image_input})
+                   << image_shader(image).dispatch(image_size)
+                   << image.copy_to(luisa::span{image_output})
+                   << synchronize();
+            for (auto i = size_t{0u}; i < image_input.size(); i++) {
+                expect(all(image_output[i] ==
+                           image_input[i] +
+                               make_float4(1.0f, 2.0f, 3.0f, 4.0f)))
+                    << failure_message;
+            }
+        };
+        check_float_image("SIMD contiguous FLOAT4 packet mismatch");
+        {
+            ScopedEnvironmentVariable disable_contiguous_packets{
+                "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS", "1"};
+            check_float_image("SIMD generic FLOAT4 packet mismatch");
+        }
+
+        auto uint_image = device.create_image<uint>(
+            PixelStorage::INT4, image_size);
+        luisa::vector<uint4> uint_image_input(image_size.x * image_size.y);
+        luisa::vector<uint4> uint_image_output(uint_image_input.size());
+        for (auto y = 0u; y < image_size.y; y++) {
+            for (auto x = 0u; x < image_size.x; x++) {
+                uint_image_input[y * image_size.x + x] = make_uint4(
+                    x, y, x + y, x * 3u + y * 5u);
+            }
+        }
+        Kernel2D uint_image_kernel = [width](ImageUInt target) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto coordinate = dispatch_id().xy();
+            auto value = target.read(coordinate);
+            target.write(
+                coordinate,
+                value + make_uint4(5u, 7u, 11u, 13u));
+        };
+        auto uint_image_shader = device.compile(uint_image_kernel);
+        stream << uint_image.copy_from(luisa::span{uint_image_input})
+               << uint_image_shader(uint_image).dispatch(image_size)
+               << uint_image.copy_to(luisa::span{uint_image_output})
                << synchronize();
-        for (auto i = size_t{0u}; i < image_input.size(); i++) {
-            expect(all(image_output[i] ==
-                       image_input[i] +
-                           make_float4(1.0f, 2.0f, 3.0f, 4.0f)))
-                << "SIMD fixed-width texture packet mismatch";
+        for (auto i = size_t{0u}; i < uint_image_input.size(); i++) {
+            expect(all(uint_image_output[i] ==
+                       uint_image_input[i] +
+                           make_uint4(5u, 7u, 11u, 13u)))
+                << "SIMD contiguous INT4 packet mismatch";
         }
     }
 }

@@ -41,11 +41,13 @@ int main(int argc, char *argv[]) {
 
     "example_options_accept_valid_shared_options"_test = [] {
         auto options = parse_options({
-            "example", "vk", "--spp", "17", "-c", "reference.png"});
+            "example", "vk", "--spp", "17", "--iterations", "23",
+            "-c", "reference.png"});
         expect(options.valid());
         expect(options.error_message.empty());
         expect(options.offline);
         expect(eq(options.spp, uint32_t{17u}));
+        expect(eq(options.iterations, uint32_t{23u}));
         expect(options.compare_path.has_value());
         expect(options.compare_path->generic_string() == "reference.png");
 
@@ -60,6 +62,7 @@ int main(int argc, char *argv[]) {
         expect_invalid({"example", "vk", "-c"});
         expect_invalid({"example", "vk", "--compare", "--offline"});
         expect_invalid({"example", "vk", "--spp"});
+        expect_invalid({"example", "vk", "--iterations"});
         expect_invalid({"example", "vk", "--out_ref"});
         expect_invalid({"example", "vk", "--out_ref", "write"});
         expect_invalid({"example", "vk", "--out_ref", "read"});
@@ -67,14 +70,21 @@ int main(int argc, char *argv[]) {
 
     "example_options_reject_junk_unsigned_value"_test = [] {
         expect_invalid({"example", "vk", "--spp", "12samples"});
+        expect_invalid({"example", "vk", "--iterations", "12passes"});
     };
 
     "example_options_reject_negative_unsigned_value"_test = [] {
         expect_invalid({"example", "vk", "--spp", "-1"});
+        expect_invalid({"example", "vk", "--iterations", "-1"});
     };
 
     "example_options_reject_uint32_overflow"_test = [] {
         expect_invalid({"example", "vk", "--spp", "4294967296"});
+        expect_invalid({"example", "vk", "--iterations", "4294967296"});
+    };
+
+    "example_options_reject_zero_iterations"_test = [] {
+        expect_invalid({"example", "vk", "--iterations", "0"});
     };
 
     "example_options_coexist_with_extension_options"_test = [] {

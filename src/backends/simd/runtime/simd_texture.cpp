@@ -1,6 +1,11 @@
 #include "simd_texture.h"
 
+#include <array>
 #include <bit>
+#include <cstring>
+#include <type_traits>
+
+#include "../../common/env_flag.h"
 
 namespace {
 
@@ -26,6 +31,71 @@ template<typename T>
         view.read3d<T>(luisa::make_uint3(x, y, z));
 }
 
+template<typename T>
+[[nodiscard]] constexpr auto native_four_channel_storage() noexcept {
+    if constexpr (std::is_same_v<T, float>) {
+        return luisa::compute::PixelStorage::FLOAT4;
+    } else {
+        static_assert(std::is_same_v<T, uint32_t>);
+        return luisa::compute::PixelStorage::INT4;
+    }
+}
+
+template<typename T, size_t Width>
+[[nodiscard]] bool read_contiguous_native_four_channel(
+    luisa::compute::simd::SIMDTexture *texture,
+    luisa::compute::fallback::FallbackTextureView view,
+    uint32_t x, uint32_t y, T *values) noexcept {
+    static_assert(sizeof(luisa::Vector<T, 4u>) == sizeof(T) * 4u);
+    if (!texture->contiguous_packets_enabled() ||
+        view.storage() != native_four_channel_storage<T>()) {
+        return false;
+    }
+    auto size = view.size2d();
+    if (x >= size.x || y >= size.y || Width > size.x - x) {
+        return false;
+    }
+    auto pixel_index = static_cast<size_t>(y) * size.x + x;
+    std::array<luisa::Vector<T, 4u>, Width> pixels{};
+    std::memcpy(
+        pixels.data(),
+        view.data() + pixel_index * sizeof(luisa::Vector<T, 4u>),
+        sizeof(pixels));
+    for (auto component = 0u; component < 4u; component++) {
+        for (auto lane = 0u; lane < Width; lane++) {
+            values[component * Width + lane] = pixels[lane][component];
+        }
+    }
+    return true;
+}
+
+template<typename T, size_t Width>
+[[nodiscard]] bool write_contiguous_native_four_channel(
+    luisa::compute::simd::SIMDTexture *texture,
+    luisa::compute::fallback::FallbackTextureView view,
+    uint32_t x, uint32_t y, const T *values) noexcept {
+    static_assert(sizeof(luisa::Vector<T, 4u>) == sizeof(T) * 4u);
+    if (!texture->contiguous_packets_enabled() ||
+        view.storage() != native_four_channel_storage<T>()) {
+        return false;
+    }
+    auto size = view.size2d();
+    if (x >= size.x || y >= size.y || Width > size.x - x) {
+        return false;
+    }
+    auto pixel_index = static_cast<size_t>(y) * size.x + x;
+    std::array<luisa::Vector<T, 4u>, Width> pixels{};
+    for (auto lane = 0u; lane < Width; lane++) {
+        for (auto component = 0u; component < 4u; component++) {
+            pixels[lane][component] = values[component * Width + lane];
+        }
+    }
+    std::memcpy(
+        view.data() + pixel_index * sizeof(luisa::Vector<T, 4u>),
+        pixels.data(), sizeof(pixels));
+    return true;
+}
+
 template<typename T, size_t Width>
 void read_packet_fixed(
     luisa::compute::simd::SIMDTexture *texture, uint32_t level,
@@ -34,6 +104,16 @@ void read_packet_fixed(
     active_mask_bits &= full_lane_mask<Width>();
     if (active_mask_bits == 0u) { return; }
     auto view = texture->view(level);
+    auto contiguous = active_mask_bits == full_lane_mask<Width>() &&
+                      texture->dimension() == 2u;
+    for (auto lane = 1u; lane < Width && contiguous; lane++) {
+        contiguous = x[lane] == x[0u] + lane &&
+                     y[lane] == y[0u] && z[lane] == z[0u];
+    }
+    if (contiguous && read_contiguous_native_four_channel<T, Width>(
+                          texture, view, x[0u], y[0u], values)) {
+        return;
+    }
     auto first_lane = static_cast<uint32_t>(
         std::countr_zero(active_mask_bits));
     auto broadcast = true;
@@ -56,12 +136,6 @@ void read_packet_fixed(
             }
         }
         return;
-    }
-    auto contiguous = active_mask_bits == full_lane_mask<Width>() &&
-                      texture->dimension() == 2u;
-    for (auto lane = 1u; lane < Width && contiguous; lane++) {
-        contiguous = x[lane] == x[0u] + lane &&
-                     y[lane] == y[0u] && z[lane] == z[0u];
     }
     if (contiguous) {
         for (auto lane = 0u; lane < Width; lane++) {
@@ -164,6 +238,10 @@ void write_packet_fixed(
                      y[lane] == y[0u] && z[lane] == z[0u];
     }
     if (contiguous) {
+        if (write_contiguous_native_four_channel<T, Width>(
+                texture, view, x[0u], y[0u], values)) {
+            return;
+        }
         for (auto lane = 0u; lane < Width; lane++) { write_lane(lane); }
         return;
     }
@@ -241,14 +319,20 @@ SIMDTexture::SIMDTexture(
     PixelStorage storage, uint dimension, uint3 size,
     uint mip_levels) noexcept
     : _texture{storage, dimension, size, mip_levels},
-      _dimension{dimension} {}
+      _dimension{dimension},
+      _enable_contiguous_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")} {}
 
 SIMDTexture::SIMDTexture(
     PixelStorage storage, uint dimension, uint3 size,
     uint mip_levels, std::byte *external_memory) noexcept
     : _texture{storage, dimension, size, mip_levels,
                external_memory},
-      _dimension{dimension} {}
+      _dimension{dimension},
+      _enable_contiguous_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")} {}
 
 void SIMDTexture::_read_float(
     void *texture, uint32_t level, uint32_t lane_count,
