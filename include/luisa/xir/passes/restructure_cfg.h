@@ -123,6 +123,11 @@ struct RestructureCFGInfo {
     // Actual sparse selection-region work across all site queries.
     size_t selection_exit_region_block_visit_count{0u};
     size_t selection_exit_region_edge_visit_count{0u};
+    // When every edge in a selection's exact executable exit cut already
+    // reaches one unowned H-dominated block, that block is the canonical merge.
+    // Reassigning the declarative role avoids a semantically empty funnel and
+    // does not invalidate executable-CFG analyses.
+    size_t selection_exit_merge_canonicalization_count{0u};
     // Persistent enclosing-loop context nodes materialized while scanning
     // selection exits. There is exactly one node per reachable structured
     // loop per observed CFG version, never one loop-exit set per block.
@@ -144,6 +149,12 @@ struct RestructureCFGInfo {
     // worklist after a localized rewrite.
     size_t selection_exit_dependency_requery_count{0u};
     size_t selection_exit_postdom_refresh_count{0u};
+    // The final audit reuses the exact executable exit-cut definition used by
+    // the mutating phase. Every reachable ordinary selection may exit only at
+    // its declared merge or a legal enclosing-loop boundary; an ordinary
+    // early convergence target rejects success before backend emission.
+    size_t selection_exit_audit_selection_count{0u};
+    size_t selection_exit_audit_invalid_count{0u};
     // Rewriting a nested selection may make a site already handled in the
     // current drain round eligible again. The selection phase yields so later
     // canonicalizers can collapse the generated protocol before the next
