@@ -1,6 +1,5 @@
 #include "simd_shader.h"
 
-#include <algorithm>
 #include <cstring>
 
 #include <luisa/core/logging.h>
@@ -31,6 +30,12 @@ SIMDShader::SIMDShader(
             "with width {}.",
             *allowed, warp_width);
     }
+    auto block_threads = static_cast<uint64_t>(_block_size.x) *
+                         _block_size.y * _block_size.z;
+    LUISA_ASSERT(
+        warp_width != 0u && block_threads % warp_width == 0u,
+        "SIMD thread block size {} must be a multiple of warp width {}.",
+        block_threads, warp_width);
     _compiled = compile_simd_kernel(
         kernel, warp_width,
         kernel.name().empty() ? "simd_runtime_kernel" : kernel.name());
@@ -100,6 +105,12 @@ void SIMDShader::_dispatch_once(
         ceil_div(dispatch_size.z, block_size.z));
     auto threads_per_block =
         block_size.x * block_size.y * block_size.z;
+    LUISA_ASSERT(
+        threads_per_block % _compiled.warp_width == 0u,
+        "SIMD thread block size {} must be a multiple of warp width {}.",
+        threads_per_block, _compiled.warp_width);
+    auto warps_per_block =
+        threads_per_block / _compiled.warp_width;
     for (auto bz = uint32_t{0u}; bz < grid_size.z; bz++) {
         for (auto by = uint32_t{0u}; by < grid_size.y; by++) {
             for (auto bx = uint32_t{0u}; bx < grid_size.x; bx++) {
@@ -113,15 +124,13 @@ void SIMDShader::_dispatch_once(
                 config.block_size[0u] = block_size.x;
                 config.block_size[1u] = block_size.y;
                 config.block_size[2u] = block_size.z;
-                for (auto first = uint32_t{0u};
-                     first < threads_per_block;
-                     first += _compiled.warp_width) {
-                    config.thread_index = first;
-                    auto active = std::min(
-                        _compiled.warp_width,
-                        threads_per_block - first);
+                for (auto warp = uint32_t{0u};
+                     warp < warps_per_block; warp++) {
+                    config.thread_index =
+                        warp * _compiled.warp_width;
                     _entry(
-                        argument_buffer, nullptr, &config, active);
+                        argument_buffer, nullptr, &config,
+                        _compiled.warp_width);
                 }
             }
         }

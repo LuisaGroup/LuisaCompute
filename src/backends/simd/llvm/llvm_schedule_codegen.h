@@ -50,8 +50,8 @@ struct alignas(16) SIMDHostTextureView {
 
 // Per-packet launch state. thread_index is the first linear thread within the
 // current block; lane i executes thread_index + i. The generated entry derives
-// thread_id and dispatch_id in fixed LLVM vectors and masks both packet tails
-// and threads outside a non-divisible dispatch extent.
+// thread_id and dispatch_id in fixed LLVM vectors and masks threads outside a
+// non-divisible dispatch extent.
 struct SIMDPacketLaunchConfig {
     uint32_t block_id[3]{};
     uint32_t dispatch_size[3]{};

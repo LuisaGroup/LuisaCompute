@@ -24,9 +24,13 @@ int main(int argc, char *argv[]) {
         expect(device.compute_warp_size() == width)
             << "SIMD device must expose its configured warp width";
 
-        auto output = device.create_buffer<uint>(width);
+        constexpr auto block_threads = 32u;
+        auto output = device.create_buffer<uint>(block_threads);
         Kernel1D kernel = [width](BufferUInt result) noexcept {
-            set_block_size(width, 1u, 1u);
+            // Block size and logical warp size are separate contracts. Like
+            // fallback's scalar thread loop, SIMD partitions this 32-thread
+            // block into packets of the configured width.
+            set_block_size(32u, 1u, 1u);
             set_warp_size(static_cast<uint8_t>(width));
             auto lane = warp_lane_id();
             auto sum = warp_active_sum(lane + 1u);
@@ -34,15 +38,16 @@ int main(int argc, char *argv[]) {
         };
         auto shader = device.compile(kernel);
         auto stream = device.create_stream();
-        luisa::vector<uint> host(width, 0u);
-        stream << shader(output).dispatch(width)
+        luisa::vector<uint> host(block_threads, 0u);
+        stream << shader(output).dispatch(block_threads)
                << output.copy_to(luisa::span{host})
                << synchronize();
 
         auto sum = width * (width + 1u) / 2u;
-        for (auto lane = 0u; lane < width; lane++) {
-            expect(host[lane] == sum + lane)
-                << "SIMD fixed-width runtime result mismatch";
+        for (auto thread = 0u; thread < block_threads; thread++) {
+            auto lane = thread % width;
+            expect(host[thread] == sum + lane)
+                << "SIMD thread-block packet partition mismatch";
         }
     }
 }

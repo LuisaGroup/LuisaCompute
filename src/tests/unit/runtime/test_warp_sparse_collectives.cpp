@@ -11,6 +11,7 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -33,9 +34,10 @@ void test_sparse_collectives(Device &device) {
     constexpr auto sentinel = 0xdeadbeefu;
     luisa::vector<uint> output(warp_size * collective_field_count, sentinel);
     auto output_buffer = device.create_buffer<uint>(output.size());
+    auto block_threads = std::max(32u, warp_size);
 
-    Kernel1D kernel = [warp_size](BufferUInt output) noexcept {
-        set_block_size(warp_size, 1u, 1u);
+    Kernel1D kernel = [warp_size, block_threads](BufferUInt output) noexcept {
+        set_block_size(block_threads, 1u, 1u);
         set_warp_size(warp_size);
         auto lane = warp_lane_id();
         auto is_sparse_lane = (lane == 0u) | (lane == 1u) | (lane == 6u);
@@ -102,12 +104,13 @@ void test_lane_shuffle_packing(Device &device) {
     auto ushort_buffer = device.create_buffer<ushort3>(1u);
     auto half_buffer = device.create_buffer<half3>(1u);
     auto matrix_buffer = device.create_buffer<float3x3>(1u);
+    auto block_threads = std::max(32u, warp_size);
 
-    Kernel1D kernel = [warp_size](BufferShort3 short_output,
+    Kernel1D kernel = [warp_size, block_threads](BufferShort3 short_output,
                                   BufferUShort3 ushort_output,
                                   BufferHalf3 half_output,
                                   BufferFloat3x3 matrix_output) noexcept {
-        set_block_size(warp_size, 1u, 1u);
+        set_block_size(block_threads, 1u, 1u);
         set_warp_size(warp_size);
         auto lane = warp_lane_id();
         auto is_sparse_lane = (lane == 0u) | (lane == 1u) | (lane == 6u);

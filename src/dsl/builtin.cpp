@@ -21,9 +21,10 @@ LUISA_DSL_API void luisa_compute_validate_block_size(uint x, uint y, uint z) noe
                  "Invalid block size ({}, {}, {}). "
                  "Block size must be in range [1, 1024].",
                  x, y, z);
-    LUISA_ASSERT(x * y * z <= 1024u,
+    auto thread_count = static_cast<uint64_t>(x) * y * z;
+    LUISA_ASSERT(thread_count <= 1024u && thread_count % 32u == 0u,
                  "Invalid block size ({}, {}, {}). "
-                 "Threads per block must not exceed 1024.",
+                 "Threads per block must be a multiple of 32 and must not exceed 1024.",
                  x, y, z);
 }
 
