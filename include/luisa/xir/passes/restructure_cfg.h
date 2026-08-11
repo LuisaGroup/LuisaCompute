@@ -2,6 +2,7 @@
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/xir/passes/pass_verification.h>
 
 namespace luisa::compute::xir {
 
@@ -206,6 +207,11 @@ struct RestructureCFGOptions {
     size_t post_iteration_limit{64u};
     RestructureCFGMutationMode mutation_mode{
         RestructureCFGMutationMode::TRANSACTIONAL};
+    // An enclosing transaction is valid only for disposable in-place
+    // mutation. The non-forgeable witness proves that the exact parent module
+    // passed its complete input boundary and requires a complete output
+    // boundary before publication.
+    const XIRPassVerificationTransaction *verification_transaction{nullptr};
 };
 
 // Converts reducible plain CFG regions into structured control flow. A function

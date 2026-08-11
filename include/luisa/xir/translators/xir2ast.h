@@ -8,6 +8,7 @@
 namespace luisa::compute::xir {
 
 class XIR2ASTContext;
+class XIRPassVerificationTransaction;
 
 struct XIR2ASTTranslationStatistics {
     size_t function_translations{0u};
@@ -36,6 +37,12 @@ struct XIR2ASTConfig {
     // default preserves independent per-function verification, while enabling
     // this mode replaces it with one stronger whole-module verification.
     bool verify_same_module_once{false};
+    // A continuation batch may close an enclosing pass transaction itself.
+    // The transaction is a non-forgeable proof of the exact verified input
+    // module; the batch performs its required complete output verification
+    // before translating any root. Mutually exclusive with
+    // verify_same_module_once.
+    XIRPassVerificationTransaction *verification_transaction{nullptr};
 };
 
 using ASTFunctionBuilder = compute::detail::FunctionBuilder;

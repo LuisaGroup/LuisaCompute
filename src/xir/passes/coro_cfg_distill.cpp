@@ -1559,25 +1559,28 @@ bool CoroCfgDistillResult::validation_certificate_matches(
                detail::compute_distill_validation_hash(*this, definition);
 }
 
-CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept {
+CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(
+    Function *f,
+    const CoroCfgDistillOptions &options) noexcept {
+    CoroCfgDistillResult result;
     if (f == nullptr) {
-        CoroCfgDistillResult result;
         result.invalid_input_error_count = 1u;
         return result;
     }
     auto *def = f->definition();
     if (def == nullptr || def->body_block() == nullptr) {
-        CoroCfgDistillResult result;
         result.invalid_input_error_count = 1u;
         return result;
     }
-    auto verification = xir_verify_function(f);
-    if (!verification.succeeded()) {
-        CoroCfgDistillResult result;
-        result.invalid_cfg_error_count = 1u;
-        return result;
+    if (xir_pass_has_standalone_verification(
+            options.verification_transaction, f)) {
+        ++result.boundary_verifier_count;
+        auto verification = xir_verify_function(f);
+        if (!verification.succeeded()) {
+            result.invalid_cfg_error_count = 1u;
+            return result;
+        }
     }
-    CoroCfgDistillResult result;
     result.structured_cfg_error_count =
         contains_structured_control_flow(def) ? 1u : 0u;
     result.invalid_cfg_error_count =
@@ -1588,7 +1591,11 @@ CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept
     if (!result.succeeded()) {
         return result;
     }
+    auto boundary_verifier_count =
+        result.boundary_verifier_count;
     result = detail::distill_function(def);
+    result.boundary_verifier_count =
+        boundary_verifier_count;
     result._seal(def);
     return result;
 }

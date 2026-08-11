@@ -247,9 +247,18 @@ CoroutineCompileResult compile_coroutine_pipeline(
             coro_func->parent_module() == module.get(),
         "Coroutine compilation failed: AST->XIR translation lost root-function provenance.");
     profiler.checkpoint("AST-to-XIR translation");
-    verify_coro_xir_or_error(module.get(), "AST translation");
+    auto verification_transaction =
+        xir::begin_xir_pass_verification_transaction(
+            module.get());
+    ++result.boundary_verifier_count;
     profiler.checkpoint("input verification");
     profiler.checkpoint("coroutine root provenance");
+    const auto verify_intermediate_xir =
+        verify_intermediate_xir_enabled();
+    auto *nested_pass_verification_transaction =
+        verify_intermediate_xir ? nullptr :
+                                  &verification_transaction;
+    size_t nested_pass_boundary_verifier_count = 0u;
 
     // Coro cfg distill/split/materialize intentionally accept only raw CFG.
     // A ray-query candidate loop is not coroutine scheduling control flow: no
@@ -281,7 +290,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // Destructure then converts the remaining structured constructs to the raw
     // CFG expected by coroutine distillation.
     auto destructure_info =
-        xir::destructure_cfg_pass_run_on_function(coro_func);
+        xir::destructure_cfg_pass_run_on_function(
+            coro_func,
+            {.verification_transaction =
+                 nested_pass_verification_transaction});
+    nested_pass_boundary_verifier_count +=
+        destructure_info.boundary_verifier_count;
     if (!destructure_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine destructuring failed (errors={}, leaked_blocks={}).",
@@ -301,7 +315,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     }
     pre_distill_stats.log("Coroutine pre-distill optimization");
     profiler.checkpoint("pre-distill optimization");
-    if (verify_intermediate_xir_enabled()) {
+    if (verify_intermediate_xir) {
         verify_coro_xir_or_error(module.get(), "pre-distill optimization");
         profiler.checkpoint("intermediate verification");
     }
@@ -315,7 +329,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
             coro_func->parent_module() == module.get(),
         "Coroutine source definition was lost during pre-distill optimization.");
 
-    auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
+    auto cfg = xir::coro_cfg_distill_pass_run_on_function(
+        coro_func,
+        {.verification_transaction =
+             nested_pass_verification_transaction});
+    nested_pass_boundary_verifier_count +=
+        cfg.boundary_verifier_count;
     if (!ordinary_callable_snapshots.empty()) {
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "CFG distillation");
@@ -407,7 +426,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // is independent of coroutine scheduling.
     for (auto &subroutine : split_info.subroutines) {
         destructure_info = xir::destructure_cfg_pass_run_on_function(
-            subroutine.callable);
+            subroutine.callable,
+            {.verification_transaction =
+                 nested_pass_verification_transaction});
+        nested_pass_boundary_verifier_count +=
+            destructure_info.boundary_verifier_count;
         if (!destructure_info.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Coroutine continuation {} post-materialization "
@@ -432,7 +455,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
     for (auto &subroutine : split_info.subroutines) {
         auto irreducible_info =
             xir::lower_irreducible_cfg_pass_run_on_function(
-                subroutine.callable);
+                subroutine.callable,
+                {.verification_transaction =
+                     nested_pass_verification_transaction});
+        nested_pass_boundary_verifier_count +=
+            irreducible_info.boundary_verifier_count;
         if (!irreducible_info.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Coroutine irreducible-CFG lowering failed "
@@ -448,7 +475,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
                 subroutine.callable,
                 {.mutation_mode =
                      xir::RestructureCFGMutationMode::
-                         IN_PLACE_DISCARDABLE});
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     nested_pass_verification_transaction});
+        nested_pass_boundary_verifier_count +=
+            restructure_info.boundary_verifier_count;
         if (!restructure_info.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Coroutine continuation {} restructuring failed "
@@ -529,13 +560,33 @@ CoroutineCompileResult compile_coroutine_pipeline(
              .verify_value_map_checkpoints =
                  environment_flag_enabled(
                      "LUISA_XIR2AST_VERIFY_VALUE_MAP_CHECKPOINTS"),
-             .verify_same_module_once = true});
+             .verification_transaction =
+                 &verification_transaction});
+    LUISA_ASSERT(
+        verification_transaction.output_boundary_checked(),
+        "Coroutine XIR-to-AST translation did not close the enclosing pass "
+        "transaction with a complete output verifier boundary.");
+    LUISA_ASSERT(
+        verify_intermediate_xir ||
+            nested_pass_boundary_verifier_count == 0u,
+        "Coroutine lowering inside its enclosing verification transaction "
+        "performed {} redundant nested pass-boundary verification(s).",
+        nested_pass_boundary_verifier_count);
     LUISA_ASSERT(
         xir_to_ast_statistics.whole_module_verification_count == 1u &&
             xir_to_ast_statistics.function_verification_count == 0u,
         "Coroutine XIR-to-AST handoff must verify exactly one immutable "
         "whole-module boundary and perform no redundant per-function "
         "verification.");
+    result.boundary_verifier_count +=
+        xir_to_ast_statistics.whole_module_verification_count;
+    result.nested_pass_boundary_verifier_count =
+        nested_pass_boundary_verifier_count;
+    LUISA_ASSERT(
+        result.boundary_verifier_count == 2u,
+        "Coroutine lowering must own exactly one complete input and one "
+        "complete output verifier boundary (observed {}).",
+        result.boundary_verifier_count);
     LUISA_ASSERT(
         continuation_asts.size() == subroutines_by_scope.size(),
         "Coroutine XIR->AST batch translation returned {} AST(s) for {} scope(s).",
@@ -563,6 +614,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
             "Coroutine XIR-to-AST work: functions={} cache_hits={} "
             "module_verifications={} function_verifications={} "
             "verification_ms={:.3f} "
+            "nested_pass_boundary_verifications={} "
             "value_bindings={} checkpoints={} rollback_work={} "
             "peak_value_map_size={}.",
             xir_to_ast_statistics.function_translations,
@@ -570,6 +622,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
             xir_to_ast_statistics.whole_module_verification_count,
             xir_to_ast_statistics.function_verification_count,
             xir_to_ast_statistics.verification_milliseconds,
+            nested_pass_boundary_verifier_count,
             xir_to_ast_statistics.value_binding_insertions,
             xir_to_ast_statistics.value_map_checkpoint_count,
             xir_to_ast_statistics.value_map_rollback_work,

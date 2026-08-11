@@ -1572,6 +1572,56 @@ void reg_restructure_cfg() {
         expect(function_info.restructured_if_count == 1u);
         expect(function_info.boundary_verifier_count == 2u);
         expect(function_info.intermediate_verifier_count == 0u);
+
+        Module enclosing_module;
+        auto *enclosing_kernel = append_diamond(
+            enclosing_module);
+        auto verification_transaction =
+            begin_xir_pass_verification_transaction(
+                &enclosing_module);
+        auto enclosing_info =
+            restructure_cfg_pass_run_on_function(
+                enclosing_kernel,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     &verification_transaction});
+        expect(enclosing_info.succeeded());
+        expect(enclosing_info.restructured_if_count == 1u);
+        expect(enclosing_info.boundary_verifier_count == 0u);
+        expect(enclosing_info.intermediate_verifier_count == 0u);
+        expect(verification_transaction
+                   .verify_output(
+                       {.require_no_phi = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        Module enclosing_module_batch;
+        append_diamond(enclosing_module_batch);
+        append_diamond(enclosing_module_batch);
+        auto module_verification_transaction =
+            begin_xir_pass_verification_transaction(
+                &enclosing_module_batch);
+        auto enclosing_module_info =
+            restructure_cfg_pass_run_on_module(
+                &enclosing_module_batch, nullptr,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     &module_verification_transaction});
+        expect(enclosing_module_info.succeeded());
+        expect(enclosing_module_info.restructured_if_count == 2u);
+        expect(enclosing_module_info.boundary_verifier_count == 0u);
+        expect(enclosing_module_info.intermediate_verifier_count == 0u);
+        expect(module_verification_transaction
+                   .verify_output(
+                       {.require_no_phi = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                   .succeeded());
     };
 
     "restructure_intermediate_verification_is_explicitly_opt_in"_test = [] {

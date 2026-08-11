@@ -129,6 +129,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/if_conversion.cpp
         passes/indvar_simplify.cpp
         passes/irreducible_cfg_analysis.cpp
+        passes/pass_verification.cpp
         passes/pass_pipeline.cpp
         passes/fuse_consecutive_buffer_reads.cpp
 )

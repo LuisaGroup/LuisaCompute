@@ -209,7 +209,7 @@ void reg_pass_entry_totality() {
             (void)dead_store_elimination_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(9u, [](PassReport *report) noexcept {
+        check_zero_report(10u, [](PassReport *report) noexcept {
             (void)destructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {

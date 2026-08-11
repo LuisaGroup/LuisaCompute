@@ -6756,31 +6756,45 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
     }
     const auto verify_intermediate =
         restructure_verify_intermediate_enabled();
+    const auto verify_boundaries =
+        xir_pass_has_standalone_verification(
+            options.verification_transaction,
+            function);
+    LUISA_ASSERT(
+        verify_boundaries ||
+            options.mutation_mode ==
+                RestructureCFGMutationMode::IN_PLACE_DISCARDABLE,
+        "A restructure_cfg pass inside an enclosing verification transaction "
+        "must use disposable in-place mutation; transactional shadow commit "
+        "owns and requires its standalone output boundary.");
 
     // The public pass contract has one complete input verifier boundary.
     // Structural preconditions below are transform-specific analyses, not
     // replacements for this general XIR validity check.
     auto preflight = RestructureCFGInfo{};
-    ++preflight.boundary_verifier_count;
-    XIRVerificationResult input_verification;
-    {
-        ScopedTimer _timer_verify(
-            "pass_input_verify_function");
-        input_verification =
-            xir_verify_function(function);
-    }
-    if (!input_verification.succeeded()) {
-        LUISA_WARNING_WITH_LOCATION(
-            "restructure_cfg input verifier rejected the function: {}",
-            input_verification.errors.front().message);
-        preflight.unstructured_branch_count =
-            count_unstructured_conditional_branches(def);
-        ++preflight.invalid_construct_count;
-        return preflight;
+    if (verify_boundaries) {
+        ++preflight.boundary_verifier_count;
+        XIRVerificationResult input_verification;
+        {
+            ScopedTimer _timer_verify(
+                "pass_input_verify_function");
+            input_verification =
+                xir_verify_function(function);
+        }
+        if (!input_verification.succeeded()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "restructure_cfg input verifier rejected the function: {}",
+                input_verification.errors.front().message);
+            preflight.unstructured_branch_count =
+                count_unstructured_conditional_branches(def);
+            ++preflight.invalid_construct_count;
+            return preflight;
+        }
     }
     preflight = preflight_restructure_cfg(
         def, verify_intermediate);
-    preflight.boundary_verifier_count = 1u;
+    preflight.boundary_verifier_count =
+        verify_boundaries ? 1u : 0u;
     if (!preflight.succeeded()) { return preflight; }
 
     if (options.mutation_mode ==
@@ -6790,10 +6804,11 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(
         // boundary verification contract still applies on success.
         auto info = restructure_cfg_on_definition_in_place(
             def, options, verify_intermediate);
-        info.boundary_verifier_count = 1u;
+        info.boundary_verifier_count =
+            verify_boundaries ? 1u : 0u;
         info.intermediate_verifier_count +=
             preflight.intermediate_verifier_count;
-        if (info.succeeded()) {
+        if (info.succeeded() && verify_boundaries) {
             XIRVerificationResult output_verification;
             {
                 ScopedTimer _timer_verify(
@@ -7115,9 +7130,24 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         report->set("iteration_limit", info.iteration_limit_count);
     };
     if (module == nullptr) {
+        LUISA_ASSERT(
+            options.verification_transaction == nullptr,
+            "A null module cannot belong to an enclosing XIR pass "
+            "verification transaction.");
         set_report(total);
         return total;
     }
+    const auto verify_boundaries =
+        xir_pass_has_standalone_verification(
+            options.verification_transaction,
+            module);
+    LUISA_ASSERT(
+        verify_boundaries ||
+            options.mutation_mode ==
+                RestructureCFGMutationMode::IN_PLACE_DISCARDABLE,
+        "A module restructure_cfg pass inside an enclosing verification "
+        "transaction must use disposable in-place mutation; transactional "
+        "shadow commit owns and requires its standalone output boundary.");
     const auto verify_intermediate =
         restructure_verify_intermediate_enabled();
     auto accumulate = [](
@@ -7298,21 +7328,23 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
 
     // Verify that complete transform domain once before any shadow definition
     // or transform-owned constant is created.
-    ++total.boundary_verifier_count;
-    XIRVerificationResult input_verification;
-    {
-        ScopedTimer _timer_verify(
-            "pass_input_verify_module");
-        input_verification =
-            xir_verify_functions(input_functions);
-    }
-    if (!input_verification.succeeded()) {
-        LUISA_WARNING_WITH_LOCATION(
-            "restructure_cfg input verifier rejected the module: {}",
-            input_verification.errors.front().message);
-        ++total.invalid_construct_count;
-        set_report(total);
-        return total;
+    if (verify_boundaries) {
+        ++total.boundary_verifier_count;
+        XIRVerificationResult input_verification;
+        {
+            ScopedTimer _timer_verify(
+                "pass_input_verify_module");
+            input_verification =
+                xir_verify_functions(input_functions);
+        }
+        if (!input_verification.succeeded()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "restructure_cfg input verifier rejected the module: {}",
+                input_verification.errors.front().message);
+            ++total.invalid_construct_count;
+            set_report(total);
+            return total;
+        }
     }
 
     {
@@ -7354,7 +7386,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         auto preflight_intermediate_verifier_count =
             total.intermediate_verifier_count;
         total = {};
-        total.boundary_verifier_count = 1u;
+        total.boundary_verifier_count =
+            verify_boundaries ? 1u : 0u;
         total.intermediate_verifier_count =
             preflight_intermediate_verifier_count;
         for (auto definition_index = size_t{0u};
@@ -7368,7 +7401,7 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             accumulate(total, info);
             if (!info.succeeded()) { break; }
         }
-        if (total.succeeded()) {
+        if (total.succeeded() && verify_boundaries) {
             luisa::vector<const Function *> candidate_outputs;
             candidate_outputs.reserve(definitions.size());
             for (auto *def : definitions) {

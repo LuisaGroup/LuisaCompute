@@ -625,6 +625,28 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         unsetenv("LUISA_CORO_VERIFY_PASS_DOMAIN");
 #endif
 
+        expect(lowered.boundary_verifier_count == 2u)
+            << "the complete coroutine transaction must verify only its input and output";
+        expect(lowered.nested_pass_boundary_verifier_count == 0u)
+            << "composed passes must not repeat full-XIR boundary verification";
+
+#ifdef _WIN32
+        _putenv_s("LUISA_XIR_VERIFY_INTERMEDIATE", "1");
+#else
+        setenv("LUISA_XIR_VERIFY_INTERMEDIATE", "1", 1);
+#endif
+        auto diagnostic_lowered =
+            luisa::compute::detail::compile_coroutine_pipeline(
+                coroutine.function_builder());
+#ifdef _WIN32
+        _putenv_s("LUISA_XIR_VERIFY_INTERMEDIATE", "");
+#else
+        unsetenv("LUISA_XIR_VERIFY_INTERMEDIATE");
+#endif
+        expect(diagnostic_lowered.boundary_verifier_count == 2u);
+        expect(diagnostic_lowered.nested_pass_boundary_verifier_count > 0u)
+            << "the explicit diagnostic environment flag must restore nested pass boundaries";
+
         size_t dependency_count = 0u;
         size_t canonical_dependency_count = 0u;
         for (auto &&subroutine : lowered.subroutines) {

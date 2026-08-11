@@ -4,6 +4,7 @@
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/xir/passes/pass_verification.h>
 
 namespace luisa::compute::xir {
 
@@ -76,6 +77,7 @@ struct CoroCfgDistillResult {
     size_t structured_cfg_error_count{0u};
     size_t invalid_input_error_count{0u};
     size_t invalid_cfg_error_count{0u};
+    size_t boundary_verifier_count{0u};
 
 private:
     // A distilled result is an analysis certificate for one immutable source
@@ -88,7 +90,8 @@ private:
 
     void _seal(FunctionDefinition *definition) noexcept;
     friend CoroCfgDistillResult
-    coro_cfg_distill_pass_run_on_function(Function *f) noexcept;
+    coro_cfg_distill_pass_run_on_function(
+        Function *f, const struct CoroCfgDistillOptions &options) noexcept;
 
 public:
     [[nodiscard]] bool validation_certificate_matches(
@@ -101,6 +104,10 @@ public:
     }
 };
 
+struct CoroCfgDistillOptions {
+    const XIRPassVerificationTransaction *verification_transaction{nullptr};
+};
+
 // These analysis entry points do not mutate the input. Their scope/liveness
 // model requires verifier-valid, void, Phi-free raw CFG: call destructure_cfg
 // for structured control and reg2mem for SSA Phis before distilling. Coroutine
@@ -108,7 +115,9 @@ public:
 // continuation ABI prepends a frame argument. Unsupported or invalid input
 // returns an empty, explicitly failed result. The module overload returns the
 // number of definitions successfully distilled.
-[[nodiscard]] LUISA_XIR_API CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(Function *f) noexcept;
+[[nodiscard]] LUISA_XIR_API CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(
+    Function *f,
+    const CoroCfgDistillOptions &options = {}) noexcept;
 [[nodiscard]] LUISA_XIR_API size_t coro_cfg_distill_pass_run_on_module(Module *m) noexcept;
 
 }// namespace luisa::compute::xir

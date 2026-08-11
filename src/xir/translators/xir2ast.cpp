@@ -55,6 +55,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
+#include <luisa/xir/passes/pass_verification.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -392,9 +393,9 @@ namespace detail {
 
 namespace {
 
-void verify_xir_for_ast(const Function *function, luisa::string_view stage,
-                        const XIRVerificationOptions &options = {}) noexcept {
-    auto verification = xir_verify_function(function, options);
+void require_xir_for_ast(
+    const XIRVerificationResult &verification,
+    luisa::string_view stage) noexcept {
     if (!verification.succeeded()) {
         auto &first = verification.errors.front();
         auto function_name = first.function == nullptr ?
@@ -412,24 +413,16 @@ void verify_xir_for_ast(const Function *function, luisa::string_view stage,
     }
 }
 
+void verify_xir_for_ast(const Function *function, luisa::string_view stage,
+                        const XIRVerificationOptions &options = {}) noexcept {
+    auto verification = xir_verify_function(function, options);
+    require_xir_for_ast(verification, stage);
+}
+
 void verify_xir_for_ast(const Module *module, luisa::string_view stage,
                         const XIRVerificationOptions &options = {}) noexcept {
     auto verification = xir_verify_module(module, options);
-    if (!verification.succeeded()) {
-        auto &first = verification.errors.front();
-        auto function_name = first.function == nullptr ?
-                                 luisa::string_view{"<none>"} :
-                                 first.function->name().value_or("<unnamed>");
-        auto instruction_name = first.instruction == nullptr ?
-                                    luisa::string_view{"<none>"} :
-                                    to_string(first.instruction->derived_instruction_tag());
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid XIR at XIR-to-AST {} in {} '{}' at {}: {} ({} error(s) total).",
-            stage,
-            first.function == nullptr ? luisa::string_view{"unknown"} :
-                                        to_string(first.function->derived_function_tag()),
-            function_name, instruction_name, first.message, verification.errors.size());
-    }
+    require_xir_for_ast(verification, stage);
 }
 
 }// namespace
@@ -1882,7 +1875,18 @@ xir_to_ast_translate_continuations(
     const XIR2ASTConfig &config) noexcept {
     luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>> builders;
     builders.reserve(functions.size());
-    if (functions.empty()) { return builders; }
+    LUISA_ASSERT(
+        !(config.verify_same_module_once &&
+          config.verification_transaction != nullptr),
+        "A continuation batch cannot independently verify a module while "
+        "also closing an enclosing verification transaction.");
+    if (functions.empty()) {
+        LUISA_ASSERT(
+            config.verification_transaction == nullptr,
+            "An enclosing verification transaction cannot be closed by an "
+            "empty continuation batch.");
+        return builders;
+    }
 
     const Module *verified_module = nullptr;
     for (auto *function : functions) {
@@ -1892,8 +1896,12 @@ xir_to_ast_translate_continuations(
                     DerivedFunctionTag::CALLABLE,
             "xir_to_ast_translate_continuations requires CallableFunction definitions.");
     }
-    if (config.verify_same_module_once) {
-        verified_module = functions.front()->parent_module();
+    if (config.verify_same_module_once ||
+        config.verification_transaction != nullptr) {
+        verified_module =
+            config.verification_transaction == nullptr ?
+                functions.front()->parent_module() :
+                config.verification_transaction->module();
         LUISA_ASSERT(
             verified_module != nullptr,
             "Whole-module XIR-to-AST verification requires owned functions.");
@@ -1904,10 +1912,21 @@ xir_to_ast_translate_continuations(
                 "belong to the same module.");
         }
         luisa::Clock verification_clock;
-        verify_xir_for_ast(
-            verified_module, "continuation batch input",
-            {.require_no_phi = true,
-             .require_canonical_break_continue_targets = true});
+        constexpr XIRVerificationOptions verification_options{
+            .require_no_phi = true,
+            .require_canonical_break_continue_targets = true};
+        if (config.verification_transaction == nullptr) {
+            verify_xir_for_ast(
+                verified_module, "continuation batch input",
+                verification_options);
+        } else {
+            auto verification =
+                config.verification_transaction->verify_output(
+                    verification_options);
+            require_xir_for_ast(
+                verification,
+                "continuation batch transaction output");
+        }
         if (auto statistics = config.statistics) {
             statistics->whole_module_verification_count++;
             statistics->verification_milliseconds +=

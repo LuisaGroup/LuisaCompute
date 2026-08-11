@@ -57,6 +57,18 @@ void reg_coro_cfg_distill() {
         expect(!result.scopes[0].is_terminal);
         expect(result.edges.size() == 1u);
         expect(result.edges[0].empty());
+        expect(result.boundary_verifier_count == 1u);
+
+        auto verification_transaction =
+            begin_xir_pass_verification_transaction(&m);
+        auto enclosed = coro_cfg_distill_pass_run_on_function(
+            k,
+            {.verification_transaction =
+                 &verification_transaction});
+        expect(enclosed.succeeded());
+        expect(enclosed.scopes.size() == result.scopes.size());
+        expect(enclosed.boundary_verifier_count == 0u);
+        expect(verification_transaction.verify_output().succeeded());
     };
 
     "single_suspend_two_scopes"_test = [] {
