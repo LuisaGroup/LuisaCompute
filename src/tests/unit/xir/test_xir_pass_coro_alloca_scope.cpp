@@ -8,6 +8,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
@@ -273,6 +274,288 @@ void register_coro_alloca_scope_tests() {
         expect(xir_verify_module(&module).succeeded());
         auto info = coro_alloca_scope_pass_run_on_function(kernel);
         expect(info.definite_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "single_full_definition_moves_with_lifetime_start"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *phase = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        auto *definition = builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        auto *unrelated = builder.clock();
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        auto *observation = builder.load(Type::of<uint>(), scratch);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.delayed_first_definition_count == 1u);
+        expect(info.cross_block_first_definition_delay_count == 1u);
+        expect(info.intra_block_first_definition_delay_count == 0u);
+        expect(info.contracted_alloca_count == 1u);
+        expect(scratch->parent_block() == phase);
+        expect(definition->parent_block() == phase);
+        expect(unrelated->parent_block() == entry);
+        expect(instruction_index(phase, scratch) <
+               instruction_index(phase, definition));
+        expect(instruction_index(phase, definition) <
+               instruction_index(phase, observation));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "single_definition_can_initialize_each_new_loop_lifetime"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *repeat = kernel->create_value_argument(Type::of<bool>());
+        auto *header = kernel->create_basic_block();
+        auto *done = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        auto *definition = builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        builder.br(header);
+        builder.set_insertion_point(header);
+        auto *unrelated = builder.clock();
+        auto *observation = builder.load(Type::of<uint>(), scratch);
+        builder.cond_br(repeat, header, done);
+        builder.set_insertion_point(done);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.delayed_first_definition_count == 1u);
+        expect(info.cross_block_first_definition_delay_count == 1u);
+        expect(scratch->parent_block() == header);
+        expect(definition->parent_block() == header);
+        expect(instruction_index(header, unrelated) <
+               instruction_index(header, scratch));
+        expect(instruction_index(header, scratch) <
+               instruction_index(header, definition));
+        expect(instruction_index(header, definition) <
+               instruction_index(header, observation));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "multiple_definitions_are_not_first_definition_delayed"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *phase = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        auto *unrelated = builder.clock();
+        auto *first_definition = builder.store(
+            scratch, module.create_constant_zero(Type::of<uint>()));
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        auto *second_definition = builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.delayed_first_definition_count == 0u);
+        expect(first_definition->parent_block() == entry);
+        expect(second_definition->parent_block() == phase);
+        expect(scratch->parent_block() == entry);
+        expect(instruction_index(entry, unrelated) <
+               instruction_index(entry, scratch));
+        expect(instruction_index(entry, scratch) <
+               instruction_index(entry, first_definition));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "correlated_runtime_predicate_proves_guarded_initialization"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *start = kernel->create_basic_block();
+        auto *initialize = kernel->create_basic_block();
+        auto *skip_initialize = kernel->create_basic_block();
+        auto *retest = kernel->create_basic_block();
+        auto *observe = kernel->create_basic_block();
+        auto *done = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(start);
+        builder.set_insertion_point(start);
+        auto *start_branch = builder.cond_br(
+            condition, initialize, skip_initialize);
+        builder.set_insertion_point(initialize);
+        builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        builder.br(retest);
+        builder.set_insertion_point(skip_initialize);
+        builder.br(retest);
+        builder.set_insertion_point(retest);
+        builder.cond_br(condition, observe, done);
+        builder.set_insertion_point(observe);
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.br(done);
+        builder.set_insertion_point(done);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 1u);
+        expect(info.guarded_initialization_proof_count == 1u);
+        expect(info.rejected_prior_lifetime_observation_count == 0u);
+        expect(info.contracted_alloca_count == 1u);
+        expect(scratch->parent_block() == start);
+        expect(instruction_index(start, scratch) <
+               instruction_index(start, start_branch));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "structurally_numbered_predicates_prove_the_same_guard"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *value = kernel->create_value_argument(Type::of<uint>());
+        auto *limit = kernel->create_value_argument(Type::of<uint>());
+        auto *start = kernel->create_basic_block();
+        auto *initialize = kernel->create_basic_block();
+        auto *skip_initialize = kernel->create_basic_block();
+        auto *retest = kernel->create_basic_block();
+        auto *observe = kernel->create_basic_block();
+        auto *done = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(start);
+        builder.set_insertion_point(start);
+        auto *first_test = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {value, limit});
+        builder.cond_br(first_test, initialize, skip_initialize);
+        builder.set_insertion_point(initialize);
+        builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        builder.br(retest);
+        builder.set_insertion_point(skip_initialize);
+        builder.br(retest);
+        builder.set_insertion_point(retest);
+        auto *second_test = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {value, limit});
+        builder.cond_br(second_test, observe, done);
+        builder.set_insertion_point(observe);
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.br(done);
+        builder.set_insertion_point(done);
+        builder.return_void();
+
+        expect(first_test != second_test);
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.guarded_initialization_proof_count == 1u);
+        expect(info.contracted_alloca_count == 1u);
+        expect(scratch->parent_block() == start);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "unrelated_runtime_predicate_cannot_prove_initialization"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *initialize_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *observe_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *start = kernel->create_basic_block();
+        auto *initialize = kernel->create_basic_block();
+        auto *skip_initialize = kernel->create_basic_block();
+        auto *retest = kernel->create_basic_block();
+        auto *observe = kernel->create_basic_block();
+        auto *done = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(start);
+        builder.set_insertion_point(start);
+        builder.cond_br(
+            initialize_condition, initialize, skip_initialize);
+        builder.set_insertion_point(initialize);
+        builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        builder.br(retest);
+        builder.set_insertion_point(skip_initialize);
+        builder.br(retest);
+        builder.set_insertion_point(retest);
+        builder.cond_br(observe_condition, observe, done);
+        builder.set_insertion_point(observe);
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.br(done);
+        builder.set_insertion_point(done);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.guarded_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "opposite_runtime_predicate_cannot_prove_initialization"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *start = kernel->create_basic_block();
+        auto *initialize = kernel->create_basic_block();
+        auto *skip_initialize = kernel->create_basic_block();
+        auto *retest = kernel->create_basic_block();
+        auto *observe = kernel->create_basic_block();
+        auto *done = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(start);
+        builder.set_insertion_point(start);
+        builder.cond_br(condition, initialize, skip_initialize);
+        builder.set_insertion_point(initialize);
+        builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        builder.br(retest);
+        builder.set_insertion_point(skip_initialize);
+        builder.br(retest);
+        builder.set_insertion_point(retest);
+        builder.cond_br(condition, done, observe);
+        builder.set_insertion_point(observe);
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.br(done);
+        builder.set_insertion_point(done);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.guarded_initialization_proof_count == 0u);
         expect(info.rejected_prior_lifetime_observation_count == 1u);
         expect(info.contracted_alloca_count == 0u);
         expect(scratch->parent_block() == entry);

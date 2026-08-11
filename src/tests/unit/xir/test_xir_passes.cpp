@@ -230,7 +230,7 @@ void reg_pass_entry_totality() {
             (void)fuse_consecutive_buffer_reads_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(2u, [](PassReport *report) noexcept {
+        check_zero_report(3u, [](PassReport *report) noexcept {
             (void)gvn_pass_run_on_module(nullptr, report);
         });
         check_zero_report(4u, [](PassReport *report) noexcept {
@@ -3145,6 +3145,50 @@ void reg_gvn() {
         expect(pair->operand(1u) == plain);
         expect(annotated->find_metadata<LocationMD>() != nullptr);
         expect(plain->metadata_list().empty());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "gvn_optimizes_continuations_without_crossing_suspend"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *x = k->create_value_argument(Type::of<int>());
+        auto *entry = k->create_body_block();
+        auto *resume = k->create_basic_block();
+        auto *one = m.create_constant_one(Type::of<int>());
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        auto *entry_sink = b.alloca_local(Type::of<int>());
+        auto *before = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        b.store(entry_sink, before);
+        b.coro_suspend(7u, "gvn-boundary", nullptr);
+
+        b.set_insertion_point(resume);
+        b.coro_resume(7u, nullptr);
+        auto *resume_sink = b.alloca_local(Type::of<int2>());
+        auto *after0 = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *after1 = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *pair = b.call(
+            Type::of<int2>(), ArithmeticOp::AGGREGATE,
+            {after0, after1});
+        auto *store = b.store(resume_sink, pair);
+        b.coro_terminate();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = gvn_pass_run_on_function(k);
+
+        // `after0` must remain continuation-local: replacing it with `before`
+        // would create a new frame use. The second expression is in the same
+        // continuation and is therefore safely coalesced with `after0`.
+        expect(info.rejected_cross_suspend_count >= 1u);
+        expect(info.replaced_inst_count == 1u);
+        expect(pair->operand(0u) == after0);
+        expect(pair->operand(1u) == after0);
+        expect(store->value() == pair);
+        expect(after0->is_linked());
         expect(xir_verify_module(&m).succeeded());
     };
 

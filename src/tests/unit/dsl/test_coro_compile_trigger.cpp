@@ -98,7 +98,7 @@ void reg_coro_compile_trigger() {
         expect(static_cast<bool>(c[1u]));
     };
 
-    "aggregate_vector_frame_keeps_only_observed_components"_test = [] {
+    "aggregate_vector_frame_keeps_only_nonrematerializable_observed_components"_test = [] {
         auto c = Coroutine<void(Buffer<float>, int)>{[](Var<Buffer<float>> output, Var<int> x) {
             Float3 v = make_float3(cast<float>(x), 2.0f, 3.0f);
             $suspend("vector");
@@ -109,9 +109,26 @@ void reg_coro_compile_trigger() {
             output.write(0u, y);
         }};
         auto &fd = c.frame_desc();
-        // v.z is never observed after the suspension. Snapshot projection and
-        // one-level SROA must not retain it merely because it shares a source
-        // aggregate with x and y.
+        // v.z is never observed and v.y is a stable constant that can be
+        // rematerialized in the continuation. Only the non-rematerializable
+        // v.x component may occupy the frame.
+        expect(fd.field_count() == 1u);
+        if (fd.field_count() != 1u) { return; }
+        expect(fd.field(0u).type == Type::of<float>());
+        expect(fd.total_size() == 4u);
+    };
+
+    "aggregate_vector_frame_projects_multiple_dynamic_components"_test = [] {
+        auto c = Coroutine<void(Buffer<float>, int, int)>{
+            [](Var<Buffer<float>> output, Var<int> x, Var<int> y) {
+                Float3 v = make_float3(cast<float>(x), cast<float>(y), 3.0f);
+                $suspend("vector");
+                output.write(0u, v.x + v.y);
+            }};
+        auto &fd = c.frame_desc();
+        // The two independently dynamic observed components must survive the
+        // suspension, while the unobserved third component must not be kept by
+        // aggregate projection merely because it shares v's source aggregate.
         expect(fd.field_count() == 2u);
         if (fd.field_count() != 2u) { return; }
         expect(fd.field(0u).type == Type::of<float>());

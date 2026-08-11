@@ -36,12 +36,18 @@ struct CoroAllocaScopeInfo {
     size_t contracted_alloca_count{0u};
     size_t cross_block_contraction_count{0u};
     size_t intra_block_contraction_count{0u};
+    size_t delayed_first_definition_count{0u};
+    size_t cross_block_first_definition_delay_count{0u};
+    size_t intra_block_first_definition_delay_count{0u};
     size_t rejected_phi_use_count{0u};
     size_t rejected_unreachable_use_count{0u};
     size_t rejected_non_dominating_alloca_count{0u};
     size_t definite_initialization_proof_count{0u};
+    size_t guarded_initialization_proof_count{0u};
     size_t rejected_prior_lifetime_observation_count{0u};
     size_t definite_initialization_block_evaluation_count{0u};
+    size_t guarded_initialization_state_evaluation_count{0u};
+    size_t predicate_widening_count{0u};
     size_t invalid_semantic_cfg_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {

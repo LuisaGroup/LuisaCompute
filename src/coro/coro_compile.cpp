@@ -25,6 +25,7 @@
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/defer_local_aggregate_load.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_irreducible_cfg.h>
@@ -32,6 +33,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/trace_gep.h>
@@ -187,6 +189,25 @@ void verify_coro_xir_or_error(
         auto i = xir::const_fold_pass_run_on_function(coroutine);
         r.set("folded_inst", i.folded_inst_count);
         return i.folded_inst_count > 0u;
+    });
+    // SCCP belongs after local algebraic/constant folding has exposed branch
+    // constants, but before CFG cleanup consumes executable-edge information.
+    // Its coroutine-aware graph includes the token-matched suspend->resume
+    // edges, so a dead suspend arm makes the matching continuation dead too.
+    p.add("sccp", [coroutine](xir::Module *, xir::PassReport &r) {
+        luisa::Clock clock;
+        auto i = xir::sccp_pass_run_on_function(coroutine);
+        auto elapsed_ms = clock.toc();
+        r.set("folded_inst", i.folded_inst_count);
+        r.set("removed_branch", i.removed_branch_count);
+        if (environment_flag_enabled(
+                "LUISA_CORO_PROFILE_COMPILATION")) {
+            LUISA_INFO(
+                "Coroutine SCCP: folded={} branches={} time={:.3f} ms.",
+                i.folded_inst_count, i.removed_branch_count,
+                elapsed_ms);
+        }
+        return i.changed();
     });
     // Coro scope/token metadata must describe the executable CFG, not the
     // front-end statement list. In particular, an AST suspend may live in a
@@ -367,6 +388,44 @@ void verify_coro_xir_or_error(
                     i.dead_code_worklist_pop_count);
               return i.changed();
           });
+    // SROA and aggregate-load projection expose the final scalar expression
+    // graph. Run GVN here, rather than before rematerialization: the earlier
+    // placement did not reduce rematerialization's dataflow work and left 215
+    // more atoms for distillation on the Psycles production coroutine. The
+    // augmented-CFG pass refuses cross-suspend replacements, and the following
+    // DCE removes newly dead dependency chains before alloca placement consumes
+    // the final use/def set.
+    p.add("post-sroa-gvn",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              luisa::Clock clock;
+              auto i = xir::gvn_pass_run_on_function(coroutine);
+              auto elapsed_ms = clock.toc();
+              r.set("replaced_inst", i.replaced_inst_count);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("rejected_cross_suspend",
+                    i.rejected_cross_suspend_count);
+              if (environment_flag_enabled(
+                      "LUISA_CORO_PROFILE_COMPILATION")) {
+                  LUISA_INFO(
+                      "Coroutine scope-local GVN: replaced={} removed={} "
+                      "cross_suspend_rejected={} time={:.3f} ms.",
+                      i.replaced_inst_count, i.removed_inst_count,
+                      i.rejected_cross_suspend_count, elapsed_ms);
+              }
+              return i.changed();
+          });
+    p.add("post-gvn-dce",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::dce_pass_run_on_function(coroutine);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("removed_block", i.removed_block_count);
+              r.set("inserted_terminator", i.inserted_terminator_count);
+              r.set("dead_code_instruction_scan",
+                    i.dead_code_instruction_scan_count);
+              r.set("dead_code_worklist_pop",
+                    i.dead_code_worklist_pop_count);
+              return i.changed();
+          });
     // Keep this last: SROA and its cleanup create the final local-allocation
     // set consumed by coroutine liveness. After proving definite
     // initialization, moving a lifetime start to the nearest augmented-CFG
@@ -385,6 +444,12 @@ void verify_coro_xir_or_error(
                     i.cross_block_contraction_count);
               r.set("intra_block_contraction",
                     i.intra_block_contraction_count);
+              r.set("delayed_first_definition",
+                    i.delayed_first_definition_count);
+              r.set("cross_block_first_definition_delay",
+                    i.cross_block_first_definition_delay_count);
+              r.set("intra_block_first_definition_delay",
+                    i.intra_block_first_definition_delay_count);
               r.set("rejected_phi_use", i.rejected_phi_use_count);
               r.set("rejected_unreachable_use",
                     i.rejected_unreachable_use_count);
@@ -392,10 +457,16 @@ void verify_coro_xir_or_error(
                     i.rejected_non_dominating_alloca_count);
               r.set("definite_initialization_proof",
                     i.definite_initialization_proof_count);
+              r.set("guarded_initialization_proof",
+                    i.guarded_initialization_proof_count);
               r.set("rejected_prior_lifetime_observation",
                     i.rejected_prior_lifetime_observation_count);
               r.set("definite_initialization_block_evaluation",
                     i.definite_initialization_block_evaluation_count);
+              r.set("guarded_initialization_state_evaluation",
+                    i.guarded_initialization_state_evaluation_count);
+              r.set("predicate_widening",
+                    i.predicate_widening_count);
               r.set("invalid_semantic_cfg",
                     i.invalid_semantic_cfg_count);
               if (environment_flag_enabled(
@@ -403,16 +474,23 @@ void verify_coro_xir_or_error(
                   LUISA_INFO(
                       "Coroutine alloca lifetime contraction: "
                       "allocas={} contracted={} cross_block={} "
-                      "intra_block={} definite_proofs={} "
+                      "intra_block={} delayed_first_defs={} "
+                      "definite_proofs={} "
+                      "guarded_proofs={} "
                       "rejected_prior_lifetime={} "
-                      "proof_block_evaluations={}.",
+                      "proof_block_evaluations={} "
+                      "guarded_state_evaluations={} widenings={}.",
                       i.scanned_local_alloca_count,
                       i.contracted_alloca_count,
                       i.cross_block_contraction_count,
                       i.intra_block_contraction_count,
+                      i.delayed_first_definition_count,
                       i.definite_initialization_proof_count,
+                      i.guarded_initialization_proof_count,
                       i.rejected_prior_lifetime_observation_count,
-                      i.definite_initialization_block_evaluation_count);
+                      i.definite_initialization_block_evaluation_count,
+                      i.guarded_initialization_state_evaluation_count,
+                      i.predicate_widening_count);
               }
               return i.changed();
           });

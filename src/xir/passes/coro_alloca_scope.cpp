@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
@@ -12,6 +14,7 @@
 #include <luisa/xir/passes/coro_alloca_scope.h>
 
 #include "coro_frame_access.h"
+#include "coro_predicate_analysis.h"
 #include "coro_semantic_graph.h"
 
 namespace luisa::compute::xir {
@@ -75,6 +78,35 @@ struct InsertionPoint {
     bool has_gap_after_alloca{false};
 };
 
+[[nodiscard]] bool instruction_strictly_precedes(
+    Instruction *before, Instruction *after) noexcept {
+    if (before == nullptr || after == nullptr ||
+        before->parent_block() != after->parent_block()) {
+        return false;
+    }
+    for (auto *instruction :
+         before->parent_block()->instructions()) {
+        if (instruction == before) { return true; }
+        if (instruction == after) { return false; }
+    }
+    return false;
+}
+
+[[nodiscard]] bool instruction_immediately_precedes(
+    Instruction *before, Instruction *after) noexcept {
+    if (before == nullptr || after == nullptr ||
+        before->parent_block() != after->parent_block()) {
+        return false;
+    }
+    auto found_before = false;
+    for (auto *instruction :
+         before->parent_block()->instructions()) {
+        if (found_before) { return instruction == after; }
+        found_before = instruction == before;
+    }
+    return false;
+}
+
 [[nodiscard]] InsertionPoint find_latest_insertion_point(
     BasicBlock *target, AllocaInst *alloca,
     const luisa::unordered_set<Instruction *> &users) noexcept {
@@ -100,6 +132,119 @@ struct InsertionPoint {
     return result;
 }
 
+struct FirstDefinitionPlan {
+    StoreInst *definition{nullptr};
+    BasicBlock *target{nullptr};
+    Instruction *insertion_instruction{nullptr};
+};
+
+[[nodiscard]] FirstDefinitionPlan plan_first_definition_delay(
+    AllocaInst *alloca, const AllocaUseRegion &region,
+    const CoroSemanticGraph &graph) noexcept {
+    FirstDefinitionPlan plan;
+    StoreInst *definition = nullptr;
+    luisa::unordered_set<Instruction *> observations;
+    luisa::vector<BasicBlock *> observation_blocks;
+    luisa::unordered_set<BasicBlock *> seen_blocks;
+
+    // Formal single-definition domain:
+    //   * exactly one full-object store defines the local;
+    //   * every other pointer use is a typed projection or observation;
+    //   * no reference/atomic/unknown operation can expose store timing.
+    // Moving that store with the lifetime start may execute it more often in
+    // a loop, but with no second write version every load still observes the
+    // same dominating SSA value as in the original program.
+    for (auto *user : region.users) {
+        if (user->isa<StoreInst>()) {
+            auto *store = static_cast<StoreInst *>(user);
+            if (definition != nullptr || store->variable() != alloca) {
+                return plan;
+            }
+            definition = store;
+            continue;
+        }
+        if (!user->isa<GEPInst>() && !user->isa<LoadInst>()) {
+            return plan;
+        }
+        observations.emplace(user);
+        if (seen_blocks.emplace(user->parent_block()).second) {
+            observation_blocks.emplace_back(user->parent_block());
+        }
+    }
+    if (definition == nullptr || observations.empty()) { return plan; }
+
+    auto *target = graph.nearest_common_dominator(
+        luisa::span{observation_blocks});
+    auto *source = alloca->parent_block();
+    auto *definition_block = definition->parent_block();
+    if (target == nullptr || source == nullptr ||
+        definition_block == nullptr ||
+        !graph.dominates(source, target) ||
+        !graph.dominates(definition_block, target)) {
+        return plan;
+    }
+    auto insertion = find_latest_insertion_point(
+        target, alloca, observations);
+    if (insertion.instruction == nullptr) { return plan; }
+    if (definition_block == target &&
+        !instruction_strictly_precedes(
+            definition, insertion.instruction)) {
+        return plan;
+    }
+    if (source == target &&
+        instruction_immediately_precedes(alloca, definition) &&
+        instruction_immediately_precedes(
+            definition, insertion.instruction)) {
+        return plan;
+    }
+
+    // The store is moved, not recomputed. Its SSA operand must therefore be
+    // available at the new point. Function arguments and constants are
+    // globally available; an instruction operand must dominate the target
+    // and textually precede the insertion point when defined there.
+    auto *value = definition->value();
+    if (value == nullptr) { return plan; }
+    if (value->isa<Instruction>()) {
+        auto *value_instruction = static_cast<Instruction *>(value);
+        auto *value_block = value_instruction->parent_block();
+        if (value_block == nullptr ||
+            !graph.dominates(value_block, target) ||
+            (value_block == target &&
+             !instruction_strictly_precedes(
+                 value_instruction, insertion.instruction))) {
+            return plan;
+        }
+    } else if (value->derived_value_tag() !=
+                   DerivedValueTag::ARGUMENT &&
+               value->derived_value_tag() !=
+                   DerivedValueTag::CONSTANT) {
+        // A special register is evaluated at its use site and may change at a
+        // continuation boundary (notably the current coroutine token). It is
+        // not an SSA snapshot unless materialized by an instruction.
+        return plan;
+    }
+    plan.definition = definition;
+    plan.target = target;
+    plan.insertion_instruction = insertion.instruction;
+    return plan;
+}
+
+void apply_first_definition_plan(
+    AllocaInst *alloca,
+    const FirstDefinitionPlan &plan) noexcept {
+    auto alloca_owner = alloca->remove_self();
+    auto definition_owner = plan.definition->remove_self();
+    auto *moved_alloca = plan.insertion_instruction->insert_before_self(
+        std::move(alloca_owner));
+    auto *moved_definition =
+        plan.insertion_instruction->insert_before_self(
+            std::move(definition_owner));
+    LUISA_DEBUG_ASSERT(
+        moved_alloca == alloca &&
+            moved_definition == plan.definition,
+        "First-definition delay changed XIR instruction identity.");
+}
+
 enum class LifetimeEventKind : uint8_t {
     redefine_pointer,
     store,
@@ -109,6 +254,7 @@ enum class LifetimeEventKind : uint8_t {
 struct LifetimeEvent {
     LifetimeEventKind kind;
     Value *pointer;
+    Instruction *instruction;
 };
 
 struct LifetimeFactLayout {
@@ -119,10 +265,22 @@ struct LifetimeFactLayout {
 
 struct LifetimeProofResult {
     bool succeeded{false};
+    bool guarded{false};
     size_t block_evaluation_count{0u};
+    size_t guarded_state_evaluation_count{0u};
+    size_t predicate_widening_count{0u};
 };
 
 using LifetimeFactState = luisa::vector<uint8_t>;
+
+struct LifetimeProofProblem {
+    bool valid{false};
+    size_t target_id{0u};
+    LifetimeFactLayout layout;
+    luisa::vector<uint8_t> active;
+    luisa::vector<size_t> active_blocks;
+    luisa::vector<luisa::vector<LifetimeEvent>> events;
+};
 
 [[nodiscard]] LifetimeFactLayout make_lifetime_fact_layout(
     luisa::span<const size_t> atom_indices,
@@ -217,59 +375,58 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
     return true;
 }
 
-[[nodiscard]] LifetimeProofResult prove_fresh_lifetime(
+[[nodiscard]] LifetimeProofProblem make_lifetime_proof_problem(
     BasicBlock *target, Instruction *insertion_instruction,
     const AllocaUseRegion &region,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain,
     luisa::span<const size_t> atom_indices) noexcept {
-    LifetimeProofResult result;
+    LifetimeProofProblem problem;
     auto target_id = graph.block_id(target);
     if (target_id >= graph.block_count() ||
         insertion_instruction == nullptr) {
-        return result;
+        return problem;
     }
+    problem.target_id = target_id;
 
     // Restrict the proof to the reverse slice from every pointer use to the
     // proposed lifetime start. Since target dominates every use, this slice
     // contains every executable path that can affect an observation before
     // target is reached again; target itself is a reset boundary.
-    luisa::vector<uint8_t> active(graph.block_count(), 0u);
+    problem.active.assign(graph.block_count(), 0u);
     luisa::vector<size_t> worklist;
     for (auto *block : region.blocks) {
-        if (!graph.dominates(target, block)) { return result; }
+        if (!graph.dominates(target, block)) { return problem; }
         auto id = graph.block_id(block);
-        if (id >= graph.block_count()) { return result; }
-        if (active[id] == 0u) {
-            active[id] = 1u;
+        if (id >= graph.block_count()) { return problem; }
+        if (problem.active[id] == 0u) {
+            problem.active[id] = 1u;
             worklist.emplace_back(id);
         }
     }
-    active[target_id] = 1u;
+    problem.active[target_id] = 1u;
     for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
         auto block_id = worklist[cursor];
         if (block_id == target_id) { continue; }
         for (auto predecessor : graph.predecessors(block_id)) {
             auto *predecessor_block = graph.block(predecessor);
             if (!graph.dominates(target, predecessor_block)) {
-                return result;
+                return problem;
             }
-            if (active[predecessor] == 0u) {
-                active[predecessor] = 1u;
+            if (problem.active[predecessor] == 0u) {
+                problem.active[predecessor] = 1u;
                 worklist.emplace_back(predecessor);
             }
         }
     }
 
-    auto layout = make_lifetime_fact_layout(atom_indices, region);
-    if (layout.fact_count == 0u) { return result; }
-    luisa::vector<luisa::vector<LifetimeEvent>> events(
-        graph.block_count());
-    luisa::vector<size_t> active_blocks;
+    problem.layout = make_lifetime_fact_layout(atom_indices, region);
+    if (problem.layout.fact_count == 0u) { return problem; }
+    problem.events.resize(graph.block_count());
     for (size_t block_id = 0u;
          block_id < graph.block_count(); ++block_id) {
-        if (active[block_id] == 0u) { continue; }
-        active_blocks.emplace_back(block_id);
+        if (problem.active[block_id] == 0u) { continue; }
+        problem.active_blocks.emplace_back(block_id);
         auto *block = graph.block(block_id);
         auto after_lifetime_start = block_id != target_id;
         auto found_lifetime_start = after_lifetime_start;
@@ -280,26 +437,27 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
                 found_lifetime_start = true;
             }
             if (!region.users.contains(instruction)) { continue; }
-            auto &block_events = events[block_id];
+            auto &block_events = problem.events[block_id];
             if (instruction->isa<GEPInst>()) {
                 block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::redefine_pointer, instruction});
+                    LifetimeEventKind::redefine_pointer, instruction,
+                    instruction});
                 continue;
             }
             if (instruction->isa<LoadInst>()) {
                 auto *pointer =
                     static_cast<LoadInst *>(instruction)->variable();
-                if (!region.pointers.contains(pointer)) { return result; }
+                if (!region.pointers.contains(pointer)) { return problem; }
                 block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::read, pointer});
+                    LifetimeEventKind::read, pointer, instruction});
                 continue;
             }
             if (instruction->isa<StoreInst>()) {
                 auto *pointer =
                     static_cast<StoreInst *>(instruction)->variable();
-                if (!region.pointers.contains(pointer)) { return result; }
+                if (!region.pointers.contains(pointer)) { return problem; }
                 block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::store, pointer});
+                    LifetimeEventKind::store, pointer, instruction});
                 continue;
             }
             auto found_pointer_operand = false;
@@ -315,18 +473,30 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
                 // Atomics, reference calls, and unknown pointer operations
                 // may observe the old value before any possible write.
                 block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::read, pointer});
+                    LifetimeEventKind::read, pointer, instruction});
             }
-            if (!found_pointer_operand) { return result; }
+            if (!found_pointer_operand) { return problem; }
         }
-        if (!found_lifetime_start) { return result; }
+        if (!found_lifetime_start) { return problem; }
     }
+    problem.valid = true;
+    return problem;
+}
 
-    auto top = LifetimeFactState(layout.fact_count, uint8_t{1u});
-    auto bottom = LifetimeFactState(layout.fact_count, uint8_t{0u});
+[[nodiscard]] LifetimeProofResult prove_unconditional_fresh_lifetime(
+    const LifetimeProofProblem &problem,
+    const CoroSemanticGraph &graph,
+    const CoroFrameAtomDomain &domain) noexcept {
+    LifetimeProofResult result;
+    if (!problem.valid) { return result; }
+
+    auto top = LifetimeFactState(
+        problem.layout.fact_count, uint8_t{1u});
+    auto bottom = LifetimeFactState(
+        problem.layout.fact_count, uint8_t{0u});
     luisa::vector<LifetimeFactState> in_states(graph.block_count());
     luisa::vector<LifetimeFactState> out_states(graph.block_count());
-    for (auto block_id : active_blocks) {
+    for (auto block_id : problem.active_blocks) {
         in_states[block_id] = top;
         out_states[block_id] = top;
     }
@@ -339,20 +509,23 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
     // finite and no traversal order can invent a definite initialization.
     for (;;) {
         auto changed = false;
-        for (auto block_id : active_blocks) {
+        for (auto block_id : problem.active_blocks) {
             ++result.block_evaluation_count;
             LifetimeFactState next_in;
-            if (block_id == target_id) {
+            if (block_id == problem.target_id) {
                 next_in = bottom;
             } else {
                 auto first_predecessor = true;
                 for (auto predecessor : graph.predecessors(block_id)) {
-                    if (active[predecessor] == 0u) { return result; }
+                    if (problem.active[predecessor] == 0u) {
+                        return result;
+                    }
                     if (first_predecessor) {
                         next_in = out_states[predecessor];
                         first_predecessor = false;
                     } else {
-                        for (size_t i = 0u; i < layout.fact_count; ++i) {
+                        for (size_t i = 0u;
+                             i < problem.layout.fact_count; ++i) {
                             next_in[i] &= out_states[predecessor][i];
                         }
                     }
@@ -361,7 +534,8 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
             }
             auto next_out = next_in;
             static_cast<void>(apply_lifetime_events(
-                events[block_id], next_out, layout, domain, false));
+                problem.events[block_id], next_out,
+                problem.layout, domain, false));
             if (in_states[block_id] != next_in ||
                 out_states[block_id] != next_out) {
                 in_states[block_id] = std::move(next_in);
@@ -372,15 +546,299 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
         if (!changed) { break; }
     }
 
-    for (auto block_id : active_blocks) {
+    for (auto block_id : problem.active_blocks) {
         auto state = in_states[block_id];
         if (!apply_lifetime_events(
-                events[block_id], state, layout, domain, true)) {
+                problem.events[block_id], state,
+                problem.layout, domain, true)) {
             return result;
         }
     }
     result.succeeded = true;
     return result;
+}
+
+struct PredicateAssignment {
+    size_t predicate;
+    bool value;
+};
+
+using PredicateCube = luisa::vector<PredicateAssignment>;
+
+struct GuardedLifetimeState {
+    PredicateCube cube;
+    LifetimeFactState facts;
+};
+
+constexpr auto max_predicates_per_cube = 12u;
+constexpr auto max_guarded_states_per_block = 64u;
+
+[[nodiscard]] bool cube_subsumes(
+    const PredicateCube &general,
+    const PredicateCube &specific) noexcept {
+    auto j = size_t{0u};
+    for (auto literal : general) {
+        while (j < specific.size() &&
+               specific[j].predicate < literal.predicate) {
+            ++j;
+        }
+        if (j == specific.size() ||
+            specific[j].predicate != literal.predicate ||
+            specific[j].value != literal.value) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool intersect_facts(
+    LifetimeFactState &target,
+    const LifetimeFactState &incoming) noexcept {
+    auto changed = false;
+    LUISA_DEBUG_ASSERT(target.size() == incoming.size(),
+                       "Mismatched lifetime fact domains.");
+    for (size_t i = 0u; i < target.size(); ++i) {
+        auto next = static_cast<uint8_t>(target[i] & incoming[i]);
+        changed |= next != target[i];
+        target[i] = next;
+    }
+    return changed;
+}
+
+void kill_predicates(PredicateCube &cube,
+                     luisa::span<const size_t> killed) noexcept {
+    if (cube.empty() || killed.empty()) { return; }
+    cube.erase(
+        std::remove_if(
+            cube.begin(), cube.end(),
+            [killed](auto literal) noexcept {
+                return std::binary_search(
+                    killed.begin(), killed.end(),
+                    literal.predicate);
+            }),
+        cube.end());
+}
+
+[[nodiscard]] bool refine_cube(
+    PredicateCube &cube,
+    CoroPredicateLiteral literal) noexcept {
+    auto iter = std::lower_bound(
+        cube.begin(), cube.end(), literal.predicate,
+        [](auto existing, size_t predicate) noexcept {
+            return existing.predicate < predicate;
+        });
+    if (iter != cube.end() &&
+        iter->predicate == literal.predicate) {
+        return iter->value == literal.value;
+    }
+    // Forgetting a new literal is a conservative widening: both edges remain
+    // feasible and later Must intersections can only lose facts.
+    if (cube.size() >= max_predicates_per_cube) { return true; }
+    cube.emplace(iter, PredicateAssignment{
+                           literal.predicate, literal.value});
+    return true;
+}
+
+[[nodiscard]] bool merge_guarded_state(
+    luisa::vector<GuardedLifetimeState> &states,
+    GuardedLifetimeState incoming,
+    size_t &widening_count) noexcept {
+    auto covered = false;
+    auto changed = false;
+    for (auto &state : states) {
+        if (cube_subsumes(state.cube, incoming.cube)) {
+            covered = true;
+            changed |= intersect_facts(state.facts, incoming.facts);
+        }
+    }
+    if (covered) { return changed; }
+
+    for (size_t i = 0u; i < states.size();) {
+        if (cube_subsumes(incoming.cube, states[i].cube)) {
+            static_cast<void>(intersect_facts(
+                incoming.facts, states[i].facts));
+            states.erase(states.begin() + i);
+        } else {
+            ++i;
+        }
+    }
+    if (states.size() >= max_guarded_states_per_block) {
+        for (auto &&state : states) {
+            static_cast<void>(intersect_facts(
+                incoming.facts, state.facts));
+        }
+        states.clear();
+        incoming.cube.clear();
+        ++widening_count;
+    }
+    states.emplace_back(std::move(incoming));
+    return true;
+}
+
+struct GuardedTransferEvent {
+    Instruction *instruction;
+    const LifetimeEvent *lifetimes{nullptr};
+    size_t lifetime_count{0u};
+};
+
+[[nodiscard]] luisa::vector<luisa::vector<GuardedTransferEvent>>
+make_guarded_transfer_events(
+    const LifetimeProofProblem &problem,
+    const CoroSemanticGraph &graph,
+    const CoroPredicateAnalysis &predicates) noexcept {
+    luisa::vector<luisa::vector<GuardedTransferEvent>> transfers(
+        graph.block_count());
+    for (auto block_id : problem.active_blocks) {
+        auto *block = graph.block(block_id);
+        auto lifetime_index = size_t{0u};
+        auto *first_lifetime_instruction =
+            problem.events[block_id].empty() ?
+                nullptr :
+                problem.events[block_id].front().instruction;
+        auto active = block_id != problem.target_id ||
+                      first_lifetime_instruction == nullptr;
+        for (auto *instruction : block->instructions()) {
+            if (!active && instruction == first_lifetime_instruction) {
+                active = true;
+            }
+            if (!active) { continue; }
+            auto has_kills =
+                !predicates.killed_predicates(instruction).empty();
+            const LifetimeEvent *lifetimes = nullptr;
+            auto lifetime_count = size_t{0u};
+            if (lifetime_index < problem.events[block_id].size() &&
+                problem.events[block_id][lifetime_index].instruction ==
+                    instruction) {
+                lifetimes = &problem.events[block_id][lifetime_index];
+                do {
+                    ++lifetime_index;
+                    ++lifetime_count;
+                } while (
+                    lifetime_index < problem.events[block_id].size() &&
+                    problem.events[block_id][lifetime_index].instruction ==
+                        instruction);
+            }
+            if (has_kills || lifetime_count != 0u) {
+                transfers[block_id].emplace_back(
+                    GuardedTransferEvent{
+                        instruction, lifetimes, lifetime_count});
+            }
+        }
+        LUISA_DEBUG_ASSERT(
+            lifetime_index == problem.events[block_id].size(),
+            "Failed to order lifetime events in their XIR block.");
+    }
+    return transfers;
+}
+
+[[nodiscard]] bool apply_guarded_transfer(
+    luisa::span<const GuardedTransferEvent> events,
+    GuardedLifetimeState &state,
+    const CoroPredicateAnalysis &predicates,
+    const LifetimeFactLayout &layout,
+    const CoroFrameAtomDomain &domain,
+    bool validate_reads) noexcept {
+    for (auto event : events) {
+        kill_predicates(
+            state.cube,
+            predicates.killed_predicates(event.instruction));
+        if (event.lifetime_count != 0u &&
+            !apply_lifetime_events(
+                luisa::span<const LifetimeEvent>{
+                    event.lifetimes, event.lifetime_count},
+                state.facts,
+                layout, domain, validate_reads)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] LifetimeProofResult prove_guarded_fresh_lifetime(
+    const LifetimeProofProblem &problem,
+    const CoroSemanticGraph &graph,
+    const CoroFrameAtomDomain &domain,
+    const CoroPredicateAnalysis &predicates) noexcept {
+    LifetimeProofResult result;
+    result.guarded = true;
+    if (!problem.valid || predicates.predicate_count() == 0u) {
+        return result;
+    }
+    auto transfers = make_guarded_transfer_events(
+        problem, graph, predicates);
+    luisa::vector<luisa::vector<GuardedLifetimeState>>
+        in_states(graph.block_count());
+    in_states[problem.target_id].emplace_back(
+        GuardedLifetimeState{
+            .facts = LifetimeFactState(
+                problem.layout.fact_count, uint8_t{0u})});
+
+    luisa::vector<size_t> worklist{problem.target_id};
+    luisa::vector<uint8_t> queued(graph.block_count(), 0u);
+    queued[problem.target_id] = 1u;
+    for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+        auto block_id = worklist[cursor];
+        queued[block_id] = 0u;
+        auto states = in_states[block_id];
+        for (auto state : states) {
+            ++result.guarded_state_evaluation_count;
+            static_cast<void>(apply_guarded_transfer(
+                transfers[block_id], state, predicates,
+                problem.layout, domain, false));
+            for (auto successor : graph.successors(block_id)) {
+                if (successor == problem.target_id ||
+                    problem.active[successor] == 0u) {
+                    continue;
+                }
+                auto next = state;
+                if (auto literal = predicates.literal_on_edge(
+                        graph.block(block_id),
+                        graph.block(successor));
+                    literal && !refine_cube(next.cube, *literal)) {
+                    continue;
+                }
+                if (merge_guarded_state(
+                        in_states[successor], std::move(next),
+                        result.predicate_widening_count) &&
+                    queued[successor] == 0u) {
+                    queued[successor] = 1u;
+                    worklist.emplace_back(successor);
+                }
+            }
+        }
+    }
+
+    for (auto block_id : problem.active_blocks) {
+        for (auto state : in_states[block_id]) {
+            if (!apply_guarded_transfer(
+                    transfers[block_id], state, predicates,
+                    problem.layout, domain, true)) {
+                return result;
+            }
+        }
+    }
+    result.succeeded = true;
+    return result;
+}
+
+[[nodiscard]] LifetimeProofResult prove_fresh_lifetime(
+    BasicBlock *target, Instruction *insertion_instruction,
+    const AllocaUseRegion &region,
+    const CoroSemanticGraph &graph,
+    const CoroFrameAtomDomain &domain,
+    const CoroPredicateAnalysis &predicates,
+    luisa::span<const size_t> atom_indices) noexcept {
+    auto problem = make_lifetime_proof_problem(
+        target, insertion_instruction, region, graph,
+        domain, atom_indices);
+    auto unconditional = prove_unconditional_fresh_lifetime(
+        problem, graph, domain);
+    if (unconditional.succeeded) { return unconditional; }
+    auto guarded = prove_guarded_fresh_lifetime(
+        problem, graph, domain, predicates);
+    guarded.block_evaluation_count =
+        unconditional.block_evaluation_count;
+    return guarded;
 }
 
 }
@@ -402,6 +860,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     }
     info.semantic_block_count = graph.block_count();
     info.semantic_edge_count = graph.edge_count();
+    detail::CoroPredicateAnalysis predicates{graph};
 
     // Reuse the same type-shaped May/Must partition as coroutine liveness.
     // The definite-initialization proof and the eventual frame transfer must
@@ -440,6 +899,26 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             continue;
         }
         if (region.blocks.empty()) { continue; }
+
+        if (auto first_definition =
+                detail::plan_first_definition_delay(
+                    alloca, region, graph);
+            first_definition.definition != nullptr) {
+            auto *source = alloca->parent_block();
+            detail::apply_first_definition_plan(
+                alloca, first_definition);
+            ++info.contracted_alloca_count;
+            ++info.delayed_first_definition_count;
+            if (source == first_definition.target) {
+                ++info.intra_block_contraction_count;
+                ++info.intra_block_first_definition_delay_count;
+            } else {
+                ++info.cross_block_contraction_count;
+                ++info.cross_block_first_definition_delay_count;
+            }
+            continue;
+        }
+
         auto *target = graph.nearest_common_dominator(
             luisa::span{region.blocks});
         auto *source = alloca->parent_block();
@@ -468,14 +947,21 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                                         atom_iter->second};
             auto proof = detail::prove_fresh_lifetime(
                 target, insertion.instruction, region, graph,
-                frame_domain, atom_indices);
+                frame_domain, predicates, atom_indices);
             info.definite_initialization_block_evaluation_count +=
                 proof.block_evaluation_count;
+            info.guarded_initialization_state_evaluation_count +=
+                proof.guarded_state_evaluation_count;
+            info.predicate_widening_count +=
+                proof.predicate_widening_count;
             if (!proof.succeeded) {
                 ++info.rejected_prior_lifetime_observation_count;
                 continue;
             }
             ++info.definite_initialization_proof_count;
+            if (proof.guarded) {
+                ++info.guarded_initialization_proof_count;
+            }
         }
 
         auto owned = alloca->remove_self();
