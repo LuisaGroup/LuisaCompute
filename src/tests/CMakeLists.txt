@@ -548,14 +548,26 @@ if (TARGET luisa-compute-backend-simd)
     luisa_compute_add_test(test_simd_runtime_widths
             unit/simd/test_simd_runtime_widths.cpp
             LABELS integration_simd runtime_simd)
-    add_dependencies(test_simd_runtime_widths
-            luisa-compute-backend-simd)
+    luisa_compute_add_test(test_simd_local_memory
+            unit/simd/test_simd_local_memory.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_atomics
+            unit/simd/test_simd_atomics.cpp
+            LABELS integration_simd runtime_simd)
+    foreach (_simd_backend_test IN ITEMS
+            test_simd_runtime_widths
+            test_simd_local_memory
+            test_simd_atomics)
+        add_dependencies(${_simd_backend_test}
+                luisa-compute-backend-simd)
+    endforeach ()
 
     foreach (_simd_runtime_test IN ITEMS
             test_buffer
             test_buffer_view
             test_buffer_io
             test_texture_io
+            test_dsl_slp_vectorization
             test_warp
             test_warp_prefix_scan
             test_warp_sparse_collectives)

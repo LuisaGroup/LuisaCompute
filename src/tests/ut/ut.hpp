@@ -861,7 +861,7 @@ struct cfg {
     if (n_args > 1U && argv != nullptr) {
       const std::string_view first{argv[1]};
       if (first == "cuda" || first == "dx" || first == "fallback" ||
-          first == "hip" || first == "metal" ||
+          first == "hip" || first == "metal" || first == "simd" ||
           first == "vk") {
         first_ut_arg = 2U;
       }

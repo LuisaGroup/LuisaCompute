@@ -474,8 +474,11 @@ must not depend on LLVM or Embree, which keeps control-flow work buildable in a
 small configuration.
 
 Launch order follows Luisa's flattened block-thread convention. Within a
-block, lane ID is `linear_thread_id % W`; partial tail warps receive an initial
-mask. This preserves multidimensional warp-lane tests.
+block, lane ID is `linear_thread_id % W`. The runtime requires the block thread
+count to be divisible by `W` and loops over exactly `block_threads / W` full
+warps. Dispatch-edge warps receive an initial mask for invocations outside the
+exact dispatch size. As in fallback, the AST block-size contract remains
+independent of the backend warp width.
 
 ## 12. Diagnostics and observability
 
@@ -510,7 +513,7 @@ Run without LLVM or a runtime backend at widths 1, 4, and 8:
 - PHIs with sparse predecessor masks;
 - different per-lane loop trip counts;
 - break, continue, and early return;
-- partial tail warp;
+- dispatch-edge partial warp within a complete thread-block warp;
 - irreducible CFG rejection;
 - loop epoch separation for the same static collective;
 - deterministic results under two scheduler policies.
@@ -709,28 +712,34 @@ on 2026-08-11. The repository now contains:
   contains the current PC, dynamic convergence token, runnable/live bits, and
   one epoch vector per natural loop;
 - bounded dynamic convergence frames (at most `W` for a `W`-lane packet),
-  cascading inner-to-outer joins, loop-gate reuse, partial tail masks, and
+  cascading inner-to-outer joins, loop-gate reuse, dispatch-edge masks, and
   masked scalar returns; the old 64-block ready bitmap and its CFG-size limit
   have been removed;
 - a host-target compiler facade and O2 ORC JIT boundary that delegates
   legalization, instruction selection, register allocation, and machine
   scheduling to LLVM;
 - a four-argument packet launch ABI that derives `thread_id`, `block_id`, and
-  `dispatch_id` in fixed vectors and masks both packet tails and non-divisible
+  `dispatch_id` in fixed vectors and masks lanes outside non-divisible
   multidimensional dispatch extents;
 - recursive Luisa-ABI loading for uniform aggregate values, SoA splatting,
   cohort spill/reload, component-wise integer arithmetic, aggregate
   construction/extraction/insertion/shuffle, and scalar/vector casts;
 - direct Buffer descriptors with typed and byte-address queries plus masked
   LLVM gather/scatter for scalar, vector, matrix, array, and structure leaves;
+- lane-private local storage with Luisa ABI byte layout, masked loads/stores,
+  and dynamic vector/array/matrix indexing through divergent control flow;
+- monotonic direct-buffer atomics scalarized only at the memory side effect,
+  including returned old values, predicated conflicting lanes, and scalar
+  leaves selected through nested vector/matrix/array/structure indices;
 - an AST-to-XIR compiler front door that inlines callables, forwards/eliminates
   local loads, promotes SSA storage, destructures CFG, and compiles a real DSL
   Buffer kernel through ORC;
 - a runnable `DeviceInterface` module with host buffers, 2D/3D textures,
   streams, events, direct dispatch, and a public `SIMDDeviceConfigExt` that
   specializes every shader on the device to warp1/4/8/16;
-- backend-neutral DSL and XIR block-size validation: packet widths smaller
-  than 32 no longer have to masquerade as a GPU warp32 block;
+- the backend-neutral DSL and XIR block-size contract remains a multiple of
+  32; SIMD partitions each thread block into independent width-1/4/8/16
+  packets, matching fallback's separation of block size from warp size;
 - standalone unit coverage for warp1/4/8/16 control flow and positive/negative
   Schedule IR fixtures, plus XIR projection fixtures for divergent diamonds,
   uniform control, lane-dependent loops, warp collectives, structured-CFG
@@ -740,14 +749,15 @@ on 2026-08-11. The repository now contains:
   read, lane-wise suspension spill, reconvergence, and active sum;
 - ORC execution fixtures for lane-dependent loops at warp4/8, nested dynamic
   reconvergence, a 96-block CFG, vector Buffer gather/add/scatter, and a real
-  AST `Kernel1D` with a 13-thread non-integral packet tail. Loop membership is
-  explicit in Schedule IR so epochs are compared only while a cohort remains
-  inside that loop;
+  AST `Kernel1D` with a 13-thread dispatch edge inside a valid 32-thread block.
+  Loop membership is explicit in Schedule IR so epochs are compared only while
+  a cohort remains inside that loop;
 - unattended runtime coverage from the repository's existing multidimensional
   lane-ID, warp matmul, sparse reduction/prefix, and aggregate lane-shuffle
-  tests, plus one device-level specialization test across warp1/4/8/16.
+  tests, plus device-level specialization across warp1/4/8/16, local-memory
+  isolation under divergence, and conflicting direct-buffer atomics.
 
-The next implementation boundary is conformance-gating local and direct-buffer
-atomic memory, then adding callables, bindless resources, shared memory, and
-block barriers. The current compiler returns precise diagnostics for
-unsupported features rather than silently scalarizing them.
+The next implementation boundary is callables and bindless resources, followed
+by cooperative shared memory and block barriers. The current compiler returns
+precise diagnostics for unsupported features rather than silently accepting
+them.

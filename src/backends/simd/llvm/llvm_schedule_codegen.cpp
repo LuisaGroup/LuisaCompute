@@ -67,6 +67,8 @@ private:
     std::vector<std::vector<schedule::LoopId>> _block_loops{};
     std::vector<::llvm::AllocaInst *> _state_slots{};
     std::vector<uint8_t> _spilled_instruction_values{};
+    std::vector<uint8_t> _local_lvalue_values{};
+    std::vector<::llvm::Value *> _local_allocations{};
     std::vector<::llvm::Value *> _external_values{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
@@ -267,6 +269,170 @@ private:
         });
     }
 
+    [[nodiscard]] ::llvm::StructType *_local_handle_type() {
+        auto *pointer = ::llvm::PointerType::getUnqual(
+            _module.getContext());
+        return ::llvm::StructType::get(
+            _module.getContext(),
+            {::llvm::FixedVectorType::get(pointer, _width),
+             ::llvm::FixedVectorType::get(
+                 _builder.getInt64Ty(), _width)});
+    }
+
+    [[nodiscard]] ::llvm::Value *_local_handle(
+        ::llvm::Value *base, ::llvm::Value *offsets) {
+        auto *handle = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(_local_handle_type()));
+        handle = _builder.CreateInsertValue(handle, base, {0u});
+        return _builder.CreateInsertValue(handle, offsets, {1u});
+    }
+
+    [[nodiscard]] static ::llvm::Value *_local_base(
+        ::llvm::IRBuilder<> &builder, ::llvm::Value *handle) {
+        return builder.CreateExtractValue(handle, {0u});
+    }
+
+    [[nodiscard]] static ::llvm::Value *_local_offsets(
+        ::llvm::IRBuilder<> &builder, ::llvm::Value *handle) {
+        return builder.CreateExtractValue(handle, {1u});
+    }
+
+    [[nodiscard]] ::llvm::Value *_merge_local_handles(
+        ::llvm::Value *new_handle, ::llvm::Value *old_handle,
+        ::llvm::Value *mask) {
+        auto *base = _builder.CreateSelect(
+            mask,
+            _local_base(_builder, new_handle),
+            _local_base(_builder, old_handle));
+        auto *offsets = _builder.CreateSelect(
+            mask,
+            _local_offsets(_builder, new_handle),
+            _local_offsets(_builder, old_handle));
+        return _local_handle(base, offsets);
+    }
+
+    [[nodiscard]] bool _is_local_lvalue(
+        schedule::ValueId id) const noexcept {
+        return id.value < _local_lvalue_values.size() &&
+               _local_lvalue_values[id.value] != 0u;
+    }
+
+    static void _for_each_assignment(
+        const schedule::BasicBlock &block,
+        const std::function<void(schedule::EdgeAssignment)> &visit) {
+        auto visit_edge = [&](const schedule::ControlEdge &edge) {
+            for (auto assignment : edge.assignments) { visit(assignment); }
+        };
+        std::visit(
+            [&](const auto &terminator) {
+                using T = std::decay_t<decltype(terminator)>;
+                if constexpr (std::is_same_v<
+                                  T, schedule::BranchTerminator>) {
+                    visit_edge(terminator.edge);
+                } else if constexpr (std::is_same_v<
+                                         T, schedule::SplitTerminator>) {
+                    visit_edge(terminator.true_edge);
+                    visit_edge(terminator.false_edge);
+                } else if constexpr (std::is_same_v<
+                                         T, schedule::SwitchTerminator>) {
+                    for (auto &&item : terminator.cases) {
+                        visit_edge(item.edge);
+                    }
+                    visit_edge(terminator.default_edge);
+                } else if constexpr (std::is_same_v<
+                                         T, schedule::JoinTerminator> ||
+                                     std::is_same_v<
+                                         T, schedule::LoopBackTerminator>) {
+                    for (auto assignment : terminator.assignments) {
+                        visit(assignment);
+                    }
+                } else if constexpr (std::is_same_v<
+                                         T,
+                                         schedule::BlockBarrierTerminator>) {
+                    visit_edge(terminator.resume_edge);
+                }
+            },
+            block.terminator);
+    }
+
+    void _analyze_local_lvalues() {
+        _local_lvalue_values.assign(
+            _source.values().size(), uint8_t{0u});
+        std::vector<std::vector<schedule::ValueId>> dependents(
+            _source.values().size());
+        std::vector<schedule::ValueId> ready;
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode == schedule::Opcode::alloca) {
+                    if (!instruction.result || !instruction.source_op) {
+                        _fail("local allocation is missing its result or address space");
+                        return;
+                    }
+                    auto op = static_cast<xir::AllocaOp>(
+                        *instruction.source_op);
+                    if (op != xir::AllocaOp::LOCAL) {
+                        _fail("shared allocation requires cooperative-block scheduling");
+                        return;
+                    }
+                    _local_lvalue_values[
+                        instruction.result->value] = 1u;
+                    ready.emplace_back(*instruction.result);
+                } else if (instruction.opcode == schedule::Opcode::gep &&
+                           instruction.result &&
+                           !instruction.operands.empty()) {
+                    dependents[instruction.operands.front().value]
+                        .emplace_back(*instruction.result);
+                }
+            }
+            _for_each_assignment(
+                block, [&](schedule::EdgeAssignment assignment) {
+                    dependents[assignment.source.value]
+                        .emplace_back(assignment.destination);
+                });
+        }
+        for (auto i = size_t{0u}; i < ready.size(); i++) {
+            for (auto dependent : dependents[ready[i].value]) {
+                if (!_is_local_lvalue(dependent)) {
+                    _local_lvalue_values[dependent.value] = 1u;
+                    ready.emplace_back(dependent);
+                }
+            }
+        }
+
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode == schedule::Opcode::gep) {
+                    if (!instruction.result ||
+                        instruction.operands.empty() ||
+                        !_is_local_lvalue(instruction.operands.front())) {
+                        _fail("LLVM packet codegen only supports GEPs rooted in thread-local storage");
+                        return;
+                    }
+                } else if (instruction.opcode == schedule::Opcode::load ||
+                           instruction.opcode == schedule::Opcode::store) {
+                    if (instruction.operands.empty() ||
+                        !_is_local_lvalue(instruction.operands.front())) {
+                        _fail("LLVM packet codegen only supports loads and stores to thread-local storage");
+                        return;
+                    }
+                } else if (instruction.opcode == schedule::Opcode::atomic &&
+                           !instruction.operands.empty() &&
+                           _is_local_lvalue(instruction.operands.front())) {
+                    _fail("thread-local atomics are not supported by LLVM packet codegen");
+                    return;
+                }
+            }
+            _for_each_assignment(
+                block, [&](schedule::EdgeAssignment assignment) {
+                    if (_is_local_lvalue(assignment.destination) !=
+                        _is_local_lvalue(assignment.source)) {
+                        _fail("control-flow assignment mixes local references and data values");
+                    }
+                });
+            if (_failed()) { return; }
+        }
+    }
+
     void _preflight_edge(const schedule::ControlEdge &edge,
                          bool split_edge) {
         static_cast<void>(split_edge);
@@ -299,6 +465,8 @@ private:
                   verification.errors.front().message);
             return;
         }
+        _analyze_local_lvalues();
+        if (_failed()) { return; }
         if (_source.blocks().size() >
             static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
             _fail("Schedule IR block count exceeds the packet PC width");
@@ -362,6 +530,10 @@ private:
             for (auto &&instruction : block.instructions) {
                 if (instruction.opcode != schedule::Opcode::arithmetic &&
                     instruction.opcode != schedule::Opcode::cast &&
+                    instruction.opcode != schedule::Opcode::alloca &&
+                    instruction.opcode != schedule::Opcode::load &&
+                    instruction.opcode != schedule::Opcode::store &&
+                    instruction.opcode != schedule::Opcode::gep &&
                     instruction.opcode != schedule::Opcode::resource_query &&
                     instruction.opcode != schedule::Opcode::resource_read &&
                     instruction.opcode != schedule::Opcode::resource_write &&
@@ -1584,6 +1756,176 @@ private:
                 _width, _builder.getInt64(stride)));
     }
 
+    [[nodiscard]] std::optional<uint64_t> _constant_aggregate_index(
+        schedule::ValueId id) const noexcept {
+        auto *value = _source.value(id);
+        if (value == nullptr ||
+            value->origin != schedule::ValueOrigin::constant ||
+            value->type == nullptr || !value->type->is_scalar() ||
+            value->type->is_float() || value->type->size() == 0u ||
+            value->type->size() > sizeof(uint64_t)) {
+            return std::nullopt;
+        }
+        auto *metadata = std::get_if<schedule::ConstantValueMetadata>(
+            &value->metadata);
+        if (metadata == nullptr ||
+            metadata->bytes.size() < value->type->size()) {
+            return std::nullopt;
+        }
+        auto result = uint64_t{0u};
+        std::memcpy(
+            &result, metadata->bytes.data(), value->type->size());
+        auto bits = static_cast<uint32_t>(value->type->size() * 8u);
+        if (bits < 64u) {
+            result &= (uint64_t{1u} << bits) - 1u;
+        }
+        if (value->type->is_int() &&
+            (result & (uint64_t{1u} << (bits - 1u))) != 0u) {
+            return std::nullopt;
+        }
+        return result;
+    }
+
+    [[nodiscard]] bool _advance_aggregate_offset(
+        ::llvm::Value *&offsets, const Type *&current_type,
+        schedule::ValueId index_id) {
+        auto *index_value = _source.value(index_id);
+        if (index_value == nullptr || index_value->type == nullptr ||
+            !index_value->type->is_scalar() ||
+            index_value->type->is_float() || current_type == nullptr ||
+            _child_count(current_type) == 0u) {
+            _fail("aggregate address has an invalid index or type path");
+            return false;
+        }
+        if (current_type->is_structure()) {
+            auto index = _constant_aggregate_index(index_id);
+            if (!index || *index >= _child_count(current_type)) {
+                _fail("structure address requires a valid constant member index");
+                return false;
+            }
+            auto child_offset = _child_offset(
+                current_type, static_cast<uint32_t>(*index));
+            if (child_offset != 0u) {
+                offsets = _builder.CreateAdd(
+                    offsets,
+                    _builder.CreateVectorSplat(
+                        _width, _builder.getInt64(child_offset)));
+            }
+            current_type = _child_type(
+                current_type, static_cast<uint32_t>(*index));
+            return true;
+        }
+
+        auto *index = _as_lane_vector(
+            _load_value(index_id), *index_value);
+        if (index == nullptr) { return false; }
+        auto *i64_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt64Ty(), _width);
+        auto *extended = index_value->type->is_int() ?
+            _builder.CreateSExtOrTrunc(index, i64_lanes) :
+            _builder.CreateZExtOrTrunc(index, i64_lanes);
+        auto stride = current_type->is_vector() ?
+            current_type->element()->size() :
+            current_type->size() / current_type->dimension();
+        if (stride != 1u) {
+            extended = _builder.CreateMul(
+                extended,
+                _builder.CreateVectorSplat(
+                    _width, _builder.getInt64(stride)));
+        }
+        offsets = _builder.CreateAdd(offsets, extended);
+        current_type = _child_type(current_type, 0u);
+        return true;
+    }
+
+    [[nodiscard]] ::llvm::Value *_local_alloca(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result ||
+            !_is_local_lvalue(*instruction.result) ||
+            instruction.result->value >= _local_allocations.size()) {
+            _fail("thread-local allocation is malformed");
+            return nullptr;
+        }
+        auto *handle = _local_allocations[instruction.result->value];
+        if (handle == nullptr) {
+            _fail("thread-local allocation has no packet storage");
+        }
+        return handle;
+    }
+
+    [[nodiscard]] ::llvm::Value *_local_gep(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result || instruction.operands.empty()) {
+            _fail("thread-local GEP is malformed");
+            return nullptr;
+        }
+        auto *base_value = _source.value(instruction.operands.front());
+        auto *result_value = _source.value(*instruction.result);
+        auto *handle = _load_value(instruction.operands.front());
+        if (base_value == nullptr || result_value == nullptr ||
+            handle == nullptr || base_value->type == nullptr) {
+            _fail("thread-local GEP has invalid values");
+            return nullptr;
+        }
+        auto *base = _local_base(_builder, handle);
+        auto *offsets = _local_offsets(_builder, handle);
+        auto *current_type = base_value->type;
+        for (auto i = size_t{1u}; i < instruction.operands.size(); i++) {
+            if (!_advance_aggregate_offset(
+                    offsets, current_type,
+                    instruction.operands[i])) {
+                return nullptr;
+            }
+        }
+        if (current_type != result_value->type) {
+            _fail("thread-local GEP result type does not match its index path");
+            return nullptr;
+        }
+        return _local_handle(base, offsets);
+    }
+
+    [[nodiscard]] ::llvm::Value *_local_load(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result || instruction.operands.size() != 1u) {
+            _fail("thread-local load is malformed");
+            return nullptr;
+        }
+        auto *variable = _source.value(instruction.operands.front());
+        auto *result = _source.value(*instruction.result);
+        auto *handle = _load_value(instruction.operands.front());
+        if (variable == nullptr || result == nullptr || handle == nullptr ||
+            variable->type != result->type) {
+            _fail("thread-local load has mismatched value types");
+            return nullptr;
+        }
+        return _gather_data(
+            _local_base(_builder, handle),
+            _local_offsets(_builder, handle), result->type);
+    }
+
+    void _local_store(const schedule::Instruction &instruction) {
+        if (instruction.operands.size() != 2u) {
+            _fail("thread-local store is malformed");
+            return;
+        }
+        auto *variable = _source.value(instruction.operands[0u]);
+        auto *written_value = _source.value(instruction.operands[1u]);
+        auto *handle = _load_value(instruction.operands[0u]);
+        auto *written = written_value == nullptr ? nullptr :
+            _as_lane_vector(
+                _load_value(instruction.operands[1u]), *written_value);
+        if (variable == nullptr || written_value == nullptr ||
+            handle == nullptr || written == nullptr ||
+            variable->type != written_value->type) {
+            _fail("thread-local store has mismatched value types");
+            return;
+        }
+        _scatter_data(
+            _local_base(_builder, handle),
+            _local_offsets(_builder, handle),
+            written_value->type, written);
+    }
+
     [[nodiscard]] ::llvm::Value *_atomic(
         const schedule::Instruction &instruction) {
         if (!instruction.result || !instruction.source_op) {
@@ -1600,17 +1942,43 @@ private:
             instruction.operands.size() - 1u - value_count;
         auto *result = _source.value(*instruction.result);
         auto *buffer_value = _source.value(instruction.operands[0u]);
-        auto *index_value = _source.value(instruction.operands[1u]);
         auto *buffer = _load_value(instruction.operands[0u]);
-        auto *index = index_value == nullptr ? nullptr :
-            _as_lane_vector(
-                _load_value(instruction.operands[1u]), *index_value);
         if (result == nullptr || buffer_value == nullptr ||
-            buffer == nullptr || index == nullptr ||
-            !buffer_value->type->is_buffer() || index_count != 1u ||
-            !_is_scalar_data(result->type) ||
-            buffer_value->type->element() != result->type) {
-            _fail("LLVM packet codegen currently supports scalar direct-buffer atomics");
+            buffer_value->type == nullptr || buffer == nullptr ||
+            !buffer_value->type->is_buffer() ||
+            buffer_value->type->element() == nullptr ||
+            index_count == 0u || !_is_scalar_data(result->type)) {
+            _fail("LLVM packet codegen requires a scalar typed-buffer atomic target");
+            return nullptr;
+        }
+
+        auto *current_type = buffer_value->type->element();
+        ::llvm::Value *offsets = nullptr;
+        for (auto i = size_t{0u}; i < index_count; i++) {
+            auto index_id = instruction.operands[1u + i];
+            auto *index_value = _source.value(index_id);
+            if (index_value == nullptr || index_value->type == nullptr ||
+                !index_value->type->is_scalar() ||
+                index_value->type->is_float()) {
+                _fail("buffer atomic has an invalid aggregate index");
+                return nullptr;
+            }
+            if (i == 0u) {
+                auto *index = _as_lane_vector(
+                    _load_value(index_id), *index_value);
+                if (index == nullptr) { return nullptr; }
+                offsets = _lane_offsets(
+                    index,
+                    static_cast<uint64_t>(current_type->size()));
+                continue;
+            }
+            if (!_advance_aggregate_offset(
+                    offsets, current_type, index_id)) {
+                return nullptr;
+            }
+        }
+        if (current_type != result->type) {
+            _fail("buffer atomic result type does not match its aggregate index path");
             return nullptr;
         }
         std::vector<::llvm::Value *> values;
@@ -1626,8 +1994,6 @@ private:
         }
 
         auto *base = _builder.CreateExtractValue(buffer, {0u});
-        auto *offsets = _lane_offsets(
-            index, static_cast<uint64_t>(result->type->size()));
         auto *result_type = _layout.expression_type(*result);
         if (result_type == nullptr || !result_type->isVectorTy()) {
             _fail("buffer atomic result must be lane-varying");
@@ -2383,6 +2749,18 @@ private:
     void _emit_instruction(const schedule::Instruction &instruction) {
         ::llvm::Value *value = nullptr;
         switch (instruction.opcode) {
+            case schedule::Opcode::alloca:
+                value = _local_alloca(instruction);
+                break;
+            case schedule::Opcode::load:
+                value = _local_load(instruction);
+                break;
+            case schedule::Opcode::store:
+                _local_store(instruction);
+                break;
+            case schedule::Opcode::gep:
+                value = _local_gep(instruction);
+                break;
             case schedule::Opcode::arithmetic:
                 value = _arithmetic(instruction);
                 break;
@@ -2415,7 +2793,14 @@ private:
                 _spilled_instruction_values[id] != 0u) {
                 auto *schedule_value = _source.value(*instruction.result);
                 auto *slot = _state_slots[id];
-                if (schedule_value->value_class ==
+                if (_is_local_lvalue(*instruction.result)) {
+                    auto *old = _builder.CreateLoad(
+                        slot->getAllocatedType(), slot);
+                    _builder.CreateStore(
+                        _merge_local_handles(
+                            value, old, _active_mask),
+                        slot);
+                } else if (schedule_value->value_class ==
                     schedule::ValueClass::warp_uniform) {
                     _builder.CreateStore(value, slot);
                 } else {
@@ -2449,6 +2834,13 @@ private:
             return;
         }
         auto *slot = _state_slots[assignment.destination.value];
+        if (_is_local_lvalue(assignment.destination)) {
+            auto *old = _builder.CreateLoad(
+                slot->getAllocatedType(), slot);
+            _builder.CreateStore(
+                _merge_local_handles(value, old, mask), slot);
+            return;
+        }
         if (destination->value_class == schedule::ValueClass::warp_uniform) {
             _builder.CreateStore(value, slot);
             return;
@@ -3007,6 +3399,36 @@ private:
             }
         }
         _find_instruction_spills();
+        _local_allocations.resize(_source.values().size(), nullptr);
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode != schedule::Opcode::alloca ||
+                    !instruction.result) {
+                    continue;
+                }
+                auto *value = _source.value(*instruction.result);
+                if (value == nullptr || value->type == nullptr ||
+                    !_is_local_lvalue(*instruction.result) ||
+                    value->type->size() == 0u) {
+                    _fail("thread-local allocation has an invalid data type");
+                    return;
+                }
+                auto byte_count = static_cast<uint64_t>(_width) *
+                                  value->type->size();
+                auto *storage_type = ::llvm::ArrayType::get(
+                    _builder.getInt8Ty(), byte_count);
+                auto *storage = _builder.CreateAlloca(
+                    storage_type, nullptr, value->name + ".local");
+                storage->setAlignment(
+                    ::llvm::Align{value->type->alignment()});
+                auto *offsets = _lane_offsets(
+                    _lane_ids(), value->type->size());
+                _local_allocations[instruction.result->value] =
+                    _local_handle(
+                        _builder.CreateVectorSplat(_width, storage),
+                        offsets);
+            }
+        }
         _state_slots.resize(_source.values().size(), nullptr);
         for (auto &&value : _source.values()) {
             auto spill = value.id.value <
@@ -3016,7 +3438,9 @@ private:
                 !spill) {
                 continue;
             }
-            auto *type = _layout.state_type(value);
+            auto *type = _is_local_lvalue(value.id) ?
+                static_cast<::llvm::Type *>(_local_handle_type()) :
+                _layout.state_type(value);
             if (type == nullptr) {
                 _fail(_layout.error());
                 return;
