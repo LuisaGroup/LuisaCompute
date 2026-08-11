@@ -27,6 +27,48 @@ endfunction()
 # Unit Tests
 # =============================================================================
 
+# --- unit/simd: dependency-light Schedule IR semantic model ---
+# Keep this target independent from LLVM, Embree, and the runtime backends so
+# divergent-control semantics can be tested in the smallest host build.
+add_executable(test_simd_cohort_scheduler
+        unit/simd/test_cohort_scheduler.cpp)
+target_compile_features(test_simd_cohort_scheduler PRIVATE cxx_std_20)
+target_include_directories(test_simd_cohort_scheduler PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_cohort_scheduler
+        COMMAND test_simd_cohort_scheduler)
+set_tests_properties(test_simd_cohort_scheduler PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_schedule_ir
+        unit/simd/test_schedule_ir.cpp
+        ../backends/simd/schedule/schedule_ir.cpp)
+target_compile_features(test_simd_schedule_ir PRIVATE cxx_std_20)
+target_include_directories(test_simd_schedule_ir PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_schedule_ir
+        COMMAND test_simd_schedule_ir)
+set_tests_properties(test_simd_schedule_ir PROPERTIES
+        LABELS "unit;unit_simd")
+
+luisa_compute_add_test(test_simd_warp_uniformity
+        unit/simd/test_warp_uniformity.cpp
+        LABELS "unit;unit_simd;unit_xir")
+target_sources(test_simd_warp_uniformity PRIVATE
+        ../backends/simd/schedule/warp_uniformity.cpp)
+target_include_directories(test_simd_warp_uniformity PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+
+luisa_compute_add_test(test_simd_xir_to_schedule
+        unit/simd/test_xir_to_schedule.cpp
+        LABELS "unit;unit_simd;unit_xir")
+target_sources(test_simd_xir_to_schedule PRIVATE
+        ../backends/simd/schedule/schedule_ir.cpp
+        ../backends/simd/schedule/warp_uniformity.cpp
+        ../backends/simd/schedule/xir_to_schedule.cpp)
+target_include_directories(test_simd_xir_to_schedule PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+
 # --- unit/core: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_basic_traits       unit/core/test_basic_traits.cpp       LABELS "unit;unit_core")
 luisa_compute_add_test(test_basic_types        unit/core/test_basic_types.cpp        LABELS "unit;unit_core")
