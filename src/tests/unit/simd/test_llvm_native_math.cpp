@@ -213,6 +213,18 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
     auto inverse_offset_value = -0.75f;
     auto *inverse_offset = xir_module.create_constant(
         Type::of<float>(), &inverse_offset_value);
+    auto exp2_weight_value = 2.0f;
+    auto *exp2_weight = xir_module.create_constant(
+        Type::of<float>(), &exp2_weight_value);
+    auto exp10_weight_value = 3.0f;
+    auto *exp10_weight = xir_module.create_constant(
+        Type::of<float>(), &exp10_weight_value);
+    auto log2_weight_value = 5.0f;
+    auto *log2_weight = xir_module.create_constant(
+        Type::of<float>(), &log2_weight_value);
+    auto log10_weight_value = 7.0f;
+    auto *log10_weight = xir_module.create_constant(
+        Type::of<float>(), &log10_weight_value);
     xir::XIRBuilder builder;
     builder.set_insertion_point(entry);
     auto *lane_f32 = builder.static_cast_(Type::of<float>(), lane);
@@ -261,6 +273,18 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         Type::of<float>(), xir::ArithmeticOp::LOG2, {log_input});
     auto *log10_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::LOG10, {log_input});
+    auto *weighted_exp2 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {exp2_result, exp2_weight});
+    auto *weighted_exp10 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {exp10_result, exp10_weight});
+    auto *weighted_log2 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {log2_result, log2_weight});
+    auto *weighted_log10 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {log10_result, log10_weight});
     auto *trig_sum = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {sin_result, cos_result});
@@ -269,10 +293,10 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         {exp_result, log_result});
     auto *derived_exp_sum = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
-        {exp2_result, exp10_result});
+        {weighted_exp2, weighted_exp10});
     auto *derived_log_sum = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
-        {log2_result, log10_result});
+        {weighted_log2, weighted_log10});
     auto *base_sum = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {trig_sum, exp_log_sum});
@@ -931,6 +955,22 @@ template<size_t Width>
                   std::to_string(Width) +
                   (fast_math ? "_fast" : "_u10")) !=
           std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_exp2_f32_v" +
+                  std::to_string(Width) +
+                  (fast_math ? "_fast" : "_u10")) !=
+          std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_exp10_f32_v" +
+                  std::to_string(Width) +
+                  (fast_math ? "_fast" : "_u10")) !=
+          std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_log2_f32_v" +
+                  std::to_string(Width) +
+                  (fast_math ? "_fast" : "_u35")) !=
+          std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_log10_f32_v" +
+                  std::to_string(Width) +
+                  (fast_math ? "_fast" : "_u35")) !=
+          std::string::npos);
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
 
@@ -1006,10 +1046,10 @@ template<size_t Width>
                                 std::atan(inverse_input) +
                                 std::exp(lane_f32 * 0.125f) +
                                 std::log(lane_f32 + 1.0f) +
-                                std::exp2(lane_f32 * 0.125f) +
-                                std::pow(10.0f, lane_f32 * 0.03125f) +
-                                std::log2(lane_f32 + 1.0f) +
-                                std::log10(lane_f32 + 1.0f);
+                                2.0f * std::exp2(lane_f32 * 0.125f) +
+                                3.0f * std::pow(10.0f, lane_f32 * 0.03125f) +
+                                5.0f * std::log2(lane_f32 + 1.0f) +
+                                7.0f * std::log10(lane_f32 + 1.0f);
                 auto equal = fast_math ?
                                  std::abs(output[lane] - expected) <=
                                      2.0e-3f * (1.0f + std::abs(expected)) :

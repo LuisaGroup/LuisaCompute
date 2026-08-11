@@ -765,11 +765,8 @@ namespace luisa::compute::simd::detail {
                     auto *safe = _builder.CreateSelect(
                         _active_mask, value,
                         float_constant_like(value, 0.0));
-                    auto *scaled = _builder.CreateFMul(
-                        safe, float_constant_like(
-                                  value, 0.69314718055994530942));
-                    auto *native = cpu::LLVMNativeMath::emit_exp_f32(
-                        _module, _builder, scaled,
+                    auto *native = cpu::LLVMNativeMath::emit_exp2_f32(
+                        _module, _builder, safe,
                         native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD exp2 requires fixed f32 vectors");
@@ -785,11 +782,8 @@ namespace luisa::compute::simd::detail {
                     auto *safe = _builder.CreateSelect(
                         _active_mask, value,
                         float_constant_like(value, 0.0));
-                    auto *scaled = _builder.CreateFMul(
-                        safe, float_constant_like(
-                                  value, 2.3025850929940456840));
-                    auto *native = cpu::LLVMNativeMath::emit_exp_f32(
-                        _module, _builder, scaled,
+                    auto *native = cpu::LLVMNativeMath::emit_exp10_f32(
+                        _module, _builder, safe,
                         native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD exp10 requires fixed f32 vectors");
@@ -822,15 +816,13 @@ namespace luisa::compute::simd::detail {
                     auto *safe = _builder.CreateSelect(
                         _active_mask, value,
                         float_constant_like(value, 1.0));
-                    auto *native = cpu::LLVMNativeMath::emit_log_f32(
+                    auto *native = cpu::LLVMNativeMath::emit_log2_f32(
                         _module, _builder, safe,
                         native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD log2 requires fixed f32 vectors");
                     }
-                    return _builder.CreateFMul(
-                        native, float_constant_like(
-                                    value, 1.4426950408889634074));
+                    return native;
                 }
                 return intrinsic(::llvm::Intrinsic::log2, {value});
             });
@@ -841,15 +833,13 @@ namespace luisa::compute::simd::detail {
                     auto *safe = _builder.CreateSelect(
                         _active_mask, value,
                         float_constant_like(value, 1.0));
-                    auto *native = cpu::LLVMNativeMath::emit_log_f32(
+                    auto *native = cpu::LLVMNativeMath::emit_log10_f32(
                         _module, _builder, safe,
                         native_math_mode);
                     if (native == nullptr) {
                         _fail("native SIMD log10 requires fixed f32 vectors");
                     }
-                    return _builder.CreateFMul(
-                        native, float_constant_like(
-                                    value, 0.43429448190325182765));
+                    return native;
                 }
                 return intrinsic(::llvm::Intrinsic::log10, {value});
             });

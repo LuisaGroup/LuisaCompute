@@ -93,20 +93,10 @@ struct Measurement {
            (mode == cpu::LLVMNativeMathMode::fast ? "fast" : "precise");
 }
 
-[[nodiscard]] ::llvm::Constant *constant_like(
-    ::llvm::FixedVectorType *type, double value) {
-    auto *scalar = ::llvm::ConstantFP::get(
-        type->getElementType(), value);
-    return ::llvm::ConstantVector::getSplat(
-        type->getElementCount(), scalar);
-}
-
 [[nodiscard]] ::llvm::Value *emit_operation(
     ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
     ::llvm::Value *input, Operation operation,
     cpu::LLVMNativeMathMode mode) {
-    auto *type = ::llvm::cast<::llvm::FixedVectorType>(
-        input->getType());
     switch (operation) {
         case Operation::sin:
             return cpu::LLVMNativeMath::emit_sin_f32(
@@ -130,32 +120,20 @@ struct Measurement {
             return cpu::LLVMNativeMath::emit_exp_f32(
                 module, builder, input, mode);
         case Operation::exp2:
-            return cpu::LLVMNativeMath::emit_exp_f32(
-                module, builder,
-                builder.CreateFMul(
-                    input, constant_like(
-                               type, 0.69314718055994530942)),
-                mode);
+            return cpu::LLVMNativeMath::emit_exp2_f32(
+                module, builder, input, mode);
         case Operation::exp10:
-            return cpu::LLVMNativeMath::emit_exp_f32(
-                module, builder,
-                builder.CreateFMul(
-                    input, constant_like(
-                               type, 2.3025850929940456840)),
-                mode);
+            return cpu::LLVMNativeMath::emit_exp10_f32(
+                module, builder, input, mode);
         case Operation::log:
             return cpu::LLVMNativeMath::emit_log_f32(
                 module, builder, input, mode);
         case Operation::log2:
-            return builder.CreateFMul(
-                cpu::LLVMNativeMath::emit_log_f32(
-                    module, builder, input, mode),
-                constant_like(type, 1.4426950408889634074));
+            return cpu::LLVMNativeMath::emit_log2_f32(
+                module, builder, input, mode);
         case Operation::log10:
-            return builder.CreateFMul(
-                cpu::LLVMNativeMath::emit_log_f32(
-                    module, builder, input, mode),
-                constant_like(type, 0.43429448190325182765));
+            return cpu::LLVMNativeMath::emit_log10_f32(
+                module, builder, input, mode);
     }
     return nullptr;
 }

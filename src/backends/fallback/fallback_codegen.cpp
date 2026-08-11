@@ -1124,44 +1124,24 @@ private:
                                 *_llvm_module, b, llvm_operand, mode);
                             break;
                         case llvm::Intrinsic::exp2:
-                            native = cpu::LLVMNativeMath::emit_exp_f32(
-                                *_llvm_module, b,
-                                b.CreateFMul(
-                                    llvm_operand,
-                                    llvm::ConstantFP::get(
-                                        llvm_operand->getType(),
-                                        0.69314718055994530942)),
-                                mode);
+                            native = cpu::LLVMNativeMath::emit_exp2_f32(
+                                *_llvm_module, b, llvm_operand, mode);
                             break;
                         case llvm::Intrinsic::exp10:
-                            native = cpu::LLVMNativeMath::emit_exp_f32(
-                                *_llvm_module, b,
-                                b.CreateFMul(
-                                    llvm_operand,
-                                    llvm::ConstantFP::get(
-                                        llvm_operand->getType(),
-                                        2.3025850929940456840)),
-                                mode);
+                            native = cpu::LLVMNativeMath::emit_exp10_f32(
+                                *_llvm_module, b, llvm_operand, mode);
                             break;
                         case llvm::Intrinsic::log:
                             native = cpu::LLVMNativeMath::emit_log_f32(
                                 *_llvm_module, b, llvm_operand, mode);
                             break;
                         case llvm::Intrinsic::log2:
-                            native = b.CreateFMul(
-                                cpu::LLVMNativeMath::emit_log_f32(
-                                    *_llvm_module, b, llvm_operand, mode),
-                                llvm::ConstantFP::get(
-                                    llvm_operand->getType(),
-                                    1.4426950408889634074));
+                            native = cpu::LLVMNativeMath::emit_log2_f32(
+                                *_llvm_module, b, llvm_operand, mode);
                             break;
                         case llvm::Intrinsic::log10:
-                            native = b.CreateFMul(
-                                cpu::LLVMNativeMath::emit_log_f32(
-                                    *_llvm_module, b, llvm_operand, mode),
-                                llvm::ConstantFP::get(
-                                    llvm_operand->getType(),
-                                    0.43429448190325182765));
+                            native = cpu::LLVMNativeMath::emit_log10_f32(
+                                *_llvm_module, b, llvm_operand, mode);
                             break;
                         default: break;
                     }

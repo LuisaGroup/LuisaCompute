@@ -22,6 +22,15 @@ enum struct NativeInverseTrigKind : uint8_t {
     atan,
 };
 
+enum struct NativeExpLogKind : uint8_t {
+    exp,
+    exp2,
+    exp10,
+    log,
+    log2,
+    log10,
+};
+
 // Shared target-independent fixed-vector primitives used by the fast tier.
 // The precise SLEEF-derived builders deliberately retain their original
 // operation ordering in their responsible translation units.
@@ -153,10 +162,10 @@ void build_precise_inverse_trig_f32(
 
 void build_fast_exp_log_f32(::llvm::Module &module,
                             ::llvm::Function *function, uint32_t width,
-                            bool logarithm);
+                            NativeExpLogKind kind);
 
 void build_precise_exp_log_f32(::llvm::Module &module,
                                ::llvm::Function *function,
-                               uint32_t width, bool logarithm);
+                               uint32_t width, NativeExpLogKind kind);
 
 }// namespace luisa::compute::cpu::detail

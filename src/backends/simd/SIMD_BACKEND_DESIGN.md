@@ -531,6 +531,8 @@ keeps the ABI and provider selection separate from formulas and keeps the
 precise expression order unchanged. Formula provenance, the numerical
 envelopes, and special-value behavior are linked from
 [`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md).
+`exp2`, `exp10`, `log2`, and `log10` have their own precise/fast symbols and
+direct range-reduction bodies rather than scaling an `exp` or `log` call.
 
 Acceptance checks three layers:
 
@@ -545,10 +547,11 @@ Acceptance checks three layers:
 CTest timing test. It interleaves precise and fast samples for fallback
 float2/float3/float4 and SIMD W4/W8/W16 and enforces a 1.05x aggregate
 throughput gate per width. On the recorded LLVM 22.1.8 x86-64 audit host, the
-aggregate speedup was 1.370x-1.396x and every individual operation was faster.
-The benchmark also prints static instruction counts; instruction count alone
-is not the acceptance metric because the common trig path retains a cold
-large-argument correctness branch.
+median aggregate speedup across three independent-provider runs was
+1.354x-1.363x and every individual operation was faster. The benchmark also
+prints static instruction counts; instruction count alone is not the
+acceptance metric because the common trig path retains a cold large-argument
+correctness branch.
 
 ## 11. Runtime factoring
 

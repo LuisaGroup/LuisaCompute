@@ -50,7 +50,23 @@ public:
         ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
         ::llvm::Value *vector, LLVMNativeMathMode mode);
 
+    [[nodiscard]] static ::llvm::Value *emit_exp2_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_exp10_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
     [[nodiscard]] static ::llvm::Value *emit_log_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_log2_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_log10_f32(
         ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
         ::llvm::Value *vector, LLVMNativeMathMode mode);
 };

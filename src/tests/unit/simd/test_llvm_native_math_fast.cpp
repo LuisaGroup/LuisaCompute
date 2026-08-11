@@ -90,13 +90,7 @@ struct MathModule {
 
 [[nodiscard]] constexpr std::string_view provider_name(
     Operation operation) noexcept {
-    switch (operation) {
-        case Operation::exp2:
-        case Operation::exp10: return "exp";
-        case Operation::log2:
-        case Operation::log10: return "log";
-        default: return operation_name(operation);
-    }
+    return operation_name(operation);
 }
 
 [[nodiscard]] std::string entry_name(
@@ -107,20 +101,10 @@ struct MathModule {
            (mode == cpu::LLVMNativeMathMode::fast ? "fast" : "precise");
 }
 
-[[nodiscard]] ::llvm::Constant *constant_like(
-    ::llvm::FixedVectorType *type, double value) {
-    auto *scalar = ::llvm::ConstantFP::get(
-        type->getElementType(), value);
-    return ::llvm::ConstantVector::getSplat(
-        type->getElementCount(), scalar);
-}
-
 [[nodiscard]] ::llvm::Value *emit_operation(
     ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
     ::llvm::Value *input, Operation operation,
     cpu::LLVMNativeMathMode mode) {
-    auto *type = ::llvm::cast<::llvm::FixedVectorType>(
-        input->getType());
     switch (operation) {
         case Operation::sin:
             return cpu::LLVMNativeMath::emit_sin_f32(
@@ -144,32 +128,20 @@ struct MathModule {
             return cpu::LLVMNativeMath::emit_exp_f32(
                 module, builder, input, mode);
         case Operation::exp2:
-            return cpu::LLVMNativeMath::emit_exp_f32(
-                module, builder,
-                builder.CreateFMul(
-                    input, constant_like(
-                               type, 0.69314718055994530942)),
-                mode);
+            return cpu::LLVMNativeMath::emit_exp2_f32(
+                module, builder, input, mode);
         case Operation::exp10:
-            return cpu::LLVMNativeMath::emit_exp_f32(
-                module, builder,
-                builder.CreateFMul(
-                    input, constant_like(
-                               type, 2.3025850929940456840)),
-                mode);
+            return cpu::LLVMNativeMath::emit_exp10_f32(
+                module, builder, input, mode);
         case Operation::log:
             return cpu::LLVMNativeMath::emit_log_f32(
                 module, builder, input, mode);
         case Operation::log2:
-            return builder.CreateFMul(
-                cpu::LLVMNativeMath::emit_log_f32(
-                    module, builder, input, mode),
-                constant_like(type, 1.4426950408889634074));
+            return cpu::LLVMNativeMath::emit_log2_f32(
+                module, builder, input, mode);
         case Operation::log10:
-            return builder.CreateFMul(
-                cpu::LLVMNativeMath::emit_log_f32(
-                    module, builder, input, mode),
-                constant_like(type, 0.43429448190325182765));
+            return cpu::LLVMNativeMath::emit_log10_f32(
+                module, builder, input, mode);
     }
     return nullptr;
 }
@@ -266,26 +238,7 @@ void add_entry(
         is_positive_subnormal(input)) {
         return -std::numeric_limits<float>::infinity();
     }
-    auto expected = [&] {
-        // The derived operations intentionally share the exp/log provider.
-        // Audit the documented f32 composition here; independent error
-        // tightening for these four operations is tracked separately.
-        switch (operation) {
-            case Operation::exp2:
-                return std::exp(
-                    input * 0.69314718055994530942f);
-            case Operation::exp10:
-                return std::exp(
-                    input * 2.3025850929940456840f);
-            case Operation::log2:
-                return std::log(input) *
-                       1.4426950408889634074f;
-            case Operation::log10:
-                return std::log(input) *
-                       0.43429448190325182765f;
-            default: return reference(operation, input);
-        }
-    }();
+    auto expected = reference(operation, input);
     if (mode == cpu::LLVMNativeMathMode::fast &&
         (operation == Operation::exp ||
          operation == Operation::exp2 ||
@@ -311,9 +264,9 @@ struct ErrorBound {
         case Operation::asin:
         case Operation::acos: return {2.0e-4f, 0.0f, 0u};
         case Operation::atan: return {1.0e-5f, 1.0e-5f, 0u};
-        case Operation::exp: return {2.0e-7f, 1.0e-4f, 0u};
+        case Operation::exp:
         case Operation::exp2:
-        case Operation::exp10: return {2.0e-7f, 2.0e-4f, 0u};
+        case Operation::exp10: return {2.0e-7f, 1.0e-4f, 0u};
         case Operation::log: return {3.0e-6f, 1.0e-6f, 0u};
         case Operation::log2: return {5.0e-6f, 2.0e-6f, 0u};
         case Operation::log10: return {2.0e-6f, 1.0e-6f, 0u};
@@ -326,9 +279,9 @@ struct ErrorBound {
     switch (operation) {
         case Operation::log: return {0.0f, 0.0f, 5u};
         case Operation::exp2:
-        case Operation::exp10: return {2.0e-6f, 2.0e-5f, 0u};
+        case Operation::exp10: return {0.0f, 0.0f, 1u};
         case Operation::log2:
-        case Operation::log10: return {2.0e-6f, 1.0e-5f, 0u};
+        case Operation::log10: return {0.0f, 0.0f, 3u};
         default: return {0.0f, 0.0f, 4u};
     }
 }
@@ -438,9 +391,7 @@ struct ErrorBound {
             };
             return boundary[index % boundary.size()];
         }
-        case Operation::exp:
-        case Operation::exp2:
-        case Operation::exp10: {
+        case Operation::exp: {
             const std::array boundary{
                 -104.0f,
                 -87.336544750553108986f,
@@ -456,21 +407,118 @@ struct ErrorBound {
                     88.722839052068353053f,
                     std::numeric_limits<float>::infinity()),
             };
-            auto value = boundary[index % boundary.size()];
-            if (operation == Operation::exp2) {
-                return value * 1.4426950408889634074f;
-            }
-            if (operation == Operation::exp10) {
-                return value * 0.43429448190325182765f;
-            }
-            return value;
+            return boundary[index % boundary.size()];
         }
-        case Operation::log:
-        case Operation::log2:
-        case Operation::log10: {
+        case Operation::exp2: {
+            const std::array boundary{
+                -std::numeric_limits<float>::infinity(),
+                std::nextafter(-150.0f, -std::numeric_limits<float>::infinity()),
+                -150.0f,
+                std::nextafter(-150.0f, std::numeric_limits<float>::infinity()),
+                std::nextafter(-126.0f, -std::numeric_limits<float>::infinity()),
+                -126.0f,
+                std::nextafter(-126.0f, std::numeric_limits<float>::infinity()),
+                -0.0f,
+                0.0f,
+                std::nextafter(128.0f, 0.0f),
+                128.0f,
+                std::nextafter(128.0f, std::numeric_limits<float>::infinity()),
+                std::numeric_limits<float>::infinity(),
+            };
+            if (index < boundary.size()) { return boundary[index]; }
+            auto sample = index - static_cast<uint32_t>(boundary.size());
+            auto integer = static_cast<int32_t>(sample % 279u) - 150;
+            auto center = static_cast<float>(integer);
+            switch ((sample / 279u) % 6u) {
+                case 0u: return center;
+                case 1u: return std::nextafter(center, -std::numeric_limits<float>::infinity());
+                case 2u: return std::nextafter(center, std::numeric_limits<float>::infinity());
+                case 3u: return center + 0.5f;
+                case 4u: return std::nextafter(center + 0.5f, center);
+                default: return std::nextafter(center + 0.5f, center + 1.0f);
+            }
+        }
+        case Operation::exp10: {
+            constexpr auto lower_normal = -37.929779453661631102f;
+            constexpr auto upper_finite = 38.531839419103623894f;
+            const std::array boundary{
+                -std::numeric_limits<float>::infinity(),
+                -50.0f,
+                std::nextafter(lower_normal, -std::numeric_limits<float>::infinity()),
+                lower_normal,
+                std::nextafter(lower_normal, std::numeric_limits<float>::infinity()),
+                -0.0f,
+                0.0f,
+                std::nextafter(upper_finite, 0.0f),
+                upper_finite,
+                std::nextafter(upper_finite, std::numeric_limits<float>::infinity()),
+                std::numeric_limits<float>::infinity(),
+            };
+            if (index < boundary.size()) { return boundary[index]; }
+            auto sample = index - static_cast<uint32_t>(boundary.size());
+            auto exponent = static_cast<int32_t>(sample % 295u) - 166;
+            auto center = static_cast<float>(exponent) *
+                          0.30102999566398119521f;
+            switch ((sample / 295u) % 6u) {
+                case 0u: return center;
+                case 1u: return std::nextafter(center, -std::numeric_limits<float>::infinity());
+                case 2u: return std::nextafter(center, std::numeric_limits<float>::infinity());
+                case 3u: return center + 0.15051499783199059760f;
+                case 4u: return std::nextafter(center + 0.15051499783199059760f, center);
+                default: return std::nextafter(center + 0.15051499783199059760f, std::numeric_limits<float>::infinity());
+            }
+        }
+        case Operation::log: {
             auto exponent = (index % 254u) + 1u;
             auto mantissa = (index * 0x9e3779b9u) & 0x007fffffu;
             return std::bit_cast<float>((exponent << 23u) | mantissa);
+        }
+        case Operation::log2:
+        case Operation::log10: {
+            auto exponent = (index % 254u) + 1u;
+            auto power_bits = exponent << 23u;
+            switch ((index / 254u) % 9u) {
+                case 0u: return std::bit_cast<float>(power_bits);
+                case 1u: return std::bit_cast<float>(power_bits - 1u);
+                case 2u: return std::bit_cast<float>(power_bits + 1u);
+                case 3u: {
+                    auto value = std::ldexp(
+                        1.4142135623730950488f,
+                        static_cast<int32_t>(exponent) - 127);
+                    return value;
+                }
+                case 4u: {
+                    auto value = std::ldexp(
+                        1.4142135623730950488f,
+                        static_cast<int32_t>(exponent) - 127);
+                    return std::nextafter(value, 0.0f);
+                }
+                case 5u: {
+                    auto value = std::ldexp(
+                        1.4142135623730950488f,
+                        static_cast<int32_t>(exponent) - 127);
+                    return std::nextafter(
+                        value, std::numeric_limits<float>::infinity());
+                }
+                case 6u: {
+                    return std::ldexp(
+                        1.5f,
+                        static_cast<int32_t>(exponent) - 127);
+                }
+                case 7u: {
+                    auto value = std::ldexp(
+                        1.5f,
+                        static_cast<int32_t>(exponent) - 127);
+                    return std::nextafter(value, 0.0f);
+                }
+                default: {
+                    auto value = std::ldexp(
+                        1.5f,
+                        static_cast<int32_t>(exponent) - 127);
+                    return std::nextafter(
+                        value, std::numeric_limits<float>::infinity());
+                }
+            }
         }
     }
     return 0.0f;
@@ -497,6 +545,7 @@ struct ErrorBound {
         std::numeric_limits<float>::min(),
         0.5f,
         1.0f,
+        std::bit_cast<float>(0x3f9216dbu),
         1.5707963267948966192f,
         3.1415926535897932385f,
         10.0f,
@@ -525,6 +574,17 @@ struct ErrorBound {
                 auto bound = mode == cpu::LLVMNativeMathMode::fast ?
                                  fast_bound(operation) :
                                  precise_bound(operation);
+                auto independent_exp_log =
+                    operation == Operation::exp2 ||
+                    operation == Operation::exp10 ||
+                    operation == Operation::log2 ||
+                    operation == Operation::log10;
+                auto random_sample_count = independent_exp_log ?
+                                               65536u :
+                                               8192u;
+                auto focused_sample_count = independent_exp_log ?
+                                                16384u :
+                                                4096u;
                 auto check_batch = [&](std::string_view source) {
                     entry(input.data(), output.data());
                     for (auto lane = size_t{0u}; lane < width; lane++) {
@@ -558,7 +618,7 @@ struct ErrorBound {
                 auto state = uint32_t{0x9e3779b9u} ^
                              (width * 0x85ebca6bu) ^
                              static_cast<uint32_t>(operation);
-                for (auto base = size_t{0u}; base < 8192u;
+                for (auto base = size_t{0u}; base < random_sample_count;
                      base += width) {
                     for (auto lane = size_t{0u}; lane < width; lane++) {
                         state = state * 1664525u + 1013904223u;
@@ -566,7 +626,7 @@ struct ErrorBound {
                     }
                     if (!check_batch("raw-bits")) { return false; }
                 }
-                for (auto base = size_t{0u}; base < 8192u;
+                for (auto base = size_t{0u}; base < random_sample_count;
                      base += width) {
                     for (auto lane = size_t{0u}; lane < width; lane++) {
                         state = state * 1664525u + 1013904223u;
@@ -574,7 +634,7 @@ struct ErrorBound {
                     }
                     if (!check_batch("domain")) { return false; }
                 }
-                for (auto base = size_t{0u}; base < 4096u;
+                for (auto base = size_t{0u}; base < focused_sample_count;
                      base += width) {
                     for (auto lane = size_t{0u}; lane < width; lane++) {
                         input[lane] = focused_sample(
@@ -760,7 +820,10 @@ bool test_llvm_native_math_fast() {
         for (auto operation : operations) {
             auto provider = provider_name(operation);
             auto precise_suffix = provider == "sin" ||
-                                          provider == "cos" || provider == "exp" ?
+                                          provider == "cos" ||
+                                          provider == "exp" ||
+                                          provider == "exp2" ||
+                                          provider == "exp10" ?
                                       "u10" :
                                       "u35";
             auto prefix = "__luisa_cpu_native_" +

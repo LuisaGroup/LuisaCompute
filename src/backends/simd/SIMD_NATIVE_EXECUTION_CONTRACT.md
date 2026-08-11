@@ -152,8 +152,9 @@ The current f32 implementation checkpoint is:
 | `asin`, `acos`, `atan` | SLEEF-derived domain transform and polynomial | at most 4 ULP in the fixed boundary, deterministic bit-pattern, and in-domain corpora |
 | `exp` | SLEEF-derived range reduction and polynomial | at most 4 ULP in the fixed corpus |
 | `log` | SLEEF-derived exponent reduction and polynomial | at most 5 ULP in the fixed corpus |
-| `exp2`, `exp10` | input scaling followed by native `exp` | native, composed bound still to be tightened |
-| `log2`, `log10` | native `log` followed by output scaling | native, composed bound still to be tightened |
+| `exp2` | direct nearest-integer base-2 reduction, split `ln(2)`, and native exponential polynomial | at most 1 ULP in the expanded independent corpus |
+| `exp10` | direct `log2(10)` reduction, split `log10(2)`/`ln(10)`, and native exponential polynomial | at most 1 ULP in the expanded independent corpus |
+| `log2`, `log10` | direct exponent/mantissa reduction and destination-base polynomial | at most 3 ULP in the expanded independent corpus |
 
 SIMD Schedule lowering instantiates these bodies at W1/W4/W8/W16. The
 fallback backend uses the same provider for `sin`, `cos`, `tan`, `asin`,
@@ -173,17 +174,17 @@ For a finite fast-tier result `y` and the reference `R`, the accepted error is
 | `asin`, `acos` | half-domain square-root transform, `asin` series through degree 7 | `2e-4` | `0` |
 | `atan` | `pi/8` and `pi/4` identities, series through degree 9 | `1e-5` | `1e-5` |
 | `exp` | nearest-integer base-2 reduction, degree-4 exponential polynomial | `2e-7` | `1e-4` |
-| `exp2`, `exp10` | f32 input scaling followed by fast `exp` | `2e-7` | `2e-4` |
+| `exp2` | direct nearest-integer base-2 reduction and degree-4 exponential polynomial | `2e-7` | `1e-4` |
+| `exp10` | direct `log2(10)` range reduction and degree-4 exponential polynomial | `2e-7` | `1e-4` |
 | `log` | exponent extraction and an `atanh` series through degree 5 | `3e-6` | `1e-6` |
-| `log2` | fast `log` followed by f32 output scaling | `5e-6` | `2e-6` |
-| `log10` | fast `log` followed by f32 output scaling | `2e-6` | `1e-6` |
+| `log2` | exponent/mantissa reduction combined directly in base two | `5e-6` | `2e-6` |
+| `log10` | exponent/mantissa reduction combined directly in base ten | `2e-6` | `1e-6` |
 
-For the four composed operations, `R` deliberately includes the same f32
-scale operation: `expf(x * ln(2))`, `expf(x * ln(10))`,
-`logf(x) * log2(e)`, or `logf(x) * log10(e)`. This makes their overflow and
-underflow transition deterministic while their independent mathematical
-error bounds remain the next math-library checkpoint. For fast `exp` and its
-compositions, `R` also maps positive subnormal outputs to `+0`.
+`exp2`, `exp10`, `log2`, and `log10` have independent provider symbols,
+range reductions, standard-function references, and numerical bounds. They
+are not audited as scaled `exp`/`log` compositions. For all three fast
+exponential functions, the reference maps positive subnormal outputs to
+`+0` as required by the fast-tier contract.
 
 Fast special-value and domain behavior is defined, not inherited from LLVM
 undefined fast-math assumptions:
@@ -197,13 +198,14 @@ undefined fast-math assumptions:
   signed subnormal inputs; `acos` maps them to `pi/2`;
 - `atan(+-infinity) = +-pi/2` and preserves signed zero and signed
   subnormal inputs;
-- `exp` maps either signed zero and every signed subnormal input to `1`,
-  `-infinity` to `+0`, and `+infinity` to `+infinity`. Every positive
-  subnormal result is flushed to `+0`;
-- `log` maps either signed zero and every positive subnormal input to
-  `-infinity`; negative finite values, negative subnormals, and
-  `-infinity` map to NaN; `log(+infinity) = +infinity` and `log(1) = +0`.
-  `log2` and `log10` inherit this classification.
+- `exp`, `exp2`, and `exp10` map either signed zero and every signed
+  subnormal input to `1`, `-infinity` to `+0`, and `+infinity` to
+  `+infinity`. Every positive subnormal result is flushed to `+0`;
+- `log`, `log2`, and `log10` map either signed zero and every positive
+  subnormal input to `-infinity`; negative finite values, negative
+  subnormals, and
+  `-infinity` map to NaN; positive infinity maps to positive infinity and
+  an input of one maps to `+0`.
 
 Only FP contraction is permitted inside the fast bodies. They do not set
 `nnan`, `ninf`, `nsz`, reassociation, approximate-function, or approximate-
@@ -211,13 +213,17 @@ reciprocal flags. This is what keeps the special-value contract meaningful.
 Warp-uniform scalar expressions remain scalar and execute one LLVM/scalar
 math operation; they are never splatted into the vector fast provider.
 
-The regression instantiates precise and fast bodies at W2/W3/W4/W8/W16,
-checks fixed boundaries and special values, 8,192 deterministic raw float
-bit patterns, 8,192 domain-focused values, and 4,096 reduction/transition-
-focused values per operation and width. Schedule tests cover W4/W8/W16 and
-inactive tails. Optimized assembly is rejected if it contains a varying
-scalar libm symbol. `atan2`, power, and hyperbolic functions remain explicit
-audit backlog and are not yet marked SIMD-native by this checkpoint.
+The regression instantiates precise and fast bodies at W2/W3/W4/W8/W16.
+Every operation checks fixed boundaries and special values plus 8,192
+deterministic raw float bit patterns, 8,192 domain-focused values, and 4,096
+reduction/transition-focused values per width. The four independent
+`exp2`/`exp10`/`log2`/`log10` bodies raise those three deterministic corpora
+to 65,536, 65,536, and 16,384 values respectively, including integer and
+half-integer reduction points, exponent transitions, and both mantissa
+partition boundaries. Schedule tests cover W4/W8/W16 and inactive tails.
+Optimized assembly is rejected if it contains a varying scalar libm symbol.
+`atan2`, power, and hyperbolic functions remain explicit audit backlog and
+are not yet marked SIMD-native by this checkpoint.
 
 ### 5.2 LLVM/system vector libraries
 

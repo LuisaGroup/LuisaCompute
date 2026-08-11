@@ -24,6 +24,13 @@ provider was split into:
 - `llvm_native_math_precise_inverse_trig.cpp`;
 - `llvm_native_math_precise_exp_log.cpp`.
 
+The direct `exp2`, `exp10`, `log2`, and `log10` bodies were separately
+adapted and audited from SLEEF's `xexp2f`, `xexp10f`, `xlog2f_u35`, and
+`xlog10f` formulas. Their reductions and destination-base polynomials remain
+independent provider bodies; they do not scale an emitted `exp` or `log`
+result. The exponential bodies reuse the already audited precise exponential
+polynomial after their own split range reductions.
+
 Precise code deliberately does not allow FP contraction where its compensated
 arithmetic depends on separate multiply and add rounding.
 
@@ -56,9 +63,16 @@ The fast formulas are:
 - `exp`: reduce by the nearest integer multiple of `ln(2)` and evaluate the
   degree-4 Maclaurin polynomial with exact rational coefficients `1/2`,
   `1/6`, and `1/24`. Exponent construction uses f32 bit operations.
+- `exp2`: round the input directly to the nearest integer exponent and apply
+  the same degree-4 polynomial to the residual multiplied by `ln(2)`.
+- `exp10`: round `x * log2(10)` to the nearest integer exponent, reduce in
+  base ten, and apply the degree-4 polynomial after conversion by `ln(10)`.
 - `log`: normalize the f32 mantissa around one, form
   `z = (m - 1) / (m + 1)`, and evaluate
   `2 * (z + z^3/3 + z^5/5)` before adding the exponent contribution.
+- `log2` and `log10`: reuse that normalized mantissa series but combine the
+  mantissa and extracted exponent directly in the destination base, without
+  first rounding a base-e logarithm result.
 
 The fast implementation resides in:
 
@@ -77,8 +91,13 @@ behavior and numerical envelopes are normative in
 W2/W3/W4/W8/W16. For each operation and width it checks fixed special values
 and boundaries, 8,192 deterministic raw f32 bit patterns, 8,192 values focused
 on the mathematical domain, and 4,096 values focused on range-reduction and
-overflow transitions. It also checks canonical special-value bits, generic IR
-shape, inactive tails, scalar uniformity, and optimized assembly symbols.
+overflow transitions. The four independent `exp2`/`exp10`/`log2`/`log10`
+providers raise those counts to 65,536, 65,536, and 16,384 respectively and
+sample both precise and fast reduction partitions. The test also checks
+canonical special-value bits, generic IR shape, inactive tails, scalar
+uniformity, and optimized assembly symbols. Schedule execution gives the four
+independent results distinct weights so a swapped operation-to-provider
+mapping cannot disappear inside a commutative sum.
 `test_fallback_llvm_native_math` independently checks that fallback
 float2/float3/float4 lowering selects the requested tier.
 
@@ -90,7 +109,9 @@ static entry instruction counts, rejects scalar libm symbols, and requires at
 least 1.05x aggregate throughput improvement at every width.
 
 On the 2026-08-11 audit host (AMD Ryzen 9 9950X3D, x86-64, LLVM 22.1.8,
-Release build), all twelve individual operations were faster in every width.
-Aggregate speedups were 1.389x (W2), 1.376x (W3), 1.396x (W4), 1.370x (W8),
-and 1.383x (W16); the slowest individual result was 1.113x. These numbers are
-a reproducibility record, not a cross-machine performance guarantee.
+Release build), three consecutive runs of the independent-provider checkpoint
+kept all twelve individual operations faster in every width. Median aggregate
+speedups were 1.358x (W2), 1.359x (W3), 1.363x (W4), 1.357x (W8), and 1.354x
+(W16); the slowest individual result across the three runs was 1.103x. Every
+reported row had `scalar_libm=no`. These numbers are a reproducibility record,
+not a cross-machine performance guarantee.

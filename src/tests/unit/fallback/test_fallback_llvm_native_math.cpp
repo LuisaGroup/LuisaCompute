@@ -290,17 +290,10 @@ template<size_t Width, Operation Op>
         CHECK(!::llvm::verifyModule(*shape.module, &::llvm::errs()));
         auto ir = module_text(*shape.module);
         for (auto operation : operations) {
-            auto provider = operation == Operation::exp ||
-                                    operation == Operation::exp2 ||
-                                    operation == Operation::exp10 ?
-                                std::string_view{"exp"} :
-                            operation == Operation::log ||
-                                    operation == Operation::log2 ||
-                                    operation == Operation::log10 ?
-                                std::string_view{"log"} :
-                                operation_name(operation);
+            auto provider = operation_name(operation);
             auto suffix = fast_math ? "fast" :
-                          provider == "log" ||
+                          provider == "log" || provider == "log2" ||
+                                  provider == "log10" ||
                                   provider == "tan" ||
                                   provider == "asin" ||
                                   provider == "acos" ||
