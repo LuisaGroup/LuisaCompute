@@ -117,8 +117,8 @@ CoroSemanticGraph::CoroSemanticGraph(
         owned_to_rpo[owned_id] = rpo_id;
     }
 
-    luisa::vector<luisa::vector<size_t>> predecessors(
-        _blocks.size());
+    _predecessors.resize(_blocks.size());
+    _successors.resize(_blocks.size());
     for (size_t from_owned = 0u;
          from_owned < owned_blocks.size(); ++from_owned) {
         auto from = owned_to_rpo[from_owned];
@@ -126,7 +126,8 @@ CoroSemanticGraph::CoroSemanticGraph(
         for (auto to_owned : owned_successors[from_owned]) {
             auto to = owned_to_rpo[to_owned];
             if (to != invalid_block_id) {
-                predecessors[to].emplace_back(from);
+                _successors[from].emplace_back(to);
+                _predecessors[to].emplace_back(from);
                 ++_edge_count;
             }
         }
@@ -152,7 +153,7 @@ CoroSemanticGraph::CoroSemanticGraph(
         for (size_t block_id = 1u;
              block_id < _blocks.size(); ++block_id) {
             auto new_idom = invalid_block_id;
-            for (auto predecessor : predecessors[block_id]) {
+            for (auto predecessor : _predecessors[block_id]) {
                 if (_immediate_dominators[predecessor] ==
                     invalid_block_id) {
                     continue;

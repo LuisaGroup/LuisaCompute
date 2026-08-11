@@ -228,6 +228,16 @@ void verify_coro_xir_or_error(
               r.set("scanned_alloca", i.scanned_alloca_count);
               r.set("replayable_single_store",
                     i.replayable_single_store_count);
+              r.set("replayable_multi_store",
+                    i.replayable_multi_store_count);
+              r.set("reaching_dataflow_alloca",
+                    i.reaching_dataflow_alloca_count);
+              r.set("reaching_dataflow_block_evaluation",
+                    i.reaching_dataflow_block_evaluation_count);
+              r.set("promoted_multi_store_alloca",
+                    i.promoted_multi_store_alloca_count);
+              r.set("unresolved_load",
+                    i.unresolved_load_count);
               r.set("rejected_projected_replay_cost",
                     i.rejected_projected_replay_cost_count);
               r.set("promoted_alloca", i.promoted_alloca_count);
@@ -238,6 +248,26 @@ void verify_coro_xir_or_error(
               r.set("promoted_state_bytes", i.promoted_state_bytes);
               r.set("invalid_semantic_cfg",
                     i.invalid_semantic_cfg_count);
+              if (environment_flag_enabled(
+                      "LUISA_CORO_PROFILE_COMPILATION")) {
+                  LUISA_INFO(
+                      "Coroutine local-state rematerialization: "
+                      "allocas={} single_store={} multi_store={} "
+                      "dataflow_allocas={} block_evaluations={} "
+                      "unresolved_loads={} promoted_allocas={} "
+                      "promoted_multi_store={} replaced_loads={} "
+                      "promoted_bytes={}.",
+                      i.scanned_alloca_count,
+                      i.replayable_single_store_count,
+                      i.replayable_multi_store_count,
+                      i.reaching_dataflow_alloca_count,
+                      i.reaching_dataflow_block_evaluation_count,
+                      i.unresolved_load_count,
+                      i.promoted_alloca_count,
+                      i.promoted_multi_store_alloca_count,
+                      i.replaced_load_count,
+                      i.promoted_state_bytes);
+              }
               return i.changed();
           });
     p.add("post-rematerialize-dce",

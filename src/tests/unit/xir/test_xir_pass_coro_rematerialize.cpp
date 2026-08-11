@@ -1,4 +1,4 @@
-// Tests for coroutine-semantic immutable-local rematerialization.
+// Tests for coroutine-semantic local-state rematerialization.
 
 #include "ut/ut.hpp"
 
@@ -148,7 +148,7 @@ void register_coro_rematerialize_tests() {
         expect(xir_verify_module(&module).succeeded());
     };
 
-    "mutable_state_with_two_stores_is_retained"_test = [] {
+    "sequential_replayable_phases_are_rematerialized"_test = [] {
         Module module;
         BasicBlock *entry;
         auto *kernel = make_kernel(module, entry);
@@ -161,6 +161,7 @@ void register_coro_rematerialize_tests() {
         builder.coro_suspend(17u, "first", nullptr);
         builder.set_insertion_point(resume_first);
         builder.coro_resume(17u, nullptr);
+        static_cast<void>(builder.load(Type::of<uint>(), state));
         builder.store(state, module.create_constant_one(Type::of<uint>()));
         builder.coro_suspend(19u, "second", nullptr);
         builder.set_insertion_point(resume_second);
@@ -171,8 +172,161 @@ void register_coro_rematerialize_tests() {
         auto info =
             coro_rematerialize_local_state_pass_run_on_function(kernel);
 
+        expect(info.replayable_multi_store_count == 1u);
+        expect(info.promoted_multi_store_alloca_count == 1u);
+        expect(info.promoted_alloca_count == 1u);
+        expect(info.replaced_load_count == 2u);
+        expect(count_loads_from(kernel, state) == 0u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "branch_stores_of_one_exact_value_are_rematerialized"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *condition = kernel->create_argument(
+            Type::of<bool>(), false);
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *suspend = kernel->create_basic_block();
+        auto *resume = kernel->create_basic_block();
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint>());
+        builder.cond_br(condition, left, right);
+        builder.set_insertion_point(left);
+        builder.store(state, zero);
+        builder.br(suspend);
+        builder.set_insertion_point(right);
+        builder.store(state, zero);
+        builder.br(suspend);
+        builder.set_insertion_point(suspend);
+        builder.coro_suspend(21u, "uniform_join", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(21u, nullptr);
+        static_cast<void>(builder.load(Type::of<uint>(), state));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.replayable_multi_store_count == 1u);
+        expect(info.promoted_multi_store_alloca_count == 1u);
+        expect(info.replaced_load_count == 1u);
+        expect(count_loads_from(kernel, state) == 0u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "branch_stores_of_distinct_values_conflict"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *condition = kernel->create_argument(
+            Type::of<bool>(), false);
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *suspend = kernel->create_basic_block();
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint>());
+        builder.cond_br(condition, left, right);
+        builder.set_insertion_point(left);
+        builder.store(
+            state, module.create_constant_zero(Type::of<uint>()));
+        builder.br(suspend);
+        builder.set_insertion_point(right);
+        builder.store(
+            state, module.create_constant_one(Type::of<uint>()));
+        builder.br(suspend);
+        builder.set_insertion_point(suspend);
+        builder.coro_suspend(25u, "conflicting_join", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(25u, nullptr);
+        static_cast<void>(builder.load(Type::of<uint>(), state));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.replayable_multi_store_count == 1u);
+        expect(info.unresolved_load_count == 1u);
         expect(info.promoted_alloca_count == 0u);
         expect(info.replaced_load_count == 0u);
+        expect(count_loads_from(kernel, state) == 1u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_backedge_conflicts_with_entry_definition"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *condition = kernel->create_argument(
+            Type::of<bool>(), false);
+        auto *header = kernel->create_basic_block();
+        auto *body = kernel->create_basic_block();
+        auto *suspend = kernel->create_basic_block();
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint>());
+        builder.store(
+            state, module.create_constant_zero(Type::of<uint>()));
+        builder.br(header);
+        builder.set_insertion_point(header);
+        builder.cond_br(condition, body, suspend);
+        builder.set_insertion_point(body);
+        builder.store(
+            state, module.create_constant_one(Type::of<uint>()));
+        builder.br(header);
+        builder.set_insertion_point(suspend);
+        builder.coro_suspend(27u, "loop_carried", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(27u, nullptr);
+        static_cast<void>(builder.load(Type::of<uint>(), state));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.replayable_multi_store_count == 1u);
+        expect(info.unresolved_load_count == 1u);
+        expect(info.promoted_alloca_count == 0u);
+        expect(count_loads_from(kernel, state) == 1u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "partial_store_is_a_conservative_barrier"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *pair = Type::array(Type::of<float>(), 2u);
+        auto *index = module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(pair);
+        builder.store(state, module.create_constant_zero(pair));
+        auto *field = builder.gep(Type::of<float>(), state, {index});
+        builder.store(
+            field, module.create_constant_one(Type::of<float>()));
+        builder.coro_suspend(28u, "partial_store", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(28u, nullptr);
+        static_cast<void>(builder.load(pair, state));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.replayable_single_store_count == 0u);
+        expect(info.replayable_multi_store_count == 0u);
+        expect(info.promoted_alloca_count == 0u);
         expect(count_loads_from(kernel, state) == 1u);
         expect(xir_verify_module(&module).succeeded());
     };

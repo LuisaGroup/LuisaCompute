@@ -2,6 +2,7 @@
 
 #include <cstddef>
 
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 
@@ -23,6 +24,8 @@ private:
     size_t _edge_count{0u};
     luisa::vector<BasicBlock *> _blocks;
     luisa::unordered_map<BasicBlock *, size_t> _block_ids;
+    luisa::vector<luisa::vector<size_t>> _predecessors;
+    luisa::vector<luisa::vector<size_t>> _successors;
     luisa::vector<size_t> _immediate_dominators;
     luisa::vector<size_t> _preorder_indices;
     luisa::vector<size_t> _subtree_end_indices;
@@ -37,6 +40,21 @@ public:
     }
     [[nodiscard]] size_t edge_count() const noexcept {
         return _edge_count;
+    }
+    [[nodiscard]] BasicBlock *block(size_t id) const noexcept {
+        return id < _blocks.size() ? _blocks[id] : nullptr;
+    }
+    [[nodiscard]] luisa::span<const size_t>
+    predecessors(size_t id) const noexcept {
+        return id < _predecessors.size() ?
+                   luisa::span<const size_t>{_predecessors[id]} :
+                   luisa::span<const size_t>{};
+    }
+    [[nodiscard]] luisa::span<const size_t>
+    successors(size_t id) const noexcept {
+        return id < _successors.size() ?
+                   luisa::span<const size_t>{_successors[id]} :
+                   luisa::span<const size_t>{};
     }
     [[nodiscard]] bool contains(BasicBlock *block) const noexcept {
         return _block_ids.contains(block);
