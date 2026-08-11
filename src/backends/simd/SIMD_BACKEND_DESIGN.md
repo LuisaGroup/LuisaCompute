@@ -5,8 +5,9 @@ the dependency-light cohort semantic model, the scalar-target/vector-mask LLVM
 packet scheduler, dispatch builtins, aggregate SoA values, and direct Buffer
 gather/scatter plus bindless buffer tables are implemented behind
 `LUISA_COMPUTE_ENABLE_SIMD`. The shared LLVM native-math layer now has
-independently implemented precise and fast tiers for fourteen f32 operations:
-the initial twelve unary operations plus binary `atan2` and `pow`.
+independently implemented precise and fast tiers for twenty f32 operations:
+the initial twelve unary operations, binary `atan2` and `pow`, and six
+hyperbolic/inverse-hyperbolic operations.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -658,6 +659,14 @@ Binary `pow` uses a compensated SLEEF-derived precise magnitude path and a
 lower-cost fast log/multiply/exp path, both with explicit negative-base integer
 classification and exceptional-value repair. Neither path emits scalar
 `powf` calls or per-lane extraction loops.
+The six `sinh`/`cosh`/`tanh`/`asinh`/`acosh`/`atanh` bodies share locally
+derived stable identities and near-boundary series. An internal
+overflow-safe `exp(x) / 2` primitive preserves the finite top end of
+`sinh`/`cosh`; inverse domains and every exceptional value are repaired
+explicitly. Precise and fast use different series degrees and the selected
+precise/fast exp/log primitive. SIMD W1/W2/W4/W8/W16 and fallback
+float2/float3/float4 all use these fixed-vector bodies for varying values,
+while uniform values remain one scalar operation.
 
 Fast XIR lowering also performs a deliberately narrow, full-domain-safe
 canonicalization before SIMD scheduling and fallback codegen. It folds the
@@ -681,9 +690,10 @@ Acceptance checks three layers:
 CTest timing test. It interleaves precise and fast samples for fixed-vector
 W2/W3/W4/W8/W16 (including fallback float2/float3/float4) and enforces a 1.05x aggregate
 throughput gate per width. On the recorded LLVM 22.1.8 x86-64 audit host, the
-three-run fourteen-operation aggregate speedups were 1.929x--1.975x at W2/W3
-and 1.601x--1.653x at W4/W8/W16. `pow` alone measured 2.219x--3.051x over the
-three runs, with no scalar libm symbol. The benchmark also prints static
+three-run twenty-operation aggregate speedups were 1.772x--1.783x at W2/W3
+and 1.572x--1.592x at W4/W8/W16. Every new hyperbolic row measured
+1.397x--1.530x and `pow` measured 2.242x--3.450x over the three runs, with no
+scalar libm symbol. The benchmark also prints static
 instruction counts; instruction count alone is not the acceptance metric
 because the common trig path retains a cold large-argument correctness branch.
 The separate radix-canonicalization gate measured 1.827x--1.962x for
@@ -1289,6 +1299,36 @@ point ratios are observations, not stable claims. Shader toy, image, voxel,
 and every SIMD distribution are much tighter. Short whole-process image and
 voxel tests remain dominated by JIT/output fixed costs and therefore must not
 replace the repeated-pipeline result above.
+
+The hyperbolic-provider checkpoint repeated the real-example gate after
+relinking both CPU backends. Image and voxel use nine alternating runs of 32
+and 16 complete dispatch pipelines respectively; the other examples use nine
+`perf duration_time` whole-process runs. All 270 measured invocations passed
+their gallery references. The current medians and speedups over the paired
+fallback median are:
+
+| Real workload | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| image pipeline ms/iteration | 8.288 | 17.015 (0.487x) | 9.217 (0.899x) | 6.583 (1.259x) | 4.985 (1.663x) | 4.463 (1.857x) |
+| voxel render ms/iteration | 7.009 | 8.135 (0.862x) | 24.175 (0.290x) | 16.139 (0.434x) | 9.482 (0.739x) | 6.596 (1.063x) |
+| shader toy whole-process ms | 190.963 | 175.897 (1.086x) | 162.574 (1.175x) | 141.497 (1.350x) | 132.781 (1.438x) | 138.397 (1.380x) |
+| game of life whole-process ms | 88.404 | 92.498 (0.956x) | 84.852 (1.042x) | 76.667 (1.153x) | 76.197 (1.160x) | 77.302 (1.144x) |
+| n-body whole-process ms | 378.994 | 467.907 (0.810x) | 883.064 (0.429x) | 605.948 (0.625x) | 540.270 (0.701x) | 579.614 (0.654x) |
+
+Fallback game of life and n-body remain bimodal under concurrent host work;
+their speedup ratios are observations, while image, voxel, shader toy, and all
+SIMD distributions have tight interquartile ranges. `shader_toy_spacex` is the
+only gallery example that directly uses `tanh(float4)`, but it still fails
+closed before shader execution at the pre-existing unsupported bindless-
+texture slot boundary. Hyperbolic execution is therefore accepted by the DSL
+Schedule and fallback fixed-vector regressions, not falsely claimed as a
+successful spacex run.
+
+The post-change validation gate passed the required native-math/runtime-width
+set 3/3, the Schedule/XIR/codegen set 3/3, and the combined SIMD/XIR/runtime/
+graphics labels 76/76. Full-repository CTest passed 114/115; the sole failure
+is the pre-existing, untouched `test_coro_scheduler_base` lazy-dispatch
+assertion outside this non-coroutine backend work.
 
 A same-binary nine-run voxel A/B attributes the improvement to scheduler-state
 elimination rather than different runtime dispatch. Enabled versus disabled

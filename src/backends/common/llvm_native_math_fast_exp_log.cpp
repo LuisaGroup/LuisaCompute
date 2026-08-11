@@ -58,18 +58,24 @@ private:
         return b.CreateSelect(is_nan(input), quiet_nan(), result);
     }
 
-    void _build_exp(::llvm::Function *function) {
+    void _build_exp(::llvm::Function *function, bool half_scale) {
         auto &b = builder();
         auto *input = function->getArg(0u);
         input->setName("x");
 
         // The fast tier deliberately flushes results below the least normal
         // f32 value. Inputs are neutralized before FP-to-int conversion.
+        auto *lower = half_scale ?
+                          f32(-86.643397569993164) :
+                          f32(-87.336544750553108986);
+        auto *upper = half_scale ?
+                          f32(89.4159862326283) :
+                          f32(88.722839052068353053);
         auto *in_range = b.CreateAnd(
             b.CreateFCmpOGE(
-                input, f32(-87.336544750553108986)),
+                input, lower),
             b.CreateFCmpOLE(
-                input, f32(88.722839052068353053)));
+                input, upper));
         auto *safe = b.CreateSelect(in_range, input, f32(0.0));
         auto *q_float = round_nearest(b.CreateFMul(
             safe, f32(1.4426950408889634074)));
@@ -78,11 +84,18 @@ private:
         auto *reduced = mla(
             q_as_float, f32(-0.69314718055994530942), safe);
 
-        auto *result = _scale_exp(_exp_reduced(reduced), q);
+        auto *scale_exponent = half_scale ?
+                                   b.CreateSub(q, i32(1u)) :
+                                   q;
+        auto *result = _scale_exp(
+            _exp_reduced(reduced), scale_exponent);
         result = _finish_exp(
             input, result,
-            -87.336544750553108986,
-            88.722839052068353053, false);
+            half_scale ? -86.643397569993164 :
+                         -87.336544750553108986,
+            half_scale ? 89.4159862326283 :
+                         88.722839052068353053,
+            false);
         b.CreateRet(result);
     }
 
@@ -231,7 +244,10 @@ public:
     void build(::llvm::Function *function, NativeExpLogKind kind) {
         switch (kind) {
             case NativeExpLogKind::exp:
-                _build_exp(function);
+                _build_exp(function, false);
+                break;
+            case NativeExpLogKind::exp_half:
+                _build_exp(function, true);
                 break;
             case NativeExpLogKind::exp2:
                 _build_exp2(function);

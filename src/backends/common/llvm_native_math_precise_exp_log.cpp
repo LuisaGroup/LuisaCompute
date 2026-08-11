@@ -109,7 +109,7 @@ private:
             _bits_float(_i32(0x7fc00000u)), result);
     }
 
-    void _build_exp(::llvm::Function *function) {
+    void _build_exp(::llvm::Function *function, bool half_scale) {
         auto *input = function->getArg(0u);
         input->setName("x");
         auto *safe_range = _builder.CreateAnd(
@@ -127,7 +127,10 @@ private:
             q_as_float, _f32(-1.428606765330187045e-6), reduced);
 
         auto *result = _exp_reduced(reduced);
-        result = _ldexp2(result, q);
+        auto *scale_exponent = half_scale ?
+                                   _builder.CreateSub(q, _i32(1u)) :
+                                   q;
+        result = _ldexp2(result, scale_exponent);
         result = _finish_exp(
             input, result, -104.0, 100.0, false);
         _builder.CreateRet(result);
@@ -338,7 +341,10 @@ public:
                detail::NativeExpLogKind kind) {
         switch (kind) {
             case detail::NativeExpLogKind::exp:
-                _build_exp(function);
+                _build_exp(function, false);
+                break;
+            case detail::NativeExpLogKind::exp_half:
+                _build_exp(function, true);
                 break;
             case detail::NativeExpLogKind::exp2:
                 _build_exp2(function);

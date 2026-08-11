@@ -83,6 +83,12 @@ enum struct Operation : uint8_t {
     log2,
     log10,
     pow,
+    sinh,
+    cosh,
+    tanh,
+    asinh,
+    acosh,
+    atanh,
 };
 
 constexpr std::array operations{
@@ -90,7 +96,9 @@ constexpr std::array operations{
     Operation::sin, Operation::cos, Operation::tan,
     Operation::exp, Operation::exp2, Operation::exp10,
     Operation::log, Operation::log2, Operation::log10,
-    Operation::pow};
+    Operation::pow,
+    Operation::sinh, Operation::cosh, Operation::tanh,
+    Operation::asinh, Operation::acosh, Operation::atanh};
 
 [[nodiscard]] constexpr bool is_binary(
     Operation operation) noexcept {
@@ -115,6 +123,12 @@ constexpr std::array operations{
         case Operation::log2: return "log2";
         case Operation::log10: return "log10";
         case Operation::pow: return "pow";
+        case Operation::sinh: return "sinh";
+        case Operation::cosh: return "cosh";
+        case Operation::tanh: return "tanh";
+        case Operation::asinh: return "asinh";
+        case Operation::acosh: return "acosh";
+        case Operation::atanh: return "atanh";
     }
     return {};
 }
@@ -136,6 +150,12 @@ constexpr std::array operations{
         case Operation::log2: return xir::ArithmeticOp::LOG2;
         case Operation::log10: return xir::ArithmeticOp::LOG10;
         case Operation::pow: return xir::ArithmeticOp::POW;
+        case Operation::sinh: return xir::ArithmeticOp::SINH;
+        case Operation::cosh: return xir::ArithmeticOp::COSH;
+        case Operation::tanh: return xir::ArithmeticOp::TANH;
+        case Operation::asinh: return xir::ArithmeticOp::ASINH;
+        case Operation::acosh: return xir::ArithmeticOp::ACOSH;
+        case Operation::atanh: return xir::ArithmeticOp::ATANH;
     }
     return xir::ArithmeticOp::SIN;
 }
@@ -305,6 +325,12 @@ template<Operation Op>
     if constexpr (Op == Operation::log2) { return std::log2(x); }
     if constexpr (Op == Operation::log10) { return std::log10(x); }
     if constexpr (Op == Operation::pow) { return std::pow(x, secondary); }
+    if constexpr (Op == Operation::sinh) { return std::sinh(x); }
+    if constexpr (Op == Operation::cosh) { return std::cosh(x); }
+    if constexpr (Op == Operation::tanh) { return std::tanh(x); }
+    if constexpr (Op == Operation::asinh) { return std::asinh(x); }
+    if constexpr (Op == Operation::acosh) { return std::acosh(x); }
+    if constexpr (Op == Operation::atanh) { return std::atanh(x); }
 }
 
 template<size_t Width, Operation Op>
@@ -327,6 +353,12 @@ template<size_t Width, Operation Op>
         -2.0f, -0.0f, 0.5f, 4.0f};
     constexpr std::array pow_exponent_values{
         3.0f, -3.0f, -2.0f, 0.5f};
+    constexpr std::array hyperbolic_values{
+        -0.0f, 0.5f, 10.0f, -10.0f};
+    constexpr std::array acosh_values{
+        1.0f, 1.5f, 10.0f, 4096.0f};
+    constexpr std::array atanh_values{
+        -0.0f, 0.25f, -0.5f, 0x1.fffffep-1f};
     for (auto lane = size_t{0u}; lane < Width; lane++) {
         if constexpr (Op == Operation::pow) {
             input[lane] = pow_base_values[lane];
@@ -334,6 +366,15 @@ template<size_t Width, Operation Op>
         } else if constexpr (Op == Operation::asin ||
                              Op == Operation::acos) {
             input[lane] = unit_values[lane];
+        } else if constexpr (Op == Operation::acosh) {
+            input[lane] = acosh_values[lane];
+        } else if constexpr (Op == Operation::atanh) {
+            input[lane] = atanh_values[lane];
+        } else if constexpr (Op == Operation::sinh ||
+                             Op == Operation::cosh ||
+                             Op == Operation::tanh ||
+                             Op == Operation::asinh) {
+            input[lane] = hyperbolic_values[lane];
         } else {
             input[lane] = general_values[lane];
         }
@@ -374,6 +415,10 @@ template<size_t Width, Operation Op>
         for (auto operation : operations) {
             auto provider = operation_name(operation);
             auto suffix = fast_math ? "fast" :
+                          provider == "sinh" || provider == "cosh" ||
+                                  provider == "tanh" || provider == "asinh" ||
+                                  provider == "acosh" || provider == "atanh" ?
+                                      "precise" :
                           provider == "log" || provider == "log2" ||
                                   provider == "log10" ||
                                   provider == "tan" ||
@@ -451,6 +496,12 @@ template<size_t Width, Operation Op>
         CHECK(assembly.find("log2f") == std::string::npos);
         CHECK(assembly.find("log10f") == std::string::npos);
         CHECK(assembly.find("powf") == std::string::npos);
+        CHECK(assembly.find("sinhf") == std::string::npos);
+        CHECK(assembly.find("coshf") == std::string::npos);
+        CHECK(assembly.find("tanhf") == std::string::npos);
+        CHECK(assembly.find("asinhf") == std::string::npos);
+        CHECK(assembly.find("acoshf") == std::string::npos);
+        CHECK(assembly.find("atanhf") == std::string::npos);
     }
 
     for (auto fast_math : {false, true}) {
@@ -491,6 +542,24 @@ template<size_t Width, Operation Op>
         CHECK((check_entry<2u, Operation::pow>(jit, fast_math)));
         CHECK((check_entry<3u, Operation::pow>(jit, fast_math)));
         CHECK((check_entry<4u, Operation::pow>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::sinh>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::sinh>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::sinh>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::cosh>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::cosh>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::cosh>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::tanh>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::tanh>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::tanh>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::asinh>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::asinh>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::asinh>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::acosh>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::acosh>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::acosh>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::atanh>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::atanh>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::atanh>(jit, fast_math)));
     }
     return true;
 }

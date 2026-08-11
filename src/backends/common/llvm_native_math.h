@@ -79,6 +79,30 @@ public:
         ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
         ::llvm::Value *base, ::llvm::Value *exponent,
         LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_sinh_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_cosh_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_tanh_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_asinh_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_acosh_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_atanh_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *vector, LLVMNativeMathMode mode);
 };
 
 }// namespace luisa::compute::cpu

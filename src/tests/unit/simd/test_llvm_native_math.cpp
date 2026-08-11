@@ -297,6 +297,18 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         Type::of<float>(), xir::ArithmeticOp::LOG2, {log_input});
     auto *log10_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::LOG10, {log_input});
+    auto *sinh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::SINH, {inverse_input});
+    auto *cosh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::COSH, {inverse_input});
+    auto *tanh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::TANH, {inverse_input});
+    auto *asinh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ASINH, {inverse_input});
+    auto *acosh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ACOSH, {log_input});
+    auto *atanh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ATANH, {inverse_input});
     auto *pow_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::POW,
         {log_input, tan_input});
@@ -351,9 +363,27 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
     auto *extended_pow_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {extended_result, weighted_pow});
-    auto *result = builder.call(
+    auto *hyperbolic_pair0 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {sinh_result, cosh_result});
+    auto *hyperbolic_pair1 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {tanh_result, asinh_result});
+    auto *hyperbolic_pair2 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {acosh_result, atanh_result});
+    auto *hyperbolic_sum0 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {hyperbolic_pair0, hyperbolic_pair1});
+    auto *hyperbolic_sum = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {hyperbolic_sum0, hyperbolic_pair2});
+    auto *non_hyperbolic_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {base_result, extended_pow_result});
+    auto *result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {non_hyperbolic_result, hyperbolic_sum});
     result->set_name("native_math_result");
     builder.return_void();
 
@@ -434,6 +464,21 @@ make_uniform_schedule_math_module(
         Type::of<float>(), xir::ArithmeticOp::EXP, {input});
     auto *log_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::LOG, {input});
+    auto *sinh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::SINH, {input});
+    auto *cosh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::COSH, {input});
+    auto *tanh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::TANH, {input});
+    auto *asinh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ASINH, {input});
+    auto *acosh_input = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {input, one});
+    auto *acosh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ACOSH, {acosh_input});
+    auto *atanh_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ATANH, {input});
     auto *trig_sum = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {sin_result, cos_result});
@@ -458,9 +503,27 @@ make_uniform_schedule_math_module(
     auto *extended_pow_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {extended_result, pow_result});
-    auto *result = builder.call(
+    auto *hyperbolic_pair0 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {sinh_result, cosh_result});
+    auto *hyperbolic_pair1 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {tanh_result, asinh_result});
+    auto *hyperbolic_pair2 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {acosh_result, atanh_result});
+    auto *hyperbolic_sum0 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {hyperbolic_pair0, hyperbolic_pair1});
+    auto *hyperbolic_sum = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {hyperbolic_sum0, hyperbolic_pair2});
+    auto *non_hyperbolic_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {base_result, extended_pow_result});
+    auto *result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {non_hyperbolic_result, hyperbolic_sum});
     result->set_name("uniform_math_result");
     builder.return_void();
 
@@ -1001,6 +1064,12 @@ template<size_t Width>
           std::string::npos);
     CHECK(ir.find("llvm.pow.v" + std::to_string(Width) + "f32") ==
           std::string::npos);
+    for (auto operation : {"sinh", "cosh", "tanh",
+                           "asinh", "acosh", "atanh"}) {
+        CHECK(ir.find("llvm." + std::string{operation} + ".v" +
+                      std::to_string(Width) + "f32") ==
+              std::string::npos);
+    }
     CHECK(ir.find("luisa.cpu.native_math") != std::string::npos);
     CHECK(ir.find("__luisa_cpu_native_sin_f32_v" +
                   std::to_string(Width) +
@@ -1030,6 +1099,14 @@ template<size_t Width>
                   std::to_string(Width) +
                   (fast_math ? "_fast" : "_u10")) !=
           std::string::npos);
+    for (auto operation : {"sinh", "cosh", "tanh",
+                           "asinh", "acosh", "atanh"}) {
+        CHECK(ir.find("__luisa_cpu_native_" +
+                      std::string{operation} + "_f32_v" +
+                      std::to_string(Width) +
+                      (fast_math ? "_fast" : "_precise")) !=
+              std::string::npos);
+    }
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
 
@@ -1061,6 +1138,12 @@ template<size_t Width>
         CHECK(assembly.find("log2f") == std::string::npos);
         CHECK(assembly.find("log10f") == std::string::npos);
         CHECK(assembly.find("powf") == std::string::npos);
+        CHECK(assembly.find("sinhf") == std::string::npos);
+        CHECK(assembly.find("coshf") == std::string::npos);
+        CHECK(assembly.find("tanhf") == std::string::npos);
+        CHECK(assembly.find("asinhf") == std::string::npos);
+        CHECK(assembly.find("acoshf") == std::string::npos);
+        CHECK(assembly.find("atanhf") == std::string::npos);
     }
 
     auto executable_module = make_schedule_math_module(
@@ -1116,7 +1199,13 @@ template<size_t Width>
                                             lane_f32 * 0.2f - 1.25f) +
                                 13.0f * std::pow(
                                             lane_f32 + 1.0f,
-                                            lane_f32 * 0.03125f);
+                                            lane_f32 * 0.03125f) +
+                                std::sinh(inverse_input) +
+                                std::cosh(inverse_input) +
+                                std::tanh(inverse_input) +
+                                std::asinh(inverse_input) +
+                                std::acosh(lane_f32 + 1.0f) +
+                                std::atanh(inverse_input);
                 auto equal = fast_math ?
                                  std::abs(output[lane] - expected) <=
                                      2.0e-3f * (1.0f + std::abs(expected)) :
@@ -1155,6 +1244,12 @@ template<size_t Width>
     CHECK(count_occurrences(ir, "call float @llvm.pow.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.exp.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.log.f32") == 1u);
+    CHECK(count_occurrences(ir, "call float @llvm.sinh.f32") == 1u);
+    CHECK(count_occurrences(ir, "call float @llvm.cosh.f32") == 1u);
+    CHECK(count_occurrences(ir, "call float @llvm.tanh.f32") == 1u);
+    CHECK(count_occurrences(ir, "call float @asinhf") == 1u);
+    CHECK(count_occurrences(ir, "call float @acoshf") == 1u);
+    CHECK(count_occurrences(ir, "call float @atanhf") == 1u);
     CHECK(ir.find("llvm.sin.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.cos.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.tan.v8f32") == std::string::npos);
@@ -1165,6 +1260,12 @@ template<size_t Width>
     CHECK(ir.find("llvm.exp.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.log.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.pow.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.sinh.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.cosh.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.tanh.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.asinh.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.acosh.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.atanh.v8f32") == std::string::npos);
 
     auto executable = make_uniform_schedule_math_module(
         width, fast_math);
@@ -1196,7 +1297,10 @@ template<size_t Width>
                     std::acos(input) + std::atan(input) +
                     std::atan2(input, 1.0f) +
                     std::pow(input, input) +
-                    std::exp(input) + std::log(input);
+                    std::exp(input) + std::log(input) +
+                    std::sinh(input) + std::cosh(input) +
+                    std::tanh(input) + std::asinh(input) +
+                    std::acosh(input + 1.0f) + std::atanh(input);
     for (auto lane = size_t{0u}; lane < width; lane++) {
         CHECK(lane < 7u ?
                   approximately_equal(output[lane], expected) :
@@ -1209,7 +1313,8 @@ template<size_t Width>
 
 int main(int argc, char *argv[]) {
     if (argc == 2 && std::string_view{argv[1]} == "--fast-only") {
-        return test_schedule_width<2u>(true) &&
+        return test_schedule_width<1u>(true) &&
+                       test_schedule_width<2u>(true) &&
                        test_schedule_width<4u>(true) &&
                        test_schedule_width<8u>(true) &&
                        test_schedule_width<16u>(true) &&
@@ -1252,6 +1357,7 @@ int main(int argc, char *argv[]) {
                    test_schedule_width<8u>() &&
                    test_schedule_width<16u>() &&
                    test_uniform_schedule_math() &&
+                   test_schedule_width<1u>(true) &&
                    test_schedule_width<2u>(true) &&
                    test_schedule_width<4u>(true) &&
                    test_schedule_width<8u>(true) &&

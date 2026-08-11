@@ -367,6 +367,32 @@ namespace luisa::compute::simd::detail {
             return intrinsic(id, {lhs, rhs});
         });
     };
+    auto scalar_libm = [&](std::string_view operation,
+                           ::llvm::Value *value) -> ::llvm::Value * {
+        auto *source_type = value->getType();
+        auto half = source_type->isHalfTy();
+        auto *call_type = half ? _builder.getFloatTy() : source_type;
+        if (!call_type->isFloatTy() && !call_type->isDoubleTy()) {
+            _fail("scalar libm operation requires a floating-point scalar");
+            return nullptr;
+        }
+        auto name = std::string{operation} +
+                    (call_type->isFloatTy() ? "f" : "");
+        auto callee = _module.getOrInsertFunction(
+            name, ::llvm::FunctionType::get(
+                      call_type, {call_type}, false));
+        if (auto *function = ::llvm::dyn_cast<::llvm::Function>(
+                callee.getCallee())) {
+            function->setDoesNotAccessMemory();
+            function->setDoesNotThrow();
+            function->setWillReturn();
+        }
+        auto *argument = half ?
+                             _builder.CreateFPExt(value, call_type) :
+                             value;
+        auto *call = _builder.CreateCall(callee, {argument});
+        return half ? _builder.CreateFPTrunc(call, source_type) : call;
+    };
     auto float_constant_like = [&](::llvm::Value *value, double x) {
         auto *scalar = ::llvm::ConstantFP::get(
             value->getType()->getScalarType(), x);
@@ -755,11 +781,101 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::tan, {value});
             });
         case xir::ArithmeticOp::COSH:
-            return unary_intrinsic(::llvm::Intrinsic::cosh);
+            return unary([&](::llvm::Value *value, const Type *type)
+                             -> ::llvm::Value * {
+                if (varying && type->is_float32()) {
+                    auto *safe = _builder.CreateSelect(
+                        _active_mask, value,
+                        float_constant_like(value, 0.0));
+                    auto *native = cpu::LLVMNativeMath::emit_cosh_f32(
+                        _module, _builder, safe, native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD cosh requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return intrinsic(::llvm::Intrinsic::cosh, {value});
+            });
         case xir::ArithmeticOp::SINH:
-            return unary_intrinsic(::llvm::Intrinsic::sinh);
+            return unary([&](::llvm::Value *value, const Type *type)
+                             -> ::llvm::Value * {
+                if (varying && type->is_float32()) {
+                    auto *safe = _builder.CreateSelect(
+                        _active_mask, value,
+                        float_constant_like(value, 0.0));
+                    auto *native = cpu::LLVMNativeMath::emit_sinh_f32(
+                        _module, _builder, safe, native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD sinh requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return intrinsic(::llvm::Intrinsic::sinh, {value});
+            });
         case xir::ArithmeticOp::TANH:
-            return unary_intrinsic(::llvm::Intrinsic::tanh);
+            return unary([&](::llvm::Value *value, const Type *type)
+                             -> ::llvm::Value * {
+                if (varying && type->is_float32()) {
+                    auto *safe = _builder.CreateSelect(
+                        _active_mask, value,
+                        float_constant_like(value, 0.0));
+                    auto *native = cpu::LLVMNativeMath::emit_tanh_f32(
+                        _module, _builder, safe, native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD tanh requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return intrinsic(::llvm::Intrinsic::tanh, {value});
+            });
+        case xir::ArithmeticOp::ASINH:
+            return unary([&](::llvm::Value *value, const Type *type)
+                             -> ::llvm::Value * {
+                if (varying && type->is_float32()) {
+                    auto *safe = _builder.CreateSelect(
+                        _active_mask, value,
+                        float_constant_like(value, 0.0));
+                    auto *native = cpu::LLVMNativeMath::emit_asinh_f32(
+                        _module, _builder, safe, native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD asinh requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return scalar_libm("asinh", value);
+            });
+        case xir::ArithmeticOp::ACOSH:
+            return unary([&](::llvm::Value *value, const Type *type)
+                             -> ::llvm::Value * {
+                if (varying && type->is_float32()) {
+                    auto *safe = _builder.CreateSelect(
+                        _active_mask, value,
+                        float_constant_like(value, 1.0));
+                    auto *native = cpu::LLVMNativeMath::emit_acosh_f32(
+                        _module, _builder, safe, native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD acosh requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return scalar_libm("acosh", value);
+            });
+        case xir::ArithmeticOp::ATANH:
+            return unary([&](::llvm::Value *value, const Type *type)
+                             -> ::llvm::Value * {
+                if (varying && type->is_float32()) {
+                    auto *safe = _builder.CreateSelect(
+                        _active_mask, value,
+                        float_constant_like(value, 0.0));
+                    auto *native = cpu::LLVMNativeMath::emit_atanh_f32(
+                        _module, _builder, safe, native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD atanh requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return scalar_libm("atanh", value);
+            });
         case xir::ArithmeticOp::EXP:
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {

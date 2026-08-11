@@ -28,11 +28,21 @@ enum struct NativeInverseTrigKind : uint8_t {
 
 enum struct NativeExpLogKind : uint8_t {
     exp,
+    exp_half,
     exp2,
     exp10,
     log,
     log2,
     log10,
+};
+
+enum struct NativeHyperbolicKind : uint8_t {
+    sinh,
+    cosh,
+    tanh,
+    asinh,
+    acosh,
+    atanh,
 };
 
 // Shared target-independent fixed-vector primitives used by the fast tier.
@@ -181,5 +191,12 @@ void build_pow_f32(::llvm::Module &module,
                    LLVMNativeMathMode mode,
                    ::llvm::Function *fast_log_function,
                    ::llvm::Function *fast_exp_function);
+
+void build_hyperbolic_f32(
+    ::llvm::Module &module, ::llvm::Function *function,
+    uint32_t width, LLVMNativeMathMode mode,
+    NativeHyperbolicKind kind,
+    ::llvm::Function *exp_half_function,
+    ::llvm::Function *log_function);
 
 }// namespace luisa::compute::cpu::detail

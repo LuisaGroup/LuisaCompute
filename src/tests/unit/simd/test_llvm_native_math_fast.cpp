@@ -48,6 +48,12 @@ enum struct Operation : uint8_t {
     log2,
     log10,
     pow,
+    sinh,
+    cosh,
+    tanh,
+    asinh,
+    acosh,
+    atanh,
 };
 
 constexpr std::array operations{
@@ -56,7 +62,9 @@ constexpr std::array operations{
     Operation::atan2,
     Operation::exp, Operation::exp2, Operation::exp10,
     Operation::log, Operation::log2, Operation::log10,
-    Operation::pow};
+    Operation::pow,
+    Operation::sinh, Operation::cosh, Operation::tanh,
+    Operation::asinh, Operation::acosh, Operation::atanh};
 
 constexpr std::array widths{2u, 3u, 4u, 8u, 16u};
 
@@ -91,6 +99,12 @@ struct MathModule {
         case Operation::log2: return "log2";
         case Operation::log10: return "log10";
         case Operation::pow: return "pow";
+        case Operation::sinh: return "sinh";
+        case Operation::cosh: return "cosh";
+        case Operation::tanh: return "tanh";
+        case Operation::asinh: return "asinh";
+        case Operation::acosh: return "acosh";
+        case Operation::atanh: return "atanh";
     }
     return {};
 }
@@ -156,6 +170,24 @@ struct MathModule {
         case Operation::pow:
             return cpu::LLVMNativeMath::emit_pow_f32(
                 module, builder, input, secondary, mode);
+        case Operation::sinh:
+            return cpu::LLVMNativeMath::emit_sinh_f32(
+                module, builder, input, mode);
+        case Operation::cosh:
+            return cpu::LLVMNativeMath::emit_cosh_f32(
+                module, builder, input, mode);
+        case Operation::tanh:
+            return cpu::LLVMNativeMath::emit_tanh_f32(
+                module, builder, input, mode);
+        case Operation::asinh:
+            return cpu::LLVMNativeMath::emit_asinh_f32(
+                module, builder, input, mode);
+        case Operation::acosh:
+            return cpu::LLVMNativeMath::emit_acosh_f32(
+                module, builder, input, mode);
+        case Operation::atanh:
+            return cpu::LLVMNativeMath::emit_atanh_f32(
+                module, builder, input, mode);
     }
     return nullptr;
 }
@@ -239,6 +271,12 @@ void add_entry(
         case Operation::log2: return std::log2(input);
         case Operation::log10: return std::log10(input);
         case Operation::pow: return std::pow(input, secondary);
+        case Operation::sinh: return std::sinh(input);
+        case Operation::cosh: return std::cosh(input);
+        case Operation::tanh: return std::tanh(input);
+        case Operation::asinh: return std::asinh(input);
+        case Operation::acosh: return std::acosh(input);
+        case Operation::atanh: return std::atanh(input);
     }
     return std::numeric_limits<float>::quiet_NaN();
 }
@@ -315,6 +353,12 @@ struct ErrorBound {
         case Operation::log2: return {5.0e-6f, 2.0e-6f, 0u};
         case Operation::log10: return {2.0e-6f, 1.0e-6f, 0u};
         case Operation::pow: return {2.0e-7f, 5.0e-4f, 0u};
+        case Operation::sinh:
+        case Operation::cosh: return {2.0e-7f, 2.0e-4f, 0u};
+        case Operation::tanh: return {2.0e-5f, 2.0e-5f, 0u};
+        case Operation::asinh:
+        case Operation::acosh:
+        case Operation::atanh: return {5.0e-6f, 2.0e-6f, 0u};
     }
     return {};
 }
@@ -329,6 +373,12 @@ struct ErrorBound {
         case Operation::log2:
         case Operation::log10: return {0.0f, 0.0f, 3u};
         case Operation::pow: return {0.0f, 0.0f, 4u};
+        case Operation::sinh:
+        case Operation::cosh:
+        case Operation::tanh: return {0.0f, 0.0f, 8u};
+        case Operation::asinh:
+        case Operation::acosh:
+        case Operation::atanh: return {0.0f, 0.0f, 8u};
         default: return {0.0f, 0.0f, 4u};
     }
 }
@@ -386,6 +436,22 @@ struct ErrorBound {
                             (exponent << 23u);
             return std::bit_cast<float>(positive);
         }
+        case Operation::sinh:
+        case Operation::cosh: return unit * 90.0f;
+        case Operation::tanh: return unit * 12.0f;
+        case Operation::asinh: {
+            auto exponent = ((bits >> 16u) % 254u) + 1u;
+            auto value_bits = (bits & 0x807fffffu) |
+                              (exponent << 23u);
+            return std::bit_cast<float>(value_bits);
+        }
+        case Operation::acosh: {
+            auto exponent = ((bits >> 16u) % 127u) + 127u;
+            auto value_bits = (bits & 0x007fffffu) |
+                              (exponent << 23u);
+            return std::bit_cast<float>(value_bits);
+        }
+        case Operation::atanh: return unit * 1.25f;
     }
     return 0.0f;
 }
@@ -718,6 +784,103 @@ struct ErrorBound {
                 }
             }
         }
+        case Operation::sinh:
+        case Operation::cosh: {
+            constexpr auto overflow = 89.4159862326283f;
+            const std::array boundary{
+                -std::numeric_limits<float>::infinity(),
+                std::nextafter(-overflow, -std::numeric_limits<float>::infinity()),
+                -overflow,
+                std::nextafter(-overflow, 0.0f),
+                -1.0f,
+                -0.5f,
+                -0.0f,
+                0.0f,
+                std::numeric_limits<float>::denorm_min(),
+                0.5f,
+                1.0f,
+                std::nextafter(overflow, 0.0f),
+                overflow,
+                std::nextafter(overflow, std::numeric_limits<float>::infinity()),
+                std::numeric_limits<float>::infinity(),
+            };
+            return boundary[index % boundary.size()];
+        }
+        case Operation::tanh: {
+            const std::array boundary{
+                -std::numeric_limits<float>::infinity(),
+                -9.0f,
+                std::nextafter(-1.0f, -2.0f),
+                -1.0f,
+                -0.5f,
+                -0.0f,
+                0.0f,
+                std::numeric_limits<float>::denorm_min(),
+                0.5f,
+                1.0f,
+                std::nextafter(1.0f, 2.0f),
+                9.0f,
+                std::numeric_limits<float>::infinity(),
+            };
+            return boundary[index % boundary.size()];
+        }
+        case Operation::asinh: {
+            const std::array boundary{
+                -std::numeric_limits<float>::infinity(),
+                -std::numeric_limits<float>::max(),
+                -4096.0f,
+                std::nextafter(-0.25f, -1.0f),
+                -0.25f,
+                std::nextafter(-0.25f, 0.0f),
+                -0.0f,
+                0.0f,
+                std::numeric_limits<float>::denorm_min(),
+                std::nextafter(0.25f, 0.0f),
+                0.25f,
+                std::nextafter(0.25f, 1.0f),
+                4096.0f,
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::infinity(),
+            };
+            return boundary[index % boundary.size()];
+        }
+        case Operation::acosh: {
+            const std::array boundary{
+                -std::numeric_limits<float>::infinity(),
+                -0.0f,
+                0.0f,
+                std::nextafter(1.0f, 0.0f),
+                1.0f,
+                std::nextafter(1.0f, 2.0f),
+                std::nextafter(1.5f, 1.0f),
+                1.5f,
+                std::nextafter(1.5f, 2.0f),
+                4096.0f,
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::infinity(),
+            };
+            return boundary[index % boundary.size()];
+        }
+        case Operation::atanh: {
+            const std::array boundary{
+                -std::numeric_limits<float>::infinity(),
+                std::nextafter(-1.0f, -2.0f),
+                -1.0f,
+                std::nextafter(-1.0f, 0.0f),
+                -0.5f,
+                -0.25f,
+                -0.0f,
+                0.0f,
+                std::numeric_limits<float>::denorm_min(),
+                0.25f,
+                0.5f,
+                std::nextafter(1.0f, 0.0f),
+                1.0f,
+                std::nextafter(1.0f, 2.0f),
+                std::numeric_limits<float>::infinity(),
+            };
+            return boundary[index % boundary.size()];
+        }
     }
     return 0.0f;
 }
@@ -790,7 +953,13 @@ struct ErrorBound {
                     operation == Operation::exp2 ||
                     operation == Operation::exp10 ||
                     operation == Operation::log2 ||
-                    operation == Operation::log10;
+                    operation == Operation::log10 ||
+                    operation == Operation::sinh ||
+                    operation == Operation::cosh ||
+                    operation == Operation::tanh ||
+                    operation == Operation::asinh ||
+                    operation == Operation::acosh ||
+                    operation == Operation::atanh;
                 auto random_sample_count = independent_exp_log ?
                                                65536u :
                                                8192u;
@@ -1089,6 +1258,75 @@ struct ErrorBound {
                     return false;
                 }
                 break;
+            case Operation::sinh:
+                if (!expect_bits(operation, 0u, negative_zero) ||
+                    !expect_bits(operation, 1u, positive_zero) ||
+                    !expect_bits(operation, 2u, 0x00000001u) ||
+                    !expect_bits(operation, 3u, 0x80000001u) ||
+                    !expect_bits(operation, 4u, positive_infinity) ||
+                    !expect_bits(operation, 5u, negative_infinity) ||
+                    !expect_bits(operation, 6u, qnan)) {
+                    return false;
+                }
+                break;
+            case Operation::cosh:
+                for (auto lane : {0u, 1u, 2u, 3u}) {
+                    if (!expect_bits(operation, lane, one)) { return false; }
+                }
+                if (!expect_bits(operation, 4u, positive_infinity) ||
+                    !expect_bits(operation, 5u, positive_infinity) ||
+                    !expect_bits(operation, 6u, qnan)) {
+                    return false;
+                }
+                break;
+            case Operation::tanh:
+                if (!expect_bits(operation, 0u, negative_zero) ||
+                    !expect_bits(operation, 1u, positive_zero) ||
+                    !expect_bits(operation, 2u, 0x00000001u) ||
+                    !expect_bits(operation, 3u, 0x80000001u) ||
+                    !expect_bits(operation, 4u, one) ||
+                    !expect_bits(operation, 5u, one | 0x80000000u) ||
+                    !expect_bits(operation, 6u, qnan)) {
+                    return false;
+                }
+                break;
+            case Operation::asinh:
+                if (!expect_bits(operation, 0u, negative_zero) ||
+                    !expect_bits(operation, 1u, positive_zero) ||
+                    !expect_bits(operation, 2u, 0x00000001u) ||
+                    !expect_bits(operation, 3u, 0x80000001u) ||
+                    !expect_bits(operation, 4u, positive_infinity) ||
+                    !expect_bits(operation, 5u, negative_infinity) ||
+                    !expect_bits(operation, 6u, qnan)) {
+                    return false;
+                }
+                break;
+            case Operation::acosh:
+                for (auto lane : {0u, 1u, 2u, 3u, 5u, 6u, 8u}) {
+                    if (!expect_bits(operation, lane, qnan)) { return false; }
+                }
+                if (!expect_bits(operation, 4u, positive_infinity) ||
+                    !expect_bits(operation, 7u, positive_zero)) {
+                    return false;
+                }
+                break;
+            case Operation::atanh:
+                if (!expect_bits(operation, 0u, negative_zero) ||
+                    !expect_bits(operation, 1u, positive_zero) ||
+                    !expect_bits(operation, 2u, 0x00000001u) ||
+                    !expect_bits(operation, 3u, 0x80000001u) ||
+                    !expect_bits(operation, 4u, qnan) ||
+                    !expect_bits(operation, 5u, qnan) ||
+                    !expect_bits(operation, 6u, qnan) ||
+                    !expect_bits(operation, 7u, positive_infinity) ||
+                    !expect_bits(operation, 8u, negative_infinity) ||
+                    !expect_bits(operation, 9u, qnan) ||
+                    !expect_bits(operation, 10u, qnan) ||
+                    !expect_bits(operation, 11u, qnan) ||
+                    !expect_bits(operation, 12u, qnan)) {
+                    return false;
+                }
+                break;
         }
     }
     return true;
@@ -1117,14 +1355,21 @@ bool test_llvm_native_math_fast() {
     for (auto width : widths) {
         for (auto operation : operations) {
             auto provider = provider_name(operation);
-            auto precise_suffix = provider == "sin" ||
+            auto hyperbolic = operation == Operation::sinh ||
+                              operation == Operation::cosh ||
+                              operation == Operation::tanh ||
+                              operation == Operation::asinh ||
+                              operation == Operation::acosh ||
+                              operation == Operation::atanh;
+            auto precise_suffix = hyperbolic ? "precise" :
+                                  provider == "sin" ||
                                           provider == "cos" ||
                                           provider == "exp" ||
                                           provider == "exp2" ||
                                           provider == "exp10" ||
                                           provider == "pow" ?
-                                      "u10" :
-                                      "u35";
+                                               "u10" :
+                                               "u35";
             auto prefix = "__luisa_cpu_native_" +
                           std::string{provider} + "_f32_v" +
                           std::to_string(width) + "_";
@@ -1153,7 +1398,9 @@ bool test_llvm_native_math_fast() {
         });
     for (auto symbol : {"sinf", "cosf", "tanf", "asinf", "acosf",
                         "atanf", "atan2f", "expf", "exp2f", "exp10f",
-                        "logf", "log2f", "log10f", "powf"}) {
+                        "logf", "log2f", "log10f", "powf",
+                        "sinhf", "coshf", "tanhf", "asinhf",
+                        "acoshf", "atanhf"}) {
         if (!check(assembly.find(symbol) == std::string::npos,
                    std::string{"no scalar symbol "} + symbol)) {
             return false;

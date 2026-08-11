@@ -157,12 +157,13 @@ void configure_native_function(
                       "fast" :
                   logarithm ? "u35" :
                               "u10";
-    auto operation = kind == detail::NativeExpLogKind::exp   ? "exp" :
-                     kind == detail::NativeExpLogKind::exp2  ? "exp2" :
-                     kind == detail::NativeExpLogKind::exp10 ? "exp10" :
-                     kind == detail::NativeExpLogKind::log   ? "log" :
-                     kind == detail::NativeExpLogKind::log2  ? "log2" :
-                                                               "log10";
+    auto operation = kind == detail::NativeExpLogKind::exp      ? "exp" :
+                     kind == detail::NativeExpLogKind::exp_half ? "exp_half" :
+                     kind == detail::NativeExpLogKind::exp2     ? "exp2" :
+                     kind == detail::NativeExpLogKind::exp10    ? "exp10" :
+                     kind == detail::NativeExpLogKind::log      ? "log" :
+                     kind == detail::NativeExpLogKind::log2     ? "log2" :
+                                                                  "log10";
     auto name = std::string{"__luisa_cpu_native_"} + operation +
                 "_f32_v" + std::to_string(width) + "_" + suffix;
     auto *function = module.getFunction(name);
@@ -192,12 +193,13 @@ void configure_native_function(
     if (type == nullptr) { return nullptr; }
     auto *function = get_or_create_exp_log_f32(
         module, type, mode, kind);
-    auto operation = kind == detail::NativeExpLogKind::exp   ? "exp" :
-                     kind == detail::NativeExpLogKind::exp2  ? "exp2" :
-                     kind == detail::NativeExpLogKind::exp10 ? "exp10" :
-                     kind == detail::NativeExpLogKind::log   ? "log" :
-                     kind == detail::NativeExpLogKind::log2  ? "log2" :
-                                                               "log10";
+    auto operation = kind == detail::NativeExpLogKind::exp      ? "exp" :
+                     kind == detail::NativeExpLogKind::exp_half ? "exp_half" :
+                     kind == detail::NativeExpLogKind::exp2     ? "exp2" :
+                     kind == detail::NativeExpLogKind::exp10    ? "exp10" :
+                     kind == detail::NativeExpLogKind::log      ? "log" :
+                     kind == detail::NativeExpLogKind::log2     ? "log2" :
+                                                                  "log10";
     return builder.CreateCall(
         function, {vector}, std::string{"native."} + operation);
 }
@@ -239,6 +241,54 @@ void configure_native_function(
     }
     return builder.CreateCall(
         function, {base, exponent}, "native.pow");
+}
+
+[[nodiscard]] ::llvm::Value *emit_hyperbolic_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode,
+    detail::NativeHyperbolicKind kind) {
+    auto *type = f32_vector_type(vector);
+    if (type == nullptr) { return nullptr; }
+    auto operation = kind == detail::NativeHyperbolicKind::sinh  ? "sinh" :
+                     kind == detail::NativeHyperbolicKind::cosh  ? "cosh" :
+                     kind == detail::NativeHyperbolicKind::tanh  ? "tanh" :
+                     kind == detail::NativeHyperbolicKind::asinh ? "asinh" :
+                     kind == detail::NativeHyperbolicKind::acosh ? "acosh" :
+                                                                   "atanh";
+    auto width = type->getNumElements();
+    auto suffix = mode == LLVMNativeMathMode::fast ?
+                      "fast" :
+                      "precise";
+    auto name = std::string{"__luisa_cpu_native_"} + operation +
+                "_f32_v" + std::to_string(width) + "_" + suffix;
+    auto *function = module.getFunction(name);
+    if (function == nullptr) {
+        auto *function_type = ::llvm::FunctionType::get(
+            type, {type}, false);
+        function = ::llvm::Function::Create(
+            function_type, ::llvm::GlobalValue::InternalLinkage,
+            name, module);
+        configure_native_function(function, false);
+        auto exponential =
+            kind == detail::NativeHyperbolicKind::sinh ||
+            kind == detail::NativeHyperbolicKind::cosh ||
+            kind == detail::NativeHyperbolicKind::tanh;
+        auto *exp_half_function = exponential ?
+                                      get_or_create_exp_log_f32(
+                                          module, type, mode,
+                                          detail::NativeExpLogKind::exp_half) :
+                                      nullptr;
+        auto *log_function = exponential ?
+                                 nullptr :
+                                 get_or_create_exp_log_f32(
+                                     module, type, mode,
+                                     detail::NativeExpLogKind::log);
+        detail::build_hyperbolic_f32(
+            module, function, width, mode, kind,
+            exp_half_function, log_function);
+    }
+    return builder.CreateCall(
+        function, {vector}, std::string{"native."} + operation);
 }
 
 }// namespace
@@ -350,6 +400,54 @@ void configure_native_function(
     LLVMNativeMathMode mode) {
     return cpu::emit_pow_f32(
         module, builder, base, exponent, mode);
+}
+
+::llvm::Value *LLVMNativeMath::emit_sinh_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode) {
+    return emit_hyperbolic_f32(
+        module, builder, vector, mode,
+        detail::NativeHyperbolicKind::sinh);
+}
+
+::llvm::Value *LLVMNativeMath::emit_cosh_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode) {
+    return emit_hyperbolic_f32(
+        module, builder, vector, mode,
+        detail::NativeHyperbolicKind::cosh);
+}
+
+::llvm::Value *LLVMNativeMath::emit_tanh_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode) {
+    return emit_hyperbolic_f32(
+        module, builder, vector, mode,
+        detail::NativeHyperbolicKind::tanh);
+}
+
+::llvm::Value *LLVMNativeMath::emit_asinh_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode) {
+    return emit_hyperbolic_f32(
+        module, builder, vector, mode,
+        detail::NativeHyperbolicKind::asinh);
+}
+
+::llvm::Value *LLVMNativeMath::emit_acosh_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode) {
+    return emit_hyperbolic_f32(
+        module, builder, vector, mode,
+        detail::NativeHyperbolicKind::acosh);
+}
+
+::llvm::Value *LLVMNativeMath::emit_atanh_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode) {
+    return emit_hyperbolic_f32(
+        module, builder, vector, mode,
+        detail::NativeHyperbolicKind::atanh);
 }
 
 }// namespace luisa::compute::cpu

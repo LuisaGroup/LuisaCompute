@@ -44,6 +44,12 @@ enum struct Operation : uint8_t {
     log2,
     log10,
     pow,
+    sinh,
+    cosh,
+    tanh,
+    asinh,
+    acosh,
+    atanh,
     pow2_canonicalization,
     pow10_canonicalization,
 };
@@ -54,7 +60,9 @@ constexpr std::array operations{
     Operation::atan2,
     Operation::exp, Operation::exp2, Operation::exp10,
     Operation::log, Operation::log2, Operation::log10,
-    Operation::pow};
+    Operation::pow,
+    Operation::sinh, Operation::cosh, Operation::tanh,
+    Operation::asinh, Operation::acosh, Operation::atanh};
 
 // These pairs reuse the benchmark's interleaved precise/fast slots as
 // baseline/canonical slots. Both implementations use the fast tier: the
@@ -96,6 +104,12 @@ struct Measurement {
         case Operation::log2: return "log2";
         case Operation::log10: return "log10";
         case Operation::pow: return "pow";
+        case Operation::sinh: return "sinh";
+        case Operation::cosh: return "cosh";
+        case Operation::tanh: return "tanh";
+        case Operation::asinh: return "asinh";
+        case Operation::acosh: return "acosh";
+        case Operation::atanh: return "atanh";
         case Operation::pow2_canonicalization:
             return "pow2_canonicalization";
         case Operation::pow10_canonicalization:
@@ -161,6 +175,24 @@ struct Measurement {
         case Operation::pow:
             return cpu::LLVMNativeMath::emit_pow_f32(
                 module, builder, input, secondary, mode);
+        case Operation::sinh:
+            return cpu::LLVMNativeMath::emit_sinh_f32(
+                module, builder, input, mode);
+        case Operation::cosh:
+            return cpu::LLVMNativeMath::emit_cosh_f32(
+                module, builder, input, mode);
+        case Operation::tanh:
+            return cpu::LLVMNativeMath::emit_tanh_f32(
+                module, builder, input, mode);
+        case Operation::asinh:
+            return cpu::LLVMNativeMath::emit_asinh_f32(
+                module, builder, input, mode);
+        case Operation::acosh:
+            return cpu::LLVMNativeMath::emit_acosh_f32(
+                module, builder, input, mode);
+        case Operation::atanh:
+            return cpu::LLVMNativeMath::emit_atanh_f32(
+                module, builder, input, mode);
         case Operation::pow2_canonicalization:
         case Operation::pow10_canonicalization: {
             auto radix = operation == Operation::pow2_canonicalization ?
@@ -284,6 +316,12 @@ void add_entry(
         case Operation::log2:
         case Operation::log10:
         case Operation::pow: return std::exp2(unit * 3.0f);
+        case Operation::sinh:
+        case Operation::cosh: return unit * 5.0f;
+        case Operation::tanh: return unit * 4.0f;
+        case Operation::asinh: return unit * 8.0f;
+        case Operation::acosh: return 1.0f + std::exp2(unit * 3.0f);
+        case Operation::atanh: return unit * 0.95f;
         case Operation::pow2_canonicalization: return unit * 7.0f;
         case Operation::pow10_canonicalization: return unit * 2.0f;
     }
@@ -375,7 +413,8 @@ using Entry = void(
     constexpr std::array symbols{
         "sinf", "cosf", "tanf", "asinf", "acosf", "atanf",
         "atan2f", "expf", "exp2f", "exp10f", "logf", "log2f",
-        "log10f", "powf"};
+        "log10f", "powf", "sinhf", "coshf", "tanhf",
+        "asinhf", "acoshf", "atanhf"};
     return std::ranges::any_of(symbols, [&](auto symbol) noexcept {
         return assembly.find(symbol) != std::string::npos;
     });

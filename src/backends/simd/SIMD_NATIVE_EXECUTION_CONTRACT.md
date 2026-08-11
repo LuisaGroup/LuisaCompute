@@ -381,12 +381,16 @@ The current f32 implementation checkpoint is:
 | `log2`, `log10` | direct exponent/mantissa reduction and destination-base polynomial | at most 3 ULP in the expanded independent corpus |
 | `atan2` | SLEEF-derived signed quadrant reduction and degree-17 odd polynomial | at most 4 ULP by contract; at most 2 ULP in the expanded paired corpus |
 | `pow` | SLEEF-derived compensated `logkf`/multiply/`expkf` magnitude with explicit integer/domain repair | at most 4 ULP in the expanded paired corpus |
+| `sinh`, `cosh`, `tanh` | locally derived near-zero series plus a shared overflow-safe `exp(x) / 2` primitive and reciprocal reconstruction | at most 8 ULP in the expanded corpus |
+| `asinh` | locally derived odd series near zero, stable square-root/log identity, and large-magnitude logarithmic form | at most 8 ULP in the expanded corpus |
+| `acosh` | locally derived series in `x - 1`, stable square-root/log identity, and large-magnitude logarithmic form | at most 8 ULP in the expanded corpus |
+| `atanh` | locally derived odd series near zero and `log((1 + abs(x)) / (1 - abs(x))) / 2` elsewhere | at most 8 ULP in the expanded corpus |
 
 SIMD Schedule lowering instantiates these bodies at W1/W2/W4/W8/W16. The
 fallback backend uses the same provider for `sin`, `cos`, `tan`, `asin`,
 `acos`, `atan`, `exp`, `exp2`, `exp10`, `log`, `log2`, and `log10` on DSL
-float2/float3/float4 values, and uses its binary providers for `atan2` and
-`pow`, so
+float2/float3/float4 values, uses its binary providers for `atan2` and
+`pow`, and uses the same six hyperbolic providers, so
 component-vector math does not become two, three, or four scalar libm calls.
 Its precise target options prohibit
 aggressive FP contraction; helper functions are excluded from the later
@@ -409,6 +413,11 @@ For a finite fast-tier result `y` and the reference `R`, the accepted error is
 | `log10` | exponent/mantissa reduction combined directly in base ten | `2e-6` | `1e-6` |
 | `atan2` | one min/max-magnitude ratio division and a locally derived degree-11 odd minimax polynomial | `3e-6` | `1e-6` |
 | `pow` | fast `log(abs(base))`, exponent multiply, and fast `exp`, plus explicit domain/sign repair | `2e-7` | `5e-4` |
+| `sinh`, `cosh` | lower-degree near-zero series plus overflow-safe fast `exp(x) / 2` reconstruction | `2e-7` | `2e-4` |
+| `tanh` | lower-degree near-zero `sinh/cosh` ratio plus exponential reconstruction and saturation | `2e-5` | `2e-5` |
+| `asinh` | degree-9 local odd series and one fast logarithm | `5e-6` | `2e-6` |
+| `acosh` | degree-6 local `x - 1` series and one fast logarithm | `5e-6` | `2e-6` |
+| `atanh` | degree-9 local odd series and one fast logarithm | `5e-6` | `2e-6` |
 
 `exp2`, `exp10`, `log2`, and `log10` have independent provider symbols,
 range reductions, standard-function references, and numerical bounds. They
@@ -453,6 +462,15 @@ undefined fast-math assumptions:
   repaired to canonical quiet NaN. A negative subnormal base with a finite
   non-integer exponent remains a domain error rather than a real-domain
   extension.
+- `sinh`, `tanh`, `asinh`, and `atanh` preserve signed zero and signed
+  subnormal inputs. `cosh` maps them to `+1`. `sinh(+-infinity)` and
+  `asinh(+-infinity)` return the correspondingly signed infinity;
+  `cosh(+-infinity) = +infinity` and `tanh(+-infinity) = +-1`.
+- `acosh(x)` returns canonical NaN for `x < 1`, `acosh(1) = +0`, and
+  `acosh(+infinity) = +infinity`. `atanh(x)` returns canonical NaN for
+  `abs(x) > 1`, including either infinity, and returns signed infinity at
+  `x = +-1`. All NaN inputs and all hyperbolic domain errors return canonical
+  quiet NaN; the fast tier does not extend either inverse-function domain.
 
 Only FP contraction is permitted inside the fast bodies. They do not set
 `nnan`, `ninf`, `nsz`, reassociation, approximate-function, or approximate-
@@ -464,18 +482,19 @@ The regression instantiates precise and fast bodies at W2/W3/W4/W8/W16.
 Every operation checks fixed boundaries and special values plus 8,192
 deterministic raw float bit patterns, 8,192 domain-focused values, and 4,096
 reduction/transition-focused values per width. The four independent
-`exp2`/`exp10`/`log2`/`log10` bodies and binary `atan2`/`pow` raise those three
+`exp2`/`exp10`/`log2`/`log10` bodies, binary `atan2`/`pow`, and all six
+hyperbolic bodies raise those three
 deterministic corpora to 65,536, 65,536, and 16,384 values respectively.
 The radix operations include integer and half-integer reduction points,
 exponent transitions, and both mantissa partition boundaries; `atan2` uses
 paired raw patterns plus ratio, quadrant, axis, infinity, and magnitude
 partitions. `pow` additionally covers near-one bases with large exponents,
 negative-base integer parity, every special-value pair, and overflow/underflow
-transitions. Schedule tests cover W2/W4/W8/W16, scalar-uniform POW, and inactive
-tails.
+transitions. Hyperbolic focused samples include zero-series boundaries,
+`x = 1` inverse-domain transitions, logarithmic large-magnitude transitions,
+and the finite `sinh`/`cosh` overflow edge. Schedule tests cover
+W1/W2/W4/W8/W16, scalar-uniform operations, and inactive tails.
 Optimized assembly is rejected if it contains a varying scalar libm symbol.
-Hyperbolic functions remain explicit audit backlog and are not yet marked
-SIMD-native by this checkpoint.
 
 #### 5.1.1 Fast-math XIR algebraic canonicalization
 

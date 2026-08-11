@@ -23,6 +23,7 @@ provider was split into:
 - `llvm_native_math_precise_trig.cpp`;
 - `llvm_native_math_precise_inverse_trig.cpp`;
 - `llvm_native_math_precise_exp_log.cpp`;
+- `llvm_native_math_hyperbolic.cpp`;
 - `llvm_native_math_pow.cpp`.
 
 The binary `atan2` provider in `llvm_native_math_atan2.cpp` separately adapts
@@ -47,6 +48,13 @@ polynomial after their own split range reductions.
 
 Precise code deliberately does not allow FP contraction where its compensated
 arithmetic depends on separate multiply and add rounding.
+
+The hyperbolic provider consults SLEEF only for the high-level use of stable
+exponential/logarithmic identities and explicit special-value repair. Its
+near-zero and near-domain-boundary coefficients are independently derived
+from the defining Taylor/binomial series. `sinh` and `cosh` use a new internal
+`exp(x) / 2` instantiation of the existing exponential reduction so their
+finite range extends through `log(2 * FLT_MAX)` without first overflowing.
 
 ## Fast tier
 
@@ -97,6 +105,20 @@ The fast formulas are:
   the exponent, and evaluate the fast exponential body. Negative-base integer
   classification, sign reconstruction, zero/infinity identities, NaN repair,
   and the non-integer negative-base domain check remain explicit.
+- `sinh`/`cosh`: use locally derived degree-7/degree-6 near-zero series and
+  reconstruct the general range from the fast overflow-safe `exp(x) / 2`
+  primitive and its reciprocal.
+- `tanh`: divide those local near-zero series, otherwise use the same
+  exponential reconstruction and saturate only after the f32 result has
+  rounded to one.
+- `asinh`: use its locally derived odd series through degree 9 near zero,
+  `log(abs(x) + sqrt(x*x + 1))` in the common range, and
+  `log(abs(x)) + ln(2)` where squaring would overflow or lose useful bits.
+- `acosh`: use the independently derived binomial series in `x - 1` through
+  degree 6 near the domain edge, the stable square-root/log identity in the
+  common range, and `log(x) + ln(2)` for large inputs.
+- `atanh`: use its exact odd reciprocal series through degree 9 near zero and
+  half the logarithm of `(1 + abs(x)) / (1 - abs(x))` elsewhere.
 
 The fast implementation resides in:
 
@@ -104,6 +126,7 @@ The fast implementation resides in:
 - `llvm_native_math_fast_inverse_trig.cpp`;
 - `llvm_native_math_fast_exp_log.cpp`;
 - `llvm_native_math_atan2.cpp`;
+- `llvm_native_math_hyperbolic.cpp`;
 - `llvm_native_math_pow.cpp`.
 
 These bodies set only LLVM's contraction permission. NaN, infinity, signed
@@ -124,12 +147,13 @@ corpora of the same expanded sizes, including a permanent two-ULP precise
 counterexample, dense ratios, all quadrants, axes, infinities, and varied
 magnitudes. Binary `pow` uses the expanded paired counts as well, with
 near-one/large-exponent cases, all base/exponent special-value combinations,
-negative-base integer partitions, subnormals, and overflow transitions. The
+negative-base integer partitions, subnormals, and overflow transitions. All
+six hyperbolic operations use the expanded counts and add zero-series,
+inverse-domain, large-magnitude, and finite-overflow transitions. The
 test also checks canonical special-value bits, generic IR
-shape, inactive tails, scalar
-uniformity, and optimized assembly symbols. Schedule execution gives the four
-independent results distinct weights so a swapped operation-to-provider
-mapping cannot disappear inside a commutative sum.
+shape, inactive tails, scalar uniformity, and optimized assembly symbols.
+Schedule execution combines every operation with a distinct input/domain so
+an operation-to-provider mismatch cannot disappear inside a commutative sum.
 `test_fallback_llvm_native_math` independently checks that fallback
 float2/float3/float4 lowering selects the requested tier.
 
@@ -141,11 +165,10 @@ static entry instruction counts, rejects scalar libm symbols, and requires at
 least 1.05x aggregate throughput improvement at every width.
 
 On the 2026-08-12 audit host (AMD Ryzen 9 9950X3D, x86-64, LLVM 22.1.8,
-Release build), three consecutive interleaved runs of the fourteen-operation
+Release build), three consecutive interleaved runs of the twenty-operation
 checkpoint kept the aggregate gate clear at every width. Aggregate speedups
-ranged over 1.929x--1.936x (W2), 1.971x--1.975x (W3), 1.651x--1.653x (W4),
-1.649x--1.652x (W8), and 1.601x--1.610x (W16). Median `pow` speedups were
-3.041x, 3.426x, 2.273x, 2.271x, and 2.235x respectively. Every reported row
-had `scalar_libm=no`; the `pow` entry contained roughly 169--175 fast
-instructions versus 412--414 precise instructions. These numbers are a
-reproducibility record, not a cross-machine performance guarantee.
+ranged over 1.772x--1.776x (W2), 1.776x--1.783x (W3), 1.584x--1.592x (W4),
+1.583x--1.587x (W8), and 1.572x--1.576x (W16). Every hyperbolic row was
+1.397x--1.530x faster, and `pow` remained 2.242x--3.450x faster. Every
+reported row had `scalar_libm=no`. These numbers are a reproducibility
+record, not a cross-machine performance guarantee.

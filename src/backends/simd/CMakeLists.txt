@@ -78,6 +78,7 @@ add_library(luisa-compute-simd-llvm STATIC
         ../common/llvm_native_math_fast_exp_log.cpp
         ../common/llvm_native_math_fast_inverse_trig.cpp
         ../common/llvm_native_math_fast_trig.cpp
+        ../common/llvm_native_math_hyperbolic.cpp
         ../common/llvm_native_math_pow.cpp
         ../common/llvm_native_math_precise_exp_log.cpp
         ../common/llvm_native_math_precise_inverse_trig.cpp

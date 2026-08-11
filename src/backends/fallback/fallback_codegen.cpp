@@ -1070,6 +1070,34 @@ private:
         return _zext_i1_to_i8(b, result);
     }
 
+    [[nodiscard]] llvm::Value *_translate_native_inverse_hyperbolic(
+        CurrentFunction &current, IRBuilder &b,
+        const xir::Value *operand,
+        xir::ArithmeticOp operation) noexcept {
+        auto *value = _lookup_value(current, b, operand);
+        auto *type = operand->type();
+        auto *element = type->is_vector() ? type->element() : type;
+        if (!element->is_float32() || !value->getType()->isVectorTy()) {
+            return nullptr;
+        }
+        auto mode = _enable_fast_math ?
+                        cpu::LLVMNativeMathMode::fast :
+                        cpu::LLVMNativeMathMode::precise;
+        switch (operation) {
+            case xir::ArithmeticOp::ASINH:
+                return cpu::LLVMNativeMath::emit_asinh_f32(
+                    *_llvm_module, b, value, mode);
+            case xir::ArithmeticOp::ACOSH:
+                return cpu::LLVMNativeMath::emit_acosh_f32(
+                    *_llvm_module, b, value, mode);
+            case xir::ArithmeticOp::ATANH:
+                return cpu::LLVMNativeMath::emit_atanh_f32(
+                    *_llvm_module, b, value, mode);
+            default: break;
+        }
+        return nullptr;
+    }
+
     [[nodiscard]] llvm::Value *_translate_unary_fp_math_operation(CurrentFunction &current, IRBuilder &b, const xir::Value *operand, llvm::Intrinsic::ID intrinsic_id) noexcept {
         // Lookup LLVM value for operand
         auto llvm_operand = _lookup_value(current, b, operand);
@@ -1102,6 +1130,18 @@ private:
                             break;
                         case llvm::Intrinsic::atan:
                             native = cpu::LLVMNativeMath::emit_atan_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::cosh:
+                            native = cpu::LLVMNativeMath::emit_cosh_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::sinh:
+                            native = cpu::LLVMNativeMath::emit_sinh_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::tanh:
+                            native = cpu::LLVMNativeMath::emit_tanh_f32(
                                 *_llvm_module, b, llvm_operand, mode);
                             break;
 #endif
@@ -2578,6 +2618,10 @@ private:
 #endif
             }
             case xir::ArithmeticOp::ACOSH: {
+                if (auto *native = _translate_native_inverse_hyperbolic(
+                        current, b, inst->operand(0u), inst->op())) {
+                    return native;
+                }
                 // acosh(x) = log(x + sqrt(x^2 - 1))
                 auto llvm_x = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_x2 = b.CreateFMul(llvm_x, llvm_x);
@@ -2595,6 +2639,10 @@ private:
 #endif
             }
             case xir::ArithmeticOp::ASINH: {
+                if (auto *native = _translate_native_inverse_hyperbolic(
+                        current, b, inst->operand(0u), inst->op())) {
+                    return native;
+                }
                 // asinh(x) = log(x + sqrt(x^2 + 1))
                 auto llvm_x = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_x2 = b.CreateFMul(llvm_x, llvm_x);
@@ -2616,6 +2664,10 @@ private:
                     current, b, inst->operand(0), inst->operand(1));
             }
             case xir::ArithmeticOp::ATANH: {
+                if (auto *native = _translate_native_inverse_hyperbolic(
+                        current, b, inst->operand(0u), inst->op())) {
+                    return native;
+                }
                 // atanh(x) = 0.5 * log((1 + x) / (1 - x))
                 auto llvm_x = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_one = llvm::ConstantFP::get(llvm_x->getType(), 1.f);
