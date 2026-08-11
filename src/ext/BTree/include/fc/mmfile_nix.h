@@ -1,6 +1,7 @@
 #ifndef FC_MMFILE_NIX_H
 #define FC_MMFILE_NIX_H
 
+#include "fc/details.h"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -10,7 +11,6 @@
 #include <cerrno>
 #include <cstdint>
 #include <filesystem>
-#include <stdexcept>
 
 namespace frozenca {
 
@@ -64,12 +64,12 @@ class MemoryMappedFileImpl {
     errno = 0;
     handle_ = open(path, flags_, S_IRWXU);
     if (errno != 0) {
-      throw std::runtime_error("file open failed\n");
+      btree_fatal("file open failed\n");
     }
 
     if (!exists) {
       if (ftruncate(handle_, init_file_size) == -1) {
-        throw std::runtime_error("failed setting file size\n");
+        btree_fatal("failed setting file size\n");
       }
     }
 
@@ -77,7 +77,7 @@ class MemoryMappedFileImpl {
     bool success = (fstat(handle_, &info) != -1);
     size_ = info.st_size;
     if (!success) {
-      throw std::runtime_error("failed querying file size\n");
+      btree_fatal("failed querying file size\n");
     }
   }
 
@@ -85,7 +85,7 @@ class MemoryMappedFileImpl {
     void *data =
         mmap(nullptr, size_, PROT_READ | PROT_WRITE, MAP_SHARED, handle_, 0);
     if (data == reinterpret_cast<void *>(-1)) {
-      throw std::runtime_error("failed mapping file");
+      btree_fatal("failed mapping file");
     }
     data_ = data;
   }
@@ -101,13 +101,13 @@ class MemoryMappedFileImpl {
  public:
   void resize(std::size_t new_size) {
     if (!data_) {
-      throw std::runtime_error("file is closed\n");
+      btree_fatal("file is closed\n");
     }
     if (!unmap_file()) {
-      throw std::runtime_error("failed unmappping file\n");
+      btree_fatal("failed unmappping file\n");
     }
     if (ftruncate(handle_, new_size) == -1) {
-      throw std::runtime_error("failed resizing mapped file\n");
+      btree_fatal("failed resizing mapped file\n");
     }
     size_ = static_cast<std::size_t>(new_size);
     map_file();

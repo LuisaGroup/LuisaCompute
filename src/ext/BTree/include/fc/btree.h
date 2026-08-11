@@ -31,7 +31,6 @@
 #include <memory>
 #include <ranges>
 #include <span>
-#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -190,7 +189,6 @@ requires(Fanout >= 2) class BTreeBase {
 
     Node() { keys_.reserve(disk_max_nkeys); }
 
-    // can throw bad_alloc
     Node() requires(is_disk_) {
       if constexpr (use_simd_) {
         keys_.fill(std::numeric_limits<K>::max());
@@ -1496,7 +1494,7 @@ protected:
         x = next;
       }
     }
-    throw std::runtime_error("unreachable");
+    btree_fatal("unreachable");
   }
 
   attr_t get_order(const_iterator_type iter) const {
@@ -1555,7 +1553,7 @@ public:
   std::ranges::subrange<const_iterator_type> enumerate(const K &a,
                                                        const K &b) const {
     if (Comp{}(b, a)) {
-      throw std::invalid_argument("b < a in enumerate()");
+      btree_fatal("b < a in enumerate()");
     }
     return {const_iterator_type(find_lower_bound(a)),
             const_iterator_type(find_upper_bound(b))};
@@ -1563,14 +1561,14 @@ public:
 
   V kth(attr_t idx) const {
     if (idx >= root_->size_) {
-      throw std::invalid_argument("in kth() k >= size()");
+      btree_fatal("in kth() k >= size()");
     }
     return get_kth(idx);
   }
 
   attr_t order(const_iterator_type iter) const {
     if (iter == cend()) {
-      throw std::invalid_argument("attempt to get order in end()");
+      btree_fatal("attempt to get order in end()");
     }
     return get_order(iter);
   }
@@ -1717,7 +1715,7 @@ public:
 
   const_iterator_type erase(const_iterator_type iter) {
     if (iter == cend()) {
-      throw std::invalid_argument("attempt to erase cend()");
+      btree_fatal("attempt to erase cend()");
     }
     std::vector<attr_t> hints = get_path_from_root(iter);
     V value(std::move(*iter));
@@ -1735,7 +1733,7 @@ public:
 
   size_type erase_range(const K &a, const K &b) {
     if (Comp{}(b, a)) {
-      throw std::invalid_argument("b < a in erase_range()");
+      btree_fatal("b < a in erase_range()");
     }
     return erase_range(const_iterator_type(find_lower_bound(a)),
                        const_iterator_type(find_upper_bound(b)));
@@ -2122,10 +2120,10 @@ public:
        Comp{}(Proj{}(mid_value), Proj{}(*tree_left.crbegin()))) ||
       (!tree_right.empty() &&
        Comp{}(Proj{}(*tree_right.cbegin()), Proj{}(mid_value)))) {
-    throw std::invalid_argument("Join() key order is invalid\n");
+    btree_fatal("Join() key order is invalid\n");
   }
   if (tree_left.alloc_ != tree_right.alloc_) {
-    throw std::invalid_argument("Join() two allocators are different\n");
+    btree_fatal("Join() two allocators are different\n");
   }
 
   auto height_left = tree_left.root_->height_;
@@ -2310,7 +2308,7 @@ public:
       K key1{std::forward<T>(raw_key1)};
       K key2{std::forward<T>(raw_key2)};
       if (Comp{}(key2, key1)) {
-        throw std::invalid_argument("split() key order is invalid\n");
+        btree_fatal("split() key order is invalid\n");
       }
       result_ = tree.split_to_two_trees(tree.find_lower_bound(key1, false),
                                         tree.find_upper_bound(key2, false));
