@@ -784,6 +784,73 @@ void reg_coro_cfg_distill() {
         expect(branch_stores_state);
     };
 
+    "distilled_scopes_may_share_bypass_merge_blocks"_test = [] {
+        // Scope regions are rooted reachability sets rather than a partition.
+        // The shared merge is reached directly by the entry scope and through
+        // the resume root by the continuation scope. Dense dataflow must use
+        // an explicit (scope, block) membership relation; assigning the block
+        // one global local index loses one of these two executions.
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *one = m.create_constant_one(Type::of<int>());
+
+        auto *suspend_block = k->create_basic_block();
+        auto *bypass_block = k->create_basic_block();
+        auto *resume_block = k->create_basic_block();
+        auto *shared_merge = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("shared_merge_state");
+        b.store(state, one);
+        b.cond_br(cond, suspend_block, bypass_block);
+
+        b.set_insertion_point(suspend_block);
+        b.coro_suspend(1u, "shared-merge", nullptr);
+
+        b.set_insertion_point(bypass_block);
+        b.br(shared_merge);
+
+        b.set_insertion_point(resume_block);
+        b.coro_resume(1u, nullptr);
+        // This value is reachable only from the logical resume root. Ordinary
+        // raw-CFG traversal from the function body cannot see it, but the
+        // shared coroutine value domain must still assign it a coordinate.
+        auto *resume_only = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {one, one});
+        static_cast<void>(resume_only);
+        b.br(shared_merge);
+
+        b.set_insertion_point(shared_merge);
+        auto *loaded = b.load(Type::of<int>(), state);
+        static_cast<void>(loaded);
+        b.return_void();
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        expect(result.succeeded());
+        expect(result.scopes.size() == 2u);
+        auto merge_membership_count = size_t{0u};
+        for (auto &scope : result.scopes) {
+            if (std::find(scope.blocks.begin(), scope.blocks.end(),
+                          shared_merge) != scope.blocks.end()) {
+                ++merge_membership_count;
+            }
+        }
+        expect(merge_membership_count == 2u);
+        auto suspend_stores_state = false;
+        for (auto &edge : result.transition_edges) {
+            if (!edge.is_suspend || edge.token != 1u) { continue; }
+            suspend_stores_state =
+                std::find(edge.store_values.begin(),
+                          edge.store_values.end(), state) !=
+                edge.store_values.end();
+        }
+        expect(suspend_stores_state);
+    };
+
     "frame_values_sorted_by_alignment_and_size"_test = [] {
         Module m;
         BasicBlock *body;

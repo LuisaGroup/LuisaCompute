@@ -1022,11 +1022,11 @@ public:
                    "Function body block is not owned by the function.");
             return;
         }
-        VerifierPointerMap<const Instruction *, size_t> instruction_order;
-        VerifierPointerMap<const Instruction *, const BasicBlock *> instruction_blocks;
+        DensePointerMap<const Instruction *, size_t> instruction_order;
+        DensePointerMap<const Instruction *, const BasicBlock *> instruction_blocks;
         BlockAdjacency successors;
         BlockAdjacency predecessors;
-        VerifierPointerMap<const BasicBlock *, const Instruction *> merge_owners;
+        DensePointerMap<const BasicBlock *, const Instruction *> merge_owners;
 
         for (auto *block : blocks) {
             auto terminated = block->is_terminated();
