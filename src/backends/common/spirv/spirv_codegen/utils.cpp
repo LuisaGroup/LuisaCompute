@@ -412,6 +412,23 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                            i.pruned_unreachable_callable_count);
                      r.set("inlined_call",
                            i.inline_info.inlined_call_count);
+                     r.set(
+                         "consumed_call_site_diagnostic_metadata",
+                         i.inline_info
+                             .consumed_call_site_diagnostic_metadata_count);
+                     r.set("skipped_structured_call",
+                           i.inline_info.skipped_structured_call_count);
+                     r.set("skipped_constrained_call",
+                           i.inline_info.skipped_constrained_call_count);
+                     r.set("skipped_metadata_call",
+                           i.inline_info.skipped_metadata_call_count);
+                     r.set("skipped_declaration_call",
+                           i.inline_info.skipped_declaration_call_count);
+                     r.set("rejected_malformed_call",
+                           i.inline_info.rejected_malformed_call_count);
+                     r.set("skipped_recursive_callable",
+                           i.inline_info
+                               .skipped_recursive_callable_count);
                      r.set("remaining_pointer_call",
                            i.remaining_pointer_call_count);
                      r.set("argument_usage_analysis",

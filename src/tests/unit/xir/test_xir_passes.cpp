@@ -239,17 +239,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -6613,15 +6613,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 31u);
+        expect(report.entries().size() == 32u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 31u);
+        expect(report.entries().size() == 32u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 31u);
+        expect(report.entries().size() == 32u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {
@@ -6723,6 +6723,84 @@ void reg_inline() {
         };
         run(true);
         run(false);
+    };
+
+    "inline_selected_consumes_only_diagnostic_call_metadata_atomically"_test = [] {
+        {
+            Module m;
+            auto *callee = m.create_callable(Type::of<int>());
+            auto *callee_body = callee->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(callee_body);
+            b.return_(m.create_constant_one(Type::of<int>()));
+
+            BasicBlock *body;
+            auto *caller = make_kernel_with_body(m, body);
+            b.set_insertion_point(body);
+            auto *storage = b.alloca_local(Type::of<int>());
+            auto *call = b.call(Type::of<int>(), callee, {});
+            call->set_name("mandatory_inline_call");
+            call->set_location("mandatory_inline.cpp", 41);
+            call->add_comment("source-only call annotation");
+            b.store(storage, call);
+            b.return_void();
+
+            std::array<CallInst *, 1u> selected_calls{call};
+            auto info = inline_call_sites_pass_run_on_module(
+                &m, luisa::span{selected_calls},
+                {.consume_call_site_diagnostic_metadata = true});
+            expect(eq(info.inlined_call_count, 1u));
+            expect(eq(
+                info.consumed_call_site_diagnostic_metadata_count, 3u));
+            expect(eq(info.skipped_metadata_call_count, 0u));
+            expect(eq(count_reachable_insts(
+                          caller, DerivedInstructionTag::CALL),
+                      0u));
+            expect(xir_verify_module(&m).succeeded());
+        }
+        {
+            Module m;
+            auto *callee = m.create_callable(Type::of<int>());
+            auto *callee_body = callee->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(callee_body);
+            b.return_(m.create_constant_one(Type::of<int>()));
+
+            BasicBlock *body;
+            auto *caller = make_kernel_with_body(m, body);
+            b.set_insertion_point(body);
+            auto *first_storage = b.alloca_local(Type::of<int>());
+            auto *second_storage = b.alloca_local(Type::of<int>());
+            auto *diagnostic_call =
+                b.call(Type::of<int>(), callee, {});
+            diagnostic_call->add_comment("admissible only as a group");
+            b.store(first_storage, diagnostic_call);
+            auto *semantic_call =
+                b.call(Type::of<int>(), callee, {});
+            semantic_call->metadata_list().push_front(
+                luisa::make_managed<Reg2MemSpillMD>(
+                    Reg2MemSpillKind::CROSS_BLOCK));
+            b.store(second_storage, semantic_call);
+            b.return_void();
+            auto before = xir_to_text_translate(&m, true);
+
+            std::array<CallInst *, 2u> selected_calls{
+                diagnostic_call, semantic_call};
+            auto info = inline_call_sites_pass_run_on_module(
+                &m, luisa::span{selected_calls},
+                {.consume_call_site_diagnostic_metadata = true});
+            auto after = xir_to_text_translate(&m, true);
+            expect(!info.changed());
+            expect(eq(info.inlined_call_count, 0u));
+            expect(eq(
+                info.consumed_call_site_diagnostic_metadata_count, 0u));
+            expect(eq(info.skipped_metadata_call_count, 1u));
+            expect(before == after);
+            expect(eq(count_reachable_insts(
+                          caller, DerivedInstructionTag::CALL),
+                      2u));
+            expect(xir_verify_module(&m).succeeded());
+        }
     };
 
     "inline_single_block_with_block_metadata_is_rejected_without_mutation"_test = [] {

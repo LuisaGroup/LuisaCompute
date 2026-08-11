@@ -23,6 +23,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/instructions/load.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/fix_self_referential.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -316,6 +317,23 @@ int main(int argc, char *argv[]) {
         auto kernel = make_pointer_switch_kernel();
         auto module = ast_to_xir_translate(
             kernel.function()->function(), {});
+        CallInst *pointer_call = nullptr;
+        for (auto *function : module->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](Instruction *instruction) noexcept {
+                        if (instruction->isa<CallInst>()) {
+                            expect(pointer_call == nullptr)
+                                << "the fixture must contain exactly one call";
+                            pointer_call =
+                                static_cast<CallInst *>(instruction);
+                        }
+                    });
+            }
+        }
+        expect(pointer_call != nullptr);
+        pointer_call->add_comment(
+            "mandatory pointer specialization call site");
         auto destructured =
             destructure_cfg_pass_run_on_module(module.get());
         expect(destructured.succeeded());
@@ -328,6 +346,11 @@ int main(int argc, char *argv[]) {
         expect(eq(legalized.destructured_blocking_function_count, 0u));
         expect(eq(legalized.destructured_switch_count, 0u));
         expect(eq(legalized.inline_info.inlined_call_count, 1u));
+        expect(eq(
+            legalized.inline_info
+                .consumed_call_site_diagnostic_metadata_count,
+            1u));
+        expect(eq(legalized.inline_info.skipped_metadata_call_count, 0u));
         expect(eq(legalized.remaining_pointer_call_count, 0u));
         expect(eq(legalized.argument_usage_analysis_count, 2u));
         expect(xir_verify_module(module.get()).succeeded());
@@ -351,6 +374,47 @@ int main(int argc, char *argv[]) {
                                spv::Op::OpSwitch),
                   1u))
             << "pointer specialization must preserve native switch selection";
+    };
+
+    "spirv_pointer_legalization_rejects_semantic_call_metadata"_test = [] {
+        auto kernel = make_pointer_switch_kernel();
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        CallInst *pointer_call = nullptr;
+        for (auto *function : module->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](Instruction *instruction) noexcept {
+                        if (instruction->isa<CallInst>()) {
+                            expect(pointer_call == nullptr)
+                                << "the fixture must contain exactly one call";
+                            pointer_call =
+                                static_cast<CallInst *>(instruction);
+                        }
+                    });
+            }
+        }
+        expect(pointer_call != nullptr);
+        pointer_call->metadata_list().push_front(
+            luisa::make_managed<Reg2MemSpillMD>(
+                Reg2MemSpillKind::CROSS_BLOCK));
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(!legalized.succeeded());
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(eq(
+            legalized.inline_info
+                .consumed_call_site_diagnostic_metadata_count,
+            0u));
+        expect(eq(legalized.inline_info.skipped_metadata_call_count, 1u));
+        expect(legalized.diagnostic.find("metadata=1") !=
+               luisa::string::npos);
+        expect(pointer_call->is_linked());
+        expect(xir_verify_module(module.get()).succeeded());
     };
 
     "spirv_pointer_legalization_preserves_unblocked_native_switch"_test = [] {

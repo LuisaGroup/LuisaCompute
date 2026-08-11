@@ -283,6 +283,14 @@ void accumulate_inline_info(
         increment.skipped_recursive_callable_count;
     total.skipped_structured_call_count +=
         increment.skipped_structured_call_count;
+    total.skipped_constrained_call_count +=
+        increment.skipped_constrained_call_count;
+    total.skipped_metadata_call_count +=
+        increment.skipped_metadata_call_count;
+    total.consumed_call_site_diagnostic_metadata_count +=
+        increment.consumed_call_site_diagnostic_metadata_count;
+    total.skipped_declaration_call_count +=
+        increment.skipped_declaration_call_count;
     total.rejected_malformed_call_count +=
         increment.rejected_malformed_call_count;
     total.skipped_costly_callable_count +=
@@ -539,10 +547,14 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             call_sites.emplace_back(pointer_call.call);
         }
         auto inline_info = xir::inline_call_sites_pass_run_on_module(
-            module, luisa::span{call_sites});
+            module, luisa::span{call_sites},
+            {.consume_call_site_diagnostic_metadata = true});
         accumulate_inline_info(result.inline_info, inline_info);
         if (inline_info.inlined_call_count == 0u ||
             inline_info.skipped_structured_call_count != 0u ||
+            inline_info.skipped_constrained_call_count != 0u ||
+            inline_info.skipped_metadata_call_count != 0u ||
+            inline_info.skipped_declaration_call_count != 0u ||
             inline_info.rejected_malformed_call_count != 0u ||
             inline_info.skipped_recursive_callable_count != 0u) {
             auto remaining = analyze_argument_flow();
@@ -556,11 +568,15 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
                 SpirvPointerLegalizationStatus::INLINE_RETRY_FAILED;
             result.diagnostic = luisa::format(
                 "SPIR-V pointer-argument inline retry failed "
-                "(remaining={}, structured={}, malformed={}, recursive={}).",
+                "(remaining={}, structured={}, malformed={}, recursive={}, "
+                "constrained={}, metadata={}, declaration={}).",
                 result.remaining_pointer_call_count,
                 result.inline_info.skipped_structured_call_count,
                 result.inline_info.rejected_malformed_call_count,
-                result.inline_info.skipped_recursive_callable_count);
+                result.inline_info.skipped_recursive_callable_count,
+                result.inline_info.skipped_constrained_call_count,
+                result.inline_info.skipped_metadata_call_count,
+                result.inline_info.skipped_declaration_call_count);
             return result;
         }
 

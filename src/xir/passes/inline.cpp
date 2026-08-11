@@ -558,11 +558,57 @@ public:
     return true;
 }
 
+[[nodiscard]] static bool is_call_site_diagnostic_metadata(
+    const Metadata *metadata) noexcept {
+    if (metadata == nullptr) { return false; }
+    switch (metadata->derived_metadata_tag()) {
+        case DerivedMetadataTag::NAME:
+        case DerivedMetadataTag::LOCATION:
+        case DerivedMetadataTag::COMMENT: return true;
+        case DerivedMetadataTag::CURVE_BASIS:
+        case DerivedMetadataTag::SIGNATURE_CONSTRAINT:
+        case DerivedMetadataTag::REG2MEM_SPILL: return false;
+    }
+    return false;
+}
+
+[[nodiscard]] static bool has_unconsumable_call_site_metadata(
+    const CallInst *call, InlineOptions options) noexcept {
+    if (call == nullptr) { return true; }
+    for (auto *metadata : call->metadata_list()) {
+        if (!options.consume_call_site_diagnostic_metadata ||
+            !is_call_site_diagnostic_metadata(metadata)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] static size_t consume_call_site_diagnostic_metadata(
+    CallInst *call, InlineOptions options) noexcept {
+    if (call == nullptr ||
+        !options.consume_call_site_diagnostic_metadata) {
+        return 0u;
+    }
+    auto count = size_t{0u};
+    for (auto *metadata = call->metadata_list().head();
+         metadata != nullptr;) {
+        auto *next = metadata->next();
+        LUISA_ASSERT(
+            is_call_site_diagnostic_metadata(metadata),
+            "Selected inline preflight admitted semantic call metadata.");
+        static_cast<void>(metadata->remove_self());
+        ++count;
+        metadata = next;
+    }
+    return count;
+}
+
 [[nodiscard]] static bool has_unmappable_inline_metadata(
-    CallInst *call,
-    const InlineFunctionSummary &summary) noexcept {
+    CallInst *call, const InlineFunctionSummary &summary,
+    InlineOptions options) noexcept {
     if (call == nullptr || !summary.has_valid_definition ||
-        !call->metadata_list().empty() ||
+        has_unconsumable_call_site_metadata(call, options) ||
         summary.has_return_metadata) {
         return true;
     }
@@ -602,9 +648,12 @@ public:
 }
 
 [[nodiscard]] static bool has_unmappable_inline_metadata(
-    CallInst *call, FunctionDefinition *callee_def) noexcept {
+    CallInst *call, FunctionDefinition *callee_def,
+    InlineOptions options) noexcept {
     if (call == nullptr || callee_def == nullptr) { return true; }
-    if (!call->metadata_list().empty()) { return true; }
+    if (has_unconsumable_call_site_metadata(call, options)) {
+        return true;
+    }
     if (has_single_block(callee_def)) {
         // Single-block inlining splices instructions into the caller's
         // existing block. The callee block itself has no one-to-one
@@ -961,9 +1010,9 @@ public:
     }
     auto has_unmappable_metadata = callee_summary == nullptr ?
                                        has_unmappable_inline_metadata(
-                                           call, callee_def) :
+                                           call, callee_def, options) :
                                        has_unmappable_inline_metadata(
-                                           call, *callee_summary);
+                                           call, *callee_summary, options);
     if (has_unmappable_metadata) {
         ++info.skipped_metadata_call_count;
         return false;
@@ -985,6 +1034,8 @@ public:
             !callee_summary->can_inline_single_block) {
             return false;
         }
+        info.consumed_call_site_diagnostic_metadata_count +=
+            consume_call_site_diagnostic_metadata(call, options);
         auto *clone_layout = callee_version == nullptr ?
                                  nullptr :
                                  &callee_version->acquire_clone_layout();
@@ -1005,6 +1056,8 @@ public:
         ++info.skipped_structured_call_count;
         return false;
     }
+    info.consumed_call_site_diagnostic_metadata_count +=
+        consume_call_site_diagnostic_metadata(call, options);
     auto *clone_layout = callee_version == nullptr ?
                              nullptr :
                              &callee_version->acquire_clone_layout();
@@ -1235,6 +1288,8 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.skipped_constrained_call_count);
     report->set("skipped_metadata_call",
                 info.skipped_metadata_call_count);
+    report->set("consumed_call_site_diagnostic_metadata",
+                info.consumed_call_site_diagnostic_metadata_count);
     report->set("skipped_declaration_call",
                 info.skipped_declaration_call_count);
     report->set("rejected_malformed_call",
@@ -1460,7 +1515,7 @@ InlineInfo inline_call_sites_pass_run_on_module(
             continue;
         }
         if (detail::has_unmappable_inline_metadata(
-                call, callee_summary)) {
+                call, callee_summary, options)) {
             ++info.skipped_metadata_call_count;
             continue;
         }
@@ -1532,6 +1587,9 @@ InlineInfo inline_call_sites_pass_run_on_module(
         } else {
             ++info.call_site_cached_apply_count;
             ++info.call_site_dense_resolver_apply_count;
+            info.consumed_call_site_diagnostic_metadata_count +=
+                detail::consume_call_site_diagnostic_metadata(
+                    call, options);
             auto &clone_layout = clone_layout_of(callee);
             succeeded = prepared.single_block ?
                             detail::inline_single_block_call(
