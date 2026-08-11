@@ -26,6 +26,11 @@ struct PersistentThreadsCoroSchedulerConfig {
     uint fetch_size = 4u;      // blocks per atomic fetch
     bool shared_memory_soa = false;
     bool global_memory_ext = false;
+    // Optional portable cap for tests or applications that need to reserve
+    // workgroup memory for backend-specific instrumentation. Zero uses the
+    // device-reported limit; if neither is available, no automatic fitting is
+    // attempted.
+    size_t shared_memory_limit_bytes = 0u;
     ShaderOption shader_option{};
 };
 
@@ -45,6 +50,7 @@ private:
     CoroFrameStorageLayout _global_frame_layout;
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
+    size_t _static_shared_memory_size_bytes{};
 
 private:
     [[nodiscard]] static Config _normalize_config(
@@ -89,6 +95,39 @@ private:
         return config;
     }
 
+    template<typename K>
+    [[nodiscard]] static size_t _shared_memory_size(const K &kernel) noexcept {
+        auto size = size_t{0u};
+        for (auto variable : kernel.function()->shared_variables()) {
+            auto alignment = std::max(variable.type()->alignment(), size_t{1u});
+            auto remainder = size % alignment;
+            auto padding = remainder == 0u ? 0u : alignment - remainder;
+            LUISA_ASSERT(
+                padding <= std::numeric_limits<size_t>::max() - size,
+                "Persistent coroutine shared-memory alignment overflows size_t.");
+            size += padding;
+            LUISA_ASSERT(
+                variable.type()->size() <= std::numeric_limits<size_t>::max() - size,
+                "Persistent coroutine shared-memory size overflows size_t.");
+            size += variable.type()->size();
+        }
+        return size;
+    }
+
+    [[nodiscard]] static uint _next_block_size(
+        uint requested, uint current, uint warp_size) noexcept {
+        if (current <= warp_size) { return 0u; }
+        auto candidate = current - warp_size;
+        while (candidate >= warp_size) {
+            // Keeping a divisor of the originally requested block preserves
+            // the already-normalized worker-count alignment.
+            if (requested % candidate == 0u) { return candidate; }
+            if (candidate < warp_size * 2u) { break; }
+            candidate -= warp_size;
+        }
+        return 0u;
+    }
+
 private:
     void _prepare(Device &device, const Coro &coro) noexcept {
         _global = device.create_buffer<uint>(1u);
@@ -108,245 +147,289 @@ private:
         }
         auto token_to_index = detail::make_coro_token_index_callable(coro);
 
-        Kernel1D main_kernel = [this, &coro, &token_to_index, q_fac, g_fac,
-                                input_fields = _input_fields,
-                                output_fields = _output_fields,
-                                global_layout = _global_frame_layout](
-                                   BufferUInt global, ByteBufferVar global_frames,
-                                   UInt3 dispatch_size_prefix_product, Var<Args>... args) noexcept {
-            set_block_size(_config.block_size, 1u, 1u);
-            auto subroutine_count = static_cast<uint>(coro.subroutine_count());
-            auto shared_queue_size = _config.block_size * q_fac;
-            auto global_queue_size = _config.block_size * g_fac;
-            auto total_queue_size = _config.global_memory_ext ?
-                                        shared_queue_size + global_queue_size :
-                                        shared_queue_size;
-            auto dispatch_id_from_linear = [&](UInt global_index) noexcept {
-                auto index_z = global_index / dispatch_size_prefix_product.y;
-                auto index_xy = global_index - index_z * dispatch_size_prefix_product.y;
-                auto index_y = index_xy / dispatch_size_prefix_product.x;
-                auto index_x = index_xy - index_y * dispatch_size_prefix_product.x;
-                return make_uint3(index_x, index_y, index_z);
-            };
-            auto logical_dispatch_size = make_uint3(
-                dispatch_size_prefix_product.x,
-                dispatch_size_prefix_product.y / dispatch_size_prefix_product.x,
-                dispatch_size_prefix_product.z / dispatch_size_prefix_product.y);
-            CoroFrameSharedStorage frames{&coro.frame(), shared_queue_size, _config.shared_memory_soa};
-            Shared<uint> all_token{total_queue_size};
-            Shared<uint> path_id{shared_queue_size};
-            Shared<uint> work_counter{subroutine_count};
-            Shared<uint> work_offset{2u};
-            Shared<uint> workload{2u};
-            Shared<uint> work_stat{2u};
-            Shared<uint> rem_global{1u};
-            Shared<uint> rem_local{1u};
+        auto make_main_kernel = [&]() noexcept {
+            return Kernel1D{[this, &coro, &token_to_index, q_fac, g_fac,
+                             input_fields = _input_fields,
+                             output_fields = _output_fields,
+                             global_layout = _global_frame_layout](
+                                BufferUInt global, ByteBufferVar global_frames,
+                                UInt3 dispatch_size_prefix_product, Var<Args>... args) noexcept {
+                set_block_size(_config.block_size, 1u, 1u);
+                auto subroutine_count = static_cast<uint>(coro.subroutine_count());
+                auto shared_queue_size = _config.block_size * q_fac;
+                auto global_queue_size = _config.block_size * g_fac;
+                auto total_queue_size = _config.global_memory_ext ?
+                                            shared_queue_size + global_queue_size :
+                                            shared_queue_size;
+                auto dispatch_id_from_linear = [&](UInt global_index) noexcept {
+                    auto index_z = global_index / dispatch_size_prefix_product.y;
+                    auto index_xy = global_index - index_z * dispatch_size_prefix_product.y;
+                    auto index_y = index_xy / dispatch_size_prefix_product.x;
+                    auto index_x = index_xy - index_y * dispatch_size_prefix_product.x;
+                    return make_uint3(index_x, index_y, index_z);
+                };
+                auto logical_dispatch_size = make_uint3(
+                    dispatch_size_prefix_product.x,
+                    dispatch_size_prefix_product.y / dispatch_size_prefix_product.x,
+                    dispatch_size_prefix_product.z / dispatch_size_prefix_product.y);
+                CoroFrameSharedStorage frames{&coro.frame(), shared_queue_size, _config.shared_memory_soa};
+                Shared<uint> all_token{total_queue_size};
+                Shared<uint> path_id{shared_queue_size};
+                Shared<uint> work_counter{subroutine_count};
+                Shared<uint> work_offset{2u};
+                Shared<uint> workload{2u};
+                Shared<uint> work_stat{2u};
+                Shared<uint> rem_global{1u};
+                Shared<uint> rem_local{1u};
 
-            for (auto index = 0u; index < q_fac; index++) {
-                auto s = index * _config.block_size + thread_x();
-                all_token[s] = 0u;
-                if (_config.shared_memory_soa) {
-                    auto frame = CoroFrame::create(&coro.frame());
-                    frames.write(s, frame, luisa::span{input_fields[0u]});
-                }
-            }
-            if (_config.global_memory_ext) {
-                $for (index, 0u, g_fac) {
-                    auto s = shared_queue_size + index * _config.block_size + thread_x();
+                for (auto index = 0u; index < q_fac; index++) {
+                    auto s = index * _config.block_size + thread_x();
                     all_token[s] = 0u;
+                    if (_config.shared_memory_soa) {
+                        auto frame = CoroFrame::create(&coro.frame());
+                        frames.write(s, frame, luisa::span{input_fields[0u]});
+                    }
+                }
+                if (_config.global_memory_ext) {
+                    $for (index, 0u, g_fac) {
+                        auto s = shared_queue_size + index * _config.block_size + thread_x();
+                        all_token[s] = 0u;
+                    };
+                }
+                // A scheduler is not restricted to at most one continuation per
+                // worker in a block. Initialize and reduce the complete counter
+                // domain with a block-strided loop.
+                $for (i, thread_x(), subroutine_count, _config.block_size) {
+                    work_counter[i] = 0u;
                 };
-            }
-            // A scheduler is not restricted to at most one continuation per
-            // worker in a block. Initialize and reduce the complete counter
-            // domain with a block-strided loop.
-            $for (i, thread_x(), subroutine_count, _config.block_size) {
-                work_counter[i] = 0u;
-            };
-            $if (thread_x() == 0u) {
-                work_counter[0u] = total_queue_size;
-            };
-            $if (thread_x() == 0u) {
-                workload[0u] = 0u;
-                workload[1u] = 0u;
-                rem_global[0u] = 1u;
-                rem_local[0u] = 0u;
-            };
-            sync_block();
-
-            $while (rem_global[0u] != 0u | rem_local[0u] != 0u) {
-                sync_block();
                 $if (thread_x() == 0u) {
+                    work_counter[0u] = total_queue_size;
+                };
+                $if (thread_x() == 0u) {
+                    workload[0u] = 0u;
+                    workload[1u] = 0u;
+                    rem_global[0u] = 1u;
                     rem_local[0u] = 0u;
-                    work_stat[0u] = 0u;
-                    work_stat[1u] = 0xffffffffu;
                 };
                 sync_block();
 
-                $if (thread_x() == _config.block_size - 1u) {
-                    $if (workload[0u] >= workload[1u] & rem_global[0u] != 0u) {
-                        auto fetch_count = _config.block_size * _config.fetch_size;
-                        auto st = global.atomic(0u).fetch_add(fetch_count);
-                        workload[0u] = st;
-                        workload[1u] = min(st + fetch_count, dispatch_size_prefix_product.z);
-                        $if (st >= dispatch_size_prefix_product.z) {
-                            rem_global[0u] = 0u;
-                        };
-                    };
-                };
-                sync_block();
-
-                $for (i, thread_x(), subroutine_count, _config.block_size) {
-                    $if (workload[0u] < workload[1u] | i != 0u) {
-                        auto count = work_counter[i];
-                        $if (count != 0u) {
-                            rem_local.atomic(0u).fetch_or(1u);
-                            work_stat.atomic(0u).fetch_max(count);
-                        };
-                    };
-                };
-                sync_block();
-                $for (i, thread_x(), subroutine_count, _config.block_size) {
-                    auto count = work_counter[i];
-                    $if (work_stat[0u] == count & (workload[0u] < workload[1u] | i != 0u)) {
-                        // Equal-size classes are semantically interchangeable.
-                        // Pick the lowest index atomically to avoid a shared-memory
-                        // data race and make the schedule deterministic.
-                        work_stat.atomic(1u).fetch_min(i);
-                    };
-                };
-                sync_block();
-                $if (thread_x() == 0u) {
-                    $if (work_stat[0u] == 0u & rem_global[0u] != 0u) {
-                        rem_local[0u] = 1u;
-                    };
-                };
-                sync_block();
-
-                $if (thread_x() == 0u) {
-                    work_offset[0u] = 0u;
-                    work_offset[1u] = 0u;
-                };
-                sync_block();
-
-                if (!_config.global_memory_ext) {
-                    for (auto index = 0u; index < q_fac; index++) {
-                        auto frame_token = def(all_token[index * _config.block_size + thread_x()]);
-                        $if (frame_token == work_stat[1u]) {
-                            auto id = work_offset.atomic(0u).fetch_add(1u);
-                            path_id[id] = index * _config.block_size + thread_x();
-                        };
-                    }
-                } else {
-                    for (auto index = 0u; index < q_fac; index++) {
-                        auto frame_token = def(all_token[index * _config.block_size + thread_x()]);
-                        $if (frame_token != work_stat[1u]) {
-                            auto id = work_offset.atomic(0u).fetch_add(1u);
-                            path_id[id] = index * _config.block_size + thread_x();
-                        };
-                    }
+                $while (rem_global[0u] != 0u | rem_local[0u] != 0u) {
                     sync_block();
-                    $if (shared_queue_size - work_offset[0u] < _config.block_size) {
-                        // `g_fac` grows with the continuation count. This is a
-                        // device loop by design: host unrolling duplicates the
-                        // complete frame spill/restore path once per continuation.
-                        $for (index, 0u, g_fac) {
-                            auto global_queue_id = index * _config.block_size + thread_x();
-                            auto global_token_index = shared_queue_size + global_queue_id;
-                            auto coro_token = def(all_token[global_token_index]);
-                            $if (coro_token == work_stat[1u]) {
-                                auto id = work_offset.atomic(1u).fetch_add(1u);
-                                $if (id < work_offset[0u]) {
-                                    auto dst = path_id[id];
-                                    auto global_id = block_x() * global_queue_size + global_queue_id;
-                                    auto frame_token = def(all_token[dst]);
-                                    $if (coro_token != 0u) {
-                                        auto global_frame = coro_frame_load(
-                                            &coro.frame(), global_frames, global_id,
-                                            global_layout, false, luisa::nullopt, true);
-                                        $if (frame_token != 0u) {
-                                            auto frame = frames.read(dst);
-                                            coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
-                                        };
-                                        frames.write(dst, global_frame);
-                                        all_token[global_token_index] = frame_token;
-                                        all_token[dst] = coro_token;
-                                    }
-                                    $elif (frame_token != 0u) {
-                                        auto frame = frames.read(dst);
-                                        coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
-                                        $if (frame_token != 0u) {
+                    $if (thread_x() == 0u) {
+                        rem_local[0u] = 0u;
+                        work_stat[0u] = 0u;
+                        work_stat[1u] = 0xffffffffu;
+                    };
+                    sync_block();
+
+                    $if (thread_x() == _config.block_size - 1u) {
+                        $if (workload[0u] >= workload[1u] & rem_global[0u] != 0u) {
+                            auto fetch_count = _config.block_size * _config.fetch_size;
+                            auto st = global.atomic(0u).fetch_add(fetch_count);
+                            workload[0u] = st;
+                            workload[1u] = min(st + fetch_count, dispatch_size_prefix_product.z);
+                            $if (st >= dispatch_size_prefix_product.z) {
+                                rem_global[0u] = 0u;
+                            };
+                        };
+                    };
+                    sync_block();
+
+                    $for (i, thread_x(), subroutine_count, _config.block_size) {
+                        $if (workload[0u] < workload[1u] | i != 0u) {
+                            auto count = work_counter[i];
+                            $if (count != 0u) {
+                                rem_local.atomic(0u).fetch_or(1u);
+                                work_stat.atomic(0u).fetch_max(count);
+                            };
+                        };
+                    };
+                    sync_block();
+                    $for (i, thread_x(), subroutine_count, _config.block_size) {
+                        auto count = work_counter[i];
+                        $if (work_stat[0u] == count & (workload[0u] < workload[1u] | i != 0u)) {
+                            // Equal-size classes are semantically interchangeable.
+                            // Pick the lowest index atomically to avoid a shared-memory
+                            // data race and make the schedule deterministic.
+                            work_stat.atomic(1u).fetch_min(i);
+                        };
+                    };
+                    sync_block();
+                    $if (thread_x() == 0u) {
+                        $if (work_stat[0u] == 0u & rem_global[0u] != 0u) {
+                            rem_local[0u] = 1u;
+                        };
+                    };
+                    sync_block();
+
+                    $if (thread_x() == 0u) {
+                        work_offset[0u] = 0u;
+                        work_offset[1u] = 0u;
+                    };
+                    sync_block();
+
+                    if (!_config.global_memory_ext) {
+                        for (auto index = 0u; index < q_fac; index++) {
+                            auto frame_token = def(all_token[index * _config.block_size + thread_x()]);
+                            $if (frame_token == work_stat[1u]) {
+                                auto id = work_offset.atomic(0u).fetch_add(1u);
+                                path_id[id] = index * _config.block_size + thread_x();
+                            };
+                        }
+                    } else {
+                        for (auto index = 0u; index < q_fac; index++) {
+                            auto frame_token = def(all_token[index * _config.block_size + thread_x()]);
+                            $if (frame_token != work_stat[1u]) {
+                                auto id = work_offset.atomic(0u).fetch_add(1u);
+                                path_id[id] = index * _config.block_size + thread_x();
+                            };
+                        }
+                        sync_block();
+                        $if (shared_queue_size - work_offset[0u] < _config.block_size) {
+                            // `g_fac` grows with the continuation count. This is a
+                            // device loop by design: host unrolling duplicates the
+                            // complete frame spill/restore path once per continuation.
+                            $for (index, 0u, g_fac) {
+                                auto global_queue_id = index * _config.block_size + thread_x();
+                                auto global_token_index = shared_queue_size + global_queue_id;
+                                auto coro_token = def(all_token[global_token_index]);
+                                $if (coro_token == work_stat[1u]) {
+                                    auto id = work_offset.atomic(1u).fetch_add(1u);
+                                    $if (id < work_offset[0u]) {
+                                        auto dst = path_id[id];
+                                        auto global_id = block_x() * global_queue_size + global_queue_id;
+                                        auto frame_token = def(all_token[dst]);
+                                        $if (coro_token != 0u) {
+                                            auto global_frame = coro_frame_load(
+                                                &coro.frame(), global_frames, global_id,
+                                                global_layout, false, luisa::nullopt, true);
+                                            $if (frame_token != 0u) {
+                                                auto frame = frames.read(dst);
+                                                coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
+                                            };
+                                            frames.write(dst, global_frame);
                                             all_token[global_token_index] = frame_token;
                                             all_token[dst] = coro_token;
+                                        }
+                                        $elif (frame_token != 0u) {
+                                            auto frame = frames.read(dst);
+                                            coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
+                                            $if (frame_token != 0u) {
+                                                all_token[global_token_index] = frame_token;
+                                                all_token[dst] = coro_token;
+                                            };
                                         };
                                     };
                                 };
                             };
                         };
-                    };
-                }
-
-                auto gen_start = workload[0u];
-                sync_block();
-                auto pid = def(_config.global_memory_ext ? thread_x() : 0u);
-                auto do_work = def(false);
-                if (_config.global_memory_ext) {
-                    do_work = all_token[pid] == work_stat[1u];
-                } else {
-                    do_work = thread_x() < work_offset[0u];
-                    $if (do_work) {
-                        pid = path_id[thread_x()];
-                    };
-                }
-                $if (do_work) {
-                    auto current_token = def(all_token[pid]);
-                    // The queue token is a sum type: empty/generate (zero) or
-                    // exactly one continuation index. Encode that partition as
-                    // a switch so continuation-local opaque state cannot leak
-                    // through correlated sibling `if` regions after CFG
-                    // restructuring.
-                    auto dispatch = switch_(current_token);
-                    dispatch = std::move(dispatch).case_(0u, [&] {
-                        auto global_index = _config.global_memory_ext ?
-                                                gen_start + thread_x() :
-                                                workload.atomic(0u).fetch_add(1u);
-                        $if (global_index < workload[1u]) {
-                            work_counter.atomic(0u).fetch_sub(1u);
-                            auto frame = coro.instantiate(dispatch_id_from_linear(global_index), logical_dispatch_size);
-                            frame.target_token = 0u;
-                            coro.entry()(frame, args...);
-                            auto next = token_to_index(frame.target_token);
-                            $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
-                                frame.target_token = 0u;
-                            };
-                            frames.write(pid, frame, luisa::span{output_fields[0u]});
-                            all_token[pid] = next;
-                            work_counter.atomic(next).fetch_add(1u);
-                            if (_config.global_memory_ext) {
-                                workload.atomic(0u).fetch_add(1u);
-                            }
-                        };
-                    });
-                    for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
-                        dispatch = std::move(dispatch).case_(
-                            static_cast<uint>(i), [&, i] {
-                            work_counter.atomic(static_cast<uint>(i)).fetch_sub(1u);
-                            auto frame = frames.read(pid, luisa::span{input_fields[i]});
-                            coro[i](frame, args...);
-                            auto next = token_to_index(frame.target_token);
-                            $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
-                                frame.target_token = 0u;
-                            };
-                            frames.write(pid, frame, luisa::span{output_fields[i]});
-                            all_token[pid] = next;
-                            work_counter.atomic(next).fetch_add(1u);
-                        });
                     }
-                    std::move(dispatch).default_([] {});
+
+                    auto gen_start = workload[0u];
+                    sync_block();
+                    auto pid = def(_config.global_memory_ext ? thread_x() : 0u);
+                    auto do_work = def(false);
+                    if (_config.global_memory_ext) {
+                        do_work = all_token[pid] == work_stat[1u];
+                    } else {
+                        do_work = thread_x() < work_offset[0u];
+                        $if (do_work) {
+                            pid = path_id[thread_x()];
+                        };
+                    }
+                    $if (do_work) {
+                        auto current_token = def(all_token[pid]);
+                        // The queue token is a sum type: empty/generate (zero) or
+                        // exactly one continuation index. Encode that partition as
+                        // a switch so continuation-local opaque state cannot leak
+                        // through correlated sibling `if` regions after CFG
+                        // restructuring.
+                        auto dispatch = switch_(current_token);
+                        dispatch = std::move(dispatch).case_(0u, [&] {
+                            auto global_index = _config.global_memory_ext ?
+                                                    gen_start + thread_x() :
+                                                    workload.atomic(0u).fetch_add(1u);
+                            $if (global_index < workload[1u]) {
+                                work_counter.atomic(0u).fetch_sub(1u);
+                                auto frame = coro.instantiate(dispatch_id_from_linear(global_index), logical_dispatch_size);
+                                frame.target_token = 0u;
+                                coro.entry()(frame, args...);
+                                auto next = token_to_index(frame.target_token);
+                                $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
+                                    frame.target_token = 0u;
+                                };
+                                frames.write(pid, frame, luisa::span{output_fields[0u]});
+                                all_token[pid] = next;
+                                work_counter.atomic(next).fetch_add(1u);
+                                if (_config.global_memory_ext) {
+                                    workload.atomic(0u).fetch_add(1u);
+                                }
+                            };
+                        });
+                        for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
+                            dispatch = std::move(dispatch).case_(
+                                static_cast<uint>(i), [&, i] {
+                                    work_counter.atomic(static_cast<uint>(i)).fetch_sub(1u);
+                                    auto frame = frames.read(pid, luisa::span{input_fields[i]});
+                                    coro[i](frame, args...);
+                                    auto next = token_to_index(frame.target_token);
+                                    $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
+                                        frame.target_token = 0u;
+                                    };
+                                    frames.write(pid, frame, luisa::span{output_fields[i]});
+                                    all_token[pid] = next;
+                                    work_counter.atomic(next).fetch_add(1u);
+                                });
+                        }
+                        std::move(dispatch).default_([] {});
+                    };
+                    sync_block();
                 };
                 sync_block();
-            };
-            sync_block();
+            }};
         };
+        auto main_kernel = make_main_kernel();
+        auto shared_memory_size = _shared_memory_size(main_kernel);
+        auto device_limit = device.compute_max_shared_memory_size();
+        auto shared_memory_limit = device_limit;
+        if (_config.shared_memory_limit_bytes != 0u) {
+            shared_memory_limit = device_limit == 0u ?
+                                      _config.shared_memory_limit_bytes :
+                                      std::min(device_limit, _config.shared_memory_limit_bytes);
+        }
+        if (shared_memory_limit != 0u && shared_memory_size > shared_memory_limit) {
+            const auto requested_block_size = _config.block_size;
+            const auto requested_shared_memory_size = shared_memory_size;
+            const auto warp_size = std::max(device.compute_warp_size(), 1u);
+            LUISA_ASSERT(
+                requested_block_size % warp_size == 0u,
+                "Persistent coroutine block size ({}) must contain a whole number "
+                "of device waves (wave size {}).",
+                requested_block_size, warp_size);
+            do {
+                auto next_block_size = _next_block_size(
+                    requested_block_size, _config.block_size, warp_size);
+                LUISA_ASSERT(
+                    next_block_size != 0u,
+                    "Persistent coroutine frame requires {} bytes of shared memory "
+                    "for a {}-thread block, exceeding the device limit of {} bytes; "
+                    "even one {}-thread wave cannot fit. Reduce the live coroutine "
+                    "frame or use a global-memory scheduler.",
+                    shared_memory_size, _config.block_size,
+                    shared_memory_limit, warp_size);
+                _config.block_size = next_block_size;
+                main_kernel = make_main_kernel();
+                shared_memory_size = _shared_memory_size(main_kernel);
+            } while (shared_memory_size > shared_memory_limit);
+            LUISA_WARNING(
+                "Persistent coroutine block size reduced from {} to {} to fit "
+                "static shared memory: {} bytes requested, {} bytes selected, "
+                "{} bytes available.",
+                requested_block_size, _config.block_size,
+                requested_shared_memory_size, shared_memory_size,
+                shared_memory_limit);
+        }
+        _static_shared_memory_size_bytes = shared_memory_size;
         auto main_shader_option =
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "persistent_main");
@@ -354,8 +437,8 @@ private:
 
         _clear_shader = device.compile<1>([](BufferUInt g) {
             g.write(dispatch_x(), 0u);
-        }, detail::coro_scheduler_shader_option(
-               _config.shader_option, "persistent_clear"));
+        },
+                                          detail::coro_scheduler_shader_option(_config.shader_option, "persistent_clear"));
     }
 
     void _dispatch(
@@ -392,6 +475,9 @@ private:
 
 public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
+    [[nodiscard]] size_t static_shared_memory_size_bytes() const noexcept {
+        return _static_shared_memory_size_bytes;
+    }
 
     PersistentThreadsCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
         : _config{_normalize_config(config, coro.subroutine_count())} {

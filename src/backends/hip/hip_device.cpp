@@ -848,6 +848,14 @@ luisa::string HIPDevice::query(luisa::string_view property) noexcept {
     return DeviceInterface::query(property);
 }
 
+size_t HIPDevice::compute_max_shared_memory_size() const noexcept {
+    return with_device([this] {
+        hipDeviceProp_t properties{};
+        LUISA_CHECK_HIP(hipGetDeviceProperties(&properties, _device_id));
+        return properties.sharedMemPerBlock;
+    });
+}
+
 DeviceExtension *HIPDevice::extension(luisa::string_view name) noexcept {
     if (name == PinnedMemoryExt::name) {
         std::scoped_lock lock{_extension_mutex};

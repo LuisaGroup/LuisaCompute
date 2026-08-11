@@ -263,6 +263,7 @@ public:
     static VkAllocationCallbacks *alloc_callbacks();
     [[nodiscard]] VkInstance instance() const noexcept;
     uint compute_warp_size() const noexcept override;
+    size_t compute_max_shared_memory_size() const noexcept override;
     uint64_t memory_granularity() const noexcept override;
     auto &allocator() { return *_allocator; }
     [[nodiscard]] const UploadBuffer *indirect_dispatch_dummy() const noexcept {

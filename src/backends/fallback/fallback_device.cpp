@@ -29,6 +29,7 @@
 #include "fallback_accel.h"
 #include "fallback_bindless_array.h"
 #include "fallback_shader.h"
+#include "fallback_codegen.h"
 #include "fallback_buffer.h"
 #include "fallback_event.h"
 #include "fallback_swapchain.h"
@@ -140,6 +141,9 @@ void FallbackDevice::present_display_in_stream(uint64_t stream_handle,
 
 uint FallbackDevice::compute_warp_size() const noexcept {
     return 1;
+}
+size_t FallbackDevice::compute_max_shared_memory_size() const noexcept {
+    return max_shared_memory_size;
 }
 uint64_t FallbackDevice::memory_granularity() const noexcept {
     return 1;

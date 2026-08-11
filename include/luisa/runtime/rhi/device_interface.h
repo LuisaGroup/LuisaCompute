@@ -108,6 +108,10 @@ public:
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
     [[nodiscard]] virtual uint compute_warp_size() const noexcept = 0;
+    // Zero means that the backend cannot report a portable static
+    // workgroup-memory limit. Callers must not guess a backend limit in that
+    // case.
+    [[nodiscard]] virtual size_t compute_max_shared_memory_size() const noexcept { return 0u; }
     [[nodiscard]] virtual uint64_t memory_granularity() const noexcept = 0;
 
 public:

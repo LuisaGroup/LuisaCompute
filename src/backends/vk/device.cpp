@@ -584,6 +584,9 @@ uint Device::compute_warp_size() const noexcept {
     vkGetPhysicalDeviceProperties2(physical_device(), &properties2);
     return subgroup_properties.subgroupSize;
 }
+size_t Device::compute_max_shared_memory_size() const noexcept {
+    return properties().limits.maxComputeSharedMemorySize;
+}
 uint64_t Device::memory_granularity() const noexcept {
     return kSparseBufferSize;
 }
