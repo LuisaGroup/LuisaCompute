@@ -1209,7 +1209,8 @@ template<size_t Width>
 
 int main(int argc, char *argv[]) {
     if (argc == 2 && std::string_view{argv[1]} == "--fast-only") {
-        return test_schedule_width<4u>(true) &&
+        return test_schedule_width<2u>(true) &&
+                       test_schedule_width<4u>(true) &&
                        test_schedule_width<8u>(true) &&
                        test_schedule_width<16u>(true) &&
                        test_uniform_schedule_math(true) &&
@@ -1246,10 +1247,12 @@ int main(int argc, char *argv[]) {
                    test_exp_log_width<8u>(true) &&
                    test_exp_log_width<16u>(true) &&
                    test_schedule_width<1u>() &&
+                   test_schedule_width<2u>() &&
                    test_schedule_width<4u>() &&
                    test_schedule_width<8u>() &&
                    test_schedule_width<16u>() &&
                    test_uniform_schedule_math() &&
+                   test_schedule_width<2u>(true) &&
                    test_schedule_width<4u>(true) &&
                    test_schedule_width<8u>(true) &&
                    test_schedule_width<16u>(true) &&

@@ -30,9 +30,10 @@ SIMDDevice::SIMDDevice(
         auto requested_width = simd_config->warp_width();
         if (requested_width != 0u) {
             LUISA_ASSERT(
-                requested_width == 1u || requested_width == 4u ||
-                    requested_width == 8u || requested_width == 16u,
-                "Invalid SIMD warp width {}. Expected 1, 4, 8, or 16.",
+                requested_width == 1u || requested_width == 2u ||
+                    requested_width == 4u || requested_width == 8u ||
+                    requested_width == 16u,
+                "Invalid SIMD warp width {}. Expected 1, 2, 4, 8, or 16.",
                 requested_width);
             _warp_width = requested_width;
         }

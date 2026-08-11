@@ -9,10 +9,10 @@ namespace luisa::compute {
 namespace detail {
 LUISA_DSL_API void luisa_compute_validate_warp_size(uint8_t warp_size) noexcept {
     LUISA_ASSERT(
-        warp_size == 1u ||
+        warp_size == 1u || warp_size == 2u ||
             (warp_size >= 4u && warp_size <= 128u &&
              luisa::next_pow2<uint>(warp_size) == warp_size),
-        "Invalid warp size {}. Expected 1, 4, 8, 16, 32, 64, or 128.",
+        "Invalid warp size {}. Expected 1, 2, 4, 8, 16, 32, 64, or 128.",
         warp_size);
 }
 LUISA_DSL_API void luisa_compute_validate_block_size(uint x, uint y, uint z) noexcept {

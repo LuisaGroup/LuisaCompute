@@ -122,7 +122,7 @@ verified state-slot representation before LLVM optimization, allowing
 This is an implementation refinement of the cohort model, not a separate
 semantic mode. Inactive dispatch-edge invocations perform no instruction or
 resource side effect; resource arguments, local storage, atomics, math, and
-the packet return ABI remain shared with wider specializations. W4/W8/W16
+the packet return ABI remain shared with wider specializations. W2/W4/W8/W16
 refine the independent-lane model with the bounded scalar-target/vector-mask
 worklist described by the scheduler formal model.
 
@@ -177,7 +177,7 @@ IR-native -> verified platform vector ABI -> unavailable
 
 Warp-uniform operations use the scalar C/LLVM math operation exactly once.
 A varying W1 specialization may use either one scalar operation or the shared
-one-lane IR body. Varying `W = 4, 8, 16` operations must use a native
+one-lane IR body. Varying `W = 2, 4, 8, 16` operations must use a native
 provider. They do not fall back to `W` scalar calls.
 
 ### 5.1 IR-native baseline
@@ -185,7 +185,7 @@ provider. They do not fall back to `W` scalar calls.
 The portable baseline is implemented as LLVM fixed-vector algorithms. Range
 reduction, polynomial/rational approximation, bit classification, table
 gathers, and exceptional-value repair are expressed without target-specific
-intrinsics. The same algorithm is instantiated for W4/W8/W16, then optimized
+intrinsics. The same algorithm is instantiated for W2/W4/W8/W16, then optimized
 and legalized by the host target machine.
 
 There are two semantic tiers:
@@ -217,7 +217,7 @@ The current f32 implementation checkpoint is:
 | `atan2` | SLEEF-derived signed quadrant reduction and degree-17 odd polynomial | at most 4 ULP by contract; at most 2 ULP in the expanded paired corpus |
 | `pow` | SLEEF-derived compensated `logkf`/multiply/`expkf` magnitude with explicit integer/domain repair | at most 4 ULP in the expanded paired corpus |
 
-SIMD Schedule lowering instantiates these bodies at W1/W4/W8/W16. The
+SIMD Schedule lowering instantiates these bodies at W1/W2/W4/W8/W16. The
 fallback backend uses the same provider for `sin`, `cos`, `tan`, `asin`,
 `acos`, `atan`, `exp`, `exp2`, `exp10`, `log`, `log2`, and `log10` on DSL
 float2/float3/float4 values, and uses its binary providers for `atan2` and
@@ -305,7 +305,7 @@ exponent transitions, and both mantissa partition boundaries; `atan2` uses
 paired raw patterns plus ratio, quadrant, axis, infinity, and magnitude
 partitions. `pow` additionally covers near-one bases with large exponents,
 negative-base integer parity, every special-value pair, and overflow/underflow
-transitions. Schedule tests cover W4/W8/W16, scalar-uniform POW, and inactive
+transitions. Schedule tests cover W2/W4/W8/W16, scalar-uniform POW, and inactive
 tails.
 Optimized assembly is rejected if it contains a varying scalar libm symbol.
 Hyperbolic functions remain explicit audit backlog and are not yet marked
@@ -334,7 +334,7 @@ are:
 - every rule has boundary and raw-bit semantic regressions, an XIR-shape test,
   final-symbol/assembly audit, and a repeated throughput gate;
 - a rewrite is retained only when it is measurably cheaper than the already
-  native fast provider on W4/W8/W16 and fallback float2/float3/float4.
+  native fast provider on W2/W4/W8/W16 and fallback float2/float3/float4.
 
 ### 5.2 LLVM/system vector libraries
 
@@ -378,7 +378,7 @@ C = (operation, element type, W, target, mask support, accuracy/flags)
 
 Codegen may select an implementation only if `C` is satisfied. A scalar C++
 callback is permitted for W1 or an explicitly documented sparse fallback; it
-is not completion for a normal W4/W8/W16 path.
+is not completion for a normal W2/W4/W8/W16 path.
 
 Direct texture reads and writes cross the JIT/runtime boundary once per
 packet, not once per lane. The packet ABI carries the active lanes as low bits
@@ -418,7 +418,7 @@ Every newly supported device-library operation is accepted at three layers:
 1. **semantic**: active lanes are compared with an independent scalar oracle,
    including domains, signed zero, infinities, NaNs, tails, and divergent
    masks;
-2. **IR shape**: W4/W8/W16 contain fixed-vector operations or one approved
+2. **IR shape**: W2/W4/W8/W16 contain fixed-vector operations or one approved
    vector ABI call, with no lane-enumeration loop;
 3. **machine boundary**: optimized object/assembly has no forbidden scalar
    math/device symbol and uses only ISA features reported by the target

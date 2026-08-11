@@ -114,6 +114,10 @@ void read_packet(
             read_packet_fixed<T, 1u>(
                 texture, level, active_mask_bits, x, y, z, values);
             break;
+        case 2u:
+            read_packet_fixed<T, 2u>(
+                texture, level, active_mask_bits, x, y, z, values);
+            break;
         case 4u:
             read_packet_fixed<T, 4u>(
                 texture, level, active_mask_bits, x, y, z, values);
@@ -203,6 +207,10 @@ void write_packet(
     switch (lane_count) {
         case 1u:
             write_packet_fixed<T, 1u>(
+                texture, level, active_mask_bits, x, y, z, values);
+            break;
+        case 2u:
+            write_packet_fixed<T, 2u>(
                 texture, level, active_mask_bits, x, y, z, values);
             break;
         case 4u:

@@ -2224,12 +2224,14 @@ int main() {
     };
     constexpr Test tests[]{
         {"Schedule IR vector warp1", &run_codegen<1u>},
+        {"Schedule IR vector warp2", &run_codegen<2u>},
         {"Schedule IR vector warp4", &run_codegen<4u>},
         {"Schedule IR vector warp8", &run_codegen<8u>},
         {"Schedule IR vector warp16", &run_codegen<16u>},
         {"static power-of-two block size",
          &run_static_block_size_codegen},
         {"Schedule IR loop warp1", &run_loop_codegen<1u>},
+        {"Schedule IR loop warp2", &run_loop_codegen<2u>},
         {"Schedule IR loop warp4", &run_loop_codegen<4u>},
         {"Schedule IR loop warp8", &run_loop_codegen<8u>},
         {"varying loop exit collective",

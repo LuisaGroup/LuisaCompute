@@ -20,11 +20,12 @@ SPMD kernels in SIMD packets. A packet is also the backend's logical warp:
 | Compilation mode | Logical warp size | Typical native target |
 | --- | ---: | --- |
 | scalar | 1 | portable scalar |
+| SIMD2 | 2 | narrow fixed-vector specialization |
 | SIMD4 | 4 | SSE2, NEON, or a wider ISA used at four lanes |
 | SIMD8 | 8 | AVX2 or a wider ISA used at eight lanes |
 | SIMD16 | 16 | AVX-512 |
 
-The first supported widths are 1, 4, 8, and 16. Width is a fixed-vector
+The supported widths are 1, 2, 4, 8, and 16. Width is a fixed-vector
 specialization, not an ISA promise: on the recorded x86 host W8 uses YMM data
 operations plus AVX-512VL masks and W16 uses ZMM, but another target may split
 either width into narrower vectors. The IR must not bake in that
@@ -139,7 +140,7 @@ normalization for correctness.
 - **epoch**: the dynamic instance of a loop or convergence point.
 
 A warp is semantic. A packet is an implementation choice. They are identical
-for the first 1/4/8/16-wide implementation, but Schedule IR keeps the terms
+for the current 1/2/4/8/16-wide implementation, but Schedule IR keeps the terms
 separate so a logical warp can later span multiple physical registers.
 
 ### 4.2 Dynamic cohort scheduling
@@ -229,7 +230,7 @@ convergence frames, loop epochs, and their state allocas. Instruction values
 that cross Schedule blocks retain temporary state slots so LLVM's ordinary
 `mem2reg` can reconstruct scalar SSA. The formal scheduler remains the oracle:
 the direct CFG is its observationally equivalent single-lane refinement.
-W4/W8/W16 retain convergence tokens and bounded frames, but use the
+W2/W4/W8/W16 retain convergence tokens and bounded frames, but use the
 scalar-target/mask worklist and coherent direct threading instead of a
 per-lane PC dispatcher. The abstract loop epoch is represented by dynamic
 frame/worklist-record identity and Schedule IR loop membership; codegen does
@@ -511,7 +512,7 @@ Texture storage retains the public row-major Luisa ABI so native handles,
 uploads/downloads, external memory, and read/write images need no shadow
 layout. The JIT/runtime boundary is instead SIMD-shaped: one callback receives
 `x/y/z` coordinate vectors, four component vectors, and the active bits for a
-whole W1/W4/W8/W16 packet. The runtime recognizes same-texel broadcast and
+whole W1/W2/W4/W8/W16 packet. The runtime recognizes same-texel broadcast and
 fully active contiguous-row cases, and otherwise walks only set bits. This
 removes the old per-active-lane indirect branch/call chain without exposing
 raw storage to JIT code. Direct JIT AoS gathers and speculative wide
@@ -540,15 +541,15 @@ specializations. The first target matrix is:
 
 | Architecture | Widths | Typical LLVM legalization |
 | --- | --- | --- |
-| x86-64 | 1, 4 | baseline/SSE2 |
+| x86-64 | 1, 2, 4 | baseline/SSE2 |
 | x86-64 | 8 | AVX2 when available; compound narrower vectors otherwise |
 | x86-64 | 16 | AVX-512 when available; compound narrower vectors otherwise |
-| AArch64 | 1, 4 | baseline/NEON |
+| AArch64 | 1, 2, 4 | baseline/NEON |
 | AArch64 | 8, 16 | compound NEON packets initially; SVE later |
 
 The device exposes an auto-selected native width through
 `compute_warp_size()`. A backend-specific `DeviceConfigExt` can force width 1,
-4, 8, or 16 for tests and reproducibility. Kernel `set_warp_size(W)` must match
+2, 4, 8, or 16 for tests and reproducibility. Kernel `set_warp_size(W)` must match
 the selected device width in the first version. Multi-width shader variants in
 one device are deferred.
 
@@ -611,8 +612,8 @@ Acceptance checks three layers:
 3. optimized assembly, including the absence of varying scalar libm symbols.
 
 `benchmark_llvm_native_math` is an explicit benchmark target rather than a
-CTest timing test. It interleaves precise and fast samples for fallback
-float2/float3/float4 and SIMD W4/W8/W16 and enforces a 1.05x aggregate
+CTest timing test. It interleaves precise and fast samples for fixed-vector
+W2/W3/W4/W8/W16 (including fallback float2/float3/float4) and enforces a 1.05x aggregate
 throughput gate per width. On the recorded LLVM 22.1.8 x86-64 audit host, the
 three-run fourteen-operation aggregate speedups were 1.929x--1.975x at W2/W3
 and 1.601x--1.653x at W4/W8/W16. `pow` alone measured 2.219x--3.051x over the
@@ -879,6 +880,35 @@ ranges are 8.157--8.263, 15.020--15.221, 22.407--22.782, and
 32.651--33.482 samples/s; fallback is 8.694--8.795. Thus the wide-path gains
 remain visible under concurrent host load rather than depending on one best
 run.
+
+The subsequent full-W2 checkpoint uses the same Release build and a separate
+15-run alternating-order pair because unrelated host work remained active.
+W2 SDF reaches 9.449 samples/s (interquartile range 9.409--9.544) against its
+paired fallback at 8.707 (8.663--8.760), a 1.085x throughput gain. W2 executes
+1.413x as many instructions as fallback but uses 0.910x cycles and 0.916x
+task-clock, so this narrow width is a small coherent-SDF win rather than an
+instruction-count win. The portable 256-by-256, 128-dispatch GEMM reaches
+23.53 GFLOP/s against paired fallback at 44.11 GFLOP/s, or 0.533x, while
+executing 29.82x as many instructions. W2 therefore does not solve the
+within-invocation-vectorization problem described below.
+
+The same W2 build passes every offline graphics reference. Whole-process
+medians from 15 alternating pairs are:
+
+| Offline example | paired fallback ms | W2 ms | W2 speedup | W2/fallback instructions |
+| --- | ---: | ---: | ---: | ---: |
+| image processing | 141.29 | 199.98 | 0.707x | 1.703x |
+| shader toy | 188.83 | 152.98 | 1.234x | 0.845x |
+| voxel raytracer | 55.69 | 187.89 | 0.296x | 4.825x |
+| game of life | 158.00 | 85.96 | 1.838x | 1.456x |
+| n-body | 421.69 | 887.16 | 0.475x | 2.506x |
+
+The last two fallback wall-time distributions remain bimodal under the host
+load, as in the 31-run matrix below, so their point speedups are not stable
+claims. Against that independent 31-run fallback baseline, W2 game-of-life
+and n-body speedups are 1.375x and 0.413x respectively. The stable conclusions
+are that W2 helps coherent shader toy, does not recover image processing, and
+is still a poor width for divergent voxel and n-body kernels.
 
 The portable 256-by-256 GEMM, again repeated 128 times per process and measured
 in 15 alternating runs, reaches 44.70/30.91/32.89/31.32 GFLOP/s for
@@ -1151,9 +1181,9 @@ on 2026-08-11. The repository now contains:
   Buffer kernel through ORC;
 - a runnable `DeviceInterface` module with host buffers, 2D/3D textures,
   streams, events, direct dispatch, and a public `SIMDDeviceConfigExt` that
-  specializes every shader on the device to warp1/4/8/16 and selects the
+  specializes every shader on the device to warp1/2/4/8/16 and selects the
   device worker count;
-- a W1/W4/W8/W16 texture packet callback ABI with SoA coordinates and
+- a W1/W2/W4/W8/W16 texture packet callback ABI with SoA coordinates and
   components, packed active masks, same-texel broadcast detection, contiguous
   row batching, sparse set-bit fallback, and inactive-tail sanitization while
   retaining the public row-major texture storage ABI;
@@ -1163,8 +1193,8 @@ on 2026-08-11. The repository now contains:
 - a checked SIMD static-block contract requiring each nonzero dimension to be
   a power of two; production launch-ID decomposition uses masks and shifts
   rather than integer division, while SIMD still partitions each block into
-  independent width-1/4/8/16 packets;
-- standalone unit coverage for warp1/4/8/16 control flow and positive/negative
+  independent width-1/2/4/8/16 packets;
+- standalone unit coverage for warp1/2/4/8/16 control flow and positive/negative
   Schedule IR fixtures, plus XIR projection fixtures for divergent diamonds,
   uniform control, lane-dependent loops, a deterministic family of arbitrary
   forward reducible graphs (all 122 reachable five-block topologies plus 96
@@ -1175,7 +1205,7 @@ on 2026-08-11. The repository now contains:
   steps, scalar-lane observational equivalence, and lane/gate ownership
   invariants;
 - IR-shape assertions that reject target-specific intrinsic namespaces and ORC
-  execution tests for warp1/4/8/16, including a divergent cohort-uniform lane
+  execution tests for warp1/2/4/8/16, including a divergent cohort-uniform lane
   read, lane-wise suspension spill, reconvergence, and active sum;
 - ORC execution fixtures for lane-dependent loops at warp4/8, nested dynamic
   reconvergence, scalar-uniform and varying indexed branches, switch-in-loop
@@ -1189,7 +1219,7 @@ on 2026-08-11. The repository now contains:
   loop;
 - unattended runtime coverage from the repository's existing multidimensional
   lane-ID, warp matmul, sparse reduction/prefix, and aggregate lane-shuffle
-  tests, plus device-level specialization across warp1/4/8/16, persistent-pool
+  tests, plus device-level specialization across warp1/2/4/8/16, persistent-pool
   exactly-once and concurrent-submission checks, local-memory isolation under
   divergence, and conflicting direct-buffer atomics across parallel blocks
   with a partial dispatch tail.

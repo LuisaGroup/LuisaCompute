@@ -344,7 +344,7 @@ The bounded audit is complemented by permanent LLVM regressions for:
 - a return that completes an inner gate sharing its target with the parent,
   with a warp collective proving that the released lanes cascade through both
   gates before the target executes;
-- partial and full packets at widths 1, 4, 8, and 16 where applicable.
+- partial and full packets at widths 1, 2, 4, 8, and 16 where applicable.
 
 Every future counterexample found by formal audit must first be added as a
 regression that fails on the old implementation, then fixed in the transition

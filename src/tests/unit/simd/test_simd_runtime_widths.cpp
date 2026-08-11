@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     Context context{argc > 0 ? argv[0] : ""};
 
-    for (auto width : std::array{1u, 4u, 8u, 16u}) {
+    for (auto width : std::array{1u, 2u, 4u, 8u, 16u}) {
         DeviceConfig config{};
         config.extension =
             luisa::make_unique<SIMDDeviceConfigExt>(width);
@@ -75,6 +75,42 @@ int main(int argc, char *argv[]) {
         for (auto value : tail_host) {
             expect(value == 2u)
                 << "inactive SIMD tail lane reached integer remainder";
+        }
+
+        // Exercise the runtime's fixed-width texture packet callback rather
+        // than only the generic Schedule-to-LLVM packet ABI. The non-multiple
+        // dispatch shape covers sparse edge masks and inactive tail lanes.
+        constexpr auto image_size = make_uint2(7u, 3u);
+        auto image = device.create_image<float>(
+            PixelStorage::FLOAT4, image_size);
+        luisa::vector<float4> image_input(image_size.x * image_size.y);
+        luisa::vector<float4> image_output(image_input.size());
+        for (auto y = 0u; y < image_size.y; y++) {
+            for (auto x = 0u; x < image_size.x; x++) {
+                image_input[y * image_size.x + x] = make_float4(
+                    static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(x + y), 1.0f);
+            }
+        }
+        Kernel2D image_kernel = [width](ImageFloat target) noexcept {
+            set_block_size(8u, 4u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto coordinate = dispatch_id().xy();
+            auto value = target.read(coordinate);
+            target.write(
+                coordinate,
+                value + make_float4(1.0f, 2.0f, 3.0f, 4.0f));
+        };
+        auto image_shader = device.compile(image_kernel);
+        stream << image.copy_from(luisa::span{image_input})
+               << image_shader(image).dispatch(image_size)
+               << image.copy_to(luisa::span{image_output})
+               << synchronize();
+        for (auto i = size_t{0u}; i < image_input.size(); i++) {
+            expect(all(image_output[i] ==
+                       image_input[i] +
+                           make_float4(1.0f, 2.0f, 3.0f, 4.0f)))
+                << "SIMD fixed-width texture packet mismatch";
         }
     }
 }
