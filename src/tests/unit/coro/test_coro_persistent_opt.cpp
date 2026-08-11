@@ -54,6 +54,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         expect(cfg.fetch_size == 4u);
         expect(cfg.shared_memory_soa == false);
         expect(cfg.global_memory_ext == false);
+        expect(cfg.global_memory_frames == false);
     };
 
     "T33_config_custom_values"_test = [] {
@@ -63,12 +64,14 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
             .fetch_size = 8u,
             .shared_memory_soa = true,
             .global_memory_ext = true,
+            .global_memory_frames = true,
         };
         expect(cfg.thread_count == 1024u);
         expect(cfg.block_size == 64u);
         expect(cfg.fetch_size == 8u);
         expect(cfg.shared_memory_soa == true);
         expect(cfg.global_memory_ext == true);
+        expect(cfg.global_memory_frames == true);
     };
 
     "T33_GME_scheduler_creates_and_dispatches"_test = [options] {
@@ -211,58 +214,124 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         });
         expect(coro.subroutine_count() >= 4u);
 
-        for (auto shared_soa : {false, true}) {
-            luisa::vector<uint> zero(N);
-            stream << output.copy_from(luisa::span{zero}) << synchronize();
+        for (auto global_memory_frames : {false, true}) {
+            for (auto shared_soa : {false, true}) {
+                luisa::vector<uint> zero(N);
+                stream << output.copy_from(luisa::span{zero}) << synchronize();
 
-            PersistentThreadsCoroSchedulerConfig cfg{
-                .thread_count = thread_count,
-                .block_size = block_size,
-                .fetch_size = 4u,
-                .shared_memory_soa = shared_soa,
-                .global_memory_ext = true,
-            };
-            PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-            scheduler(output).dispatch(N)(stream);
+                PersistentThreadsCoroSchedulerConfig cfg{
+                    .thread_count = thread_count,
+                    .block_size = block_size,
+                    .fetch_size = 4u,
+                    .shared_memory_soa = shared_soa,
+                    .global_memory_ext = !global_memory_frames,
+                    .global_memory_frames = global_memory_frames,
+                };
+                PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
+                scheduler(output).dispatch(N)(stream);
 
-            luisa::vector<uint> host(N);
-            stream << output.copy_to(luisa::span{host}) << synchronize();
+                luisa::vector<uint> host(N);
+                stream << output.copy_to(luisa::span{host}) << synchronize();
 
-            auto ok = true;
-            for (auto i = 0u; i < N; i++) {
-                auto expected = ((i * 17u + 3u) ^ (i + 11u)) + i * 5u + 7u;
-                if (host[i] != expected) {
-                    LUISA_WARNING("persistent GME spill mismatch shared_soa={} at {}: got {}, expected {}",
-                                  shared_soa, i, host[i], expected);
-                    ok = false;
-                    break;
-                }
-            }
-            if (!ok) {
-                auto zero_count = 0u;
-                auto expected_count = 0u;
-                auto other_count = 0u;
-                auto first_expected = N;
-                auto last_expected = 0u;
+                auto ok = true;
                 for (auto i = 0u; i < N; i++) {
                     auto expected = ((i * 17u + 3u) ^ (i + 11u)) + i * 5u + 7u;
-                    if (host[i] == 0u) {
-                        zero_count++;
-                    } else if (host[i] == expected) {
-                        expected_count++;
-                        first_expected = std::min(first_expected, i);
-                        last_expected = std::max(last_expected, i);
-                    } else {
-                        other_count++;
+                    if (host[i] != expected) {
+                        LUISA_WARNING("persistent GME spill mismatch global_frames={} shared_soa={} at {}: got {}, expected {}",
+                                      global_memory_frames, shared_soa, i, host[i], expected);
+                        ok = false;
+                        break;
                     }
                 }
-                LUISA_WARNING("persistent GME summary shared_soa={}: zero={} expected={} other={} expected_range=[{}, {}]",
-                              shared_soa, zero_count, expected_count, other_count, first_expected, last_expected);
+                if (!ok) {
+                    auto zero_count = 0u;
+                    auto expected_count = 0u;
+                    auto other_count = 0u;
+                    auto first_expected = N;
+                    auto last_expected = 0u;
+                    for (auto i = 0u; i < N; i++) {
+                        auto expected = ((i * 17u + 3u) ^ (i + 11u)) + i * 5u + 7u;
+                        if (host[i] == 0u) {
+                            zero_count++;
+                        } else if (host[i] == expected) {
+                            expected_count++;
+                            first_expected = std::min(first_expected, i);
+                            last_expected = std::max(last_expected, i);
+                        } else {
+                            other_count++;
+                        }
+                    }
+                    LUISA_WARNING("persistent GME summary global_frames={} shared_soa={}: zero={} expected={} other={} expected_range=[{}, {}]",
+                                  global_memory_frames, shared_soa, zero_count, expected_count, other_count, first_expected, last_expected);
+                }
+                expect(ok) << "persistent global-memory frame representation must preserve every continuation field";
+                expect(scheduler.config().global_memory_ext == true);
+                expect(scheduler.config().global_memory_frames ==
+                       global_memory_frames);
+                expect(scheduler.config().shared_memory_soa == shared_soa);
             }
-            expect(ok) << "persistent global-memory extension must spill and restore frame fields";
-            expect(scheduler.config().global_memory_ext == true);
-            expect(scheduler.config().shared_memory_soa == shared_soa);
         }
+    };
+
+    "T33_shared_frame_lower_bound_selects_global_frames"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto block_quantum =
+            std::max(device.compute_warp_size(), 32u);
+        auto output_count = block_quantum * 2u + 3u;
+        auto output = device.create_buffer<uint>(output_count);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
+            auto tid = dispatch_x();
+            auto value = tid * 17u + 3u;
+            $suspend("live-frame-a");
+            value = value ^ (tid + 11u);
+            $suspend("live-frame-b");
+            buf.write(tid, value + 7u);
+        });
+
+        PersistentThreadsCoroSchedulerConfig shared_config{
+            .thread_count = block_quantum,
+            .block_size = block_quantum,
+            .global_memory_ext = true,
+        };
+        PersistentThreadsCoroScheduler<Buffer<uint>> shared{
+            device, coro, shared_config};
+
+        auto global_config = shared_config;
+        global_config.global_memory_frames = true;
+        PersistentThreadsCoroScheduler<Buffer<uint>> global{
+            device, coro, global_config};
+        expect(shared.static_shared_memory_size_bytes() >
+               global.static_shared_memory_size_bytes())
+            << "removing per-slot shared frames must reduce the irreducible "
+               "one-quantum shared-memory lower bound";
+
+        auto automatic_config = shared_config;
+        automatic_config.shared_memory_limit_bytes =
+            global.static_shared_memory_size_bytes();
+        PersistentThreadsCoroScheduler<Buffer<uint>> automatic{
+            device, coro, automatic_config};
+        expect(automatic.config().global_memory_frames)
+            << "when one shared-frame wave cannot fit, resource normalization "
+               "must change frame representation instead of naming a backend";
+        expect(automatic.static_shared_memory_size_bytes() <=
+               automatic_config.shared_memory_limit_bytes);
+
+        luisa::vector<uint> zero(output_count);
+        stream << output.copy_from(luisa::span{zero});
+        automatic(output).dispatch(output_count)(stream);
+        luisa::vector<uint> host(output_count);
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+        auto correct = true;
+        for (auto i = 0u; i < output_count; ++i) {
+            correct &= host[i] ==
+                       ((i * 17u + 3u) ^ (i + 11u)) + 7u;
+        }
+        expect(correct)
+            << "automatic global-frame selection must preserve the slot/token "
+               "state-transition result";
     };
 
     "T33_GME_soa_progress_by_suspend_count"_test = [options] {

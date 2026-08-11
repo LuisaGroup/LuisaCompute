@@ -26,6 +26,13 @@ struct PersistentThreadsCoroSchedulerConfig {
     uint fetch_size = 4u;      // blocks per atomic fetch
     bool shared_memory_soa = false;
     bool global_memory_ext = false;
+    // Store every queue slot's frame in global memory. The token table and
+    // scheduling counters remain workgroup-local, so this preserves the same
+    // slot-state machine while removing the O(block_size * frame_size) shared
+    // memory term. Implies global_memory_ext. The scheduler may enable this
+    // automatically when even one portable scheduler quantum of shared frames
+    // cannot fit.
+    bool global_memory_frames = false;
     // Optional portable cap for tests or applications that need to reserve
     // workgroup memory for backend-specific instrumentation. Zero uses the
     // device-reported limit; if neither is available, no automatic fitting is
@@ -80,11 +87,15 @@ private:
         LUISA_ASSERT(fetch_count <= uint_max,
                      "Persistent coroutine fetch batch ({} * {}) overflows uint.",
                      config.block_size, config.fetch_size);
+        if (config.global_memory_frames) {
+            config.global_memory_ext = true;
+        }
         if (config.global_memory_ext) {
             auto total_queue_size =
                 static_cast<uint64_t>(config.block_size) * subroutine_count;
             auto global_frame_capacity =
-                static_cast<uint64_t>(config.thread_count) * (subroutine_count - 1u);
+                static_cast<uint64_t>(config.thread_count) *
+                (subroutine_count - (config.global_memory_frames ? 0u : 1u));
             LUISA_ASSERT(total_queue_size <= uint_max,
                          "Persistent coroutine block queue size ({} * {}) overflows uint.",
                          config.block_size, subroutine_count);
@@ -131,14 +142,36 @@ private:
 private:
     void _prepare(Device &device, const Coro &coro) noexcept {
         _global = device.create_buffer<uint>(1u);
-        auto q_fac = 1u;
-        auto coro_g_fac = static_cast<uint>(coro.subroutine_count() > q_fac ? coro.subroutine_count() - q_fac : 0u);
-        auto g_fac = coro_g_fac;
-        auto global_frame_capacity = _config.global_memory_ext ?
-                                         std::max<uint>(1u, _config.thread_count * g_fac) :
-                                         1u;
-        _global_frame_layout = CoroFrameStorageLayout::make_aos(coro.frame(), global_frame_capacity);
-        _global_frames = device.create_byte_buffer(_global_frame_layout.size_bytes);
+        auto update_global_frame_layout = [&]() noexcept {
+            auto shared_queue_factor =
+                _config.global_memory_frames ? 0u : 1u;
+            auto global_queue_factor = _config.global_memory_ext ?
+                                           static_cast<uint>(coro.subroutine_count()) - shared_queue_factor :
+                                           0u;
+            auto global_frame_capacity_u64 = _config.global_memory_ext ?
+                                                 static_cast<uint64_t>(_config.thread_count) * global_queue_factor :
+                                                 1u;
+            LUISA_ASSERT(
+                global_frame_capacity_u64 <= std::numeric_limits<uint>::max(),
+                "Persistent coroutine global frame capacity ({}) exceeds the "
+                "current uint queue-index ABI.",
+                global_frame_capacity_u64);
+            auto global_frame_capacity =
+                static_cast<size_t>(std::max<uint64_t>(
+                    global_frame_capacity_u64, 1u));
+            auto frame_stride = coro.frame().frame_type()->size();
+            LUISA_ASSERT(
+                frame_stride == 0u ||
+                    global_frame_capacity <=
+                        std::numeric_limits<uint>::max() / frame_stride,
+                "Persistent coroutine global frame storage ({} frames * {} "
+                "bytes) exceeds the current 32-bit byte-buffer offset ABI.",
+                global_frame_capacity, frame_stride);
+            _global_frame_layout =
+                CoroFrameStorageLayout::make_aos(
+                    coro.frame(), global_frame_capacity);
+        };
+        update_global_frame_layout();
         _input_fields.resize(coro.subroutine_count());
         _output_fields.resize(coro.subroutine_count());
         for (auto i = 0u; i < coro.subroutine_count(); i++) {
@@ -148,7 +181,16 @@ private:
         auto token_to_index = detail::make_coro_token_index_callable(coro);
 
         auto make_main_kernel = [&]() noexcept {
-            return Kernel1D{[this, &coro, &token_to_index, q_fac, g_fac,
+            auto shared_queue_factor =
+                _config.global_memory_frames ? 0u : 1u;
+            auto global_queue_factor = _config.global_memory_ext ?
+                                           static_cast<uint>(coro.subroutine_count()) - shared_queue_factor :
+                                           0u;
+            auto global_memory_frames =
+                _config.global_memory_frames;
+            return Kernel1D{[this, &coro, &token_to_index,
+                             shared_queue_factor, global_queue_factor,
+                             global_memory_frames,
                              input_fields = _input_fields,
                              output_fields = _output_fields,
                              global_layout = _global_frame_layout](
@@ -156,8 +198,10 @@ private:
                                 UInt3 dispatch_size_prefix_product, Var<Args>... args) noexcept {
                 set_block_size(_config.block_size, 1u, 1u);
                 auto subroutine_count = static_cast<uint>(coro.subroutine_count());
-                auto shared_queue_size = _config.block_size * q_fac;
-                auto global_queue_size = _config.block_size * g_fac;
+                auto shared_queue_size =
+                    _config.block_size * shared_queue_factor;
+                auto global_queue_size =
+                    _config.block_size * global_queue_factor;
                 auto total_queue_size = _config.global_memory_ext ?
                                             shared_queue_size + global_queue_size :
                                             shared_queue_size;
@@ -172,9 +216,14 @@ private:
                     dispatch_size_prefix_product.x,
                     dispatch_size_prefix_product.y / dispatch_size_prefix_product.x,
                     dispatch_size_prefix_product.z / dispatch_size_prefix_product.y);
-                CoroFrameSharedStorage frames{&coro.frame(), shared_queue_size, _config.shared_memory_soa};
+                luisa::optional<CoroFrameSharedStorage> shared_frames;
+                if (!global_memory_frames) {
+                    shared_frames.emplace(
+                        &coro.frame(), shared_queue_size,
+                        _config.shared_memory_soa);
+                }
                 Shared<uint> all_token{total_queue_size};
-                Shared<uint> path_id{shared_queue_size};
+                Shared<uint> path_id{_config.block_size};
                 Shared<uint> work_counter{subroutine_count};
                 Shared<uint> work_offset{2u};
                 Shared<uint> workload{2u};
@@ -182,16 +231,19 @@ private:
                 Shared<uint> rem_global{1u};
                 Shared<uint> rem_local{1u};
 
-                for (auto index = 0u; index < q_fac; index++) {
+                for (auto index = 0u;
+                     index < shared_queue_factor; index++) {
                     auto s = index * _config.block_size + thread_x();
                     all_token[s] = 0u;
                     if (_config.shared_memory_soa) {
                         auto frame = CoroFrame::create(&coro.frame());
-                        frames.write(s, frame, luisa::span{input_fields[0u]});
+                        shared_frames->write(
+                            s, frame,
+                            luisa::span{input_fields[0u]});
                     }
                 }
                 if (_config.global_memory_ext) {
-                    $for (index, 0u, g_fac) {
+                    $for (index, 0u, global_queue_factor) {
                         auto s = shared_queue_size + index * _config.block_size + thread_x();
                         all_token[s] = 0u;
                     };
@@ -268,8 +320,26 @@ private:
                     };
                     sync_block();
 
-                    if (!_config.global_memory_ext) {
-                        for (auto index = 0u; index < q_fac; index++) {
+                    if (global_memory_frames) {
+                        // The global-frame representation is the same finite
+                        // slot state machine as the shared/hybrid path. Gather
+                        // at most one block of slots in the selected token
+                        // class; unselected slots retain both token and frame.
+                        $for (index, 0u, global_queue_factor) {
+                            auto queue_id =
+                                index * _config.block_size + thread_x();
+                            auto frame_token = def(all_token[queue_id]);
+                            $if (frame_token == work_stat[1u]) {
+                                auto id =
+                                    work_offset.atomic(0u).fetch_add(1u);
+                                $if (id < _config.block_size) {
+                                    path_id[id] = queue_id;
+                                };
+                            };
+                        };
+                    } else if (!_config.global_memory_ext) {
+                        for (auto index = 0u;
+                             index < shared_queue_factor; index++) {
                             auto frame_token = def(all_token[index * _config.block_size + thread_x()]);
                             $if (frame_token == work_stat[1u]) {
                                 auto id = work_offset.atomic(0u).fetch_add(1u);
@@ -277,7 +347,8 @@ private:
                             };
                         }
                     } else {
-                        for (auto index = 0u; index < q_fac; index++) {
+                        for (auto index = 0u;
+                             index < shared_queue_factor; index++) {
                             auto frame_token = def(all_token[index * _config.block_size + thread_x()]);
                             $if (frame_token != work_stat[1u]) {
                                 auto id = work_offset.atomic(0u).fetch_add(1u);
@@ -286,10 +357,10 @@ private:
                         }
                         sync_block();
                         $if (shared_queue_size - work_offset[0u] < _config.block_size) {
-                            // `g_fac` grows with the continuation count. This is a
+                            // The global queue factor grows with the continuation count. This is a
                             // device loop by design: host unrolling duplicates the
                             // complete frame spill/restore path once per continuation.
-                            $for (index, 0u, g_fac) {
+                            $for (index, 0u, global_queue_factor) {
                                 auto global_queue_id = index * _config.block_size + thread_x();
                                 auto global_token_index = shared_queue_size + global_queue_id;
                                 auto coro_token = def(all_token[global_token_index]);
@@ -304,15 +375,15 @@ private:
                                                 &coro.frame(), global_frames, global_id,
                                                 global_layout, false, luisa::nullopt, true);
                                             $if (frame_token != 0u) {
-                                                auto frame = frames.read(dst);
+                                                auto frame = shared_frames->read(dst);
                                                 coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
                                             };
-                                            frames.write(dst, global_frame);
+                                            shared_frames->write(dst, global_frame);
                                             all_token[global_token_index] = frame_token;
                                             all_token[dst] = coro_token;
                                         }
                                         $elif (frame_token != 0u) {
-                                            auto frame = frames.read(dst);
+                                            auto frame = shared_frames->read(dst);
                                             coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
                                             $if (frame_token != 0u) {
                                                 all_token[global_token_index] = frame_token;
@@ -327,9 +398,17 @@ private:
 
                     auto gen_start = workload[0u];
                     sync_block();
-                    auto pid = def(_config.global_memory_ext ? thread_x() : 0u);
+                    auto pid = def(0u);
                     auto do_work = def(false);
-                    if (_config.global_memory_ext) {
+                    if (global_memory_frames) {
+                        do_work = thread_x() <
+                                  min(work_offset[0u],
+                                      _config.block_size);
+                        $if (do_work) {
+                            pid = path_id[thread_x()];
+                        };
+                    } else if (_config.global_memory_ext) {
+                        pid = thread_x();
                         do_work = all_token[pid] == work_stat[1u];
                     } else {
                         do_work = thread_x() < work_offset[0u];
@@ -358,7 +437,18 @@ private:
                                 $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
                                     frame.target_token = 0u;
                                 };
-                                frames.write(pid, frame, luisa::span{output_fields[0u]});
+                                if (global_memory_frames) {
+                                    auto global_frame_id =
+                                        block_x() * global_queue_size + pid;
+                                    coro_frame_store(
+                                        global_frames, global_frame_id,
+                                        frame, global_layout, false,
+                                        luisa::span{output_fields[0u]}, true);
+                                } else {
+                                    shared_frames->write(
+                                        pid, frame,
+                                        luisa::span{output_fields[0u]});
+                                }
                                 all_token[pid] = next;
                                 work_counter.atomic(next).fetch_add(1u);
                                 if (_config.global_memory_ext) {
@@ -370,13 +460,37 @@ private:
                             dispatch = std::move(dispatch).case_(
                                 static_cast<uint>(i), [&, i] {
                                     work_counter.atomic(static_cast<uint>(i)).fetch_sub(1u);
-                                    auto frame = frames.read(pid, luisa::span{input_fields[i]});
+                                    auto frame = [&]() noexcept {
+                                        if (global_memory_frames) {
+                                            auto global_frame_id =
+                                                block_x() * global_queue_size + pid;
+                                            return coro_frame_load(
+                                                &coro.frame(), global_frames,
+                                                global_frame_id,
+                                                global_layout, false,
+                                                luisa::span{input_fields[i]}, true);
+                                        }
+                                        return shared_frames->read(
+                                            pid,
+                                            luisa::span{input_fields[i]});
+                                    }();
                                     coro[i](frame, args...);
                                     auto next = token_to_index(frame.target_token);
                                     $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
                                         frame.target_token = 0u;
                                     };
-                                    frames.write(pid, frame, luisa::span{output_fields[i]});
+                                    if (global_memory_frames) {
+                                        auto global_frame_id =
+                                            block_x() * global_queue_size + pid;
+                                        coro_frame_store(
+                                            global_frames, global_frame_id,
+                                            frame, global_layout, false,
+                                            luisa::span{output_fields[i]}, true);
+                                    } else {
+                                        shared_frames->write(
+                                            pid, frame,
+                                            luisa::span{output_fields[i]});
+                                    }
                                     all_token[pid] = next;
                                     work_counter.atomic(next).fetch_add(1u);
                                 });
@@ -400,35 +514,71 @@ private:
         if (shared_memory_limit != 0u && shared_memory_size > shared_memory_limit) {
             const auto requested_block_size = _config.block_size;
             const auto requested_shared_memory_size = shared_memory_size;
-            const auto warp_size = std::max(device.compute_warp_size(), 1u);
+            // DSL kernels require a workgroup size divisible by 32 even when a
+            // scalar backend reports a logical wave size of one. Supported
+            // wave sizes are powers of two, so max(wave, 32) is their LCM and
+            // is the true portable resource-fitting quantum.
+            constexpr auto dsl_block_granularity = 32u;
+            const auto device_wave_size =
+                std::max(device.compute_warp_size(), 1u);
+            const auto block_quantum =
+                std::max(device_wave_size,
+                         dsl_block_granularity);
             LUISA_ASSERT(
-                requested_block_size % warp_size == 0u,
+                requested_block_size % block_quantum == 0u,
                 "Persistent coroutine block size ({}) must contain a whole number "
-                "of device waves (wave size {}).",
-                requested_block_size, warp_size);
-            do {
+                "of scheduler quanta (device wave {}, DSL granularity {}, "
+                "effective quantum {}).",
+                requested_block_size, device_wave_size,
+                dsl_block_granularity, block_quantum);
+            const auto requested_global_memory_frames =
+                _config.global_memory_frames;
+            while (shared_memory_size > shared_memory_limit) {
                 auto next_block_size = _next_block_size(
-                    requested_block_size, _config.block_size, warp_size);
-                LUISA_ASSERT(
-                    next_block_size != 0u,
-                    "Persistent coroutine frame requires {} bytes of shared memory "
-                    "for a {}-thread block, exceeding the device limit of {} bytes; "
-                    "even one {}-thread wave cannot fit. Reduce the live coroutine "
-                    "frame or use a global-memory scheduler.",
-                    shared_memory_size, _config.block_size,
-                    shared_memory_limit, warp_size);
-                _config.block_size = next_block_size;
+                    requested_block_size, _config.block_size,
+                    block_quantum);
+                if (next_block_size != 0u) {
+                    _config.block_size = next_block_size;
+                } else if (_config.global_memory_ext &&
+                           !_config.global_memory_frames) {
+                    // A shared-frame workgroup has the irreducible resource
+                    // lower bound wave_size * frame_size. Crossing that bound
+                    // is not a reason for a backend-specific exception: switch
+                    // representation while preserving the queue-slot state
+                    // machine, then retry the original requested block size.
+                    _config.global_memory_frames = true;
+                    _config.block_size = requested_block_size;
+                    update_global_frame_layout();
+                } else {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Persistent coroutine scheduler requires {} bytes of "
+                        "shared memory for a {}-thread block, exceeding the "
+                        "device limit of {} bytes; even one {}-thread "
+                        "scheduler quantum "
+                        "cannot fit after {} frame storage. Reduce the live "
+                        "coroutine frame or the number of continuation queues.",
+                        shared_memory_size, _config.block_size,
+                        shared_memory_limit, block_quantum,
+                        _config.global_memory_frames ?
+                            "global" :
+                            "shared");
+                }
                 main_kernel = make_main_kernel();
                 shared_memory_size = _shared_memory_size(main_kernel);
-            } while (shared_memory_size > shared_memory_limit);
+            }
             LUISA_WARNING(
-                "Persistent coroutine block size reduced from {} to {} to fit "
-                "static shared memory: {} bytes requested, {} bytes selected, "
-                "{} bytes available.",
+                "Persistent coroutine resources fitted: block {} -> {}, "
+                "frame storage {} -> {}, static shared memory {} -> {} bytes "
+                "({} bytes available).",
                 requested_block_size, _config.block_size,
+                requested_global_memory_frames ? "global" : "shared",
+                _config.global_memory_frames ? "global" : "shared",
                 requested_shared_memory_size, shared_memory_size,
                 shared_memory_limit);
         }
+        _global_frames =
+            device.create_byte_buffer(
+                _global_frame_layout.size_bytes);
         _static_shared_memory_size_bytes = shared_memory_size;
         auto main_shader_option =
             detail::coro_scheduler_shader_option(
