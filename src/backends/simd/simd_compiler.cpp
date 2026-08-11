@@ -1,5 +1,6 @@
 #include "simd_compiler.h"
 
+#include <array>
 #include <memory>
 #include <string>
 #include <utility>
@@ -44,9 +45,15 @@ SIMDCompiledKernel compile_simd_kernel(
     auto context = std::make_unique<::llvm::LLVMContext>();
     auto module = std::make_unique<::llvm::Module>(
         "luisa-simd-kernel", *context);
+    auto static_block_size = std::array<uint32_t, 3u>{};
+    if (function->isa<xir::KernelFunction>()) {
+        auto size = static_cast<const xir::KernelFunction *>(function)
+                        ->block_size();
+        static_block_size = {size.x, size.y, size.z};
+    }
     auto llvm_result = lower_schedule_to_llvm(
         *module, *schedule_result.function, warp_width, entry_name,
-        enable_fast_math);
+        enable_fast_math, static_block_size);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;

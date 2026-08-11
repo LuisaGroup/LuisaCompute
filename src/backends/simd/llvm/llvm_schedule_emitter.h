@@ -47,6 +47,7 @@ private:
     uint32_t _width;
     std::string _entry_name;
     bool _enable_fast_math;
+    std::array<uint32_t, 3u> _static_block_size{};
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
     LLVMWarpCollectives _collectives;
@@ -59,7 +60,10 @@ private:
     ::llvm::BasicBlock *_scheduler_loop{nullptr};
     ::llvm::AllocaInst *_live_mask{nullptr};
     ::llvm::AllocaInst *_runnable_mask{nullptr};
-    ::llvm::AllocaInst *_pc_state{nullptr};
+    ::llvm::AllocaInst *_ready_count{nullptr};
+    ::llvm::AllocaInst *_ready_masks{nullptr};
+    ::llvm::AllocaInst *_ready_targets{nullptr};
+    ::llvm::AllocaInst *_current_mask{nullptr};
     ::llvm::AllocaInst *_token_state{nullptr};
     ::llvm::AllocaInst *_frame_active{nullptr};
     ::llvm::AllocaInst *_frame_static_id{nullptr};
@@ -68,8 +72,6 @@ private:
     ::llvm::AllocaInst *_frame_arrived{nullptr};
     ::llvm::Constant *_convergence_targets{nullptr};
     std::vector<uint32_t> _target_convergence_depths{};
-    std::vector<::llvm::AllocaInst *> _loop_epochs{};
-    std::vector<std::vector<schedule::LoopId>> _block_loops{};
     std::vector<::llvm::AllocaInst *> _state_slots{};
     std::vector<uint8_t> _spilled_instruction_values{};
     std::vector<uint8_t> _local_lvalue_values{};
@@ -85,6 +87,7 @@ private:
     std::array<::llvm::Value *, 3u> _block_size{};
     std::array<::llvm::Value *, 3u> _thread_id{};
     std::array<::llvm::Value *, 3u> _dispatch_id{};
+    std::vector<::llvm::BasicBlock *> _schedule_blocks{};
 
     using UnaryLeaf = std::function<::llvm::Value *(
         ::llvm::Value *, const Type *)>;
@@ -280,19 +283,23 @@ private:
                        ::llvm::Value *mask);
     [[nodiscard]] ::llvm::Value *_frame_mask_pointer(
         ::llvm::AllocaInst *frames, ::llvm::Value *index);
+    [[nodiscard]] ::llvm::Value *_ready_element_pointer(
+        ::llvm::AllocaInst *array, ::llvm::Value *index);
     void _trap_if(::llvm::Value *condition, std::string_view label);
     [[nodiscard]] ::llvm::Value *_current_token(::llvm::Value *mask);
     void _declare_convergence(schedule::ConvergenceId convergence,
                               ::llvm::Value *divergent);
-    void _advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *mask);
     [[nodiscard]] ::llvm::Value *_arrive_at_convergence_target(
         ::llvm::Value *target, ::llvm::Value *flow,
         ::llvm::Value **matched);
     [[nodiscard]] ::llvm::Value *_cascade_at_convergence_target(
         ::llvm::Value *target, ::llvm::Value *flow);
+    void _resume(::llvm::Value *target, ::llvm::Value *mask);
     void _resume(schedule::BlockId target, ::llvm::Value *mask);
-    void _route_edge(const schedule::ControlEdge &edge,
-                     ::llvm::Value *mask);
+    [[nodiscard]] ::llvm::Value *_route_edge(
+        const schedule::ControlEdge &edge, ::llvm::Value *mask);
+    void _continue_at(
+        schedule::BlockId target, ::llvm::Value *mask);
     void _emit_arrival(const schedule::ControlEdge &edge,
                        ::llvm::Value *mask);
     void _emit_terminator(const schedule::Terminator &terminator);
@@ -308,7 +315,8 @@ public:
     ScheduleEmitter(::llvm::Module &module,
                     const schedule::Function &source, uint32_t width,
                     std::string_view entry_name,
-                    bool enable_fast_math);
+                    bool enable_fast_math,
+                    std::array<uint32_t, 3u> static_block_size);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

@@ -1,8 +1,8 @@
 # SIMD CPU backend design
 
 Status: Phase 2 fixed-vector compute checkpoint. XIR-to-Schedule lowering,
-the dependency-light cohort semantic model, the independent-thread LLVM
-packet dispatcher, dispatch builtins, aggregate SoA values, and direct Buffer
+the dependency-light cohort semantic model, the scalar-target/vector-mask LLVM
+packet scheduler, dispatch builtins, aggregate SoA values, and direct Buffer
 gather/scatter plus bindless buffer tables are implemented behind
 `LUISA_COMPUTE_ENABLE_SIMD`. The shared LLVM native-math layer now has
 independently implemented precise and fast tiers for thirteen f32 operations:
@@ -24,7 +24,10 @@ SPMD kernels in SIMD packets. A packet is also the backend's logical warp:
 | SIMD8 | 8 | AVX2 or a wider ISA used at eight lanes |
 | SIMD16 | 16 | AVX-512 |
 
-The first supported widths are 1, 4, 8, and 16. The IR must not bake in that
+The first supported widths are 1, 4, 8, and 16. Width is a fixed-vector
+specialization, not an ISA promise: on the recorded x86 host W8 uses YMM data
+operations plus AVX-512VL masks and W16 uses ZMM, but another target may split
+either width into narrower vectors. The IR must not bake in that
 set: Luisa's warp mask is 128 bits, and later implementations may use compound
 warps or scalable vectors.
 
@@ -141,11 +144,13 @@ separate so a logical warp can later span multiple physical registers.
 
 ### 4.2 Dynamic cohort scheduling
 
-The backend does not represent a whole varying function with one nested lane
-mask stack. Each live lane has an abstract continuation. The runtime scheduler
-groups lanes with the same compatible continuation into a cohort, executes a
-vector basic block for that cohort, and distributes the resulting lane masks
-to successor continuations.
+Each live lane has an abstract continuation. The runtime groups lanes with the
+same compatible continuation into a cohort, executes a vector basic block for
+that cohort, and distributes the resulting lane masks to successor
+continuations. The abstract model is independent-lane, but the LLVM refinement
+does not materialize or scan a `<W x i32>` lane-PC vector. It stores suspended
+cohorts as bounded `(target, mask)` worklist records and directly threads the
+currently executing mask through ordinary edges.
 
 Conceptually:
 
@@ -158,9 +163,11 @@ while any continuation is ready:
 ```
 
 This permits lanes to make independent progress through loops, nested branches,
-switches, and early returns. It also permits opportunistic reconvergence: masks
-that arrive at a compatible continuation are merged before that block is
-issued.
+switches, and early returns. Planned convergence gates merge sibling masks
+before a target is issued. At a conditional or indexed branch, the emitter
+first tests how many successor masks are nonempty. A coherent branch directly
+continues at its sole target without allocating a frame or entering the
+dispatcher; only a true partition creates worklist records.
 
 Hardware predicates are still used to execute a cohort. Avoiding predicates is
 neither possible nor desirable on modern SIMD ISAs. The distinction from a
@@ -177,24 +184,21 @@ therefore records one of three execution strategies per region:
 3. **cohort**: materialize continuations and dynamically schedule a divergent
    region.
 
-The first prototype may conservatively use cohort scheduling for all varying
-branches. The optimizer then introduces uniform and predicated regions without
-changing semantics. Values live across cohort suspension points are spilled to
-warp-state slots; block-local temporaries remain LLVM SSA values.
+The current lowering implements the uniform and cohort strategies. A varying
+conditional or switch also has a dynamic coherent fast path: when all active
+lanes select one successor, it behaves like directly threaded masked SIMT
+control flow. A genuinely divergent partition lazily allocates its convergence
+frame, appends nonempty successor records to the bounded worklist, and returns
+to the scalar dispatcher. Values live across cohort suspension points are
+spilled to warp-state slots; block-local temporaries remain LLVM SSA values.
 
 ### 4.4 Scheduler policy
 
-Semantics must not depend on which ready cohort is selected. The initial policy
-is deterministic and favors:
-
-1. a cohort that can complete a pending convergence;
-2. the largest active mask;
-3. the current loop epoch;
-4. stable Schedule IR block order.
-
-Later policies may use branch probabilities, cache locality, or sparse-cohort
-scalarization. Tests use a second adversarial policy to detect accidental
-schedule dependence.
+Semantics must not depend on which ready cohort is selected. The LLVM
+implementation uses a deterministic depth-first LIFO worklist, while the
+bounded model explores every legal next-cohort choice, including an
+adversarial order. Later policies may use branch probabilities, cache locality,
+or sparse-cohort scalarization without changing the Schedule semantics.
 
 ### 4.5 Width-one scalar specialization
 
@@ -211,7 +215,11 @@ convergence frames, loop epochs, and their state allocas. Instruction values
 that cross Schedule blocks retain temporary state slots so LLVM's ordinary
 `mem2reg` can reconstruct scalar SSA. The formal scheduler remains the oracle:
 the direct CFG is its observationally equivalent single-lane refinement.
-W4/W8/W16 retain the full cohort scheduler.
+W4/W8/W16 retain convergence tokens and bounded frames, but use the
+scalar-target/mask worklist and coherent direct threading instead of a
+per-lane PC dispatcher. The abstract loop epoch is represented by dynamic
+frame/worklist-record identity and Schedule IR loop membership; codegen does
+not materialize a `loop.epoch.*` vector.
 
 ## 5. Convergence and dynamic instances
 
@@ -474,13 +482,26 @@ Initial resource support order:
 
 1. uniforms and buffers;
 2. atomics and byte-address buffers;
-3. textures and bindless arrays, scalarized per active lane first;
+3. textures through one packet callback with SoA coordinates/components and a
+   packed active mask; bindless buffer tables remain native fixed-vector
+   gathers/scatters;
 4. shared memory and block barriers;
 5. acceleration structures and ray queries.
 
 Conflicting non-atomic stores from different active lanes remain unordered,
 as on GPU backends. Atomics execute once per active lane and preserve the
 declared atomic semantics; they may initially scalarize.
+
+Texture storage retains the public row-major Luisa ABI so native handles,
+uploads/downloads, external memory, and read/write images need no shadow
+layout. The JIT/runtime boundary is instead SIMD-shaped: one callback receives
+`x/y/z` coordinate vectors, four component vectors, and the active bits for a
+whole W1/W4/W8/W16 packet. The runtime recognizes same-texel broadcast and
+fully active contiguous-row cases, and otherwise walks only set bits. This
+removes the old per-active-lane indirect branch/call chain without exposing
+raw storage to JIT code. Direct JIT AoS gathers and speculative wide
+load/deinterleave were measured and rejected because lower instruction counts
+did not translate into lower end-to-end latency.
 
 Embree remains the CPU ray-tracing implementation. Width-specialized kernels
 must use the matching packet traversal interfaces (`rtcIntersect4/8/16` and
@@ -515,6 +536,14 @@ The device exposes an auto-selected native width through
 4, 8, or 16 for tests and reproducibility. Kernel `set_warp_size(W)` must match
 the selected device width in the first version. Multi-width shader variants in
 one device are deferred.
+
+Kernel block dimensions are compile-time powers of two for the SIMD backend.
+The compiler forwards the declared `{x, y, z}` into Schedule-to-LLVM and lowers
+linear-thread decomposition with `and`/`lshr`; a non-power-of-two nonzero
+dimension is rejected. A zero dimension is reserved for the generic public
+lowering API and keeps the runtime `udiv`/`urem` path. This makes the user's
+power-of-two launch assumption an explicit checked contract and removes
+integer division from production dispatch-ID construction.
 
 The JIT cache key includes:
 
@@ -711,12 +740,12 @@ the prior serial SIMD runtime: a 23.47x throughput increase. The 32-worker
 fallback median was 8.823 samples/s, so W8 reaches 64.49% of fallback
 throughput and does not yet claim performance parity.
 
-The width sweep on that host measured the generic cohort path at 6.308, 4.919,
-5.619, and 5.846 samples/s for W1/W4/W8/W16 respectively. Machine inspection
-confirmed that W8 uses 256-bit YMM data operations plus AVX-512VL mask
-registers, while W16 uses 512-bit ZMM data operations; the poor scaling is
-therefore not a missing host-feature flag. SDF ray-march divergence and
-cohort-state traffic dominate its vector-width benefit.
+The width sweep on that host measured the original independent-lane-PC cohort
+path at 6.308, 4.919, 5.619, and 5.846 samples/s for W1/W4/W8/W16
+respectively. Machine inspection confirmed that W8 uses 256-bit YMM data
+operations plus AVX-512VL mask registers, while W16 uses 512-bit ZMM data
+operations; the poor scaling was therefore not a missing host-feature flag.
+SDF ray-march control-state traffic dominated its vector-width benefit.
 
 The direct W1 CFG refinement raised the five-run SPP-4 median from 6.122 to
 8.012 samples/s (1.309x) and the three-run SPP-32 median from 6.252 to 8.229
@@ -745,10 +774,80 @@ Every width produced the same byte-exact PNG for a given example and passed
 its repository reference comparison. W8 narrowly wins only `shader_toy`;
 the scalar-CFG W1 path wins the other four, including 3.08x over W8 for
 `voxel_raytracer` and 2.45x for `nbody_simulation`. Wider packets reduce some
-arithmetic instruction counts, but the current cohort scheduler state,
-divergence, spills, and larger JIT code dominate these workloads. This is a
-code-generation optimization target, not evidence for changing the worker
-pool.
+arithmetic instruction counts, but the independent-PC scheduler state,
+divergence, spills, and larger JIT code dominate these baseline workloads.
+This is a code-generation optimization target, not evidence for changing the
+worker pool.
+
+Replacing the lane-PC scan with a bounded mask worklist, directly threading
+ordinary edges, and bypassing frame/worklist allocation for dynamically
+coherent varying branches changes that result substantially. The final SDF
+SPP-4 sweep measured five-run medians of 8.292, 14.241, 21.146, and 30.024
+samples/s for W1/W4/W8/W16 versus fallback at 8.749. The corresponding
+fallback-relative speedups are 0.948x, 1.628x, 2.417x, and 3.432x. Relative to
+the original per-lane-PC implementation, the four widths are 1.31x, 2.90x,
+3.76x, and 5.14x faster. Mean end-to-end instruction counts were 70.60, 50.35,
+35.00, and 26.18 billion respectively. Every SIMD width produced the same
+SHA-256 output image.
+
+The 256-by-256 warp-reduction matmul audit, repeated 128 times per process,
+likewise fell to 0.427/0.349/0.380 seconds and
+86.27/55.38/49.75 billion instructions for W4/W8/W16. The original lane-PC
+implementation took 1.202/0.774/0.621 seconds. Assembly still contains real
+packed multiply/add and gather operations, but the coherent path avoids
+executing most of the dispatcher, token, frame, and spill sequence around
+them.
+
+A separate portable naive 256-by-256 GEMM, also repeated 128 times, compares
+directly with fallback because it uses no warp collective. Fallback reaches
+49.71 GFLOP/s; W1/W4/W8/W16 reach 43.86/30.14/30.25/26.92 GFLOP/s, or
+0.882x/0.606x/0.609x/0.542x. This is not a tuned BLAS result. Disassembly
+shows why generic lowering loses: the portable function grows from a 144-byte
+W1 body with no stack frame to 10.9 kB and a 3.1 kB frame at W16; the warp
+variant reaches a 6.3 kB W16 frame. LLVM emits real vector arithmetic, but
+gathers, long live ranges, and spill/reload traffic consume the benefit.
+
+The final offline graphics sweep includes the packet texture ABI and uses seven
+whole-process runs per backend/width in alternating order. Each SIMD entry is
+fallback median time divided by SIMD median time; values below one are slower
+than fallback:
+
+| Offline example | fallback ms | W1 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `image_processing` | 133.7 | 0.746x | 0.736x | 0.730x | 0.714x |
+| `game_of_life` | 65.1 | 0.722x | 0.888x | 0.884x | 0.867x |
+| `shader_toy` | 177.0 | 1.092x | 1.231x | 1.215x | 1.065x |
+| `voxel_raytracer` | 53.1 | 0.843x | 0.226x | 0.222x | 0.198x |
+| `nbody_simulation` | 307.9 | 0.667x | 0.372x | 0.375x | 0.321x |
+| geometric mean | -- | 0.802x | 0.584x | 0.579x | 0.530x |
+
+All 20 SIMD width/example combinations pass their gallery references and all
+SIMD widths for one example remain byte-identical. `shader_toy` is the one
+current graphics workload with a net SIMD win; sparse voxel DDA and
+buffer-gather/live-state-heavy n-body remain the strongest counterexamples.
+The complete timing, perf-counter, disassembly, and methodology snapshot is in
+the generated performance report rather than inferred from width alone.
+
+A temporary, reverted 32-copy steady-state probe separates kernel work from
+JIT/PNG/process cost for the two texture questions. W8 image processing rises
+from 0.730x whole-process to 0.972x incremental-work speedup; its incremental
+task-clock is 4.9% below fallback, but average repeated-run CPU utilization is
+17.8 versus fallback's 21.6, leaving short-dispatch/barrier utilization as the
+remaining kernel-level gap. Sampling puts fallback texture/backend code at
+42.8% of cycles and the packet SIMD backend at 14.2%. Voxel rises only from
+0.222x to 0.424x incremental speedup and still consumes 2.48x fallback CPU
+work; texture/backend code is only 1.4% of its SIMD samples. Its bottleneck is
+the divergent DDA/gather body, not the output texture write.
+
+Software prefetch is not enabled speculatively. LLVM's target-aware loop data
+prefetch pass inserted no prefetch into the post-scheduler masked-gather
+matmul, and the on/off assembly was identical. Hardware counters show that the
+matmul's 18.1% L1 data-load miss rate is almost entirely L2-resident (only
+about 0.52% of those misses also miss L2); n-body has about a 0.94% L1 load
+miss rate and already records substantial hardware-prefetch traffic. A future
+prefetch lowering therefore requires a proven affine lookahead distance and a
+separate stable performance gate. It must not scalarize a varying gather into
+per-lane prefetch calls.
 
 A separate libdispatch/system-parallel-for experiment changed fallback by
 +0.42%, SIMD W1 by -0.34%, and SIMD W16 by -0.05%, so the custom persistent
@@ -915,10 +1014,11 @@ on 2026-08-11. The repository now contains:
 - target-independent LLVM lowering for warp reductions, votes, ballot, prefix
   operations, and lane reads; aggregate operations recurse over SoA leaves so
   every low-level operation still consumes exactly one `<W x T>` value;
-- an independent-thread packet dispatcher whose per-lane fixed-vector state
-  contains the current PC, dynamic convergence token, runnable/live bits, and
-  one epoch vector per natural loop; conditional and indexed branches use the
-  same N-way convergence-frame protocol;
+- a bounded LIFO packet scheduler whose ready records contain one scalar target
+  and one vector mask; ordinary and dynamically coherent edges stay in direct
+  LLVM control flow, so no per-lane PC or explicit loop-epoch vector is
+  materialized, while conditional and indexed partitions retain the same
+  N-way convergence-frame semantics;
 - bounded dynamic convergence frames (at most `W` for a `W`-lane packet),
   cascading inner-to-outer joins, loop-gate reuse, dispatch-edge masks, and
   masked scalar returns; the old 64-block ready bitmap and its CFG-size limit
@@ -950,12 +1050,17 @@ on 2026-08-11. The repository now contains:
   streams, events, direct dispatch, and a public `SIMDDeviceConfigExt` that
   specializes every shader on the device to warp1/4/8/16 and selects the
   device worker count;
+- a W1/W4/W8/W16 texture packet callback ABI with SoA coordinates and
+  components, packed active masks, same-texel broadcast detection, contiguous
+  row batching, sparse set-bit fallback, and inactive-tail sanitization while
+  retaining the public row-major texture storage ABI;
 - a device-owned persistent worker pool that dynamically schedules flattened
   block ranges, keeps all warps of one block together, joins before the next
   stream command, and retains a one-worker serial diagnostic mode;
-- the backend-neutral DSL and XIR block-size contract remains a multiple of
-  32; SIMD partitions each thread block into independent width-1/4/8/16
-  packets, matching fallback's separation of block size from warp size;
+- a checked SIMD static-block contract requiring each nonzero dimension to be
+  a power of two; production launch-ID decomposition uses masks and shifts
+  rather than integer division, while SIMD still partitions each block into
+  independent width-1/4/8/16 packets;
 - standalone unit coverage for warp1/4/8/16 control flow and positive/negative
   Schedule IR fixtures, plus XIR projection fixtures for divergent diamonds,
   uniform control, lane-dependent loops, a deterministic family of arbitrary

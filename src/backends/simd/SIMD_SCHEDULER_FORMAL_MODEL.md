@@ -348,17 +348,25 @@ refinement.
 | Model object | Schedule/LLVM implementation |
 |---|---|
 | `live` | `live.mask` |
-| ready/runnable mask | `runnable.mask` |
-| `pc[l]` | `lane.pc` |
+| ready/runnable mask | `runnable.mask`, `ready.mask.*`, and `current.mask` |
+| `pc[l]` | the current LLVM block plus bounded scalar `ready.target.*` records selected by `ready.mask.*`; no per-lane PC vector is materialized |
 | `token[l]` | `lane.convergence.token` |
 | frame active/static ID/parent | `frame.active`, `frame.static.id`, `frame.parent.token` |
 | frame expected/arrived | `frame.expected`, `frame.arrived` |
-| loop epochs | `loop.epoch.*` |
+| loop epochs | dynamic frame/worklist-record identity plus Schedule IR loop membership; no `loop.epoch.*` alloca is materialized |
 | terminating-execution post-dominance | `PostDomTreeOptions::account_for_infinite_paths = false` |
 | dynamic target arrival/cascade | `_arrive_at_convergence_target`, `_cascade_at_convergence_target` |
 | branch partition | `_emit_terminator` split/switch lowering |
 | PHI edge transfer | `_apply_assignments` before `_route_edge` |
 | scalar-uniform storage | `LLVMValueLayout` plus `WarpUniformity` |
+
+The first column remains an abstract independent-lane transition system. The
+LLVM column is a refinement, not a field-for-field encoding: an executing or
+suspended cohort already has one scalar target and one vector mask, so storing
+the same target once per lane is redundant. Ordinary coherent edges stay in
+LLVM control flow; only a true partition creates ready records. Distinct loop
+iterations remain distinct dynamic records/tokens, which supplies the epoch
+separation required by the model without an explicit epoch vector.
 
 The generated LLVM remains target-independent fixed-vector IR. Machine ISA
 selection, legalization, register allocation, and scheduling remain LLVM's

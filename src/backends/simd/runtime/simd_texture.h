@@ -13,19 +13,23 @@ private:
 
 private:
     static void _read_float(
-        void *texture, uint32_t level,
-        uint32_t x, uint32_t y, uint32_t z, void *value) noexcept;
+        void *texture, uint32_t level, uint32_t lane_count,
+        uint64_t active_mask_bits, const uint32_t *x,
+        const uint32_t *y, const uint32_t *z, void *values) noexcept;
     static void _read_uint(
-        void *texture, uint32_t level,
-        uint32_t x, uint32_t y, uint32_t z, void *value) noexcept;
+        void *texture, uint32_t level, uint32_t lane_count,
+        uint64_t active_mask_bits, const uint32_t *x,
+        const uint32_t *y, const uint32_t *z, void *values) noexcept;
     static void _write_float(
-        void *texture, uint32_t level,
-        uint32_t x, uint32_t y, uint32_t z,
-        const void *value) noexcept;
+        void *texture, uint32_t level, uint32_t lane_count,
+        uint64_t active_mask_bits, const uint32_t *x,
+        const uint32_t *y, const uint32_t *z,
+        const void *values) noexcept;
     static void _write_uint(
-        void *texture, uint32_t level,
-        uint32_t x, uint32_t y, uint32_t z,
-        const void *value) noexcept;
+        void *texture, uint32_t level, uint32_t lane_count,
+        uint64_t active_mask_bits, const uint32_t *x,
+        const uint32_t *y, const uint32_t *z,
+        const void *values) noexcept;
     [[nodiscard]] static uint32_t _size(
         void *texture, uint32_t level, uint32_t axis) noexcept;
 

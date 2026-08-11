@@ -1040,6 +1040,9 @@ template<size_t Width>
         CHECK(ir.find("frame.expected") == std::string::npos);
     } else {
         CHECK(ir.find("scheduler.loop") != std::string::npos);
+        CHECK(ir.find("lane.pc") == std::string::npos);
+        CHECK(ir.find("loop.epoch") == std::string::npos);
+        CHECK(ir.find("ready.mask") != std::string::npos);
     }
 
     LLVMJIT jit;
@@ -1074,6 +1077,42 @@ template<size_t Width>
                   (lane < active_lanes ? sum : 0xdeadbeefu));
         }
     }
+    return true;
+}
+
+[[nodiscard]] bool run_static_block_size_codegen() {
+    static constexpr auto width = 8u;
+    auto schedule_function = make_divergent_collective(width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-static-block-size", *context);
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width,
+        "schedule_static_block_size", false, {32u, 2u, 1u});
+    CHECK(codegen.succeeded());
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("thread.id.x") != std::string::npos);
+    CHECK(ir.find("thread.id.yz") != std::string::npos);
+    CHECK(ir.find("thread.id.y") != std::string::npos);
+    CHECK(ir.find("thread.id.z") != std::string::npos);
+    CHECK(ir.find(" urem ") == std::string::npos);
+    CHECK(ir.find(" udiv ") == std::string::npos);
+
+    auto invalid_context = std::make_unique<::llvm::LLVMContext>();
+    auto invalid_module = std::make_unique<::llvm::Module>(
+        "simd-invalid-static-block-size", *invalid_context);
+    auto invalid = lower_schedule_to_llvm(
+        *invalid_module, *schedule_function, width,
+        "schedule_invalid_static_block_size", false,
+        {48u, 2u, 1u});
+    CHECK(!invalid.succeeded());
+    CHECK(invalid.error.find("powers of two") != std::string::npos);
     return true;
 }
 
@@ -1482,6 +1521,12 @@ template<size_t Width>
         return false;
     }
     CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("varying.switch.coherent") != std::string::npos);
+    CHECK(ir.find("varying.switch.divergent") != std::string::npos);
     LLVMJIT jit;
     CHECK(jit.succeeded());
     CHECK(jit.add_module(std::move(module), std::move(context)));
@@ -1489,7 +1534,8 @@ template<size_t Width>
         const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
     auto function = reinterpret_cast<Entry *>(jit.lookup(name));
     CHECK(function != nullptr);
-    for (auto active_lanes : {uint32_t{8u}, uint32_t{6u}}) {
+    for (auto active_lanes :
+         {uint32_t{8u}, uint32_t{6u}, uint32_t{1u}}) {
         std::array<uint32_t, width> output{};
         output.fill(0xdeadbeefu);
         auto config = launch_1d(active_lanes, width);
@@ -1761,6 +1807,166 @@ template<size_t Width>
     return true;
 }
 
+struct TexturePacketProbe {
+    bool valid{true};
+    uint32_t read_calls{0u};
+    uint32_t write_calls{0u};
+    uint32_t lane_count{0u};
+    uint64_t read_mask{0u};
+    uint64_t write_mask{0u};
+    std::array<uint32_t, 8u> x{};
+    std::array<uint32_t, 8u> y{};
+    std::array<uint32_t, 8u> z{};
+};
+
+void texture_packet_read_probe(
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *z, void *values) {
+    auto *probe = static_cast<TexturePacketProbe *>(texture);
+    probe->read_calls++;
+    probe->lane_count = lane_count;
+    probe->read_mask = active_mask_bits;
+    probe->valid &= level == 3u && lane_count == 8u;
+    auto *components = static_cast<float *>(values);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->x[lane] = x[lane];
+        probe->y[lane] = y[lane];
+        probe->z[lane] = z[lane];
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            components[component * lane_count + lane] =
+                static_cast<float>(100u * component + x[lane]);
+        }
+    }
+}
+
+void texture_packet_write_probe(
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *z, const void *values) {
+    auto *probe = static_cast<TexturePacketProbe *>(texture);
+    probe->write_calls++;
+    probe->write_mask = active_mask_bits;
+    probe->valid &= level == 3u && lane_count == 8u;
+    auto *components = static_cast<const float *>(values);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->valid &= x[lane] == probe->x[lane] &&
+                        y[lane] == probe->y[lane] &&
+                        z[lane] == probe->z[lane];
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            probe->valid &=
+                components[component * lane_count + lane] ==
+                static_cast<float>(100u * component + x[lane]);
+        }
+    }
+}
+
+uint32_t texture_packet_size_probe(
+    void *, uint32_t, uint32_t) {
+    return 8u;
+}
+
+[[nodiscard]] bool run_texture_packet_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("texture_packet_read_write");
+    auto *texture_type = Type::texture(Type::of<float>(), 2u);
+    auto *texture = kernel->create_resource_argument(texture_type);
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *y = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, one});
+    auto *coordinate = builder.call(
+        Type::of<luisa::uint2>(), xir::ArithmeticOp::AGGREGATE,
+        {x, y});
+    auto *pixel = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceReadOp::TEXTURE2D_READ,
+        {texture, coordinate});
+    builder.call(
+        xir::ResourceWriteOp::TEXTURE2D_WRITE,
+        {texture, coordinate, pixel});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-texture-packet", *context);
+    auto name = std::string{"simd_texture_packet"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(codegen.argument_buffer_size == sizeof(SIMDHostTextureView));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("texture.read.packet") != std::string::npos);
+    CHECK(ir.find("texture.write.packet") != std::string::npos);
+    CHECK(ir.find("texture.read.lane") == std::string::npos);
+    CHECK(ir.find("texture.write.lane") == std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    TexturePacketProbe probe;
+    auto texture_view = SIMDHostTextureView{
+        .texture = &probe,
+        .read_float = texture_packet_read_probe,
+        .read_uint = texture_packet_read_probe,
+        .write_float = texture_packet_write_probe,
+        .write_uint = texture_packet_write_probe,
+        .size = texture_packet_size_probe,
+        .level = 3u,
+        .dimension = 2u,
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&texture_view, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.read_calls == 1u);
+    CHECK(probe.write_calls == 1u);
+    CHECK(probe.lane_count == width);
+    CHECK(probe.read_mask == 0x1fu);
+    CHECK(probe.write_mask == 0x1fu);
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        CHECK(probe.x[lane] == lane);
+        CHECK(probe.y[lane] == 0u);
+        CHECK(probe.z[lane] == 0u);
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_buffer_codegen() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -1850,6 +2056,8 @@ int main() {
         {"Schedule IR vector warp4", &run_codegen<4u>},
         {"Schedule IR vector warp8", &run_codegen<8u>},
         {"Schedule IR vector warp16", &run_codegen<16u>},
+        {"static power-of-two block size",
+         &run_static_block_size_codegen},
         {"Schedule IR loop warp1", &run_loop_codegen<1u>},
         {"Schedule IR loop warp4", &run_loop_codegen<4u>},
         {"Schedule IR loop warp8", &run_loop_codegen<8u>},
@@ -1872,6 +2080,7 @@ int main() {
          &run_return_convergence_cascade_codegen},
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
+        {"XIR texture packet callback", &run_texture_packet_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST select operand order", &run_ast_select_codegen},
     };

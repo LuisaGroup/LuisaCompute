@@ -148,6 +148,15 @@ void ScheduleEmitter::_masked_write(::llvm::AllocaInst *slot, ::llvm::Value *val
         array, frames, {_builder.getInt32(0u), index});
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_ready_element_pointer(
+    ::llvm::AllocaInst *array, ::llvm::Value *index) {
+    auto *array_type = ::llvm::cast<::llvm::ArrayType>(
+        array->getAllocatedType());
+    return _builder.CreateInBoundsGEP(
+        array_type, array,
+        {_builder.getInt32(0u), index});
+}
+
 void ScheduleEmitter::_trap_if(::llvm::Value *condition, std::string_view label) {
     auto *trap = ::llvm::BasicBlock::Create(
         _module.getContext(), std::string{label} + ".trap", _entry);
@@ -254,16 +263,6 @@ void ScheduleEmitter::_declare_convergence(
     auto *next_token = _builder.CreateSelect(
         divergent, gate_token, current_token);
     _masked_write(_token_state, next_token, _active_mask);
-}
-
-void ScheduleEmitter::_advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *mask) {
-    auto *slot = _loop_epochs[loop.value];
-    auto *old = _builder.CreateLoad(slot->getAllocatedType(), slot);
-    auto *one = _builder.CreateVectorSplat(
-        _width, _builder.getInt32(1u));
-    _builder.CreateStore(
-        _builder.CreateSelect(mask, _builder.CreateAdd(old, one), old),
-        slot);
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_arrive_at_convergence_target(
@@ -379,21 +378,54 @@ void ScheduleEmitter::_advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *
     return next_flow;
 }
 
-void ScheduleEmitter::_resume(schedule::BlockId target, ::llvm::Value *mask) {
-    _masked_write(_pc_state, _builder.getInt32(target.value), mask);
+void ScheduleEmitter::_resume(
+    ::llvm::Value *target, ::llvm::Value *mask) {
+    auto *nonempty = _builder.CreateOrReduce(mask);
+    auto *count = _builder.CreateLoad(
+        _ready_count->getAllocatedType(), _ready_count);
+    _trap_if(
+        _builder.CreateAnd(
+            nonempty,
+            _builder.CreateICmpUGE(
+                count, _builder.getInt32(_width))),
+        "ready.overflow");
+    auto *index = _builder.CreateSelect(
+        nonempty, count, _builder.getInt32(0u));
+    auto *mask_ptr = _ready_element_pointer(
+        _ready_masks, index);
+    auto *old_mask = _builder.CreateLoad(
+        _layout.mask_type(), mask_ptr);
+    _builder.CreateStore(
+        _builder.CreateSelect(nonempty, mask, old_mask),
+        mask_ptr);
+    auto *target_ptr = _ready_element_pointer(
+        _ready_targets, index);
+    auto *old_target = _builder.CreateLoad(
+        _builder.getInt32Ty(), target_ptr);
+    _builder.CreateStore(
+        _builder.CreateSelect(nonempty, target, old_target),
+        target_ptr);
+    _builder.CreateStore(
+        _builder.CreateSelect(
+            nonempty,
+            _builder.CreateAdd(count, _builder.getInt32(1u)),
+            count),
+        _ready_count);
     auto *runnable = _builder.CreateLoad(
         _runnable_mask->getAllocatedType(), _runnable_mask);
     _builder.CreateStore(_builder.CreateOr(runnable, mask),
                          _runnable_mask);
 }
 
-void ScheduleEmitter::_route_edge(const schedule::ControlEdge &edge,
-                                  ::llvm::Value *mask) {
+void ScheduleEmitter::_resume(
+    schedule::BlockId target, ::llvm::Value *mask) {
+    _resume(_builder.getInt32(target.value), mask);
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_route_edge(
+    const schedule::ControlEdge &edge, ::llvm::Value *mask) {
     _apply_assignments(edge.assignments, mask);
-    if (_failed()) { return; }
-    if (edge.loop_back) {
-        _advance_loop_epoch(*edge.loop_back, mask);
-    }
+    if (_failed()) { return nullptr; }
     auto *flow = mask;
     // A block may be reached both from inside and outside a convergence
     // scope, so dominance alone cannot decide whether this edge is an
@@ -405,13 +437,23 @@ void ScheduleEmitter::_route_edge(const schedule::ControlEdge &edge,
         flow = _cascade_at_convergence_target(
             _builder.getInt32(edge.target.value), flow);
     }
-    _resume(edge.target, flow);
+    return flow;
+}
+
+void ScheduleEmitter::_continue_at(
+    schedule::BlockId target, ::llvm::Value *mask) {
+    _builder.CreateStore(mask, _current_mask);
+    _builder.CreateCondBr(
+        _builder.CreateOrReduce(mask),
+        _schedule_blocks[target.value], _scheduler_loop);
 }
 
 void ScheduleEmitter::_emit_arrival(const schedule::ControlEdge &edge,
                                     ::llvm::Value *mask) {
-    _route_edge(edge, mask);
-    _builder.CreateBr(_scheduler_loop);
+    auto *flow = _route_edge(edge, mask);
+    if (flow != nullptr) {
+        _continue_at(edge.target, flow);
+    }
 }
 
 void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
@@ -433,17 +475,59 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                         _active_mask, condition);
                     auto *false_mask = _builder.CreateAnd(
                         _active_mask, _builder.CreateNot(condition));
+                    auto *true_nonempty =
+                        _builder.CreateOrReduce(true_mask);
+                    auto *false_nonempty =
+                        _builder.CreateOrReduce(false_mask);
+                    auto *divergent = _builder.CreateAnd(
+                        true_nonempty, false_nonempty);
+                    auto *divergent_path =
+                        ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "varying.divergent", _entry);
+                    auto *coherent_path =
+                        ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "varying.coherent", _entry);
+                    _builder.CreateCondBr(
+                        divergent, divergent_path,
+                        coherent_path);
+
+                    _builder.SetInsertPoint(divergent_path);
                     if (control.convergence) {
                         _declare_convergence(
                             *control.convergence,
-                            _builder.CreateAnd(
-                                _builder.CreateOrReduce(true_mask),
-                                _builder.CreateOrReduce(false_mask)));
+                            _builder.getTrue());
                     }
-                    _route_edge(control.true_edge, true_mask);
-                    _route_edge(control.false_edge, false_mask);
-                    if (_failed()) { return; }
+                    auto *true_flow = _route_edge(
+                        control.true_edge, true_mask);
+                    auto *false_flow = _route_edge(
+                        control.false_edge, false_mask);
+                    if (true_flow == nullptr ||
+                        false_flow == nullptr) {
+                        return;
+                    }
+                    _resume(control.true_edge.target, true_flow);
+                    _resume(control.false_edge.target, false_flow);
                     _builder.CreateBr(_scheduler_loop);
+
+                    _builder.SetInsertPoint(coherent_path);
+                    auto *true_path =
+                        ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "varying.coherent.true", _entry);
+                    auto *false_path =
+                        ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "varying.coherent.false", _entry);
+                    _builder.CreateCondBr(
+                        true_nonempty, true_path, false_path);
+                    _builder.SetInsertPoint(true_path);
+                    _emit_arrival(
+                        control.true_edge, true_mask);
+                    _builder.SetInsertPoint(false_path);
+                    _emit_arrival(
+                        control.false_edge, false_mask);
                 } else {
                     auto *true_path = ::llvm::BasicBlock::Create(
                         _module.getContext(), "uniform.true", _entry);
@@ -499,18 +583,73 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                     }
                     auto *default_mask = remaining;
                     record_path(default_mask);
+                    auto *divergent_path =
+                        ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "varying.switch.divergent", _entry);
+                    auto *coherent_path =
+                        ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "varying.switch.coherent", _entry);
+                    _builder.CreateCondBr(
+                        divergent, divergent_path,
+                        coherent_path);
+
+                    _builder.SetInsertPoint(divergent_path);
                     if (control.convergence) {
                         _declare_convergence(
-                            *control.convergence, divergent);
+                            *control.convergence,
+                            _builder.getTrue());
                     }
                     for (auto i = size_t{0u};
                          i < control.cases.size(); i++) {
-                        _route_edge(
+                        auto *flow = _route_edge(
                             control.cases[i].edge, case_masks[i]);
+                        if (flow == nullptr) { return; }
+                        _resume(
+                            control.cases[i].edge.target, flow);
                     }
-                    _route_edge(control.default_edge, default_mask);
-                    if (_failed()) { return; }
+                    auto *default_flow = _route_edge(
+                        control.default_edge, default_mask);
+                    if (default_flow == nullptr) { return; }
+                    _resume(
+                        control.default_edge.target, default_flow);
                     _builder.CreateBr(_scheduler_loop);
+
+                    _builder.SetInsertPoint(coherent_path);
+                    auto *default_path =
+                        ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "varying.switch.coherent.default", _entry);
+                    auto *seed_selector =
+                        _builder.CreateExtractElement(
+                            selector, _seed_lane);
+                    auto *llvm_switch = _builder.CreateSwitch(
+                        seed_selector, default_path,
+                        control.cases.size());
+                    std::vector<::llvm::BasicBlock *> case_paths;
+                    case_paths.reserve(control.cases.size());
+                    for (auto &&item : control.cases) {
+                        auto *case_path =
+                            ::llvm::BasicBlock::Create(
+                                _module.getContext(),
+                                "varying.switch.coherent.case", _entry);
+                        case_paths.emplace_back(case_path);
+                        llvm_switch->addCase(
+                            ::llvm::ConstantInt::get(
+                                element_type, item.value),
+                            case_path);
+                    }
+                    for (auto i = size_t{0u};
+                         i < control.cases.size(); i++) {
+                        _builder.SetInsertPoint(case_paths[i]);
+                        _emit_arrival(
+                            control.cases[i].edge,
+                            case_masks[i]);
+                    }
+                    _builder.SetInsertPoint(default_path);
+                    _emit_arrival(
+                        control.default_edge, default_mask);
                 } else {
                     auto *default_path = ::llvm::BasicBlock::Create(
                         _module.getContext(),
@@ -641,16 +780,8 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                         // every live frame without quadratically expanding
                         // the return block's LLVM IR.
                         flow = _cascade_at_convergence_target(target, flow);
-                        _masked_write(_pc_state, target, flow);
-                        released = flow;
+                        _resume(target, flow);
                     }
-                    auto *current_runnable = _builder.CreateLoad(
-                        _runnable_mask->getAllocatedType(),
-                        _runnable_mask);
-                    _builder.CreateStore(
-                        _builder.CreateOr(
-                            current_runnable, released),
-                        _runnable_mask);
                 }
                 _builder.CreateBr(_scheduler_loop);
             } else if constexpr (
@@ -844,8 +975,18 @@ void ScheduleEmitter::_allocate_state() {
             mask_type, nullptr, "live.mask");
         _runnable_mask = _builder.CreateAlloca(
             mask_type, nullptr, "runnable.mask");
-        _pc_state = _builder.CreateAlloca(
-            i32_lanes, nullptr, "lane.pc");
+        _ready_count = _builder.CreateAlloca(
+            _builder.getInt32Ty(), nullptr, "ready.count");
+        auto *ready_masks = ::llvm::ArrayType::get(
+            mask_type, _width);
+        _ready_masks = _builder.CreateAlloca(
+            ready_masks, nullptr, "ready.mask");
+        auto *ready_targets = ::llvm::ArrayType::get(
+            _builder.getInt32Ty(), _width);
+        _ready_targets = _builder.CreateAlloca(
+            ready_targets, nullptr, "ready.target");
+        _current_mask = _builder.CreateAlloca(
+            mask_type, nullptr, "current.mask");
         _token_state = _builder.CreateAlloca(
             i32_lanes, nullptr, "lane.convergence.token");
         _frame_active = _builder.CreateAlloca(
@@ -861,7 +1002,15 @@ void ScheduleEmitter::_allocate_state() {
             frame_masks, nullptr, "frame.arrived");
         _builder.CreateStore(zero_mask, _live_mask);
         _builder.CreateStore(zero_mask, _runnable_mask);
-        _builder.CreateStore(zero_i32_lanes, _pc_state);
+        _builder.CreateStore(
+            _builder.getInt32(0u), _ready_count);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(ready_masks),
+            _ready_masks);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(ready_targets),
+            _ready_targets);
+        _builder.CreateStore(zero_mask, _current_mask);
         _builder.CreateStore(zero_i32_lanes, _token_state);
         _builder.CreateStore(zero_mask, _frame_active);
         _builder.CreateStore(zero_i32_lanes, _frame_static_id);
@@ -888,18 +1037,6 @@ void ScheduleEmitter::_allocate_state() {
             ++_target_convergence_depths[point.target.value];
         }
 
-        _loop_epochs.resize(_source.loops().size());
-        _block_loops.resize(_source.blocks().size());
-        for (auto &&loop : _source.loops()) {
-            auto *epoch = _builder.CreateAlloca(
-                i32_lanes, nullptr,
-                "loop.epoch." + std::to_string(loop.id.value));
-            _builder.CreateStore(zero_i32_lanes, epoch);
-            _loop_epochs[loop.id.value] = epoch;
-            for (auto block : loop.blocks) {
-                _block_loops[block.value].emplace_back(loop.id);
-            }
-        }
     }
     _find_instruction_spills();
     _local_allocations.resize(_source.values().size(), nullptr);
@@ -1048,11 +1185,7 @@ void ScheduleEmitter::_build() {
         return;
     }
     _builder.CreateStore(initial_mask, _live_mask);
-    _builder.CreateStore(initial_mask, _runnable_mask);
-    _builder.CreateStore(
-        _builder.CreateVectorSplat(
-            _width, _builder.getInt32(_source.entry().value)),
-        _pc_state);
+    _resume(_source.entry(), initial_mask);
 
     _scheduler_loop = ::llvm::BasicBlock::Create(
         context, "scheduler.loop", _entry);
@@ -1066,33 +1199,49 @@ void ScheduleEmitter::_build() {
         context, "scheduler.stalled", _entry);
     auto *invalid = ::llvm::BasicBlock::Create(
         context, "scheduler.invalid", _entry);
-    std::vector<::llvm::BasicBlock *> cases;
-    cases.reserve(_source.blocks().size());
+    _schedule_blocks.reserve(_source.blocks().size());
     for (auto &&block : _source.blocks()) {
-        cases.emplace_back(::llvm::BasicBlock::Create(
+        _schedule_blocks.emplace_back(::llvm::BasicBlock::Create(
             context,
             "schedule." + std::to_string(block.id.value), _entry));
     }
     _builder.CreateBr(_scheduler_loop);
 
     _builder.SetInsertPoint(_scheduler_loop);
-    auto *runnable = _builder.CreateLoad(
-        _runnable_mask->getAllocatedType(), _runnable_mask);
+    auto *ready_count = _builder.CreateLoad(
+        _ready_count->getAllocatedType(), _ready_count);
     _builder.CreateCondBr(
-        _builder.CreateOrReduce(runnable),
+        _builder.CreateICmpNE(
+            ready_count, _builder.getInt32(0u)),
         dispatch, done);
 
     _builder.SetInsertPoint(dispatch);
-    _seed_lane = _safe_first_lane(runnable);
-    auto *pcs = _builder.CreateLoad(
-        _pc_state->getAllocatedType(), _pc_state);
-    auto *pc = _builder.CreateExtractElement(pcs, _seed_lane);
+    auto *ready_index = _builder.CreateSub(
+        ready_count, _builder.getInt32(1u));
+    _builder.CreateStore(ready_index, _ready_count);
+    auto *ready_mask_ptr = _ready_element_pointer(
+        _ready_masks, ready_index);
+    auto *popped_mask = _builder.CreateLoad(
+        _layout.mask_type(), ready_mask_ptr);
+    _builder.CreateStore(popped_mask, _current_mask);
+    auto *ready_target_ptr = _ready_element_pointer(
+        _ready_targets, ready_index);
+    auto *pc = _builder.CreateLoad(
+        _builder.getInt32Ty(), ready_target_ptr);
+    auto *runnable = _builder.CreateLoad(
+        _runnable_mask->getAllocatedType(), _runnable_mask);
+    _builder.CreateStore(
+        _builder.CreateAnd(
+            runnable, _builder.CreateNot(popped_mask)),
+        _runnable_mask);
     auto *dispatch_switch = _builder.CreateSwitch(
         pc,
-        invalid, static_cast<unsigned>(cases.size()));
+        invalid,
+        static_cast<unsigned>(_schedule_blocks.size()));
     for (auto &&block : _source.blocks()) {
         dispatch_switch->addCase(
-            _builder.getInt32(block.id.value), cases[block.id.value]);
+            _builder.getInt32(block.id.value),
+            _schedule_blocks[block.id.value]);
     }
 
     _builder.SetInsertPoint(invalid);
@@ -1127,41 +1276,12 @@ void ScheduleEmitter::_build() {
     _builder.CreateRetVoid();
 
     for (auto &&block : _source.blocks()) {
-        _builder.SetInsertPoint(cases[block.id.value]);
+        _builder.SetInsertPoint(
+            _schedule_blocks[block.id.value]);
         _locals.clear();
-        auto *current_runnable = _builder.CreateLoad(
-            _runnable_mask->getAllocatedType(), _runnable_mask);
-        auto *current_pcs = _builder.CreateLoad(
-            _pc_state->getAllocatedType(), _pc_state);
-        auto *current_tokens = _builder.CreateLoad(
-            _token_state->getAllocatedType(), _token_state);
-        auto *seed_token = _builder.CreateExtractElement(
-            current_tokens, _seed_lane);
-        _active_mask = _builder.CreateAnd(
-            current_runnable,
-            _builder.CreateAnd(
-                _builder.CreateICmpEQ(
-                    current_pcs,
-                    _builder.CreateVectorSplat(
-                        _width,
-                        _builder.getInt32(block.id.value))),
-                _builder.CreateICmpEQ(
-                    current_tokens,
-                    _builder.CreateVectorSplat(
-                        _width, seed_token))));
-        for (auto loop : _block_loops[block.id.value]) {
-            auto *epochs = _builder.CreateLoad(
-                _loop_epochs[loop.value]->getAllocatedType(),
-                _loop_epochs[loop.value]);
-            auto *seed_epoch = _builder.CreateExtractElement(
-                epochs, _seed_lane);
-            _active_mask = _builder.CreateAnd(
-                _active_mask,
-                _builder.CreateICmpEQ(
-                    epochs,
-                    _builder.CreateVectorSplat(
-                        _width, seed_epoch)));
-        }
+        _active_mask = _builder.CreateLoad(
+            _layout.mask_type(), _current_mask);
+        _seed_lane = _safe_first_lane(_active_mask);
         for (auto &&instruction : block.instructions) {
             _emit_instruction(instruction);
             if (_failed()) { return; }

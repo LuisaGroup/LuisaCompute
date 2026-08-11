@@ -123,7 +123,8 @@ This is an implementation refinement of the cohort model, not a separate
 semantic mode. Inactive dispatch-edge invocations perform no instruction or
 resource side effect; resource arguments, local storage, atomics, math, and
 the packet return ABI remain shared with wider specializations. W4/W8/W16
-continue to use the independent-lane cohort scheduler.
+refine the independent-lane model with the bounded scalar-target/vector-mask
+worklist described by the scheduler formal model.
 
 Permanent code-shape and execution regressions cover a divergent diamond, a
 natural loop, a switch inside a loop with early exits, and an inactive W1
@@ -151,6 +152,20 @@ additional ordering between independent host streams is implied.
 `SIMDDeviceConfigExt::worker_count()` defines the host execution width. Zero
 selects `max(hardware_concurrency, 1)` and one executes block ranges inline for
 diagnostics and serial differential benchmarks.
+
+### 4.3 Static power-of-two block specialization
+
+The production compiler forwards a kernel's declared three-dimensional block
+size into Schedule-to-LLVM. Every nonzero static dimension must be a power of
+two. Static `thread_id` decomposition then uses masks and logical shifts; it
+must not emit integer division or remainder. The generic public lowering API
+may pass zeros to request the runtime launch-config path, which retains
+`udiv`/`urem` because no static divisor is available.
+
+This is a compile-time contract, not an unchecked optimization hint. A kernel
+with a non-power-of-two static dimension is rejected before LLVM emission.
+Regression IR verifies `{32, 2, 1}` has named mask/shift decomposition and no
+`udiv`/`urem`, while `{48, 2, 1}` fails with a precise diagnostic.
 
 ## 5. Vector-math providers
 
@@ -323,6 +338,23 @@ C = (operation, element type, W, target, mask support, accuracy/flags)
 Codegen may select an implementation only if `C` is satisfied. A scalar C++
 callback is permitted for W1 or an explicitly documented sparse fallback; it
 is not completion for a normal W4/W8/W16 path.
+
+Direct texture reads and writes cross the JIT/runtime boundary once per
+packet, not once per lane. The packet ABI carries the active lanes as low bits
+of a `uint64_t`, coordinates as three `lane_count`-element SoA arrays, and a
+pixel as four consecutive component vectors. The runtime may service a
+same-texel broadcast once, batch a fully active contiguous row, or iterate only
+set bits for a sparse cohort. It must inspect no inactive coordinate and issue
+no inactive resource access; read scratch is initialized before the callback
+so an inactive tail cannot expose poison.
+
+The physical texture remains Luisa's native row-major resource layout. The
+packet ABI is the SIMD-facing layout boundary: it permits coherence-aware
+batching without changing native handles, upload/download layout, external
+memory, or read/write synchronization. JIT code must not assume a raw texture
+pointer or storage format. Direct wide AoS loads/gathers require a separate
+proven safety and performance gate; the audited experiment reduced instruction
+count but regressed end-to-end graphics time and is not part of production.
 
 Embree traversal uses the packet API matching the specialization width:
 

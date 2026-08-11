@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -36,16 +37,19 @@ struct alignas(16) SIMDHostBindlessArrayView {
     size_t size{0u};
 };
 
-// Texture operations are initially scalarized per active lane. Keeping the
-// host callbacks in the descriptor makes JIT modules self-contained: emitted
-// LLVM calls an opaque function pointer and never names a symbol from the
-// runtime module.
+// Texture callbacks operate once per SIMD packet. Coordinates are SoA vectors
+// of lane_count elements and values contain four consecutive component
+// vectors. inactive_mask_bits uses its low lane_count bits. This keeps the JIT
+// ABI target-independent while allowing the runtime to batch coherent texels
+// and iterate only set bits for a sparse cohort.
 using SIMDHostTextureRead = void(
-    void *texture, uint32_t level,
-    uint32_t x, uint32_t y, uint32_t z, void *value);
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *z, void *values);
 using SIMDHostTextureWrite = void(
-    void *texture, uint32_t level,
-    uint32_t x, uint32_t y, uint32_t z, const void *value);
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *z, const void *values);
 using SIMDHostTextureSize = uint32_t(
     void *texture, uint32_t level, uint32_t axis);
 
@@ -97,6 +101,9 @@ struct LLVMScheduleCodegenResult {
 [[nodiscard]] LLVMScheduleCodegenResult lower_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
     uint32_t specialization_width, std::string_view entry_name = {},
-    bool enable_fast_math = false);
+    bool enable_fast_math = false,
+    // A zero dimension selects the generic launch-config path. Nonzero static
+    // dimensions must be powers of two and are lowered with shifts and masks.
+    std::array<uint32_t, 3u> static_block_size = {});
 
 }// namespace luisa::compute::simd

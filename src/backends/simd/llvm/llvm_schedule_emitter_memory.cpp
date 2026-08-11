@@ -434,23 +434,11 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         _fail("direct texture read dimension mismatch");
         return nullptr;
     }
+    if (_width > 64u) {
+        _fail("packet texture callbacks support widths up to 64 lanes");
+        return nullptr;
+    }
 
-    auto *scalar_type = _data_type(element, false);
-    auto *scratch_type = ::llvm::ArrayType::get(scalar_type, 4u);
-    auto *scratch = _entry_scratch(
-        scratch_type,
-        "texture.read." + std::to_string(instruction.result->value));
-    auto *read = _builder.CreateExtractValue(
-        texture, {floating ? 1u : 2u});
-    auto *object = _builder.CreateExtractValue(texture, {0u});
-    auto *level = _builder.CreateExtractValue(texture, {6u});
-    auto *read_type = ::llvm::FunctionType::get(
-        _builder.getVoidTy(),
-        {::llvm::PointerType::getUnqual(_module.getContext()),
-         _builder.getInt32Ty(), _builder.getInt32Ty(),
-         _builder.getInt32Ty(), _builder.getInt32Ty(),
-         ::llvm::PointerType::getUnqual(_module.getContext())},
-        false);
     std::array<::llvm::Value *, 3u> coordinates{
         nullptr, nullptr,
         _builder.CreateVectorSplat(
@@ -459,52 +447,63 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         coordinates[axis] = _extract_child(
             coordinate, coordinate_value->type, axis, true);
     }
+    auto *scalar_type = _data_type(element, false);
+    auto *lane_type = ::llvm::FixedVectorType::get(scalar_type, _width);
+    auto *scratch_type = ::llvm::ArrayType::get(lane_type, 4u);
+    auto *scratch = _entry_scratch(
+        scratch_type,
+        "texture.read.packet." +
+            std::to_string(instruction.result->value));
+    auto *read = _builder.CreateExtractValue(
+        texture, {floating ? 1u : 2u});
+    auto *object = _builder.CreateExtractValue(texture, {0u});
+    auto *level = _builder.CreateExtractValue(texture, {6u});
+    auto *read_type = ::llvm::FunctionType::get(
+        _builder.getVoidTy(),
+        {::llvm::PointerType::getUnqual(_module.getContext()),
+         _builder.getInt32Ty(), _builder.getInt32Ty(),
+         _builder.getInt64Ty(),
+         ::llvm::PointerType::getUnqual(_module.getContext()),
+         ::llvm::PointerType::getUnqual(_module.getContext()),
+         ::llvm::PointerType::getUnqual(_module.getContext()),
+         ::llvm::PointerType::getUnqual(_module.getContext())},
+        false);
+    std::array<::llvm::AllocaInst *, 3u> coordinate_scratch{};
+    auto *coordinate_type = ::llvm::FixedVectorType::get(
+        _builder.getInt32Ty(), _width);
+    for (auto axis = uint32_t{0u}; axis < 3u; axis++) {
+        coordinate_scratch[axis] = _entry_scratch(
+            coordinate_type,
+            "texture.read.coordinate." + std::to_string(axis));
+        _builder.CreateStore(
+            coordinates[axis], coordinate_scratch[axis]);
+    }
+    auto *packed_mask_type = ::llvm::IntegerType::get(
+        _module.getContext(), _width);
+    auto *packed_mask = _builder.CreateBitCast(
+        _active_mask, packed_mask_type);
+    auto *active_mask_bits = _builder.CreateZExtOrTrunc(
+        packed_mask, _builder.getInt64Ty());
+    _builder.CreateStore(
+        ::llvm::Constant::getNullValue(scratch_type), scratch);
+    _builder.CreateCall(
+        read_type, read,
+        {object, level, _builder.getInt32(_width), active_mask_bits,
+         coordinate_scratch[0u], coordinate_scratch[1u],
+         coordinate_scratch[2u], scratch});
     auto *result_type = _data_type(result->type, true);
-    ::llvm::Value *pixels =
-        ::llvm::Constant::getNullValue(result_type);
-    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-        auto *before = _builder.GetInsertBlock();
-        auto *active = _builder.CreateExtractElement(
-            _active_mask, lane);
-        auto *read_block = ::llvm::BasicBlock::Create(
-            _module.getContext(),
-            "texture.read.lane." + std::to_string(lane), _entry);
-        auto *continue_block = ::llvm::BasicBlock::Create(
-            _module.getContext(),
-            "texture.read.continue." + std::to_string(lane), _entry);
-        _builder.CreateCondBr(active, read_block, continue_block);
-
-        _builder.SetInsertPoint(read_block);
-        auto *x = _builder.CreateExtractElement(coordinates[0u], lane);
-        auto *y = _builder.CreateExtractElement(coordinates[1u], lane);
-        auto *z = _builder.CreateExtractElement(coordinates[2u], lane);
-        _builder.CreateCall(
-            read_type, read,
-            {object, level, x, y, z, scratch});
-        auto *updated = pixels;
-        for (auto component = uint32_t{0u}; component < 4u;
-             component++) {
-            auto *component_pointer = _builder.CreateGEP(
-                scratch_type, scratch,
-                {_builder.getInt32(0u),
-                 _builder.getInt32(component)});
-            auto *scalar = _builder.CreateLoad(
-                scalar_type, component_pointer);
-            auto *lanes = _extract_child(
-                updated, result->type, component, true);
-            lanes = _builder.CreateInsertElement(
-                lanes, scalar, lane);
-            updated = _insert_child(
-                updated, lanes, result->type, component, true);
-        }
-        _builder.CreateBr(continue_block);
-        auto *read_end = _builder.GetInsertBlock();
-
-        _builder.SetInsertPoint(continue_block);
-        auto *phi = _builder.CreatePHI(result_type, 2u);
-        phi->addIncoming(pixels, before);
-        phi->addIncoming(updated, read_end);
-        pixels = phi;
+    auto *pixels = static_cast<::llvm::Value *>(
+        ::llvm::PoisonValue::get(result_type));
+    for (auto component = uint32_t{0u}; component < 4u;
+         component++) {
+        auto *component_pointer = _builder.CreateGEP(
+            scratch_type, scratch,
+            {_builder.getInt32(0u),
+             _builder.getInt32(component)});
+        auto *lanes = _builder.CreateLoad(
+            lane_type, component_pointer);
+        pixels = _insert_child(
+            pixels, lanes, result->type, component, true);
     }
     return pixels;
 }
@@ -553,11 +552,16 @@ void ScheduleEmitter::_texture_write(
         _fail("direct texture writes currently support float32 and int32 elements");
         return;
     }
+    if (_width > 64u) {
+        _fail("packet texture callbacks support widths up to 64 lanes");
+        return;
+    }
     auto *scalar_type = _data_type(element, false);
-    auto *scratch_type = ::llvm::ArrayType::get(scalar_type, 4u);
+    auto *lane_type = ::llvm::FixedVectorType::get(scalar_type, _width);
+    auto *scratch_type = ::llvm::ArrayType::get(lane_type, 4u);
     auto *scratch = _entry_scratch(
         scratch_type,
-        "texture.write." + std::to_string(
+        "texture.write.packet." + std::to_string(
             instruction.operands[2u].value));
     auto *write = _builder.CreateExtractValue(
         texture, {floating ? 3u : 4u});
@@ -567,7 +571,10 @@ void ScheduleEmitter::_texture_write(
         _builder.getVoidTy(),
         {::llvm::PointerType::getUnqual(_module.getContext()),
          _builder.getInt32Ty(), _builder.getInt32Ty(),
-         _builder.getInt32Ty(), _builder.getInt32Ty(),
+         _builder.getInt64Ty(),
+         ::llvm::PointerType::getUnqual(_module.getContext()),
+         ::llvm::PointerType::getUnqual(_module.getContext()),
+         ::llvm::PointerType::getUnqual(_module.getContext()),
          ::llvm::PointerType::getUnqual(_module.getContext())},
         false);
     std::array<::llvm::Value *, 3u> coordinates{
@@ -578,38 +585,34 @@ void ScheduleEmitter::_texture_write(
         coordinates[axis] = _extract_child(
             coordinate, coordinate_value->type, axis, true);
     }
-    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-        auto *active = _builder.CreateExtractElement(
-            _active_mask, lane);
-        auto *write_block = ::llvm::BasicBlock::Create(
-            _module.getContext(),
-            "texture.write.lane." + std::to_string(lane), _entry);
-        auto *continue_block = ::llvm::BasicBlock::Create(
-            _module.getContext(),
-            "texture.write.continue." + std::to_string(lane), _entry);
-        _builder.CreateCondBr(active, write_block, continue_block);
-
-        _builder.SetInsertPoint(write_block);
-        for (auto component = uint32_t{0u}; component < 4u;
-             component++) {
-            auto *lanes = _extract_child(
-                written, written_value->type, component, true);
-            auto *scalar = _builder.CreateExtractElement(lanes, lane);
-            auto *component_pointer = _builder.CreateGEP(
-                scratch_type, scratch,
-                {_builder.getInt32(0u),
-                 _builder.getInt32(component)});
-            _builder.CreateStore(scalar, component_pointer);
-        }
-        auto *x = _builder.CreateExtractElement(coordinates[0u], lane);
-        auto *y = _builder.CreateExtractElement(coordinates[1u], lane);
-        auto *z = _builder.CreateExtractElement(coordinates[2u], lane);
-        _builder.CreateCall(
-            write_type, write,
-            {object, level, x, y, z, scratch});
-        _builder.CreateBr(continue_block);
-        _builder.SetInsertPoint(continue_block);
+    std::array<::llvm::AllocaInst *, 3u> coordinate_scratch{};
+    auto *coordinate_type = ::llvm::FixedVectorType::get(
+        _builder.getInt32Ty(), _width);
+    for (auto axis = uint32_t{0u}; axis < 3u; axis++) {
+        coordinate_scratch[axis] = _entry_scratch(
+            coordinate_type,
+            "texture.write.coordinate." + std::to_string(axis));
+        _builder.CreateStore(coordinates[axis], coordinate_scratch[axis]);
     }
+    for (auto component = uint32_t{0u}; component < 4u; component++) {
+        auto *component_pointer = _builder.CreateGEP(
+            scratch_type, scratch,
+            {_builder.getInt32(0u), _builder.getInt32(component)});
+        auto *lanes = _extract_child(
+            written, written_value->type, component, true);
+        _builder.CreateStore(lanes, component_pointer);
+    }
+    auto *packed_mask_type = ::llvm::IntegerType::get(
+        _module.getContext(), _width);
+    auto *packed_mask = _builder.CreateBitCast(
+        _active_mask, packed_mask_type);
+    auto *active_mask_bits = _builder.CreateZExtOrTrunc(
+        packed_mask, _builder.getInt64Ty());
+    _builder.CreateCall(
+        write_type, write,
+        {object, level, _builder.getInt32(_width), active_mask_bits,
+         coordinate_scratch[0u], coordinate_scratch[1u],
+         coordinate_scratch[2u], scratch});
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_data(

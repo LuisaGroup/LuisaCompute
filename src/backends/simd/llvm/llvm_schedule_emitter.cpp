@@ -4,14 +4,33 @@
 
 namespace luisa::compute::simd::detail {
 
+namespace {
+
+[[nodiscard]] constexpr bool is_power_of_two(uint32_t value) noexcept {
+    return value != 0u && (value & (value - 1u)) == 0u;
+}
+
+[[nodiscard]] constexpr uint32_t exact_log2(uint32_t value) noexcept {
+    auto result = uint32_t{0u};
+    while (value > 1u) {
+        value >>= 1u;
+        result++;
+    }
+    return result;
+}
+
+}// namespace
+
 ScheduleEmitter::ScheduleEmitter(
     ::llvm::Module &module, const schedule::Function &source, uint32_t width,
-    std::string_view entry_name, bool enable_fast_math)
+    std::string_view entry_name, bool enable_fast_math,
+    std::array<uint32_t, 3u> static_block_size)
     : _module{module},
       _source{source},
       _width{width},
       _entry_name{entry_name},
       _enable_fast_math{enable_fast_math},
+      _static_block_size{static_block_size},
       _layout{module.getContext(), width},
       _collectives{width},
       _builder{module.getContext()} {}
@@ -398,6 +417,12 @@ void ScheduleEmitter::_preflight() {
         _fail("Schedule IR warp width does not match LLVM specialization width");
         return;
     }
+    for (auto size : _static_block_size) {
+        if (size != 0u && !is_power_of_two(size)) {
+            _fail("SIMD static block-size dimensions must be powers of two");
+            return;
+        }
+    }
     auto verification = schedule::verify(_source);
     if (!verification.succeeded()) {
         _fail("cannot lower invalid Schedule IR: " +
@@ -747,24 +772,51 @@ void ScheduleEmitter::_ensure_launch_vectors() {
         _dispatch_size[i] = _load_launch_u32(
             offsetof(SIMDPacketLaunchConfig, dispatch_size) +
             sizeof(uint32_t) * i);
-        _block_size[i] = _load_launch_u32(
-            offsetof(SIMDPacketLaunchConfig, block_size) +
-            sizeof(uint32_t) * i);
+        _block_size[i] = _static_block_size[i] == 0u ?
+            _load_launch_u32(
+                offsetof(SIMDPacketLaunchConfig, block_size) +
+                sizeof(uint32_t) * i) :
+            _builder.getInt32(_static_block_size[i]);
     }
     auto *first = _load_launch_u32(
         offsetof(SIMDPacketLaunchConfig, thread_index));
     _linear_thread_indices = _builder.CreateAdd(
         _builder.CreateVectorSplat(_width, first), _lane_ids());
-    auto *x_size = _builder.CreateVectorSplat(
-        _width, _block_size[0u]);
-    auto *y_size = _builder.CreateVectorSplat(
-        _width, _block_size[1u]);
-    _thread_id[0u] = _builder.CreateURem(
-        _linear_thread_indices, x_size);
-    auto *yz = _builder.CreateUDiv(
-        _linear_thread_indices, x_size);
-    _thread_id[1u] = _builder.CreateURem(yz, y_size);
-    _thread_id[2u] = _builder.CreateUDiv(yz, y_size);
+    auto static_power_of_two = true;
+    for (auto size : _static_block_size) {
+        static_power_of_two &= is_power_of_two(size);
+    }
+    if (static_power_of_two) {
+        auto splat_u32 = [&](uint32_t value) noexcept {
+            return _builder.CreateVectorSplat(
+                _width, _builder.getInt32(value));
+        };
+        _thread_id[0u] = _builder.CreateAnd(
+            _linear_thread_indices,
+            splat_u32(_static_block_size[0u] - 1u),
+            "thread.id.x");
+        auto *yz = _builder.CreateLShr(
+            _linear_thread_indices,
+            splat_u32(exact_log2(_static_block_size[0u])),
+            "thread.id.yz");
+        _thread_id[1u] = _builder.CreateAnd(
+            yz, splat_u32(_static_block_size[1u] - 1u),
+            "thread.id.y");
+        _thread_id[2u] = _builder.CreateLShr(
+            yz, splat_u32(exact_log2(_static_block_size[1u])),
+            "thread.id.z");
+    } else {
+        auto *x_size = _builder.CreateVectorSplat(
+            _width, _block_size[0u]);
+        auto *y_size = _builder.CreateVectorSplat(
+            _width, _block_size[1u]);
+        _thread_id[0u] = _builder.CreateURem(
+            _linear_thread_indices, x_size);
+        auto *yz = _builder.CreateUDiv(
+            _linear_thread_indices, x_size);
+        _thread_id[1u] = _builder.CreateURem(yz, y_size);
+        _thread_id[2u] = _builder.CreateUDiv(yz, y_size);
+    }
     for (auto i = uint32_t{0u}; i < 3u; i++) {
         auto *base = _builder.CreateMul(
             _block_id[i], _block_size[i]);
