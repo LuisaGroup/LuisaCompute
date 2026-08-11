@@ -4,6 +4,7 @@
 
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -11,6 +12,8 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Error.h>
+#include <llvm/Support/CodeGen.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 
@@ -66,14 +69,26 @@ bool LLVMJIT::add_module(
         _fail("LLVM JIT module and context ownership do not match");
         return false;
     }
-    module->setDataLayout(_target_machine->createDataLayout());
+    if (!_prepare_module(*module)) { return false; }
+
+    if (auto error = _jit->addIRModule(::llvm::orc::ThreadSafeModule(
+            std::move(module), std::move(context)))) {
+        _fail("failed to add LLVM IR module to ORC JIT: " +
+              ::llvm::toString(std::move(error)));
+        return false;
+    }
+    return true;
+}
+
+bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
+    module.setDataLayout(_target_machine->createDataLayout());
 #if LLVM_VERSION_MAJOR >= 21
-    module->setTargetTriple(_target_machine->getTargetTriple());
+    module.setTargetTriple(_target_machine->getTargetTriple());
 #else
-    module->setTargetTriple(_target_machine->getTargetTriple().str());
+    module.setTargetTriple(_target_machine->getTargetTriple().str());
 #endif
-    if (::llvm::verifyModule(*module, &::llvm::errs())) {
-        _fail("refusing to JIT an invalid LLVM module");
+    if (::llvm::verifyModule(module, &::llvm::errs())) {
+        _fail("refusing to process an invalid LLVM module");
         return false;
     }
 
@@ -91,15 +106,31 @@ bool LLVMJIT::add_module(
         cgscc_analyses, module_analyses);
     auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
         ::llvm::OptimizationLevel::O2);
-    pipeline.run(*module, module_analyses);
-
-    if (auto error = _jit->addIRModule(::llvm::orc::ThreadSafeModule(
-            std::move(module), std::move(context)))) {
-        _fail("failed to add LLVM IR module to ORC JIT: " +
-              ::llvm::toString(std::move(error)));
-        return false;
-    }
+    pipeline.run(module, module_analyses);
     return true;
+}
+
+std::string LLVMJIT::emit_assembly(
+    std::unique_ptr<::llvm::Module> module,
+    std::unique_ptr<::llvm::LLVMContext> context) noexcept {
+    if (!succeeded()) { return {}; }
+    if (module == nullptr || context == nullptr ||
+        &module->getContext() != context.get()) {
+        _fail("LLVM assembly module and context ownership do not match");
+        return {};
+    }
+    if (!_prepare_module(*module)) { return {}; }
+    ::llvm::SmallVector<char, 0u> storage;
+    ::llvm::raw_svector_ostream output{storage};
+    ::llvm::legacy::PassManager codegen;
+    if (_target_machine->addPassesToEmitFile(
+            codegen, output, nullptr,
+            ::llvm::CodeGenFileType::AssemblyFile)) {
+        _fail("LLVM host target cannot emit assembly");
+        return {};
+    }
+    codegen.run(*module);
+    return std::string{storage.begin(), storage.end()};
 }
 
 void *LLVMJIT::lookup(std::string_view name) noexcept {

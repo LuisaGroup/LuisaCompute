@@ -1,0 +1,248 @@
+# SIMD native execution contract
+
+Status: formal boundary and executable-audit plan for instruction and
+device-library lowering.
+
+The scheduler model specifies *which lanes* execute an instruction. This
+document specifies *how one scheduled instruction* may be represented without
+silently turning a varying operation into `W` scalar operations. The two
+models are complementary: a correct cohort mask does not make a per-lane math
+loop SIMD-native, and a vector math routine does not make an unmasked side
+effect correct.
+
+## 1. State and observation
+
+For packet width `W`, let `L = {0, ..., W - 1}` and let `A` be the current
+active-lane mask. A source instruction has the abstract form
+
+```text
+(A, x_0, ..., x_n, M) -> (r, M')
+```
+
+where `M` is externally observable memory and resource state. A varying value
+is a lane map `x : L -> T`; a warp-uniform value is one scalar `x : T`.
+Results outside `A` are not observed unless they are later filled by another
+cohort through a masked state-slot merge.
+
+The refinement relation requires, for every `l in A`:
+
+```text
+r_llvm[l] = r_scalar(l)
+M'_llvm restricted to effects of l = M'_scalar(l)
+```
+
+No equality is required for `r_llvm[l]` when `l` is not in `A`, but evaluating
+such a lane must not trap, access an invalid address, call an effectful
+function, or introduce LLVM poison that can affect an active observation.
+
+## 2. Representation and uniformity
+
+The representation function is
+
+```text
+R(warp_uniform<T>) = T
+R(varying<T>)      = <W x T>
+R(mask)            = <W x i1>
+```
+
+Kernel value/resource parameters, constants, block ID, dispatch size, block
+size, kernel ID, and warp size are warp-uniform seeds. They remain scalar
+through device-library and math calls. A scalar is splatted only at a varying
+consumer. In particular, a uniform `sin(x)` is one scalar operation, not a
+vector call with `x` broadcast to all lanes.
+
+Callable arguments are specialized from their call sites when possible. An
+unspecialized callable argument remains conservatively varying; it may not be
+silently converted into a scalar merely because one current caller happens to
+pass equal lane values.
+
+## 3. Inactive-lane safety classes
+
+Each lowered operation belongs to exactly one class:
+
+| Class | Examples | Required treatment outside `A` |
+| --- | --- | --- |
+| total pure | add, xor, finite compare | result may be arbitrary |
+| partial/trapping | integer div/rem, shifts, float-to-int, table index | sanitize operands before evaluation |
+| memory read | buffer gather, math-table gather | masked access or an in-bounds sanitized address |
+| side effect | store, atomic, print, assert, trace | predicate the effect by `A` |
+| collective | vote, reduce, shuffle | use its explicit participant mask |
+
+For a partial operation `f`, codegen must choose neutral operands `n_i` such
+that `f(n_0, ..., n_k)` is defined, then evaluate
+
+```text
+x'_i = select(A, x_i, n_i)
+r    = f(x'_0, ..., x'_k)
+```
+
+A masked merge after `f` is insufficient: host integer division can trap
+before that merge, and an out-of-range table gather can fault. The permanent
+partial-tail remainder regression in `test_simd_runtime_widths` fixes this
+distinction.
+
+## 4. Native-lowering predicate
+
+Let `V(op, W, target)` be the machine implementation selected for one varying
+source operation. `native(op, W, target)` holds when all of the following are
+true:
+
+1. the backend source contains target-independent fixed-vector IR for the
+   operation or one call to a verified vector ABI;
+2. it contains no loop whose induction variable enumerates lanes;
+3. it contains no `extractelement`/scalar-call/`insertelement` sequence for a
+   device-library function;
+4. final code has no unresolved scalar device-library symbol attributable to
+   the varying operation;
+5. the selected ABI is available on the process and legal for the detected
+   CPU features;
+6. active-lane numerical and exceptional-value semantics satisfy the declared
+   accuracy tier.
+
+LLVM fixed-vector syntax alone does not prove this predicate. For example,
+LLVM may legally lower `llvm.sin.v8f32` to eight scalar `sinf` calls. The
+object/assembly audit is therefore part of acceptance, not a benchmark-only
+check.
+
+Target legalization may split `<16 x float>` into two or four physical vector
+instructions. That still satisfies `native`: the split is by physical vector
+width, not a hidden source-level lane loop or scalar device-library call.
+
+## 5. Vector-math providers
+
+Provider selection is ordered:
+
+```text
+IR-native -> verified platform vector ABI -> unavailable
+```
+
+Warp-uniform operations use the scalar C/LLVM math operation exactly once.
+A varying W1 specialization may use either one scalar operation or the shared
+one-lane IR body. Varying `W = 4, 8, 16` operations must use a native
+provider. They do not fall back to `W` scalar calls.
+
+### 5.1 IR-native baseline
+
+The portable baseline is implemented as LLVM fixed-vector algorithms. Range
+reduction, polynomial/rational approximation, bit classification, table
+gathers, and exceptional-value repair are expressed without target-specific
+intrinsics. The same algorithm is instantiated for W4/W8/W16, then optimized
+and legalized by the host target machine.
+
+There are two semantic tiers:
+
+| Shader option | Tier | Contract |
+| --- | --- | --- |
+| `enable_fast_math = false` | precise | documented ULP bound and IEEE special cases |
+| `enable_fast_math = true` | fast | documented relaxed bound; no undefined domain extension |
+
+The precise algorithms use SLEEF as the primary implementation and accuracy
+reference. The fast tier may use the simpler ISPC standard-library
+approximations where their valid range and error have been independently
+audited. Adapted source must retain its upstream license and provenance.
+
+The current f32 implementation checkpoint is:
+
+| Source operation | IR-native body | Regression bound/provider |
+| --- | --- | --- |
+| `sin`, `cos` | SLEEF-derived range reduction and polynomial | at most 4 ULP in the fixed boundary and deterministic bit-pattern corpus |
+| `tan` | SLEEF-derived range reduction, polynomial, and quadrant reciprocal | at most 4 ULP in the fixed boundary and deterministic bit-pattern corpus |
+| `asin`, `acos`, `atan` | SLEEF-derived domain transform and polynomial | at most 4 ULP in the fixed boundary, deterministic bit-pattern, and in-domain corpora |
+| `exp` | SLEEF-derived range reduction and polynomial | at most 4 ULP in the fixed corpus |
+| `log` | SLEEF-derived exponent reduction and polynomial | at most 5 ULP in the fixed corpus |
+| `exp2`, `exp10` | input scaling followed by native `exp` | native, composed bound still to be tightened |
+| `log2`, `log10` | native `log` followed by output scaling | native, composed bound still to be tightened |
+
+SIMD Schedule lowering instantiates these bodies at W1/W4/W8/W16. The
+fallback backend uses the same provider for `sin`, `cos`, `tan`, `asin`,
+`acos`, `atan`, `exp`, `exp2`, `exp10`, `log`, `log2`, and `log10` on DSL
+float2/float3/float4 values, so component-vector math does not become two,
+three, or four scalar libm calls. Its precise target options prohibit
+aggressive FP contraction; helper functions are excluded from the later
+whole-module fast-flag rewrite.
+
+The initial `fast` symbols deliberately share the audited precise bodies.
+This preserves semantics and the provider ABI while a distinct relaxed
+polynomial tier is audited; it is not yet claimed as a separate performance
+tier. `atan2`, power, and hyperbolic functions remain explicit audit backlog
+and are not yet marked SIMD-native by this checkpoint.
+
+### 5.2 LLVM/system vector libraries
+
+LLVM exposes vector-library selection through `TargetLibraryInfo`,
+`ReplaceWithVeclib`, and `TargetOptions::VecLib` (including libmvec, SVML,
+SLEEF GNU ABI, Accelerate, ArmPL, and AMD libm where supported). This is an
+optional provider only. It is enabled for a function/width after checking:
+
+- operating system and object ABI;
+- library loadability and the exact symbol;
+- detected ISA features required by that symbol;
+- function, element type, width, masking semantics, and accuracy tier.
+
+An LLVM mapping table is not itself a capability check. Unsupported widths
+are explicitly chunked into supported *vector* widths or use IR-native code;
+they never fall through to scalar libm calls.
+
+### 5.3 Research basis
+
+- SLEEF implements manually vectorized C99 real math functions, provides
+  accuracy variants, and is distributed under Boost Software License 1.0:
+  <https://github.com/shibatch/sleef>
+- ISPC's default and fast math libraries are vector implementations; its
+  system-math mode explicitly performs one scalar call per active instance and
+  is not suitable for this backend's varying path:
+  <https://ispc.github.io/ispc.html>
+- Google Highway provides portable SIMD and a smaller contrib math surface;
+  it is useful as a portability reference but is not the complete baseline:
+  <https://github.com/google/highway>
+- LLVM math intrinsics define vector semantics but do not promise a
+  SIMD-native implementation:
+  <https://llvm.org/docs/LangRef.html#llvm-sin-intrinsic>
+
+## 6. Device-library and acceleration ABI
+
+Every device-library operation has a capability tuple
+
+```text
+C = (operation, element type, W, target, mask support, accuracy/flags)
+```
+
+Codegen may select an implementation only if `C` is satisfied. A scalar C++
+callback is permitted for W1 or an explicitly documented sparse fallback; it
+is not completion for a normal W4/W8/W16 path.
+
+Embree traversal uses the packet API matching the specialization width:
+
+| Width | Trace | Occlusion | Validity |
+| ---: | --- | --- | --- |
+| 1 | `rtcIntersect1` | `rtcOccluded1` | scalar active lane |
+| 4 | `rtcIntersect4` | `rtcOccluded4` | 4-lane valid mask |
+| 8 | `rtcIntersect8` | `rtcOccluded8` | 8-lane valid mask |
+| 16 | `rtcIntersect16` | `rtcOccluded16` | 16-lane valid mask |
+
+Ray/hit state is stored in packet-compatible structure-of-arrays form. The
+current cohort mask and dispatch tail jointly form Embree's valid mask.
+Inactive rays are initialized to benign values even though the validity mask
+excludes them.
+
+## 7. Executable audit matrix
+
+Every newly supported device-library operation is accepted at three layers:
+
+1. **semantic**: active lanes are compared with an independent scalar oracle,
+   including domains, signed zero, infinities, NaNs, tails, and divergent
+   masks;
+2. **IR shape**: W4/W8/W16 contain fixed-vector operations or one approved
+   vector ABI call, with no lane-enumeration loop;
+3. **machine boundary**: optimized object/assembly has no forbidden scalar
+   math/device symbol and uses only ISA features reported by the target
+   machine.
+
+Uniform fixtures separately prove that kernel parameters and other uniform
+seeds stay scalar and issue at most one call. Performance benchmarks measure
+throughput but do not replace any correctness layer.
+
+Every counterexample found by this audit is first retained as a regression
+that fails the old lowering, then fixed. Provider availability never changes
+source semantics: an unavailable native implementation produces a compilation
+diagnostic rather than silent scalarization.

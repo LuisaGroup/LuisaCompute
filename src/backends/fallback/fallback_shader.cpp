@@ -58,6 +58,7 @@
 #include "fallback_command_queue.h"
 #include "fallback_device_api.h"
 #include "fallback_device_api_ir_module.h"
+#include "fallback_llvm_options.h"
 
 static const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
@@ -705,7 +706,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     }
 
     Clock codegen_clk;
-    auto codegen_feedback = luisa_fallback_backend_codegen(*llvm_ctx, llvm_module.get(), xir_module.get());
+    auto codegen_feedback = luisa_fallback_backend_codegen(
+        *llvm_ctx, llvm_module.get(), xir_module.get(),
+        option.enable_fast_math);
     LUISA_VERBOSE("XIR to LLVM IR code generation done in {} ms.", codegen_clk.toc());
 
     if (llvm::verifyModule(*llvm_module, &llvm::errs())) {
@@ -730,6 +733,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
 
     // add fast-math flags to instructions
     for (auto &&f : *llvm_module) {
+        if (f.hasFnAttribute("luisa.cpu.native_math")) { continue; }
         for (auto &&bb : f) {
             for (auto &&inst : bb) {
                 if (llvm::isa<llvm::FPMathOperator>(inst)) {
@@ -1037,17 +1041,8 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
     ::llvm::orc::LLJITBuilder jit_builder;
     if (auto host = ::llvm::orc::JITTargetMachineBuilder::detectHost()) {
         ::llvm::TargetOptions options;
-        if (option.enable_fast_math) {
-#if LLVM_VERSION_MAJOR <= 21
-            options.UnsafeFPMath = true;
-            options.ApproxFuncFPMath = true;
-#endif
-            options.NoInfsFPMath = true;
-            options.NoNaNsFPMath = true;
-            options.NoSignedZerosFPMath = true;
-        }
-        options.NoTrappingFPMath = true;
-        options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
+        apply_fallback_math_target_options(
+            options, option.enable_fast_math);
         options.EnableIPRA = false;// true causes crash
         options.StackSymbolOrdering = true;
 #ifndef NDEBUG

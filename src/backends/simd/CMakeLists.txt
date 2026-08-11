@@ -71,6 +71,7 @@ unset(_luisa_simd_codegen_lines)
 unset(_luisa_simd_codegen_line_count)
 
 add_library(luisa-compute-simd-llvm STATIC
+        ../common/llvm_native_math.cpp
         llvm/llvm_jit.cpp
         ${LUISA_SIMD_LLVM_CODEGEN_SOURCES}
         llvm/llvm_value_layout.cpp
@@ -78,6 +79,7 @@ add_library(luisa-compute-simd-llvm STATIC
 target_compile_features(luisa-compute-simd-llvm PUBLIC cxx_std_20)
 target_include_directories(luisa-compute-simd-llvm
         PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common
         ${CMAKE_CURRENT_SOURCE_DIR}/llvm
         ${CMAKE_CURRENT_SOURCE_DIR}/schedule)
 target_include_directories(luisa-compute-simd-llvm SYSTEM PUBLIC

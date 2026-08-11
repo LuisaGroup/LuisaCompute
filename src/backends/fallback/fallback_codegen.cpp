@@ -26,12 +26,12 @@
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/location.h>
 
-#include "fallback_accel.h"
 #include "fallback_bindless_array.h"
 #include "fallback_buffer.h"
 #include "fallback_texture.h"
 #include "fallback_device_api.h"
 #include "fallback_codegen.h"
+#include "../common/llvm_native_math.h"
 
 namespace luisa::compute::fallback {
 
@@ -129,6 +129,7 @@ private:
 
 private:
     llvm::LLVMContext &_llvm_context;
+    bool _enable_fast_math;
     llvm::Module *_llvm_module = nullptr;
     luisa::unordered_map<const Type *, luisa::unique_ptr<LLVMStruct>> _llvm_struct_types{};
     luisa::unordered_map<const xir::Constant *, llvm::Constant *> _llvm_constants{};
@@ -161,7 +162,7 @@ private:
             case Type::Tag::BUFFER: return sizeof(FallbackBufferView);
             case Type::Tag::TEXTURE: return sizeof(FallbackTextureView);
             case Type::Tag::BINDLESS_ARRAY: return sizeof(FallbackBindlessArrayView);
-            case Type::Tag::ACCEL: return sizeof(FallbackAccelView);
+            case Type::Tag::ACCEL: return sizeof(api::AccelView);
             case Type::Tag::CUSTOM: {
                 if (t == Type::of<RayQueryAll>() || t == Type::of<RayQueryAny>()) {
                     return api::luisa_fallback_ray_query_object_size();
@@ -182,7 +183,7 @@ private:
             case Type::Tag::BUFFER: return alignof(FallbackBufferView);
             case Type::Tag::TEXTURE: return alignof(FallbackTextureView);
             case Type::Tag::BINDLESS_ARRAY: return alignof(FallbackBindlessArrayView);
-            case Type::Tag::ACCEL: return alignof(FallbackAccelView);
+            case Type::Tag::ACCEL: return alignof(api::AccelView);
             case Type::Tag::CUSTOM: {
                 if (t == Type::of<RayQueryAll>() || t == Type::of<RayQueryAny>()) {
                     return api::luisa_fallback_ray_query_object_alignment();
@@ -1082,7 +1083,91 @@ private:
         auto elem_type = operand_type->is_vector() ? operand_type->element() : operand_type;
         switch (elem_type->tag()) {
             case Type::Tag::FLOAT16: [[fallthrough]];
-            case Type::Tag::FLOAT32: [[fallthrough]];
+            case Type::Tag::FLOAT32:
+                if (elem_type->is_float32() &&
+                    llvm_operand->getType()->isVectorTy()) {
+                    auto mode = _enable_fast_math ?
+                        cpu::LLVMNativeMathMode::fast :
+                        cpu::LLVMNativeMathMode::precise;
+                    llvm::Value *native = nullptr;
+                    switch (intrinsic_id) {
+#if LLVM_VERSION_MAJOR >= 19
+                        case llvm::Intrinsic::acos:
+                            native = cpu::LLVMNativeMath::emit_acos_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::asin:
+                            native = cpu::LLVMNativeMath::emit_asin_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::atan:
+                            native = cpu::LLVMNativeMath::emit_atan_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+#endif
+                        case llvm::Intrinsic::sin:
+                            native = cpu::LLVMNativeMath::emit_sin_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::cos:
+                            native = cpu::LLVMNativeMath::emit_cos_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+#if LLVM_VERSION_MAJOR >= 19
+                        case llvm::Intrinsic::tan:
+                            native = cpu::LLVMNativeMath::emit_tan_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+#endif
+                        case llvm::Intrinsic::exp:
+                            native = cpu::LLVMNativeMath::emit_exp_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::exp2:
+                            native = cpu::LLVMNativeMath::emit_exp_f32(
+                                *_llvm_module, b,
+                                b.CreateFMul(
+                                    llvm_operand,
+                                    llvm::ConstantFP::get(
+                                        llvm_operand->getType(),
+                                        0.69314718055994530942)),
+                                mode);
+                            break;
+                        case llvm::Intrinsic::exp10:
+                            native = cpu::LLVMNativeMath::emit_exp_f32(
+                                *_llvm_module, b,
+                                b.CreateFMul(
+                                    llvm_operand,
+                                    llvm::ConstantFP::get(
+                                        llvm_operand->getType(),
+                                        2.3025850929940456840)),
+                                mode);
+                            break;
+                        case llvm::Intrinsic::log:
+                            native = cpu::LLVMNativeMath::emit_log_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::log2:
+                            native = b.CreateFMul(
+                                cpu::LLVMNativeMath::emit_log_f32(
+                                    *_llvm_module, b, llvm_operand, mode),
+                                llvm::ConstantFP::get(
+                                    llvm_operand->getType(),
+                                    1.4426950408889634074));
+                            break;
+                        case llvm::Intrinsic::log10:
+                            native = b.CreateFMul(
+                                cpu::LLVMNativeMath::emit_log_f32(
+                                    *_llvm_module, b, llvm_operand, mode),
+                                llvm::ConstantFP::get(
+                                    llvm_operand->getType(),
+                                    0.43429448190325182765));
+                            break;
+                        default: break;
+                    }
+                    if (native != nullptr) { return native; }
+                }
+                [[fallthrough]];
             case Type::Tag::FLOAT64:
                 // Use LLVM's intrinsic function based on the provided intrinsic ID
                 return b.CreateUnaryIntrinsic(intrinsic_id, llvm_operand);
@@ -4228,8 +4313,10 @@ private:
     }
 
 public:
-    explicit FallbackCodegen(llvm::LLVMContext &ctx) noexcept
-        : _llvm_context{ctx} {}
+    explicit FallbackCodegen(
+        llvm::LLVMContext &ctx, bool enable_fast_math) noexcept
+        : _llvm_context{ctx},
+          _enable_fast_math{enable_fast_math} {}
 
     FallbackCodeGenFeedback emit(llvm::Module *llvm_module, const xir::Module *module) noexcept {
         auto location_md = module->find_metadata<xir::LocationMD>();
@@ -4248,9 +4335,10 @@ public:
     }
 };
 
-FallbackCodeGenFeedback
-luisa_fallback_backend_codegen(llvm::LLVMContext &llvm_ctx, llvm::Module *llvm_module, const xir::Module *module) noexcept {
-    FallbackCodegen codegen{llvm_ctx};
+FallbackCodeGenFeedback luisa_fallback_backend_codegen(
+    llvm::LLVMContext &llvm_ctx, llvm::Module *llvm_module,
+    const xir::Module *module, bool enable_fast_math) noexcept {
+    FallbackCodegen codegen{llvm_ctx, enable_fast_math};
     return codegen.emit(llvm_module, module);
 }
 

@@ -49,5 +49,32 @@ int main(int argc, char *argv[]) {
             expect(host[thread] == sum + lane)
                 << "SIMD thread-block packet partition mismatch";
         }
+
+        // Regression: LLVM integer div/rem may lower to trapping scalar
+        // instructions even when a zero divisor exists only in an inactive
+        // tail lane. Sanitization therefore has to happen before the vector
+        // operation; masking the result afterwards is too late.
+        auto tail_threads = width == 1u ? 1u : width - 1u;
+        auto tail_input = device.create_buffer<uint>(tail_threads);
+        auto tail_output = device.create_buffer<uint>(tail_threads);
+        Kernel1D tail_kernel = [width](
+                                   BufferUInt input,
+                                   BufferUInt result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto divisor = input.read(dispatch_x());
+            result.write(dispatch_x(), 17u % divisor);
+        };
+        auto tail_shader = device.compile(tail_kernel);
+        luisa::vector<uint> tail_divisors(tail_threads, 3u);
+        luisa::vector<uint> tail_host(tail_threads, 0u);
+        stream << tail_input.copy_from(luisa::span{tail_divisors})
+               << tail_shader(tail_input, tail_output).dispatch(tail_threads)
+               << tail_output.copy_to(luisa::span{tail_host})
+               << synchronize();
+        for (auto value : tail_host) {
+            expect(value == 2u)
+                << "inactive SIMD tail lane reached integer remainder";
+        }
     }
 }

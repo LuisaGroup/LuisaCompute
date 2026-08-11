@@ -90,10 +90,10 @@ struct LLVMScheduleCodegenResult {
     }
 };
 
-// Lowers an acyclic Schedule IR function to target-independent LLVM fixed
-// vectors. No target ISA or hardware SIMD intrinsic is selected here; the
-// LLVM target machine owns legalization, instruction selection, register
-// allocation, and scheduling.
+// Lowers a supported reducible Schedule IR function to target-independent
+// LLVM fixed vectors. No target ISA or hardware SIMD intrinsic is selected
+// here; the LLVM target machine owns legalization, instruction selection,
+// register allocation, and scheduling.
 [[nodiscard]] LLVMScheduleCodegenResult lower_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
     uint32_t specialization_width, std::string_view entry_name = {});

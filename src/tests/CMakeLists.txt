@@ -91,6 +91,32 @@ target_include_directories(test_simd_xir_to_schedule PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
 
 if (TARGET luisa-compute-simd-llvm)
+    add_executable(test_fallback_llvm_native_math
+            unit/fallback/test_fallback_llvm_native_math.cpp
+            ../backends/fallback/fallback_codegen.cpp)
+    target_compile_features(test_fallback_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(test_fallback_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_fallback_llvm_native_math PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_fallback_llvm_native_math
+            COMMAND test_fallback_llvm_native_math)
+    set_tests_properties(test_fallback_llvm_native_math PROPERTIES
+            LABELS "unit;unit_fallback;unit_llvm;integration_fallback")
+
+    add_executable(test_simd_llvm_native_math
+            unit/simd/test_llvm_native_math.cpp)
+    target_compile_features(test_simd_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_native_math PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_native_math
+            COMMAND test_simd_llvm_native_math)
+    set_tests_properties(test_simd_llvm_native_math PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+
     add_executable(test_simd_llvm_value_layout
             unit/simd/test_llvm_value_layout.cpp)
     target_compile_features(test_simd_llvm_value_layout PRIVATE cxx_std_20)

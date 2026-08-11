@@ -99,6 +99,9 @@ rules are implemented.
 The small-step semantics, uniformity lattice, inductive invariants, proof
 obligations, bounded exhaustive model, and implementation mapping are specified
 in [`SIMD_SCHEDULER_FORMAL_MODEL.md`](SIMD_SCHEDULER_FORMAL_MODEL.md).
+The instruction, inactive-lane, native device-library, vector-math, and packet
+acceleration contracts are specified in
+[`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md).
 
 The intended initial XIR pipeline is:
 

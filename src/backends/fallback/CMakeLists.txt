@@ -50,6 +50,7 @@ if (LLVM_FOUND AND embree_FOUND)
             fallback_buffer.cpp
             fallback_swapchain.cpp
             fallback_tex_compress.cpp
+            ../common/llvm_native_math.cpp
             ../common/default_binary_io.cpp
     )
 
