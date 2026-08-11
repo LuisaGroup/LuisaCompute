@@ -42,9 +42,36 @@ set_target_properties(luisa-compute-simd-schedule PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         UNITY_BUILD OFF)
 
+set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
+        llvm/llvm_schedule_codegen.cpp
+        llvm/llvm_schedule_emitter.cpp
+        llvm/llvm_schedule_emitter_arithmetic.cpp
+        llvm/llvm_schedule_emitter_collectives.cpp
+        llvm/llvm_schedule_emitter_control.cpp
+        llvm/llvm_schedule_emitter_memory.cpp)
+
+# Keep the hand-written code generator reviewable. Generated sources are not
+# part of this list; a focused lowering unit that grows past this budget must
+# be split by responsibility before more functionality is added to it.
+foreach (_luisa_simd_codegen_source IN LISTS LUISA_SIMD_LLVM_CODEGEN_SOURCES)
+    file(STRINGS
+            "${CMAKE_CURRENT_SOURCE_DIR}/${_luisa_simd_codegen_source}"
+            _luisa_simd_codegen_lines)
+    list(LENGTH _luisa_simd_codegen_lines _luisa_simd_codegen_line_count)
+    if (_luisa_simd_codegen_line_count GREATER 2000)
+        message(FATAL_ERROR
+                "SIMD LLVM source ${_luisa_simd_codegen_source} has "
+                "${_luisa_simd_codegen_line_count} non-empty lines; split it "
+                "before exceeding the 2000-line review budget.")
+    endif ()
+endforeach ()
+unset(_luisa_simd_codegen_source)
+unset(_luisa_simd_codegen_lines)
+unset(_luisa_simd_codegen_line_count)
+
 add_library(luisa-compute-simd-llvm STATIC
         llvm/llvm_jit.cpp
-        llvm/llvm_schedule_codegen.cpp
+        ${LUISA_SIMD_LLVM_CODEGEN_SOURCES}
         llvm/llvm_value_layout.cpp
         llvm/llvm_warp_collectives.cpp)
 target_compile_features(luisa-compute-simd-llvm PUBLIC cxx_std_20)

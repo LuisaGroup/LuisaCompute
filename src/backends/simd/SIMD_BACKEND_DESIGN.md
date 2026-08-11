@@ -464,9 +464,29 @@ src/backends/
   fallback/             # scalar XIR -> LLVM codegen
   simd/
     schedule/           # Schedule IR, analyses, verifier, printer
-    llvm/               # Schedule IR -> LLVM
+    llvm/               # focused Schedule IR -> LLVM lowering units
     runtime/            # SIMD device/shader integration
 ```
+
+The LLVM directory follows the same thin-interface/separate-runtime principle
+as `fallback`, while deliberately avoiding its historical monolithic codegen
+translation unit:
+
+```text
+llvm_schedule_codegen.{h,cpp}          # public ABI and lowering facade
+llvm_schedule_emitter.h                # private emitter state and contracts
+llvm_schedule_emitter.cpp              # validation, ABI, values, launch state
+llvm_schedule_emitter_arithmetic.cpp   # aggregates, arithmetic, and casts
+llvm_schedule_emitter_memory.cpp       # local/resource memory and atomics
+llvm_schedule_emitter_collectives.cpp  # warp collective lowering
+llvm_schedule_emitter_control.cpp      # control flow, state, and dispatcher
+```
+
+Hand-written LLVM codegen `.cpp` files have a 2,000-line review budget,
+enforced when the SIMD CMake target is configured. New functionality must be
+placed in the responsible unit or split into another focused unit rather than
+growing a monolithic emitter. Public headers expose only stable packet ABI and
+entry points; the mutable LLVM builder state remains private to the emitter.
 
 Factoring happens incrementally. Files move from `fallback` only when both
 backends consume the same tested implementation. The first Schedule IR tests
