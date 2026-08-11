@@ -1206,6 +1206,56 @@ void reg_xir2ast_direct() {
         expect(counter.returns == 1u);
     };
 
+    "xir_to_ast_value_checkpoint_work_is_branch_local"_test = [] {
+        auto translate = [](size_t dominating_binding_count) noexcept {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *condition = kernel->create_value_argument(
+                Type::of<bool>());
+            luisa::vector<Value *> dominating_values;
+            dominating_values.reserve(dominating_binding_count);
+            for (auto i = 0u; i < dominating_binding_count; ++i) {
+                dominating_values.emplace_back(
+                    kernel->create_value_argument(Type::of<uint>()));
+            }
+            auto *body = kernel->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *if_inst = b.if_(condition);
+            auto *merge = if_inst->create_merge_block();
+            auto *one = module.create_constant_one(Type::of<uint>());
+            b.set_insertion_point(if_inst->create_true_block());
+            static_cast<void>(b.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                {dominating_values.front(), one}));
+            b.br(merge);
+            b.set_insertion_point(if_inst->create_false_block());
+            static_cast<void>(b.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                {dominating_values.back(), one}));
+            b.br(merge);
+            b.set_insertion_point(merge);
+            b.return_void();
+
+            XIR2ASTTranslationStatistics statistics;
+            auto ast = xir_to_ast_translate(
+                *kernel, {.statistics = &statistics});
+            expect(ast != nullptr);
+            return statistics;
+        };
+
+        auto small = translate(4u);
+        auto large = translate(256u);
+        expect(large.peak_value_map_size >
+               small.peak_value_map_size);
+        expect(small.value_map_checkpoint_count == 2u);
+        expect(large.value_map_checkpoint_count == 2u);
+        expect(small.value_map_rollback_work > 0u);
+        expect(large.value_map_rollback_work ==
+               small.value_map_rollback_work)
+            << "checkpoint work must depend on branch-local insertions, not the retained map prefix";
+    };
+
     "xir_to_ast_direct_terminal_null_merge_selections"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

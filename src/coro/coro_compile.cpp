@@ -506,9 +506,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
         continuation_definitions.emplace_back(subroutine->callable);
         result.trigger_tokens.emplace_back(subroutine->trigger_token);
     }
+    xir::XIR2ASTTranslationStatistics xir_to_ast_statistics;
     auto continuation_asts =
         xir::xir_to_ast_translate_continuations(
-            luisa::span{continuation_definitions});
+            luisa::span{continuation_definitions},
+            {.statistics = &xir_to_ast_statistics});
     LUISA_ASSERT(
         continuation_asts.size() == subroutines_by_scope.size(),
         "Coroutine XIR->AST batch translation returned {} AST(s) for {} scope(s).",
@@ -528,6 +530,18 @@ CoroutineCompileResult compile_coroutine_pipeline(
             result.subroutines.size() == result.trigger_tokens.size(),
         "Coroutine lowering lost the entry continuation or callable/token pairing.");
     profiler.checkpoint("XIR-to-AST continuation translation");
+    if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
+        LUISA_INFO(
+            "Coroutine XIR-to-AST work: functions={} cache_hits={} "
+            "value_bindings={} checkpoints={} rollback_work={} "
+            "peak_value_map_size={}.",
+            xir_to_ast_statistics.function_translations,
+            xir_to_ast_statistics.function_cache_hits,
+            xir_to_ast_statistics.value_binding_insertions,
+            xir_to_ast_statistics.value_map_checkpoint_count,
+            xir_to_ast_statistics.value_map_rollback_work,
+            xir_to_ast_statistics.peak_value_map_size);
+    }
     profiler.finish();
 
     return result;

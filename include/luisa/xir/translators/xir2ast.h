@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <luisa/ast/function_builder.h>
 #include <luisa/xir/function.h>
 
@@ -7,9 +9,21 @@ namespace luisa::compute::xir {
 
 class XIR2ASTContext;
 
+struct XIR2ASTTranslationStatistics {
+    size_t function_translations{0u};
+    size_t function_cache_hits{0u};
+    size_t value_binding_insertions{0u};
+    size_t value_map_checkpoint_count{0u};
+    // Exact number of branch-local bindings inspected and erased while
+    // restoring checkpoints. Retained prefix bindings are never visited.
+    size_t value_map_rollback_work{0u};
+    size_t peak_value_map_size{0u};
+};
+
 struct XIR2ASTConfig {
     bool strict{true};
     luisa::span<const compute::Function::Binding> bound_arguments{};
+    XIR2ASTTranslationStatistics *statistics{nullptr};
 };
 
 using ASTFunctionBuilder = compute::detail::FunctionBuilder;

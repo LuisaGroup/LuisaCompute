@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
@@ -433,13 +435,21 @@ void verify_xir_for_ast(const Module *module, luisa::string_view stage,
 
 class XIR2ASTContext {
 private:
+    using ValueMap = luisa::unordered_map<
+        const Value *, const Expression *>;
+    struct ValueMapFrame {
+        ValueMap map;
+        luisa::vector<const Value *> insertion_log;
+    };
+
     XIR2ASTConfig _config;
     luisa::shared_ptr<const ASTFunctionBuilder> _builder;
     luisa::unordered_map<const FunctionDefinition *, luisa::shared_ptr<const ASTFunctionBuilder>> _function_map;
     luisa::unordered_set<const FunctionDefinition *> _translating_functions;
     luisa::unordered_set<const BasicBlock *> _active_blocks;
-    luisa::unordered_map<const Value *, const Expression *> _value_map;
-    luisa::vector<luisa::unordered_map<const Value *, const Expression *>> _value_map_stack;
+    ValueMap _value_map;
+    luisa::vector<const Value *> _value_map_insertion_log;
+    luisa::vector<ValueMapFrame> _value_map_stack;
     struct LoopUpdateContext {
         const BasicBlock *prepare;
         const BasicBlock *update;
@@ -448,6 +458,23 @@ private:
     luisa::vector<LoopUpdateContext> _loop_update_stack;
 
 private:
+    void _bind_value(const Value *value,
+                     const Expression *expression) noexcept {
+        auto [iter, inserted] =
+            _value_map.emplace(value, expression);
+        LUISA_ASSERT(
+            inserted || iter->second == expression,
+            "XIR-to-AST attempted to change an existing value binding.");
+        if (!inserted) { return; }
+        _value_map_insertion_log.emplace_back(value);
+        if (auto statistics = _config.statistics) {
+            statistics->value_binding_insertions++;
+            statistics->peak_value_map_size =
+                std::max(statistics->peak_value_map_size,
+                         _value_map.size());
+        }
+    }
+
     [[nodiscard]] ASTFunctionBuilder *_current_builder() const noexcept {
         return ASTFunctionBuilder::current();
     }
@@ -839,7 +866,7 @@ private:
             }
             LUISA_ERROR_WITH_LOCATION("Unsupported expression instruction {}.", xir::to_string(inst->derived_instruction_tag()));
         }();
-        _value_map.emplace(value, expr);
+        _bind_value(value, expr);
         return expr;
     }
 
@@ -876,9 +903,30 @@ private:
 
     template<typename F>
     void _with_value_map_checkpoint(F &&f) noexcept {
-        auto value_map = _value_map;
+        // Value bindings are monotone along one structured CFG path: a value
+        // is inserted at most once and never rebound. A checkpoint therefore
+        // needs only the insertion-log length. Restoring erases exactly the
+        // branch-local suffix, so nested checkpoints compose and the work is
+        // O(number of bindings created in the branch), independent of the
+        // number of dominating bindings retained across it.
+        auto checkpoint = _value_map_insertion_log.size();
+        if (auto statistics = _config.statistics) {
+            statistics->value_map_checkpoint_count++;
+        }
         f();
-        _value_map = std::move(value_map);
+        auto rollback_work =
+            _value_map_insertion_log.size() - checkpoint;
+        for (auto i = _value_map_insertion_log.size();
+             i > checkpoint; --i) {
+            auto *value = _value_map_insertion_log[i - 1u];
+            LUISA_ASSERT(
+                _value_map.erase(value) == 1u,
+                "XIR-to-AST value checkpoint lost a logged binding.");
+        }
+        _value_map_insertion_log.resize(checkpoint);
+        if (auto statistics = _config.statistics) {
+            statistics->value_map_rollback_work += rollback_work;
+        }
     }
 
     void _emit_selection_path(
@@ -988,7 +1036,7 @@ private:
             } else {
                 expr = b->argument(arg->type());
             }
-            _value_map.emplace(arg, expr);
+            _bind_value(arg, expr);
             index++;
         }
     }
@@ -1489,7 +1537,12 @@ private:
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate_callable(const FunctionDefinition &f) noexcept {
         LUISA_ASSERT(f.derived_function_tag() == DerivedFunctionTag::CALLABLE, "Expected callable function.");
-        if (auto iter = _function_map.find(&f); iter != _function_map.end()) { return iter->second; }
+        if (auto iter = _function_map.find(&f); iter != _function_map.end()) {
+            if (auto statistics = _config.statistics) {
+                statistics->function_cache_hits++;
+            }
+            return iter->second;
+        }
         verify_xir_for_ast(
             &f, "callable translation input",
             {.require_no_phi = true,
@@ -1497,10 +1550,18 @@ private:
         if (!_translating_functions.emplace(&f).second) {
             LUISA_ERROR_WITH_LOCATION("Recursive XIR callables are not supported by XIR-to-AST.");
         }
-        _value_map_stack.emplace_back(std::move(_value_map));
+        _value_map_stack.emplace_back(ValueMapFrame{
+            std::move(_value_map),
+            std::move(_value_map_insertion_log)});
         _value_map = {};
+        _value_map_insertion_log = {};
+        if (auto statistics = _config.statistics) {
+            statistics->function_translations++;
+        }
         auto builder = _translate(f);
-        _value_map = std::move(_value_map_stack.back());
+        _value_map = std::move(_value_map_stack.back().map);
+        _value_map_insertion_log =
+            std::move(_value_map_stack.back().insertion_log);
         _value_map_stack.pop_back();
         _function_map.emplace(&f, builder);
         _translating_functions.erase(&f);
@@ -1520,8 +1581,12 @@ public:
                 _loop_update_stack.empty() && _translating_functions.empty(),
             "XIR-to-AST root translation started with live per-root state.");
         _value_map.clear();
+        _value_map_insertion_log.clear();
         if (auto iter = _function_map.find(&f);
             iter != _function_map.end()) {
+            if (auto statistics = _config.statistics) {
+                statistics->function_cache_hits++;
+            }
             return iter->second;
         }
         verify_xir_for_ast(
@@ -1531,6 +1596,9 @@ public:
         if (!_translating_functions.emplace(&f).second) {
             LUISA_ERROR_WITH_LOCATION(
                 "Recursive XIR root functions are not supported by XIR-to-AST.");
+        }
+        if (auto statistics = _config.statistics) {
+            statistics->function_translations++;
         }
         auto builder = _translate(f);
         _translating_functions.erase(&f);
