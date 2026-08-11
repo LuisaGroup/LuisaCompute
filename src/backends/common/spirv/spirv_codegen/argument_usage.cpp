@@ -84,7 +84,8 @@ bool spirv_resource_query_requires_accel_instance_buffer(
 SpirvFunctionArgumentAnalysisMap
 analyze_spirv_function_argument_usage(
     const xir::Module *module,
-    SpirvFunctionArgumentAnalysisStatistics *statistics) noexcept {
+    SpirvFunctionArgumentAnalysisStatistics *statistics,
+    SpirvFunctionArgumentAnalysisOptions options) noexcept {
     SpirvFunctionArgumentAnalysisStatistics local_statistics;
     SpirvFunctionArgumentAnalysisMap analysis;
     if (module == nullptr) {
@@ -252,16 +253,60 @@ analyze_spirv_function_argument_usage(
         const xir::Argument *,
         luisa::vector<ArgumentDependency>>
         dependencies;
-    auto traverse_definition = [&local_statistics](
+    luisa::unordered_map<
+        const xir::Function *,
+        luisa::vector<const xir::Function *>>
+        function_dependencies;
+    auto collect_function_dependencies = [module,
+                                          &function_dependencies](
+                                             const xir::Function *function,
+                                             const xir::Instruction *instruction) noexcept {
+        for (auto &&operand_use : instruction->operand_uses()) {
+            auto *operand = operand_use->value();
+            if (operand == nullptr ||
+                !operand->isa<xir::Function>()) {
+                continue;
+            }
+            auto *dependency =
+                static_cast<const xir::Function *>(operand);
+            if (dependency->parent_module() == module) {
+                function_dependencies[function].emplace_back(
+                    dependency);
+            }
+        }
+    };
+    auto traverse_definition = [&local_statistics,
+                                &collect_function_dependencies,
+                                options](
+                                   const xir::Function *function,
                                    const xir::FunctionDefinition *definition,
                                    auto &&visit) noexcept {
         ++local_statistics.structural_closure_count;
         auto closure = plan_spirv_codegen_structural_closure(definition);
-        if (!closure.succeeded()) { return; }
+        if (!closure.succeeded()) {
+            if (options.kernel_reachable_only) {
+                // Preserve a conservative dependency domain until the
+                // existing structural/dialect diagnostic rejects the
+                // malformed definition. Usage still follows only a valid
+                // codegen closure, as it did before this option existed.
+                for (auto *block : definition->basic_blocks()) {
+                    block->traverse_instructions(
+                        [&](const xir::Instruction *instruction) noexcept {
+                            collect_function_dependencies(
+                                function, instruction);
+                        });
+                }
+            }
+            return;
+        }
         for (auto *block : closure.blocks) {
             block->traverse_instructions(
                 [&](const xir::Instruction *instruction) noexcept {
                     ++local_statistics.instruction_scan_count;
+                    if (options.kernel_reachable_only) {
+                        collect_function_dependencies(
+                            function, instruction);
+                    }
                     visit(instruction);
                 });
         }
@@ -270,6 +315,7 @@ analyze_spirv_function_argument_usage(
         auto *definition = function->definition();
         if (definition == nullptr) { continue; }
         traverse_definition(
+            function,
             definition,
             [&](const xir::Instruction *instruction) noexcept {
                 if (instruction->isa<xir::CallInst>()) {
@@ -415,6 +461,45 @@ analyze_spirv_function_argument_usage(
                 }
             });
     }
+    if (options.kernel_reachable_only) {
+        luisa::unordered_set<const xir::Function *> reachable;
+        luisa::vector<const xir::Function *> function_worklist;
+        for (auto *function : module->function_list()) {
+            if (function != nullptr &&
+                function->derived_function_tag() ==
+                    xir::DerivedFunctionTag::KERNEL) {
+                function_worklist.emplace_back(function);
+            }
+        }
+        while (!function_worklist.empty()) {
+            auto *function = function_worklist.back();
+            function_worklist.pop_back();
+            if (function == nullptr ||
+                !reachable.emplace(function).second) {
+                continue;
+            }
+            if (auto iter = function_dependencies.find(function);
+                iter != function_dependencies.end()) {
+                for (auto *dependency : iter->second) {
+                    if (!reachable.contains(dependency)) {
+                        function_worklist.emplace_back(dependency);
+                    }
+                }
+            }
+        }
+        luisa::vector<const xir::Function *> unreachable;
+        unreachable.reserve(analysis.size());
+        for (auto &&[function, function_analysis] : analysis) {
+            static_cast<void>(function_analysis);
+            if (!reachable.contains(function)) {
+                unreachable.emplace_back(function);
+            }
+        }
+        for (auto *function : unreachable) {
+            analysis.erase(function);
+            indices.erase(function);
+        }
+    }
     auto analysis_of_argument = [&](
                                     const xir::Argument *argument) noexcept
         -> SpirvFunctionArgumentAnalysis * {
@@ -441,7 +526,8 @@ analyze_spirv_function_argument_usage(
             worklist.emplace_back(argument);
         }
     };
-    for (auto *function : module->function_list()) {
+    for (auto &&[function, function_analysis] : analysis) {
+        static_cast<void>(function_analysis);
         for (auto *argument : function->arguments()) {
             auto *value = analysis_of_argument(argument);
             if (value != nullptr && !is_bottom(*value)) {
@@ -516,6 +602,7 @@ analyze_spirv_readonly_resource_origins(
     luisa::unordered_map<const xir::Argument *, OriginState> states;
     for (auto *function : module->function_list()) {
         if (function == nullptr ||
+            !usage.contains(function) ||
             function->derived_function_tag() !=
                 xir::DerivedFunctionTag::CALLABLE) {
             continue;
@@ -541,6 +628,7 @@ analyze_spirv_readonly_resource_origins(
         luisa::vector<const xir::Value *>>
         actuals;
     for (auto *function : module->function_list()) {
+        if (!usage.contains(function)) { continue; }
         auto *definition =
             function == nullptr ? nullptr :
                                   function->definition();

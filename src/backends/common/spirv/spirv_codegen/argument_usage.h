@@ -50,6 +50,13 @@ using SpirvFunctionArgumentAnalysisMap = luisa::unordered_map<
     const luisa::compute::xir::Function *,
     luisa::vector<SpirvFunctionArgumentAnalysis>>;
 
+struct SpirvFunctionArgumentAnalysisOptions {
+    // Restrict the result to functions reachable from a kernel through the
+    // exact SPIR-V structural closure. Function operands in orphaned blocks
+    // then cannot affect a live callable's resource-flow proof.
+    bool kernel_reachable_only{false};
+};
+
 struct SpirvFunctionArgumentAnalysisStatistics {
     size_t structural_closure_count{0u};
     size_t instruction_scan_count{0u};
@@ -71,7 +78,8 @@ using SpirvReadonlyResourceOriginMap = luisa::unordered_map<
 [[nodiscard]] SpirvFunctionArgumentAnalysisMap
 analyze_spirv_function_argument_usage(
     const luisa::compute::xir::Module *module,
-    SpirvFunctionArgumentAnalysisStatistics *statistics = nullptr) noexcept;
+    SpirvFunctionArgumentAnalysisStatistics *statistics = nullptr,
+    SpirvFunctionArgumentAnalysisOptions options = {}) noexcept;
 
 [[nodiscard]] SpirvReadonlyResourceOriginMap
 analyze_spirv_readonly_resource_origins(

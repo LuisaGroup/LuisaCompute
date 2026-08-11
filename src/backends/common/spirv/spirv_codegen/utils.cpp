@@ -408,6 +408,8 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                            i.destructured_blocking_function_count);
                      r.set("destructured_blocking_switch",
                            i.destructured_switch_count);
+                     r.set("pruned_unreachable_callable",
+                           i.pruned_unreachable_callable_count);
                      r.set("inlined_call",
                            i.inline_info.inlined_call_count);
                      r.set("remaining_pointer_call",

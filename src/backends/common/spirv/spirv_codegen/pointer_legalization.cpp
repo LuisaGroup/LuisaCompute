@@ -18,6 +18,7 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/unused_callable_removal.h>
 
 namespace lc::spirv {
 
@@ -116,6 +117,7 @@ struct StructuredInventory {
         &readonly_resource_origins) noexcept {
     luisa::vector<PointerCall> calls;
     for (auto *function : module->function_list()) {
+        if (!usage.contains(function)) { continue; }
         auto *definition = function->definition();
         if (definition == nullptr) { continue; }
         auto closure = plan_spirv_codegen_structural_closure(definition);
@@ -393,7 +395,8 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
     auto analyze_argument_usage = [&]() noexcept {
         SpirvFunctionArgumentAnalysisStatistics statistics;
         auto usage = analyze_spirv_function_argument_usage(
-            module, &statistics);
+            module, &statistics,
+            {.kernel_reachable_only = true});
         ++result.argument_usage_analysis_count;
         result.argument_usage_structural_closure_count +=
             statistics.structural_closure_count;
@@ -560,6 +563,19 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
                 result.inline_info.skipped_recursive_callable_count);
             return result;
         }
+
+        // Pointer legalization is a fixed point over the semantic call graph
+        // reachable from kernel roots. The argument/resource analyses above
+        // explicitly project onto that domain, including when an orphan block
+        // still owns a physical function operand. Inlining a wrapper can then
+        // drop the last physical use of a callable that has left the semantic
+        // domain. Remove such definitions at the mutation boundary so later
+        // whole-module passes and SPIR-V emission observe the same domain, and
+        // so subsequent fixed-point iterations need not rescan dead bodies.
+        auto pruned =
+            xir::unused_callable_removal_pass_run_on_module(module);
+        result.pruned_unreachable_callable_count +=
+            pruned.removed_callable_count;
     }
     result.remaining_pointer_call_count = 0u;
     return result;
