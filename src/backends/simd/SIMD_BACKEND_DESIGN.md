@@ -602,6 +602,15 @@ lower-cost fast log/multiply/exp path, both with explicit negative-base integer
 classification and exceptional-value repair. Neither path emits scalar
 `powf` calls or per-lane extraction loops.
 
+Fast XIR lowering also performs a deliberately narrow, full-domain-safe
+canonicalization before SIMD scheduling and fallback codegen. It folds the
+IEEE `pow(x, +-0)` and `pow(+1, y)` identities and maps uniform positive radix
+constants `pow(+2, y)`/`pow(+10, y)` to the dedicated
+`exp2(y)`/`exp10(y)` providers. Precise mode is untouched. Arbitrary
+`pow -> exp2(log2())` and exp/log composition rewrites remain disabled until
+range analysis can prove domain, special-value, and intermediate-range
+equivalence.
+
 Acceptance checks three layers:
 
 1. numerical execution at W2/W3/W4/W8/W16, including deterministic raw bits,
@@ -620,6 +629,9 @@ and 1.601x--1.653x at W4/W8/W16. `pow` alone measured 2.219x--3.051x over the
 three runs, with no scalar libm symbol. The benchmark also prints static
 instruction counts; instruction count alone is not the acceptance metric
 because the common trig path retains a cold large-argument correctness branch.
+The separate radix-canonicalization gate measured 1.827x--1.962x for
+`pow(+2, x) -> exp2(x)` and 2.565x--2.731x for
+`pow(+10, x) -> exp10(x)` over three runs and every W2/W3/W4/W8/W16 width.
 
 ## 11. Runtime factoring
 

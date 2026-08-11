@@ -13,6 +13,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
@@ -117,8 +118,20 @@ SIMDCompiledKernel compile_simd_kernel(
     static_cast<void>(xir::inline_all_pass_run_on_module(module.get()));
     static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
-    return compile_simd_kernel(
+    auto fast_math_info = xir::FastMathSimplifyInfo{};
+    if (enable_fast_math) {
+        fast_math_info =
+            xir::fast_math_simplify_pass_run_on_module(
+                module.get(), {.enable_fast_math = true});
+        if (fast_math_info.changed()) {
+            static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+        }
+    }
+    auto result = compile_simd_kernel(
         xir_kernel, warp_width, entry_name, enable_fast_math);
+    result.fast_math_identity_count = fast_math_info.identity_count;
+    result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
+    return result;
 }
 
 }// namespace luisa::compute::simd

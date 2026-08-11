@@ -284,9 +284,10 @@ undefined fast-math assumptions:
   bases, infinite exponents, and `pow(-1, +-infinity) = 1` follow the C/IEEE
   magnitude rules. Fast magnitude evaluation treats subnormal bases as signed
   zero and flushes subnormal results to signed zero, except that the exact
-  `pow(x, 1) = x` identity preserves every input bit; a negative subnormal
-  base with a finite non-integer exponent remains a domain error rather than a
-  real-domain extension.
+  `pow(x, 1) = x` path preserves every non-NaN input bit; a NaN base is still
+  repaired to canonical quiet NaN. A negative subnormal base with a finite
+  non-integer exponent remains a domain error rather than a real-domain
+  extension.
 
 Only FP contraction is permitted inside the fast bodies. They do not set
 `nnan`, `ninf`, `nsz`, reassociation, approximate-function, or approximate-
@@ -311,30 +312,55 @@ Optimized assembly is rejected if it contains a varying scalar libm symbol.
 Hyperbolic functions remain explicit audit backlog and are not yet marked
 SIMD-native by this checkpoint.
 
-#### 5.1.1 Fast-math XIR algebraic canonicalization backlog
+#### 5.1.1 Fast-math XIR algebraic canonicalization
 
-Provider selection is not the only fast-tier optimization opportunity. A
-future XIR pass may canonicalize compositions before Schedule IR is built, in
-the same spirit as the CUDA backend's fast lowering. The initial candidates
-are `exp(x) -> exp2(x * log2(e))`, `exp10(x) -> exp2(x * log2(10))`, and a
-guarded positive-base `pow(a, b) -> exp2(b * log2(a))`. Common inverse
-compositions may be folded only when their complete input, overflow,
-underflow, and exceptional-value domains make the replacement equivalent to
-the declared fast contract.
+The fast tier now runs a separate conservative XIR pass before Schedule IR or
+fallback LLVM lowering. It recognizes only f32 scalars and f32 vectors whose
+required constant operand is bit-uniform across every component:
 
-This pass is not implemented by the current checkpoint. Its acceptance rules
-are:
+| Source | Replacement |
+| --- | --- |
+| `pow(x, +-0)` | `1` |
+| `pow(+1, y)` | `1` |
+| `pow(+2, y)` | `exp2(y)` |
+| `pow(+10, y)` | `exp10(y)` |
 
-- it runs only when `enable_fast_math` is true; precise XIR and provider
-  expression order are unaffected;
-- it may not turn a negative-base, signed-zero, NaN, infinity, subnormal, or
-  otherwise out-of-domain `pow` into an accidental real-domain extension;
-- it preserves uniformity, so a uniform composition remains one scalar
-  operation rather than a splatted varying provider call;
-- every rule has boundary and raw-bit semantic regressions, an XIR-shape test,
-  final-symbol/assembly audit, and a repeated throughput gate;
-- a rewrite is retained only when it is measurably cheaper than the already
-  native fast provider on W2/W4/W8/W16 and fallback float2/float3/float4.
+These rules cover their complete input domain, including NaN, infinity,
+signed zero, and subnormal operands, under the fast provider contract above.
+They do not infer that an arbitrary base is positive and therefore cannot turn
+a negative-base or signed-zero case into a real-domain extension. Instructions
+carrying metadata are retained rather than moving or discarding an annotation.
+The pass preserves the XIR type and uniformity class: a scalar uniform radix
+power remains one scalar operation, while a varying scalar or component vector
+selects the corresponding fixed-vector provider at its existing use site.
+
+Even `pow(x, +1) -> x` is intentionally retained: a direct value bypasses the
+provider's canonical-NaN repair when `x` is NaN. No generic
+`pow(a, b) -> exp2(b * log2(a))`, `exp -> exp2`, `exp10 -> exp2`, or
+inverse-composition folding is enabled. Those transformations change
+special-value selection, intermediate overflow/underflow, or the audited
+error envelope unless additional range facts are proved. The dedicated
+`exp`, `exp10`, and logarithm providers already have direct range reductions,
+so a change in spelling alone is not evidence of lower cost.
+
+Precise mode is an explicit no-op. Pass tests cover scalar and component-vector
+shape, both signs of zero, the safe IEEE identities, NaN-sensitive `x^1`
+rejection, mixed vector constants, negative bases, f64 rejection, metadata
+retention, and pass-pipeline option propagation. An AST-to-SIMD integration
+fixture additionally proves that two
+radix powers are rewritten only in fast mode; existing provider corpora supply
+the raw-bit and special-value execution checks for the selected `exp2` and
+`exp10` bodies. Optimized assembly remains subject to the scalar-libm-symbol
+ban.
+
+`benchmark_llvm_native_math --canonicalization-only` compares the rewritten
+operation with the already-native fast `pow` provider using nine interleaved
+samples per pair. On the LLVM 22.1.8 audit host, three complete runs measured
+`pow(+2, x) -> exp2(x)` at 1.827x--1.962x and
+`pow(+10, x) -> exp10(x)` at 2.565x--2.731x across W2/W3/W4/W8/W16. Every
+width cleared the 1.05x gate and no scalar libm symbol appeared. The benchmark
+reports entry-body instruction counts separately; throughput is the acceptance
+metric because native helper bodies may remain outlined.
 
 ### 5.2 LLVM/system vector libraries
 

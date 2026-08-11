@@ -41,6 +41,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -126,7 +127,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 6u;
+static constexpr auto fallback_shader_cache_abi = 7u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -636,6 +637,17 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         auto i = xir::dce_pass_run_on_module(m, &r);
         return i.changed();
     });
+    if (option.enable_fast_math) {
+        pre_cfg.add("fast-math-simplify", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::fast_math_simplify_pass_run_on_module(
+                m, {.enable_fast_math = true}, &r);
+            return i.changed();
+        });
+        pre_cfg.add("fast-math-dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.changed();
+        });
+    }
     auto pre_cfg_stats = pre_cfg.run(xir_module.get());
     pre_cfg_stats.log("Fallback backend pre-CFG optimization");
     if (LUISA_SHOULD_DUMP_XIR) {

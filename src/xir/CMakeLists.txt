@@ -101,6 +101,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/promote_ref_arg.cpp
         passes/reassociate.cpp
         passes/algebraic_simplify.cpp
+        passes/fast_math_simplify.cpp
         passes/alias_analysis.cpp
         passes/const_fold.cpp
         passes/dead_arg_elim.cpp

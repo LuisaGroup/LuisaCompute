@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -2215,6 +2216,59 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_fast_math_canonicalization() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferFloat output) noexcept {
+        auto index = dispatch_id().x;
+        auto exponent = cast<float>(index) * 0.25f - 1.0f;
+        output.write(
+            index,
+            pow(2.0f, exponent) + pow(10.0f, exponent));
+    };
+    auto precise = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_radix_pow_precise", false);
+    CHECK(precise.succeeded());
+    CHECK(precise.fast_math_identity_count == 0u);
+    CHECK(precise.fast_math_radix_pow_count == 0u);
+
+    auto fast = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_radix_pow_fast", true);
+    if (!fast.succeeded()) {
+        for (auto &&diagnostic : fast.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(fast.fast_math_identity_count == 0u);
+    CHECK(fast.fast_math_radix_pow_count == 2u);
+    CHECK(fast.argument_buffer_size == sizeof(SIMDHostBufferView));
+
+    std::array<float, count> output{};
+    output.fill(-1.0f);
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(fast.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&argument, nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        auto exponent = static_cast<float>(i) * 0.25f - 1.0f;
+        auto expected =
+            std::exp2(exponent) + std::pow(10.0f, exponent);
+        auto error = std::abs(output[i] - expected);
+        CHECK(error <= 2.0e-3f * (1.0f + std::abs(expected)));
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -2257,6 +2311,8 @@ int main() {
         {"XIR texture packet callback", &run_texture_packet_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST select operand order", &run_ast_select_codegen},
+        {"AST fast radix pow canonicalization",
+         &run_ast_fast_math_canonicalization},
     };
     auto failures = 0u;
     for (auto test : tests) {

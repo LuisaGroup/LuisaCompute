@@ -25,6 +25,7 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 
 using namespace luisa::compute;
 
@@ -64,6 +65,7 @@ namespace {
 struct FallbackMathModule {
     std::unique_ptr<::llvm::LLVMContext> context;
     std::unique_ptr<::llvm::Module> module;
+    size_t canonicalized_radix_pow_count{0u};
 };
 
 enum struct Operation : uint8_t {
@@ -177,7 +179,45 @@ void add_math_callable(
         "fallback-native-math", *context);
     static_cast<void>(fallback::luisa_fallback_backend_codegen(
         *context, module.get(), &xir_module, fast_math));
-    return {std::move(context), std::move(module)};
+    return {std::move(context), std::move(module), 0u};
+}
+
+[[nodiscard]] FallbackMathModule make_radix_pow_module(
+    bool fast_math) {
+    xir::Module xir_module;
+    for (auto width : {2u, 3u, 4u}) {
+        auto *type = Type::vector(Type::of<float>(), width);
+        auto *function = xir_module.create_callable(type);
+        function->set_name(
+            "fallback_radix_pow_v" + std::to_string(width));
+        auto *exponent = function->create_value_argument(type);
+        auto *body = function->create_body_block();
+        std::array<float, 4u> base2_values{
+            2.0f, 2.0f, 2.0f, 2.0f};
+        std::array<float, 4u> base10_values{
+            10.0f, 10.0f, 10.0f, 10.0f};
+        auto *base2 = xir_module.create_constant(
+            type, base2_values.data());
+        auto *base10 = xir_module.create_constant(
+            type, base10_values.data());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *pow2 = builder.call(
+            type, xir::ArithmeticOp::POW, {base2, exponent});
+        auto *pow10 = builder.call(
+            type, xir::ArithmeticOp::POW, {base10, exponent});
+        builder.return_(builder.call(
+            type, xir::ArithmeticOp::BINARY_ADD, {pow2, pow10}));
+    }
+    auto info = xir::fast_math_simplify_pass_run_on_module(
+        &xir_module, {.enable_fast_math = fast_math});
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "fallback-radix-pow", *context);
+    static_cast<void>(fallback::luisa_fallback_backend_codegen(
+        *context, module.get(), &xir_module, fast_math));
+    return {std::move(context), std::move(module),
+            info.radix_pow_count};
 }
 
 void add_entry_wrapper(
@@ -358,6 +398,30 @@ template<size_t Width, Operation Op>
         CHECK(ir.find("insertelement") == std::string::npos);
         CHECK(ir.find("llvm.x86.") == std::string::npos);
         CHECK(ir.find("llvm.aarch64.") == std::string::npos);
+    }
+
+    for (auto fast_math : {false, true}) {
+        auto shape = make_radix_pow_module(fast_math);
+        CHECK(!::llvm::verifyModule(*shape.module, &::llvm::errs()));
+        CHECK(shape.canonicalized_radix_pow_count ==
+              (fast_math ? 6u : 0u));
+        auto ir = module_text(*shape.module);
+        for (auto width : {2u, 3u, 4u}) {
+            auto width_suffix =
+                "_f32_v" + std::to_string(width) + "_fast";
+            if (fast_math) {
+                CHECK(ir.find("__luisa_cpu_native_exp2" +
+                              width_suffix) != std::string::npos);
+                CHECK(ir.find("__luisa_cpu_native_exp10" +
+                              width_suffix) != std::string::npos);
+                CHECK(ir.find("__luisa_cpu_native_pow" +
+                              width_suffix) == std::string::npos);
+            } else {
+                CHECK(ir.find("__luisa_cpu_native_pow_f32_v" +
+                              std::to_string(width) + "_u10") !=
+                      std::string::npos);
+            }
+        }
     }
 
     for (auto fast_math : {false, true}) {

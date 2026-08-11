@@ -44,6 +44,8 @@ enum struct Operation : uint8_t {
     log2,
     log10,
     pow,
+    pow2_canonicalization,
+    pow10_canonicalization,
 };
 
 constexpr std::array operations{
@@ -53,6 +55,14 @@ constexpr std::array operations{
     Operation::exp, Operation::exp2, Operation::exp10,
     Operation::log, Operation::log2, Operation::log10,
     Operation::pow};
+
+// These pairs reuse the benchmark's interleaved precise/fast slots as
+// baseline/canonical slots. Both implementations use the fast tier: the
+// baseline emits generic pow(radix, x), while the candidate emits the
+// contract-equivalent dedicated radix operation selected by the XIR pass.
+constexpr std::array canonicalization_operations{
+    Operation::pow2_canonicalization,
+    Operation::pow10_canonicalization};
 
 constexpr std::array widths{2u, 3u, 4u, 8u, 16u};
 constexpr auto packet_count = uint64_t{4096u};
@@ -86,6 +96,10 @@ struct Measurement {
         case Operation::log2: return "log2";
         case Operation::log10: return "log10";
         case Operation::pow: return "pow";
+        case Operation::pow2_canonicalization:
+            return "pow2_canonicalization";
+        case Operation::pow10_canonicalization:
+            return "pow10_canonicalization";
     }
     return {};
 }
@@ -147,6 +161,30 @@ struct Measurement {
         case Operation::pow:
             return cpu::LLVMNativeMath::emit_pow_f32(
                 module, builder, input, secondary, mode);
+        case Operation::pow2_canonicalization:
+        case Operation::pow10_canonicalization: {
+            auto radix = operation == Operation::pow2_canonicalization ?
+                             2.0 :
+                             10.0;
+            auto *scalar = ::llvm::ConstantFP::get(
+                builder.getFloatTy(), radix);
+            auto *vector_type =
+                ::llvm::cast<::llvm::FixedVectorType>(input->getType());
+            auto *base = ::llvm::ConstantVector::getSplat(
+                vector_type->getElementCount(), scalar);
+            if (mode == cpu::LLVMNativeMathMode::precise) {
+                return cpu::LLVMNativeMath::emit_pow_f32(
+                    module, builder, base, input,
+                    cpu::LLVMNativeMathMode::fast);
+            }
+            return operation == Operation::pow2_canonicalization ?
+                       cpu::LLVMNativeMath::emit_exp2_f32(
+                           module, builder, input,
+                           cpu::LLVMNativeMathMode::fast) :
+                       cpu::LLVMNativeMath::emit_exp10_f32(
+                           module, builder, input,
+                           cpu::LLVMNativeMathMode::fast);
+        }
     }
     return nullptr;
 }
@@ -215,6 +253,9 @@ void add_entry(
             for (auto operation : operations) {
                 add_entry(*module, width, operation, mode);
             }
+            for (auto operation : canonicalization_operations) {
+                add_entry(*module, width, operation, mode);
+            }
         }
     }
     return {std::move(context), std::move(module)};
@@ -243,6 +284,8 @@ void add_entry(
         case Operation::log2:
         case Operation::log10:
         case Operation::pow: return std::exp2(unit * 3.0f);
+        case Operation::pow2_canonicalization: return unit * 7.0f;
+        case Operation::pow10_canonicalization: return unit * 2.0f;
     }
     return 0.0f;
 }
@@ -410,7 +453,10 @@ void print_row(
 
 }// namespace
 
-int main() {
+int main(int argc, char *argv[]) {
+    auto canonicalization_only =
+        argc == 2 &&
+        std::string_view{argv[1]} == "--canonicalization-only";
     auto assembly_module = make_math_module();
     simd::LLVMJIT assembly_target;
     if (!assembly_target.succeeded()) {
@@ -436,39 +482,63 @@ int main() {
         return 1;
     }
 
-    std::cout
-        << "surface,width,operation,precise_ns_per_element,"
-           "fast_ns_per_element,speedup,precise_instructions,"
-           "fast_instructions,scalar_libm\n";
     auto stable = !scalar_libm;
+    if (!canonicalization_only) {
+        std::cout
+            << "surface,width,operation,precise_ns_per_element,"
+               "fast_ns_per_element,speedup,precise_entry_instructions,"
+               "fast_entry_instructions,scalar_libm\n";
+        for (auto width : widths) {
+            auto aggregate_precise = 0.0;
+            auto aggregate_fast = 0.0;
+            for (auto operation : operations) {
+                auto measurement = benchmark_pair(
+                    jit, assembly, operation, width);
+                aggregate_precise += measurement.precise_ns;
+                aggregate_fast += measurement.fast_ns;
+                if (width <= 4u) {
+                    print_row(
+                        "fallback", width, operation,
+                        measurement, scalar_libm);
+                }
+                if (width >= 4u) {
+                    print_row(
+                        "simd", width, operation,
+                        measurement, scalar_libm);
+                }
+            }
+            auto aggregate_speedup =
+                aggregate_precise / aggregate_fast;
+            std::cerr << "W" << width << " aggregate speedup: "
+                      << std::fixed << std::setprecision(3)
+                      << aggregate_speedup << "x\n";
+            stable = stable && aggregate_speedup >= 1.05;
+        }
+    }
     for (auto width : widths) {
-        auto aggregate_precise = 0.0;
-        auto aggregate_fast = 0.0;
-        for (auto operation : operations) {
+        for (auto operation : canonicalization_operations) {
             auto measurement = benchmark_pair(
                 jit, assembly, operation, width);
-            aggregate_precise += measurement.precise_ns;
-            aggregate_fast += measurement.fast_ns;
-            if (width <= 4u) {
-                print_row(
-                    "fallback", width, operation,
-                    measurement, scalar_libm);
-            }
-            if (width >= 4u) {
-                print_row(
-                    "simd", width, operation,
-                    measurement, scalar_libm);
-            }
+            auto speedup =
+                measurement.precise_ns / measurement.fast_ns;
+            std::cerr << "W" << width << ' '
+                      << operation_name(operation)
+                      << " fast-pow baseline -> dedicated radix: "
+                      << std::fixed << std::setprecision(3)
+                      << speedup << "x ("
+                      << measurement.precise_ns << " -> "
+                      << measurement.fast_ns << " ns/element, "
+                      << measurement.precise_instructions << " -> "
+                      << measurement.fast_instructions
+                      << " entry instructions)\n";
+            stable = stable && speedup >= 1.05;
         }
-        auto aggregate_speedup = aggregate_precise / aggregate_fast;
-        std::cerr << "W" << width << " aggregate speedup: "
-                  << std::fixed << std::setprecision(3)
-                  << aggregate_speedup << "x\n";
-        stable = stable && aggregate_speedup >= 1.05;
     }
     if (!stable) {
-        std::cerr << "fast native math did not clear the 1.05x aggregate "
-                     "throughput gate or emitted a scalar libm symbol.\n";
+        std::cerr
+            << "fast native math or radix canonicalization did not clear "
+               "the 1.05x throughput gate, or emitted a scalar libm "
+               "symbol.\n";
         return 1;
     }
     return benchmark_sink == std::numeric_limits<float>::infinity() ? 1 : 0;

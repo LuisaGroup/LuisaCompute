@@ -26,6 +26,7 @@
 #include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/fix_self_referential.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/if_conversion.h>
@@ -1385,6 +1386,215 @@ void reg_algebraic_simplify() {
                    nullptr, {}, &report)
                    .simplified_inst_count == 0u);
         expect(report.entries().size() == 1u);
+    };
+}
+
+// ---- fast_math_simplify ----
+
+void reg_fast_math_simplify() {
+
+    "fast_math_simplify_is_disabled_by_default"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *exponent = f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        auto base_value = 2.0f;
+        auto *base = m.create_constant(Type::of<float>(), &base_value);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *power = b.call(
+            Type::of<float>(), ArithmeticOp::POW, {base, exponent});
+        auto *ret = b.return_(power);
+
+        auto info = fast_math_simplify_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == power);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_radix_pow_scalar_and_vector"_test = [] {
+        Module m;
+        auto *scalar = m.create_callable(Type::of<float>());
+        auto *scalar_exponent =
+            scalar->create_value_argument(Type::of<float>());
+        auto *scalar_body = scalar->create_body_block();
+        auto scalar_base_value = 2.0f;
+        auto *scalar_base = m.create_constant(
+            Type::of<float>(), &scalar_base_value);
+        XIRBuilder b;
+        b.set_insertion_point(scalar_body);
+        auto *scalar_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {scalar_base, scalar_exponent});
+        auto *scalar_ret = b.return_(scalar_power);
+
+        auto *vector = m.create_callable(Type::of<float3>());
+        auto *vector_exponent =
+            vector->create_value_argument(Type::of<float3>());
+        auto *vector_body = vector->create_body_block();
+        float3 vector_base_value{10.0f};
+        auto *vector_base = m.create_constant(
+            Type::of<float3>(), &vector_base_value);
+        b.set_insertion_point(vector_body);
+        auto *vector_power = b.call(
+            Type::of<float3>(), ArithmeticOp::POW,
+            {vector_base, vector_exponent});
+        auto *vector_ret = b.return_(vector_power);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = fast_math_simplify_pass_run_on_module(
+            &m, {.enable_fast_math = true});
+        expect(info.identity_count == 0u);
+        expect(info.radix_pow_count == 2u);
+        expect(scalar_ret->return_value()->isa<ArithmeticInst>());
+        expect(static_cast<ArithmeticInst *>(scalar_ret->return_value())
+                   ->op() == ArithmeticOp::EXP2);
+        expect(static_cast<ArithmeticInst *>(scalar_ret->return_value())
+                   ->operand(0u) == scalar_exponent);
+        expect(vector_ret->return_value()->isa<ArithmeticInst>());
+        expect(static_cast<ArithmeticInst *>(vector_ret->return_value())
+                   ->op() == ArithmeticOp::EXP10);
+        expect(static_cast<ArithmeticInst *>(vector_ret->return_value())
+                   ->operand(0u) == vector_exponent);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_full_domain_pow_identities"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *zero_exponent = m.create_callable(Type::of<float2>());
+        auto *dynamic_base =
+            zero_exponent->create_value_argument(Type::of<float2>());
+        auto *zero_body = zero_exponent->create_body_block();
+        float2 signed_zeros{0.0f, -0.0f};
+        auto *signed_zero_constant = m.create_constant(
+            Type::of<float2>(), &signed_zeros);
+        b.set_insertion_point(zero_body);
+        auto *zero_power = b.call(
+            Type::of<float2>(), ArithmeticOp::POW,
+            {dynamic_base, signed_zero_constant});
+        auto *zero_ret = b.return_(zero_power);
+
+        auto *one = m.create_constant_one(Type::of<float>());
+        auto *one_base = m.create_callable(Type::of<float>());
+        auto *dynamic_exponent =
+            one_base->create_value_argument(Type::of<float>());
+        auto *one_base_body = one_base->create_body_block();
+        b.set_insertion_point(one_base_body);
+        auto *one_base_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {one, dynamic_exponent});
+        auto *one_base_ret = b.return_(one_base_power);
+
+        auto info = fast_math_simplify_pass_run_on_module(
+            &m, {.enable_fast_math = true});
+        expect(info.identity_count == 2u);
+        expect(info.radix_pow_count == 0u);
+        expect(zero_ret->return_value()->isa<Constant>());
+        auto *zero_result = static_cast<const float *>(
+            static_cast<Constant *>(zero_ret->return_value())->data());
+        expect(zero_result[0u] == 1.0f);
+        expect(zero_result[1u] == 1.0f);
+        expect(one_base_ret->return_value()->isa<Constant>());
+        expect(static_cast<Constant *>(one_base_ret->return_value())
+                   ->as<float>() == 1.0f);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_rejects_domain_extensions_and_metadata"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *negative = m.create_callable(Type::of<float>());
+        auto *negative_exponent =
+            negative->create_value_argument(Type::of<float>());
+        auto *negative_body = negative->create_body_block();
+        auto negative_base_value = -2.0f;
+        auto *negative_base = m.create_constant(
+            Type::of<float>(), &negative_base_value);
+        b.set_insertion_point(negative_body);
+        auto *negative_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {negative_base, negative_exponent});
+        auto *negative_ret = b.return_(negative_power);
+
+        auto *mixed = m.create_callable(Type::of<float2>());
+        auto *mixed_exponent =
+            mixed->create_value_argument(Type::of<float2>());
+        auto *mixed_body = mixed->create_body_block();
+        float2 mixed_base_value{2.0f, 3.0f};
+        auto *mixed_base = m.create_constant(
+            Type::of<float2>(), &mixed_base_value);
+        b.set_insertion_point(mixed_body);
+        auto *mixed_power = b.call(
+            Type::of<float2>(), ArithmeticOp::POW,
+            {mixed_base, mixed_exponent});
+        auto *mixed_ret = b.return_(mixed_power);
+
+        auto *f64 = m.create_callable(Type::of<double>());
+        auto *f64_exponent =
+            f64->create_value_argument(Type::of<double>());
+        auto *f64_body = f64->create_body_block();
+        auto f64_base_value = 2.0;
+        auto *f64_base = m.create_constant(
+            Type::of<double>(), &f64_base_value);
+        b.set_insertion_point(f64_body);
+        auto *f64_power = b.call(
+            Type::of<double>(), ArithmeticOp::POW,
+            {f64_base, f64_exponent});
+        auto *f64_ret = b.return_(f64_power);
+
+        auto *annotated = m.create_callable(Type::of<float>());
+        auto *annotated_exponent =
+            annotated->create_value_argument(Type::of<float>());
+        auto *annotated_body = annotated->create_body_block();
+        auto positive_base_value = 2.0f;
+        auto *positive_base = m.create_constant(
+            Type::of<float>(), &positive_base_value);
+        b.set_insertion_point(annotated_body);
+        auto *annotated_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {positive_base, annotated_exponent});
+        annotated_power->set_location("fast_math.cpp", 17);
+        auto *annotated_ret = b.return_(annotated_power);
+
+        // pow(NaN, 1) must still pass through the provider's canonical-NaN
+        // repair, so a dynamic base cannot use the otherwise tempting x^1
+        // identity.
+        auto *one_exponent = m.create_callable(Type::of<float>());
+        auto *one_exponent_base =
+            one_exponent->create_value_argument(Type::of<float>());
+        auto *one_exponent_body = one_exponent->create_body_block();
+        auto *one = m.create_constant_one(Type::of<float>());
+        b.set_insertion_point(one_exponent_body);
+        auto *one_exponent_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {one_exponent_base, one});
+        auto *one_exponent_ret = b.return_(one_exponent_power);
+
+        PassReport report;
+        auto info = fast_math_simplify_pass_run_on_module(
+            &m, {.enable_fast_math = true}, &report);
+        expect(!info.changed());
+        expect(negative_ret->return_value() == negative_power);
+        expect(mixed_ret->return_value() == mixed_power);
+        expect(f64_ret->return_value() == f64_power);
+        expect(annotated_ret->return_value() == annotated_power);
+        expect(one_exponent_ret->return_value() == one_exponent_power);
+        expect(report.entries().size() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_null_entries_are_total"_test = [] {
+        expect(!fast_math_simplify_pass_run_on_function(
+                    nullptr, {.enable_fast_math = true})
+                    .changed());
+        PassReport report;
+        expect(!fast_math_simplify_pass_run_on_module(
+                    nullptr, {.enable_fast_math = true}, &report)
+                    .changed());
+        expect(report.entries().size() == 2u);
     };
 }
 
@@ -11308,6 +11518,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_pass_entry_totality();
     reg_algebraic_simplify();
+    reg_fast_math_simplify();
     reg_const_fold();
     reg_dce();
     reg_gvn();
