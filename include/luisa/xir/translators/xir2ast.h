@@ -24,6 +24,9 @@ struct XIR2ASTConfig {
     bool strict{true};
     luisa::span<const compute::Function::Binding> bound_arguments{};
     XIR2ASTTranslationStatistics *statistics{nullptr};
+    // Diagnostic oracle: retain the former full-map snapshot at every
+    // structured scope and compare it with the incremental rollback result.
+    bool verify_value_map_checkpoints{false};
 };
 
 using ASTFunctionBuilder = compute::detail::FunctionBuilder;

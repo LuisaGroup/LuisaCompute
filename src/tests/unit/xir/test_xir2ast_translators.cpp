@@ -1239,7 +1239,9 @@ void reg_xir2ast_direct() {
 
             XIR2ASTTranslationStatistics statistics;
             auto ast = xir_to_ast_translate(
-                *kernel, {.statistics = &statistics});
+                *kernel,
+                {.statistics = &statistics,
+                 .verify_value_map_checkpoints = true});
             expect(ast != nullptr);
             return statistics;
         };

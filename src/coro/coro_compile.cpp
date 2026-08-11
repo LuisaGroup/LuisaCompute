@@ -510,7 +510,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto continuation_asts =
         xir::xir_to_ast_translate_continuations(
             luisa::span{continuation_definitions},
-            {.statistics = &xir_to_ast_statistics});
+            {.statistics = &xir_to_ast_statistics,
+             .verify_value_map_checkpoints =
+                 environment_flag_enabled(
+                     "LUISA_XIR2AST_VERIFY_VALUE_MAP_CHECKPOINTS")});
     LUISA_ASSERT(
         continuation_asts.size() == subroutines_by_scope.size(),
         "Coroutine XIR->AST batch translation returned {} AST(s) for {} scope(s).",

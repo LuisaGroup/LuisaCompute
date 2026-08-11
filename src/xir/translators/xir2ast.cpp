@@ -910,6 +910,10 @@ private:
         // O(number of bindings created in the branch), independent of the
         // number of dominating bindings retained across it.
         auto checkpoint = _value_map_insertion_log.size();
+        ValueMap oracle_snapshot;
+        if (_config.verify_value_map_checkpoints) {
+            oracle_snapshot = _value_map;
+        }
         if (auto statistics = _config.statistics) {
             statistics->value_map_checkpoint_count++;
         }
@@ -926,6 +930,19 @@ private:
         _value_map_insertion_log.resize(checkpoint);
         if (auto statistics = _config.statistics) {
             statistics->value_map_rollback_work += rollback_work;
+        }
+        if (_config.verify_value_map_checkpoints) {
+            LUISA_ASSERT(
+                _value_map.size() == oracle_snapshot.size(),
+                "XIR-to-AST incremental checkpoint changed the retained value-map size ({} != {}).",
+                _value_map.size(), oracle_snapshot.size());
+            for (auto [value, expression] : oracle_snapshot) {
+                auto iter = _value_map.find(value);
+                LUISA_ASSERT(
+                    iter != _value_map.end() &&
+                        iter->second == expression,
+                    "XIR-to-AST incremental checkpoint changed a retained value binding.");
+            }
         }
     }
 
