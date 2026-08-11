@@ -416,6 +416,8 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                            i.remaining_pointer_call_count);
                      r.set("argument_usage_analysis",
                            i.argument_usage_analysis_count);
+                     r.set("indexed_call_site",
+                           i.indexed_call_site_count);
                      r.set("argument_usage_structural_closure",
                            i.argument_usage_structural_closure_count);
                      r.set("argument_usage_instruction_scan",

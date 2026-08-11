@@ -46,6 +46,7 @@ struct SpirvPointerLegalizationInfo {
     size_t pruned_unreachable_callable_count{0u};
     size_t remaining_pointer_call_count{0u};
     size_t argument_usage_analysis_count{0u};
+    size_t indexed_call_site_count{0u};
     size_t argument_usage_structural_closure_count{0u};
     size_t argument_usage_instruction_scan_count{0u};
     size_t argument_usage_call_dependency_count{0u};

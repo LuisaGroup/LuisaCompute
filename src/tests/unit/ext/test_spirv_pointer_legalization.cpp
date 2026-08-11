@@ -286,11 +286,20 @@ int main(int argc, char *argv[]) {
         expect(xir_verify_module(&module).succeeded());
 
         lc::spirv::SpirvFunctionArgumentAnalysisStatistics statistics;
+        lc::spirv::SpirvFunctionCallSiteList call_sites;
         auto analysis =
             lc::spirv::analyze_spirv_function_argument_usage(
-                &module, &statistics);
+                &module, &statistics, {}, &call_sites);
         expect(lc::spirv::spirv_function_argument_usage_of(
                    analysis, kernel, kernel_buffer) == Usage::READ);
+        expect(eq(call_sites.size(), chain_length));
+        auto origins = lc::spirv::
+            analyze_spirv_readonly_resource_origins_from_call_sites(
+                analysis, luisa::span{call_sites});
+        expect(eq(origins.size(), chain_length));
+        for (auto *argument : arguments) {
+            expect(origins.at(argument) == kernel_buffer);
+        }
         expect(eq(statistics.structural_closure_count,
                   chain_length + 1u));
         expect(eq(statistics.instruction_scan_count,
@@ -732,6 +741,25 @@ int main(int argc, char *argv[]) {
             nullptr, orphan, {outer_input}));
         builder.return_void();
         expect(xir_verify_module(module.get()).succeeded());
+
+        lc::spirv::SpirvFunctionCallSiteList live_call_sites;
+        auto live_usage =
+            lc::spirv::analyze_spirv_function_argument_usage(
+                module.get(), nullptr,
+                {.kernel_reachable_only = true},
+                &live_call_sites);
+        expect(eq(live_call_sites.size(), 3u))
+            << "only kernel->outer->inner->read belongs to the semantic call graph";
+        for (auto *call : live_call_sites) {
+            expect(call->callee() != orphan)
+                << "an orphan physical function operand must not enter the sparse call-site index";
+        }
+        auto live_origins = lc::spirv::
+            analyze_spirv_readonly_resource_origins_from_call_sites(
+                live_usage, luisa::span{live_call_sites});
+        expect(eq(live_origins.size(), 3u));
+        expect(!live_origins.contains(orphan_input))
+            << "the orphan formal must not receive an origin proof";
 
         auto legalized =
             lc::spirv::legalize_spirv_pointer_arguments(module.get());
