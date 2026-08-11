@@ -1510,14 +1510,44 @@ private:
 public:
     explicit XIR2ASTContext(const XIR2ASTConfig &config) noexcept : _config{config} {}
 
-    void add_function(const FunctionDefinition &f) noexcept {
-        LUISA_ASSERT(_builder == nullptr, "XIR2ASTContext currently accepts one function.");
+    [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder>
+    translate_function(const FunctionDefinition &f) noexcept {
+        // A context may translate several roots from one immutable module.
+        // Per-root expression/CFG state must never cross that boundary; only
+        // completed ordinary callable builders in _function_map are shared.
+        LUISA_ASSERT(
+            _value_map_stack.empty() && _active_blocks.empty() &&
+                _loop_update_stack.empty() && _translating_functions.empty(),
+            "XIR-to-AST root translation started with live per-root state.");
+        _value_map.clear();
+        if (auto iter = _function_map.find(&f);
+            iter != _function_map.end()) {
+            return iter->second;
+        }
         verify_xir_for_ast(
             &f, "translation input",
             {.require_no_phi = true,
              .require_canonical_break_continue_targets = true});
-        _builder = _translate(f);
-        _function_map.emplace(&f, _builder);
+        if (!_translating_functions.emplace(&f).second) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Recursive XIR root functions are not supported by XIR-to-AST.");
+        }
+        auto builder = _translate(f);
+        _translating_functions.erase(&f);
+        auto [iter, inserted] = _function_map.emplace(&f, builder);
+        LUISA_ASSERT(
+            inserted || iter->second == builder,
+            "XIR-to-AST root cache changed during translation.");
+        LUISA_ASSERT(
+            _value_map_stack.empty() && _active_blocks.empty() &&
+                _loop_update_stack.empty() && _translating_functions.empty(),
+            "XIR-to-AST root translation leaked per-root state.");
+        return builder;
+    }
+
+    void add_function(const FunctionDefinition &f) noexcept {
+        LUISA_ASSERT(_builder == nullptr, "XIR2ASTContext currently accepts one function.");
+        _builder = translate_function(f);
     }
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> finalize() noexcept {
@@ -1734,6 +1764,24 @@ xir_to_ast_translate_continuation(const FunctionDefinition &function,
     XIR2ASTContext ctx{config};
     ctx.add_function(function);
     return ctx.finalize();
+}
+
+luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>>
+xir_to_ast_translate_continuations(
+    luisa::span<const FunctionDefinition *const> functions,
+    const XIR2ASTConfig &config) noexcept {
+    XIR2ASTContext ctx{config};
+    luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>> builders;
+    builders.reserve(functions.size());
+    for (auto *function : functions) {
+        LUISA_ASSERT(
+            function != nullptr &&
+                function->derived_function_tag() ==
+                    DerivedFunctionTag::CALLABLE,
+            "xir_to_ast_translate_continuations requires CallableFunction definitions.");
+        builders.emplace_back(ctx.translate_function(*function));
+    }
+    return builders;
 }
 
 }// namespace luisa::compute::xir

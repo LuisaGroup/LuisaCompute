@@ -1,4 +1,5 @@
 #include "ut/ut.hpp"
+#include <array>
 #include <luisa/ast/function.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -190,6 +191,57 @@ void reg_coro_xir2ast() {
         expect(ast->function().tag() == ASTFunction::Tag::CALLABLE);
         expect(ast->arguments().size() == 1u);
         expect(ast->arguments().front().is_reference());
+    };
+
+    "continuation_batch_shares_ordinary_callable_translation"_test = [] {
+        Module m;
+        auto *helper = m.create_callable(Type::of<uint>());
+        auto *helper_arg = helper->create_value_argument(Type::of<uint>());
+        auto *helper_body = helper->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(helper_body);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *incremented = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {helper_arg, one});
+        b.return_(incremented);
+
+        std::array<CallableFunction *, 2u> continuations{};
+        for (auto i = 0u; i < continuations.size(); ++i) {
+            Value *frame_arg;
+            BasicBlock *body;
+            continuations[i] =
+                make_continuation(m, frame_arg, body);
+            b.set_insertion_point(body);
+            auto input_value = static_cast<uint>(i);
+            auto *input = m.create_constant(
+                Type::of<uint>(), &input_value);
+            auto *value = b.call(
+                Type::of<uint>(), helper, {input});
+            auto field = kTargetTokenField;
+            auto *field_index = m.create_constant(
+                Type::of<uint>(), &field);
+            auto *target = b.gep(
+                Type::of<uint>(), frame_arg, {field_index});
+            b.store(target, value);
+            b.return_void();
+        }
+
+        std::array<const FunctionDefinition *, 2u> roots{
+            continuations[0u], continuations[1u]};
+        auto asts = xir_to_ast_translate_continuations(
+            luisa::span{roots});
+
+        expect(asts.size() == roots.size());
+        expect(asts[0u] != nullptr && asts[1u] != nullptr);
+        expect(asts[0u].get() != asts[1u].get())
+            << "continuation roots must remain distinct builders";
+        expect(asts[0u]->custom_callables().size() == 1u);
+        expect(asts[1u]->custom_callables().size() == 1u);
+        auto helper_0 = *asts[0u]->custom_callables().begin();
+        auto helper_1 = *asts[1u]->custom_callables().begin();
+        expect(helper_0.get() == helper_1.get())
+            << "one immutable XIR helper must translate to one shared AST builder";
     };
 
     "non_continuation_callable_does_not_crash_translation"_test = [] {

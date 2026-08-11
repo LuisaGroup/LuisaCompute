@@ -489,6 +489,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
 
     result.subroutines.reserve(subroutines_by_scope.size());
     result.trigger_tokens.reserve(subroutines_by_scope.size());
+    luisa::vector<const xir::FunctionDefinition *> continuation_definitions;
+    continuation_definitions.reserve(subroutines_by_scope.size());
     for (size_t scope_index = 0u;
          scope_index < subroutines_by_scope.size(); ++scope_index) {
         auto *subroutine = subroutines_by_scope[scope_index];
@@ -496,19 +498,29 @@ CoroutineCompileResult compile_coroutine_pipeline(
             subroutine != nullptr,
             "Coroutine lowering did not materialize distilled scope {}.",
             scope_index);
-        auto ast = xir::xir_to_ast_translate_continuation(
-            *subroutine->callable);
-        LUISA_ASSERT(
-            ast != nullptr,
-            "Coroutine XIR->AST translation failed for scope {} (trigger token {}).",
-            scope_index, subroutine->trigger_token);
         LUISA_ASSERT(
             result.graph.node(scope_index).token ==
                 subroutine->trigger_token,
             "Coroutine graph/callable token mismatch at scope {}.",
             scope_index);
-        result.subroutines.emplace_back(std::move(ast));
+        continuation_definitions.emplace_back(subroutine->callable);
         result.trigger_tokens.emplace_back(subroutine->trigger_token);
+    }
+    auto continuation_asts =
+        xir::xir_to_ast_translate_continuations(
+            luisa::span{continuation_definitions});
+    LUISA_ASSERT(
+        continuation_asts.size() == subroutines_by_scope.size(),
+        "Coroutine XIR->AST batch translation returned {} AST(s) for {} scope(s).",
+        continuation_asts.size(), subroutines_by_scope.size());
+    for (size_t scope_index = 0u;
+         scope_index < continuation_asts.size(); ++scope_index) {
+        LUISA_ASSERT(
+            continuation_asts[scope_index] != nullptr,
+            "Coroutine XIR->AST translation failed for scope {} (trigger token {}).",
+            scope_index, result.trigger_tokens[scope_index]);
+        result.subroutines.emplace_back(
+            std::move(continuation_asts[scope_index]));
     }
     LUISA_ASSERT(
         !result.trigger_tokens.empty() &&
