@@ -616,6 +616,40 @@ template<size_t Width>
     return true;
 }
 
+[[nodiscard]] bool run_ast_select_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        auto even = (index & 1u) == 0u;
+        output.write(index, ite(even, 17u, 29u));
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width, "simd_ast_select");
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    std::array<uint32_t, count> output{};
+    output.fill(0xdeadbeefu);
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&argument, nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        CHECK(output[i] == (i % 2u == 0u ? 17u : 29u));
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -635,6 +669,7 @@ int main() {
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
+        {"AST select operand order", &run_ast_select_codegen},
     };
     auto failures = 0u;
     for (auto test : tests) {

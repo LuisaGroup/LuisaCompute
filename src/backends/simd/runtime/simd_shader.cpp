@@ -6,6 +6,7 @@
 #include <luisa/core/logging.h>
 
 #include "simd_buffer.h"
+#include "simd_texture.h"
 
 namespace luisa::compute::simd {
 
@@ -154,12 +155,19 @@ void SIMDShader::dispatch(
                     uniform.size_bytes());
                 break;
             }
-            case Argument::Tag::TEXTURE:
+            case Argument::Tag::TEXTURE: {
+                auto *texture = reinterpret_cast<SIMDTexture *>(
+                    argument.texture.handle);
+                auto view = texture->host_view(argument.texture.level);
+                std::memcpy(
+                    allocate(sizeof(view)), &view, sizeof(view));
+                break;
+            }
             case Argument::Tag::BINDLESS_ARRAY:
             case Argument::Tag::ACCEL:
                 LUISA_ERROR_WITH_LOCATION(
-                    "This SIMD runtime checkpoint supports Buffer and uniform "
-                    "shader arguments only.");
+                    "This SIMD runtime checkpoint does not support bindless "
+                    "or acceleration-structure shader arguments yet.");
         }
     };
     for (auto &&argument : _bound_arguments) { encode(argument); }

@@ -7,6 +7,7 @@
 
 #include "simd_buffer.h"
 #include "simd_shader.h"
+#include "simd_texture.h"
 
 namespace luisa::compute::simd {
 
@@ -55,14 +56,85 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                     luisa::unique_ptr<ShaderDispatchCommand>{raw});
                 break;
             }
-            case Command::Tag::EBufferToTextureCopyCommand:
-            case Command::Tag::ETextureUploadCommand:
-            case Command::Tag::ETextureDownloadCommand:
-            case Command::Tag::ETextureCopyCommand:
-            case Command::Tag::ETextureToBufferCopyCommand:
-                LUISA_ERROR_WITH_LOCATION(
-                    "Texture commands are not implemented by the SIMD "
-                    "runtime checkpoint yet.");
+            case Command::Tag::EBufferToTextureCopyCommand: {
+                auto *copy = static_cast<BufferToTextureCopyCommand *>(
+                    command.get());
+                auto source = reinterpret_cast<SIMDBuffer *>(copy->buffer())
+                                  ->view_with_offset(copy->buffer_offset());
+                auto destination =
+                    reinterpret_cast<SIMDTexture *>(copy->texture())
+                        ->view(copy->level());
+                LUISA_ASSERT(
+                    all(copy->texture_offset() == 0u) &&
+                        all(copy->size() == destination.size3d()),
+                    "SIMD texture copies currently require a full mip view.");
+                destination.copy_from(source.data);
+                break;
+            }
+            case Command::Tag::ETextureUploadCommand: {
+                auto *upload = static_cast<TextureUploadCommand *>(
+                    command.get());
+                auto destination =
+                    reinterpret_cast<SIMDTexture *>(upload->handle())
+                        ->view(upload->level());
+                LUISA_ASSERT(
+                    all(upload->offset() == 0u) &&
+                        all(upload->size() == destination.size3d()),
+                    "SIMD texture uploads currently require a full mip view.");
+                destination.copy_from(upload->data());
+                break;
+            }
+            case Command::Tag::ETextureDownloadCommand: {
+                auto *download = static_cast<TextureDownloadCommand *>(
+                    command.get());
+                auto source =
+                    reinterpret_cast<SIMDTexture *>(download->handle())
+                        ->view(download->level());
+                LUISA_ASSERT(
+                    all(download->offset() == 0u) &&
+                        all(download->size() == source.size3d()),
+                    "SIMD texture downloads currently require a full mip view.");
+                source.copy_to(download->data());
+                break;
+            }
+            case Command::Tag::ETextureCopyCommand: {
+                auto *copy = static_cast<TextureCopyCommand *>(
+                    command.get());
+                auto source =
+                    reinterpret_cast<SIMDTexture *>(copy->src_handle())
+                        ->view(copy->src_level());
+                auto destination =
+                    reinterpret_cast<SIMDTexture *>(copy->dst_handle())
+                        ->view(copy->dst_level());
+                LUISA_ASSERT(
+                    all(copy->src_offset() == 0u) &&
+                        all(copy->dst_offset() == 0u) &&
+                        all(copy->size() == source.size3d()) &&
+                        all(copy->size() == destination.size3d()),
+                    "SIMD texture copies currently require full mip views.");
+                LUISA_ASSERT(
+                    source.size_bytes() == destination.size_bytes(),
+                    "SIMD texture copy size mismatch.");
+                source.copy_to(
+                    const_cast<std::byte *>(destination.data()));
+                break;
+            }
+            case Command::Tag::ETextureToBufferCopyCommand: {
+                auto *copy = static_cast<TextureToBufferCopyCommand *>(
+                    command.get());
+                auto source =
+                    reinterpret_cast<SIMDTexture *>(copy->texture())
+                        ->view(copy->level());
+                auto destination =
+                    reinterpret_cast<SIMDBuffer *>(copy->buffer())
+                        ->view_with_offset(copy->buffer_offset());
+                LUISA_ASSERT(
+                    all(copy->texture_offset() == 0u) &&
+                        all(copy->size() == source.size3d()),
+                    "SIMD texture copies currently require a full mip view.");
+                source.copy_to(destination.data);
+                break;
+            }
             case Command::Tag::EAccelBuildCommand:
             case Command::Tag::EMeshBuildCommand:
             case Command::Tag::ECurveBuildCommand:

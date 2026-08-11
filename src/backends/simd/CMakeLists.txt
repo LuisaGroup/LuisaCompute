@@ -75,11 +75,13 @@ set_target_properties(luisa-compute-simd-compiler PROPERTIES
         UNITY_BUILD OFF)
 
 luisa_compute_add_backend(simd SOURCES
+        ../fallback/fallback_texture.cpp
         runtime/simd_buffer.cpp
         runtime/simd_device.cpp
         runtime/simd_event.cpp
         runtime/simd_shader.cpp
-        runtime/simd_stream.cpp)
+        runtime/simd_stream.cpp
+        runtime/simd_texture.cpp)
 target_link_libraries(luisa-compute-backend-simd PRIVATE
         luisa-compute-simd-compiler)
 set_target_properties(luisa-compute-backend-simd PROPERTIES

@@ -541,3 +541,20 @@ luisa_compute_add_test(test_fp4                  unit/runtime/test_fp4.cpp)
 luisa_compute_add_test(test_fp4_quantization     unit/runtime/test_fp4_quantization.cpp)
 luisa_compute_add_test(test_fp8                  unit/runtime/test_fp8.cpp)
 luisa_compute_add_test(test_fp8_quantization     unit/runtime/test_fp8_quantization.cpp)
+
+# The SIMD backend is a host-only module, so its supported runtime conformance
+# subset is safe to run unattended without a GPU or driver installation.
+if (TARGET luisa-compute-backend-simd)
+    foreach (_simd_runtime_test IN ITEMS
+            test_buffer
+            test_buffer_view
+            test_buffer_io
+            test_texture_io)
+        add_dependencies(${_simd_runtime_test}
+                luisa-compute-backend-simd)
+        add_test(NAME simd_${_simd_runtime_test}
+                COMMAND $<TARGET_FILE:${_simd_runtime_test}> simd)
+        set_tests_properties(simd_${_simd_runtime_test} PROPERTIES
+                LABELS "integration_simd;runtime_simd")
+    endforeach ()
+endif ()

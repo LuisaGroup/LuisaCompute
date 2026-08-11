@@ -1,0 +1,52 @@
+#pragma once
+
+#include "../../fallback/fallback_texture.h"
+#include "../llvm/llvm_schedule_codegen.h"
+
+namespace luisa::compute::simd {
+
+class SIMDTexture {
+
+private:
+    fallback::FallbackTexture _texture;
+    uint _dimension{2u};
+
+private:
+    static void _read_float(
+        void *texture, uint32_t level,
+        uint32_t x, uint32_t y, uint32_t z, void *value) noexcept;
+    static void _read_uint(
+        void *texture, uint32_t level,
+        uint32_t x, uint32_t y, uint32_t z, void *value) noexcept;
+    static void _write_float(
+        void *texture, uint32_t level,
+        uint32_t x, uint32_t y, uint32_t z,
+        const void *value) noexcept;
+    static void _write_uint(
+        void *texture, uint32_t level,
+        uint32_t x, uint32_t y, uint32_t z,
+        const void *value) noexcept;
+    [[nodiscard]] static uint32_t _size(
+        void *texture, uint32_t level, uint32_t axis) noexcept;
+
+public:
+    SIMDTexture(
+        PixelStorage storage, uint dimension, uint3 size,
+        uint mip_levels) noexcept;
+    SIMDTexture(
+        PixelStorage storage, uint dimension, uint3 size,
+        uint mip_levels, std::byte *external_memory) noexcept;
+    ~SIMDTexture() noexcept = default;
+
+    [[nodiscard]] auto view(uint level) const noexcept {
+        return _texture.view(level);
+    }
+    [[nodiscard]] SIMDHostTextureView host_view(
+        uint level) noexcept;
+    [[nodiscard]] auto native_handle() const noexcept {
+        return _texture.native_handle();
+    }
+    [[nodiscard]] auto dimension() const noexcept { return _dimension; }
+};
+
+}// namespace luisa::compute::simd

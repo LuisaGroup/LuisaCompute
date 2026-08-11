@@ -10,6 +10,7 @@
 #include "simd_event.h"
 #include "simd_shader.h"
 #include "simd_stream.h"
+#include "simd_texture.h"
 
 namespace luisa::compute::simd {
 
@@ -49,11 +50,26 @@ void SIMDDevice::destroy_buffer(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo SIMDDevice::create_texture(
-    PixelFormat, uint, uint, uint, uint, uint, void *, bool, bool) noexcept {
-    return ResourceCreationInfo::make_invalid();
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth, uint mipmap_levels,
+    void *external_native_handle, bool, bool) noexcept {
+    auto storage = pixel_format_to_storage(format);
+    auto size = make_uint3(width, height, depth);
+    auto *texture = external_native_handle == nullptr ?
+        luisa::new_with_allocator<SIMDTexture>(
+            storage, dimension, size, mipmap_levels) :
+        luisa::new_with_allocator<SIMDTexture>(
+            storage, dimension, size, mipmap_levels,
+            static_cast<std::byte *>(external_native_handle));
+    return {
+        .handle = reinterpret_cast<uint64_t>(texture),
+        .native_handle = texture->native_handle(),
+    };
 }
 
-void SIMDDevice::destroy_texture(uint64_t) noexcept {}
+void SIMDDevice::destroy_texture(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(reinterpret_cast<SIMDTexture *>(handle));
+}
 
 ResourceCreationInfo SIMDDevice::create_bindless_array(
     size_t, BindlessSlotType) noexcept {

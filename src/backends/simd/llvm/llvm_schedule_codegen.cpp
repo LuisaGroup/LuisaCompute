@@ -121,12 +121,18 @@ private:
         if (type != nullptr && type->is_buffer()) {
             return sizeof(SIMDHostBufferView);
         }
+        if (type != nullptr && type->is_texture()) {
+            return sizeof(SIMDHostTextureView);
+        }
         return type == nullptr ? 0u : type->size();
     }
 
     [[nodiscard]] static size_t _abi_alignment(const Type *type) noexcept {
         if (type != nullptr && type->is_buffer()) {
             return alignof(SIMDHostBufferView);
+        }
+        if (type != nullptr && type->is_texture()) {
+            return alignof(SIMDHostTextureView);
         }
         return type == nullptr ? 1u : type->alignment();
     }
@@ -315,8 +321,10 @@ private:
                     (argument_tag == xir::DerivedArgumentTag::VALUE &&
                      !_is_data(value.type)) ||
                     (argument_tag == xir::DerivedArgumentTag::RESOURCE &&
-                     (value.type == nullptr || !value.type->is_buffer()))) {
-                    _fail("packet ABI supports data values and buffer resources only");
+                     (value.type == nullptr ||
+                      (!value.type->is_buffer() &&
+                       !value.type->is_texture())))) {
+                    _fail("packet ABI supports data, buffer, and texture arguments only");
                     return;
                 }
                 if (parameters.size() <= metadata->index) {
@@ -329,7 +337,8 @@ private:
                 parameters[metadata->index] = &value;
             } else if (value.origin != schedule::ValueOrigin::scheduler_builtin &&
                        value.type != nullptr && !_is_data(value.type) &&
-                       !value.type->is_buffer()) {
+                       !value.type->is_buffer() &&
+                       !value.type->is_texture()) {
                 _fail("packet codegen encountered an unsupported Schedule IR value type");
                 return;
             }
@@ -526,6 +535,45 @@ private:
         return _builder.CreateInsertValue(result, size, {1u});
     }
 
+    [[nodiscard]] ::llvm::Value *_load_texture_view(
+        ::llvm::Value *base) {
+        auto &context = _module.getContext();
+        auto *pointer_type = ::llvm::PointerType::getUnqual(context);
+        auto *type = ::llvm::StructType::get(
+            context,
+            {pointer_type, pointer_type, pointer_type, pointer_type,
+             pointer_type, pointer_type,
+             _builder.getInt32Ty(), _builder.getInt32Ty()});
+        auto *result = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(type));
+        constexpr std::array pointer_offsets{
+            offsetof(SIMDHostTextureView, texture),
+            offsetof(SIMDHostTextureView, read_float),
+            offsetof(SIMDHostTextureView, read_uint),
+            offsetof(SIMDHostTextureView, write_float),
+            offsetof(SIMDHostTextureView, write_uint),
+            offsetof(SIMDHostTextureView, size),
+        };
+        for (auto i = uint32_t{0u}; i < pointer_offsets.size(); i++) {
+            auto *field = _builder.CreateLoad(
+                pointer_type, _byte_pointer(base, pointer_offsets[i]));
+            field->setAlignment(::llvm::Align{alignof(void *)});
+            result = _builder.CreateInsertValue(result, field, {i});
+        }
+        constexpr std::array u32_offsets{
+            offsetof(SIMDHostTextureView, level),
+            offsetof(SIMDHostTextureView, dimension),
+        };
+        for (auto i = uint32_t{0u}; i < u32_offsets.size(); i++) {
+            auto *field = _builder.CreateLoad(
+                _builder.getInt32Ty(),
+                _byte_pointer(base, u32_offsets[i]));
+            field->setAlignment(::llvm::Align{alignof(uint32_t)});
+            result = _builder.CreateInsertValue(result, field, {i + 6u});
+        }
+        return result;
+    }
+
     [[nodiscard]] ::llvm::Value *_load_launch_u32(size_t offset) {
         auto *pointer = _byte_pointer(_launch_config, offset);
         auto *load = _builder.CreateLoad(_builder.getInt32Ty(), pointer);
@@ -630,8 +678,10 @@ private:
                     auto tag = static_cast<xir::DerivedArgumentTag>(
                         metadata->argument_tag);
                     llvm_value = tag == xir::DerivedArgumentTag::RESOURCE ?
-                                     _load_buffer_view(pointer) :
-                                     _load_uniform_data(pointer, value.type);
+                        value.type->is_buffer() ?
+                            _load_buffer_view(pointer) :
+                            _load_texture_view(pointer) :
+                        _load_uniform_data(pointer, value.type);
                     break;
                 }
                 case schedule::ValueOrigin::constant: {
@@ -744,6 +794,9 @@ private:
         ::llvm::Value *, const Type *)>;
     using BinaryLeaf = std::function<::llvm::Value *(
         ::llvm::Value *, ::llvm::Value *, const Type *, const Type *)>;
+    using TernaryLeaf = std::function<::llvm::Value *(
+        ::llvm::Value *, ::llvm::Value *, ::llvm::Value *,
+        const Type *, const Type *, const Type *)>;
 
     [[nodiscard]] ::llvm::Value *_componentwise_unary(
         const Type *result_type, ::llvm::Value *operand,
@@ -784,6 +837,38 @@ private:
             return _componentwise_binary(
                 _child_type(result_type, i), lhs_child, lhs_child_type,
                 rhs_child, rhs_child_type, varying, leaf);
+        });
+    }
+
+    [[nodiscard]] ::llvm::Value *_componentwise_ternary(
+        const Type *result_type,
+        ::llvm::Value *a, const Type *a_type,
+        ::llvm::Value *b, const Type *b_type,
+        ::llvm::Value *c, const Type *c_type, bool varying,
+        const TernaryLeaf &leaf) {
+        if (_is_scalar_data(result_type)) {
+            return leaf(a, b, c, a_type, b_type, c_type);
+        }
+        return _assemble(result_type, varying, [&](uint32_t i) {
+            auto a_scalar = _is_scalar_data(a_type);
+            auto b_scalar = _is_scalar_data(b_type);
+            auto c_scalar = _is_scalar_data(c_type);
+            auto *a_child_type = a_scalar ? a_type :
+                                                _child_type(a_type, i);
+            auto *b_child_type = b_scalar ? b_type :
+                                                _child_type(b_type, i);
+            auto *c_child_type = c_scalar ? c_type :
+                                                _child_type(c_type, i);
+            auto *a_child = a_scalar ? a :
+                _extract_child(a, a_type, i, varying);
+            auto *b_child = b_scalar ? b :
+                _extract_child(b, b_type, i, varying);
+            auto *c_child = c_scalar ? c :
+                _extract_child(c, c_type, i, varying);
+            return _componentwise_ternary(
+                _child_type(result_type, i),
+                a_child, a_child_type, b_child, b_child_type,
+                c_child, c_child_type, varying, leaf);
         });
     }
 
@@ -1002,6 +1087,83 @@ private:
                 result->type, operands[0u], operand_types[0u],
                 operands[1u], operand_types[1u], varying, leaf);
         };
+        auto ternary = [&](const TernaryLeaf &leaf) -> ::llvm::Value * {
+            if (!require(3u)) { return nullptr; }
+            return _componentwise_ternary(
+                result->type,
+                operands[0u], operand_types[0u],
+                operands[1u], operand_types[1u],
+                operands[2u], operand_types[2u], varying, leaf);
+        };
+        auto intrinsic = [&](::llvm::Intrinsic::ID id,
+                             std::initializer_list<::llvm::Value *> args) {
+            std::vector<::llvm::Value *> values{args};
+            std::array<::llvm::Type *, 1u> overloads{
+                values.front()->getType()};
+#if LLVM_VERSION_MAJOR >= 22
+            auto *function = ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+            auto *function = ::llvm::Intrinsic::getDeclaration(
+#endif
+                &_module, id, overloads);
+            return _builder.CreateCall(function, values);
+        };
+        auto unary_intrinsic = [&](::llvm::Intrinsic::ID id) {
+            return unary([&](::llvm::Value *value, const Type *) {
+                return intrinsic(id, {value});
+            });
+        };
+        auto binary_intrinsic = [&](::llvm::Intrinsic::ID id) {
+            return binary([&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                              const Type *, const Type *) {
+                return intrinsic(id, {lhs, rhs});
+            });
+        };
+        auto float_constant_like = [&](::llvm::Value *value, double x) {
+            auto *scalar = ::llvm::ConstantFP::get(
+                value->getType()->getScalarType(), x);
+            if (auto *vector = ::llvm::dyn_cast<::llvm::VectorType>(
+                    value->getType())) {
+                return static_cast<::llvm::Constant *>(
+                    ::llvm::ConstantVector::getSplat(
+                        vector->getElementCount(), scalar));
+            }
+            return scalar;
+        };
+        auto minmax_leaf = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                               const Type *type, bool maximum)
+            -> ::llvm::Value * {
+            if (type->is_float16() || type->is_float32() ||
+                type->is_float64()) {
+                return intrinsic(
+                    maximum ? ::llvm::Intrinsic::maxnum :
+                              ::llvm::Intrinsic::minnum,
+                    {lhs, rhs});
+            }
+            auto predicate = maximum ?
+                type->is_int() ? ::llvm::CmpInst::ICMP_SGT :
+                                 ::llvm::CmpInst::ICMP_UGT :
+                type->is_int() ? ::llvm::CmpInst::ICMP_SLT :
+                                 ::llvm::CmpInst::ICMP_ULT;
+            return _builder.CreateSelect(
+                _builder.CreateICmp(predicate, lhs, rhs), lhs, rhs);
+        };
+        auto dot = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                       const Type *type) -> ::llvm::Value * {
+            if (!type->is_vector()) {
+                _fail("dot product requires vector operands");
+                return nullptr;
+            }
+            ::llvm::Value *sum = nullptr;
+            for (auto i = uint32_t{0u}; i < type->dimension(); i++) {
+                auto *a = _extract_child(lhs, type, i, varying);
+                auto *b = _extract_child(rhs, type, i, varying);
+                auto *product = _builder.CreateFMul(a, b);
+                sum = sum == nullptr ? product :
+                                       _builder.CreateFAdd(sum, product);
+            }
+            return sum;
+        };
         auto binary_leaf = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
                                const Type *lhs_type,
                                const Type *) -> ::llvm::Value * {
@@ -1111,17 +1273,203 @@ private:
             case xir::ArithmeticOp::BINARY_NOT_EQUAL:
                 return binary(binary_leaf);
             case xir::ArithmeticOp::SELECT:
-                if (!require(3u)) { return nullptr; }
-                return _componentwise_binary(
-                    result->type, operands[0u], operand_types[0u],
-                    operands[1u], operand_types[1u], varying,
-                    [&](::llvm::Value *if_true, ::llvm::Value *if_false,
-                        const Type *, const Type *) {
+                return ternary(
+                    [&](::llvm::Value *if_false,
+                        ::llvm::Value *if_true,
+                        ::llvm::Value *condition,
+                        const Type *, const Type *, const Type *) {
                         return _builder.CreateSelect(
-                            operands[2u], if_true, if_false);
+                            condition, if_true, if_false);
                     });
+            case xir::ArithmeticOp::CLAMP:
+                return ternary(
+                    [&](::llvm::Value *value, ::llvm::Value *low,
+                        ::llvm::Value *high, const Type *type,
+                        const Type *, const Type *) {
+                        return minmax_leaf(
+                            minmax_leaf(value, low, type, true),
+                            high, type, false);
+                    });
+            case xir::ArithmeticOp::SATURATE:
+                return unary([&](::llvm::Value *value, const Type *type) {
+                    auto *zero = float_constant_like(value, 0.0);
+                    auto *one = float_constant_like(value, 1.0);
+                    return minmax_leaf(
+                        minmax_leaf(value, zero, type, true),
+                        one, type, false);
+                });
+            case xir::ArithmeticOp::LERP:
+                return ternary(
+                    [&](::llvm::Value *a, ::llvm::Value *b,
+                        ::llvm::Value *t, const Type *,
+                        const Type *, const Type *) {
+                        return _builder.CreateFAdd(
+                            a, _builder.CreateFMul(
+                                   _builder.CreateFSub(b, a), t));
+                    });
+            case xir::ArithmeticOp::ABS:
+                return unary([&](::llvm::Value *value, const Type *type)
+                                 -> ::llvm::Value * {
+                    if (type->is_float16() || type->is_float32() ||
+                        type->is_float64()) {
+                        return intrinsic(::llvm::Intrinsic::fabs, {value});
+                    }
+                    if (!type->is_int()) { return value; }
+                    auto *zero = ::llvm::Constant::getNullValue(
+                        value->getType());
+                    return _builder.CreateSelect(
+                        _builder.CreateICmpSLT(value, zero),
+                        _builder.CreateNeg(value), value);
+                });
+            case xir::ArithmeticOp::MIN:
+            case xir::ArithmeticOp::MAX:
+                return binary([&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                                  const Type *type, const Type *) {
+                    return minmax_leaf(
+                        lhs, rhs, type,
+                        op == xir::ArithmeticOp::MAX);
+                });
+            case xir::ArithmeticOp::ISNAN:
+                return unary([&](::llvm::Value *value, const Type *) {
+                    return _builder.CreateFCmpUNO(value, value);
+                });
+            case xir::ArithmeticOp::ISINF:
+                return unary([&](::llvm::Value *value, const Type *) {
+                    auto *absolute = intrinsic(
+                        ::llvm::Intrinsic::fabs, {value});
+                    auto *infinity = ::llvm::ConstantFP::getInfinity(
+                        value->getType()->getScalarType());
+                    if (auto *vector = ::llvm::dyn_cast<::llvm::VectorType>(
+                            value->getType())) {
+                        infinity = ::llvm::ConstantVector::getSplat(
+                            vector->getElementCount(), infinity);
+                    }
+                    return _builder.CreateFCmpOEQ(absolute, infinity);
+                });
+            case xir::ArithmeticOp::ACOS:
+                return unary_intrinsic(::llvm::Intrinsic::acos);
+            case xir::ArithmeticOp::ASIN:
+                return unary_intrinsic(::llvm::Intrinsic::asin);
+            case xir::ArithmeticOp::ATAN:
+                return unary_intrinsic(::llvm::Intrinsic::atan);
+            case xir::ArithmeticOp::ATAN2:
+                return binary_intrinsic(::llvm::Intrinsic::atan2);
+            case xir::ArithmeticOp::COS:
+                return unary_intrinsic(::llvm::Intrinsic::cos);
+            case xir::ArithmeticOp::SIN:
+                return unary_intrinsic(::llvm::Intrinsic::sin);
+            case xir::ArithmeticOp::TAN:
+                return unary_intrinsic(::llvm::Intrinsic::tan);
+            case xir::ArithmeticOp::COSH:
+                return unary_intrinsic(::llvm::Intrinsic::cosh);
+            case xir::ArithmeticOp::SINH:
+                return unary_intrinsic(::llvm::Intrinsic::sinh);
+            case xir::ArithmeticOp::TANH:
+                return unary_intrinsic(::llvm::Intrinsic::tanh);
+            case xir::ArithmeticOp::EXP:
+                return unary_intrinsic(::llvm::Intrinsic::exp);
+            case xir::ArithmeticOp::EXP2:
+                return unary_intrinsic(::llvm::Intrinsic::exp2);
+            case xir::ArithmeticOp::EXP10:
+                return unary_intrinsic(::llvm::Intrinsic::exp10);
+            case xir::ArithmeticOp::LOG:
+                return unary_intrinsic(::llvm::Intrinsic::log);
+            case xir::ArithmeticOp::LOG2:
+                return unary_intrinsic(::llvm::Intrinsic::log2);
+            case xir::ArithmeticOp::LOG10:
+                return unary_intrinsic(::llvm::Intrinsic::log10);
+            case xir::ArithmeticOp::POW:
+                return binary_intrinsic(::llvm::Intrinsic::pow);
+            case xir::ArithmeticOp::SQRT:
+                return unary_intrinsic(::llvm::Intrinsic::sqrt);
+            case xir::ArithmeticOp::RSQRT:
+                return unary([&](::llvm::Value *value, const Type *) {
+                    auto *root = intrinsic(
+                        ::llvm::Intrinsic::sqrt, {value});
+                    return _builder.CreateFDiv(
+                        float_constant_like(value, 1.0), root);
+                });
+            case xir::ArithmeticOp::CEIL:
+                return unary_intrinsic(::llvm::Intrinsic::ceil);
+            case xir::ArithmeticOp::FLOOR:
+                return unary_intrinsic(::llvm::Intrinsic::floor);
+            case xir::ArithmeticOp::TRUNC:
+                return unary_intrinsic(::llvm::Intrinsic::trunc);
+            case xir::ArithmeticOp::ROUND:
+                return unary_intrinsic(::llvm::Intrinsic::round);
+            case xir::ArithmeticOp::RINT:
+                return unary_intrinsic(::llvm::Intrinsic::rint);
+            case xir::ArithmeticOp::FRACT:
+                return unary([&](::llvm::Value *value, const Type *) {
+                    return _builder.CreateFSub(
+                        value, intrinsic(
+                                   ::llvm::Intrinsic::floor, {value}));
+                });
+            case xir::ArithmeticOp::FMA:
+                return ternary(
+                    [&](::llvm::Value *a, ::llvm::Value *b,
+                        ::llvm::Value *c, const Type *,
+                        const Type *, const Type *) {
+                        return intrinsic(
+                            ::llvm::Intrinsic::fma, {a, b, c});
+                    });
+            case xir::ArithmeticOp::COPYSIGN:
+                return binary_intrinsic(::llvm::Intrinsic::copysign);
+            case xir::ArithmeticOp::DOT:
+                if (!require(2u)) { return nullptr; }
+                return dot(
+                    operands[0u], operands[1u], operand_types[0u]);
+            case xir::ArithmeticOp::LENGTH_SQUARED:
+                if (!require(1u)) { return nullptr; }
+                return dot(
+                    operands[0u], operands[0u], operand_types[0u]);
+            case xir::ArithmeticOp::LENGTH: {
+                if (!require(1u)) { return nullptr; }
+                auto *squared = dot(
+                    operands[0u], operands[0u], operand_types[0u]);
+                return squared == nullptr ? nullptr :
+                    intrinsic(::llvm::Intrinsic::sqrt, {squared});
+            }
+            case xir::ArithmeticOp::NORMALIZE: {
+                if (!require(1u) || !operand_types[0u]->is_vector()) {
+                    return nullptr;
+                }
+                auto *squared = dot(
+                    operands[0u], operands[0u], operand_types[0u]);
+                if (squared == nullptr) { return nullptr; }
+                auto *length = intrinsic(
+                    ::llvm::Intrinsic::sqrt, {squared});
+                return _componentwise_unary(
+                    result->type, operands[0u], operand_types[0u],
+                    varying,
+                    [&](::llvm::Value *value, const Type *) {
+                        return _builder.CreateFDiv(value, length);
+                    });
+            }
+            case xir::ArithmeticOp::CROSS: {
+                if (!require(2u) || !result->type->is_vector() ||
+                    result->type->dimension() != 3u) {
+                    return nullptr;
+                }
+                std::array<::llvm::Value *, 3u> a{};
+                std::array<::llvm::Value *, 3u> b{};
+                for (auto i = uint32_t{0u}; i < 3u; i++) {
+                    a[i] = _extract_child(
+                        operands[0u], operand_types[0u], i, varying);
+                    b[i] = _extract_child(
+                        operands[1u], operand_types[1u], i, varying);
+                }
+                return _assemble(result->type, varying, [&](uint32_t i) {
+                    auto j = (i + 1u) % 3u;
+                    auto k = (i + 2u) % 3u;
+                    return _builder.CreateFSub(
+                        _builder.CreateFMul(a[j], b[k]),
+                        _builder.CreateFMul(a[k], b[j]));
+                });
+            }
             default:
-                _fail("LLVM packet codegen does not implement this arithmetic operation yet");
+                _fail("LLVM packet codegen does not implement arithmetic operation '" +
+                      std::string{xir::to_string(op)} + "' yet");
                 return nullptr;
         }
     }
@@ -1388,6 +1736,236 @@ private:
             _builder.getInt8Ty(), base, offsets);
     }
 
+    [[nodiscard]] ::llvm::AllocaInst *_entry_scratch(
+        ::llvm::Type *type, std::string_view name) {
+        auto &entry_block = _entry->getEntryBlock();
+        ::llvm::IRBuilder<> builder{
+            &entry_block, entry_block.begin()};
+        return builder.CreateAlloca(
+            type, nullptr, ::llvm::StringRef{name.data(), name.size()});
+    }
+
+    [[nodiscard]] ::llvm::Value *_texture_read(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result || instruction.operands.size() != 2u) {
+            _fail("texture read instruction is malformed");
+            return nullptr;
+        }
+        auto *result = _source.value(*instruction.result);
+        auto *texture_value = _source.value(instruction.operands[0u]);
+        auto *coordinate_value = _source.value(instruction.operands[1u]);
+        auto *texture = _load_value(instruction.operands[0u]);
+        auto *coordinate = coordinate_value == nullptr ? nullptr :
+            _as_lane_vector(
+                _load_value(instruction.operands[1u]),
+                *coordinate_value);
+        if (result == nullptr || texture_value == nullptr ||
+            texture == nullptr || coordinate == nullptr ||
+            !texture_value->type->is_texture() ||
+            result->value_class != schedule::ValueClass::varying ||
+            !result->type->is_vector() ||
+            result->type->dimension() != 4u ||
+            !coordinate_value->type->is_vector() ||
+            (coordinate_value->type->dimension() != 2u &&
+             coordinate_value->type->dimension() != 3u)) {
+            _fail("LLVM packet codegen requires varying float4/uint4 direct texture reads");
+            return nullptr;
+        }
+        auto *element = result->type->element();
+        auto floating = element->is_float32();
+        auto integer = element->is_int32() || element->is_uint32();
+        if (!floating && !integer) {
+            _fail("direct texture reads currently support float32 and int32 elements");
+            return nullptr;
+        }
+        auto op = static_cast<xir::ResourceReadOp>(
+            *instruction.source_op);
+        auto expected_dimension =
+            op == xir::ResourceReadOp::TEXTURE2D_READ ? 2u :
+            op == xir::ResourceReadOp::TEXTURE3D_READ ? 3u : 0u;
+        if (expected_dimension == 0u ||
+            coordinate_value->type->dimension() != expected_dimension) {
+            _fail("direct texture read dimension mismatch");
+            return nullptr;
+        }
+
+        auto *scalar_type = _data_type(element, false);
+        auto *scratch_type = ::llvm::ArrayType::get(scalar_type, 4u);
+        auto *scratch = _entry_scratch(
+            scratch_type,
+            "texture.read." + std::to_string(instruction.result->value));
+        auto *read = _builder.CreateExtractValue(
+            texture, {floating ? 1u : 2u});
+        auto *object = _builder.CreateExtractValue(texture, {0u});
+        auto *level = _builder.CreateExtractValue(texture, {6u});
+        auto *read_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {::llvm::PointerType::getUnqual(_module.getContext()),
+             _builder.getInt32Ty(), _builder.getInt32Ty(),
+             _builder.getInt32Ty(), _builder.getInt32Ty(),
+             ::llvm::PointerType::getUnqual(_module.getContext())},
+            false);
+        std::array<::llvm::Value *, 3u> coordinates{
+            nullptr, nullptr,
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt32(0u))};
+        for (auto axis = uint32_t{0u}; axis < expected_dimension; axis++) {
+            coordinates[axis] = _extract_child(
+                coordinate, coordinate_value->type, axis, true);
+        }
+        auto *result_type = _data_type(result->type, true);
+        ::llvm::Value *pixels =
+            ::llvm::Constant::getNullValue(result_type);
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            auto *before = _builder.GetInsertBlock();
+            auto *active = _builder.CreateExtractElement(
+                _active_mask, lane);
+            auto *read_block = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "texture.read.lane." + std::to_string(lane), _entry);
+            auto *continue_block = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "texture.read.continue." + std::to_string(lane), _entry);
+            _builder.CreateCondBr(active, read_block, continue_block);
+
+            _builder.SetInsertPoint(read_block);
+            auto *x = _builder.CreateExtractElement(coordinates[0u], lane);
+            auto *y = _builder.CreateExtractElement(coordinates[1u], lane);
+            auto *z = _builder.CreateExtractElement(coordinates[2u], lane);
+            _builder.CreateCall(
+                read_type, read,
+                {object, level, x, y, z, scratch});
+            auto *updated = pixels;
+            for (auto component = uint32_t{0u}; component < 4u;
+                 component++) {
+                auto *component_pointer = _builder.CreateGEP(
+                    scratch_type, scratch,
+                    {_builder.getInt32(0u),
+                     _builder.getInt32(component)});
+                auto *scalar = _builder.CreateLoad(
+                    scalar_type, component_pointer);
+                auto *lanes = _extract_child(
+                    updated, result->type, component, true);
+                lanes = _builder.CreateInsertElement(
+                    lanes, scalar, lane);
+                updated = _insert_child(
+                    updated, lanes, result->type, component, true);
+            }
+            _builder.CreateBr(continue_block);
+            auto *read_end = _builder.GetInsertBlock();
+
+            _builder.SetInsertPoint(continue_block);
+            auto *phi = _builder.CreatePHI(result_type, 2u);
+            phi->addIncoming(pixels, before);
+            phi->addIncoming(updated, read_end);
+            pixels = phi;
+        }
+        return pixels;
+    }
+
+    void _texture_write(
+        const schedule::Instruction &instruction) {
+        if (instruction.operands.size() != 3u) {
+            _fail("texture write instruction is malformed");
+            return;
+        }
+        auto *texture_value = _source.value(instruction.operands[0u]);
+        auto *coordinate_value = _source.value(instruction.operands[1u]);
+        auto *written_value = _source.value(instruction.operands[2u]);
+        auto *texture = _load_value(instruction.operands[0u]);
+        auto *coordinate = coordinate_value == nullptr ? nullptr :
+            _as_lane_vector(
+                _load_value(instruction.operands[1u]),
+                *coordinate_value);
+        auto *written = written_value == nullptr ? nullptr :
+            _as_lane_vector(
+                _load_value(instruction.operands[2u]), *written_value);
+        if (texture_value == nullptr || coordinate_value == nullptr ||
+            written_value == nullptr || texture == nullptr ||
+            coordinate == nullptr || written == nullptr ||
+            !texture_value->type->is_texture() ||
+            !written_value->type->is_vector() ||
+            written_value->type->dimension() != 4u ||
+            !coordinate_value->type->is_vector()) {
+            _fail("direct texture write has invalid operands");
+            return;
+        }
+        auto op = static_cast<xir::ResourceWriteOp>(
+            *instruction.source_op);
+        auto expected_dimension =
+            op == xir::ResourceWriteOp::TEXTURE2D_WRITE ? 2u :
+            op == xir::ResourceWriteOp::TEXTURE3D_WRITE ? 3u : 0u;
+        if (expected_dimension == 0u ||
+            coordinate_value->type->dimension() != expected_dimension) {
+            _fail("direct texture write dimension mismatch");
+            return;
+        }
+        auto *element = written_value->type->element();
+        auto floating = element->is_float32();
+        auto integer = element->is_int32() || element->is_uint32();
+        if (!floating && !integer) {
+            _fail("direct texture writes currently support float32 and int32 elements");
+            return;
+        }
+        auto *scalar_type = _data_type(element, false);
+        auto *scratch_type = ::llvm::ArrayType::get(scalar_type, 4u);
+        auto *scratch = _entry_scratch(
+            scratch_type,
+            "texture.write." + std::to_string(
+                instruction.operands[2u].value));
+        auto *write = _builder.CreateExtractValue(
+            texture, {floating ? 3u : 4u});
+        auto *object = _builder.CreateExtractValue(texture, {0u});
+        auto *level = _builder.CreateExtractValue(texture, {6u});
+        auto *write_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {::llvm::PointerType::getUnqual(_module.getContext()),
+             _builder.getInt32Ty(), _builder.getInt32Ty(),
+             _builder.getInt32Ty(), _builder.getInt32Ty(),
+             ::llvm::PointerType::getUnqual(_module.getContext())},
+            false);
+        std::array<::llvm::Value *, 3u> coordinates{
+            nullptr, nullptr,
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt32(0u))};
+        for (auto axis = uint32_t{0u}; axis < expected_dimension; axis++) {
+            coordinates[axis] = _extract_child(
+                coordinate, coordinate_value->type, axis, true);
+        }
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            auto *active = _builder.CreateExtractElement(
+                _active_mask, lane);
+            auto *write_block = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "texture.write.lane." + std::to_string(lane), _entry);
+            auto *continue_block = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "texture.write.continue." + std::to_string(lane), _entry);
+            _builder.CreateCondBr(active, write_block, continue_block);
+
+            _builder.SetInsertPoint(write_block);
+            for (auto component = uint32_t{0u}; component < 4u;
+                 component++) {
+                auto *lanes = _extract_child(
+                    written, written_value->type, component, true);
+                auto *scalar = _builder.CreateExtractElement(lanes, lane);
+                auto *component_pointer = _builder.CreateGEP(
+                    scratch_type, scratch,
+                    {_builder.getInt32(0u),
+                     _builder.getInt32(component)});
+                _builder.CreateStore(scalar, component_pointer);
+            }
+            auto *x = _builder.CreateExtractElement(coordinates[0u], lane);
+            auto *y = _builder.CreateExtractElement(coordinates[1u], lane);
+            auto *z = _builder.CreateExtractElement(coordinates[2u], lane);
+            _builder.CreateCall(
+                write_type, write,
+                {object, level, x, y, z, scratch});
+            _builder.CreateBr(continue_block);
+            _builder.SetInsertPoint(continue_block);
+        }
+    }
+
     [[nodiscard]] ::llvm::Value *_gather_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, size_t leaf_offset = 0u) {
@@ -1445,6 +2023,10 @@ private:
         }
         auto op = static_cast<xir::ResourceReadOp>(
             *instruction.source_op);
+        if (op == xir::ResourceReadOp::TEXTURE2D_READ ||
+            op == xir::ResourceReadOp::TEXTURE3D_READ) {
+            return _texture_read(instruction);
+        }
         auto byte_address =
             op == xir::ResourceReadOp::BYTE_BUFFER_READ ||
             op == xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ;
@@ -1480,6 +2062,11 @@ private:
         }
         auto op = static_cast<xir::ResourceWriteOp>(
             *instruction.source_op);
+        if (op == xir::ResourceWriteOp::TEXTURE2D_WRITE ||
+            op == xir::ResourceWriteOp::TEXTURE3D_WRITE) {
+            _texture_write(instruction);
+            return;
+        }
         auto byte_address =
             op == xir::ResourceWriteOp::BYTE_BUFFER_WRITE ||
             op == xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE;
@@ -1521,12 +2108,47 @@ private:
         auto *buffer_value = _source.value(instruction.operands[0u]);
         auto *buffer = _load_value(instruction.operands[0u]);
         if (result == nullptr || buffer_value == nullptr ||
-            buffer == nullptr || !buffer_value->type->is_buffer()) {
-            _fail("buffer query has invalid operands");
+            buffer == nullptr) {
+            _fail("resource query has invalid operands");
             return nullptr;
         }
         auto op = static_cast<xir::ResourceQueryOp>(
             *instruction.source_op);
+        if (op == xir::ResourceQueryOp::TEXTURE2D_SIZE ||
+            op == xir::ResourceQueryOp::TEXTURE3D_SIZE) {
+            if (!buffer_value->type->is_texture() ||
+                !result->type->is_vector()) {
+                _fail("texture size query has invalid types");
+                return nullptr;
+            }
+            auto dimension =
+                op == xir::ResourceQueryOp::TEXTURE2D_SIZE ? 2u : 3u;
+            if (result->type->dimension() != dimension) {
+                _fail("texture size query result dimension mismatch");
+                return nullptr;
+            }
+            auto *object = _builder.CreateExtractValue(buffer, {0u});
+            auto *size = _builder.CreateExtractValue(buffer, {5u});
+            auto *level = _builder.CreateExtractValue(buffer, {6u});
+            auto *size_type = ::llvm::FunctionType::get(
+                _builder.getInt32Ty(),
+                {::llvm::PointerType::getUnqual(_module.getContext()),
+                 _builder.getInt32Ty(), _builder.getInt32Ty()},
+                false);
+            auto *uniform = _assemble(
+                result->type, false, [&](uint32_t axis) {
+                    return _builder.CreateCall(
+                        size_type, size,
+                        {object, level, _builder.getInt32(axis)});
+                });
+            return result->value_class ==
+                    schedule::ValueClass::varying ?
+                _splat_data(uniform, result->type) : uniform;
+        }
+        if (!buffer_value->type->is_buffer()) {
+            _fail("buffer query has invalid resource type");
+            return nullptr;
+        }
         auto *value = _builder.CreateExtractValue(buffer, {1u});
         switch (op) {
             case xir::ResourceQueryOp::BUFFER_SIZE:
