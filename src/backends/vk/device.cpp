@@ -1189,6 +1189,23 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         }
     }
 #endif
+    VkPhysicalDeviceShaderUntypedPointersFeaturesKHR supported_untyped_pointers{
+        .sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
+        .pNext = nullptr};
+    if (supported_ext.find(VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME) !=
+        supported_ext.end()) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_untyped_pointers};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (supported_untyped_pointers.shaderUntypedPointers == VK_TRUE) {
+            enable_device_extension(
+                VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME);
+            shader_untyped_pointers_enabled = true;
+            LUISA_INFO("VK_KHR_shader_untyped_pointers enabled on device.");
+        }
+    }
     {
         VkPhysicalDeviceVulkan12Features vk12_subgroup_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -1695,6 +1712,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
         cooperative_vector_enabled = false;
         cooperative_vector_fp32_enabled = false;
+        shader_untyped_pointers_enabled = false;
 #if ENABLE_HIDDEN_FEATURES
         async_copy_enabled = false;
 #endif
@@ -1924,6 +1942,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (cooperative_vector_enabled) {
         cooperative_vector_features_nv.pNext = feature_next;
         feature_next = &cooperative_vector_features_nv;
+    }
+    VkPhysicalDeviceShaderUntypedPointersFeaturesKHR
+        untyped_pointers_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
+            .pNext = feature_next,
+            .shaderUntypedPointers = VK_TRUE};
+    if (shader_untyped_pointers_enabled) {
+        feature_next = &untyped_pointers_features;
     }
 #if ENABLE_HIDDEN_FEATURES
     if (async_copy_enabled) {
@@ -2617,6 +2643,9 @@ bool Device::print_code() {
 }
 
 luisa::string Device::query(luisa::string_view property) noexcept {
+    if (property == "shader_untyped_pointers") {
+        return shader_untyped_pointers_enabled ? "true" : "false";
+    }
     if (property == "shader_device_clock") {
         return _shader_device_clock_enabled ? "true" : "false";
     }
@@ -2742,6 +2771,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_device_clock);
     enable(owned_logical_device && device_address_enabled,
            target_feature::buffer_device_address);
+    enable(owned_logical_device && shader_untyped_pointers_enabled,
+           target_feature::shader_untyped_pointers);
     return mask;
 }
 

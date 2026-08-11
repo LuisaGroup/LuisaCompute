@@ -1,5 +1,6 @@
 #pragma once
 #include <volk.h>
+#include "vk_shader_untyped_pointers.h"
 #include <luisa/runtime/device.h>
 #include "VulkanDevice.h"
 #include <luisa/vstl/common.h>
@@ -208,6 +209,7 @@ public:
     bool subgroup_extended_types_enabled : 1 {false};
     bool cooperative_vector_enabled : 1 {false};
     bool cooperative_vector_fp32_enabled : 1 {false};
+    bool shader_untyped_pointers_enabled : 1 {false};
     bool async_copy_enabled : 1 {false};
     bool sampler_anisotropy_enabled : 1 {false};
     auto &graphics_queue_mtx() { return *_graphics_queue_lock; }
@@ -243,6 +245,9 @@ public:
     bool enable_async_copy() const { return async_copy_enabled; }
     [[nodiscard]] bool enable_sampler_anisotropy() const noexcept {
         return sampler_anisotropy_enabled;
+    }
+    [[nodiscard]] bool enable_shader_untyped_pointers() const noexcept {
+        return shader_untyped_pointers_enabled;
     }
     // Exact optional Vulkan features enabled on this logical device that may
     // be consumed by persisted SPIR-V artifacts. Imported logical devices are
