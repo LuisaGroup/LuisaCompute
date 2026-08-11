@@ -203,8 +203,15 @@ For an edge `e = (u, v)` and flow mask `M`:
 
 1. apply all PHI assignments in parallel under `M`;
 2. if `back(e) = q`, increment `epoch[l, q]` once for every `l in M`;
-3. perform dynamic target arrival for `v`;
-4. set `pc[l] = v` and make every released/non-parked lane runnable.
+3. transfer `(v, M, token[M])` to the destination continuation;
+4. perform dynamic target arrival for `v` before executing its first
+   Schedule instruction;
+5. set `pc[l] = v` and make every released/non-parked lane runnable.
+
+Steps 3 and 4 are one abstract transition. The LLVM refinement deliberately
+places the shared target-arrival cascade at the destination block entry rather
+than cloning it on every incoming edge; the token carried by the direct edge or
+ready record preserves the same state at that point.
 
 Dynamic target arrival examines the top frame of `M`. If its `target` is not
 `v`, the edge is an ordinary continuation. If its `target` is `v`:
@@ -350,8 +357,8 @@ refinement.
 | `live` | `live.mask` |
 | ready/runnable mask | `runnable.mask`, `ready.mask.*`, and `current.mask` |
 | `pc[l]` | the current LLVM block plus bounded scalar `ready.target.*` records selected by `ready.mask.*`; no per-lane PC vector is materialized |
-| `token[l]` | `lane.convergence.token` |
-| frame active/static ID/parent | `frame.active`, `frame.static.id`, `frame.parent.token` |
+| `token[l]` | one scalar `current.token` for the executing cohort plus one scalar `ready.token.*` in each suspended record; no per-lane token vector is materialized |
+| frame active/static ID/parent | scalar `iW` bitset `frame.active`, plus `frame.static.id` and `frame.parent.token` |
 | frame expected/arrived | `frame.expected`, `frame.arrived` |
 | loop epochs | dynamic frame/worklist-record identity plus Schedule IR loop membership; no `loop.epoch.*` alloca is materialized |
 | terminating-execution post-dominance | `PostDomTreeOptions::account_for_infinite_paths = false` |
@@ -362,11 +369,21 @@ refinement.
 
 The first column remains an abstract independent-lane transition system. The
 LLVM column is a refinement, not a field-for-field encoding: an executing or
-suspended cohort already has one scalar target and one vector mask, so storing
-the same target once per lane is redundant. Ordinary coherent edges stay in
-LLVM control flow; only a true partition creates ready records. Distinct loop
-iterations remain distinct dynamic records/tokens, which supplies the epoch
-separation required by the model without an explicit epoch vector.
+suspended cohort already has one scalar target, one vector mask, and one
+coherent dynamic token, so storing the same target/token once per lane is
+redundant. Ordinary coherent edges stay in LLVM control flow; only a true
+partition creates `(target, mask, token)` ready records. A target with one or
+more static convergence plans enters one shared destination-side cascade
+before its Schedule instructions. Distinct loop iterations remain distinct
+dynamic records/tokens, which supplies the epoch separation required by the
+model without an explicit epoch vector.
+
+Cross-block Schedule values remain abstract lane state. LLVM may keep a hot
+state slot in SSA/registers or retain a cold slot as an explicit volatile stack
+load/store; this residency choice does not change the state transition. The
+current heuristic activates only when cold slots are at least half of the
+kernel's state slots, avoiding a global dispatcher PHI set that exceeds the
+physical register file while leaving hot values promotable.
 
 The generated LLVM remains target-independent fixed-vector IR. Machine ISA
 selection, legalization, register allocation, and scheduling remain LLVM's

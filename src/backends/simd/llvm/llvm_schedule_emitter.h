@@ -63,8 +63,9 @@ private:
     ::llvm::AllocaInst *_ready_count{nullptr};
     ::llvm::AllocaInst *_ready_masks{nullptr};
     ::llvm::AllocaInst *_ready_targets{nullptr};
+    ::llvm::AllocaInst *_ready_tokens{nullptr};
     ::llvm::AllocaInst *_current_mask{nullptr};
-    ::llvm::AllocaInst *_token_state{nullptr};
+    ::llvm::AllocaInst *_current_token{nullptr};
     ::llvm::AllocaInst *_frame_active{nullptr};
     ::llvm::AllocaInst *_frame_static_id{nullptr};
     ::llvm::AllocaInst *_frame_parent_token{nullptr};
@@ -279,14 +280,14 @@ private:
     [[nodiscard]] ::llvm::Value *_zero_mask() noexcept;
     [[nodiscard]] ::llvm::Value *_splat(::llvm::Value *scalar);
     [[nodiscard]] ::llvm::Value *_safe_first_lane(::llvm::Value *mask);
-    void _masked_write(::llvm::AllocaInst *slot, ::llvm::Value *value,
-                       ::llvm::Value *mask);
+    [[nodiscard]] ::llvm::Value *_frame_bit(::llvm::Value *index);
+    [[nodiscard]] ::llvm::Value *_frame_is_active(
+        ::llvm::Value *active_bits, ::llvm::Value *index);
     [[nodiscard]] ::llvm::Value *_frame_mask_pointer(
         ::llvm::AllocaInst *frames, ::llvm::Value *index);
     [[nodiscard]] ::llvm::Value *_ready_element_pointer(
         ::llvm::AllocaInst *array, ::llvm::Value *index);
     void _trap_if(::llvm::Value *condition, std::string_view label);
-    [[nodiscard]] ::llvm::Value *_current_token(::llvm::Value *mask);
     void _declare_convergence(schedule::ConvergenceId convergence,
                               ::llvm::Value *divergent);
     [[nodiscard]] ::llvm::Value *_arrive_at_convergence_target(
@@ -294,6 +295,8 @@ private:
         ::llvm::Value **matched);
     [[nodiscard]] ::llvm::Value *_cascade_at_convergence_target(
         ::llvm::Value *target, ::llvm::Value *flow);
+    void _resume(::llvm::Value *target, ::llvm::Value *mask,
+                 ::llvm::Value *token);
     void _resume(::llvm::Value *target, ::llvm::Value *mask);
     void _resume(schedule::BlockId target, ::llvm::Value *mask);
     [[nodiscard]] ::llvm::Value *_route_edge(
@@ -308,6 +311,7 @@ private:
         const std::vector<::llvm::BasicBlock *> &blocks);
     void _find_instruction_spills();
     void _allocate_state();
+    void _partition_state_residency();
     void _build_scalar(::llvm::Value *initial_mask);
     void _build();
 

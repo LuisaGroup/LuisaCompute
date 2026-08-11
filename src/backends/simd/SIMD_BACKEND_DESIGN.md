@@ -149,8 +149,8 @@ same compatible continuation into a cohort, executes a vector basic block for
 that cohort, and distributes the resulting lane masks to successor
 continuations. The abstract model is independent-lane, but the LLVM refinement
 does not materialize or scan a `<W x i32>` lane-PC vector. It stores suspended
-cohorts as bounded `(target, mask)` worklist records and directly threads the
-currently executing mask through ordinary edges.
+cohorts as bounded `(target, mask, token)` worklist records and directly
+threads the currently executing mask and scalar token through ordinary edges.
 
 Conceptually:
 
@@ -191,6 +191,20 @@ control flow. A genuinely divergent partition lazily allocates its convergence
 frame, appends nonempty successor records to the bounded worklist, and returns
 to the scalar dispatcher. Values live across cohort suspension points are
 spilled to warp-state slots; block-local temporaries remain LLVM SSA values.
+Convergence arrival is emitted once at the destination block entry rather than
+duplicated on every incoming edge. The executing cohort owns one scalar token,
+and each suspended record stores one scalar token; no per-lane token vector is
+materialized. Active convergence-frame slots use one scalar `iW` bitset.
+
+The O2 pipeline may otherwise promote every cross-block state slot through the
+global dispatcher and create more live vector PHIs than the physical register
+file can hold. Codegen therefore counts direct accesses to each state slot. If
+at least half of the slots are cold (at most six generated loads/stores,
+including initialization), those cold slots use explicit volatile stack
+loads/stores so they remain L1-resident, while frequently accessed state stays
+eligible for SROA/mem2reg and register residency. The gate is per kernel; it is
+not enabled for arithmetic-dense SDF kernels where cold-state pinning regresses
+throughput.
 
 ### 4.4 Scheduler policy
 
@@ -254,10 +268,11 @@ arrival. This handles shared blocks with entries from both inside and outside
 a divergent scope. Several frames targeting the same block are released
 inner-to-outer by following their runtime parent tokens.
 
-The token implementation is not required to be a per-lane heap object. For
-structured/reducible CFG it can normally be represented by a small stack of
-compile-time token IDs and runtime epoch counters. Schedule IR makes the
-contract explicit so codegen may specialize it.
+The token implementation is not required to be a per-lane heap object. The
+current refinement stores one `current.token` for the executing cohort, one
+`ready.token.*` per suspended record, and parent tokens in bounded convergence
+frames. Dynamic record/frame identity supplies the required epoch separation.
+Schedule IR makes the contract explicit so codegen may specialize it.
 
 Lanes that return or are discarded are removed from the expected mask of every
 enclosing convergence point. Reconvergence therefore cannot deadlock waiting
@@ -839,6 +854,87 @@ remaining kernel-level gap. Sampling puts fallback texture/backend code at
 work; texture/backend code is only 1.4% of its SIMD samples. Its bottleneck is
 the divergent DDA/gather body, not the output texture write.
 
+The next scheduler-state refinement moves convergence arrival to one
+destination-side trampoline, replaces the per-lane convergence-token vector
+with scalar current/ready tokens, stores active frame slots as an `iW` bitset,
+and partitions cold versus hot cross-block state. On the same temporary
+32-dispatch W8 voxel probe, the repeated-run median fell from 0.759 s to
+0.529 s (1.44x). Instructions fell from 146.39 to 122.26 billion, cycles from
+86.35 to 59.33 billion, and L1 data loads from 48.09 to 31.45 billion. The
+target/bitset part alone reduced the emitted assembly from 260.1 to 183.1 kB
+and the stack frame from 11,520 to 6,464 bytes. Sampling after this change
+still points at state spill/reload boundaries; the two varying gathers account
+for far below one percent of sampled JIT cycles, so adding lane prefetches is
+not the next-order fix for this kernel.
+
+A 15-run, alternating-order non-coroutine SDF rerun after this refinement
+measured median throughput of 8.214/15.136/22.598/33.047 samples/s for
+W1/W4/W8/W16 against fallback at 8.745. The fallback-relative speedups are
+0.939x/1.731x/2.584x/3.779x. The corresponding interquartile throughput
+ranges are 8.157--8.263, 15.020--15.221, 22.407--22.782, and
+32.651--33.482 samples/s; fallback is 8.694--8.795. Thus the wide-path gains
+remain visible under concurrent host load rather than depending on one best
+run.
+
+The portable 256-by-256 GEMM, again repeated 128 times per process and measured
+in 15 alternating runs, reaches 44.70/30.91/32.89/31.32 GFLOP/s for
+W1/W4/W8/W16 versus fallback at 48.47 GFLOP/s. These are
+0.922x/0.638x/0.679x/0.646x: still slower than fallback, but W8 and W16 close
+the previous 0.609x/0.542x gap. Their median instruction counts fall to 10.20
+and 7.32 billion. The result still supports a dedicated packed/tiled
+microkernel rather than treating generic gather-based lowering as a BLAS
+replacement.
+
+An optimized-IR and final-assembly audit explains the otherwise surprising
+fallback result. LLVM horizontally vectorizes the scalar fallback kernel's
+inner `K` reduction at vectorization factor 16 and interleave factor 4. The
+result contains `<16 x float>` loads, masked gathers, vector FMA, and a final
+horizontal reduction, and lowers to AVX-512 `vgatherqps`/`vfmaddps` on the
+recorded host. In contrast, the current W8 packet body performs two varying
+gathers plus packed multiply/add for each scalar `K` iteration. Thus W1 SIMD
+assembly is not evidence about fallback: fallback has acquired a second,
+within-invocation SIMD axis from LLVM's loop vectorizer.
+
+The first remedy is narrower than a general axis transpose. When packet lanes
+cover consecutive output columns and the static block-X dimension is at least
+`W`, power-of-two block geometry proves that a packet cannot cross a row. A
+GEMM row operand is then cohort-uniform and should become one scalar load plus
+broadcast; the right-hand row and result are lane-consecutive and should use
+masked contiguous vector load/store; the accumulator should remain in a
+register across the coherent loop. The present value classes conservatively
+lose this lane-affine information and therefore select gathers. A permanent
+GEMM IR/assembly gate will require broadcast + contiguous load/FMA/store and
+reject those gathers for the proven case.
+
+A later, bounded optimization generalizes this into **SIMD axis rotation**.
+It treats packet lane and within-invocation value/loop dimensions as explicit
+layout axes, chooses one layout per coherent affine region, and inserts a
+target-independent `shufflevector` transpose only on profitable region edges.
+It is deliberately not an arbitrary runtime lane-identity change: divergent
+control, warp collectives, barriers, atomics, and externally visible lane-wise
+side effects pin the packet axis. CFG joins must agree on layout, tails retain
+their masks, and the cost model includes shuffle count, gather versus
+contiguous memory, horizontal reductions, scheduler suspension, and register
+pressure. The staged implementation order is lane-affine memory recognition,
+coherent-loop accumulator residency and unrolling, fixed rectangular tiles,
+then optional lane/value transposes. This preserves a small auditable first
+step while leaving room for GEMM-style microtiles rather than relying on LLVM
+to rediscover the axis through a scheduler CFG.
+
+The updated graphics matrix uses 31 alternating whole-process runs per
+backend/width because other host workloads were active. SIMD groups are
+stable (typically 2--5% interquartile spread), but fallback `game_of_life` and
+`nbody_simulation` are bimodal with 49% and 28% spread. Their wall-clock
+speedups are therefore not quoted as precise point estimates. The stable
+comparisons are: image processing remains approximately flat at
+0.750x/0.744x/0.749x/0.715x; shader toy rises to
+1.104x/1.402x/1.480x/1.425x; and voxel rises to
+0.866x/0.331x/0.344x/0.325x for W1/W4/W8/W16. For the noisy n-body case,
+stable instruction counts still fall from the prior 72.15/58.91/55.97 billion
+to 60.92/46.57/42.36 billion at W4/W8/W16. All 20 SIMD graphics combinations
+pass their gallery references and remain byte-identical across widths for one
+example.
+
 Software prefetch is not enabled speculatively. LLVM's target-aware loop data
 prefetch pass inserted no prefetch into the post-scheduler masked-gather
 matmul, and the on/off assembly was identical. Hardware counters show that the
@@ -1014,15 +1110,18 @@ on 2026-08-11. The repository now contains:
 - target-independent LLVM lowering for warp reductions, votes, ballot, prefix
   operations, and lane reads; aggregate operations recurse over SoA leaves so
   every low-level operation still consumes exactly one `<W x T>` value;
-- a bounded LIFO packet scheduler whose ready records contain one scalar target
-  and one vector mask; ordinary and dynamically coherent edges stay in direct
-  LLVM control flow, so no per-lane PC or explicit loop-epoch vector is
-  materialized, while conditional and indexed partitions retain the same
-  N-way convergence-frame semantics;
+- a bounded LIFO packet scheduler whose ready records contain one scalar target,
+  one vector mask, and one scalar convergence token; ordinary and dynamically
+  coherent edges stay in direct LLVM control flow, so no per-lane PC, token, or
+  explicit loop-epoch vector is materialized, while conditional and indexed
+  partitions retain the same N-way convergence-frame semantics;
 - bounded dynamic convergence frames (at most `W` for a `W`-lane packet),
-  cascading inner-to-outer joins, loop-gate reuse, dispatch-edge masks, and
-  masked scalar returns; the old 64-block ready bitmap and its CFG-size limit
-  have been removed;
+  an `iW` active-frame bitset, destination-side cascading inner-to-outer joins,
+  loop-gate reuse, dispatch-edge masks, and masked scalar returns; the old
+  64-block ready bitmap and its CFG-size limit have been removed;
+- per-kernel cold/hot suspension-state partitioning that keeps frequently
+  accessed slots promotable to registers while preventing a cold-slot majority
+  from inflating global dispatcher PHIs and physical register spills;
 - a host-target compiler facade and O2 ORC JIT boundary that delegates
   legalization, instruction selection, register allocation, and machine
   scheduling to LLVM;

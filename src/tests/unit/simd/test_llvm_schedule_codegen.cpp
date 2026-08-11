@@ -71,6 +71,17 @@ namespace {
     return text;
 }
 
+[[nodiscard]] size_t count_occurrences(
+    std::string_view text, std::string_view needle) noexcept {
+    auto count = size_t{0u};
+    for (auto position = text.find(needle);
+         position != std::string_view::npos;
+         position = text.find(needle, position + needle.size())) {
+        count++;
+    }
+    return count;
+}
+
 [[nodiscard]] std::optional<schedule::Function>
 make_divergent_collective(uint32_t width) {
     xir::Module module;
@@ -142,6 +153,98 @@ make_divergent_collective(uint32_t width) {
         return std::nullopt;
     }
     return function;
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_cold_state_pressure(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("cold_state_pressure");
+    auto *entry = kernel->create_body_block();
+    auto *left = kernel->create_basic_block();
+    auto *right = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    left->set_name("left");
+    right->set_name("right");
+    merge->set_name("merge");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    std::array<xir::Value *, 8u> values{};
+    for (auto i = size_t{0u}; i < values.size(); i++) {
+        auto constant_value = static_cast<uint32_t>(i + 1u);
+        auto *constant = module.create_constant(
+            Type::of<uint32_t>(), &constant_value);
+        values[i] = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, constant});
+        values[i]->set_name("cold_" + std::to_string(i));
+    }
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *take_left = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {parity, zero});
+    builder.cond_br(take_left, left, right);
+
+    builder.set_insertion_point(left);
+    auto *left01 = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {values[0u], values[1u]});
+    auto *left23 = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {values[2u], values[3u]});
+    auto *left_sum = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {left01, left23});
+    builder.br(merge);
+
+    builder.set_insertion_point(right);
+    auto *right45 = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {values[4u], values[5u]});
+    auto *right67 = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {values[6u], values[7u]});
+    auto *right_sum = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {right45, right67});
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *selected = builder.phi(
+        Type::of<uint32_t>(),
+        {{left_sum, left}, {right_sum, right}});
+    selected->set_name("cold_state_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "cold_state_result") {
+            result_id = value.id;
+        }
+    }
+    if (!result_id) { return std::nullopt; }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
 }
 
 [[nodiscard]] std::optional<schedule::Function>
@@ -1042,7 +1145,13 @@ template<size_t Width>
         CHECK(ir.find("scheduler.loop") != std::string::npos);
         CHECK(ir.find("lane.pc") == std::string::npos);
         CHECK(ir.find("loop.epoch") == std::string::npos);
+        CHECK(ir.find("lane.convergence.token") == std::string::npos);
+        CHECK(ir.find("current.token") != std::string::npos);
         CHECK(ir.find("ready.mask") != std::string::npos);
+        CHECK(ir.find("ready.token") != std::string::npos);
+        CHECK(ir.find("frame.active = alloca i" +
+                      std::to_string(Width)) != std::string::npos);
+        CHECK(ir.find("frame.active = alloca <") == std::string::npos);
     }
 
     LLVMJIT jit;
@@ -1200,6 +1309,14 @@ template<size_t Width>
     std::optional<schedule::Function> schedule_function,
     std::string name, uint32_t increment) {
     CHECK(schedule_function.has_value());
+    std::vector<uint8_t> convergence_targets(
+        schedule_function->blocks().size(), uint8_t{0u});
+    for (auto &&point : schedule_function->convergence_points()) {
+        convergence_targets[point.target.value] = 1u;
+    }
+    auto convergence_target_count = static_cast<size_t>(std::count(
+        convergence_targets.begin(), convergence_targets.end(),
+        uint8_t{1u}));
     auto context = std::make_unique<::llvm::LLVMContext>();
     auto module = std::make_unique<::llvm::Module>(name, *context);
     auto codegen = lower_schedule_to_llvm(
@@ -1209,6 +1326,14 @@ template<size_t Width>
         return false;
     }
     CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("lane.convergence.token") == std::string::npos);
+    CHECK(ir.find("ready.token") != std::string::npos);
+    CHECK(count_occurrences(ir, "\nconvergence.cascade") ==
+          2u * convergence_target_count);
     LLVMJIT jit;
     CHECK(jit.succeeded());
     CHECK(jit.add_module(std::move(module), std::move(context)));
@@ -1234,6 +1359,52 @@ template<size_t Width>
 [[nodiscard]] bool run_large_cfg_codegen() {
     return run_control_fixture<4u>(
         make_large_cfg(4u, 96u), "schedule_large_cfg_w4", 0u);
+}
+
+[[nodiscard]] bool run_state_residency_codegen() {
+    static constexpr auto width = 8u;
+    auto schedule_function = make_cold_state_pressure(width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "schedule-state-residency", *context);
+    auto name = std::string{"schedule_state_residency_w8"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("load volatile") != std::string::npos);
+    CHECK(ir.find("store volatile") != std::string::npos);
+    CHECK(ir.find("cold_0.spill") != std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(entry != nullptr);
+    for (auto active_lanes : {uint32_t{5u}, uint32_t{8u}}) {
+        std::array<uint32_t, width> output{};
+        output.fill(0xdeadbeefu);
+        auto config = launch_1d(active_lanes, width);
+        entry(nullptr, output.data(), &config, active_lanes);
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            auto expected = lane % 2u == 0u ?
+                                4u * lane + 10u :
+                                4u * lane + 26u;
+            CHECK(output[lane] ==
+                  (lane < active_lanes ? expected : 0xdeadbeefu));
+        }
+    }
+    return true;
 }
 
 [[nodiscard]] bool run_uniform_value_codegen() {
@@ -2067,6 +2238,7 @@ int main() {
          &run_multiple_exit_loop_collective_codegen},
         {"Schedule IR nested convergence", &run_nested_codegen},
         {"Schedule IR 96-block CFG", &run_large_cfg_codegen},
+        {"scheduler state residency", &run_state_residency_codegen},
         {"scalar uniform values", &run_uniform_value_codegen},
         {"scalar uniform switch", &run_uniform_switch_codegen},
         {"varying switch convergence", &run_varying_switch_codegen},

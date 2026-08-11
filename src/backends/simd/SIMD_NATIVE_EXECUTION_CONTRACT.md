@@ -295,6 +295,31 @@ Optimized assembly is rejected if it contains a varying scalar libm symbol.
 Power and hyperbolic functions remain explicit audit backlog and are not yet
 marked SIMD-native by this checkpoint.
 
+#### 5.1.1 Fast-math XIR algebraic canonicalization backlog
+
+Provider selection is not the only fast-tier optimization opportunity. A
+future XIR pass may canonicalize compositions before Schedule IR is built, in
+the same spirit as the CUDA backend's fast lowering. The initial candidates
+are `exp(x) -> exp2(x * log2(e))`, `exp10(x) -> exp2(x * log2(10))`, and a
+guarded positive-base `pow(a, b) -> exp2(b * log2(a))`. Common inverse
+compositions may be folded only when their complete input, overflow,
+underflow, and exceptional-value domains make the replacement equivalent to
+the declared fast contract.
+
+This pass is not implemented by the current checkpoint. Its acceptance rules
+are:
+
+- it runs only when `enable_fast_math` is true; precise XIR and provider
+  expression order are unaffected;
+- it may not turn a negative-base, signed-zero, NaN, infinity, subnormal, or
+  otherwise out-of-domain `pow` into an accidental real-domain extension;
+- it preserves uniformity, so a uniform composition remains one scalar
+  operation rather than a splatted varying provider call;
+- every rule has boundary and raw-bit semantic regressions, an XIR-shape test,
+  final-symbol/assembly audit, and a repeated throughput gate;
+- a rewrite is retained only when it is measurably cheaper than the already
+  native fast provider on W4/W8/W16 and fallback float2/float3/float4.
+
 ### 5.2 LLVM/system vector libraries
 
 LLVM exposes vector-library selection through `TargetLibraryInfo`,

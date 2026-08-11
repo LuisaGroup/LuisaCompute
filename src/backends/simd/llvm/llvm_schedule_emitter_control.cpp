@@ -133,11 +133,20 @@ void ScheduleEmitter::_apply_assignments(
     return _builder.CreateSelect(any, first, _builder.getInt32(0u));
 }
 
-void ScheduleEmitter::_masked_write(::llvm::AllocaInst *slot, ::llvm::Value *value,
-                                    ::llvm::Value *mask) {
-    auto *old = _builder.CreateLoad(slot->getAllocatedType(), slot);
-    auto *lanes = _splat(value);
-    _builder.CreateStore(_builder.CreateSelect(mask, lanes, old), slot);
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_frame_bit(
+    ::llvm::Value *index) {
+    auto *bits_type = ::llvm::cast<::llvm::IntegerType>(
+        _frame_active->getAllocatedType());
+    auto *bit_index = _builder.CreateZExtOrTrunc(index, bits_type);
+    return _builder.CreateShl(
+        ::llvm::ConstantInt::get(bits_type, 1u), bit_index);
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_frame_is_active(
+    ::llvm::Value *active_bits, ::llvm::Value *index) {
+    return _builder.CreateICmpNE(
+        _builder.CreateAnd(active_bits, _frame_bit(index)),
+        ::llvm::Constant::getNullValue(active_bits->getType()));
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_frame_mask_pointer(
@@ -175,16 +184,10 @@ void ScheduleEmitter::_trap_if(::llvm::Value *condition, std::string_view label)
     _builder.SetInsertPoint(resume);
 }
 
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_current_token(::llvm::Value *mask) {
-    auto *tokens = _builder.CreateLoad(
-        _token_state->getAllocatedType(), _token_state);
-    return _builder.CreateExtractElement(
-        tokens, _safe_first_lane(mask));
-}
-
 void ScheduleEmitter::_declare_convergence(
     schedule::ConvergenceId convergence, ::llvm::Value *divergent) {
-    auto *current_token = _current_token(_active_mask);
+    auto *current_token = _builder.CreateLoad(
+        _current_token->getAllocatedType(), _current_token);
     auto *has_current = _builder.CreateICmpNE(
         current_token, _builder.getInt32(0u));
     auto *current_index = _builder.CreateSelect(
@@ -193,7 +196,7 @@ void ScheduleEmitter::_declare_convergence(
         _builder.getInt32(0u));
     auto *active_frames = _builder.CreateLoad(
         _frame_active->getAllocatedType(), _frame_active);
-    auto *current_active = _builder.CreateExtractElement(
+    auto *current_active = _frame_is_active(
         active_frames, current_index);
     auto *static_ids = _builder.CreateLoad(
         _frame_static_id->getAllocatedType(), _frame_static_id);
@@ -209,18 +212,23 @@ void ScheduleEmitter::_declare_convergence(
     auto *allocate = _builder.CreateAnd(divergent,
                                         _builder.CreateNot(reuse));
     auto *free_frames = _builder.CreateNot(active_frames);
-    auto *has_free = _builder.CreateOrReduce(free_frames);
+    auto *has_free = _builder.CreateICmpNE(
+        free_frames,
+        ::llvm::Constant::getNullValue(free_frames->getType()));
     _trap_if(_builder.CreateAnd(allocate, _builder.CreateNot(has_free)),
              "convergence.overflow");
-    auto *free_index = _safe_first_lane(free_frames);
-
-    auto *old_free_active = _builder.CreateExtractElement(
-        active_frames, free_index);
-    auto *new_free_active = _builder.CreateSelect(
-        allocate, _builder.getTrue(), old_free_active);
+    auto *raw_free_index = _builder.CreateBinaryIntrinsic(
+        ::llvm::Intrinsic::cttz, free_frames, _builder.getFalse());
+    auto *free_index = _builder.CreateSelect(
+        has_free,
+        _builder.CreateZExtOrTrunc(
+            raw_free_index, _builder.getInt32Ty()),
+        _builder.getInt32(0u));
+    auto *allocated_frames = _builder.CreateOr(
+        active_frames, _frame_bit(free_index));
     _builder.CreateStore(
-        _builder.CreateInsertElement(
-            active_frames, new_free_active, free_index),
+        _builder.CreateSelect(
+            allocate, allocated_frames, active_frames),
         _frame_active);
 
     auto *old_static = _builder.CreateExtractElement(
@@ -262,7 +270,7 @@ void ScheduleEmitter::_declare_convergence(
         reuse, current_token, allocated_token);
     auto *next_token = _builder.CreateSelect(
         divergent, gate_token, current_token);
-    _masked_write(_token_state, next_token, _active_mask);
+    _builder.CreateStore(next_token, _current_token);
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_arrive_at_convergence_target(
@@ -270,7 +278,8 @@ void ScheduleEmitter::_declare_convergence(
     ::llvm::Value **matched) {
     if (_convergence_targets == nullptr) { return flow; }
     auto *any = _builder.CreateOrReduce(flow);
-    auto *token = _current_token(flow);
+    auto *token = _builder.CreateLoad(
+        _current_token->getAllocatedType(), _current_token);
     auto *has_token = _builder.CreateAnd(
         any, _builder.CreateICmpNE(token, _builder.getInt32(0u)));
     auto *index = _builder.CreateSelect(
@@ -279,8 +288,7 @@ void ScheduleEmitter::_declare_convergence(
         _builder.getInt32(0u));
     auto *active_frames = _builder.CreateLoad(
         _frame_active->getAllocatedType(), _frame_active);
-    auto *frame_active = _builder.CreateExtractElement(
-        active_frames, index);
+    auto *frame_active = _frame_is_active(active_frames, index);
     auto *static_ids = _builder.CreateLoad(
         _frame_static_id->getAllocatedType(), _frame_static_id);
     auto *static_id = _builder.CreateExtractElement(static_ids, index);
@@ -316,14 +324,11 @@ void ScheduleEmitter::_declare_convergence(
         _builder.CreateSelect(complete, _zero_mask(), expected),
         expected_ptr);
 
-    auto *old_frame_active = _builder.CreateExtractElement(
-        active_frames, index);
+    auto *released_frames = _builder.CreateAnd(
+        active_frames, _builder.CreateNot(_frame_bit(index)));
     _builder.CreateStore(
-        _builder.CreateInsertElement(
-            active_frames,
-            _builder.CreateSelect(
-                complete, _builder.getFalse(), old_frame_active),
-            index),
+        _builder.CreateSelect(
+            complete, released_frames, active_frames),
         _frame_active);
 
     auto *matching_lanes = _builder.CreateAnd(flow, _splat(matches));
@@ -339,7 +344,9 @@ void ScheduleEmitter::_declare_convergence(
     auto *parents = _builder.CreateLoad(
         _frame_parent_token->getAllocatedType(), _frame_parent_token);
     auto *parent_token = _builder.CreateExtractElement(parents, index);
-    _masked_write(_token_state, parent_token, released);
+    _builder.CreateStore(
+        _builder.CreateSelect(complete, parent_token, token),
+        _current_token);
     return _builder.CreateSelect(_splat(matches), released, flow);
 }
 
@@ -379,7 +386,8 @@ void ScheduleEmitter::_declare_convergence(
 }
 
 void ScheduleEmitter::_resume(
-    ::llvm::Value *target, ::llvm::Value *mask) {
+    ::llvm::Value *target, ::llvm::Value *mask,
+    ::llvm::Value *token) {
     auto *nonempty = _builder.CreateOrReduce(mask);
     auto *count = _builder.CreateLoad(
         _ready_count->getAllocatedType(), _ready_count);
@@ -405,6 +413,13 @@ void ScheduleEmitter::_resume(
     _builder.CreateStore(
         _builder.CreateSelect(nonempty, target, old_target),
         target_ptr);
+    auto *token_ptr = _ready_element_pointer(
+        _ready_tokens, index);
+    auto *old_token = _builder.CreateLoad(
+        _builder.getInt32Ty(), token_ptr);
+    _builder.CreateStore(
+        _builder.CreateSelect(nonempty, token, old_token),
+        token_ptr);
     _builder.CreateStore(
         _builder.CreateSelect(
             nonempty,
@@ -418,6 +433,13 @@ void ScheduleEmitter::_resume(
 }
 
 void ScheduleEmitter::_resume(
+    ::llvm::Value *target, ::llvm::Value *mask) {
+    auto *token = _builder.CreateLoad(
+        _current_token->getAllocatedType(), _current_token);
+    _resume(target, mask, token);
+}
+
+void ScheduleEmitter::_resume(
     schedule::BlockId target, ::llvm::Value *mask) {
     _resume(_builder.getInt32(target.value), mask);
 }
@@ -426,18 +448,10 @@ void ScheduleEmitter::_resume(
     const schedule::ControlEdge &edge, ::llvm::Value *mask) {
     _apply_assignments(edge.assignments, mask);
     if (_failed()) { return nullptr; }
-    auto *flow = mask;
-    // A block may be reached both from inside and outside a convergence
-    // scope, so dominance alone cannot decide whether this edge is an
-    // arrival. The current dynamic token is authoritative. A W-step runtime
-    // cascade covers every live frame in a W-lane packet, including several
-    // nested gates sharing the same target, without emitting W copies of the
-    // arrival logic per CFG edge.
-    if (_target_convergence_depths[edge.target.value] != 0u) {
-        flow = _cascade_at_convergence_target(
-            _builder.getInt32(edge.target.value), flow);
-    }
-    return flow;
+    // Convergence arrival is emitted once at the target block's entry rather
+    // than duplicated on every incoming edge. Edge assignments still happen
+    // before the arrival, so parked lanes retain their per-lane PHI state.
+    return mask;
 }
 
 void ScheduleEmitter::_continue_at(
@@ -721,7 +735,7 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                     auto *active_frames = _builder.CreateLoad(
                         _frame_active->getAllocatedType(),
                         _frame_active);
-                    auto *frame_active = _builder.CreateExtractElement(
+                    auto *frame_active = _frame_is_active(
                         active_frames, index);
                     auto *expected_ptr = _frame_mask_pointer(
                         _frame_expected, index);
@@ -748,13 +762,12 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                         _builder.CreateSelect(
                             complete, _zero_mask(), arrived),
                         arrived_ptr);
+                    auto *released_frames = _builder.CreateAnd(
+                        active_frames,
+                        _builder.CreateNot(_frame_bit(index)));
                     _builder.CreateStore(
-                        _builder.CreateInsertElement(
-                            active_frames,
-                            _builder.CreateSelect(
-                                complete, _builder.getFalse(),
-                                frame_active),
-                            index),
+                        _builder.CreateSelect(
+                            complete, released_frames, active_frames),
                         _frame_active);
 
                     auto *parents = _builder.CreateLoad(
@@ -762,7 +775,6 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                         _frame_parent_token);
                     auto *parent = _builder.CreateExtractElement(
                         parents, index);
-                    _masked_write(_token_state, parent, released);
                     auto *static_ids = _builder.CreateLoad(
                         _frame_static_id->getAllocatedType(),
                         _frame_static_id);
@@ -771,16 +783,10 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                     if (_convergence_targets != nullptr) {
                         auto *target = _builder.CreateExtractElement(
                             _convergence_targets, static_id);
-                        auto *flow = released;
-                        // Returning lanes can complete an inner gate whose
-                        // parent has the same target. Route the released
-                        // cohort through the same dynamic target-arrival rule
-                        // as an ordinary CFG edge before making the target
-                        // executable. The bounded runtime cascade covers
-                        // every live frame without quadratically expanding
-                        // the return block's LLVM IR.
-                        flow = _cascade_at_convergence_target(target, flow);
-                        _resume(target, flow);
+                        // The target entry performs the same dynamic cascade
+                        // as an ordinary CFG arrival. Deferring it avoids one
+                        // copy of the full frame logic per return-site frame.
+                        _resume(target, released, parent);
                     }
                 }
                 _builder.CreateBr(_scheduler_loop);
@@ -971,6 +977,8 @@ void ScheduleEmitter::_allocate_state() {
         auto *i32_lanes = ::llvm::FixedVectorType::get(
             _builder.getInt32Ty(), _width);
         auto *zero_i32_lanes = ::llvm::Constant::getNullValue(i32_lanes);
+        auto *frame_active_type = ::llvm::IntegerType::get(
+            _module.getContext(), _width);
         _live_mask = _builder.CreateAlloca(
             mask_type, nullptr, "live.mask");
         _runnable_mask = _builder.CreateAlloca(
@@ -985,12 +993,16 @@ void ScheduleEmitter::_allocate_state() {
             _builder.getInt32Ty(), _width);
         _ready_targets = _builder.CreateAlloca(
             ready_targets, nullptr, "ready.target");
+        auto *ready_tokens = ::llvm::ArrayType::get(
+            _builder.getInt32Ty(), _width);
+        _ready_tokens = _builder.CreateAlloca(
+            ready_tokens, nullptr, "ready.token");
         _current_mask = _builder.CreateAlloca(
             mask_type, nullptr, "current.mask");
-        _token_state = _builder.CreateAlloca(
-            i32_lanes, nullptr, "lane.convergence.token");
+        _current_token = _builder.CreateAlloca(
+            _builder.getInt32Ty(), nullptr, "current.token");
         _frame_active = _builder.CreateAlloca(
-            mask_type, nullptr, "frame.active");
+            frame_active_type, nullptr, "frame.active");
         _frame_static_id = _builder.CreateAlloca(
             i32_lanes, nullptr, "frame.static.id");
         _frame_parent_token = _builder.CreateAlloca(
@@ -1010,9 +1022,15 @@ void ScheduleEmitter::_allocate_state() {
         _builder.CreateStore(
             ::llvm::Constant::getNullValue(ready_targets),
             _ready_targets);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(ready_tokens),
+            _ready_tokens);
         _builder.CreateStore(zero_mask, _current_mask);
-        _builder.CreateStore(zero_i32_lanes, _token_state);
-        _builder.CreateStore(zero_mask, _frame_active);
+        _builder.CreateStore(
+            _builder.getInt32(0u), _current_token);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(frame_active_type),
+            _frame_active);
         _builder.CreateStore(zero_i32_lanes, _frame_static_id);
         _builder.CreateStore(zero_i32_lanes, _frame_parent_token);
         _builder.CreateStore(
@@ -1036,7 +1054,6 @@ void ScheduleEmitter::_allocate_state() {
         for (auto &&point : _source.convergence_points()) {
             ++_target_convergence_depths[point.target.value];
         }
-
     }
     _find_instruction_spills();
     _local_allocations.resize(_source.values().size(), nullptr);
@@ -1090,6 +1107,45 @@ void ScheduleEmitter::_allocate_state() {
             value.name + (spill ? ".spill" : ".slot"));
         _builder.CreateStore(::llvm::Constant::getNullValue(type), slot);
         _state_slots[value.id.value] = slot;
+    }
+}
+
+void ScheduleEmitter::_partition_state_residency() {
+    // LLVM's default O2 pipeline promotes eligible allocas through the global
+    // dispatcher. That is profitable for hot state, but a large set of rarely
+    // accessed slots creates wide scheduler PHIs and ultimately physical
+    // register spills. Keep hot state promotable and pin cold state to its L1
+    // stack slot when cold state dominates the function's state set.
+    static constexpr auto max_cold_accesses = size_t{6u};
+    auto count_accesses = [](const ::llvm::AllocaInst *slot) noexcept {
+        auto count = size_t{0u};
+        for (auto *user : slot->users()) {
+            count += ::llvm::isa<::llvm::LoadInst>(user) ||
+                     ::llvm::isa<::llvm::StoreInst>(user);
+        }
+        return count;
+    };
+    auto slot_count = size_t{0u};
+    auto cold_count = size_t{0u};
+    for (auto *slot : _state_slots) {
+        if (slot == nullptr) { continue; }
+        slot_count++;
+        cold_count += count_accesses(slot) <= max_cold_accesses;
+    }
+    if (slot_count == 0u || cold_count * 2u < slot_count) { return; }
+    for (auto *slot : _state_slots) {
+        if (slot == nullptr ||
+            count_accesses(slot) > max_cold_accesses) {
+            continue;
+        }
+        for (auto *user : slot->users()) {
+            if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(user)) {
+                load->setVolatile(true);
+            } else if (auto *store =
+                           ::llvm::dyn_cast<::llvm::StoreInst>(user)) {
+                store->setVolatile(true);
+            }
+        }
     }
 }
 
@@ -1228,6 +1284,11 @@ void ScheduleEmitter::_build() {
         _ready_targets, ready_index);
     auto *pc = _builder.CreateLoad(
         _builder.getInt32Ty(), ready_target_ptr);
+    auto *ready_token_ptr = _ready_element_pointer(
+        _ready_tokens, ready_index);
+    auto *token = _builder.CreateLoad(
+        _builder.getInt32Ty(), ready_token_ptr);
+    _builder.CreateStore(token, _current_token);
     auto *runnable = _builder.CreateLoad(
         _runnable_mask->getAllocatedType(), _runnable_mask);
     _builder.CreateStore(
@@ -1281,6 +1342,20 @@ void ScheduleEmitter::_build() {
         _locals.clear();
         _active_mask = _builder.CreateLoad(
             _layout.mask_type(), _current_mask);
+        if (_target_convergence_depths[block.id.value] != 0u) {
+            auto *flow = _cascade_at_convergence_target(
+                _builder.getInt32(block.id.value), _active_mask);
+            auto *ready = ::llvm::BasicBlock::Create(
+                context,
+                "convergence.target." +
+                    std::to_string(block.id.value) + ".ready",
+                _entry);
+            _builder.CreateCondBr(
+                _builder.CreateOrReduce(flow),
+                ready, _scheduler_loop);
+            _builder.SetInsertPoint(ready);
+            _active_mask = flow;
+        }
         _seed_lane = _safe_first_lane(_active_mask);
         for (auto &&instruction : block.instructions) {
             _emit_instruction(instruction);
@@ -1289,6 +1364,8 @@ void ScheduleEmitter::_build() {
         _emit_terminator(block.terminator);
         if (_failed()) { return; }
     }
+
+    _partition_state_residency();
 }
 
 }// namespace luisa::compute::simd::detail
