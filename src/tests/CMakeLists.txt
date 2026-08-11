@@ -460,6 +460,7 @@ luisa_compute_add_test(test_buffer_view         unit/runtime/test_buffer_view.cp
 luisa_compute_add_test(test_device_test         unit/runtime/test_device.cpp)
 luisa_compute_add_test(test_external_buffer     unit/runtime/test_external_buffer.cpp)
 luisa_compute_add_test(test_gemm                unit/runtime/test_gemm.cpp)
+luisa_compute_add_test(benchmark_simd_gemm      unit/simd/benchmark_simd_gemm.cpp)
 luisa_compute_add_test(test_hip_codegen_arithmetic unit/runtime/test_hip_codegen_arithmetic.cpp)
 luisa_compute_add_test(test_hip_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
 luisa_compute_add_test(test_hip_motion_instance_matrix unit/runtime/test_hip_motion_instance_matrix.cpp)

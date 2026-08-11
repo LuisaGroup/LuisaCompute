@@ -435,6 +435,27 @@ VerificationResult verify(const Function &function) {
                         block.id);
                 }
             }
+            if (instruction.lane_consecutive_operand_index) {
+                if (instruction.opcode != Opcode::resource_read &&
+                    instruction.opcode != Opcode::resource_write) {
+                    add_error(
+                        result,
+                        "non-resource instruction has a lane-consecutive operand annotation",
+                        block.id);
+                } else if (*instruction.lane_consecutive_operand_index >=
+                           instruction.operands.size()) {
+                    add_error(
+                        result,
+                        "lane-consecutive operand annotation is out of range",
+                        block.id);
+                } else if (instruction.cohort_uniform_operand_index ==
+                           instruction.lane_consecutive_operand_index) {
+                    add_error(
+                        result,
+                        "one operand cannot be both cohort-uniform and lane-consecutive",
+                        block.id);
+                }
+            }
         }
 
         auto check_assignments = [&](const auto &assignments,
@@ -727,6 +748,10 @@ std::string to_string(const Function &function) {
             if (instruction.cohort_uniform_operand_index) {
                 out << " cohort_uniform_operand="
                     << *instruction.cohort_uniform_operand_index;
+            }
+            if (instruction.lane_consecutive_operand_index) {
+                out << " lane_consecutive_operand="
+                    << *instruction.lane_consecutive_operand_index;
             }
             for (auto operand : instruction.operands) {
                 out << " %" << operand.value;

@@ -158,8 +158,9 @@ the application does not construct `SIMDDeviceConfigExt`; an explicit nonzero
 API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
 `LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide control-flow A/B controls;
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
-refinement. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` logs per-shader transform
-counters.
+refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
+lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
+logs per-shader transform counters.
 These process-wide variables are diagnostic controls, not shader semantics or
 a replacement for the public configuration extension. Invalid width text or a
 width outside the supported set is rejected.
@@ -291,6 +292,45 @@ reads, the disabled path, LLVM masked-gather shape, and final host assembly.
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` provides the same-binary A/B
 oracle, while `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the accepted read
 count.
+
+### 4.7 Lane-consecutive typed-buffer refinement
+
+A direct, nonvolatile typed `BUFFER_READ` or `BUFFER_WRITE` of a scalar Luisa
+element may use one LLVM masked contiguous vector access when Schedule
+lowering proves that its integer element index has lane step one. The proof is
+use-site provenance; it does not reclassify the SSA value. It currently
+recognizes `warp_lane_id`, the x component of `thread_id`/`dispatch_id`, equal
+integer expressions, and step-one plus equal add/subtract compositions.
+Select preserves a proof only when its condition is equal across the cohort
+and both arms have the same step.
+
+For dispatch/thread x, the static block-X dimension must be at least `W` and
+divisible by `W`. Since packet starts are W-aligned inside one block, this
+proves that the packet cannot cross an x row. If static geometry is missing or
+the packet can cross a row, the index remains unannotated and uses the normal
+gather/scatter path. Casts of a step-one value also fail closed until a
+separate no-wrap/range proof exists. Byte-address, volatile, aggregate, and
+bindless accesses are unchanged.
+
+The executing cohort is nonempty. Let `s = cttz(A)` be its first active lane
+and `i_s` that lane's source element index. Lowering reconstructs the
+conceptual lane-zero base as `b = i_s - s` in address-width modular integer
+arithmetic, then issues `llvm.masked.load` or `llvm.masked.store` at `b` with
+mask `A`. It must not read lane zero merely because lane zero is physically
+present: a sparse cohort may leave that lane inactive with stale or invalid
+state. The GEP is non-`inbounds`, and masked-off elements perform no memory
+access. This makes partial tails and sparse masks observationally identical to
+the original per-active-lane typed accesses.
+
+The current profitability policy enables the transformation only for
+W4/W8/W16. W2 retains the proven provenance but lowers to gather/scatter
+because same-binary measurement found no stable gain; W1 already uses scalar
+memory. Permanent regressions cover aligned and row-crossing block geometry,
+disabled lowering, W2 policy, a nine-element tail, a sparse cohort whose lane
+zero index underflows, LLVM IR shape, final assembly without gather/scatter,
+and independent numerical execution. The runtime reports accepted contiguous
+read/write counts, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` is the A/B
+oracle.
 
 ## 5. Vector-math providers
 

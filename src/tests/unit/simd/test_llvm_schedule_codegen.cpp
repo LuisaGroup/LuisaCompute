@@ -2022,6 +2022,239 @@ template<size_t Width>
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_lane_affine_buffer_schedule(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("lane_affine_buffer");
+    kernel->set_block_size(luisa::make_uint3(64u, 1u, 1u));
+    auto *buffer_type = Type::buffer(Type::of<float>());
+    auto *lhs = kernel->create_resource_argument(buffer_type);
+    auto *rhs = kernel->create_resource_argument(buffer_type);
+    auto *output = kernel->create_resource_argument(buffer_type);
+    auto *entry = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_value = 2u;
+    uint32_t five_value = 5u;
+    uint32_t nine_value = 9u;
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *five = module.create_constant(
+        Type::of<uint32_t>(), &five_value);
+    auto *nine = module.create_constant(
+        Type::of<uint32_t>(), &nine_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *column = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *row = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, one});
+    auto *lhs_row = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL,
+        {row, five});
+    auto *lhs_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lhs_row, two});
+    auto *rhs_row = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL,
+        {two, nine});
+    auto *rhs_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {rhs_row, column});
+    auto *output_row = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL,
+        {row, nine});
+    auto *output_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {output_row, column});
+    auto *a = builder.call(
+        Type::of<float>(), xir::ResourceReadOp::BUFFER_READ,
+        {lhs, lhs_index});
+    auto *b = builder.call(
+        Type::of<float>(), xir::ResourceReadOp::BUFFER_READ,
+        {rhs, rhs_index});
+    auto *product = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL, {a, b});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, output_index, product});
+    builder.return_void();
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] bool run_lane_affine_buffer_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 9u;
+    auto schedule_function =
+        make_lane_affine_buffer_schedule(width);
+    CHECK(schedule_function.has_value());
+
+    struct ModuleBundle {
+        std::unique_ptr<::llvm::LLVMContext> context;
+        std::unique_ptr<::llvm::Module> module;
+        LLVMScheduleCodegenResult codegen;
+    };
+    auto make_module = [&](std::string_view module_name,
+                           std::string_view entry_name,
+                           bool enable_lane_affine) {
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            std::string{module_name}, *context);
+        auto codegen = lower_schedule_to_llvm(
+            *module, *schedule_function, width, entry_name,
+            false, {64u, 1u, 1u}, true,
+            enable_lane_affine);
+        return ModuleBundle{
+            std::move(context), std::move(module),
+            std::move(codegen)};
+    };
+
+    auto enabled_bundle = make_module(
+        "simd-lane-affine-buffer",
+        "simd_lane_affine_buffer", true);
+    CHECK(enabled_bundle.codegen.succeeded());
+    CHECK(enabled_bundle.codegen.uniform_buffer_broadcast_count == 1u);
+    CHECK(enabled_bundle.codegen.contiguous_buffer_read_count == 1u);
+    CHECK(enabled_bundle.codegen.contiguous_buffer_write_count == 1u);
+    CHECK(!::llvm::verifyModule(
+        *enabled_bundle.module, &::llvm::errs()));
+    std::string enabled_ir;
+    ::llvm::raw_string_ostream enabled_stream{enabled_ir};
+    enabled_bundle.module->print(enabled_stream, nullptr);
+    enabled_stream.flush();
+    CHECK(enabled_ir.find("llvm.masked.load") != std::string::npos);
+    CHECK(enabled_ir.find("llvm.masked.store") != std::string::npos);
+    CHECK(enabled_ir.find("llvm.masked.gather") == std::string::npos);
+    CHECK(enabled_ir.find("llvm.masked.scatter") == std::string::npos);
+
+    auto assembly_bundle = make_module(
+        "simd-lane-affine-assembly",
+        "simd_lane_affine_assembly", true);
+    CHECK(assembly_bundle.codegen.succeeded());
+    LLVMJIT assembly_target;
+    CHECK(assembly_target.succeeded());
+    auto assembly = assembly_target.emit_assembly(
+        std::move(assembly_bundle.module),
+        std::move(assembly_bundle.context));
+    CHECK(!assembly.empty());
+    CHECK(assembly.find("gather") == std::string::npos);
+    CHECK(assembly.find("scatter") == std::string::npos);
+
+    auto disabled_bundle = make_module(
+        "simd-lane-affine-disabled",
+        "simd_lane_affine_disabled", false);
+    CHECK(disabled_bundle.codegen.succeeded());
+    CHECK(disabled_bundle.codegen.uniform_buffer_broadcast_count == 1u);
+    CHECK(disabled_bundle.codegen.contiguous_buffer_read_count == 0u);
+    CHECK(disabled_bundle.codegen.contiguous_buffer_write_count == 0u);
+    std::string disabled_ir;
+    ::llvm::raw_string_ostream disabled_stream{disabled_ir};
+    disabled_bundle.module->print(disabled_stream, nullptr);
+    disabled_stream.flush();
+    CHECK(disabled_ir.find("llvm.masked.gather") != std::string::npos);
+    CHECK(disabled_ir.find("llvm.masked.scatter") != std::string::npos);
+
+    std::array<float, 5u> lhs{};
+    std::array<float, 45u> rhs{};
+    std::array<float, count> output{};
+    for (auto i = size_t{0u}; i < lhs.size(); i++) {
+        lhs[i] = static_cast<float>(i + 1u);
+    }
+    for (auto i = size_t{0u}; i < rhs.size(); i++) {
+        rhs[i] = static_cast<float>(i) * 0.25f - 3.0f;
+    }
+    output.fill(-1234.0f);
+    alignas(16) std::array<SIMDHostBufferView, 3u> arguments{
+        SIMDHostBufferView{lhs.data(), sizeof(lhs)},
+        SIMDHostBufferView{rhs.data(), sizeof(rhs)},
+        SIMDHostBufferView{output.data(), sizeof(output)},
+    };
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(
+        std::move(enabled_bundle.module),
+        std::move(enabled_bundle.context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(
+        jit.lookup("simd_lane_affine_buffer"));
+    CHECK(function != nullptr);
+    auto config = launch_1d(count, 64u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        function(arguments.data(), nullptr, &config, width);
+    }
+    for (auto i = size_t{0u}; i < output.size(); i++) {
+        CHECK(output[i] == lhs[2u] * rhs[18u + i]);
+    }
+
+    auto w2_schedule = make_lane_affine_buffer_schedule(2u);
+    CHECK(w2_schedule.has_value());
+    auto w2_context = std::make_unique<::llvm::LLVMContext>();
+    auto w2_module = std::make_unique<::llvm::Module>(
+        "simd-lane-affine-w2-policy", *w2_context);
+    auto w2_codegen = lower_schedule_to_llvm(
+        *w2_module, *w2_schedule, 2u,
+        "simd_lane_affine_w2_policy",
+        false, {64u, 1u, 1u}, true, true);
+    CHECK(w2_codegen.succeeded());
+    CHECK(w2_codegen.contiguous_buffer_read_count == 0u);
+    CHECK(w2_codegen.contiguous_buffer_write_count == 0u);
+    std::string w2_ir;
+    ::llvm::raw_string_ostream w2_stream{w2_ir};
+    w2_module->print(w2_stream, nullptr);
+    w2_stream.flush();
+    CHECK(w2_ir.find("llvm.masked.gather") != std::string::npos);
+    CHECK(w2_ir.find("llvm.masked.scatter") != std::string::npos);
+
+    Kernel1D sparse_kernel = [](BufferFloat input,
+                                BufferFloat result) noexcept {
+        auto lane = dispatch_id().x;
+        $if ((lane & 1u) != 0u) {
+            auto index = lane - 1u;
+            result.write(index, input.read(index));
+        };
+    };
+    auto sparse = compile_simd_kernel(
+        sparse_kernel.function()->function(), width,
+        "simd_lane_affine_sparse_cohort");
+    CHECK(sparse.succeeded());
+    CHECK(sparse.contiguous_buffer_read_count == 1u);
+    CHECK(sparse.contiguous_buffer_write_count == 1u);
+    std::array<float, width> sparse_input{};
+    std::array<float, width> sparse_output{};
+    for (auto i = size_t{0u}; i < width; i++) {
+        sparse_input[i] = static_cast<float>(i) + 0.25f;
+    }
+    sparse_output.fill(-777.0f);
+    alignas(16) std::array<SIMDHostBufferView, 2u> sparse_arguments{
+        SIMDHostBufferView{sparse_input.data(), sizeof(sparse_input)},
+        SIMDHostBufferView{sparse_output.data(), sizeof(sparse_output)},
+    };
+    auto sparse_entry = reinterpret_cast<Entry *>(sparse.entry);
+    CHECK(sparse_entry != nullptr);
+    auto sparse_config = launch_1d(width, 64u);
+    sparse_entry(
+        sparse_arguments.data(), nullptr, &sparse_config, width);
+    for (auto i = size_t{0u}; i < width; i++) {
+        auto expected = (i & 1u) == 0u ?
+                            sparse_input[i] :
+                            -777.0f;
+        CHECK(sparse_output[i] == expected);
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_uniform_buffer_broadcast_schedule(
     uint32_t width, bool volatile_read) {
     xir::Module module;
@@ -2112,13 +2345,16 @@ make_uniform_buffer_broadcast_schedule(
     CHECK(enabled.succeeded());
     CHECK(enabled.argument_buffer_size == 48u);
     CHECK(enabled.uniform_buffer_broadcast_count == 2u);
+    CHECK(enabled.contiguous_buffer_write_count == 1u);
     CHECK(!::llvm::verifyModule(*enabled_module, &::llvm::errs()));
     std::string enabled_ir;
     ::llvm::raw_string_ostream enabled_stream{enabled_ir};
     enabled_module->print(enabled_stream, nullptr);
     enabled_stream.flush();
     CHECK(enabled_ir.find("llvm.masked.gather") == std::string::npos);
-    CHECK(enabled_ir.find("llvm.masked.scatter") != std::string::npos);
+    CHECK(enabled_ir.find("llvm.masked.load") == std::string::npos);
+    CHECK(enabled_ir.find("llvm.masked.store") != std::string::npos);
+    CHECK(enabled_ir.find("llvm.masked.scatter") == std::string::npos);
 
     auto use_site_schedule =
         make_uniform_buffer_broadcast_schedule(width, false);
@@ -2877,6 +3113,8 @@ int main() {
          &run_return_convergence_cascade_codegen},
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
+        {"lane-affine scalar buffer load/store",
+         &run_lane_affine_buffer_codegen},
         {"uniform buffer read broadcast",
          &run_uniform_buffer_broadcast_codegen},
         {"XIR texture packet callback", &run_texture_packet_codegen},

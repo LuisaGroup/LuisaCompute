@@ -1001,13 +1001,13 @@ within-invocation SIMD axis from LLVM's loop vectorizer.
 The first remedy is narrower than a general axis transpose. When packet lanes
 cover consecutive output columns and the static block-X dimension is at least
 `W`, power-of-two block geometry proves that a packet cannot cross a row. A
-GEMM row operand is then cohort-uniform and should become one scalar load plus
-broadcast; the right-hand row and result are lane-consecutive and should use
-masked contiguous vector load/store; the accumulator should remain in a
-register across the coherent loop. The present value classes conservatively
-lose this lane-affine information and therefore select gathers. A permanent
-GEMM IR/assembly gate will require broadcast + contiguous load/FMA/store and
-reject those gathers for the proven case.
+GEMM row operand is then cohort-uniform and becomes one scalar load plus
+broadcast; the right-hand row and result are lane-consecutive and use masked
+contiguous vector load/store. Schedule IR carries both facts as use-site
+provenance without changing the backing value class. A permanent GEMM
+IR/assembly gate requires broadcast + contiguous load/FMA/store and rejects
+gather/scatter for the proven W4/W8/W16 case. W2 retains gather/scatter after
+measurement showed no stable benefit, and W1 is already scalar.
 
 A later, bounded optimization generalizes this into **SIMD axis rotation**.
 It treats packet lane and within-invocation value/loop dimensions as explicit
@@ -1028,6 +1028,41 @@ run first because removing suspension edges enlarges the coherent regions over
 which one register layout can remain resident. This preserves a small
 auditable first step while leaving room for GEMM-style microtiles rather than
 relying on LLVM to rediscover the axis through a scheduler CFG.
+
+The completed lane-affine checkpoint uses a real DSL 256-by-256 GEMM with 128
+timed dispatches, four warmups, and an independent full CPU result check. Nine
+alternating same-binary runs compare the default path with
+`LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1`; timing excludes JIT, upload, and
+validation. The paired fallback median is 83.16 GFLOP/s:
+
+| Width | Enabled GFLOP/s | Disabled GFLOP/s | enabled/disabled | enabled/fallback |
+| ---: | ---: | ---: | ---: | ---: |
+| W1 | 61.38 | 61.69 | 0.995x | 0.738x |
+| W2 | 30.71 | 30.60 | 1.004x | 0.369x |
+| W4 | 60.26 | 49.56 | 1.216x | 0.725x |
+| W8 | 101.61 | 66.63 | 1.525x | 1.222x |
+| W16 | 156.51 | 77.11 | 2.030x | 1.882x |
+
+W1/W2 differences are measurement noise because the transformation is not
+selected. Three-repeat `perf stat` over the complete validated benchmark
+confirms a latency rather than retired-instruction mechanism. Enabled versus
+disabled cycles are 10.54/12.74 billion at W4, 6.22/9.60 billion at W8, and
+3.93/8.40 billion at W16. Aggregate task-clock falls 18.1%, 35.4%, and 51.8%
+respectively, while retired instruction counts rise 8.4%, rise 8.0%, and are
+flat. Masked contiguous accesses are therefore cheaper than the legalized
+gathers even when an instruction-count proxy does not show it.
+
+Real-example applicability was checked rather than inferred from GEMM. W8
+`image_processing`, `voxel_raytracer`, `shader_toy`, `game_of_life`, and
+`nbody_simulation` all pass their gallery reference; the first four report no
+accepted lane-affine buffer access. N-body accepts one contiguous output store
+but no read. Nine whole-process runs at every width measure identical on/off
+medians at the available 10 ms timer resolution (0.46/0.46 s W1,
+0.86/0.86 s W2, 0.60/0.60 s W4, 0.53/0.53 s W8, and 0.57/0.57 s W16).
+Non-coroutine SDF likewise reports no accepted access. Thus this checkpoint is
+a large coherent-GEMM win but deliberately claims no graphics or SDF gain;
+those workloads need different affine recognition, scheduler-state, or layout
+work.
 
 The permanent small-diamond benchmark separates an empty-arm `select_only`
 case from a two-level factorable multiply/add case. Each process uses nine
@@ -1491,6 +1526,11 @@ on 2026-08-11. The repository now contains:
   construction/extraction/insertion/shuffle, and scalar/vector casts;
 - direct Buffer descriptors with typed and byte-address queries plus masked
   LLVM gather/scatter for scalar, vector, matrix, array, and structure leaves;
+- use-site lane-step provenance for direct typed scalar buffers, with static
+  block-row proof, first-active-lane base reconstruction, and target-independent
+  masked contiguous load/store at W4/W8/W16; sparse cohorts and partial tails
+  retain the exact source mask while W2 keeps its measured gather/scatter
+  policy;
 - runtime-owned bindless slot tables with offset buffer views, update/remove
   commands, bounds-checked slot lookup, and varying or uniform slot indices;
   typed and byte-addressed bindless reads, writes, sizes, and device-address

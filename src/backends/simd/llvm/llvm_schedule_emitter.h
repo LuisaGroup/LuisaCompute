@@ -49,6 +49,7 @@ private:
     bool _enable_fast_math;
     std::array<uint32_t, 3u> _static_block_size{};
     bool _enable_uniform_buffer_broadcast{true};
+    bool _enable_lane_affine_buffer{true};
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
     LLVMWarpCollectives _collectives;
@@ -250,10 +251,16 @@ private:
     [[nodiscard]] ::llvm::Value *_gather_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, size_t leaf_offset = 0u);
+    [[nodiscard]] ::llvm::Value *_load_contiguous_data(
+        ::llvm::Value *base, ::llvm::Value *index,
+        const Type *type);
     void _scatter_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, ::llvm::Value *value,
         size_t leaf_offset = 0u);
+    void _store_contiguous_data(
+        ::llvm::Value *base, ::llvm::Value *index,
+        const Type *type, ::llvm::Value *value);
     [[nodiscard]] BindlessBufferLanes _bindless_buffer_lanes(
         schedule::ValueId bindless_id, schedule::ValueId slot_id);
     [[nodiscard]] ::llvm::Value *_bindless_access_offsets(
@@ -322,7 +329,8 @@ public:
                     std::string_view entry_name,
                     bool enable_fast_math,
                     std::array<uint32_t, 3u> static_block_size,
-                    bool enable_uniform_buffer_broadcast);
+                    bool enable_uniform_buffer_broadcast,
+                    bool enable_lane_affine_buffer);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

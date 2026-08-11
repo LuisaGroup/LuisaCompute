@@ -153,6 +153,12 @@ struct CFGEdgeHash {
 class LoweringContext {
 
 private:
+    enum struct LaneIndexStep {
+        unknown,
+        equal,
+        consecutive,
+    };
+
     struct LoopRecord {
         const xir::NaturalLoop *source{nullptr};
         const xir::PhiInst *cohort_uniform_induction{nullptr};
@@ -769,6 +775,141 @@ private:
             });
     }
 
+    [[nodiscard]] bool _packet_stays_in_x_row() const noexcept {
+        if (_source == nullptr ||
+            !_source->isa<xir::KernelFunction>() ||
+            _options.logical_warp_width <= 1u) {
+            return false;
+        }
+        auto block_size =
+            static_cast<const xir::KernelFunction *>(_source)
+                ->block_size();
+        return block_size.x >= _options.logical_warp_width &&
+               block_size.x % _options.logical_warp_width == 0u;
+    }
+
+    [[nodiscard]] LaneIndexStep _lane_index_step(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block,
+        std::unordered_set<const xir::Value *> &visiting) const noexcept {
+        if (value == nullptr || value->type() == nullptr ||
+            !value->type()->is_scalar() ||
+            (!value->type()->is_int() &&
+             !value->type()->is_uint())) {
+            return LaneIndexStep::unknown;
+        }
+        if (_uniformity.is_uniform(value) ||
+            _is_cohort_uniform_induction_use(value, use_block)) {
+            return LaneIndexStep::equal;
+        }
+        if (value->isa<xir::SpecialRegister>()) {
+            auto tag = static_cast<const xir::SpecialRegister *>(value)
+                           ->derived_special_register_tag();
+            return tag == xir::DerivedSpecialRegisterTag::WARP_LANE_ID ?
+                       LaneIndexStep::consecutive :
+                       LaneIndexStep::unknown;
+        }
+        if (!value->isa<xir::Instruction>() ||
+            !visiting.emplace(value).second) {
+            return LaneIndexStep::unknown;
+        }
+        auto leave = [&]() noexcept { visiting.erase(value); };
+        auto *instruction = static_cast<const xir::Instruction *>(value);
+        auto result = LaneIndexStep::unknown;
+        if (instruction->isa<xir::CastInst>()) {
+            auto operand_step = instruction->operand_count() == 1u ?
+                                    _lane_index_step(
+                                        instruction->operand(0u), use_block,
+                                        visiting) :
+                                    LaneIndexStep::unknown;
+            // A cast of equal lane values stays equal. Consecutive casts need
+            // a separate no-wrap/range proof and deliberately remain unknown.
+            result = operand_step == LaneIndexStep::equal ?
+                         LaneIndexStep::equal :
+                         LaneIndexStep::unknown;
+            leave();
+            return result;
+        }
+        if (!instruction->isa<xir::ArithmeticInst>()) {
+            leave();
+            return result;
+        }
+        auto *arithmetic =
+            static_cast<const xir::ArithmeticInst *>(instruction);
+        auto op = arithmetic->op();
+        if (op == xir::ArithmeticOp::EXTRACT &&
+            arithmetic->operand_count() == 2u &&
+            _packet_stays_in_x_row()) {
+            uint64_t component = 0u;
+            auto *aggregate = arithmetic->operand(0u);
+            if (xir::try_decode_constant_nonnegative_integer(
+                    arithmetic->operand(1u), component) &&
+                component < 3u && aggregate != nullptr &&
+                aggregate->isa<xir::SpecialRegister>()) {
+                auto tag = static_cast<const xir::SpecialRegister *>(
+                               aggregate)
+                               ->derived_special_register_tag();
+                if (tag == xir::DerivedSpecialRegisterTag::DISPATCH_ID ||
+                    tag == xir::DerivedSpecialRegisterTag::THREAD_ID) {
+                    result = component == 0u ?
+                                 LaneIndexStep::consecutive :
+                                 LaneIndexStep::equal;
+                }
+            }
+            leave();
+            return result;
+        }
+
+        std::vector<LaneIndexStep> operand_steps;
+        operand_steps.reserve(arithmetic->operand_count());
+        for (auto i = size_t{0u}; i < arithmetic->operand_count(); i++) {
+            operand_steps.emplace_back(_lane_index_step(
+                arithmetic->operand(i), use_block, visiting));
+        }
+        auto all_equal = !operand_steps.empty() && std::all_of(
+            operand_steps.begin(), operand_steps.end(),
+            [](LaneIndexStep step) noexcept {
+                return step == LaneIndexStep::equal;
+            });
+        if (all_equal) {
+            result = LaneIndexStep::equal;
+        } else if (operand_steps.size() == 2u) {
+            auto lhs = operand_steps[0u];
+            auto rhs = operand_steps[1u];
+            if (op == xir::ArithmeticOp::BINARY_ADD) {
+                if ((lhs == LaneIndexStep::consecutive &&
+                     rhs == LaneIndexStep::equal) ||
+                    (lhs == LaneIndexStep::equal &&
+                     rhs == LaneIndexStep::consecutive)) {
+                    result = LaneIndexStep::consecutive;
+                }
+            } else if (op == xir::ArithmeticOp::BINARY_SUB) {
+                if (lhs == LaneIndexStep::consecutive &&
+                    rhs == LaneIndexStep::equal) {
+                    result = LaneIndexStep::consecutive;
+                } else if (lhs == LaneIndexStep::consecutive &&
+                           rhs == LaneIndexStep::consecutive) {
+                    result = LaneIndexStep::equal;
+                }
+            }
+        } else if (op == xir::ArithmeticOp::SELECT &&
+                   operand_steps.size() == 3u &&
+                   operand_steps[2u] == LaneIndexStep::equal &&
+                   operand_steps[0u] == operand_steps[1u] &&
+                   operand_steps[0u] != LaneIndexStep::unknown) {
+            result = operand_steps[0u];
+        }
+        leave();
+        return result;
+    }
+
+    [[nodiscard]] LaneIndexStep _lane_index_step(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block) const noexcept {
+        std::unordered_set<const xir::Value *> visiting;
+        return _lane_index_step(value, use_block, visiting);
+    }
+
     [[nodiscard]] std::optional<uint32_t> _source_op(
         const xir::Instruction *instruction) const noexcept {
         using Tag = xir::DerivedInstructionTag;
@@ -850,14 +991,25 @@ private:
                 instruction.operands.emplace_back(*operand);
             }
         }
-        if (instruction.opcode == Opcode::resource_read &&
-            instruction.source_op == static_cast<uint32_t>(
-                                         xir::ResourceReadOp::BUFFER_READ) &&
-            source_instruction->operand_count() == 2u &&
-            _is_cohort_uniform_induction_use(
-                source_instruction->operand(1u),
-                source_instruction->parent_block())) {
-            instruction.cohort_uniform_operand_index = 1u;
+        if (source_instruction->operand_count() >= 2u) {
+            auto direct_read =
+                instruction.opcode == Opcode::resource_read &&
+                instruction.source_op == static_cast<uint32_t>(
+                                             xir::ResourceReadOp::BUFFER_READ);
+            auto direct_write =
+                instruction.opcode == Opcode::resource_write &&
+                instruction.source_op == static_cast<uint32_t>(
+                                             xir::ResourceWriteOp::BUFFER_WRITE);
+            if (direct_read || direct_write) {
+                auto step = _lane_index_step(
+                    source_instruction->operand(1u),
+                    source_instruction->parent_block());
+                if (direct_read && step == LaneIndexStep::equal) {
+                    instruction.cohort_uniform_operand_index = 1u;
+                } else if (step == LaneIndexStep::consecutive) {
+                    instruction.lane_consecutive_operand_index = 1u;
+                }
+            }
         }
         if (instruction.opcode == Opcode::warp_collective) {
             instruction.collective_id = _next_collective_id++;

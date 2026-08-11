@@ -459,6 +459,17 @@ current heuristic activates only when cold slots are at least half of the
 kernel's state slots, avoiding a global dispatcher PHI set that exceeds the
 physical register file while leaving hot values promotable.
 
+Use-site memory provenance is likewise an LLVM refinement rather than a new
+scheduler transition. If static block geometry and integer expression analysis
+prove `index[l] = b + l` for every physical packet lane, one scalar typed
+buffer instruction may be represented by a masked contiguous vector access.
+For a nonempty executing mask `A`, the implementation chooses
+`s = min {l | l in A}` and reconstructs `b = index[s] - s`; it never consumes
+an inactive lane-zero value. The access mask remains exactly `A`, so sparse
+cohorts, partial tails, and the per-lane memory trace are unchanged. A failed
+proof retains masked gather/scatter and cannot affect lane ownership,
+continuation identity, convergence, or scheduling order.
+
 The generated LLVM remains target-independent fixed-vector IR. Machine ISA
 selection, legalization, register allocation, and scheduling remain LLVM's
 responsibility.

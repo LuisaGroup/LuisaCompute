@@ -35,6 +35,8 @@ struct SIMDCompiledKernel {
     size_t unswitched_cloned_instruction_count{0u};
     size_t unswitched_live_out_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
+    size_t contiguous_buffer_read_count{0u};
+    size_t contiguous_buffer_write_count{0u};
     uint32_t warp_width{0u};
     std::string target_triple{};
     std::vector<std::string> diagnostics{};
@@ -51,7 +53,8 @@ struct SIMDCompiledKernel {
 [[nodiscard]] SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
     std::string_view entry_name = {}, bool enable_fast_math = false,
-    bool enable_uniform_buffer_broadcast = true);
+    bool enable_uniform_buffer_broadcast = true,
+    bool enable_lane_affine_buffer = true);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet

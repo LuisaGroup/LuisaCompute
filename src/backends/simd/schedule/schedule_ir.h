@@ -147,6 +147,11 @@ struct Instruction {
     // continuation even when its backing state is varying across loop exits.
     // This is a use-site fact, not a global ValueClass refinement.
     std::optional<uint32_t> cohort_uniform_operand_index{};
+    // One integer operand may be proven to increase by exactly one between
+    // adjacent physical packet lanes. The proof is use-site-local and relies
+    // on static block geometry, so it must not change the ValueClass of the
+    // backing SSA value.
+    std::optional<uint32_t> lane_consecutive_operand_index{};
 };
 
 struct EdgeAssignment {

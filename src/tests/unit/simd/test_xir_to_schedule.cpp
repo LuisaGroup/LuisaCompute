@@ -565,6 +565,112 @@ void register_diagnostic_tests() {
     };
 }
 
+void register_memory_layout_tests() {
+    "simd_xir_lowering_proves_packet_lane_buffer_layout"_test = [] {
+        auto lower = [](luisa::uint3 block_size) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            kernel->set_block_size(block_size);
+            auto *buffer_type = Type::buffer(Type::of<float>());
+            auto *lhs = kernel->create_resource_argument(buffer_type);
+            auto *rhs = kernel->create_resource_argument(buffer_type);
+            auto *output = kernel->create_resource_argument(buffer_type);
+            auto *entry = kernel->create_body_block();
+            auto *dispatch_id = module.create_dispatch_id();
+            auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+            auto *one = module.create_constant_one(Type::of<uint32_t>());
+            uint32_t two_value = 2u;
+            uint32_t five_value = 5u;
+            uint32_t nine_value = 9u;
+            auto *two = module.create_constant(
+                Type::of<uint32_t>(), &two_value);
+            auto *five = module.create_constant(
+                Type::of<uint32_t>(), &five_value);
+            auto *nine = module.create_constant(
+                Type::of<uint32_t>(), &nine_value);
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *column = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::EXTRACT,
+                {dispatch_id, zero});
+            auto *row = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::EXTRACT,
+                {dispatch_id, one});
+            auto *lhs_row = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::BINARY_MUL,
+                {row, five});
+            auto *lhs_index = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+                {lhs_row, two});
+            auto *rhs_row = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::BINARY_MUL,
+                {two, nine});
+            auto *rhs_index = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+                {rhs_row, column});
+            auto *output_row = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::BINARY_MUL,
+                {row, nine});
+            auto *output_index = builder.call(
+                Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+                {output_row, column});
+            auto *a = builder.call(
+                Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                {lhs, lhs_index});
+            auto *b = builder.call(
+                Type::of<float>(), ResourceReadOp::BUFFER_READ,
+                {rhs, rhs_index});
+            auto *product = builder.call(
+                Type::of<float>(), ArithmeticOp::BINARY_MUL, {a, b});
+            builder.call(
+                ResourceWriteOp::BUFFER_WRITE,
+                {output, output_index, product});
+            builder.return_void();
+            return lower_xir_to_schedule(
+                kernel, {.logical_warp_width = 8u});
+        };
+
+        auto row_aligned = lower(luisa::make_uint3(64u, 1u, 1u));
+        expect(row_aligned.succeeded()) << diagnostics_text(row_aligned);
+        if (!row_aligned.succeeded()) { return; }
+        auto equal_reads = size_t{0u};
+        auto consecutive_reads = size_t{0u};
+        auto consecutive_writes = size_t{0u};
+        for (auto &&block : row_aligned.function->blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode == Opcode::resource_read) {
+                    equal_reads +=
+                        instruction.cohort_uniform_operand_index == 1u;
+                    consecutive_reads +=
+                        instruction.lane_consecutive_operand_index == 1u;
+                } else if (instruction.opcode == Opcode::resource_write) {
+                    consecutive_writes +=
+                        instruction.lane_consecutive_operand_index == 1u;
+                }
+            }
+        }
+        expect(equal_reads == 1u);
+        expect(consecutive_reads == 1u);
+        expect(consecutive_writes == 1u);
+        expect(verify(*row_aligned.function).succeeded());
+
+        auto row_crossing = lower(luisa::make_uint3(4u, 8u, 1u));
+        expect(row_crossing.succeeded()) << diagnostics_text(row_crossing);
+        if (!row_crossing.succeeded()) { return; }
+        auto annotated = size_t{0u};
+        for (auto &&block : row_crossing.function->blocks()) {
+            for (auto &&instruction : block.instructions) {
+                annotated +=
+                    instruction.cohort_uniform_operand_index.has_value();
+                annotated +=
+                    instruction.lane_consecutive_operand_index.has_value();
+            }
+        }
+        expect(annotated == 0u);
+        expect(verify(*row_crossing.function).succeeded());
+    };
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -573,6 +679,7 @@ int main(int argc, char *argv[]) {
     register_diamond_tests();
     register_loop_tests();
     register_reducible_cfg_tests();
+    register_memory_layout_tests();
     register_diagnostic_tests();
     return 0;
 }

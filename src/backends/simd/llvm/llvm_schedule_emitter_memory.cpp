@@ -639,6 +639,40 @@ void ScheduleEmitter::_texture_write(
     });
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_contiguous_data(
+    ::llvm::Value *base, ::llvm::Value *index,
+    const Type *type) {
+    if (!_is_scalar_data(type) || index == nullptr ||
+        !index->getType()->isVectorTy()) {
+        _fail("contiguous buffer load requires a scalar type and lane index");
+        return nullptr;
+    }
+    auto *seed = _builder.CreateExtractElement(index, _seed_lane);
+    auto *seed_index = _builder.CreateZExtOrTrunc(
+        seed, _builder.getInt64Ty());
+    auto *seed_lane = _builder.CreateZExtOrTrunc(
+        _seed_lane, _builder.getInt64Ty());
+    auto *offset = _builder.CreateSub(seed_index, seed_lane);
+    if (type->size() != 1u) {
+        offset = _builder.CreateMul(
+            offset, _builder.getInt64(type->size()));
+    }
+    auto *address = _builder.CreateGEP(
+        _builder.getInt8Ty(), base, offset);
+    auto *element = type->is_bool() ?
+        static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
+        _data_type(type, false);
+    auto *lanes = ::llvm::FixedVectorType::get(element, _width);
+    auto *loaded = _builder.CreateMaskedLoad(
+        lanes, address, ::llvm::Align{1u}, _active_mask,
+        ::llvm::Constant::getNullValue(lanes),
+        "buffer.contiguous.load");
+    return type->is_bool() ?
+        _builder.CreateICmpNE(
+            loaded, ::llvm::Constant::getNullValue(lanes)) :
+        loaded;
+}
+
 void ScheduleEmitter::_scatter_data(
     ::llvm::Value *base, ::llvm::Value *offsets,
     const Type *type, ::llvm::Value *value,
@@ -661,6 +695,36 @@ void ScheduleEmitter::_scatter_data(
             _extract_child(value, type, i, true),
             leaf_offset + _child_offset(type, i));
     }
+}
+
+void ScheduleEmitter::_store_contiguous_data(
+    ::llvm::Value *base, ::llvm::Value *index,
+    const Type *type, ::llvm::Value *value) {
+    if (!_is_scalar_data(type) || index == nullptr || value == nullptr ||
+        !index->getType()->isVectorTy()) {
+        _fail("contiguous buffer store requires a scalar type and lane index");
+        return;
+    }
+    auto *seed = _builder.CreateExtractElement(index, _seed_lane);
+    auto *seed_index = _builder.CreateZExtOrTrunc(
+        seed, _builder.getInt64Ty());
+    auto *seed_lane = _builder.CreateZExtOrTrunc(
+        _seed_lane, _builder.getInt64Ty());
+    auto *offset = _builder.CreateSub(seed_index, seed_lane);
+    if (type->size() != 1u) {
+        offset = _builder.CreateMul(
+            offset, _builder.getInt64(type->size()));
+    }
+    auto *address = _builder.CreateGEP(
+        _builder.getInt8Ty(), base, offset);
+    if (type->is_bool()) {
+        value = _builder.CreateZExt(
+            value,
+            ::llvm::FixedVectorType::get(
+                _builder.getInt8Ty(), _width));
+    }
+    _builder.CreateMaskedStore(
+        value, address, ::llvm::Align{1u}, _active_mask);
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_read(
@@ -757,6 +821,26 @@ void ScheduleEmitter::_scatter_data(
                    _splat_data(uniform, result_value->type);
     }
 
+    auto lane_consecutive_at_use =
+        instruction.lane_consecutive_operand_index == 1u;
+    // W2 masked contiguous operations cost more than LLVM's two-lane
+    // gather/scatter legalization on the measured host. Keep the proof in
+    // Schedule IR, but select this wide-memory lowering only from W4 upward.
+    if (_enable_lane_affine_buffer && _width >= 4u &&
+        op == xir::ResourceReadOp::BUFFER_READ &&
+        lane_consecutive_at_use &&
+        _is_scalar_data(result_value->type) &&
+        buffer_value->type->element() == result_value->type) {
+        index = _as_lane_vector(index, *index_value);
+        if (index == nullptr) { return nullptr; }
+        auto *loaded = _load_contiguous_data(
+            base, index, result_value->type);
+        if (loaded != nullptr) {
+            _result.contiguous_buffer_read_count++;
+        }
+        return loaded;
+    }
+
     index = _as_lane_vector(index, *index_value);
     if (index == nullptr) { return nullptr; }
     return _gather_data(
@@ -810,6 +894,20 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
     auto stride = byte_address ? 1u :
         static_cast<uint64_t>(buffer_value->type->element()->size());
     auto *base = _builder.CreateExtractValue(buffer, {0u});
+    auto lane_consecutive_at_use =
+        instruction.lane_consecutive_operand_index == 1u;
+    if (_enable_lane_affine_buffer && _width >= 4u &&
+        op == xir::ResourceWriteOp::BUFFER_WRITE &&
+        lane_consecutive_at_use &&
+        _is_scalar_data(written_value->type) &&
+        buffer_value->type->element() == written_value->type) {
+        _store_contiguous_data(
+            base, index, written_value->type, value);
+        if (!_failed()) {
+            _result.contiguous_buffer_write_count++;
+        }
+        return;
+    }
     _scatter_data(
         base, _lane_offsets(index, stride), written_value->type, value);
 }
