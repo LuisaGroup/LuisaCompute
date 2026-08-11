@@ -110,7 +110,8 @@ if (TARGET luisa-compute-simd-llvm)
             unit/simd/test_llvm_schedule_codegen.cpp)
     target_compile_features(test_simd_llvm_schedule_codegen PRIVATE cxx_std_20)
     target_link_libraries(test_simd_llvm_schedule_codegen PRIVATE
-            luisa-compute-simd-compiler)
+            luisa-compute-simd-compiler
+            luisa-compute-dsl)
     target_include_directories(test_simd_llvm_schedule_codegen PRIVATE
             ${LLVM_INCLUDE_DIRS})
     add_test(NAME test_simd_llvm_schedule_codegen

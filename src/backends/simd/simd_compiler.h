@@ -13,6 +13,10 @@ namespace luisa::compute::xir {
 class Function;
 }// namespace luisa::compute::xir
 
+namespace luisa::compute {
+class Function;
+}// namespace luisa::compute
+
 namespace luisa::compute::simd {
 
 struct SIMDCompiledKernel {
@@ -34,6 +38,13 @@ struct SIMDCompiledKernel {
 // diagnostics instead of being silently scalarized.
 [[nodiscard]] SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
+    std::string_view entry_name = {});
+
+// Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
+// inlines callables, promotes local SSA storage, and then invokes the packet
+// compiler above. This is the front door used by the runtime backend.
+[[nodiscard]] SIMDCompiledKernel compile_simd_kernel(
+    const compute::Function &kernel, uint32_t warp_width,
     std::string_view entry_name = {});
 
 }// namespace luisa::compute::simd

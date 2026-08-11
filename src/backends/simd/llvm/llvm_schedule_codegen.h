@@ -16,13 +16,34 @@ class Function;
 
 namespace luisa::compute::simd {
 
-// Phase-2 packet ABI:
-//   void entry(ptr argument_buffer, ptr return_lanes, i32 active_lane_count)
+// Host-side buffer descriptor passed through the packet argument buffer. The
+// descriptor is intentionally backend-local: a runtime Buffer handle is
+// resolved to this plain view immediately before a dispatch.
+struct alignas(16) SIMDHostBufferView {
+    void *data{nullptr};
+    size_t size_bytes{0u};
+};
+
+// Per-packet launch state. thread_index is the first linear thread within the
+// current block; lane i executes thread_index + i. The generated entry derives
+// thread_id and dispatch_id in fixed LLVM vectors and masks both packet tails
+// and threads outside a non-divisible dispatch extent.
+struct SIMDPacketLaunchConfig {
+    uint32_t block_id[3]{};
+    uint32_t dispatch_size[3]{};
+    uint32_t block_size[3]{1u, 1u, 1u};
+    uint32_t thread_index{0u};
+    uint32_t kernel_id{0u};
+};
+
+// Packet ABI:
+//   void entry(ptr argument_buffer, ptr return_lanes,
+//              ptr launch_config, i32 active_lane_count)
 //
-// Value arguments are packed in declaration order with their Luisa ABI size
-// and alignment. Scalar returns are written as one contiguous value per lane.
-// The ABI is deliberately narrow while resource handles and aggregate memory
-// transposition are still being implemented.
+// Arguments are packed in declaration order at 16-byte boundaries. Value
+// arguments use their Luisa ABI layout and buffer resources use
+// SIMDHostBufferView. Scalar returns are written contiguously per lane; runtime
+// kernels are normally void and pass a null return_lanes pointer.
 struct LLVMScheduleCodegenResult {
     ::llvm::Function *entry{nullptr};
     size_t argument_buffer_size{0u};

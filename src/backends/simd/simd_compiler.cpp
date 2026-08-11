@@ -7,6 +7,17 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 
+#include <luisa/ast/function.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/mem2reg.h>
+#include <luisa/xir/translators/ast2xir.h>
+
 #include "llvm/llvm_schedule_codegen.h"
 #include "schedule/xir_to_schedule.h"
 
@@ -60,6 +71,45 @@ SIMDCompiledKernel compile_simd_kernel(
         result.jit.reset();
     }
     return result;
+}
+
+SIMDCompiledKernel compile_simd_kernel(
+    const compute::Function &kernel, uint32_t warp_width,
+    std::string_view entry_name) {
+    auto *translation = xir::ast_to_xir_translate_begin({});
+    auto *xir_kernel = xir::ast_to_xir_translate_add_function(
+        translation, kernel);
+    auto module = xir::ast_to_xir_translate_finalize(translation);
+    if (module == nullptr || xir_kernel == nullptr) {
+        SIMDCompiledKernel result{.warp_width = warp_width};
+        result.diagnostics.emplace_back("AST to XIR translation failed");
+        return result;
+    }
+
+    // Single-block callables can be folded before CFG legalization. A second
+    // pass after destructuring handles multi-block callables without cloning
+    // structured regions into the caller.
+    static_cast<void>(xir::inline_all_pass_run_on_module(module.get()));
+    static_cast<void>(xir::local_store_forward_pass_run_on_module(module.get()));
+    static_cast<void>(xir::local_load_elimination_pass_run_on_module(module.get()));
+    static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
+    static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+
+    auto destructure = xir::destructure_cfg_pass_run_on_module(module.get());
+    if (!destructure.succeeded()) {
+        SIMDCompiledKernel result{.warp_width = warp_width};
+        result.diagnostics.emplace_back(
+            "XIR CFG destructuring failed (errors=" +
+            std::to_string(destructure.error_count) +
+            ", leaked_blocks=" +
+            std::to_string(destructure.leaked_block_count) + ")");
+        return result;
+    }
+    static_cast<void>(xir::inline_all_pass_run_on_module(module.get()));
+    static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
+    static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    return compile_simd_kernel(xir_kernel, warp_width, entry_name);
 }
 
 }// namespace luisa::compute::simd

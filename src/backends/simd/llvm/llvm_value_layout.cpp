@@ -90,9 +90,15 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
             result = ::llvm::StructType::get(_context, members);
             break;
         }
+        case Tag::BUFFER: {
+            result = ::llvm::StructType::get(
+                _context,
+                {::llvm::PointerType::getUnqual(_context),
+                 ::llvm::Type::getInt64Ty(_context)});
+            break;
+        }
         case Tag::FLOAT8_E4M3:
         case Tag::FLOAT8_E5M2:
-        case Tag::BUFFER:
         case Tag::TEXTURE:
         case Tag::BINDLESS_ARRAY:
         case Tag::ACCEL:

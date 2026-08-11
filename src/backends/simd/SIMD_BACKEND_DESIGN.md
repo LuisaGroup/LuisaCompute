@@ -1,8 +1,9 @@
 # SIMD CPU backend design
 
-Status: Phase 2 fixed-vector codegen checkpoint. XIR-to-Schedule lowering,
-the dependency-light cohort semantic model, and the independent-thread LLVM
-packet dispatcher are implemented behind `LUISA_COMPUTE_ENABLE_SIMD`.
+Status: Phase 2 fixed-vector compute checkpoint. XIR-to-Schedule lowering,
+the dependency-light cohort semantic model, the independent-thread LLVM
+packet dispatcher, dispatch builtins, aggregate SoA values, and direct Buffer
+gather/scatter are implemented behind `LUISA_COMPUTE_ENABLE_SIMD`.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `74cde8c2acca8ef3d8061a0536c5dfaccba46670` (2026-08-11).
@@ -713,6 +714,17 @@ on 2026-08-11. The repository now contains:
 - a host-target compiler facade and O2 ORC JIT boundary that delegates
   legalization, instruction selection, register allocation, and machine
   scheduling to LLVM;
+- a four-argument packet launch ABI that derives `thread_id`, `block_id`, and
+  `dispatch_id` in fixed vectors and masks both packet tails and non-divisible
+  multidimensional dispatch extents;
+- recursive Luisa-ABI loading for uniform aggregate values, SoA splatting,
+  cohort spill/reload, component-wise integer arithmetic, aggregate
+  construction/extraction/insertion/shuffle, and scalar/vector casts;
+- direct Buffer descriptors with typed and byte-address queries plus masked
+  LLVM gather/scatter for scalar, vector, matrix, array, and structure leaves;
+- an AST-to-XIR compiler front door that inlines callables, forwards/eliminates
+  local loads, promotes SSA storage, destructures CFG, and compiles a real DSL
+  Buffer kernel through ORC;
 - standalone unit coverage for warp1/4/8/16 control flow and positive/negative
   Schedule IR fixtures, plus XIR projection fixtures for divergent diamonds,
   uniform control, lane-dependent loops, warp collectives, structured-CFG
@@ -721,11 +733,12 @@ on 2026-08-11. The repository now contains:
   execution tests for warp1/4/8/16, including a divergent cohort-uniform lane
   read, lane-wise suspension spill, reconvergence, and active sum;
 - ORC execution fixtures for lane-dependent loops at warp4/8, nested dynamic
-  reconvergence, and a 96-block CFG. Loop membership is explicit in Schedule
-  IR so epochs are compared only while a cohort remains inside that loop.
+  reconvergence, a 96-block CFG, vector Buffer gather/add/scatter, and a real
+  AST `Kernel1D` with a 13-thread non-integral packet tail. Loop membership is
+  explicit in Schedule IR so epochs are compared only while a cohort remains
+  inside that loop.
 
-The next implementation boundary is completing aggregate arithmetic and
-collectives, resource memory lowering, dispatch special registers, and the
-`DeviceInterface` runtime module. The current compiler returns precise
-diagnostics for unsupported value/resource features rather than silently
-scalarizing them.
+The next implementation boundary is completing math/aggregate arithmetic,
+local and atomic memory, textures, and the `DeviceInterface` runtime module.
+The current compiler returns precise diagnostics for unsupported features
+rather than silently scalarizing them.

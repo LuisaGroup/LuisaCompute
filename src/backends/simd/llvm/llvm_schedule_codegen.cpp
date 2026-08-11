@@ -1,7 +1,9 @@
 #include "llvm_schedule_codegen.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <string>
@@ -49,6 +51,7 @@ private:
     ::llvm::Function *_entry{nullptr};
     ::llvm::Value *_argument_buffer{nullptr};
     ::llvm::Value *_return_buffer{nullptr};
+    ::llvm::Value *_launch_config{nullptr};
     ::llvm::Value *_active_lane_count{nullptr};
     ::llvm::BasicBlock *_scheduler_loop{nullptr};
     ::llvm::AllocaInst *_live_mask{nullptr};
@@ -68,6 +71,12 @@ private:
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
     ::llvm::Value *_active_mask{nullptr};
     ::llvm::Value *_seed_lane{nullptr};
+    ::llvm::Value *_linear_thread_indices{nullptr};
+    std::array<::llvm::Value *, 3u> _block_id{};
+    std::array<::llvm::Value *, 3u> _dispatch_size{};
+    std::array<::llvm::Value *, 3u> _block_size{};
+    std::array<::llvm::Value *, 3u> _thread_id{};
+    std::array<::llvm::Value *, 3u> _dispatch_id{};
 
 private:
     void _fail(std::string message) {
@@ -86,6 +95,169 @@ private:
 
     [[nodiscard]] static bool _is_scalar_data(const Type *type) noexcept {
         return type != nullptr && type->is_scalar() && !type->is_float8();
+    }
+
+    [[nodiscard]] static bool _is_data(const Type *type) noexcept {
+        if (type == nullptr || type->is_resource() || type->is_custom() ||
+            type->is_cooperative_vector() ||
+            type->is_cooperative_vector_ref() ||
+            type->is_cooperative_matrix_ref()) {
+            return false;
+        }
+        if (type->is_scalar()) { return !type->is_float8(); }
+        if (type->is_vector() || type->is_matrix() || type->is_array()) {
+            return _is_data(type->element());
+        }
+        if (type->is_structure()) {
+            return std::all_of(
+                type->members().begin(), type->members().end(),
+                [](auto *member) noexcept { return _is_data(member); });
+        }
+        return false;
+    }
+
+    [[nodiscard]] static size_t _abi_size(const Type *type) noexcept {
+        if (type != nullptr && type->is_buffer()) {
+            return sizeof(SIMDHostBufferView);
+        }
+        return type == nullptr ? 0u : type->size();
+    }
+
+    [[nodiscard]] static size_t _abi_alignment(const Type *type) noexcept {
+        if (type != nullptr && type->is_buffer()) {
+            return alignof(SIMDHostBufferView);
+        }
+        return type == nullptr ? 1u : type->alignment();
+    }
+
+    [[nodiscard]] static uint32_t _child_count(const Type *type) noexcept {
+        if (type->is_vector() || type->is_matrix() || type->is_array()) {
+            return type->dimension();
+        }
+        if (type->is_structure()) {
+            return static_cast<uint32_t>(type->members().size());
+        }
+        return 0u;
+    }
+
+    [[nodiscard]] static const Type *_child_type(
+        const Type *type, uint32_t index) noexcept {
+        if (type->is_vector() || type->is_array()) {
+            return type->element();
+        }
+        if (type->is_matrix()) {
+            return Type::vector(type->element(), type->dimension());
+        }
+        if (type->is_structure()) { return type->members()[index]; }
+        return nullptr;
+    }
+
+    [[nodiscard]] static size_t _child_offset(
+        const Type *type, uint32_t index) noexcept {
+        if (type->is_vector()) {
+            return static_cast<size_t>(index) * type->element()->size();
+        }
+        if (type->is_matrix() || type->is_array()) {
+            return static_cast<size_t>(index) *
+                   (type->size() / type->dimension());
+        }
+        if (type->is_structure()) {
+            auto offset = size_t{0u};
+            for (auto i = uint32_t{0u}; i <= index; i++) {
+                auto *member = type->members()[i];
+                offset = _align_up(offset, member->alignment());
+                if (i == index) { return offset; }
+                offset += member->size();
+            }
+        }
+        return 0u;
+    }
+
+    [[nodiscard]] ::llvm::Type *_data_type(
+        const Type *type, bool varying) {
+        auto *result = _layout.expression_type(schedule::Value{
+            .value_class = varying ? schedule::ValueClass::varying :
+                                     schedule::ValueClass::warp_uniform,
+            .type = type,
+        });
+        if (result == nullptr) { _fail(_layout.error()); }
+        return result;
+    }
+
+    [[nodiscard]] ::llvm::Value *_extract_child(
+        ::llvm::Value *aggregate, const Type *type, uint32_t index,
+        bool varying) {
+        if (type->is_vector() && !varying) {
+            return _builder.CreateExtractElement(aggregate, index);
+        }
+        return _builder.CreateExtractValue(aggregate, {index});
+    }
+
+    [[nodiscard]] ::llvm::Value *_insert_child(
+        ::llvm::Value *aggregate, ::llvm::Value *child,
+        const Type *type, uint32_t index, bool varying) {
+        if (type->is_vector() && !varying) {
+            return _builder.CreateInsertElement(aggregate, child, index);
+        }
+        return _builder.CreateInsertValue(aggregate, child, {index});
+    }
+
+    [[nodiscard]] ::llvm::Value *_assemble(
+        const Type *type, bool varying,
+        const std::function<::llvm::Value *(uint32_t)> &child) {
+        auto *llvm_type = _data_type(type, varying);
+        if (llvm_type == nullptr) { return nullptr; }
+        auto *result = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(llvm_type));
+        for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
+            auto *value = child(i);
+            if (value == nullptr) { return nullptr; }
+            result = _insert_child(result, value, type, i, varying);
+        }
+        return result;
+    }
+
+    [[nodiscard]] ::llvm::Value *_splat_data(
+        ::llvm::Value *value, const Type *type) {
+        if (_is_scalar_data(type)) {
+            return _builder.CreateVectorSplat(_width, value);
+        }
+        if (!_is_data(type)) {
+            _fail("cannot splat a non-data Schedule IR value");
+            return nullptr;
+        }
+        return _assemble(type, true, [&](uint32_t i) {
+            return _splat_data(
+                _extract_child(value, type, i, false),
+                _child_type(type, i));
+        });
+    }
+
+    [[nodiscard]] ::llvm::Value *_extract_lane(
+        ::llvm::Value *value, const Type *type, ::llvm::Value *lane) {
+        if (_is_scalar_data(type)) {
+            return _builder.CreateExtractElement(value, lane);
+        }
+        return _assemble(type, false, [&](uint32_t i) {
+            return _extract_lane(
+                _extract_child(value, type, i, true),
+                _child_type(type, i), lane);
+        });
+    }
+
+    [[nodiscard]] ::llvm::Value *_masked_merge(
+        ::llvm::Value *new_value, ::llvm::Value *old_value,
+        const Type *type, ::llvm::Value *mask) {
+        if (_is_scalar_data(type)) {
+            return _builder.CreateSelect(mask, new_value, old_value);
+        }
+        return _assemble(type, true, [&](uint32_t i) {
+            auto *child_type = _child_type(type, i);
+            return _masked_merge(
+                _extract_child(new_value, type, i, true),
+                _extract_child(old_value, type, i, true),
+                child_type, mask);
+        });
     }
 
     void _preflight_edge(const schedule::ControlEdge &edge,
@@ -132,11 +304,18 @@ private:
                 auto *metadata = std::get_if<schedule::ParameterValueMetadata>(
                     &value.metadata);
                 if (metadata == nullptr ||
-                    metadata->argument_tag != static_cast<uint32_t>(
-                                                  xir::DerivedArgumentTag::VALUE) ||
-                    value.value_class != schedule::ValueClass::warp_uniform ||
-                    !_is_scalar_data(value.type)) {
-                    _fail("Phase-2 packet ABI supports scalar warp-uniform value arguments only");
+                    value.value_class != schedule::ValueClass::warp_uniform) {
+                    _fail("packet parameters must be warp-uniform and carry argument metadata");
+                    return;
+                }
+                auto argument_tag = static_cast<xir::DerivedArgumentTag>(
+                    metadata->argument_tag);
+                if (argument_tag == xir::DerivedArgumentTag::REFERENCE ||
+                    (argument_tag == xir::DerivedArgumentTag::VALUE &&
+                     !_is_data(value.type)) ||
+                    (argument_tag == xir::DerivedArgumentTag::RESOURCE &&
+                     (value.type == nullptr || !value.type->is_buffer()))) {
+                    _fail("packet ABI supports data values and buffer resources only");
                     return;
                 }
                 if (parameters.size() <= metadata->index) {
@@ -148,17 +327,10 @@ private:
                 }
                 parameters[metadata->index] = &value;
             } else if (value.origin != schedule::ValueOrigin::scheduler_builtin &&
-                       value.type != nullptr &&
-                       !_is_scalar_data(value.type)) {
-                // The one currently-supported aggregate result is Luisa's
-                // uint4 ballot, represented as a uniform LLVM <4 x i32>.
-                auto is_ballot = value.type->is_vector() &&
-                                 value.type->dimension() == 4u &&
-                                 value.type->element()->is_uint32();
-                if (!is_ballot) {
-                    _fail("Phase-2 packet codegen currently supports scalar Schedule IR values only");
-                    return;
-                }
+                       value.type != nullptr && !_is_data(value.type) &&
+                       !value.type->is_buffer()) {
+                _fail("packet codegen encountered an unsupported Schedule IR value type");
+                return;
             }
         }
         _parameter_offsets.resize(parameters.size());
@@ -169,17 +341,22 @@ private:
                 return;
             }
             auto *type = parameters[index]->type;
-            offset = _align_up(offset, type->alignment());
+            offset = _align_up(offset, 16u);
             _parameter_offsets[index] = offset;
-            offset += type->size();
+            offset += _abi_size(type);
+            offset = _align_up(offset, 16u);
         }
         _result.argument_buffer_size = offset;
 
         for (auto &&block : _source.blocks()) {
             for (auto &&instruction : block.instructions) {
                 if (instruction.opcode != schedule::Opcode::arithmetic &&
+                    instruction.opcode != schedule::Opcode::cast &&
+                    instruction.opcode != schedule::Opcode::resource_query &&
+                    instruction.opcode != schedule::Opcode::resource_read &&
+                    instruction.opcode != schedule::Opcode::resource_write &&
                     instruction.opcode != schedule::Opcode::warp_collective) {
-                    _fail("Phase-2 LLVM packet codegen encountered an unsupported Schedule IR instruction");
+                    _fail("LLVM packet codegen encountered an unsupported Schedule IR instruction");
                     return;
                 }
             }
@@ -260,6 +437,182 @@ private:
         return ::llvm::ConstantVector::get(lanes);
     }
 
+    [[nodiscard]] ::llvm::Constant *_constant_data(
+        const Type *type, const std::byte *bytes, size_t offset = 0u) {
+        if (_is_scalar_data(type)) {
+            return _scalar_constant(type, bytes + offset);
+        }
+        if (!_is_data(type)) {
+            _fail("invalid aggregate constant payload");
+            return nullptr;
+        }
+        auto *llvm_type = _data_type(type, false);
+        if (llvm_type == nullptr) { return nullptr; }
+        std::vector<::llvm::Constant *> children;
+        children.reserve(_child_count(type));
+        for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
+            auto *child = _constant_data(
+                _child_type(type, i), bytes,
+                offset + _child_offset(type, i));
+            if (child == nullptr) { return nullptr; }
+            children.emplace_back(child);
+        }
+        if (type->is_vector()) {
+            return ::llvm::ConstantVector::get(children);
+        }
+        if (type->is_structure()) {
+            return ::llvm::ConstantStruct::get(
+                ::llvm::cast<::llvm::StructType>(llvm_type), children);
+        }
+        return ::llvm::ConstantArray::get(
+            ::llvm::cast<::llvm::ArrayType>(llvm_type), children);
+    }
+
+    [[nodiscard]] ::llvm::Value *_byte_pointer(
+        ::llvm::Value *base, size_t offset) {
+        return offset == 0u ? base : _builder.CreateGEP(
+            _builder.getInt8Ty(), base, _builder.getInt64(offset));
+    }
+
+    [[nodiscard]] ::llvm::Value *_load_uniform_data(
+        ::llvm::Value *base, const Type *type, size_t offset = 0u) {
+        if (_is_scalar_data(type)) {
+            auto *pointer = _byte_pointer(base, offset);
+            if (type->is_bool()) {
+                auto *load = _builder.CreateLoad(
+                    _builder.getInt8Ty(), pointer, "bool.arg");
+                load->setAlignment(::llvm::Align{1u});
+                return _builder.CreateICmpNE(load, _builder.getInt8(0u));
+            }
+            auto *llvm_type = _data_type(type, false);
+            auto *load = _builder.CreateLoad(llvm_type, pointer);
+            load->setAlignment(::llvm::Align{type->alignment()});
+            return load;
+        }
+        return _assemble(type, false, [&](uint32_t i) {
+            return _load_uniform_data(
+                base, _child_type(type, i),
+                offset + _child_offset(type, i));
+        });
+    }
+
+    [[nodiscard]] ::llvm::Value *_load_buffer_view(
+        ::llvm::Value *base) {
+        auto *type = _layout.expression_type(schedule::Value{
+            .value_class = schedule::ValueClass::warp_uniform,
+            .type = Type::buffer(nullptr),
+        });
+        // The concrete buffer element type does not affect the descriptor.
+        // Some Type registries do not expose buffer<byte>, so fall back to the
+        // canonical literal LLVM descriptor when needed.
+        if (type == nullptr) {
+            type = ::llvm::StructType::get(
+                _module.getContext(),
+                {::llvm::PointerType::getUnqual(_module.getContext()),
+                 _builder.getInt64Ty()});
+        }
+        auto *result = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(type));
+        auto *pointer = _builder.CreateLoad(
+            ::llvm::PointerType::getUnqual(_module.getContext()), base);
+        pointer->setAlignment(::llvm::Align{alignof(SIMDHostBufferView)});
+        auto *size_pointer = _byte_pointer(
+            base, offsetof(SIMDHostBufferView, size_bytes));
+        auto *size = _builder.CreateLoad(_builder.getInt64Ty(), size_pointer);
+        size->setAlignment(::llvm::Align{alignof(size_t)});
+        result = _builder.CreateInsertValue(result, pointer, {0u});
+        return _builder.CreateInsertValue(result, size, {1u});
+    }
+
+    [[nodiscard]] ::llvm::Value *_load_launch_u32(size_t offset) {
+        auto *pointer = _byte_pointer(_launch_config, offset);
+        auto *load = _builder.CreateLoad(_builder.getInt32Ty(), pointer);
+        load->setAlignment(::llvm::Align{alignof(uint32_t)});
+        return load;
+    }
+
+    void _ensure_launch_vectors() {
+        if (_block_size[0u] != nullptr || _failed()) { return; }
+        for (auto i = uint32_t{0u}; i < 3u; i++) {
+            _block_id[i] = _load_launch_u32(
+                offsetof(SIMDPacketLaunchConfig, block_id) +
+                sizeof(uint32_t) * i);
+            _dispatch_size[i] = _load_launch_u32(
+                offsetof(SIMDPacketLaunchConfig, dispatch_size) +
+                sizeof(uint32_t) * i);
+            _block_size[i] = _load_launch_u32(
+                offsetof(SIMDPacketLaunchConfig, block_size) +
+                sizeof(uint32_t) * i);
+        }
+        auto *first = _load_launch_u32(
+            offsetof(SIMDPacketLaunchConfig, thread_index));
+        _linear_thread_indices = _builder.CreateAdd(
+            _builder.CreateVectorSplat(_width, first), _lane_ids());
+        auto *x_size = _builder.CreateVectorSplat(
+            _width, _block_size[0u]);
+        auto *y_size = _builder.CreateVectorSplat(
+            _width, _block_size[1u]);
+        _thread_id[0u] = _builder.CreateURem(
+            _linear_thread_indices, x_size);
+        auto *yz = _builder.CreateUDiv(
+            _linear_thread_indices, x_size);
+        _thread_id[1u] = _builder.CreateURem(yz, y_size);
+        _thread_id[2u] = _builder.CreateUDiv(yz, y_size);
+        for (auto i = uint32_t{0u}; i < 3u; i++) {
+            auto *base = _builder.CreateMul(
+                _block_id[i], _block_size[i]);
+            _dispatch_id[i] = _builder.CreateAdd(
+                _builder.CreateVectorSplat(_width, base),
+                _thread_id[i]);
+        }
+    }
+
+    [[nodiscard]] ::llvm::Value *_triplet(
+        const Type *type, const std::array<::llvm::Value *, 3u> &values,
+        bool varying) {
+        return _assemble(type, varying, [&](uint32_t i) {
+            return values[i];
+        });
+    }
+
+    [[nodiscard]] ::llvm::Value *_special_register(
+        const schedule::Value &value,
+        xir::DerivedSpecialRegisterTag tag) {
+        switch (tag) {
+            case xir::DerivedSpecialRegisterTag::WARP_LANE_ID:
+                return _lane_ids();
+            case xir::DerivedSpecialRegisterTag::WARP_SIZE:
+                return _builder.getInt32(_width);
+            case xir::DerivedSpecialRegisterTag::KERNEL_ID:
+                return _load_launch_u32(
+                    offsetof(SIMDPacketLaunchConfig, kernel_id));
+            case xir::DerivedSpecialRegisterTag::THREAD_ID:
+            case xir::DerivedSpecialRegisterTag::BLOCK_ID:
+            case xir::DerivedSpecialRegisterTag::DISPATCH_ID:
+            case xir::DerivedSpecialRegisterTag::BLOCK_SIZE:
+            case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE:
+                _ensure_launch_vectors();
+                break;
+            default:
+                _fail("packet ABI does not provide this special register");
+                return nullptr;
+        }
+        switch (tag) {
+            case xir::DerivedSpecialRegisterTag::THREAD_ID:
+                return _triplet(value.type, _thread_id, true);
+            case xir::DerivedSpecialRegisterTag::BLOCK_ID:
+                return _triplet(value.type, _block_id, false);
+            case xir::DerivedSpecialRegisterTag::DISPATCH_ID:
+                return _triplet(value.type, _dispatch_id, true);
+            case xir::DerivedSpecialRegisterTag::BLOCK_SIZE:
+                return _triplet(value.type, _block_size, false);
+            case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE:
+                return _triplet(value.type, _dispatch_size, false);
+            default: break;
+        }
+        return nullptr;
+    }
+
     void _create_external_values() {
         _external_values.resize(_source.values().size(), nullptr);
         auto *i8 = _builder.getInt8Ty();
@@ -272,16 +625,17 @@ private:
                     auto offset = _parameter_offsets[metadata->index];
                     auto *pointer = _builder.CreateGEP(
                         i8, _argument_buffer, _builder.getInt64(offset));
-                    auto *type = _layout.expression_type(value);
-                    auto *load = _builder.CreateLoad(type, pointer, value.name);
-                    load->setAlignment(::llvm::Align{value.type->alignment()});
-                    llvm_value = load;
+                    auto tag = static_cast<xir::DerivedArgumentTag>(
+                        metadata->argument_tag);
+                    llvm_value = tag == xir::DerivedArgumentTag::RESOURCE ?
+                                     _load_buffer_view(pointer) :
+                                     _load_uniform_data(pointer, value.type);
                     break;
                 }
                 case schedule::ValueOrigin::constant: {
                     auto *metadata = std::get_if<
                         schedule::ConstantValueMetadata>(&value.metadata);
-                    llvm_value = _scalar_constant(
+                    llvm_value = _constant_data(
                         value.type, metadata->bytes.data());
                     break;
                 }
@@ -290,17 +644,7 @@ private:
                         schedule::SpecialRegisterValueMetadata>(&value.metadata);
                     auto tag = static_cast<xir::DerivedSpecialRegisterTag>(
                         metadata->tag);
-                    switch (tag) {
-                        case xir::DerivedSpecialRegisterTag::WARP_LANE_ID:
-                            llvm_value = _lane_ids();
-                            break;
-                        case xir::DerivedSpecialRegisterTag::WARP_SIZE:
-                            llvm_value = _builder.getInt32(_width);
-                            break;
-                        default:
-                            _fail("Phase-2 packet ABI does not provide this special register");
-                            return;
-                    }
+                    llvm_value = _special_register(value, tag);
                     break;
                 }
                 case schedule::ValueOrigin::scheduler_builtin:
@@ -336,7 +680,7 @@ private:
                 auto *any = _builder.CreateOrReduce(_active_mask);
                 auto *safe = _builder.CreateSelect(
                     any, first, _builder.getInt32(0u));
-                return _builder.CreateExtractElement(state, safe);
+                return _extract_lane(state, value->type, safe);
             }
             return state;
         }
@@ -354,11 +698,207 @@ private:
             schedule_value.value_class == schedule::ValueClass::mask) {
             return value;
         }
-        if (!_is_scalar_data(schedule_value.type)) {
-            _fail("cannot splat an aggregate Schedule IR value yet");
+        if (!_is_data(schedule_value.type)) {
+            _fail("cannot splat a non-data Schedule IR value");
             return nullptr;
         }
-        return _builder.CreateVectorSplat(_width, value);
+        return _splat_data(value, schedule_value.type);
+    }
+
+    [[nodiscard]] ::llvm::Value *_select_data(
+        ::llvm::Value *condition, ::llvm::Value *true_value,
+        ::llvm::Value *false_value, const Type *type, bool varying) {
+        if (_is_scalar_data(type)) {
+            return _builder.CreateSelect(
+                condition, true_value, false_value);
+        }
+        return _assemble(type, varying, [&](uint32_t i) {
+            return _select_data(
+                condition,
+                _extract_child(true_value, type, i, varying),
+                _extract_child(false_value, type, i, varying),
+                _child_type(type, i), varying);
+        });
+    }
+
+    using UnaryLeaf = std::function<::llvm::Value *(
+        ::llvm::Value *, const Type *)>;
+    using BinaryLeaf = std::function<::llvm::Value *(
+        ::llvm::Value *, ::llvm::Value *, const Type *, const Type *)>;
+
+    [[nodiscard]] ::llvm::Value *_componentwise_unary(
+        const Type *result_type, ::llvm::Value *operand,
+        const Type *operand_type, bool varying, const UnaryLeaf &leaf) {
+        if (_is_scalar_data(result_type)) {
+            return leaf(operand, operand_type);
+        }
+        return _assemble(result_type, varying, [&](uint32_t i) {
+            auto scalar_operand = _is_scalar_data(operand_type);
+            auto *child_operand_type = scalar_operand ? operand_type :
+                                                      _child_type(operand_type, i);
+            auto *child_operand = scalar_operand ? operand :
+                _extract_child(operand, operand_type, i, varying);
+            return _componentwise_unary(
+                _child_type(result_type, i), child_operand,
+                child_operand_type, varying, leaf);
+        });
+    }
+
+    [[nodiscard]] ::llvm::Value *_componentwise_binary(
+        const Type *result_type, ::llvm::Value *lhs, const Type *lhs_type,
+        ::llvm::Value *rhs, const Type *rhs_type, bool varying,
+        const BinaryLeaf &leaf) {
+        if (_is_scalar_data(result_type)) {
+            return leaf(lhs, rhs, lhs_type, rhs_type);
+        }
+        return _assemble(result_type, varying, [&](uint32_t i) {
+            auto lhs_scalar = _is_scalar_data(lhs_type);
+            auto rhs_scalar = _is_scalar_data(rhs_type);
+            auto *lhs_child_type = lhs_scalar ? lhs_type :
+                                               _child_type(lhs_type, i);
+            auto *rhs_child_type = rhs_scalar ? rhs_type :
+                                               _child_type(rhs_type, i);
+            auto *lhs_child = lhs_scalar ? lhs :
+                _extract_child(lhs, lhs_type, i, varying);
+            auto *rhs_child = rhs_scalar ? rhs :
+                _extract_child(rhs, rhs_type, i, varying);
+            return _componentwise_binary(
+                _child_type(result_type, i), lhs_child, lhs_child_type,
+                rhs_child, rhs_child_type, varying, leaf);
+        });
+    }
+
+    [[nodiscard]] static std::optional<uint64_t> _constant_index(
+        ::llvm::Value *value) noexcept {
+        if (auto *integer = ::llvm::dyn_cast<::llvm::ConstantInt>(value)) {
+            return integer->getZExtValue();
+        }
+        if (auto *constant = ::llvm::dyn_cast<::llvm::Constant>(value)) {
+            if (auto *splat = constant->getSplatValue()) {
+                if (auto *integer = ::llvm::dyn_cast<::llvm::ConstantInt>(splat)) {
+                    return integer->getZExtValue();
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] ::llvm::Value *_index_constant_like(
+        ::llvm::Value *index, uint64_t value) {
+        auto *type = index->getType();
+        if (auto *vector = ::llvm::dyn_cast<::llvm::VectorType>(type)) {
+            auto *element = ::llvm::cast<::llvm::IntegerType>(
+                vector->getElementType());
+            return _builder.CreateVectorSplat(
+                vector->getElementCount(),
+                ::llvm::ConstantInt::get(element, value));
+        }
+        return ::llvm::ConstantInt::get(
+            ::llvm::cast<::llvm::IntegerType>(type), value);
+    }
+
+    [[nodiscard]] ::llvm::Value *_extract_indexed(
+        ::llvm::Value *aggregate, const Type *type,
+        const std::vector<::llvm::Value *> &indices, size_t depth,
+        bool varying) {
+        if (depth == indices.size()) { return aggregate; }
+        auto *index = indices[depth];
+        auto count = _child_count(type);
+        if (count == 0u) {
+            _fail("aggregate extract has too many indices");
+            return nullptr;
+        }
+        ::llvm::Value *selected = nullptr;
+        auto *child_type = _child_type(type, 0u);
+        if (auto constant = _constant_index(index)) {
+            if (*constant >= count) {
+                _fail("aggregate extract index is out of range");
+                return nullptr;
+            }
+            selected = _extract_child(
+                aggregate, type, static_cast<uint32_t>(*constant), varying);
+            child_type = _child_type(
+                type, static_cast<uint32_t>(*constant));
+        } else {
+            if (type->is_structure()) {
+                _fail("dynamic structure member extraction is invalid");
+                return nullptr;
+            }
+            selected = _extract_child(aggregate, type, 0u, varying);
+            for (auto i = uint32_t{1u}; i < count; i++) {
+                auto *candidate = _extract_child(
+                    aggregate, type, i, varying);
+                auto *condition = _builder.CreateICmpEQ(
+                    index, _index_constant_like(index, i));
+                selected = _select_data(
+                    condition, candidate, selected, child_type, varying);
+            }
+        }
+        return _extract_indexed(
+            selected, child_type, indices, depth + 1u, varying);
+    }
+
+    [[nodiscard]] ::llvm::Value *_insert_indexed(
+        ::llvm::Value *aggregate, const Type *type,
+        ::llvm::Value *replacement,
+        const std::vector<::llvm::Value *> &indices, size_t depth,
+        bool varying) {
+        if (depth == indices.size()) { return replacement; }
+        auto *index = indices[depth];
+        auto count = _child_count(type);
+        if (count == 0u) {
+            _fail("aggregate insert has too many indices");
+            return nullptr;
+        }
+        if (auto constant = _constant_index(index)) {
+            if (*constant >= count) {
+                _fail("aggregate insert index is out of range");
+                return nullptr;
+            }
+            auto i = static_cast<uint32_t>(*constant);
+            auto *child_type = _child_type(type, i);
+            auto *old_child = _extract_child(
+                aggregate, type, i, varying);
+            auto *new_child = _insert_indexed(
+                old_child, child_type, replacement,
+                indices, depth + 1u, varying);
+            return new_child == nullptr ? nullptr :
+                _insert_child(aggregate, new_child, type, i, varying);
+        }
+        if (type->is_structure()) {
+            _fail("dynamic structure member insertion is invalid");
+            return nullptr;
+        }
+        auto *result = aggregate;
+        for (auto i = uint32_t{0u}; i < count; i++) {
+            auto *child_type = _child_type(type, i);
+            auto *old_child = _extract_child(
+                aggregate, type, i, varying);
+            auto *updated = _insert_indexed(
+                old_child, child_type, replacement,
+                indices, depth + 1u, varying);
+            if (updated == nullptr) { return nullptr; }
+            auto *condition = _builder.CreateICmpEQ(
+                index, _index_constant_like(index, i));
+            auto *selected = _select_data(
+                condition, updated, old_child, child_type, varying);
+            result = _insert_child(
+                result, selected, type, i, varying);
+        }
+        return result;
+    }
+
+    [[nodiscard]] ::llvm::Value *_aggregate_operation(
+        const schedule::Value &result,
+        const schedule::Instruction &instruction,
+        const std::vector<::llvm::Value *> &operands, bool varying) {
+        if (operands.size() != _child_count(result.type)) {
+            _fail("aggregate construction operand count mismatch");
+            return nullptr;
+        }
+        return _assemble(result.type, varying, [&](uint32_t i) {
+            return operands[i];
+        });
     }
 
     [[nodiscard]] ::llvm::Value *_arithmetic(
@@ -368,20 +908,24 @@ private:
             return nullptr;
         }
         auto *result = _source.value(*instruction.result);
-        if (result == nullptr || !_is_scalar_data(result->type)) {
-            _fail("Phase-2 arithmetic requires a scalar Luisa result type");
+        if (result == nullptr || !_is_data(result->type)) {
+            _fail("arithmetic requires a supported Luisa data result type");
             return nullptr;
         }
+        auto varying = result->value_class == schedule::ValueClass::varying;
         std::vector<::llvm::Value *> operands;
+        std::vector<const Type *> operand_types;
         operands.reserve(instruction.operands.size());
+        operand_types.reserve(instruction.operands.size());
         for (auto operand_id : instruction.operands) {
             auto *operand = _source.value(operand_id);
             auto *llvm_operand = _load_value(operand_id);
-            if (result->value_class == schedule::ValueClass::varying) {
+            if (varying) {
                 llvm_operand = _as_lane_vector(llvm_operand, *operand);
             }
             if (llvm_operand == nullptr) { return nullptr; }
             operands.emplace_back(llvm_operand);
+            operand_types.emplace_back(operand->type);
         }
         auto require = [&](size_t count) {
             if (operands.size() != count) {
@@ -391,129 +935,431 @@ private:
             return true;
         };
         auto op = static_cast<xir::ArithmeticOp>(*instruction.source_op);
-        auto *operand_type = instruction.operands.empty() ?
-                                 result->type :
-                                 _source.value(instruction.operands.front())->type;
-        auto is_float = operand_type->is_float16() ||
-                        operand_type->is_float32() ||
-                        operand_type->is_float64();
-        auto is_signed = operand_type->is_int();
+        if (op == xir::ArithmeticOp::AGGREGATE) {
+            return _aggregate_operation(
+                *result, instruction, operands, varying);
+        }
+        if (op == xir::ArithmeticOp::EXTRACT ||
+            op == xir::ArithmeticOp::INSERT ||
+            op == xir::ArithmeticOp::SHUFFLE) {
+            if (operands.size() < 2u) {
+                _fail("aggregate extraction requires an aggregate and indices");
+                return nullptr;
+            }
+            if (op == xir::ArithmeticOp::SHUFFLE) {
+                return _assemble(result->type, varying, [&](uint32_t i) {
+                    std::vector<::llvm::Value *> index{operands[i + 1u]};
+                    return _extract_indexed(
+                        operands[0u], operand_types[0u], index, 0u,
+                        varying);
+                });
+            }
+            if (op == xir::ArithmeticOp::INSERT) {
+                if (operands.size() < 3u) {
+                    _fail("aggregate insertion requires a base, value, and indices");
+                    return nullptr;
+                }
+                std::vector<::llvm::Value *> indices{
+                    operands.begin() + 2, operands.end()};
+                return _insert_indexed(
+                    operands[0u], operand_types[0u], operands[1u],
+                    indices, 0u, varying);
+            }
+            std::vector<::llvm::Value *> indices{
+                operands.begin() + 1, operands.end()};
+            return _extract_indexed(
+                operands[0u], operand_types[0u], indices, 0u, varying);
+        }
+
+        auto unary = [&](const UnaryLeaf &leaf) -> ::llvm::Value * {
+            if (!require(1u)) { return nullptr; }
+            return _componentwise_unary(
+                result->type, operands[0u], operand_types[0u],
+                varying, leaf);
+        };
+        auto binary = [&](const BinaryLeaf &leaf) -> ::llvm::Value * {
+            if (!require(2u)) { return nullptr; }
+            return _componentwise_binary(
+                result->type, operands[0u], operand_types[0u],
+                operands[1u], operand_types[1u], varying, leaf);
+        };
+        auto binary_leaf = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                               const Type *lhs_type,
+                               const Type *) -> ::llvm::Value * {
+            auto is_float = lhs_type->is_float16() ||
+                            lhs_type->is_float32() ||
+                            lhs_type->is_float64();
+            auto is_signed = lhs_type->is_int();
+            switch (op) {
+                case xir::ArithmeticOp::BINARY_ADD:
+                    return is_float ? _builder.CreateFAdd(lhs, rhs) :
+                                      _builder.CreateAdd(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_SUB:
+                    return is_float ? _builder.CreateFSub(lhs, rhs) :
+                                      _builder.CreateSub(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_MUL:
+                    return is_float ? _builder.CreateFMul(lhs, rhs) :
+                                      _builder.CreateMul(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_DIV:
+                    return is_float ? _builder.CreateFDiv(lhs, rhs) :
+                           is_signed ? _builder.CreateSDiv(lhs, rhs) :
+                                       _builder.CreateUDiv(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_MOD:
+                    return is_float ? _builder.CreateFRem(lhs, rhs) :
+                           is_signed ? _builder.CreateSRem(lhs, rhs) :
+                                       _builder.CreateURem(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_BIT_AND:
+                    return _builder.CreateAnd(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_BIT_OR:
+                    return _builder.CreateOr(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_BIT_XOR:
+                    return _builder.CreateXor(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
+                    return _builder.CreateShl(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_SHIFT_RIGHT:
+                    return is_signed ? _builder.CreateAShr(lhs, rhs) :
+                                       _builder.CreateLShr(lhs, rhs);
+                case xir::ArithmeticOp::BINARY_LESS:
+                case xir::ArithmeticOp::BINARY_GREATER:
+                case xir::ArithmeticOp::BINARY_LESS_EQUAL:
+                case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
+                case xir::ArithmeticOp::BINARY_EQUAL:
+                case xir::ArithmeticOp::BINARY_NOT_EQUAL: {
+                    if (is_float) {
+                        auto predicate = ::llvm::CmpInst::FCMP_FALSE;
+                        switch (op) {
+                            case xir::ArithmeticOp::BINARY_LESS: predicate = ::llvm::CmpInst::FCMP_OLT; break;
+                            case xir::ArithmeticOp::BINARY_GREATER: predicate = ::llvm::CmpInst::FCMP_OGT; break;
+                            case xir::ArithmeticOp::BINARY_LESS_EQUAL: predicate = ::llvm::CmpInst::FCMP_OLE; break;
+                            case xir::ArithmeticOp::BINARY_GREATER_EQUAL: predicate = ::llvm::CmpInst::FCMP_OGE; break;
+                            case xir::ArithmeticOp::BINARY_EQUAL: predicate = ::llvm::CmpInst::FCMP_OEQ; break;
+                            case xir::ArithmeticOp::BINARY_NOT_EQUAL: predicate = ::llvm::CmpInst::FCMP_UNE; break;
+                            default: break;
+                        }
+                        return _builder.CreateFCmp(predicate, lhs, rhs);
+                    }
+                    auto predicate = ::llvm::CmpInst::BAD_ICMP_PREDICATE;
+                    switch (op) {
+                        case xir::ArithmeticOp::BINARY_LESS: predicate = is_signed ? ::llvm::CmpInst::ICMP_SLT : ::llvm::CmpInst::ICMP_ULT; break;
+                        case xir::ArithmeticOp::BINARY_GREATER: predicate = is_signed ? ::llvm::CmpInst::ICMP_SGT : ::llvm::CmpInst::ICMP_UGT; break;
+                        case xir::ArithmeticOp::BINARY_LESS_EQUAL: predicate = is_signed ? ::llvm::CmpInst::ICMP_SLE : ::llvm::CmpInst::ICMP_ULE; break;
+                        case xir::ArithmeticOp::BINARY_GREATER_EQUAL: predicate = is_signed ? ::llvm::CmpInst::ICMP_SGE : ::llvm::CmpInst::ICMP_UGE; break;
+                        case xir::ArithmeticOp::BINARY_EQUAL: predicate = ::llvm::CmpInst::ICMP_EQ; break;
+                        case xir::ArithmeticOp::BINARY_NOT_EQUAL: predicate = ::llvm::CmpInst::ICMP_NE; break;
+                        default: break;
+                    }
+                    return _builder.CreateICmp(predicate, lhs, rhs);
+                }
+                default: return nullptr;
+            }
+        };
         switch (op) {
             case xir::ArithmeticOp::UNARY_MINUS:
-                if (!require(1u)) { return nullptr; }
-                return is_float ? _builder.CreateFNeg(operands[0u]) :
-                                  _builder.CreateNeg(operands[0u]);
+                return unary([&](::llvm::Value *value, const Type *type) {
+                    return type->is_float16() || type->is_float32() ||
+                                   type->is_float64() ?
+                               _builder.CreateFNeg(value) :
+                               _builder.CreateNeg(value);
+                });
             case xir::ArithmeticOp::UNARY_BIT_NOT:
-                if (!require(1u)) { return nullptr; }
-                return _builder.CreateNot(operands[0u]);
+                return unary([&](::llvm::Value *value, const Type *) {
+                    return _builder.CreateNot(value);
+                });
             case xir::ArithmeticOp::BINARY_ADD:
-                if (!require(2u)) { return nullptr; }
-                return is_float ? _builder.CreateFAdd(operands[0u], operands[1u]) :
-                                  _builder.CreateAdd(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_SUB:
-                if (!require(2u)) { return nullptr; }
-                return is_float ? _builder.CreateFSub(operands[0u], operands[1u]) :
-                                  _builder.CreateSub(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_MUL:
-                if (!require(2u)) { return nullptr; }
-                return is_float ? _builder.CreateFMul(operands[0u], operands[1u]) :
-                                  _builder.CreateMul(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_DIV:
-                if (!require(2u)) { return nullptr; }
-                return is_float ? _builder.CreateFDiv(operands[0u], operands[1u]) :
-                       is_signed ? _builder.CreateSDiv(operands[0u], operands[1u]) :
-                                   _builder.CreateUDiv(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_MOD:
-                if (!require(2u)) { return nullptr; }
-                return is_float ? _builder.CreateFRem(operands[0u], operands[1u]) :
-                       is_signed ? _builder.CreateSRem(operands[0u], operands[1u]) :
-                                   _builder.CreateURem(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_BIT_AND:
-                if (!require(2u)) { return nullptr; }
-                return _builder.CreateAnd(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_BIT_OR:
-                if (!require(2u)) { return nullptr; }
-                return _builder.CreateOr(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_BIT_XOR:
-                if (!require(2u)) { return nullptr; }
-                return _builder.CreateXor(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
-                if (!require(2u)) { return nullptr; }
-                return _builder.CreateShl(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_SHIFT_RIGHT:
-                if (!require(2u)) { return nullptr; }
-                return is_signed ? _builder.CreateAShr(operands[0u], operands[1u]) :
-                                   _builder.CreateLShr(operands[0u], operands[1u]);
             case xir::ArithmeticOp::BINARY_LESS:
             case xir::ArithmeticOp::BINARY_GREATER:
             case xir::ArithmeticOp::BINARY_LESS_EQUAL:
             case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
             case xir::ArithmeticOp::BINARY_EQUAL:
-            case xir::ArithmeticOp::BINARY_NOT_EQUAL: {
-                if (!require(2u)) { return nullptr; }
-                if (is_float) {
-                    auto predicate = ::llvm::CmpInst::FCMP_FALSE;
-                    switch (op) {
-                        case xir::ArithmeticOp::BINARY_LESS:
-                            predicate = ::llvm::CmpInst::FCMP_OLT;
-                            break;
-                        case xir::ArithmeticOp::BINARY_GREATER:
-                            predicate = ::llvm::CmpInst::FCMP_OGT;
-                            break;
-                        case xir::ArithmeticOp::BINARY_LESS_EQUAL:
-                            predicate = ::llvm::CmpInst::FCMP_OLE;
-                            break;
-                        case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
-                            predicate = ::llvm::CmpInst::FCMP_OGE;
-                            break;
-                        case xir::ArithmeticOp::BINARY_EQUAL:
-                            predicate = ::llvm::CmpInst::FCMP_OEQ;
-                            break;
-                        case xir::ArithmeticOp::BINARY_NOT_EQUAL:
-                            predicate = ::llvm::CmpInst::FCMP_UNE;
-                            break;
-                        default: break;
-                    }
-                    return _builder.CreateFCmp(
-                        predicate, operands[0u], operands[1u]);
-                }
-                auto predicate = ::llvm::CmpInst::BAD_ICMP_PREDICATE;
-                switch (op) {
-                    case xir::ArithmeticOp::BINARY_LESS:
-                        predicate = is_signed ? ::llvm::CmpInst::ICMP_SLT :
-                                                ::llvm::CmpInst::ICMP_ULT;
-                        break;
-                    case xir::ArithmeticOp::BINARY_GREATER:
-                        predicate = is_signed ? ::llvm::CmpInst::ICMP_SGT :
-                                                ::llvm::CmpInst::ICMP_UGT;
-                        break;
-                    case xir::ArithmeticOp::BINARY_LESS_EQUAL:
-                        predicate = is_signed ? ::llvm::CmpInst::ICMP_SLE :
-                                                ::llvm::CmpInst::ICMP_ULE;
-                        break;
-                    case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
-                        predicate = is_signed ? ::llvm::CmpInst::ICMP_SGE :
-                                                ::llvm::CmpInst::ICMP_UGE;
-                        break;
-                    case xir::ArithmeticOp::BINARY_EQUAL:
-                        predicate = ::llvm::CmpInst::ICMP_EQ;
-                        break;
-                    case xir::ArithmeticOp::BINARY_NOT_EQUAL:
-                        predicate = ::llvm::CmpInst::ICMP_NE;
-                        break;
-                    default: break;
-                }
-                return _builder.CreateICmp(
-                    predicate, operands[0u], operands[1u]);
-            }
+            case xir::ArithmeticOp::BINARY_NOT_EQUAL:
+                return binary(binary_leaf);
             case xir::ArithmeticOp::SELECT:
                 if (!require(3u)) { return nullptr; }
-                return _builder.CreateSelect(
-                    operands[2u], operands[0u], operands[1u]);
+                return _componentwise_binary(
+                    result->type, operands[0u], operand_types[0u],
+                    operands[1u], operand_types[1u], varying,
+                    [&](::llvm::Value *if_true, ::llvm::Value *if_false,
+                        const Type *, const Type *) {
+                        return _builder.CreateSelect(
+                            operands[2u], if_true, if_false);
+                    });
             default:
-                _fail("Phase-2 LLVM packet codegen does not implement this arithmetic operation yet");
+                _fail("LLVM packet codegen does not implement this arithmetic operation yet");
                 return nullptr;
         }
+    }
+
+    [[nodiscard]] ::llvm::Value *_cast(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result || !instruction.source_op ||
+            instruction.operands.size() != 1u) {
+            _fail("cast instruction is malformed");
+            return nullptr;
+        }
+        auto *result = _source.value(*instruction.result);
+        auto *source = _source.value(instruction.operands.front());
+        auto *value = _load_value(instruction.operands.front());
+        if (result == nullptr || source == nullptr || value == nullptr ||
+            !_is_data(result->type) || !_is_data(source->type)) {
+            _fail("cast requires supported data types");
+            return nullptr;
+        }
+        auto varying = result->value_class == schedule::ValueClass::varying;
+        if (varying) { value = _as_lane_vector(value, *source); }
+        auto op = static_cast<xir::CastOp>(*instruction.source_op);
+        return _componentwise_unary(
+            result->type, value, source->type, varying,
+            [&](::llvm::Value *scalar, const Type *source_type) {
+                auto *destination_type = result->type;
+                while (!_is_scalar_data(destination_type)) {
+                    destination_type = destination_type->element();
+                }
+                if (op == xir::CastOp::BITWISE_CAST) {
+                    return _builder.CreateBitCast(
+                        scalar,
+                        scalar->getType()->isVectorTy() ?
+                            ::llvm::FixedVectorType::get(
+                                _data_type(destination_type, false),
+                                _width) :
+                            _data_type(destination_type, false));
+                }
+                auto destination_is_float =
+                    destination_type->is_float16() ||
+                    destination_type->is_float32() ||
+                    destination_type->is_float64();
+                auto source_is_float = source_type->is_float16() ||
+                                       source_type->is_float32() ||
+                                       source_type->is_float64();
+                auto *destination = scalar->getType()->isVectorTy() ?
+                    static_cast<::llvm::Type *>(::llvm::FixedVectorType::get(
+                        _data_type(destination_type, false), _width)) :
+                    _data_type(destination_type, false);
+                if (destination_type->is_bool()) {
+                    auto *zero = ::llvm::Constant::getNullValue(
+                        scalar->getType());
+                    return source_is_float ?
+                        _builder.CreateFCmpUNE(scalar, zero) :
+                        _builder.CreateICmpNE(scalar, zero);
+                }
+                if (source_type->is_bool()) {
+                    return destination_is_float ?
+                        _builder.CreateUIToFP(scalar, destination) :
+                        _builder.CreateZExtOrTrunc(scalar, destination);
+                }
+                if (source_is_float && destination_is_float) {
+                    return _builder.CreateFPCast(scalar, destination);
+                }
+                if (source_is_float) {
+                    return destination_type->is_int() ?
+                        _builder.CreateFPToSI(scalar, destination) :
+                        _builder.CreateFPToUI(scalar, destination);
+                }
+                if (destination_is_float) {
+                    return source_type->is_int() ?
+                        _builder.CreateSIToFP(scalar, destination) :
+                        _builder.CreateUIToFP(scalar, destination);
+                }
+                return source_type->is_int() ?
+                    _builder.CreateSExtOrTrunc(scalar, destination) :
+                    _builder.CreateZExtOrTrunc(scalar, destination);
+            });
+    }
+
+    [[nodiscard]] ::llvm::Value *_lane_offsets(
+        ::llvm::Value *index, uint64_t stride) {
+        auto *i64_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt64Ty(), _width);
+        auto *extended = _builder.CreateZExtOrTrunc(index, i64_lanes);
+        return stride == 1u ? extended : _builder.CreateMul(
+            extended,
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt64(stride)));
+    }
+
+    [[nodiscard]] ::llvm::Value *_leaf_pointers(
+        ::llvm::Value *base, ::llvm::Value *offsets,
+        size_t leaf_offset) {
+        if (leaf_offset != 0u) {
+            offsets = _builder.CreateAdd(
+                offsets,
+                _builder.CreateVectorSplat(
+                    _width, _builder.getInt64(leaf_offset)));
+        }
+        return _builder.CreateGEP(
+            _builder.getInt8Ty(), base, offsets);
+    }
+
+    [[nodiscard]] ::llvm::Value *_gather_data(
+        ::llvm::Value *base, ::llvm::Value *offsets,
+        const Type *type, size_t leaf_offset = 0u) {
+        if (_is_scalar_data(type)) {
+            auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
+            auto *element = type->is_bool() ?
+                static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
+                _data_type(type, false);
+            auto *lanes = ::llvm::FixedVectorType::get(element, _width);
+            auto *gathered = _builder.CreateMaskedGather(
+                lanes, pointers, ::llvm::Align{1u}, _active_mask,
+                ::llvm::Constant::getNullValue(lanes));
+            return type->is_bool() ?
+                _builder.CreateICmpNE(
+                    gathered, ::llvm::Constant::getNullValue(lanes)) :
+                gathered;
+        }
+        return _assemble(type, true, [&](uint32_t i) {
+            return _gather_data(
+                base, offsets, _child_type(type, i),
+                leaf_offset + _child_offset(type, i));
+        });
+    }
+
+    void _scatter_data(
+        ::llvm::Value *base, ::llvm::Value *offsets,
+        const Type *type, ::llvm::Value *value,
+        size_t leaf_offset = 0u) {
+        if (_is_scalar_data(type)) {
+            auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
+            if (type->is_bool()) {
+                value = _builder.CreateZExt(
+                    value,
+                    ::llvm::FixedVectorType::get(
+                        _builder.getInt8Ty(), _width));
+            }
+            _builder.CreateMaskedScatter(
+                value, pointers, ::llvm::Align{1u}, _active_mask);
+            return;
+        }
+        for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
+            _scatter_data(
+                base, offsets, _child_type(type, i),
+                _extract_child(value, type, i, true),
+                leaf_offset + _child_offset(type, i));
+        }
+    }
+
+    [[nodiscard]] ::llvm::Value *_resource_read(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result || !instruction.source_op ||
+            instruction.operands.size() != 2u) {
+            _fail("buffer read instruction is malformed");
+            return nullptr;
+        }
+        auto op = static_cast<xir::ResourceReadOp>(
+            *instruction.source_op);
+        auto byte_address =
+            op == xir::ResourceReadOp::BYTE_BUFFER_READ ||
+            op == xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ;
+        if (!byte_address &&
+            op != xir::ResourceReadOp::BUFFER_READ &&
+            op != xir::ResourceReadOp::BUFFER_VOLATILE_READ) {
+            _fail("LLVM packet codegen only supports direct buffer reads");
+            return nullptr;
+        }
+        auto *buffer_value = _source.value(instruction.operands[0u]);
+        auto *index_value = _source.value(instruction.operands[1u]);
+        auto *result_value = _source.value(*instruction.result);
+        auto *buffer = _load_value(instruction.operands[0u]);
+        auto *index = _as_lane_vector(
+            _load_value(instruction.operands[1u]), *index_value);
+        if (buffer_value == nullptr || result_value == nullptr ||
+            buffer == nullptr || index == nullptr ||
+            !buffer_value->type->is_buffer()) {
+            _fail("buffer read has invalid operands");
+            return nullptr;
+        }
+        auto stride = byte_address ? 1u :
+            static_cast<uint64_t>(buffer_value->type->element()->size());
+        auto *base = _builder.CreateExtractValue(buffer, {0u});
+        return _gather_data(
+            base, _lane_offsets(index, stride), result_value->type);
+    }
+
+    void _resource_write(const schedule::Instruction &instruction) {
+        if (!instruction.source_op || instruction.operands.size() != 3u) {
+            _fail("buffer write instruction is malformed");
+            return;
+        }
+        auto op = static_cast<xir::ResourceWriteOp>(
+            *instruction.source_op);
+        auto byte_address =
+            op == xir::ResourceWriteOp::BYTE_BUFFER_WRITE ||
+            op == xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE;
+        if (!byte_address &&
+            op != xir::ResourceWriteOp::BUFFER_WRITE &&
+            op != xir::ResourceWriteOp::BUFFER_VOLATILE_WRITE) {
+            _fail("LLVM packet codegen only supports direct buffer writes");
+            return;
+        }
+        auto *buffer_value = _source.value(instruction.operands[0u]);
+        auto *index_value = _source.value(instruction.operands[1u]);
+        auto *written_value = _source.value(instruction.operands[2u]);
+        auto *buffer = _load_value(instruction.operands[0u]);
+        auto *index = _as_lane_vector(
+            _load_value(instruction.operands[1u]), *index_value);
+        auto *value = _as_lane_vector(
+            _load_value(instruction.operands[2u]), *written_value);
+        if (buffer_value == nullptr || buffer == nullptr ||
+            index == nullptr || value == nullptr ||
+            !buffer_value->type->is_buffer()) {
+            _fail("buffer write has invalid operands");
+            return;
+        }
+        auto stride = byte_address ? 1u :
+            static_cast<uint64_t>(buffer_value->type->element()->size());
+        auto *base = _builder.CreateExtractValue(buffer, {0u});
+        _scatter_data(
+            base, _lane_offsets(index, stride), written_value->type, value);
+    }
+
+    [[nodiscard]] ::llvm::Value *_resource_query(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result || !instruction.source_op ||
+            instruction.operands.size() != 1u) {
+            _fail("buffer query instruction is malformed");
+            return nullptr;
+        }
+        auto *result = _source.value(*instruction.result);
+        auto *buffer_value = _source.value(instruction.operands[0u]);
+        auto *buffer = _load_value(instruction.operands[0u]);
+        if (result == nullptr || buffer_value == nullptr ||
+            buffer == nullptr || !buffer_value->type->is_buffer()) {
+            _fail("buffer query has invalid operands");
+            return nullptr;
+        }
+        auto op = static_cast<xir::ResourceQueryOp>(
+            *instruction.source_op);
+        auto *value = _builder.CreateExtractValue(buffer, {1u});
+        switch (op) {
+            case xir::ResourceQueryOp::BUFFER_SIZE:
+                value = _builder.CreateUDiv(
+                    value,
+                    _builder.getInt64(
+                        buffer_value->type->element()->size()));
+                break;
+            case xir::ResourceQueryOp::BYTE_BUFFER_SIZE: break;
+            case xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS: {
+                auto *pointer = _builder.CreateExtractValue(buffer, {0u});
+                value = _builder.CreatePtrToInt(
+                    pointer, _builder.getInt64Ty());
+                break;
+            }
+            default:
+                _fail("LLVM packet codegen only supports direct buffer queries");
+                return nullptr;
+        }
+        auto *destination = _data_type(result->type, false);
+        value = _builder.CreateZExtOrTrunc(value, destination);
+        return result->value_class == schedule::ValueClass::varying ?
+            _splat_data(value, result->type) : value;
     }
 
     [[nodiscard]] ::llvm::Value *_collective(
@@ -651,6 +1497,18 @@ private:
             case schedule::Opcode::arithmetic:
                 value = _arithmetic(instruction);
                 break;
+            case schedule::Opcode::cast:
+                value = _cast(instruction);
+                break;
+            case schedule::Opcode::resource_query:
+                value = _resource_query(instruction);
+                break;
+            case schedule::Opcode::resource_read:
+                value = _resource_read(instruction);
+                break;
+            case schedule::Opcode::resource_write:
+                _resource_write(instruction);
+                break;
             case schedule::Opcode::warp_collective:
                 value = _collective(instruction);
                 break;
@@ -680,8 +1538,8 @@ private:
         auto *lanes = _as_lane_vector(value, *source);
         if (lanes == nullptr) { return; }
         auto *old = _builder.CreateLoad(slot->getAllocatedType(), slot);
-        _builder.CreateStore(
-            _builder.CreateSelect(mask, lanes, old), slot);
+        auto *merged = _masked_merge(lanes, old, destination->type, mask);
+        if (merged != nullptr) { _builder.CreateStore(merged, slot); }
     }
 
     void _apply_assignments(
@@ -1185,6 +2043,7 @@ private:
             ::llvm::Type::getVoidTy(context),
             {::llvm::PointerType::getUnqual(context),
              ::llvm::PointerType::getUnqual(context),
+             ::llvm::PointerType::getUnqual(context),
              ::llvm::Type::getInt32Ty(context)},
             false);
         if (_entry_name.empty()) {
@@ -1204,6 +2063,8 @@ private:
         _argument_buffer->setName("argument_buffer");
         _return_buffer = &*argument++;
         _return_buffer->setName("return_lanes");
+        _launch_config = &*argument++;
+        _launch_config->setName("launch_config");
         _active_lane_count = &*argument;
         _active_lane_count->setName("active_lane_count");
 
@@ -1219,6 +2080,15 @@ private:
         auto *count = _builder.CreateVectorSplat(
             _width, _active_lane_count);
         auto *initial_mask = _builder.CreateICmpULT(lane_ids, count);
+        _ensure_launch_vectors();
+        for (auto i = uint32_t{0u}; i < 3u; i++) {
+            initial_mask = _builder.CreateAnd(
+                initial_mask,
+                _builder.CreateICmpULT(
+                    _dispatch_id[i],
+                    _builder.CreateVectorSplat(
+                        _width, _dispatch_size[i])));
+        }
         _builder.CreateStore(initial_mask, _live_mask);
         _builder.CreateStore(initial_mask, _runnable_mask);
         _builder.CreateStore(
