@@ -30,7 +30,8 @@ namespace luisa::compute::simd {
 
 SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
-    std::string_view entry_name, bool enable_fast_math) {
+    std::string_view entry_name, bool enable_fast_math,
+    bool enable_uniform_buffer_broadcast) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -57,12 +58,15 @@ SIMDCompiledKernel compile_simd_kernel(
     }
     auto llvm_result = lower_schedule_to_llvm(
         *module, *schedule_result.function, warp_width, entry_name,
-        enable_fast_math, static_block_size);
+        enable_fast_math, static_block_size,
+        enable_uniform_buffer_broadcast);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
     }
     result.argument_buffer_size = llvm_result.argument_buffer_size;
+    result.uniform_buffer_broadcast_count =
+        llvm_result.uniform_buffer_broadcast_count;
     auto llvm_entry_name = llvm_result.entry->getName().str();
     result.jit = std::make_unique<LLVMJIT>();
     if (!result.jit->succeeded()) {
@@ -151,7 +155,9 @@ SIMDCompiledKernel compile_simd_kernel(
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
     }
     auto result = compile_simd_kernel(
-        xir_kernel, warp_width, entry_name, enable_fast_math);
+        xir_kernel, warp_width, entry_name, enable_fast_math,
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST"));
     result.fast_math_identity_count = fast_math_info.identity_count;
     result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
     result.predicated_diamond_count =

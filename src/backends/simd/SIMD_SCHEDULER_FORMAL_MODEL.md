@@ -116,6 +116,24 @@ be observationally equivalent to a lane vector. If it reports
 owned by the caller; a suspension spill is lane-wise. A splat is introduced
 only when a varying consumer requires `<W x T>`.
 
+The global value class is intentionally more conservative than a use-site
+equality fact. Consider a canonical integer induction PHI with one preheader,
+one latch, a warp/cohort-uniform start, and a constant stride. For a block
+inside that natural loop, the continuation key contains the loop epoch. By
+induction on the back-edge transition, all lanes in one executing continuation
+observe the same induction value even if a nested branch temporarily splits
+the cohort. The same PHI must nevertheless remain `varying` globally: an exit
+gate can combine lanes that left in different epochs, where their saved PHI
+values differ.
+
+Schedule IR may therefore attach `cohort_uniform_operand_index` to one
+instruction operand when the lowering proves this canonical induction fact
+and the use block remains inside the loop. This annotation authorizes scalar
+evaluation only for that operand at that instruction. It neither changes the
+value's lane-wise suspension slot nor propagates through arbitrary users. A
+multiple-entry/multiple-latch loop, nonconstant recurrence, nonuniform start,
+or use outside the loop receives no annotation.
+
 ## 3. Dynamic state
 
 A machine state is

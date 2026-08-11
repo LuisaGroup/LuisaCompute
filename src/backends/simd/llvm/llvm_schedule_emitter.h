@@ -48,6 +48,7 @@ private:
     std::string _entry_name;
     bool _enable_fast_math;
     std::array<uint32_t, 3u> _static_block_size{};
+    bool _enable_uniform_buffer_broadcast{true};
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
     LLVMWarpCollectives _collectives;
@@ -320,7 +321,8 @@ public:
                     const schedule::Function &source, uint32_t width,
                     std::string_view entry_name,
                     bool enable_fast_math,
-                    std::array<uint32_t, 3u> static_block_size);
+                    std::array<uint32_t, 3u> static_block_size,
+                    bool enable_uniform_buffer_broadcast);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

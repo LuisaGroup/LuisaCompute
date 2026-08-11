@@ -57,14 +57,16 @@ SIMDShader::SIMDShader(
         LUISA_INFO(
             "SIMD optimization report [{} W{}]: predicated_diamonds={}, "
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
-            "cloned_instructions={}, merged_live_outs={}.",
+            "cloned_instructions={}, merged_live_outs={}, "
+            "uniform_buffer_broadcasts={}.",
             kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
             warp_width, _compiled.predicated_diamond_count,
             _compiled.factored_select_count,
             _compiled.unswitched_loop_count,
             _compiled.unswitched_cloned_block_count,
             _compiled.unswitched_cloned_instruction_count,
-            _compiled.unswitched_live_out_count);
+            _compiled.unswitched_live_out_count,
+            _compiled.uniform_buffer_broadcast_count);
     }
     _entry = reinterpret_cast<Entry *>(_compiled.entry);
     _build_bound_arguments(kernel.bound_arguments());

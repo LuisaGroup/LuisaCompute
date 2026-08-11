@@ -156,8 +156,10 @@ diagnostics and serial differential benchmarks.
 Reproducible example sweeps may use `LUISA_SIMD_WARP_WIDTH=1|2|4|8|16` when
 the application does not construct `SIMDDeviceConfigExt`; an explicit nonzero
 API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
-`LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide same-binary compiler A/B controls,
-and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` logs per-shader transform counters.
+`LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide control-flow A/B controls;
+`LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
+refinement. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` logs per-shader transform
+counters.
 These process-wide variables are diagnostic controls, not shader semantics or
 a replacement for the public configuration extension. Invalid width text or a
 width outside the supported set is rejected.
@@ -251,6 +253,32 @@ repair, metadata, structured-module atomicity, unknown trip counts, `undef`,
 clock/write rejection, all supported SIMD widths, and inactive tails.
 `benchmark_simd_loop_unswitch` additionally audits optimized assembly, calls,
 stack references, and repeated throughput.
+
+### 4.6 Cohort-equal typed-buffer read refinement
+
+A nonvolatile typed `BUFFER_READ` may become one scalar load followed by a
+fixed-vector splat when either its index value is globally warp/cohort-uniform
+or Schedule lowering attaches a use-site cohort-equality proof. The current
+use-site proof is deliberately narrow: a canonical integer induction PHI,
+one preheader and latch, constant stride, uniform start, and a read whose block
+is still inside that natural loop. Loop continuation identity separates
+epochs at the read. The PHI itself remains lane-wise because an exit gate may
+later merge different epochs.
+
+The executing Schedule block always has a nonempty active mask. W1 therefore
+uses lane zero; W4/W8/W16 extract the first active lane, load the complete
+Luisa value once, and broadcast it. W2 retains the gather form for a
+use-site-only proof because measured first-lane selection cost exceeds the one
+saved lane load; a globally uniform scalar index still uses the scalar load.
+Byte-address and volatile reads are excluded. No inactive address is formed,
+and the transform does not authorize an out-of-domain or out-of-bounds access.
+
+Permanent regressions cover global warp/cohort-uniform indices, a canonical
+loop with nested varying control, W1/W2/W4/W8/W16, an inactive tail, volatile
+reads, the disabled path, LLVM masked-gather shape, and final host assembly.
+`LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` provides the same-binary A/B
+oracle, while `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the accepted read
+count.
 
 ## 5. Vector-math providers
 

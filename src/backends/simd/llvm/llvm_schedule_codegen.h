@@ -87,6 +87,7 @@ struct SIMDPacketLaunchConfig {
 struct LLVMScheduleCodegenResult {
     ::llvm::Function *entry{nullptr};
     size_t argument_buffer_size{0u};
+    size_t uniform_buffer_broadcast_count{0u};
     std::string error{};
 
     [[nodiscard]] bool succeeded() const noexcept {
@@ -104,6 +105,7 @@ struct LLVMScheduleCodegenResult {
     bool enable_fast_math = false,
     // A zero dimension selects the generic launch-config path. Nonzero static
     // dimensions must be powers of two and are lowered with shifts and masks.
-    std::array<uint32_t, 3u> static_block_size = {});
+    std::array<uint32_t, 3u> static_block_size = {},
+    bool enable_uniform_buffer_broadcast = true);
 
 }// namespace luisa::compute::simd

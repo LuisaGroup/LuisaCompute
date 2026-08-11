@@ -421,6 +421,20 @@ VerificationResult verify(const Function &function) {
                           "non-collective instruction has a participant mask",
                           block.id);
             }
+            if (instruction.cohort_uniform_operand_index) {
+                if (instruction.opcode != Opcode::resource_read) {
+                    add_error(
+                        result,
+                        "non-resource-read instruction has a cohort-uniform operand annotation",
+                        block.id);
+                } else if (*instruction.cohort_uniform_operand_index >=
+                           instruction.operands.size()) {
+                    add_error(
+                        result,
+                        "cohort-uniform operand annotation is out of range",
+                        block.id);
+                }
+            }
         }
 
         auto check_assignments = [&](const auto &assignments,
@@ -709,6 +723,10 @@ std::string to_string(const Function &function) {
             }
             if (instruction.participant_mask) {
                 out << " mask=%" << instruction.participant_mask->value;
+            }
+            if (instruction.cohort_uniform_operand_index) {
+                out << " cohort_uniform_operand="
+                    << *instruction.cohort_uniform_operand_index;
             }
             for (auto operand : instruction.operands) {
                 out << " %" << operand.value;

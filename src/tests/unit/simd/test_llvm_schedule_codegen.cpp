@@ -1988,6 +1988,7 @@ template<size_t Width>
     }
     CHECK(compiled.argument_buffer_size ==
           3u * sizeof(SIMDHostBufferView));
+    CHECK(compiled.uniform_buffer_broadcast_count == 0u);
 
     std::array<luisa::uint4, count> lhs_data{};
     std::array<luisa::uint4, count> rhs_data{};
@@ -2016,6 +2017,216 @@ template<size_t Width>
         CHECK(output_data[i].y == lhs_data[i].y + rhs_data[i].y);
         CHECK(output_data[i].z == lhs_data[i].z + rhs_data[i].z);
         CHECK(output_data[i].w == lhs_data[i].w + rhs_data[i].w);
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_uniform_buffer_broadcast_schedule(
+    uint32_t width, bool volatile_read) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name(volatile_read ?
+                         "volatile_uniform_buffer_read" :
+                         "uniform_buffer_broadcast");
+    auto *buffer_type = Type::buffer(Type::of<uint32_t>());
+    auto *input = kernel->create_resource_argument(buffer_type);
+    auto *output = kernel->create_resource_argument(buffer_type);
+    auto *uniform_index = kernel->create_value_argument(
+        Type::of<uint32_t>());
+    auto *entry = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *output_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto read_op = volatile_read ?
+                       xir::ResourceReadOp::BUFFER_VOLATILE_READ :
+                       xir::ResourceReadOp::BUFFER_READ;
+    auto *argument_read = builder.call(
+        Type::of<uint32_t>(), read_op,
+        {input, uniform_index});
+    auto *cohort_index = builder.call(
+        Type::of<uint32_t>(),
+        xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE,
+        {lane});
+    auto *cohort_read = builder.call(
+        Type::of<uint32_t>(), read_op,
+        {input, cohort_index});
+    auto *sum = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {argument_read, cohort_read});
+    auto *result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {sum, output_index});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, output_index, result});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] bool run_uniform_buffer_broadcast_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 11u;
+    auto schedule_function =
+        make_uniform_buffer_broadcast_schedule(width, false);
+    CHECK(schedule_function.has_value());
+
+    struct ModuleBundle {
+        std::unique_ptr<::llvm::LLVMContext> context;
+        std::unique_ptr<::llvm::Module> module;
+        LLVMScheduleCodegenResult codegen;
+    };
+    auto make_module = [&](const schedule::Function &source,
+                           std::string_view module_name,
+                           std::string_view entry_name,
+                           bool enable_broadcast) {
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            std::string{module_name}, *context);
+        auto codegen = lower_schedule_to_llvm(
+            *module, source, width, entry_name,
+            false, {}, enable_broadcast);
+        return ModuleBundle{
+            std::move(context), std::move(module),
+            std::move(codegen)};
+    };
+
+    auto enabled_bundle = make_module(
+        *schedule_function,
+        "simd-uniform-buffer-broadcast",
+        "simd_uniform_buffer_broadcast", true);
+    auto &enabled = enabled_bundle.codegen;
+    auto &enabled_module = enabled_bundle.module;
+    CHECK(enabled.succeeded());
+    CHECK(enabled.argument_buffer_size == 48u);
+    CHECK(enabled.uniform_buffer_broadcast_count == 2u);
+    CHECK(!::llvm::verifyModule(*enabled_module, &::llvm::errs()));
+    std::string enabled_ir;
+    ::llvm::raw_string_ostream enabled_stream{enabled_ir};
+    enabled_module->print(enabled_stream, nullptr);
+    enabled_stream.flush();
+    CHECK(enabled_ir.find("llvm.masked.gather") == std::string::npos);
+    CHECK(enabled_ir.find("llvm.masked.scatter") != std::string::npos);
+
+    auto use_site_schedule =
+        make_uniform_buffer_broadcast_schedule(width, false);
+    CHECK(use_site_schedule.has_value());
+    auto annotated_read_count = size_t{0u};
+    for (auto &block : use_site_schedule->blocks()) {
+        for (auto &instruction : block.instructions) {
+            if (instruction.opcode != schedule::Opcode::resource_read ||
+                instruction.operands.size() != 2u) {
+                continue;
+            }
+            auto *index = use_site_schedule->value(
+                instruction.operands[1u]);
+            if (index == nullptr ||
+                index->origin != schedule::ValueOrigin::instruction) {
+                continue;
+            }
+            index->value_class = schedule::ValueClass::varying;
+            instruction.cohort_uniform_operand_index = 1u;
+            annotated_read_count++;
+        }
+    }
+    CHECK(annotated_read_count == 1u);
+    auto assembly_bundle = make_module(
+        *use_site_schedule,
+        "simd-uniform-buffer-broadcast-assembly",
+        "simd_uniform_buffer_broadcast_assembly", true);
+    CHECK(assembly_bundle.codegen.succeeded());
+    LLVMJIT assembly_target;
+    CHECK(assembly_target.succeeded());
+    auto assembly = assembly_target.emit_assembly(
+        std::move(assembly_bundle.module),
+        std::move(assembly_bundle.context));
+    CHECK(!assembly.empty());
+    CHECK(assembly.find("gather") == std::string::npos);
+
+    auto disabled_bundle = make_module(
+        *schedule_function,
+        "simd-uniform-buffer-gather",
+        "simd_uniform_buffer_gather", false);
+    auto &disabled = disabled_bundle.codegen;
+    auto &disabled_module = disabled_bundle.module;
+    CHECK(disabled.succeeded());
+    CHECK(disabled.uniform_buffer_broadcast_count == 0u);
+    CHECK(!::llvm::verifyModule(*disabled_module, &::llvm::errs()));
+    std::string disabled_ir;
+    ::llvm::raw_string_ostream disabled_stream{disabled_ir};
+    disabled_module->print(disabled_stream, nullptr);
+    disabled_stream.flush();
+    CHECK(count_occurrences(
+              disabled_ir, "llvm.masked.gather") >= 2u);
+
+    auto volatile_schedule =
+        make_uniform_buffer_broadcast_schedule(width, true);
+    CHECK(volatile_schedule.has_value());
+    auto volatile_context =
+        std::make_unique<::llvm::LLVMContext>();
+    auto volatile_module = std::make_unique<::llvm::Module>(
+        "simd-volatile-uniform-buffer-read",
+        *volatile_context);
+    auto volatile_codegen = lower_schedule_to_llvm(
+        *volatile_module, *volatile_schedule, width,
+        "simd_volatile_uniform_buffer_read",
+        false, {}, true);
+    CHECK(volatile_codegen.succeeded());
+    CHECK(volatile_codegen.uniform_buffer_broadcast_count == 0u);
+    std::string volatile_ir;
+    ::llvm::raw_string_ostream volatile_stream{volatile_ir};
+    volatile_module->print(volatile_stream, nullptr);
+    volatile_stream.flush();
+    CHECK(count_occurrences(
+              volatile_ir, "llvm.masked.gather") >= 2u);
+
+    struct alignas(16) Arguments {
+        SIMDHostBufferView input{};
+        SIMDHostBufferView output{};
+        uint32_t index{0u};
+        std::array<std::byte, 12u> padding{};
+    };
+    static_assert(sizeof(Arguments) == 48u);
+    std::array<uint32_t, 16u> input{};
+    std::array<uint32_t, count> output{};
+    for (auto i = uint32_t{0u}; i < input.size(); i++) {
+        input[i] = 7u + i * 13u;
+    }
+    output.fill(0xdeadbeefu);
+    Arguments arguments{
+        .input = {input.data(), sizeof(input)},
+        .output = {output.data(), sizeof(output)},
+        .index = 5u,
+    };
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(
+        std::move(enabled_module),
+        std::move(enabled_bundle.context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(
+        jit.lookup("simd_uniform_buffer_broadcast"));
+    CHECK(function != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        function(&arguments, nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        CHECK(output[i] == input[5u] + input[0u] + i);
     }
     return true;
 }
@@ -2221,6 +2432,77 @@ uint32_t texture_packet_size_probe(
         CHECK(output[i] == lhs[i] + rhs[i]);
     }
     return true;
+}
+
+[[nodiscard]] bool run_ast_uniform_loop_buffer_broadcast_width(
+    uint32_t width, uint64_t expected_broadcast_count) {
+    static constexpr auto count = 13u;
+    static constexpr auto input_count = 16u;
+    Kernel1D kernel = [](BufferUInt input, BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint sum = 0u;
+        $for (other, input_count) {
+            $if (other != index) {
+                sum += input.read(other);
+            };
+        };
+        output.write(index, sum);
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_uniform_loop_buffer_broadcast_w" +
+            std::to_string(width));
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(compiled.uniform_buffer_broadcast_count ==
+          expected_broadcast_count);
+    if (width == 8u) {
+        ScopedEnvironmentVariable disable{
+            "LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST", "1"};
+        auto gathered = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_uniform_loop_buffer_gather_w8");
+        CHECK(gathered.succeeded());
+        CHECK(gathered.uniform_buffer_broadcast_count == 0u);
+    }
+
+    std::array<uint32_t, input_count> input{};
+    std::array<uint32_t, count> output{};
+    auto total = uint32_t{0u};
+    for (auto i = uint32_t{0u}; i < input_count; i++) {
+        input[i] = i + 1u;
+        total += input[i];
+    }
+    output.fill(0xdeadbeefu);
+    alignas(16) std::array<SIMDHostBufferView, 2u> arguments{
+        SIMDHostBufferView{input.data(), sizeof(input)},
+        SIMDHostBufferView{output.data(), sizeof(output)},
+    };
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(arguments.data(), nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        CHECK(output[i] == total - input[i]);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_ast_uniform_loop_buffer_broadcast() {
+    return run_ast_uniform_loop_buffer_broadcast_width(1u, 1u) &&
+           run_ast_uniform_loop_buffer_broadcast_width(2u, 0u) &&
+           run_ast_uniform_loop_buffer_broadcast_width(4u, 1u) &&
+           run_ast_uniform_loop_buffer_broadcast_width(8u, 1u) &&
+           run_ast_uniform_loop_buffer_broadcast_width(16u, 1u);
 }
 
 [[nodiscard]] bool run_ast_select_codegen() {
@@ -2551,8 +2833,12 @@ int main() {
          &run_return_convergence_cascade_codegen},
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
+        {"uniform buffer read broadcast",
+         &run_uniform_buffer_broadcast_codegen},
         {"XIR texture packet callback", &run_texture_packet_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
+        {"AST uniform-loop buffer broadcast",
+         &run_ast_uniform_loop_buffer_broadcast},
         {"AST select operand order", &run_ast_select_codegen},
         {"AST fast radix pow canonicalization",
          &run_ast_fast_math_canonicalization},

@@ -24,13 +24,15 @@ namespace {
 ScheduleEmitter::ScheduleEmitter(
     ::llvm::Module &module, const schedule::Function &source, uint32_t width,
     std::string_view entry_name, bool enable_fast_math,
-    std::array<uint32_t, 3u> static_block_size)
+    std::array<uint32_t, 3u> static_block_size,
+    bool enable_uniform_buffer_broadcast)
     : _module{module},
       _source{source},
       _width{width},
       _entry_name{entry_name},
       _enable_fast_math{enable_fast_math},
       _static_block_size{static_block_size},
+      _enable_uniform_buffer_broadcast{enable_uniform_buffer_broadcast},
       _layout{module.getContext(), width},
       _collectives{width},
       _builder{module.getContext()} {}

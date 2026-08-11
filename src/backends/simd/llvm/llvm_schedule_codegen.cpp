@@ -7,10 +7,12 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
     uint32_t specialization_width, std::string_view entry_name,
     bool enable_fast_math,
-    std::array<uint32_t, 3u> static_block_size) {
+    std::array<uint32_t, 3u> static_block_size,
+    bool enable_uniform_buffer_broadcast) {
     return detail::ScheduleEmitter{
         module, function, specialization_width, entry_name,
-        enable_fast_math, static_block_size}
+        enable_fast_math, static_block_size,
+        enable_uniform_buffer_broadcast}
         .run();
 }
 

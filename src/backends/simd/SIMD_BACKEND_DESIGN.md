@@ -423,6 +423,16 @@ Only `warp_uniform` may be stored once for the whole warp. This distinction is
 required for collectives whose result is uniform among current participants
 but differs between divergent paths or loop epochs.
 
+One instruction operand may additionally carry a use-site-only
+`cohort_uniform_operand_index` fact. The first production proof recognizes a
+canonical integer induction PHI with one preheader/latch, constant stride,
+uniform start, and a use still inside that natural loop. Continuation identity
+keeps different epochs separate there, even across a nested varying diamond.
+The PHI's global class and state slot remain varying because a loop exit may
+later reconverge lanes from different epochs. This distinction was fixed by
+the permanent varying-trip-count counterexample: globally scalarizing the PHI
+made W2/W4/W8 loop exits return the first exiting lane's value for every lane.
+
 ### 8.2 Control operations
 
 The minimum control vocabulary is:
@@ -1102,6 +1112,44 @@ stable instruction counts still fall from the prior 72.15/58.91/55.97 billion
 to 60.92/46.57/42.36 billion at W4/W8/W16. All 20 SIMD graphics combinations
 pass their gallery references and remain byte-identical across widths for one
 example.
+
+The next memory checkpoint uses the use-site induction proof above for
+nonvolatile typed-buffer reads. If all lanes in the executing continuation
+address the same element, W1 or W4/W8/W16 now issue one scalar Luisa-value load
+and broadcast rather than W equal-address masked-gather lanes. W2 deliberately
+keeps the gather for a use-site-only proof: seven alternating n-body pairs
+measured the candidate at 0.989x, while W4/W8/W16 measured
+1.080x/1.078x/1.099x. W1's statically known lane-zero form measured 1.012x and
+is retained; globally uniform scalar indices use the broadcast at every width.
+Volatile and byte-address reads are unchanged.
+
+Only `nbody_simulation` contains an accepted read among the six complete
+workloads below; SDF, image processing, voxel, shader toy, and game of life
+report zero. Nine forward/reverse Release runs per backend/width used gallery
+comparison on every graphics invocation. SDF used the internal four-SPP
+throughput metric. The current fallback-relative medians are:
+
+| Workload | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| non-coro SDF | 0.935x | 1.086x | 1.727x | 2.597x | 3.762x |
+| image processing | 0.753x | 0.729x | 0.742x | 0.738x | 0.716x |
+| voxel ray tracer | 0.882x | 0.343x | 0.385x | 0.406x | 0.383x |
+| shader toy | 1.082x | 1.167x | 1.341x | 1.406x | 1.364x |
+| game of life | 0.744x | 0.794x | 0.869x | 0.859x | 0.906x |
+| n-body | 0.677x | 0.360x | 0.513x | 0.586x | 0.541x |
+
+The game-of-life and fallback n-body distributions remain bimodal under the
+concurrent host workload, so their exact wall-time ratios are observational
+rather than stable cross-machine claims. The transformation-specific n-body
+A/B is much tighter. Seven additional W8 `perf stat` pairs measured
+541.36 ms enabled versus 588.86 ms disabled (1.088x). Median cycles fell from
+22.642 to 21.193 billion (-6.4%) and L1 data loads from 14.378 to
+12.697 billion (-11.7%); retired instructions rose only 0.24%, branches were
+flat, and L1 misses fell just 0.7%. The saved work is therefore repeated L1-hit
+load/gather traffic rather than cache misses or scheduler dispatch. The LLVM
+regression rejects masked gathers in the enabled IR, and the host-assembly
+audit rejects any remaining gather mnemonic. Every reported graphics run
+passed its repository reference.
 
 Software prefetch is not enabled speculatively. LLVM's target-aware loop data
 prefetch pass inserted no prefetch into the post-scheduler masked-gather

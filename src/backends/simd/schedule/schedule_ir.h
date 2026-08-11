@@ -143,6 +143,10 @@ struct Instruction {
     std::optional<uint32_t> source_op{};
     std::optional<uint32_t> collective_id{};
     std::optional<ValueId> participant_mask{};
+    // One operand may be lane-equal only at this instruction's dynamic
+    // continuation even when its backing state is varying across loop exits.
+    // This is a use-site fact, not a global ValueClass refinement.
+    std::optional<uint32_t> cohort_uniform_operand_index{};
 };
 
 struct EdgeAssignment {

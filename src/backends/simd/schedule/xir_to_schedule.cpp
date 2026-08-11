@@ -155,6 +155,7 @@ class LoweringContext {
 private:
     struct LoopRecord {
         const xir::NaturalLoop *source{nullptr};
+        const xir::PhiInst *cohort_uniform_induction{nullptr};
         LoopId id{};
         size_t size{0u};
     };
@@ -399,6 +400,12 @@ private:
         }
         _loop_back_ids.reserve(back_edge_count);
         for (auto &&source_loop : natural_loops) {
+            auto bounds = xir::analyze_loop_bounds(source_loop);
+            auto *cohort_uniform_induction =
+                bounds.is_valid() && bounds.stride_is_constant &&
+                        _uniformity.is_uniform(bounds.start_value) ?
+                    bounds.induction_phi :
+                    nullptr;
             std::vector<BlockId> blocks;
             blocks.reserve(source_loop.body_blocks.size() + 1u);
             blocks.emplace_back(_block_ids.at(source_loop.header));
@@ -429,6 +436,7 @@ private:
                 std::move(exits));
             _loops.emplace_back(LoopRecord{
                 .source = &source_loop,
+                .cohort_uniform_induction = cohort_uniform_induction,
                 .id = id,
                 .size = source_loop.body_blocks.size() + 1u,
             });
@@ -748,6 +756,19 @@ private:
         }
     }
 
+    [[nodiscard]] bool _is_cohort_uniform_induction_use(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block) const noexcept {
+        if (value == nullptr || use_block == nullptr) { return false; }
+        return std::any_of(
+            _loops.cbegin(), _loops.cend(),
+            [&](const LoopRecord &loop) noexcept {
+                return loop.cohort_uniform_induction == value &&
+                       loop.source->contains(
+                           const_cast<xir::BasicBlock *>(use_block));
+            });
+    }
+
     [[nodiscard]] std::optional<uint32_t> _source_op(
         const xir::Instruction *instruction) const noexcept {
         using Tag = xir::DerivedInstructionTag;
@@ -828,6 +849,15 @@ private:
                     source_instruction->parent_block(), source_instruction)) {
                 instruction.operands.emplace_back(*operand);
             }
+        }
+        if (instruction.opcode == Opcode::resource_read &&
+            instruction.source_op == static_cast<uint32_t>(
+                                         xir::ResourceReadOp::BUFFER_READ) &&
+            source_instruction->operand_count() == 2u &&
+            _is_cohort_uniform_induction_use(
+                source_instruction->operand(1u),
+                source_instruction->parent_block())) {
+            instruction.cohort_uniform_operand_index = 1u;
         }
         if (instruction.opcode == Opcode::warp_collective) {
             instruction.collective_id = _next_collective_id++;

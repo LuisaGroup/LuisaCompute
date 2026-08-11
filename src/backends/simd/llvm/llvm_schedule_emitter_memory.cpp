@@ -696,8 +696,9 @@ void ScheduleEmitter::_scatter_data(
     auto *index_value = _source.value(instruction.operands[1u]);
     auto *result_value = _source.value(*instruction.result);
     auto *buffer = _load_value(instruction.operands[0u]);
-    auto *index = _as_lane_vector(
-        _load_value(instruction.operands[1u]), *index_value);
+    auto *index = index_value == nullptr ?
+                      nullptr :
+                      _load_value(instruction.operands[1u]);
     if (buffer_value == nullptr || result_value == nullptr ||
         buffer == nullptr || index == nullptr ||
         !buffer_value->type->is_buffer()) {
@@ -707,6 +708,57 @@ void ScheduleEmitter::_scatter_data(
     auto stride = byte_address ? 1u :
         static_cast<uint64_t>(buffer_value->type->element()->size());
     auto *base = _builder.CreateExtractValue(buffer, {0u});
+
+    // A non-volatile typed-buffer read through a warp/cohort-uniform index
+    // observes one address for every executing lane. A canonical induction
+    // can also carry a use-site proof: its state remains varying because loop
+    // exits may merge different epochs, but every lane in this instruction's
+    // in-loop continuation has the same index. Load that address once and
+    // broadcast its Luisa value instead of materializing W identical pointers
+    // and a masked gather. The Schedule block never executes with an empty
+    // active mask, so this does not make a previously inactive access
+    // observable. Volatile and byte-address reads retain their original
+    // per-lane memory operations.
+    // W2 needs a dynamic first-active-lane extraction but avoids only one
+    // additional address/load lane. Repeated n-body A/B measurements show
+    // that trade is neutral-to-negative, whereas W4/W8/W16 consistently win.
+    // W1 uses the statically known lane zero and retains the scalar form.
+    auto cohort_uniform_at_use =
+        instruction.cohort_uniform_operand_index == 1u &&
+        _width != 2u;
+    if (_enable_uniform_buffer_broadcast &&
+        op == xir::ResourceReadOp::BUFFER_READ &&
+        (schedule::is_uniform(index_value->value_class) ||
+         cohort_uniform_at_use)) {
+        if (index->getType()->isVectorTy()) {
+            if (!cohort_uniform_at_use) {
+                _fail("uniform buffer index unexpectedly has a vector representation");
+                return nullptr;
+            }
+            index = _extract_lane(
+                index, index_value->type,
+                _width == 1u ? _builder.getInt32(0u) :
+                               _seed_lane);
+        }
+        auto *offset = _builder.CreateZExtOrTrunc(
+            index, _builder.getInt64Ty());
+        if (stride != 1u) {
+            offset = _builder.CreateMul(
+                offset, _builder.getInt64(stride));
+        }
+        auto *address = _builder.CreateGEP(
+            _builder.getInt8Ty(), base, offset);
+        auto *uniform = _load_uniform_data(
+            address, result_value->type);
+        if (uniform == nullptr) { return nullptr; }
+        _result.uniform_buffer_broadcast_count++;
+        return schedule::is_uniform(result_value->value_class) ?
+                   uniform :
+                   _splat_data(uniform, result_value->type);
+    }
+
+    index = _as_lane_vector(index, *index_value);
+    if (index == nullptr) { return nullptr; }
     return _gather_data(
         base, _lane_offsets(index, stride), result_value->type);
 }
