@@ -702,8 +702,9 @@ on 2026-08-11. The repository now contains:
 - a width-specialized LLVM value layout where varying scalars are exactly
   `<W x T>`, masks are `<W x i1>`, and varying aggregates are structure of
   arrays;
-- target-independent LLVM lowering for the core scalar warp reductions,
-  votes, ballot, prefix operations, and lane reads;
+- target-independent LLVM lowering for warp reductions, votes, ballot, prefix
+  operations, and lane reads; aggregate operations recurse over SoA leaves so
+  every low-level operation still consumes exactly one `<W x T>` value;
 - an independent-thread packet dispatcher whose per-lane fixed-vector state
   contains the current PC, dynamic convergence token, runnable/live bits, and
   one epoch vector per natural loop;
@@ -725,6 +726,11 @@ on 2026-08-11. The repository now contains:
 - an AST-to-XIR compiler front door that inlines callables, forwards/eliminates
   local loads, promotes SSA storage, destructures CFG, and compiles a real DSL
   Buffer kernel through ORC;
+- a runnable `DeviceInterface` module with host buffers, 2D/3D textures,
+  streams, events, direct dispatch, and a public `SIMDDeviceConfigExt` that
+  specializes every shader on the device to warp1/4/8/16;
+- backend-neutral DSL and XIR block-size validation: packet widths smaller
+  than 32 no longer have to masquerade as a GPU warp32 block;
 - standalone unit coverage for warp1/4/8/16 control flow and positive/negative
   Schedule IR fixtures, plus XIR projection fixtures for divergent diamonds,
   uniform control, lane-dependent loops, warp collectives, structured-CFG
@@ -736,9 +742,12 @@ on 2026-08-11. The repository now contains:
   reconvergence, a 96-block CFG, vector Buffer gather/add/scatter, and a real
   AST `Kernel1D` with a 13-thread non-integral packet tail. Loop membership is
   explicit in Schedule IR so epochs are compared only while a cohort remains
-  inside that loop.
+  inside that loop;
+- unattended runtime coverage from the repository's existing multidimensional
+  lane-ID, warp matmul, sparse reduction/prefix, and aggregate lane-shuffle
+  tests, plus one device-level specialization test across warp1/4/8/16.
 
-The next implementation boundary is completing math/aggregate arithmetic,
-local and atomic memory, textures, and the `DeviceInterface` runtime module.
-The current compiler returns precise diagnostics for unsupported features
-rather than silently scalarizing them.
+The next implementation boundary is conformance-gating local and direct-buffer
+atomic memory, then adding callables, bindless resources, shared memory, and
+block barriers. The current compiler returns precise diagnostics for
+unsupported features rather than silently scalarizing them.

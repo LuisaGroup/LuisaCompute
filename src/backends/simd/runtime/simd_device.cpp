@@ -5,6 +5,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
 #include <luisa/core/stl/memory.h>
+#include <luisa/backends/ext/simd_config_ext.h>
 
 #include "simd_buffer.h"
 #include "simd_event.h"
@@ -17,14 +18,26 @@ namespace luisa::compute::simd {
 SIMDDevice::SIMDDevice(
     Context &&context, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(context)} {
-    static_cast<void>(config);
+    if (config != nullptr && config->extension != nullptr) {
+        auto *simd_config = static_cast<const SIMDDeviceConfigExt *>(
+            config->extension.get());
+        auto requested_width = simd_config->warp_width();
+        if (requested_width != 0u) {
+            LUISA_ASSERT(
+                requested_width == 1u || requested_width == 4u ||
+                    requested_width == 8u || requested_width == 16u,
+                "Invalid SIMD warp width {}. Expected 1, 4, 8, or 16.",
+                requested_width);
+            _warp_width = requested_width;
+        }
+    }
 }
 
 void *SIMDDevice::native_handle() const noexcept {
     return const_cast<SIMDDevice *>(this);
 }
 
-uint SIMDDevice::compute_warp_size() const noexcept { return 8u; }
+uint SIMDDevice::compute_warp_size() const noexcept { return _warp_width; }
 
 uint64_t SIMDDevice::memory_granularity() const noexcept { return 1u; }
 
@@ -126,7 +139,7 @@ ShaderCreationInfo SIMDDevice::create_shader(
     Clock clock;
     auto block_size = kernel.block_size();
     auto *shader = luisa::new_with_allocator<SIMDShader>(
-        option, kernel);
+        option, kernel, _warp_width);
     LUISA_VERBOSE(
         "SIMD shader compilation took {} ms.", clock.toc());
     ShaderCreationInfo info{};

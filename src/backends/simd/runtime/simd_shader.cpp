@@ -20,13 +20,19 @@ namespace {
 }// namespace
 
 SIMDShader::SIMDShader(
-    const ShaderOption &option, Function kernel) noexcept
+    const ShaderOption &option, Function kernel,
+    uint32_t warp_width) noexcept
     : _block_size{kernel.block_size()} {
     static_cast<void>(option);
-    auto width = static_cast<uint32_t>(
-        kernel.allowed_warp_size().value_or(8u));
+    if (auto allowed = kernel.allowed_warp_size();
+        allowed && *allowed != warp_width) {
+        LUISA_ERROR_WITH_LOCATION(
+            "SIMD kernel requests warp width {}, but the device was created "
+            "with width {}.",
+            *allowed, warp_width);
+    }
     _compiled = compile_simd_kernel(
-        kernel, width,
+        kernel, warp_width,
         kernel.name().empty() ? "simd_runtime_kernel" : kernel.name());
     if (!_compiled.succeeded()) {
         luisa::string diagnostics;
@@ -36,7 +42,7 @@ SIMDShader::SIMDShader(
         }
         LUISA_ERROR_WITH_LOCATION(
             "Failed to compile SIMD kernel (warp width {}):\n{}",
-            width, diagnostics);
+            warp_width, diagnostics);
     }
     _entry = reinterpret_cast<Entry *>(_compiled.entry);
     _build_bound_arguments(kernel.bound_arguments());

@@ -6,6 +6,9 @@ namespace luisa::compute::simd {
 
 class SIMDDevice final : public DeviceInterface {
 
+private:
+    uint _warp_width{8u};
+
 public:
     explicit SIMDDevice(Context &&context, const DeviceConfig *config) noexcept;
     ~SIMDDevice() noexcept override = default;

@@ -872,6 +872,29 @@ private:
         });
     }
 
+    [[nodiscard]] ::llvm::Value *_componentwise_varying_to_uniform(
+        const Type *result_type, ::llvm::Value *operand,
+        const Type *operand_type, const UnaryLeaf &leaf) {
+        if (_is_scalar_data(result_type)) {
+            if (!_is_scalar_data(operand_type)) {
+                _fail("aggregate warp collective result shape does not match its operand");
+                return nullptr;
+            }
+            return leaf(operand, operand_type);
+        }
+        if (_is_scalar_data(operand_type) ||
+            _child_count(result_type) != _child_count(operand_type)) {
+            _fail("aggregate warp collective result shape does not match its operand");
+            return nullptr;
+        }
+        return _assemble(result_type, false, [&](uint32_t i) {
+            return _componentwise_varying_to_uniform(
+                _child_type(result_type, i),
+                _extract_child(operand, operand_type, i, true),
+                _child_type(operand_type, i), leaf);
+        });
+    }
+
     [[nodiscard]] static std::optional<uint64_t> _constant_index(
         ::llvm::Value *value) noexcept {
         if (auto *integer = ::llvm::dyn_cast<::llvm::ConstantInt>(value)) {
@@ -2185,13 +2208,20 @@ private:
         auto *result_value = _source.value(*instruction.result);
         if (participants == nullptr) { return nullptr; }
         std::vector<::llvm::Value *> operands;
+        std::vector<const schedule::Value *> operand_values;
         operands.reserve(instruction.operands.size());
+        operand_values.reserve(instruction.operands.size());
         for (auto operand_id : instruction.operands) {
             auto *operand = _source.value(operand_id);
+            if (operand == nullptr) {
+                _fail("warp collective references an invalid operand");
+                return nullptr;
+            }
             auto *llvm_operand = _as_lane_vector(
                 _load_value(operand_id), *operand);
             if (llvm_operand == nullptr) { return nullptr; }
             operands.emplace_back(llvm_operand);
+            operand_values.emplace_back(operand);
         }
         auto require = [&](size_t count) {
             if (operands.size() != count) {
@@ -2212,7 +2242,23 @@ private:
             auto *safe = _builder.CreateSelect(
                 _builder.CreateOrReduce(participants), first,
                 _builder.getInt32(0u));
-            return _builder.CreateExtractElement(lanes, safe);
+            return _extract_lane(lanes, result_value->type, safe);
+        };
+        auto reduce_components = [&](const UnaryLeaf &leaf) {
+            if (!require(1u) || result_value == nullptr) {
+                return static_cast<::llvm::Value *>(nullptr);
+            }
+            return _componentwise_varying_to_uniform(
+                result_value->type, operands[0u],
+                operand_values[0u]->type, leaf);
+        };
+        auto scan_components = [&](const UnaryLeaf &leaf) {
+            if (!require(1u) || result_value == nullptr) {
+                return static_cast<::llvm::Value *>(nullptr);
+            }
+            return _componentwise_unary(
+                result_value->type, operands[0u],
+                operand_values[0u]->type, true, leaf);
         };
         switch (op) {
             case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE:
@@ -2224,43 +2270,59 @@ private:
                 return _collectives.first_active_lane(
                     _builder, participants);
             case xir::ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_all_equal(
-                    _builder, operands[0u], participants);
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.active_all_equal(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_BIT_AND:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_bit_and(
-                    _builder, operands[0u], participants);
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.active_bit_and(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_BIT_OR:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_bit_or(
-                    _builder, operands[0u], participants);
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.active_bit_or(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_BIT_XOR:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_bit_xor(
-                    _builder, operands[0u], participants);
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.active_bit_xor(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_COUNT_BITS:
                 if (!require(1u)) { return nullptr; }
                 return _collectives.active_count_bits(
                     _builder, operands[0u], participants);
             case xir::ThreadGroupOp::WARP_ACTIVE_MAX:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_max(
-                    _builder, operands[0u], participants,
-                    _source.value(instruction.operands[0u])->type->is_int());
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *type) {
+                        return _collectives.active_max(
+                            _builder, value, participants,
+                            type->is_int());
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_MIN:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_min(
-                    _builder, operands[0u], participants,
-                    _source.value(instruction.operands[0u])->type->is_int());
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *type) {
+                        return _collectives.active_min(
+                            _builder, value, participants,
+                            type->is_int());
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_PRODUCT:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_product(
-                    _builder, operands[0u], participants);
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.active_product(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_SUM:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.active_sum(
-                    _builder, operands[0u], participants);
+                return reduce_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.active_sum(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_ACTIVE_ALL:
                 if (!require(1u)) { return nullptr; }
                 return _collectives.active_all(
@@ -2278,25 +2340,40 @@ private:
                 return _collectives.prefix_count_bits(
                     _builder, operands[0u], participants);
             case xir::ThreadGroupOp::WARP_PREFIX_SUM:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.prefix_sum(
-                    _builder, operands[0u], participants);
+                return scan_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.prefix_sum(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_PREFIX_PRODUCT:
-                if (!require(1u)) { return nullptr; }
-                return _collectives.prefix_product(
-                    _builder, operands[0u], participants);
+                return scan_components(
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.prefix_product(
+                            _builder, value, participants);
+                    });
             case xir::ThreadGroupOp::WARP_READ_LANE:
                 if (!require(2u)) { return nullptr; }
-                return cohort_scalar(_collectives.read_lane(
-                                         _builder, operands[0u],
-                                         operands[1u], participants)
-                                         .values);
+                if (result_value == nullptr) { return nullptr; }
+                return cohort_scalar(_componentwise_unary(
+                    result_value->type, operands[0u],
+                    operand_values[0u]->type, true,
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.read_lane(
+                            _builder, value, operands[1u], participants)
+                            .values;
+                    }));
             case xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE:
-                if (!require(1u)) { return nullptr; }
-                return cohort_scalar(
-                    _collectives.read_first_active_lane(
-                        _builder, operands[0u], participants)
-                        .values);
+                if (!require(1u) || result_value == nullptr) {
+                    return nullptr;
+                }
+                return cohort_scalar(_componentwise_unary(
+                    result_value->type, operands[0u],
+                    operand_values[0u]->type, true,
+                    [&](::llvm::Value *value, const Type *) {
+                        return _collectives.read_first_active_lane(
+                            _builder, value, participants)
+                            .values;
+                    }));
             default:
                 _fail("Phase-2 LLVM packet codegen encountered a non-warp thread-group operation");
                 return nullptr;

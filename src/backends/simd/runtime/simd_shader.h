@@ -32,7 +32,9 @@ private:
         const void *argument_buffer, uint3 dispatch_size) const noexcept;
 
 public:
-    SIMDShader(const ShaderOption &option, Function kernel) noexcept;
+    SIMDShader(
+        const ShaderOption &option, Function kernel,
+        uint32_t warp_width) noexcept;
     ~SIMDShader() noexcept = default;
 
     void dispatch(

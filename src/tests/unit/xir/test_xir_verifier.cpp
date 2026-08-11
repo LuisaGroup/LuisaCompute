@@ -339,15 +339,19 @@ void reg_xir_verifier() {
 
     "xir_kernel_block_size_validation"_test = [] {
         for (auto size : {
+                 luisa::make_uint3(1u, 1u, 1u),
+                 luisa::make_uint3(4u, 1u, 1u),
+                 luisa::make_uint3(8u, 1u, 1u),
+                 luisa::make_uint3(31u, 1u, 1u),
                  luisa::make_uint3(32u, 1u, 1u),
+                 luisa::make_uint3(33u, 1u, 1u),
                  luisa::make_uint3(32u, 2u, 1u),
                  luisa::make_uint3(1024u, 1u, 1u)}) {
             expect(KernelFunction::is_valid_block_size(size));
         }
         for (auto size : {
                  luisa::make_uint3(0u, 32u, 1u),
-                 luisa::make_uint3(31u, 1u, 1u),
-                 luisa::make_uint3(33u, 1u, 1u),
+                 luisa::make_uint3(33u, 32u, 1u),
                  luisa::make_uint3(1025u, 1u, 1u),
                  luisa::make_uint3(0x80000001u, 32u, 1u),
                  luisa::make_uint3(0xffffffffu, 0xffffffffu, 0xffffffffu)}) {

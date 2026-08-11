@@ -1343,6 +1343,7 @@ luisa::optional<uint8_t> FunctionBuilder::allowed_warp_size() const noexcept {
 
 void FunctionBuilder::set_allowed_warp_size(uint8_t value) noexcept {
     switch (value) {
+        case 1:
         case 4:
         case 8:
         case 16:
@@ -1352,7 +1353,7 @@ void FunctionBuilder::set_allowed_warp_size(uint8_t value) noexcept {
             _allowed_warp_size = value;
             break;
         default:
-            LUISA_ERROR("Illegal warp size, must be 4, 8, 165, 32, 64, or 128");
+            LUISA_ERROR("Illegal warp size, must be 1, 4, 8, 16, 32, 64, or 128");
             break;
     }
 }

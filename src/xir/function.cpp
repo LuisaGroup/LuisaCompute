@@ -146,8 +146,7 @@ bool KernelFunction::is_valid_block_size(luisa::uint3 size) noexcept {
         return false;
     }
     auto thread_count = static_cast<uint64_t>(size.x) * size.y * size.z;
-    return thread_count >= 32u && thread_count <= max_thread_count &&
-           thread_count % 32u == 0u;
+    return thread_count <= max_thread_count;
 }
 
 void KernelFunction::set_block_size(luisa::uint3 size) noexcept {

@@ -545,11 +545,20 @@ luisa_compute_add_test(test_fp8_quantization     unit/runtime/test_fp8_quantizat
 # The SIMD backend is a host-only module, so its supported runtime conformance
 # subset is safe to run unattended without a GPU or driver installation.
 if (TARGET luisa-compute-backend-simd)
+    luisa_compute_add_test(test_simd_runtime_widths
+            unit/simd/test_simd_runtime_widths.cpp
+            LABELS integration_simd runtime_simd)
+    add_dependencies(test_simd_runtime_widths
+            luisa-compute-backend-simd)
+
     foreach (_simd_runtime_test IN ITEMS
             test_buffer
             test_buffer_view
             test_buffer_io
-            test_texture_io)
+            test_texture_io
+            test_warp
+            test_warp_prefix_scan
+            test_warp_sparse_collectives)
         add_dependencies(${_simd_runtime_test}
                 luisa-compute-backend-simd)
         add_test(NAME simd_${_simd_runtime_test}
