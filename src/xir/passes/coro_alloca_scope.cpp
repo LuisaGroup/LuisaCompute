@@ -1,17 +1,25 @@
 #include <algorithm>
+#include <array>
+#include <cstdlib>
 
+#include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/passes/coro_alloca_scope.h>
+#include <luisa/xir/passes/pointer_usage.h>
 
 #include "coro_frame_access.h"
 #include "coro_predicate_analysis.h"
@@ -266,6 +274,8 @@ struct LifetimeFactLayout {
 struct LifetimeProofResult {
     bool succeeded{false};
     bool guarded{false};
+    Instruction *failing_read{nullptr};
+    size_t failing_predicate_count{0u};
     size_t block_evaluation_count{0u};
     size_t guarded_state_evaluation_count{0u};
     size_t predicate_widening_count{0u};
@@ -280,6 +290,81 @@ struct LifetimeProofProblem {
     luisa::vector<uint8_t> active;
     luisa::vector<size_t> active_blocks;
     luisa::vector<luisa::vector<LifetimeEvent>> events;
+};
+
+struct ReferenceArgumentEffect {
+    // True iff some execution can observe the incoming object before a
+    // complete definition of the observed fields. This is a May property.
+    bool may_read_prior_value{true};
+    // True iff every normally returning execution has completely defined the
+    // object. This is a Must property. Non-returning exits do not weaken it.
+    bool fully_defines_on_return{false};
+};
+
+class ReferenceArgumentEffectAnalysis {
+private:
+    luisa::unordered_map<Argument *, ReferenceArgumentEffect> _effects;
+    luisa::unordered_set<FunctionDefinition *> _analyzed;
+
+private:
+    void _analyze(FunctionDefinition *definition) noexcept {
+        if (definition == nullptr || definition->body_block() == nullptr ||
+            !_analyzed.emplace(definition).second) {
+            return;
+        }
+
+        // PointerUsageAnalysis is a field-sensitive pair of finite dataflow
+        // problems. At function entry, LIVE is exactly the set of aggregate
+        // leaves that may be read before a definite overwrite. At each normal
+        // return, KILL is exactly the set definitely written on every path to
+        // that return. Calls inside the callee remain conservative opaque
+        // read/writes, so an unsupported or recursive dependency can only make
+        // this summary less precise, never unsound.
+        PointerUsageAnalysis analysis;
+        auto info = analysis.analyze(definition);
+        for (auto *argument : definition->arguments()) {
+            if (argument->is_reference()) {
+                _effects.try_emplace(argument, ReferenceArgumentEffect{});
+            }
+        }
+        if (!info.succeeded()) { return; }
+
+        for (auto *argument : definition->arguments()) {
+            if (!argument->is_reference()) { continue; }
+            auto *entry = analysis.in_usage(
+                definition->body_block(), argument);
+            if (entry == nullptr) { continue; }
+
+            auto has_normal_return = false;
+            auto defines_at_every_return = true;
+            for (auto *block : definition->basic_blocks()) {
+                auto *usage = analysis.out_usage(block, argument);
+                if (usage == nullptr || !block->is_terminated() ||
+                    !block->terminator()->isa<ReturnInst>()) {
+                    continue;
+                }
+                has_normal_return = true;
+                defines_at_every_return &= usage->kill.access().all();
+            }
+            _effects[argument] = ReferenceArgumentEffect{
+                .may_read_prior_value = entry->live.access().any(),
+                .fully_defines_on_return =
+                    has_normal_return && defines_at_every_return};
+        }
+    }
+
+public:
+    [[nodiscard]] ReferenceArgumentEffect effect(
+        Argument *argument) noexcept {
+        if (argument == nullptr || !argument->is_reference()) {
+            return {};
+        }
+        _analyze(argument->parent_function()->definition());
+        if (auto iter = _effects.find(argument); iter != _effects.end()) {
+            return iter->second;
+        }
+        return {};
+    }
 };
 
 [[nodiscard]] LifetimeFactLayout make_lifetime_fact_layout(
@@ -351,7 +436,8 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
     LifetimeFactState &state,
     const LifetimeFactLayout &layout,
     const CoroFrameAtomDomain &domain,
-    bool validate_reads) noexcept {
+    bool validate_reads,
+    Instruction **failing_read = nullptr) noexcept {
     for (auto event : events) {
         switch (event.kind) {
             case LifetimeEventKind::redefine_pointer:
@@ -367,6 +453,9 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
                 if (validate_reads &&
                     !pointer_is_defined(
                         event.pointer, state, layout, domain)) {
+                    if (failing_read != nullptr) {
+                        *failing_read = event.instruction;
+                    }
                     return false;
                 }
                 break;
@@ -375,11 +464,136 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
     return true;
 }
 
+[[nodiscard]] bool append_call_lifetime_events(
+    CallInst *call, const AllocaUseRegion &region,
+    ReferenceArgumentEffectAnalysis &reference_effects,
+    luisa::vector<LifetimeEvent> &events) noexcept {
+    auto *callee = call == nullptr ? nullptr : call->callee();
+    luisa::vector<Argument *> formals;
+    if (callee != nullptr) {
+        for (auto *argument : callee->arguments()) {
+            formals.emplace_back(argument);
+        }
+    }
+    auto signature_matches =
+        callee != nullptr && formals.size() == call->argument_count();
+
+    // A call is one unordered aliasing event at this abstraction level. Emit
+    // every possible old-value observation before any Must definition. This
+    // preserves soundness when the same object (or overlapping projections) is
+    // bound to multiple reference formals: a write-only formal must not hide a
+    // read-before-write through an aliasing formal merely because it appears
+    // earlier in the signature.
+    luisa::vector<Value *> reads;
+    luisa::vector<Value *> definitions;
+    luisa::unordered_set<Value *> seen_reads;
+    luisa::unordered_set<Value *> seen_definitions;
+    auto found_pointer_operand = false;
+    for (size_t i = 0u; i < call->argument_count(); ++i) {
+        auto *actual = call->argument(i);
+        if (!region.pointers.contains(actual)) { continue; }
+        found_pointer_operand = true;
+        auto effect = ReferenceArgumentEffect{};
+        if (signature_matches && formals[i]->is_reference() &&
+            formals[i]->type() == actual->type()) {
+            effect = reference_effects.effect(formals[i]);
+        }
+        if (effect.may_read_prior_value &&
+            seen_reads.emplace(actual).second) {
+            reads.emplace_back(actual);
+        }
+        if (effect.fully_defines_on_return &&
+            seen_definitions.emplace(actual).second) {
+            definitions.emplace_back(actual);
+        }
+    }
+    for (auto *pointer : reads) {
+        events.emplace_back(
+            LifetimeEventKind::read, pointer, call);
+    }
+    for (auto *pointer : definitions) {
+        events.emplace_back(
+            LifetimeEventKind::store, pointer, call);
+    }
+    return found_pointer_operand;
+}
+
+[[nodiscard]] bool append_ray_query_pipeline_lifetime_events(
+    RayQueryPipelineInst *pipeline, const AllocaUseRegion &region,
+    ReferenceArgumentEffectAnalysis &reference_effects,
+    luisa::vector<LifetimeEvent> &events) noexcept {
+    if (pipeline == nullptr) { return false; }
+
+    luisa::unordered_set<Value *> seen_reads;
+    auto append_read = [&](Value *pointer) noexcept {
+        if (region.pointers.contains(pointer) &&
+            seen_reads.emplace(pointer).second) {
+            events.emplace_back(
+                LifetimeEventKind::read, pointer, pipeline);
+            return true;
+        }
+        return false;
+    };
+
+    // The query object is state consumed by the traversal itself. Candidate
+    // callbacks, however, execute zero or more times in backend-defined
+    // candidate order. Therefore a capture may begin a fresh lifetime iff no
+    // possible handler reads its incoming value before defining it. Callback
+    // writes are deliberately not Must definitions of the pipeline: a query
+    // with no matching candidate executes neither handler.
+    auto found_pointer_operand = append_read(pipeline->query_object());
+    auto capture_count = pipeline->captured_argument_count();
+    auto handlers = std::array{
+        pipeline->on_surface_function(),
+        pipeline->on_procedural_function()};
+    luisa::vector<luisa::vector<Argument *>> handler_formals;
+    handler_formals.reserve(handlers.size());
+    for (auto *handler : handlers) {
+        auto &formals = handler_formals.emplace_back();
+        if (handler != nullptr) {
+            for (auto *argument : handler->arguments()) {
+                formals.emplace_back(argument);
+            }
+        }
+    }
+
+    for (size_t capture_index = 0u;
+         capture_index < capture_count; ++capture_index) {
+        auto *actual = pipeline->captured_argument(capture_index);
+        if (!region.pointers.contains(actual)) { continue; }
+        found_pointer_operand = true;
+        auto may_read_prior_value = false;
+        for (size_t handler_index = 0u;
+             handler_index < handlers.size(); ++handler_index) {
+            auto *handler = handlers[handler_index];
+            auto &formals = handler_formals[handler_index];
+            auto signature_matches =
+                handler != nullptr &&
+                formals.size() == capture_count + 1u;
+            if (!signature_matches) {
+                may_read_prior_value = true;
+                break;
+            }
+            auto *formal = formals[capture_index + 1u];
+            if (!formal->is_reference() || formal->type() != actual->type() ||
+                reference_effects.effect(formal).may_read_prior_value) {
+                may_read_prior_value = true;
+                break;
+            }
+        }
+        if (may_read_prior_value) {
+            static_cast<void>(append_read(actual));
+        }
+    }
+    return found_pointer_operand;
+}
+
 [[nodiscard]] LifetimeProofProblem make_lifetime_proof_problem(
     BasicBlock *target, Instruction *insertion_instruction,
     const AllocaUseRegion &region,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain,
+    ReferenceArgumentEffectAnalysis &reference_effects,
     luisa::span<const size_t> atom_indices) noexcept {
     LifetimeProofProblem problem;
     auto target_id = graph.block_id(target);
@@ -460,6 +674,23 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
                     LifetimeEventKind::store, pointer, instruction});
                 continue;
             }
+            if (instruction->isa<CallInst>()) {
+                if (!append_call_lifetime_events(
+                        static_cast<CallInst *>(instruction), region,
+                        reference_effects, problem.events[block_id])) {
+                    return problem;
+                }
+                continue;
+            }
+            if (instruction->isa<RayQueryPipelineInst>()) {
+                if (!append_ray_query_pipeline_lifetime_events(
+                        static_cast<RayQueryPipelineInst *>(instruction),
+                        region, reference_effects,
+                        problem.events[block_id])) {
+                    return problem;
+                }
+                continue;
+            }
             auto found_pointer_operand = false;
             luisa::unordered_set<Value *> seen_pointers;
             for (auto *operand_use : instruction->operand_uses()) {
@@ -470,8 +701,9 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
                     continue;
                 }
                 found_pointer_operand = true;
-                // Atomics, reference calls, and unknown pointer operations
-                // may observe the old value before any possible write.
+                // Atomics and unknown pointer operations may observe the old
+                // value before any possible write. Ordinary reference calls
+                // are handled above by their field-sensitive callee summary.
                 block_events.emplace_back(LifetimeEvent{
                     LifetimeEventKind::read, pointer, instruction});
             }
@@ -550,7 +782,8 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
         auto state = in_states[block_id];
         if (!apply_lifetime_events(
                 problem.events[block_id], state,
-                problem.layout, domain, true)) {
+                problem.layout, domain, true,
+                &result.failing_read)) {
             return result;
         }
     }
@@ -737,7 +970,8 @@ make_guarded_transfer_events(
     const CoroPredicateAnalysis &predicates,
     const LifetimeFactLayout &layout,
     const CoroFrameAtomDomain &domain,
-    bool validate_reads) noexcept {
+    bool validate_reads,
+    Instruction **failing_read = nullptr) noexcept {
     for (auto event : events) {
         kill_predicates(
             state.cube,
@@ -747,7 +981,8 @@ make_guarded_transfer_events(
                 luisa::span<const LifetimeEvent>{
                     event.lifetimes, event.lifetime_count},
                 state.facts,
-                layout, domain, validate_reads)) {
+                layout, domain, validate_reads,
+                failing_read)) {
             return false;
         }
     }
@@ -812,7 +1047,10 @@ make_guarded_transfer_events(
         for (auto state : in_states[block_id]) {
             if (!apply_guarded_transfer(
                     transfers[block_id], state, predicates,
-                    problem.layout, domain, true)) {
+                    problem.layout, domain, true,
+                    &result.failing_read)) {
+                result.failing_predicate_count =
+                    state.cube.size();
                 return result;
             }
         }
@@ -827,10 +1065,11 @@ make_guarded_transfer_events(
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain,
     const CoroPredicateAnalysis &predicates,
+    ReferenceArgumentEffectAnalysis &reference_effects,
     luisa::span<const size_t> atom_indices) noexcept {
     auto problem = make_lifetime_proof_problem(
         target, insertion_instruction, region, graph,
-        domain, atom_indices);
+        domain, reference_effects, atom_indices);
     auto unconditional = prove_unconditional_fresh_lifetime(
         problem, graph, domain);
     if (unconditional.succeeded) { return unconditional; }
@@ -861,6 +1100,14 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     info.semantic_block_count = graph.block_count();
     info.semantic_edge_count = graph.edge_count();
     detail::CoroPredicateAnalysis predicates{graph};
+    detail::ReferenceArgumentEffectAnalysis reference_effects;
+    const auto dump_scope_rejections = []() noexcept {
+        if (auto value = std::getenv(
+                "LUISA_CORO_DUMP_ALLOCA_SCOPE")) {
+            return luisa::string_view{value} == "1";
+        }
+        return false;
+    }();
 
     // Reuse the same type-shaped May/Must partition as coroutine liveness.
     // The definite-initialization proof and the eventual frame transfer must
@@ -947,7 +1194,8 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                                         atom_iter->second};
             auto proof = detail::prove_fresh_lifetime(
                 target, insertion.instruction, region, graph,
-                frame_domain, predicates, atom_indices);
+                frame_domain, predicates, reference_effects,
+                atom_indices);
             info.definite_initialization_block_evaluation_count +=
                 proof.block_evaluation_count;
             info.guarded_initialization_state_evaluation_count +=
@@ -955,6 +1203,41 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             info.predicate_widening_count +=
                 proof.predicate_widening_count;
             if (!proof.succeeded) {
+                if (dump_scope_rejections) {
+                    const auto alloca_name =
+                        alloca->name().value_or("<unnamed>");
+                    const auto read_name =
+                        proof.failing_read == nullptr ?
+                            luisa::string_view{"<none>"} :
+                            proof.failing_read->name().value_or("<unnamed>");
+                    const auto read_kind =
+                        proof.failing_read == nullptr ?
+                            luisa::string_view{"<none>"} :
+                            to_string(proof.failing_read->derived_instruction_tag());
+                    const auto callee_name =
+                        proof.failing_read != nullptr &&
+                                proof.failing_read->isa<CallInst>() &&
+                                static_cast<CallInst *>(proof.failing_read)
+                                        ->callee() != nullptr ?
+                            static_cast<CallInst *>(proof.failing_read)
+                                ->callee()
+                                ->name()
+                                .value_or("<unnamed>") :
+                            luisa::string_view{"<none>"};
+                    LUISA_INFO(
+                        "Coroutine alloca lifetime rejection: name='{}' "
+                        "type={} source_block={} target_block={} atoms={} "
+                        "pointers={} users={} use_blocks={} failing_read='{}' "
+                        "failing_kind={} callee='{}' guard_predicates={}.",
+                        alloca_name,
+                        alloca->type()->description(),
+                        graph.block_id(source),
+                        graph.block_id(target),
+                        atom_indices.size(), region.pointers.size(),
+                        region.users.size(), region.blocks.size(),
+                        read_name, read_kind, callee_name,
+                        proof.failing_predicate_count);
+                }
                 ++info.rejected_prior_lifetime_observation_count;
                 continue;
             }

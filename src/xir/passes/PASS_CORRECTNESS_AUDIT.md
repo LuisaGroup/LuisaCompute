@@ -479,6 +479,20 @@ The audited contracts are:
   the new insertion point. Moving that unique store cannot change which value
   any load observes; unsupported partial stores, special-register values,
   reference uses, or Phi-edge uses are rejected without mutation.
+- Reference effects use the existing field-sensitive pointer dataflow rather
+  than opcode or callable-name heuristics. For each reference formal,
+  `LIVE(entry)` is the May set read before a definite overwrite, while the
+  intersection of `KILL` at all reachable normal returns is the Must-defined
+  set. The lifetime proof currently consumes only whole-object facts; partial
+  effects and unsupported/nested calls conservatively remain reads. At a call,
+  all May reads precede all Must definitions in the abstract transfer so
+  aliased formals cannot become signature-order dependent.
+- A ray-query pipeline may invoke either candidate callback zero or more times.
+  Its captured-reference transfer therefore joins the two handlers' May-read
+  summaries but never treats callback writes as a pipeline Must definition.
+  This proves fresh write-only scratch captures while preserving callback
+  accumulators and rejecting a post-pipeline read that would rely on a
+  candidate having executed.
 
 Pass placement was measured rather than selected from one synthetic fixture.
 SCCP runs after algebraic simplification and constant folding expose constants,
@@ -493,10 +507,18 @@ increase frame liveness.
 
 Validation evidence:
 
-- `test_xir_pass_coro_alloca_scope`: 16 tests / 117 assertions, including
+- `test_xir_pass_coro_alloca_scope`: 23 tests / 161 assertions, including
   branch correlation, inverted predicates, dynamic-leaf invalidation, loops,
   exact subaggregate versions, bounded conservative rejection, and unique
-  first-definition availability.
+  first-definition availability. The reference-effect regressions cover a
+  write-only call, read-before-write, a conditional non-Must write, aliased
+  formals, write-only ray-query captures, callback reads, and the zero-candidate
+  pipeline case.
+- The production Psycles Lone Monk coroutine contracts all 8,101 local
+  allocations after the callback-effect proof. Its frame decreases from 175
+  fields / 672 bytes to 81 fields / 336 bytes. A 64x64, one-sample HIP pairing
+  remains byte-identical to the non-coroutine megakernel for the display image
+  and all 15 linear film passes.
 - `test_xir_pass_sccp`: 10 tests / 41 assertions, including reachable and dead
   token-matched continuations.
 - `test_xir_passes`: 366 tests / 2,257 assertions, including a GVN continuation

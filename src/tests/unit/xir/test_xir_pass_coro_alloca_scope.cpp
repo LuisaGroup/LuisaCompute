@@ -3,6 +3,7 @@
 #include "ut/ut.hpp"
 
 #include <algorithm>
+#include <array>
 
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
@@ -48,6 +49,25 @@ namespace {
         ++index;
     }
     return index;
+}
+
+[[nodiscard]] CallableFunction *make_ray_query_capture_handler(
+    Module &module, const Type *query_type,
+    bool read_capture, bool write_capture) noexcept {
+    auto *handler = module.create_callable(nullptr);
+    handler->create_reference_argument(query_type);
+    auto *capture = handler->create_reference_argument(Type::of<uint>());
+    XIRBuilder builder;
+    builder.set_insertion_point(handler->create_body_block());
+    if (read_capture) {
+        static_cast<void>(builder.load(Type::of<uint>(), capture));
+    }
+    if (write_capture) {
+        builder.store(
+            capture, module.create_constant_one(Type::of<uint>()));
+    }
+    builder.return_void();
+    return handler;
 }
 
 }// namespace
@@ -269,6 +289,242 @@ void register_coro_alloca_scope_tests() {
         builder.store(
             element_0, module.create_constant_zero(Type::of<uint>()));
         static_cast<void>(builder.load(array_type, scratch));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "write_only_reference_call_starts_a_fresh_lifetime"_test = [] {
+        Module module;
+        auto *writer = module.create_callable(nullptr);
+        auto *output = writer->create_reference_argument(Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(writer->create_body_block());
+        builder.store(output, module.create_constant_one(Type::of<uint>()));
+        builder.return_void();
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *phase = kernel->create_basic_block();
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        auto *call = builder.call(nullptr, writer, {scratch});
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 1u);
+        expect(info.rejected_prior_lifetime_observation_count == 0u);
+        expect(info.contracted_alloca_count == 1u);
+        expect(scratch->parent_block() == phase);
+        expect(instruction_index(phase, scratch) <
+               instruction_index(phase, call));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "reference_call_read_before_write_preserves_prior_lifetime"_test = [] {
+        Module module;
+        auto *reader_writer = module.create_callable(nullptr);
+        auto *argument = reader_writer->create_reference_argument(
+            Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(reader_writer->create_body_block());
+        static_cast<void>(builder.load(Type::of<uint>(), argument));
+        builder.store(argument, module.create_constant_one(Type::of<uint>()));
+        builder.return_void();
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *phase = kernel->create_basic_block();
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        builder.call(nullptr, reader_writer, {scratch});
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "conditional_reference_write_is_not_a_must_definition"_test = [] {
+        Module module;
+        auto *conditional_writer = module.create_callable(nullptr);
+        auto *output = conditional_writer->create_reference_argument(
+            Type::of<uint>());
+        auto *condition = conditional_writer->create_value_argument(
+            Type::of<bool>());
+        XIRBuilder builder;
+        builder.set_insertion_point(conditional_writer->create_body_block());
+        auto *selection = builder.if_(condition);
+        auto *merge = selection->create_merge_block();
+        builder.set_insertion_point(selection->create_true_block());
+        builder.store(output, module.create_constant_one(Type::of<uint>()));
+        builder.br(merge);
+        builder.set_insertion_point(selection->create_false_block());
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *phase = kernel->create_basic_block();
+        auto *caller_condition = kernel->create_value_argument(
+            Type::of<bool>());
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        builder.call(nullptr, conditional_writer,
+                     {scratch, caller_condition});
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "aliased_reference_formals_observe_before_any_must_write"_test = [] {
+        Module module;
+        auto *callee = module.create_callable(nullptr);
+        // Keep the writer first to ensure signature order cannot make its Must
+        // definition mask the later formal's old-value observation.
+        auto *writer = callee->create_reference_argument(Type::of<uint>());
+        auto *reader = callee->create_reference_argument(Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(callee->create_body_block());
+        static_cast<void>(builder.load(Type::of<uint>(), reader));
+        builder.store(writer, module.create_constant_one(Type::of<uint>()));
+        builder.return_void();
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *phase = kernel->create_basic_block();
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        builder.call(nullptr, callee, {scratch, scratch});
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "ray_query_write_only_capture_starts_a_fresh_lifetime"_test = [] {
+        Module module;
+        auto *query_type = Type::custom("LC_RayQueryAll");
+        auto *surface = make_ray_query_capture_handler(
+            module, query_type, false, true);
+        auto *procedural = make_ray_query_capture_handler(
+            module, query_type, false, false);
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *query = kernel->create_reference_argument(query_type);
+        auto *phase = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        std::array<Value *, 1u> captures{scratch};
+        auto *pipeline = builder.ray_query_pipeline(
+            query, surface, procedural,
+            luisa::span<Value *const>{captures});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 1u);
+        expect(info.rejected_prior_lifetime_observation_count == 0u);
+        expect(info.contracted_alloca_count == 1u);
+        expect(scratch->parent_block() == phase);
+        expect(instruction_index(phase, scratch) <
+               instruction_index(phase, pipeline));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "ray_query_callback_read_preserves_prior_lifetime"_test = [] {
+        Module module;
+        auto *query_type = Type::custom("LC_RayQueryAll");
+        auto *surface = make_ray_query_capture_handler(
+            module, query_type, true, false);
+        auto *procedural = make_ray_query_capture_handler(
+            module, query_type, false, false);
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *query = kernel->create_reference_argument(query_type);
+        auto *phase = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        std::array<Value *, 1u> captures{scratch};
+        builder.ray_query_pipeline(
+            query, surface, procedural,
+            luisa::span<Value *const>{captures});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "ray_query_callback_write_is_not_a_pipeline_must_definition"_test = [] {
+        Module module;
+        auto *query_type = Type::custom("LC_RayQueryAll");
+        auto *surface = make_ray_query_capture_handler(
+            module, query_type, false, true);
+        auto *procedural = make_ray_query_capture_handler(
+            module, query_type, false, true);
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *query = kernel->create_reference_argument(query_type);
+        auto *phase = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        std::array<Value *, 1u> captures{scratch};
+        builder.ray_query_pipeline(
+            query, surface, procedural,
+            luisa::span<Value *const>{captures});
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
