@@ -73,6 +73,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/call_graph.cpp
         passes/convergence_region.cpp
         passes/coro_cfg_distill.cpp
+        passes/coro_replayable.cpp
         passes/coro_materialize.cpp
         passes/dead_field_elimination.cpp
         passes/coro_reg2mem.cpp

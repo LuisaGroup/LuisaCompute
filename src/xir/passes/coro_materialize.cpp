@@ -139,13 +139,13 @@ struct RegisterInfo {
                                                  const CoroCfgDistillResult &cfg) noexcept {
     if (frame == nullptr || frame->type() == nullptr || !frame->type()->is_structure()) { return false; }
     auto members = frame->type()->members();
-    if (members.size() != FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size()) { return false; }
+    if (members.size() != FRAME_RESERVED_FIELD_COUNT + cfg.frame_slots.size()) { return false; }
     for (auto i = 0u; i < FRAME_RESERVED_FIELD_COUNT; ++i) {
         if (members[i] != Type::of<uint>()) { return false; }
     }
-    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
-        if (cfg.frame_values[i].type == nullptr ||
-            members[FRAME_RESERVED_FIELD_COUNT + i] != cfg.frame_values[i].type) {
+    for (size_t i = 0u; i < cfg.frame_slots.size(); ++i) {
+        if (cfg.frame_slots[i].type == nullptr ||
+            members[FRAME_RESERVED_FIELD_COUNT + i] != cfg.frame_slots[i].type) {
             return false;
         }
     }
@@ -708,13 +708,13 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     }
     luisa::unordered_map<Value *, size_t> value_field_map;
     info.register_count = cfg.frame_values.size();
-    info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size();
-    info.frame_fields.reserve(cfg.frame_values.size());
+    info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_slots.size();
+    info.frame_fields.reserve(cfg.frame_slots.size());
     luisa::unordered_set<luisa::string> used_names;
-    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
-        auto &value = cfg.frame_values[i];
+    for (size_t i = 0u; i < cfg.frame_slots.size(); ++i) {
+        auto &slot = cfg.frame_slots[i];
         auto field_index = i + detail::FRAME_RESERVED_FIELD_COUNT;
-        auto name = value.name;
+        auto name = slot.name;
         if (!used_names.emplace(name).second) {
             auto base = name;
             auto suffix = i;
@@ -724,12 +724,26 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
         }
         info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
             .name = name,
-            .type = value.type,
+            .type = slot.type,
             .index = field_index,
         });
         info.name_to_field.emplace(name, field_index);
-        info.name_to_type.emplace(name, value.type);
+        info.name_to_type.emplace(name, slot.type);
+    }
+    for (auto &value : cfg.frame_values) {
+        auto field_index =
+            detail::FRAME_RESERVED_FIELD_COUNT + value.slot;
         value_field_map.emplace(value.value, field_index);
+        auto [field_iter, field_inserted] =
+            info.name_to_field.emplace(value.name, field_index);
+        auto [type_iter, type_inserted] =
+            info.name_to_type.emplace(value.name, value.type);
+        LUISA_ASSERT(
+            (field_inserted || field_iter->second == field_index) &&
+                (type_inserted || type_iter->second == value.type),
+            "Coroutine logical frame alias '{}' is inconsistent with its "
+            "physical slot.",
+            value.name);
     }
     detail::populate_value_transition_edges(info, cfg, value_field_map);
 

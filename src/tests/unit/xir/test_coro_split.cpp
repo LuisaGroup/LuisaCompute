@@ -2,12 +2,14 @@
 
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
+#include <luisa/dsl/coro_frame.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
@@ -1472,6 +1474,131 @@ void reg_coro_split() {
             expect(dom_tree.dominates(definition_parent, use_parent));
         }
         expect(xir_verify_function(subroutine).succeeded());
+    };
+
+    "replayed_value_is_cloned_per_non_dominating_use_region"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *x = kernel->create_argument(Type::of<float>(), false);
+        auto *branch = kernel->create_argument(Type::of<bool>(), false);
+        auto *resume = kernel->create_basic_block();
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<float>());
+        b.set_insertion_point(entry);
+        auto *replay = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD,
+            {x, one});
+        b.coro_suspend(53u, "branch-replay", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(53u, nullptr);
+        b.cond_br(branch, left, right);
+        b.set_insertion_point(left);
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_MUL,
+            {replay, one}));
+        b.br(merge);
+        b.set_insertion_point(right);
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_SUB,
+            {replay, one}));
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.empty());
+        auto split = coro_split_pass_run_on_module_info(&m);
+
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        if (split.subroutines.size() != 2u) { return; }
+        auto *continuation = split.subroutines[1u].callable;
+        luisa::vector<ArithmeticInst *> replayed_adds;
+        continuation->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (instruction->isa<ArithmeticInst>() &&
+                    static_cast<ArithmeticInst *>(instruction)->op() ==
+                        ArithmeticOp::BINARY_ADD) {
+                    replayed_adds.emplace_back(
+                        static_cast<ArithmeticInst *>(instruction));
+                }
+            });
+        expect(replayed_adds.size() == 2u);
+        if (replayed_adds.size() == 2u) {
+            expect(replayed_adds[0u]->parent_block() !=
+                   replayed_adds[1u]->parent_block());
+        }
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
+    };
+
+    "split_materializes_colored_frame_slot_once"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<uint64_t>());
+        b.set_insertion_point(entry);
+        auto *first = b.clock();
+        b.coro_suspend(79u, "first", nullptr);
+        b.set_insertion_point(resume_first);
+        b.coro_resume(79u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {first, one}));
+        auto *second = b.clock();
+        b.coro_suspend(83u, "second", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(83u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {second, one}));
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 2u);
+        expect(cfg.frame_slots.size() == 1u);
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 3u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                expect(subroutine.frame_argument->type()->members().size() ==
+                       CoroFrameDesc::reserved_field_count + 1u);
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 2u);
+        expect(materialized.frame_fields.size() == 1u);
+        expect(materialized.frame_field_count ==
+               CoroFrameDesc::reserved_field_count + 1u);
+        expect(materialized.name_to_field.size() == 2u);
+        expect(materialized.name_to_type.size() == 2u);
+        if (cfg.frame_values.size() == 2u) {
+            expect(materialized.name_to_field.at(
+                       cfg.frame_values[0u].name) ==
+                   materialized.name_to_field.at(
+                       cfg.frame_values[1u].name));
+        }
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 

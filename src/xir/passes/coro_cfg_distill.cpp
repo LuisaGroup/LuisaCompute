@@ -25,6 +25,7 @@
 #include <luisa/xir/verifier.h>
 
 #include "../pointer_containers.h"
+#include "coro_replayable.h"
 #include "helpers.h"
 
 namespace luisa::compute::xir {
@@ -76,7 +77,7 @@ static void hash_optional_token(DistillCertificateHasher &h,
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{1u});
+    h.add(uint64_t{2u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -194,6 +195,12 @@ static void hash_optional_token(DistillCertificateHasher &h,
         h.add_pointer(frame_value.value);
         h.add_string(frame_value.name);
         h.add_pointer(frame_value.type);
+        h.add(frame_value.slot);
+    }
+    h.add(result.frame_slots.size());
+    for (auto &frame_slot : result.frame_slots) {
+        h.add_string(frame_slot.name);
+        h.add_pointer(frame_slot.type);
     }
     h.add(result.structured_cfg_error_count);
     h.add(result.invalid_input_error_count);
@@ -521,9 +528,16 @@ public:
 };
 
 struct PointerScopeDataflowState {
+    detail::CoroReplayableValueAnalysis *replayable{nullptr};
     luisa::unordered_set<Value *> killed;
     luisa::unordered_set<Value *> external;
     luisa::unordered_set<Value *> touched;
+
+    PointerScopeDataflowState() noexcept = default;
+
+    explicit PointerScopeDataflowState(
+        detail::CoroReplayableValueAnalysis &analysis) noexcept
+        : replayable{&analysis} {}
 
     void kill(Value *value) noexcept { killed.emplace(value); }
     void expose(Value *value) noexcept { external.emplace(value); }
@@ -535,13 +549,16 @@ struct PointerScopeDataflowState {
 
 struct DenseScopeDataflowState {
     const DenseValueDomain *domain;
+    detail::CoroReplayableValueAnalysis *replayable;
     DenseValueSet killed;
     DenseValueSet external;
     DenseValueSet touched;
 
     explicit DenseScopeDataflowState(
-        const DenseValueDomain &value_domain) noexcept
+        const DenseValueDomain &value_domain,
+        detail::CoroReplayableValueAnalysis &analysis) noexcept
         : domain{&value_domain},
+          replayable{&analysis},
           killed{value_domain.size()},
           external{value_domain.size()},
           touched{value_domain.size()} {}
@@ -576,6 +593,7 @@ static void may_touch_value(Value *value, State &state) noexcept {
 template<typename State>
 static void use_value(Value *value, State &state) noexcept {
     if (is_always_available(value)) { return; }
+    if (state.replayable->detect(value)) { return; }
     if (auto *frame_value = frame_value_for_operand(value)) {
         if (!state.is_killed(frame_value)) {
             state.expose(frame_value);
@@ -719,7 +737,8 @@ static void merge_pointer_state_into_entry(
 
 [[nodiscard]] static PointerScopeDataflowResult
 analyze_scope_use_def_pointer_oracle(
-    const CoroCfgDistillResult::Scope &scope) noexcept {
+    const CoroCfgDistillResult::Scope &scope,
+    detail::CoroReplayableValueAnalysis &replayable) noexcept {
     PointerScopeDataflowResult result;
     if (scope.blocks.empty()) { return result; }
     luisa::unordered_set<BasicBlock *> scope_blocks;
@@ -729,7 +748,7 @@ analyze_scope_use_def_pointer_oracle(
     for (;;) {
         auto changed = false;
         for (auto *block : scope.blocks) {
-            PointerScopeDataflowState next_in;
+            PointerScopeDataflowState next_in{replayable};
             auto first_predecessor = block != scope.blocks.front();
             block->traverse_predecessors(
                 false, [&](BasicBlock *predecessor) noexcept {
@@ -792,7 +811,8 @@ struct DenseScopeDataflowResult {
 
 [[nodiscard]] static DenseScopeDataflowResult analyze_scope_use_def(
     const CoroCfgDistillResult::Scope &scope,
-    const DenseValueDomain &value_domain) noexcept {
+    const DenseValueDomain &value_domain,
+    detail::CoroReplayableValueAnalysis &replayable) noexcept {
     auto block_count = scope.blocks.size();
     auto value_count = value_domain.size();
     DenseScopeDataflowResult result{block_count, value_count};
@@ -817,7 +837,8 @@ struct DenseScopeDataflowResult {
     luisa::vector<DenseScopeDataflowState> local_transfers;
     local_transfers.reserve(block_count);
     for (auto *block : scope.blocks) {
-        auto &local = local_transfers.emplace_back(value_domain);
+        auto &local = local_transfers.emplace_back(
+            value_domain, replayable);
         for (auto *instruction : block->instructions()) {
             transfer_instruction(instruction, local);
         }
@@ -928,7 +949,8 @@ struct DenseScopeDataflowResult {
     }
     if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
         flag != nullptr && luisa::string_view{flag} == "1") {
-        auto oracle = analyze_scope_use_def_pointer_oracle(scope);
+        auto oracle = analyze_scope_use_def_pointer_oracle(
+            scope, replayable);
         auto to_pointer_set = [&](const DenseValueSet &dense) noexcept {
             luisa::unordered_set<Value *> pointers;
             luisa::vector<Value *> values;
@@ -1005,16 +1027,114 @@ static void append_names_from_values(luisa::vector<luisa::string> &dst,
     }
 }
 
+static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
+    auto value_count = result.frame_values.size();
+    result.frame_slots.clear();
+    if (value_count == 0u) { return; }
+
+    DensePointerMap<Value *, size_t> value_indices;
+    value_indices.reserve(value_count);
+    for (size_t i = 0u; i < value_count; ++i) {
+        value_indices.emplace(result.frame_values[i].value, i);
+    }
+
+    luisa::vector<DenseValueSet> interference;
+    interference.reserve(value_count);
+    for (size_t i = 0u; i < value_count; ++i) {
+        interference.emplace_back(value_count);
+    }
+    auto add_clique = [&](luisa::span<Value *const> values) noexcept {
+        luisa::vector<size_t> indices;
+        indices.reserve(values.size());
+        for (auto *value : values) {
+            if (auto iter = value_indices.find(value);
+                iter != value_indices.end()) {
+                indices.emplace_back(iter->second);
+            }
+        }
+        for (size_t i = 0u; i < indices.size(); ++i) {
+            for (size_t j = i + 1u; j < indices.size(); ++j) {
+                interference[indices[i]].set(indices[j]);
+                interference[indices[j]].set(indices[i]);
+            }
+        }
+    };
+    // All continuation inputs are loaded before the cloned body executes, so
+    // they must occupy distinct fields. More importantly, edge.live_values is
+    // the complete state that must coexist after a transition, including a
+    // dormant value that the source scope neither reloads nor stores but that
+    // a later continuation still needs. Coloring only edge.store_values would
+    // let a newly stored value overwrite such pass-through state. Values that
+    // only occur in disjoint post-transition live sets intentionally do not
+    // interfere.
+    for (auto &scope : result.scopes) {
+        add_clique(scope.live_in_values);
+    }
+    for (auto &edge : result.transition_edges) {
+        add_clique(edge.live_values);
+    }
+
+    luisa::vector<const Type *> type_order;
+    luisa::unordered_map<const Type *, luisa::vector<size_t>> values_by_type;
+    for (size_t i = 0u; i < value_count; ++i) {
+        auto *type = result.frame_values[i].type;
+        auto [iter, inserted] = values_by_type.try_emplace(type);
+        if (inserted) { type_order.emplace_back(type); }
+        iter->second.emplace_back(i);
+    }
+
+    luisa::vector<luisa::vector<size_t>> slot_occupants;
+    luisa::unordered_map<const Type *, luisa::vector<size_t>> slots_by_type;
+    for (auto *type : type_order) {
+        auto &values = values_by_type.at(type);
+        std::stable_sort(
+            values.begin(), values.end(),
+            [&](size_t lhs, size_t rhs) noexcept {
+                return interference[lhs].count_size() >
+                       interference[rhs].count_size();
+            });
+        for (auto value_index : values) {
+            auto &value = result.frame_values[value_index];
+            auto slot_index = static_cast<size_t>(-1);
+            for (auto candidate : slots_by_type[type]) {
+                auto conflict = false;
+                for (auto occupant : slot_occupants[candidate]) {
+                    if (interference[value_index].test(occupant)) {
+                        conflict = true;
+                        break;
+                    }
+                }
+                if (!conflict) {
+                    slot_index = candidate;
+                    break;
+                }
+            }
+            if (slot_index == static_cast<size_t>(-1)) {
+                slot_index = result.frame_slots.size();
+                result.frame_slots.emplace_back(
+                    CoroCfgDistillResult::FrameSlot{
+                        .name = value.name,
+                        .type = value.type});
+                slot_occupants.emplace_back();
+                slots_by_type[type].emplace_back(slot_index);
+            }
+            value.slot = slot_index;
+            slot_occupants[slot_index].emplace_back(value_index);
+        }
+    }
+}
+
 static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinition *def) noexcept {
     auto n = result.scopes.size();
     DenseValueDomain value_domain{def};
+    detail::CoroReplayableValueAnalysis replayable;
     auto value_count = value_domain.size();
 
     luisa::vector<DenseScopeDataflowResult> scope_data;
     scope_data.reserve(n);
     for (auto &scope : result.scopes) {
         scope_data.emplace_back(
-            analyze_scope_use_def(scope, value_domain));
+            analyze_scope_use_def(scope, value_domain, replayable));
     }
 
     luisa::unordered_map<uint32_t, size_t> trigger_to_scope;
@@ -1216,6 +1336,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             .value = value,
             .name = std::move(name),
             .type = value->type(),
+            .slot = 0u,
         });
     }
 
@@ -1249,6 +1370,8 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         append_names_from_values(edge.live_variables, edge.live_values, names);
         append_names_from_values(edge.store_variables, edge.store_values, names);
     }
+
+    color_frame_slots(result);
 
     if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
         flag != nullptr && luisa::string_view{flag} == "1") {
@@ -1393,13 +1516,48 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             block_evaluations +=
                 scope_data[i].fixed_point_block_evaluations;
         }
+        auto named_frame_allocas = static_cast<size_t>(std::count_if(
+            result.frame_values.begin(), result.frame_values.end(),
+            [](const auto &value) noexcept {
+                return value.value != nullptr &&
+                       value.value->template isa<AllocaInst>() &&
+                       static_cast<Instruction *>(value.value)
+                           ->name()
+                           .has_value();
+            }));
         LUISA_INFO(
             "Coroutine dense dataflow: values={} words={} scopes={} "
             "block_memberships={} block_evaluations={} transitions={} "
-            "scope_evaluations={}.",
+            "scope_evaluations={} replayable_values={} "
+            "rejected_replay_values={} logical_frame_values={} "
+            "named_frame_allocas={} physical_frame_slots={}.",
             value_count, (value_count + 63u) / 64u, n,
             block_memberships, block_evaluations,
-            result.transition_edges.size(), inter_scope_evaluations);
+            result.transition_edges.size(), inter_scope_evaluations,
+            replayable.replayable_value_count(),
+            replayable.rejected_value_count(),
+            result.frame_values.size(), named_frame_allocas,
+            result.frame_slots.size());
+    }
+    if (auto *flag = std::getenv("LUISA_CORO_DUMP_FRAME_LAYOUT");
+        flag != nullptr && luisa::string_view{flag} == "1") {
+        for (size_t i = 0u; i < result.frame_values.size(); ++i) {
+            auto &value = result.frame_values[i];
+            auto tag = luisa::string_view{"non-instruction"};
+            if (value.value != nullptr && value.value->isa<Instruction>()) {
+                tag = to_string(static_cast<Instruction *>(value.value)
+                                    ->derived_instruction_tag());
+            }
+            LUISA_INFO(
+                "Coroutine logical frame value {}: name='{}' kind={} "
+                "type={} size={} align={} physical_slot={}.",
+                i, value.name, tag,
+                value.type == nullptr ? luisa::string_view{"void"} :
+                                        value.type->description(),
+                value.type == nullptr ? 0u : value.type->size(),
+                value.type == nullptr ? 0u : value.type->alignment(),
+                value.slot);
+        }
     }
 }
 

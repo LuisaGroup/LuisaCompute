@@ -98,12 +98,10 @@ private:
     }
 
     [[nodiscard]] static auto _find_frame_field_index(const CoroFrameDesc &desc, luisa::string_view name) noexcept {
-        for (auto i = 0u; i < desc.field_count(); i++) {
-            if (desc.field(i).name == name) {
-                return CoroFrameDesc::reserved_field_count + i;
-            }
-        }
-        return static_cast<size_t>(-1);
+        auto index = desc.field_index(name);
+        return index == static_cast<size_t>(-1) ?
+                   index :
+                   CoroFrameDesc::reserved_field_count + index;
     }
 
     [[nodiscard]] auto _valid_hint_field_count() const noexcept {

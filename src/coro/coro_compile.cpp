@@ -351,9 +351,9 @@ CoroutineCompileResult compile_coroutine_pipeline(
     for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
         frame_fields.push_back(Type::of<uint>());
     }
-    for (auto &value : cfg.frame_values) {
-        frame_fields.push_back(value.type);
-        frame_alignment = std::max(frame_alignment, value.type->alignment());
+    for (auto &slot : cfg.frame_slots) {
+        frame_fields.push_back(slot.type);
+        frame_alignment = std::max(frame_alignment, slot.type->alignment());
     }
     auto *frame_type = Type::structure(frame_alignment, frame_fields);
     profiler.checkpoint("frame layout");

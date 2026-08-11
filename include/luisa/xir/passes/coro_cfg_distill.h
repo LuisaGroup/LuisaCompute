@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/string.h>
@@ -26,6 +28,16 @@ struct CoroCfgDistillResult {
 
     struct FrameValue {
         Value *value{nullptr};
+        luisa::string name;
+        const Type *type{nullptr};
+        // Physical payload slot assigned by interference coloring. Several
+        // exact-typed logical values may share a slot when their
+        // continuation/transition lifetimes do not overlap; their logical
+        // names remain aliases in CoroMaterializeInfo.
+        size_t slot{0u};
+    };
+
+    struct FrameSlot {
         luisa::string name;
         const Type *type{nullptr};
     };
@@ -74,6 +86,7 @@ struct CoroCfgDistillResult {
     luisa::vector<luisa::vector<size_t>> edges;
     luisa::vector<Edge> transition_edges;
     luisa::vector<FrameValue> frame_values;
+    luisa::vector<FrameSlot> frame_slots;
     size_t structured_cfg_error_count{0u};
     size_t invalid_input_error_count{0u};
     size_t invalid_cfg_error_count{0u};

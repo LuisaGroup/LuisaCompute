@@ -3,6 +3,7 @@
 #include <limits>
 
 #include "helpers.h"
+#include "coro_replayable.h"
 
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
@@ -54,6 +55,13 @@ class CoroSplitValueResolver final : public InstructionCloneValueResolver {
 private:
     luisa::unordered_map<const Value *, Value *> _value_map;
     luisa::unordered_map<const Value *, Value *> _entry_value_map;
+    struct RematerializedValue {
+        const BasicBlock *original_block;
+        Value *value;
+    };
+    luisa::unordered_map<const Value *,
+                         luisa::vector<RematerializedValue>>
+        _rematerialized_values;
     luisa::unordered_map<const BasicBlock *, BasicBlock *> _block_map;
     luisa::unordered_map<const Argument *, Argument *> _arg_map;
     luisa::unordered_set<const BasicBlock *> _scope_blocks;
@@ -64,6 +72,7 @@ private:
     Module *_module{nullptr};
     const BasicBlock *_scope_root{nullptr};
     const BasicBlock *_current_orig_block{nullptr};
+    detail::CoroReplayableValueAnalysis _replayable;
 
 private:
     [[nodiscard]] bool _scope_dominates(const BasicBlock *def, const BasicBlock *use) const noexcept {
@@ -202,6 +211,16 @@ public:
                 auto it = _value_map.find(inst);
                 if (it != _value_map.end()) { return it->second; }
                 if (entry_it != _entry_value_map.end()) { return entry_it->second; }
+                if (auto remat = _rematerialized_values.find(inst);
+                    remat != _rematerialized_values.end()) {
+                    for (auto &&candidate : remat->second) {
+                        if (_scope_dominates(
+                                candidate.original_block,
+                                _current_orig_block)) {
+                            return candidate.value;
+                        }
+                    }
+                }
                 if (inst->derived_instruction_tag() ==
                         DerivedInstructionTag::ALLOCA &&
                     _alloca_insertion_point != nullptr) {
@@ -218,17 +237,15 @@ public:
                     return cloned;
                 }
                 if (_builder != nullptr) {
-                    switch (inst->derived_instruction_tag()) {
-                        case DerivedInstructionTag::GEP:
-                        case DerivedInstructionTag::ARITHMETIC:
-                        case DerivedInstructionTag::CAST:
-                        case DerivedInstructionTag::RESOURCE_QUERY: {
-                            auto *cloned = inst->clone_with_metadata(*_builder, *this);
-                            _value_map.emplace(inst, cloned);
-                            return cloned;
-                        }
-                        default:
-                            break;
+                    if (_replayable.detect(inst)) {
+                        auto *cloned = inst->clone_with_metadata(
+                            *_builder, *this);
+                        _rematerialized_values[inst].emplace_back(
+                            RematerializedValue{
+                                .original_block =
+                                    _current_orig_block,
+                                .value = cloned});
+                        return cloned;
                     }
                 }
                 LUISA_ASSERT(
@@ -244,14 +261,14 @@ public:
 
 [[nodiscard]] static const Type *create_frame_type(const CoroCfgDistillResult &result) noexcept {
     luisa::vector<const Type *> fields;
-    fields.reserve(FRAME_USER_FIELD_OFFSET + result.frame_values.size());
+    fields.reserve(FRAME_USER_FIELD_OFFSET + result.frame_slots.size());
     auto alignment = Type::of<uint>()->alignment();
     for (auto i = 0u; i < FRAME_USER_FIELD_OFFSET; ++i) {
         fields.emplace_back(Type::of<uint>());
     }
-    for (auto &value : result.frame_values) {
-        fields.emplace_back(value.type);
-        alignment = std::max(alignment, value.type->alignment());
+    for (auto &slot : result.frame_slots) {
+        fields.emplace_back(slot.type);
+        alignment = std::max(alignment, slot.type->alignment());
     }
     return Type::structure(alignment, fields);
 }
@@ -260,13 +277,13 @@ public:
                                               const CoroCfgDistillResult &result) noexcept {
     if (frame_type == nullptr || !frame_type->is_structure()) { return false; }
     auto members = frame_type->members();
-    if (members.size() != FRAME_USER_FIELD_OFFSET + result.frame_values.size()) { return false; }
+    if (members.size() != FRAME_USER_FIELD_OFFSET + result.frame_slots.size()) { return false; }
     for (auto i = 0u; i < FRAME_USER_FIELD_OFFSET; ++i) {
         if (members[i] != Type::of<uint>()) { return false; }
     }
-    for (size_t i = 0u; i < result.frame_values.size(); ++i) {
-        if (result.frame_values[i].type == nullptr ||
-            members[FRAME_USER_FIELD_OFFSET + i] != result.frame_values[i].type) {
+    for (size_t i = 0u; i < result.frame_slots.size(); ++i) {
+        if (result.frame_slots[i].type == nullptr ||
+            members[FRAME_USER_FIELD_OFFSET + i] != result.frame_slots[i].type) {
             return false;
         }
     }
@@ -303,7 +320,8 @@ public:
         result.edges != canonical.edges ||
         result.transition_edges.size() !=
             canonical.transition_edges.size() ||
-        result.frame_values.size() != canonical.frame_values.size()) {
+        result.frame_values.size() != canonical.frame_values.size() ||
+        result.frame_slots.size() != canonical.frame_slots.size()) {
         return false;
     }
     for (auto i = 0u; i < result.scopes.size(); ++i) {
@@ -360,7 +378,14 @@ public:
         auto &lhs = result.frame_values[i];
         auto &rhs = canonical.frame_values[i];
         if (lhs.value != rhs.value || lhs.name != rhs.name ||
-            lhs.type != rhs.type) {
+            lhs.type != rhs.type || lhs.slot != rhs.slot) {
+            return false;
+        }
+    }
+    for (auto i = 0u; i < result.frame_slots.size(); ++i) {
+        auto &lhs = result.frame_slots[i];
+        auto &rhs = canonical.frame_slots[i];
+        if (lhs.name != rhs.name || lhs.type != rhs.type) {
             return false;
         }
     }
@@ -447,17 +472,41 @@ public:
         if (!triggers.contains(token)) { return false; }
     }
     luisa::unordered_set<const Value *> values;
+    luisa::vector<uint8_t> occupied_slots(
+        result.frame_slots.size(), 0u);
+    luisa::unordered_set<luisa::string> slot_names;
+    for (auto &slot : result.frame_slots) {
+        if (slot.type == nullptr || slot.name.empty() ||
+            !slot_names.emplace(slot.name).second) {
+            return false;
+        }
+    }
     for (auto &frame_value : result.frame_values) {
         if (frame_value.value == nullptr || frame_value.type == nullptr ||
             frame_value.value->type() != frame_value.type ||
+            frame_value.slot >= result.frame_slots.size() ||
+            result.frame_slots[frame_value.slot].type != frame_value.type ||
             !values.emplace(frame_value.value).second) {
             return false;
         }
+        occupied_slots[frame_value.slot] = 1u;
         if (frame_value.value->isa<Instruction>()) {
             auto *inst = static_cast<Instruction *>(frame_value.value);
             if (inst->parent_block() == nullptr || inst->parent_block()->parent_function() != def) {
                 return false;
             }
+        }
+    }
+    if (std::find(occupied_slots.begin(), occupied_slots.end(), 0u) !=
+        occupied_slots.end()) {
+        return false;
+    }
+    for (auto &scope : result.scopes) {
+        for (auto *value : scope.live_in_values) {
+            if (!values.contains(value)) { return false; }
+        }
+        for (auto *value : scope.live_out_values) {
+            if (!values.contains(value)) { return false; }
         }
     }
     for (auto &edge : result.transition_edges) {
@@ -511,7 +560,7 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
         auto it = field_indices.find(value);
         if (it == field_indices.end()) { continue; }
         auto &frame_value = result.frame_values[it->second];
-        auto field_index = FRAME_USER_FIELD_OFFSET + it->second;
+        auto field_index = FRAME_USER_FIELD_OFFSET + frame_value.slot;
         auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
         auto *cloned = resolver.resolve(value);
         if (is_memory_frame_value(value)) {
@@ -556,7 +605,7 @@ static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame
         auto it = field_indices.find(value);
         if (it == field_indices.end()) { continue; }
         auto &frame_value = result.frame_values[it->second];
-        auto field_index = FRAME_USER_FIELD_OFFSET + it->second;
+        auto field_index = FRAME_USER_FIELD_OFFSET + frame_value.slot;
         auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
         auto *loaded = b.load(frame_value.type, field);
         if (is_memory_frame_value(value)) {

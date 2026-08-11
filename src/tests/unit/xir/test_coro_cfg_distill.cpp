@@ -8,6 +8,7 @@
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
@@ -1227,6 +1228,361 @@ void reg_coro_cfg_distill() {
         expect(result.scopes.empty());
         expect(entry->terminator() == suspend);
         expect(xir_verify_module(&m).succeeded());
+    };
+
+    "cheap_argument_rooted_expression_is_replayed_not_framed"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *x = kernel->create_argument(Type::of<float>(), false);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *one = m.create_constant_one(Type::of<float>());
+        auto *replay = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD,
+            {x, one});
+        b.coro_suspend(41u, "replay", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(41u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_MUL,
+            {replay, one}));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.scopes.size() == 2u);
+        expect(std::none_of(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == replay;
+            }));
+        expect(result.scopes[1u].live_in_values.empty());
+    };
+
+    "replay_cost_is_bounded_to_prevent_continuation_code_growth"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *x = kernel->create_argument(Type::of<float>(), false);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *one = m.create_constant_one(Type::of<float>());
+        auto *v1 = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD,
+            {x, one});
+        auto *v2 = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD,
+            {v1, one});
+        auto *v3 = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD,
+            {v2, one});
+        b.coro_suspend(43u, "bounded-replay", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(43u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_MUL,
+            {v3, one}));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(std::any_of(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == v3;
+            }));
+        expect(std::find(
+                   result.scopes[1u].live_in_values.begin(),
+                   result.scopes[1u].live_in_values.end(),
+                   v3) !=
+               result.scopes[1u].live_in_values.end());
+    };
+
+    "expression_depending_on_load_is_never_replayed"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(Type::of<float>());
+        auto *one = m.create_constant_one(Type::of<float>());
+        b.store(state, one);
+        auto *loaded = b.load(Type::of<float>(), state);
+        auto *derived = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD,
+            {loaded, one});
+        b.coro_suspend(47u, "loaded-value", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(47u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_MUL,
+            {derived, one}));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(std::any_of(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == derived;
+            }));
+    };
+
+    "disjoint_anonymous_values_share_one_exact_typed_frame_slot"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<uint64_t>());
+        b.set_insertion_point(entry);
+        auto *first = b.clock();
+        b.coro_suspend(59u, "first", nullptr);
+        b.set_insertion_point(resume_first);
+        b.coro_resume(59u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {first, one}));
+        auto *second = b.clock();
+        b.coro_suspend(61u, "second", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(61u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {second, one}));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_slots.size() == 1u);
+        auto first_field = std::find_if(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == first;
+            });
+        auto second_field = std::find_if(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == second;
+            });
+        expect(first_field != result.frame_values.end());
+        expect(second_field != result.frame_values.end());
+        if (first_field != result.frame_values.end() &&
+            second_field != result.frame_values.end()) {
+            expect(first_field->slot == second_field->slot);
+            expect(first_field->type == second_field->type);
+        }
+    };
+
+    "simultaneously_live_values_interfere_in_frame_coloring"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *lhs = b.clock();
+        auto *rhs = b.clock();
+        b.coro_suspend(67u, "pair", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(67u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {lhs, rhs}));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_slots.size() == 2u);
+        if (result.frame_values.size() == 2u) {
+            expect(result.frame_values[0u].slot !=
+                   result.frame_values[1u].slot);
+        }
+    };
+
+    "dormant_pass_through_value_interferes_with_transition_store"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *pass_through = b.clock();
+        b.coro_suspend(107u, "first", nullptr);
+        b.set_insertion_point(resume_first);
+        b.coro_resume(107u, nullptr);
+        auto *newly_stored = b.clock();
+        b.coro_suspend(109u, "second", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(109u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {pass_through, newly_stored}));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_slots.size() == 2u);
+        const CoroCfgDistillResult::Edge *second_edge = nullptr;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.token == 109u) {
+                second_edge = &edge;
+                break;
+            }
+        }
+        expect(second_edge != nullptr);
+        if (second_edge != nullptr) {
+            expect(std::find(
+                       second_edge->live_values.begin(),
+                       second_edge->live_values.end(),
+                       pass_through) != second_edge->live_values.end());
+            expect(std::find(
+                       second_edge->live_values.begin(),
+                       second_edge->live_values.end(),
+                       newly_stored) != second_edge->live_values.end());
+            expect(std::find(
+                       second_edge->store_values.begin(),
+                       second_edge->store_values.end(),
+                       pass_through) == second_edge->store_values.end());
+            expect(std::find(
+                       second_edge->store_values.begin(),
+                       second_edge->store_values.end(),
+                       newly_stored) != second_edge->store_values.end());
+        }
+    };
+
+    "ssa_metadata_names_do_not_prevent_safe_slot_sharing"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<uint64_t>());
+        b.set_insertion_point(entry);
+        auto *first = b.clock();
+        first->set_name("named_first");
+        b.coro_suspend(71u, "first", nullptr);
+        b.set_insertion_point(resume_first);
+        b.coro_resume(71u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {first, one}));
+        auto *second = b.clock();
+        second->set_name("named_second");
+        b.coro_suspend(73u, "second", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(73u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {second, one}));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_slots.size() == 1u);
+        if (result.frame_values.size() == 2u) {
+            expect(result.frame_values[0u].slot ==
+                   result.frame_values[1u].slot);
+        }
+    };
+
+    "disjoint_unnamed_alloca_values_share_frame_storage"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<float>());
+        b.set_insertion_point(entry);
+        auto *first = b.alloca_local(Type::of<float>());
+        auto *second = b.alloca_local(Type::of<float>());
+        b.store(first, one);
+        b.coro_suspend(89u, "first", nullptr);
+        b.set_insertion_point(resume_first);
+        b.coro_resume(89u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), first));
+        b.store(second, one);
+        b.coro_suspend(97u, "second", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(97u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), second));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_slots.size() == 1u);
+        if (result.frame_values.size() == 2u) {
+            expect(result.frame_values[0u].slot ==
+                   result.frame_values[1u].slot);
+        }
+    };
+
+    "named_allocas_share_storage_but_keep_logical_aliases"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<float>());
+        b.set_insertion_point(entry);
+        auto *first = b.alloca_local(Type::of<float>());
+        auto *second = b.alloca_local(Type::of<float>());
+        first->set_name("named_first");
+        second->set_name("named_second");
+        b.store(first, one);
+        b.coro_suspend(101u, "first", nullptr);
+        b.set_insertion_point(resume_first);
+        b.coro_resume(101u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), first));
+        b.store(second, one);
+        b.coro_suspend(103u, "second", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(103u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), second));
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 2u);
+        expect(result.frame_slots.size() == 1u);
+        if (result.frame_values.size() == 2u) {
+            expect(result.frame_values[0u].slot ==
+                   result.frame_values[1u].slot);
+            expect(result.frame_values[0u].name !=
+                   result.frame_values[1u].name);
+        }
     };
 }
 
