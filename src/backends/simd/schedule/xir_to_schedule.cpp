@@ -1,12 +1,14 @@
 #include "xir_to_schedule.h"
 
 #include <algorithm>
+#include <cstring>
 #include <queue>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
+#include <luisa/ast/type.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/constant.h>
@@ -590,11 +592,17 @@ private:
         _value_ids.reserve(value_count);
         auto argument_index = uint32_t{0u};
         for (auto *argument : _source->arguments()) {
+            auto index = argument_index++;
             auto id = _function->add_value(
                 _uniformity.classify(argument), argument->type(),
                 ValueOrigin::parameter, std::nullopt,
                 value_name(argument,
-                           "arg" + std::to_string(argument_index++)));
+                           "arg" + std::to_string(index)),
+                ParameterValueMetadata{
+                    .index = index,
+                    .argument_tag = static_cast<uint32_t>(
+                        argument->derived_argument_tag()),
+                });
             _value_ids.emplace(argument, id);
         }
 
@@ -630,11 +638,24 @@ private:
         using Tag = xir::DerivedValueTag;
         switch (value->derived_value_tag()) {
             case Tag::CONSTANT: {
+                auto *constant = static_cast<const xir::Constant *>(value);
+                if (value->type() == nullptr || constant->data() == nullptr ||
+                    value->type()->size() == 0u) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::unsupported_value,
+                        "XIR constant has no code-generatable payload", block,
+                        instruction);
+                    return std::nullopt;
+                }
+                std::vector<std::byte> bytes(value->type()->size());
+                std::memcpy(bytes.data(), constant->data(), bytes.size());
                 auto id = _function->add_value(
-                    ValueClass::uniform, value->type(), ValueOrigin::constant,
+                    ValueClass::warp_uniform, value->type(),
+                    ValueOrigin::constant,
                     std::nullopt,
                     value_name(value, "const" + std::to_string(
-                                                 _next_external_value_id++)));
+                                                 _next_external_value_id++)),
+                    ConstantValueMetadata{.bytes = std::move(bytes)});
                 _value_ids.emplace(value, id);
                 return id;
             }
@@ -647,7 +668,11 @@ private:
                     value_name(
                         value,
                         copy_string(xir::to_string(
-                            special->derived_special_register_tag()))));
+                            special->derived_special_register_tag()))),
+                    SpecialRegisterValueMetadata{
+                        .tag = static_cast<uint32_t>(
+                            special->derived_special_register_tag()),
+                    });
                 _value_ids.emplace(value, id);
                 return id;
             }
@@ -757,7 +782,10 @@ private:
             _active_mask = _function->add_value(
                 ValueClass::mask, nullptr,
                 ValueOrigin::scheduler_builtin, std::nullopt,
-                "active_mask");
+                "active_mask",
+                SchedulerBuiltinValueMetadata{
+                    .builtin = SchedulerBuiltin::active_mask,
+                });
         }
         return *_active_mask;
     }
@@ -831,8 +859,9 @@ private:
                 auto condition = _map_value(
                     branch->condition(), source_block, terminator);
                 target_block.strategy =
-                    condition && _function->value(*condition)->value_class ==
-                                     ValueClass::uniform ?
+                    condition && is_uniform(
+                                     _function->value(*condition)
+                                         ->value_class) ?
                         RegionStrategy::uniform_control :
                         RegionStrategy::cohort;
                 target_block.terminator = SplitTerminator{
@@ -871,8 +900,9 @@ private:
                     });
                 }
                 target_block.strategy =
-                    selector && _function->value(*selector)->value_class ==
-                                    ValueClass::uniform ?
+                    selector && is_uniform(
+                                    _function->value(*selector)
+                                        ->value_class) ?
                         RegionStrategy::uniform_control :
                         RegionStrategy::cohort;
                 target_block.terminator = std::move(schedule_switch);

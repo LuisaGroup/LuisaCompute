@@ -21,7 +21,8 @@ class WarpUniformityAnalysis {
 private:
     enum struct State {
         unknown,
-        uniform,
+        warp_uniform,
+        cohort_uniform,
         varying,
     };
 
@@ -39,7 +40,15 @@ public:
         const xir::Value *value) const noexcept;
     [[nodiscard]] bool is_uniform(
         const xir::Value *value) const noexcept {
-        return classify(value) == ValueClass::uniform;
+        return schedule::is_uniform(classify(value));
+    }
+    [[nodiscard]] bool is_warp_uniform(
+        const xir::Value *value) const noexcept {
+        return classify(value) == ValueClass::warp_uniform;
+    }
+    [[nodiscard]] bool is_cohort_uniform(
+        const xir::Value *value) const noexcept {
+        return classify(value) == ValueClass::cohort_uniform;
     }
 };
 

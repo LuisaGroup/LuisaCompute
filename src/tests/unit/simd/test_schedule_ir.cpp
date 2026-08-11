@@ -113,7 +113,7 @@ namespace {
         ValueClass::varying, nullptr, ValueOrigin::parameter,
         std::nullopt, "condition");
     auto initial = function.add_value(
-        ValueClass::uniform, nullptr, ValueOrigin::parameter,
+        ValueClass::warp_uniform, nullptr, ValueOrigin::parameter,
         std::nullopt, "initial");
     auto state = function.add_value(
         ValueClass::varying, nullptr, ValueOrigin::state_slot,
@@ -287,7 +287,7 @@ namespace {
     }
     function.set_entry(blocks.front());
     auto seed = function.add_value(
-        ValueClass::uniform, nullptr, ValueOrigin::parameter,
+        ValueClass::warp_uniform, nullptr, ValueOrigin::parameter,
         std::nullopt, "seed");
     for (auto i = 1u; i < block_count; i++) {
         states.emplace_back(function.add_value(

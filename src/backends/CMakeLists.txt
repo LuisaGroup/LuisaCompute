@@ -70,5 +70,9 @@ if (LUISA_COMPUTE_ENABLE_FALLBACK)
     add_subdirectory(fallback)
 endif ()
 
+if (LUISA_COMPUTE_ENABLE_SIMD)
+    add_subdirectory(simd)
+endif ()
+
 install(TARGETS luisa-compute-backends
         EXPORT LuisaComputeTargets)

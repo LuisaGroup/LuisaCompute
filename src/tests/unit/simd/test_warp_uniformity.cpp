@@ -48,8 +48,11 @@ void register_basic_uniformity_tests() {
         WarpUniformityAnalysis analysis;
         analysis.analyze(kernel);
         expect(analysis.is_uniform(argument));
+        expect(analysis.is_warp_uniform(argument));
         expect(analysis.is_uniform(one));
+        expect(analysis.is_warp_uniform(one));
         expect(analysis.is_uniform(uniform_sum));
+        expect(analysis.is_warp_uniform(uniform_sum));
         expect(!analysis.is_uniform(lane));
         expect(!analysis.is_uniform(varying_sum));
         expect(analysis.is_uniform(warp_size));
@@ -121,11 +124,14 @@ void register_collective_uniformity_tests() {
         WarpUniformityAnalysis analysis;
         analysis.analyze(kernel);
         expect(analysis.is_uniform(active_sum));
+        expect(analysis.is_cohort_uniform(active_sum));
         expect(!analysis.is_uniform(prefix_sum));
         expect(analysis.is_uniform(read_uniform_lane));
+        expect(analysis.is_cohort_uniform(read_uniform_lane));
         expect(!analysis.is_uniform(read_varying_lane));
         expect(!analysis.is_uniform(is_first));
         expect(analysis.is_uniform(first_lane));
+        expect(analysis.is_cohort_uniform(first_lane));
     };
 }
 

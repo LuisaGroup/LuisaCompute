@@ -1,6 +1,7 @@
 #include "schedule_ir.h"
 
 #include <algorithm>
+#include <iomanip>
 #include <sstream>
 #include <type_traits>
 
@@ -12,7 +13,7 @@ Function::Function(std::string name, uint32_t logical_warp_width) noexcept
 ValueId Function::add_value(ValueClass value_class, const Type *type,
                             ValueOrigin origin,
                             std::optional<BlockId> defining_block,
-                            std::string name) {
+                            std::string name, ValueMetadata metadata) {
     auto id = ValueId{static_cast<uint32_t>(_values.size())};
     _values.emplace_back(Value{
         .id = id,
@@ -21,6 +22,7 @@ ValueId Function::add_value(ValueClass value_class, const Type *type,
         .type = type,
         .defining_block = defining_block,
         .name = std::move(name),
+        .metadata = std::move(metadata),
     });
     return id;
 }
@@ -101,7 +103,8 @@ const Loop *Function::loop(LoopId id) const noexcept {
 
 const char *to_string(ValueClass value) noexcept {
     switch (value) {
-        case ValueClass::uniform: return "uniform";
+        case ValueClass::warp_uniform: return "warp_uniform";
+        case ValueClass::cohort_uniform: return "cohort_uniform";
         case ValueClass::varying: return "varying";
         case ValueClass::mask: return "mask";
         case ValueClass::token: return "token";
@@ -218,6 +221,35 @@ VerificationResult verify(const Function &function) {
             !value.defining_block) {
             add_error(result,
                       "instruction or state value must have a defining block");
+        }
+        auto metadata_matches_origin = std::visit(
+            [&](const auto &metadata) noexcept {
+                using M = std::decay_t<decltype(metadata)>;
+                if constexpr (std::is_same_v<M, std::monostate>) {
+                    // Instructions and state slots have no external source
+                    // payload. Dependency-light hand-authored fixtures may
+                    // also omit metadata when they omit a concrete type.
+                    return value.origin == ValueOrigin::instruction ||
+                           value.origin == ValueOrigin::state_slot ||
+                           value.type == nullptr;
+                } else if constexpr (
+                    std::is_same_v<M, ParameterValueMetadata>) {
+                    return value.origin == ValueOrigin::parameter;
+                } else if constexpr (
+                    std::is_same_v<M, ConstantValueMetadata>) {
+                    return value.origin == ValueOrigin::constant &&
+                           !metadata.bytes.empty();
+                } else if constexpr (
+                    std::is_same_v<M, SpecialRegisterValueMetadata>) {
+                    return value.origin == ValueOrigin::special_register;
+                } else {
+                    return value.origin == ValueOrigin::scheduler_builtin;
+                }
+            },
+            value.metadata);
+        if (!metadata_matches_origin) {
+            add_error(result,
+                      "value source metadata does not match its origin");
         }
     }
 
@@ -599,6 +631,30 @@ std::string to_string(const Function &function) {
                         " def=bb")
                 << value.defining_block->value;
         }
+        std::visit(
+            [&](const auto &metadata) {
+                using M = std::decay_t<decltype(metadata)>;
+                if constexpr (std::is_same_v<M, ParameterValueMetadata>) {
+                    out << " arg=" << metadata.index
+                        << " arg_tag=" << metadata.argument_tag;
+                } else if constexpr (
+                    std::is_same_v<M, ConstantValueMetadata>) {
+                    out << " bytes=0x" << std::hex << std::setfill('0');
+                    for (auto byte : metadata.bytes) {
+                        out << std::setw(2)
+                            << std::to_integer<uint32_t>(byte);
+                    }
+                    out << std::dec << std::setfill(' ');
+                } else if constexpr (
+                    std::is_same_v<M, SpecialRegisterValueMetadata>) {
+                    out << " sreg_tag=" << metadata.tag;
+                } else if constexpr (
+                    std::is_same_v<M, SchedulerBuiltinValueMetadata>) {
+                    out << " builtin="
+                        << static_cast<uint32_t>(metadata.builtin);
+                }
+            },
+            value.metadata);
         out << "\n";
     }
     for (auto &&point : function.convergence_points()) {

@@ -137,7 +137,20 @@ void register_diamond_tests() {
         expect(active_mask != nullptr &&
                active_mask->value_class == ValueClass::mask);
         expect(sum_value != nullptr &&
-               sum_value->value_class == ValueClass::uniform);
+               sum_value->value_class == ValueClass::cohort_uniform);
+        auto *lane_value = find_value(function, "warp_lane_id");
+        expect(lane_value != nullptr);
+        if (lane_value != nullptr) {
+            auto *metadata = std::get_if<SpecialRegisterValueMetadata>(
+                &lane_value->metadata);
+            expect(metadata != nullptr);
+            expect(metadata != nullptr &&
+                   metadata->tag == static_cast<uint32_t>(
+                       DerivedSpecialRegisterTag::WARP_LANE_ID));
+        }
+        expect(active_mask != nullptr &&
+               std::holds_alternative<SchedulerBuiltinValueMetadata>(
+                   active_mask->metadata));
         expect(merge_block->instructions.size() == 1u);
         if (!merge_block->instructions.empty()) {
             auto &&collective = merge_block->instructions.front();
@@ -176,6 +189,15 @@ void register_diamond_tests() {
                schedule_entry->strategy ==
                    RegionStrategy::uniform_control);
         expect(result.function->convergence_points().empty());
+        auto *parameter = find_value(*result.function, "arg0");
+        expect(parameter != nullptr);
+        if (parameter != nullptr) {
+            auto *metadata = std::get_if<ParameterValueMetadata>(
+                &parameter->metadata);
+            expect(metadata != nullptr);
+            expect(metadata != nullptr && metadata->index == 0u);
+            expect(parameter->value_class == ValueClass::warp_uniform);
+        }
     };
 
     "simd_xir_lowering_orders_nested_shared_convergence"_test = [] {

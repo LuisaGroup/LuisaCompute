@@ -40,6 +40,17 @@ add_test(NAME test_simd_cohort_scheduler
 set_tests_properties(test_simd_cohort_scheduler PROPERTIES
         LABELS "unit;unit_simd")
 
+add_executable(test_simd_reference_warp_collectives
+        unit/simd/test_reference_warp_collectives.cpp)
+target_compile_features(test_simd_reference_warp_collectives PRIVATE cxx_std_20)
+target_include_directories(test_simd_reference_warp_collectives PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit/simd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_reference_warp_collectives
+        COMMAND test_simd_reference_warp_collectives)
+set_tests_properties(test_simd_reference_warp_collectives PROPERTIES
+        LABELS "unit;unit_simd")
+
 add_executable(test_simd_schedule_ir
         unit/simd/test_schedule_ir.cpp
         ../backends/simd/schedule/schedule_ir.cpp)
@@ -68,6 +79,45 @@ target_sources(test_simd_xir_to_schedule PRIVATE
         ../backends/simd/schedule/xir_to_schedule.cpp)
 target_include_directories(test_simd_xir_to_schedule PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+
+if (TARGET luisa-compute-simd-llvm)
+    add_executable(test_simd_llvm_value_layout
+            unit/simd/test_llvm_value_layout.cpp)
+    target_compile_features(test_simd_llvm_value_layout PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_value_layout PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_value_layout PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_value_layout
+            COMMAND test_simd_llvm_value_layout)
+    set_tests_properties(test_simd_llvm_value_layout PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm")
+
+    add_executable(test_simd_llvm_warp_collectives
+            unit/simd/test_llvm_warp_collectives.cpp)
+    target_compile_features(test_simd_llvm_warp_collectives PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_warp_collectives PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_warp_collectives PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/unit/simd
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_warp_collectives
+            COMMAND test_simd_llvm_warp_collectives)
+    set_tests_properties(test_simd_llvm_warp_collectives PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm")
+
+    add_executable(test_simd_llvm_schedule_codegen
+            unit/simd/test_llvm_schedule_codegen.cpp)
+    target_compile_features(test_simd_llvm_schedule_codegen PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_schedule_codegen PRIVATE
+            luisa-compute-simd-compiler)
+    target_include_directories(test_simd_llvm_schedule_codegen PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_schedule_codegen
+            COMMAND test_simd_llvm_schedule_codegen)
+    set_tests_properties(test_simd_llvm_schedule_codegen PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+endif ()
 
 # --- unit/core: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_basic_traits       unit/core/test_basic_traits.cpp       LABELS "unit;unit_core")

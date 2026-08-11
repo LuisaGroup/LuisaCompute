@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -36,11 +37,22 @@ using ConvergenceId = Id<ConvergenceIdTag>;
 using LoopId = Id<LoopIdTag>;
 
 enum struct ValueClass {
-    uniform,
+    // Stable across every lane and every dynamic cohort in one logical warp.
+    // These values may live in one scalar warp-state slot.
+    warp_uniform,
+    // Scalar while a dynamic cohort executes, but different paths or loop
+    // epochs may observe different values. These values require lane-wise
+    // state if they survive a scheduler suspension point.
+    cohort_uniform,
     varying,
     mask,
     token,
 };
+
+[[nodiscard]] constexpr bool is_uniform(ValueClass value) noexcept {
+    return value == ValueClass::warp_uniform ||
+           value == ValueClass::cohort_uniform;
+}
 
 enum struct ValueOrigin {
     parameter,
@@ -50,6 +62,38 @@ enum struct ValueOrigin {
     instruction,
     state_slot,
 };
+
+// Source metadata is copied into Schedule IR so later code generation never
+// has to retain or query the source XIR module. Enum-like fields intentionally
+// use their stable numeric value to keep this dependency-light dialect free of
+// XIR headers.
+struct ParameterValueMetadata {
+    uint32_t index{0u};
+    uint32_t argument_tag{0u};
+};
+
+struct ConstantValueMetadata {
+    std::vector<std::byte> bytes{};
+};
+
+struct SpecialRegisterValueMetadata {
+    uint32_t tag{0u};
+};
+
+enum struct SchedulerBuiltin : uint32_t {
+    active_mask,
+};
+
+struct SchedulerBuiltinValueMetadata {
+    SchedulerBuiltin builtin{SchedulerBuiltin::active_mask};
+};
+
+using ValueMetadata = std::variant<
+    std::monostate,
+    ParameterValueMetadata,
+    ConstantValueMetadata,
+    SpecialRegisterValueMetadata,
+    SchedulerBuiltinValueMetadata>;
 
 enum struct RegionStrategy {
     uniform_control,
@@ -86,6 +130,7 @@ struct Value {
     const Type *type{nullptr};
     std::optional<BlockId> defining_block{};
     std::string name{};
+    ValueMetadata metadata{};
 };
 
 struct Instruction {
@@ -218,7 +263,7 @@ public:
         ValueClass value_class, const Type *type = nullptr,
         ValueOrigin origin = ValueOrigin::instruction,
         std::optional<BlockId> defining_block = std::nullopt,
-        std::string name = {});
+        std::string name = {}, ValueMetadata metadata = {});
     [[nodiscard]] BlockId add_block(std::string name = {});
     [[nodiscard]] ConvergenceId add_convergence(
         BlockId target,

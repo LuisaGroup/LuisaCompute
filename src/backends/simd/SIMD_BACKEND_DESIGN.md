@@ -1,7 +1,8 @@
 # SIMD CPU backend design
 
-Status: Phase 0/1 review checkpoint and proposed working contract for the
-first prototype.
+Status: Phase 2 fixed-vector codegen checkpoint. XIR-to-Schedule lowering,
+the dependency-light cohort semantic model, and the first acyclic LLVM packet
+dispatcher are implemented behind `LUISA_COMPUTE_ENABLE_SIMD`.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `74cde8c2acca8ef3d8061a0536c5dfaccba46670` (2026-08-11).
@@ -27,6 +28,22 @@ introduces an explicit scheduling IR, and lowers that IR directly to LLVM IR.
 The scheduling IR owns varying control flow, reconvergence, packet masks, and
 warp collective semantics. LLVM owns instruction selection and target
 multiversioning.
+
+### 1.1 LLVM ownership boundary
+
+For a specialization width `W`, every varying scalar is represented directly
+as an LLVM fixed vector `<W x T>` and every execution mask as `<W x i1>`.
+Varying aggregates use structure of arrays, so `varying<float3, 8>` is three
+`<8 x float>` values. Warp- and cohort-uniform expressions may remain scalar;
+cohort-uniform state is widened when it crosses a scheduler suspension.
+
+The backend emits only target-independent LLVM operations, including vector
+arithmetic, `shufflevector`, `llvm.vector.reduce.*`, and masked memory. It must
+not contain x86 `_mm*`, AVX/AVX-512, Arm NEON, or other target-ISA SIMD
+intrinsics. The LLVM target machine receives the host triple, CPU, and feature
+set and exclusively owns legalization, instruction selection, register
+allocation, and machine scheduling. A scalar C++ implementation of warp
+collectives exists under unit tests only as a semantic oracle.
 
 ## 2. Why this is a separate backend
 
@@ -248,7 +265,11 @@ ABI while still enforcing a clean XIR/codegen boundary.
 
 Every value has a Luisa data type and an execution class:
 
-- `uniform<T>`: one value for the warp;
+- `warp_uniform<T>`: one value is stable across all lanes and all dynamic
+  cohorts of the warp (for example a kernel value argument or `warp_size`);
+- `cohort_uniform<T>`: one scalar value is sufficient while the current
+  dynamic cohort executes, but sibling paths or loop epochs may have different
+  values (for example `warp_active_sum` in divergent control flow);
 - `varying<T, W>`: one logical value per lane;
 - `mask<W>`: a lane predicate;
 - `token`: scheduler-only convergence state;
@@ -262,6 +283,13 @@ Uniformity is warp-relative. The existing XIR `UniformityAnalysis` proves
 workgroup uniformity for SPIR-V descriptor indexing and is not reused as-is.
 The SIMD backend adds an interprocedural `WarpUniformityAnalysis` with
 conservative fallback to varying.
+
+`cohort_uniform` is an expression representation, not permission to use one
+global warp-state slot. If such a value survives a scheduler suspension, its
+spill is lane-wise (or equivalently keyed by the complete dynamic token).
+Only `warp_uniform` may be stored once for the whole warp. This distinction is
+required for collectives whose result is uniform among current participants
+but differs between divergent paths or loop epochs.
 
 ### 8.2 Control operations
 
@@ -395,11 +423,11 @@ lane and ray-query callback semantics.
 Schedule IR is parameterized by symbolic width `W`; LLVM modules are fixed-width
 specializations. The first target matrix is:
 
-| Architecture | Widths | Required ISA |
+| Architecture | Widths | Typical LLVM legalization |
 | --- | --- | --- |
 | x86-64 | 1, 4 | baseline/SSE2 |
-| x86-64 | 8 | AVX2 |
-| x86-64 | 16 | AVX-512F, plus type-specific feature checks |
+| x86-64 | 8 | AVX2 when available; compound narrower vectors otherwise |
+| x86-64 | 16 | AVX-512 when available; compound narrower vectors otherwise |
 | AArch64 | 1, 4 | baseline/NEON |
 | AArch64 | 8, 16 | compound NEON packets initially; SVE later |
 
@@ -420,9 +448,10 @@ The JIT cache key includes:
 - XIR and scheduling-pipeline options.
 
 LLVM lowering uses fixed vector types, `llvm.masked.*`, vector reductions,
-shuffle vectors, and target-independent intrinsics first. Target-specific
-intrinsics are introduced only where LLVM cannot reliably select the desired
-instruction or where semantics require an explicit mask operation.
+shuffle vectors, and target-independent intrinsics. Backend code never inserts
+target-ISA intrinsics. If a target legalizes a canonical vector idiom poorly,
+the remedy is to improve the target-independent IR or LLVM's lowering—not to
+encode an x86 or Arm instruction in Schedule IR codegen.
 
 ## 11. Runtime factoring
 
@@ -652,14 +681,16 @@ the initial abstraction alone.
 
 ## 17. Current implementation status
 
-Phase 0 and the first Phase 1 checkpoint were implemented on 2026-08-11. The
-repository now contains:
+Phase 0, Phase 1, and the first Phase 2 compiler checkpoint were implemented
+on 2026-08-11. The repository now contains:
 
 - a 1--128 lane mask type with tail and sparse-mask support;
 - a dependency-light cohort scheduler with explicit continuation, convergence
   gates, loop epochs, lane termination, and two deterministic policies;
-- a backend-private Schedule IR skeleton with typed IDs, uniform/varying/mask
-  value classes, edge-local PHI state assignments, explicit collective masks,
+- a backend-private Schedule IR skeleton with typed IDs,
+  warp-uniform/cohort-uniform/varying/mask value classes, edge-local PHI state
+  assignments, lossless parameter/constant/special-register source metadata,
+  explicit collective masks,
   control terminators, convergence/loop tables, a linear indexed verifier, and
   a stable text printer;
 - a non-mutating XIR-to-Schedule-IR projection for destructured reducible CFGs,
@@ -667,17 +698,26 @@ repository now contains:
   convergence, and warp collectives;
 - an `O(I + U)` dependency-worklist warp-uniformity analysis and indexed CFG,
   loop, convergence, and PHI lowering paths that avoid global pairwise scans;
-- standalone unit coverage for warp1/4/8 control flow and positive/negative
+- a width-specialized LLVM value layout where varying scalars are exactly
+  `<W x T>`, masks are `<W x i1>`, and varying aggregates are structure of
+  arrays;
+- target-independent LLVM lowering for the core scalar warp reductions,
+  votes, ballot, prefix operations, and lane reads;
+- an acyclic packet dispatcher with masked state copies, divergent splits,
+  single-level reconvergence, partial tail masks, and masked scalar returns;
+- a host-target compiler facade and O2 ORC JIT boundary that delegates
+  legalization, instruction selection, register allocation, and machine
+  scheduling to LLVM;
+- standalone unit coverage for warp1/4/8/16 control flow and positive/negative
   Schedule IR fixtures, plus XIR projection fixtures for divergent diamonds,
   uniform control, lane-dependent loops, warp collectives, structured-CFG
   diagnostics, and irreducible-CFG diagnostics;
-- a full CMake/Ninja build in the minimal CPU/XIR configuration with all four
-  SIMD CTests passing; dependency-light tests pass ASan+UBSan, and the full XIR
-  projection fixture passes ASan+UBSan with `vptr` disabled because the shared
-  XIR library intentionally hides derived-instruction RTTI (leak detection is
-  disabled in the execution sandbox).
+- IR-shape assertions that reject target-specific intrinsic namespaces and ORC
+  execution tests for warp1/4/8/16, including a divergent cohort-uniform lane
+  read, lane-wise suspension spill, reconvergence, and active sum.
 
-The next implementation boundary is the width-specialized execution core and
-backend shell. LLVM and the runtime backend remain deliberately untouched in
-this checkpoint so the execution and compiler-complexity contracts can be
-reviewed before code generation begins.
+The next implementation boundary is completing aggregate arithmetic and
+collectives, loop-epoch/nested-gate LLVM execution, resource memory lowering,
+and the `DeviceInterface` runtime module. The current compiler returns precise
+diagnostics for those unsupported Phase 2 features rather than silently
+scalarizing them.

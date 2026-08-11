@@ -1,0 +1,56 @@
+#pragma once
+
+#include <memory>
+#include <string>
+#include <string_view>
+
+namespace llvm {
+class LLVMContext;
+class Module;
+class TargetMachine;
+}// namespace llvm
+
+namespace llvm::orc {
+class LLJIT;
+}// namespace llvm::orc
+
+namespace luisa::compute::simd {
+
+// Host ORC JIT used by the SIMD backend. Schedule lowering deliberately stops
+// at target-independent LLVM vector IR; this class is the sole boundary that
+// asks LLVM to optimize, legalize, select instructions, allocate registers,
+// and machine-schedule for the detected host CPU.
+class LLVMJIT {
+
+private:
+    std::unique_ptr<::llvm::orc::LLJIT> _jit{};
+    std::unique_ptr<::llvm::TargetMachine> _target_machine{};
+    std::string _target_triple{};
+    std::string _error{};
+
+private:
+    void _fail(std::string message) noexcept;
+
+public:
+    LLVMJIT() noexcept;
+    ~LLVMJIT() noexcept;
+    LLVMJIT(LLVMJIT &&) noexcept;
+    LLVMJIT &operator=(LLVMJIT &&) noexcept;
+    LLVMJIT(const LLVMJIT &) = delete;
+    LLVMJIT &operator=(const LLVMJIT &) = delete;
+
+    [[nodiscard]] bool add_module(
+        std::unique_ptr<::llvm::Module> module,
+        std::unique_ptr<::llvm::LLVMContext> context) noexcept;
+    [[nodiscard]] void *lookup(std::string_view name) noexcept;
+
+    [[nodiscard]] bool succeeded() const noexcept {
+        return _jit != nullptr && _error.empty();
+    }
+    [[nodiscard]] const std::string &error() const noexcept { return _error; }
+    [[nodiscard]] const std::string &target_triple() const noexcept {
+        return _target_triple;
+    }
+};
+
+}// namespace luisa::compute::simd

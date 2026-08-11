@@ -26,16 +26,16 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
     }
     using Tag = xir::DerivedValueTag;
     switch (value->derived_value_tag()) {
-        case Tag::CONSTANT: return State::uniform;
-        case Tag::FUNCTION: return State::uniform;
-        case Tag::BASIC_BLOCK: return State::uniform;
+        case Tag::CONSTANT: return State::warp_uniform;
+        case Tag::FUNCTION: return State::warp_uniform;
+        case Tag::BASIC_BLOCK: return State::warp_uniform;
         case Tag::UNDEFINED: return State::varying;
         case Tag::ARGUMENT: {
             auto argument = static_cast<const xir::Argument *>(value);
             return _function != nullptr &&
                            _function->isa<xir::KernelFunction>() &&
                            argument->parent_function() == _function ?
-                       State::uniform :
+                       State::warp_uniform :
                        State::varying;
         }
         case Tag::SPECIAL_REGISTER: {
@@ -46,7 +46,7 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
                 case S::KERNEL_ID:
                 case S::BLOCK_SIZE:
                 case S::WARP_SIZE:
-                case S::DISPATCH_SIZE: return State::uniform;
+                case S::DISPATCH_SIZE: return State::warp_uniform;
                 case S::THREAD_ID:
                 case S::WARP_LANE_ID:
                 case S::DISPATCH_ID:
@@ -84,12 +84,13 @@ void WarpUniformityAnalysis::analyze(
         _states.emplace(
             argument,
             function->isa<xir::KernelFunction>() ?
-                State::uniform :
+                State::warp_uniform :
                 State::varying);
     }
 
     struct Pending {
         uint32_t unresolved_count{0u};
+        State state{State::warp_uniform};
     };
     std::unordered_map<const xir::Instruction *, Pending> pending;
     std::unordered_map<
@@ -99,6 +100,13 @@ void WarpUniformityAnalysis::analyze(
     pending.reserve(instructions.size());
     dependents.reserve(instructions.size());
     ready.reserve(instructions.size());
+    auto join_state = [](State lhs, State rhs) noexcept {
+        if (lhs == State::unknown) { return rhs; }
+        if (rhs == State::unknown) { return lhs; }
+        return static_cast<uint32_t>(lhs) >= static_cast<uint32_t>(rhs) ?
+                   lhs :
+                   rhs;
+    };
     auto resolve = [&](const xir::Instruction *instruction,
                        State state) noexcept {
         if (_states.emplace(instruction, state).second) {
@@ -111,6 +119,7 @@ void WarpUniformityAnalysis::analyze(
         dependencies.clear();
         auto has_immediate = false;
         auto immediate = State::varying;
+        auto floor = State::warp_uniform;
         auto set_immediate = [&](State state) noexcept {
             has_immediate = true;
             immediate = state;
@@ -168,14 +177,20 @@ void WarpUniformityAnalysis::analyze(
                     case Op::WARP_READ_FIRST_ACTIVE_LANE:
                     case Op::SHADER_EXECUTION_REORDER:
                     case Op::SYNCHRONIZE_BLOCK:
-                        set_immediate(State::uniform);
+                        // The result is scalar inside this dynamic cohort, but
+                        // a sibling path or another loop epoch may observe a
+                        // different active set and therefore a different value.
+                        set_immediate(State::cohort_uniform);
                         break;
                     case Op::WARP_READ_LANE:
                         if (thread_group->operand_count() < 2u) {
                             set_immediate(State::varying);
                         } else {
-                            // Only the source-lane index controls whether the
-                            // broadcast result is warp-uniform.
+                            // A non-varying source-lane index produces one
+                            // broadcast value for the current cohort. It is
+                            // not warp-global because the participating set
+                            // and source value can differ by dynamic instance.
+                            floor = State::cohort_uniform;
                             dependencies.emplace_back(
                                 thread_group->operand(1u));
                         }
@@ -233,7 +248,7 @@ void WarpUniformityAnalysis::analyze(
             case Tag::ASSERT:
             case Tag::ASSUME:
             case Tag::OUTLINE:
-                set_immediate(State::uniform);
+                set_immediate(State::warp_uniform);
                 break;
         }
 
@@ -241,11 +256,17 @@ void WarpUniformityAnalysis::analyze(
             resolve(instruction, immediate);
             continue;
         }
+        auto resolved_state = floor;
         auto has_varying = false;
         for (auto *dependency : dependencies) {
-            if (_state(dependency) == State::varying) {
+            auto dependency_state = _state(dependency);
+            if (dependency_state == State::varying) {
                 has_varying = true;
                 break;
+            }
+            if (dependency_state != State::unknown) {
+                resolved_state = join_state(
+                    resolved_state, dependency_state);
             }
         }
         if (has_varying) {
@@ -260,9 +281,11 @@ void WarpUniformityAnalysis::analyze(
             }
         }
         if (unresolved_count == 0u) {
-            resolve(instruction, State::uniform);
+            resolve(instruction, resolved_state);
         } else {
-            pending.emplace(instruction, Pending{unresolved_count});
+            pending.emplace(
+                instruction,
+                Pending{unresolved_count, resolved_state});
         }
     }
 
@@ -277,9 +300,14 @@ void WarpUniformityAnalysis::analyze(
             if (resolved_state == State::varying) {
                 pending.erase(pending_iter);
                 resolve(dependent, State::varying);
-            } else if (--pending_iter->second.unresolved_count == 0u) {
-                pending.erase(pending_iter);
-                resolve(dependent, State::uniform);
+            } else {
+                pending_iter->second.state = join_state(
+                    pending_iter->second.state, resolved_state);
+                if (--pending_iter->second.unresolved_count == 0u) {
+                    auto state = pending_iter->second.state;
+                    pending.erase(pending_iter);
+                    resolve(dependent, state);
+                }
             }
         }
     }
@@ -291,9 +319,13 @@ void WarpUniformityAnalysis::analyze(
 
 ValueClass WarpUniformityAnalysis::classify(
     const xir::Value *value) const noexcept {
-    return _state(value) == State::uniform ?
-               ValueClass::uniform :
-               ValueClass::varying;
+    switch (_state(value)) {
+        case State::warp_uniform: return ValueClass::warp_uniform;
+        case State::cohort_uniform: return ValueClass::cohort_uniform;
+        case State::unknown:
+        case State::varying: return ValueClass::varying;
+    }
+    return ValueClass::varying;
 }
 
 }// namespace luisa::compute::simd::schedule
