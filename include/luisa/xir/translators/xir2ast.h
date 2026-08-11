@@ -12,6 +12,9 @@ class XIR2ASTContext;
 struct XIR2ASTTranslationStatistics {
     size_t function_translations{0u};
     size_t function_cache_hits{0u};
+    size_t whole_module_verification_count{0u};
+    size_t function_verification_count{0u};
+    double verification_milliseconds{0.0};
     size_t value_binding_insertions{0u};
     size_t value_map_checkpoint_count{0u};
     // Exact number of branch-local bindings inspected and erased while
@@ -27,6 +30,12 @@ struct XIR2ASTConfig {
     // Diagnostic oracle: retain the former full-map snapshot at every
     // structured scope and compare it with the incremental rollback result.
     bool verify_value_map_checkpoints{false};
+    // Batch translation may verify one immutable same-module boundary before
+    // translating any root, then reuse that proven boundary for all roots and
+    // ordinary callable dependencies. This never skips validation: the
+    // default preserves independent per-function verification, while enabling
+    // this mode replaces it with one stronger whole-module verification.
+    bool verify_same_module_once{false};
 };
 
 using ASTFunctionBuilder = compute::detail::FunctionBuilder;

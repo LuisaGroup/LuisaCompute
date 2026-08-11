@@ -1,5 +1,6 @@
 #include <algorithm>
 
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
@@ -443,6 +444,7 @@ private:
     };
 
     XIR2ASTConfig _config;
+    const Module *_verified_module;
     luisa::shared_ptr<const ASTFunctionBuilder> _builder;
     luisa::unordered_map<const FunctionDefinition *, luisa::shared_ptr<const ASTFunctionBuilder>> _function_map;
     luisa::unordered_set<const FunctionDefinition *> _translating_functions;
@@ -458,6 +460,30 @@ private:
     luisa::vector<LoopUpdateContext> _loop_update_stack;
 
 private:
+    void _verify_translation_input(
+        const FunctionDefinition &function,
+        luisa::string_view stage) noexcept {
+        if (_verified_module != nullptr) {
+            LUISA_ASSERT(
+                function.parent_module() == _verified_module,
+                "A whole-module-verified XIR-to-AST batch reached a function "
+                "from a different module.");
+            return;
+        }
+        if (auto statistics = _config.statistics) {
+            statistics->function_verification_count++;
+        }
+        luisa::Clock verification_clock;
+        verify_xir_for_ast(
+            &function, stage,
+            {.require_no_phi = true,
+             .require_canonical_break_continue_targets = true});
+        if (auto statistics = _config.statistics) {
+            statistics->verification_milliseconds +=
+                verification_clock.toc();
+        }
+    }
+
     void _bind_value(const Value *value,
                      const Expression *expression) noexcept {
         auto [iter, inserted] =
@@ -1560,10 +1586,8 @@ private:
             }
             return iter->second;
         }
-        verify_xir_for_ast(
-            &f, "callable translation input",
-            {.require_no_phi = true,
-             .require_canonical_break_continue_targets = true});
+        _verify_translation_input(
+            f, "callable translation input");
         if (!_translating_functions.emplace(&f).second) {
             LUISA_ERROR_WITH_LOCATION("Recursive XIR callables are not supported by XIR-to-AST.");
         }
@@ -1586,7 +1610,11 @@ private:
     }
 
 public:
-    explicit XIR2ASTContext(const XIR2ASTConfig &config) noexcept : _config{config} {}
+    explicit XIR2ASTContext(
+        const XIR2ASTConfig &config,
+        const Module *verified_module = nullptr) noexcept
+        : _config{config},
+          _verified_module{verified_module} {}
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder>
     translate_function(const FunctionDefinition &f) noexcept {
@@ -1606,10 +1634,7 @@ public:
             }
             return iter->second;
         }
-        verify_xir_for_ast(
-            &f, "translation input",
-            {.require_no_phi = true,
-             .require_canonical_break_continue_targets = true});
+        _verify_translation_input(f, "translation input");
         if (!_translating_functions.emplace(&f).second) {
             LUISA_ERROR_WITH_LOCATION(
                 "Recursive XIR root functions are not supported by XIR-to-AST.");
@@ -1855,15 +1880,46 @@ luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>>
 xir_to_ast_translate_continuations(
     luisa::span<const FunctionDefinition *const> functions,
     const XIR2ASTConfig &config) noexcept {
-    XIR2ASTContext ctx{config};
     luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>> builders;
     builders.reserve(functions.size());
+    if (functions.empty()) { return builders; }
+
+    const Module *verified_module = nullptr;
     for (auto *function : functions) {
         LUISA_ASSERT(
             function != nullptr &&
                 function->derived_function_tag() ==
                     DerivedFunctionTag::CALLABLE,
             "xir_to_ast_translate_continuations requires CallableFunction definitions.");
+    }
+    if (config.verify_same_module_once) {
+        verified_module = functions.front()->parent_module();
+        LUISA_ASSERT(
+            verified_module != nullptr,
+            "Whole-module XIR-to-AST verification requires owned functions.");
+        for (auto *function : functions) {
+            LUISA_ASSERT(
+                function->parent_module() == verified_module,
+                "Whole-module XIR-to-AST verification requires all roots to "
+                "belong to the same module.");
+        }
+        luisa::Clock verification_clock;
+        verify_xir_for_ast(
+            verified_module, "continuation batch input",
+            {.require_no_phi = true,
+             .require_canonical_break_continue_targets = true});
+        if (auto statistics = config.statistics) {
+            statistics->whole_module_verification_count++;
+            statistics->verification_milliseconds +=
+                verification_clock.toc();
+        }
+    }
+
+    // The verified-module capability never escapes this synchronous call.
+    // Translation is read-only, and every root/dependency is checked against
+    // the exact verified module before per-function verification is elided.
+    XIR2ASTContext ctx{config, verified_module};
+    for (auto *function : functions) {
         builders.emplace_back(ctx.translate_function(*function));
     }
     return builders;

@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 
@@ -78,6 +80,22 @@ public:
         if (_enabled) {
             LUISA_INFO("Coroutine compilation phase '{}': {:.3f} ms",
                        phase, _phase_clock.toc());
+            _phase_clock.tic();
+        }
+    }
+
+    void checkpoint_split(luisa::string_view first_phase,
+                          double first_milliseconds,
+                          luisa::string_view second_phase) noexcept {
+        if (_enabled) {
+            auto total_milliseconds = _phase_clock.toc();
+            auto bounded_first = std::clamp(
+                first_milliseconds, 0.0, total_milliseconds);
+            LUISA_INFO("Coroutine compilation phase '{}': {:.3f} ms",
+                       first_phase, bounded_first);
+            LUISA_INFO("Coroutine compilation phase '{}': {:.3f} ms",
+                       second_phase,
+                       total_milliseconds - bounded_first);
             _phase_clock.tic();
         }
     }
@@ -453,9 +471,6 @@ CoroutineCompileResult compile_coroutine_pipeline(
             ordinary_callable_snapshots, "continuation normalization");
         profiler.checkpoint("pass-domain verification");
     }
-    verify_coro_xir_or_error(module.get(), "codegen handoff", {.require_no_phi = true});
-    profiler.checkpoint("output verification");
-
     // Keep continuation code and its routing token as one atomic relation.
     // Silently skipping a failed XIR->AST translation and then independently
     // rebuilding tokens from cfg.scopes would shift every later token onto the
@@ -513,7 +528,14 @@ CoroutineCompileResult compile_coroutine_pipeline(
             {.statistics = &xir_to_ast_statistics,
              .verify_value_map_checkpoints =
                  environment_flag_enabled(
-                     "LUISA_XIR2AST_VERIFY_VALUE_MAP_CHECKPOINTS")});
+                     "LUISA_XIR2AST_VERIFY_VALUE_MAP_CHECKPOINTS"),
+             .verify_same_module_once = true});
+    LUISA_ASSERT(
+        xir_to_ast_statistics.whole_module_verification_count == 1u &&
+            xir_to_ast_statistics.function_verification_count == 0u,
+        "Coroutine XIR-to-AST handoff must verify exactly one immutable "
+        "whole-module boundary and perform no redundant per-function "
+        "verification.");
     LUISA_ASSERT(
         continuation_asts.size() == subroutines_by_scope.size(),
         "Coroutine XIR->AST batch translation returned {} AST(s) for {} scope(s).",
@@ -532,14 +554,22 @@ CoroutineCompileResult compile_coroutine_pipeline(
             result.trigger_tokens.front() == 0u &&
             result.subroutines.size() == result.trigger_tokens.size(),
         "Coroutine lowering lost the entry continuation or callable/token pairing.");
-    profiler.checkpoint("XIR-to-AST continuation translation");
+    profiler.checkpoint_split(
+        "output verification",
+        xir_to_ast_statistics.verification_milliseconds,
+        "XIR-to-AST continuation translation");
     if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
         LUISA_INFO(
             "Coroutine XIR-to-AST work: functions={} cache_hits={} "
+            "module_verifications={} function_verifications={} "
+            "verification_ms={:.3f} "
             "value_bindings={} checkpoints={} rollback_work={} "
             "peak_value_map_size={}.",
             xir_to_ast_statistics.function_translations,
             xir_to_ast_statistics.function_cache_hits,
+            xir_to_ast_statistics.whole_module_verification_count,
+            xir_to_ast_statistics.function_verification_count,
+            xir_to_ast_statistics.verification_milliseconds,
             xir_to_ast_statistics.value_binding_insertions,
             xir_to_ast_statistics.value_map_checkpoint_count,
             xir_to_ast_statistics.value_map_rollback_work,
