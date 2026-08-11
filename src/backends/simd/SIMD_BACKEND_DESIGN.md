@@ -196,6 +196,23 @@ Later policies may use branch probabilities, cache locality, or sparse-cohort
 scalarization. Tests use a second adversarial policy to detect accidental
 schedule dependence.
 
+### 4.5 Width-one scalar specialization
+
+Width one is the degenerate case of the same Schedule semantics: only one lane
+can be live, so no two continuations can coexist and no convergence gate can
+wait for a sibling cohort. Its LLVM lowering therefore connects Schedule
+blocks as an ordinary scalar CFG and applies edge assignments on the selected
+edge. An initial dispatch-bounds branch rejects an inactive edge invocation;
+otherwise the active mask is the constant one-lane mask used by the shared
+instruction and resource lowering.
+
+This path deliberately bypasses lane-PC dispatch, runnable/live masks,
+convergence frames, loop epochs, and their state allocas. Instruction values
+that cross Schedule blocks retain temporary state slots so LLVM's ordinary
+`mem2reg` can reconstruct scalar SSA. The formal scheduler remains the oracle:
+the direct CFG is its observationally equivalent single-lane refinement.
+W4/W8/W16 retain the full cohort scheduler.
+
 ## 5. Convergence and dynamic instances
 
 Grouping lanes by static basic-block ID alone is incorrect. Two lanes can reach
@@ -688,13 +705,60 @@ instruction spelling across LLVM versions.
 
 The first end-to-end runtime gate uses the standard non-coroutine
 `example_sdf_renderer`, not `coro_sdf_renderer`. On the recorded Ryzen 9
-9950X3D / LLVM 22.1.8 Release host at 1280x720 and SPP 4, three interleaved
-runs gave a median 5.690 samples/s for default SIMD W8 after parallel block
-dispatch, versus 0.242 samples/s for the prior serial SIMD runtime: a 23.47x
-throughput increase. The 32-worker fallback median was 8.823 samples/s, so
-this checkpoint reaches 64.49% of fallback throughput and does not yet claim
-performance parity. Every SIMD run produced the same PNG byte-for-byte, and
-that output also matched the prior serial SIMD output byte-for-byte.
+9950X3D / LLVM 22.1.8 Release host at 1280x720 and SPP 4, default SIMD W8 after
+parallel block dispatch measured 5.690 samples/s versus 0.242 samples/s for
+the prior serial SIMD runtime: a 23.47x throughput increase. The 32-worker
+fallback median was 8.823 samples/s, so W8 reaches 64.49% of fallback
+throughput and does not yet claim performance parity.
+
+The width sweep on that host measured the generic cohort path at 6.308, 4.919,
+5.619, and 5.846 samples/s for W1/W4/W8/W16 respectively. Machine inspection
+confirmed that W8 uses 256-bit YMM data operations plus AVX-512VL mask
+registers, while W16 uses 512-bit ZMM data operations; the poor scaling is
+therefore not a missing host-feature flag. SDF ray-march divergence and
+cohort-state traffic dominate its vector-width benefit.
+
+The direct W1 CFG refinement raised the five-run SPP-4 median from 6.122 to
+8.012 samples/s (1.309x) and the three-run SPP-32 median from 6.252 to 8.229
+samples/s (1.316x). At SPP 16, `perf stat` measured instructions falling from
+775.34 billion to 275.63 billion, branches from 70.31 billion to 9.07 billion,
+cycles from 407.77 billion to 318.51 billion, and elapsed time from 2.814 s to
+2.098 s. The SPP-4 W1 result reaches 90.81% of the recorded fallback median.
+
+The same old/new W1 A/B over the supported graphics gates measured 1.29x for
+`shader_toy` (28.60 to 13.92 billion instructions), 1.037x for
+`image_processing`, and 1.020x for `game_of_life`; all paired output PNGs were
+byte-identical. An end-to-end width sweep, including process startup and JIT,
+then measured the following `perf` `duration_time` means in milliseconds. The
+three graphics gates use 11 repetitions and the two additional offline
+examples use five:
+
+| Offline example | W1 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: |
+| `image_processing` | 185.9 | 224.2 | 265.9 | 357.0 |
+| `shader_toy` | 165.7 | 169.4 | 162.8 | 186.1 |
+| `game_of_life` | 78.7 | 86.2 | 102.6 | 131.2 |
+| `voxel_raytracer` | 77.6 | 262.2 | 238.9 | 260.7 |
+| `nbody_simulation` | 454.9 | 1389.9 | 1116.0 | 1174.6 |
+
+Every width produced the same byte-exact PNG for a given example and passed
+its repository reference comparison. W8 narrowly wins only `shader_toy`;
+the scalar-CFG W1 path wins the other four, including 3.08x over W8 for
+`voxel_raytracer` and 2.45x for `nbody_simulation`. Wider packets reduce some
+arithmetic instruction counts, but the current cohort scheduler state,
+divergence, spills, and larger JIT code dominate these workloads. This is a
+code-generation optimization target, not evidence for changing the worker
+pool.
+
+A separate libdispatch/system-parallel-for experiment changed fallback by
++0.42%, SIMD W1 by -0.34%, and SIMD W16 by -0.05%, so the custom persistent
+block pool is retained. Perf sampling attributes about 99% of SDF cycles to
+JIT code and below 0.6% to backend/runtime scheduling. Additional example
+probes currently fail closed at their documented feature boundaries:
+`blackhole` and `wave_equation` require `smoothstep`,
+`shader_toy_spacex` requires bindless textures, and `mpm88` requires
+`matrix_linalg_mul`; a default-W8 `fire_simulation` probe exceeded the
+120-second conformance timeout.
 
 ## 14. Delivery plan
 

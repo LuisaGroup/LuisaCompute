@@ -40,11 +40,11 @@ namespace {
     return condition;
 }
 
-#define CHECK(EXPR)                                                           \
-    do {                                                                      \
-        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) {     \
-            return false;                                                     \
-        }                                                                     \
+#define CHECK(EXPR)                                                       \
+    do {                                                                  \
+        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) { \
+            return false;                                                 \
+        }                                                                 \
     } while (false)
 
 [[nodiscard]] SIMDPacketLaunchConfig launch_1d(
@@ -886,9 +886,9 @@ make_non_dominating_convergence(uint32_t width) {
             &block.terminator);
         if (branch != nullptr) {
             static_join_is_missing = std::find(
-                branch->edge.joins.begin(),
-                branch->edge.joins.end(),
-                *inner_convergence) == branch->edge.joins.end();
+                                         branch->edge.joins.begin(),
+                                         branch->edge.joins.end(),
+                                         *inner_convergence) == branch->edge.joins.end();
         }
     }
     if (!static_join_is_missing ||
@@ -1034,6 +1034,13 @@ template<size_t Width>
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
     CHECK(ir.find("llvm.arm.neon.") == std::string::npos);
+    if constexpr (Width == 1u) {
+        CHECK(ir.find("scheduler.loop") == std::string::npos);
+        CHECK(ir.find("lane.convergence.token") == std::string::npos);
+        CHECK(ir.find("frame.expected") == std::string::npos);
+    } else {
+        CHECK(ir.find("scheduler.loop") != std::string::npos);
+    }
 
     LLVMJIT jit;
     if (!jit.succeeded()) {
@@ -1286,8 +1293,8 @@ template<size_t Width>
         while (position != std::string::npos) {
             auto line_begin = ir.rfind('\n', position);
             line_begin = line_begin == std::string::npos ?
-                0u :
-                line_begin + 1u;
+                             0u :
+                             line_begin + 1u;
             auto line_end = ir.find('\n', position);
             auto line = std::string_view{ir}.substr(
                 line_begin, line_end - line_begin);
@@ -1502,16 +1509,17 @@ template<size_t Width>
     return true;
 }
 
+template<size_t Width>
 [[nodiscard]] bool run_switch_loop_exits_codegen() {
-    static constexpr auto width = 8u;
-    auto schedule_function = make_switch_loop_with_exits(width);
+    auto schedule_function = make_switch_loop_with_exits(Width);
     CHECK(schedule_function.has_value());
     auto context = std::make_unique<::llvm::LLVMContext>();
     auto module = std::make_unique<::llvm::Module>(
         "simd-switch-loop-exits", *context);
-    auto name = std::string{"simd_switch_loop_exits"};
+    auto name = std::string{"simd_switch_loop_exits_w"} +
+                std::to_string(Width);
     auto codegen = lower_schedule_to_llvm(
-        *module, *schedule_function, width, name);
+        *module, *schedule_function, Width, name);
     if (!codegen.succeeded()) {
         std::cerr << codegen.error << '\n';
         return false;
@@ -1524,11 +1532,11 @@ template<size_t Width>
         const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
     auto function = reinterpret_cast<Entry *>(jit.lookup(name));
     CHECK(function != nullptr);
-    std::array<uint32_t, width> output{};
+    std::array<uint32_t, Width> output{};
     output.fill(0xdeadbeefu);
-    auto config = launch_1d(width, width);
-    function(nullptr, output.data(), &config, width);
-    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+    auto config = launch_1d(Width, Width);
+    function(nullptr, output.data(), &config, Width);
+    for (auto lane = uint32_t{0u}; lane < Width; lane++) {
         auto expected = lane % 4u == 2u ? lane + 200u :
                                           lane + 100u;
         CHECK(output[lane] == expected);
@@ -1632,9 +1640,9 @@ template<size_t Width>
         function(nullptr, output.data(), &config, active_lanes);
         auto expected_live = active_lanes - 2u;
         for (auto lane = uint32_t{0u}; lane < width; lane++) {
-            auto expected = lane >= active_lanes ? 0xdeadbeefu :
+            auto expected = lane >= active_lanes    ? 0xdeadbeefu :
                             lane >= 2u && lane < 4u ? lane + 100u :
-                                                    expected_live;
+                                                      expected_live;
             CHECK(output[lane] == expected);
         }
     }
@@ -1842,6 +1850,7 @@ int main() {
         {"Schedule IR vector warp4", &run_codegen<4u>},
         {"Schedule IR vector warp8", &run_codegen<8u>},
         {"Schedule IR vector warp16", &run_codegen<16u>},
+        {"Schedule IR loop warp1", &run_loop_codegen<1u>},
         {"Schedule IR loop warp4", &run_loop_codegen<4u>},
         {"Schedule IR loop warp8", &run_loop_codegen<8u>},
         {"varying loop exit collective",
@@ -1853,7 +1862,9 @@ int main() {
         {"scalar uniform values", &run_uniform_value_codegen},
         {"scalar uniform switch", &run_uniform_switch_codegen},
         {"varying switch convergence", &run_varying_switch_codegen},
-        {"switch loop exits", &run_switch_loop_exits_codegen},
+        {"scalar switch loop exits",
+         &run_switch_loop_exits_codegen<1u>},
+        {"switch loop exits", &run_switch_loop_exits_codegen<8u>},
         {"multiple loop backedges", &run_multiple_backedge_loop_codegen},
         {"dynamic non-dominating convergence",
          &run_non_dominating_convergence_codegen},

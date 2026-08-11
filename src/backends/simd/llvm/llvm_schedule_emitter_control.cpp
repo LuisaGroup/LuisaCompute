@@ -57,21 +57,21 @@ void ScheduleEmitter::_emit_instruction(const schedule::Instruction &instruction
                         value, old, _active_mask),
                     slot);
             } else if (schedule_value->value_class ==
-                schedule::ValueClass::warp_uniform) {
+                       schedule::ValueClass::warp_uniform) {
                 _builder.CreateStore(value, slot);
             } else {
                 auto *lanes = schedule_value->value_class ==
-                        schedule::ValueClass::token ?
-                    _splat(value) :
-                    _as_lane_vector(value, *schedule_value);
+                                      schedule::ValueClass::token ?
+                                  _splat(value) :
+                                  _as_lane_vector(value, *schedule_value);
                 if (lanes == nullptr) { return; }
                 auto *old = _builder.CreateLoad(
                     slot->getAllocatedType(), slot);
                 auto *merged = schedule_value->type == nullptr ?
-                    _builder.CreateSelect(_active_mask, lanes, old) :
-                    _masked_merge(
-                        lanes, old, schedule_value->type,
-                        _active_mask);
+                                   _builder.CreateSelect(_active_mask, lanes, old) :
+                                   _masked_merge(
+                                       lanes, old, schedule_value->type,
+                                       _active_mask);
                 if (merged != nullptr) {
                     _builder.CreateStore(merged, slot);
                 }
@@ -82,7 +82,7 @@ void ScheduleEmitter::_emit_instruction(const schedule::Instruction &instruction
 }
 
 void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
-             ::llvm::Value *mask) {
+                              ::llvm::Value *mask) {
     auto *destination = _source.value(assignment.destination);
     auto *source = _source.value(assignment.source);
     auto *value = _load_value(assignment.source);
@@ -123,8 +123,8 @@ void ScheduleEmitter::_apply_assignments(
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_splat(::llvm::Value *scalar) {
     return scalar->getType()->isVectorTy() ? scalar :
-                                            _builder.CreateVectorSplat(
-                                                _width, scalar);
+                                             _builder.CreateVectorSplat(
+                                                 _width, scalar);
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_safe_first_lane(::llvm::Value *mask) {
@@ -134,7 +134,7 @@ void ScheduleEmitter::_apply_assignments(
 }
 
 void ScheduleEmitter::_masked_write(::llvm::AllocaInst *slot, ::llvm::Value *value,
-                   ::llvm::Value *mask) {
+                                    ::llvm::Value *mask) {
     auto *old = _builder.CreateLoad(slot->getAllocatedType(), slot);
     auto *lanes = _splat(value);
     _builder.CreateStore(_builder.CreateSelect(mask, lanes, old), slot);
@@ -388,7 +388,7 @@ void ScheduleEmitter::_resume(schedule::BlockId target, ::llvm::Value *mask) {
 }
 
 void ScheduleEmitter::_route_edge(const schedule::ControlEdge &edge,
-                 ::llvm::Value *mask) {
+                                  ::llvm::Value *mask) {
     _apply_assignments(edge.assignments, mask);
     if (_failed()) { return; }
     if (edge.loop_back) {
@@ -409,7 +409,7 @@ void ScheduleEmitter::_route_edge(const schedule::ControlEdge &edge,
 }
 
 void ScheduleEmitter::_emit_arrival(const schedule::ControlEdge &edge,
-                   ::llvm::Value *mask) {
+                                    ::llvm::Value *mask) {
     _route_edge(edge, mask);
     _builder.CreateBr(_scheduler_loop);
 }
@@ -663,6 +663,108 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
         terminator);
 }
 
+void ScheduleEmitter::_emit_scalar_terminator(
+    const schedule::Terminator &terminator,
+    const std::vector<::llvm::BasicBlock *> &blocks) {
+    auto scalar = [&](::llvm::Value *value) -> ::llvm::Value * {
+        if (value == nullptr) { return nullptr; }
+        return value->getType()->isVectorTy() ?
+                   _builder.CreateExtractElement(value, uint64_t{0u}) :
+                   value;
+    };
+    auto emit_edge = [&](const schedule::ControlEdge &edge) {
+        _apply_assignments(edge.assignments, _active_mask);
+        if (!_failed()) {
+            _builder.CreateBr(blocks[edge.target.value]);
+        }
+    };
+    std::visit(
+        [&](const auto &control) {
+            using T = std::decay_t<decltype(control)>;
+            if constexpr (std::is_same_v<
+                              T, schedule::BranchTerminator>) {
+                emit_edge(control.edge);
+            } else if constexpr (std::is_same_v<
+                                     T, schedule::SplitTerminator>) {
+                auto *condition = scalar(
+                    _load_value(control.condition));
+                if (condition == nullptr) { return; }
+                auto *true_path = ::llvm::BasicBlock::Create(
+                    _module.getContext(), "scalar.true", _entry);
+                auto *false_path = ::llvm::BasicBlock::Create(
+                    _module.getContext(), "scalar.false", _entry);
+                _builder.CreateCondBr(
+                    condition, true_path, false_path);
+                _builder.SetInsertPoint(true_path);
+                emit_edge(control.true_edge);
+                _builder.SetInsertPoint(false_path);
+                emit_edge(control.false_edge);
+            } else if constexpr (std::is_same_v<
+                                     T, schedule::SwitchTerminator>) {
+                auto *selector = scalar(
+                    _load_value(control.selector));
+                if (selector == nullptr) { return; }
+                auto *default_path = ::llvm::BasicBlock::Create(
+                    _module.getContext(),
+                    "scalar.switch.default", _entry);
+                std::vector<::llvm::BasicBlock *> case_paths;
+                case_paths.reserve(control.cases.size());
+                auto *llvm_switch = _builder.CreateSwitch(
+                    selector, default_path, control.cases.size());
+                auto *selector_type = ::llvm::cast<
+                    ::llvm::IntegerType>(selector->getType());
+                for (auto &&item : control.cases) {
+                    auto *case_path = ::llvm::BasicBlock::Create(
+                        _module.getContext(),
+                        "scalar.switch.case", _entry);
+                    case_paths.emplace_back(case_path);
+                    llvm_switch->addCase(
+                        ::llvm::ConstantInt::get(
+                            selector_type, item.value),
+                        case_path);
+                }
+                for (auto i = size_t{0u};
+                     i < control.cases.size(); i++) {
+                    _builder.SetInsertPoint(case_paths[i]);
+                    emit_edge(control.cases[i].edge);
+                }
+                _builder.SetInsertPoint(default_path);
+                emit_edge(control.default_edge);
+            } else if constexpr (std::is_same_v<
+                                     T, schedule::JoinTerminator>) {
+                auto *point = _source.convergence(
+                    control.convergence);
+                schedule::ControlEdge edge{point->target};
+                edge.assignments = control.assignments;
+                emit_edge(edge);
+            } else if constexpr (std::is_same_v<
+                                     T, schedule::ReturnTerminator>) {
+                if (control.value) {
+                    auto *schedule_value = _source.value(
+                        *control.value);
+                    auto *value = _as_lane_vector(
+                        _load_value(*control.value),
+                        *schedule_value);
+                    if (value != nullptr) {
+                        _builder.CreateMaskedStore(
+                            value, _return_buffer,
+                            ::llvm::Align{
+                                schedule_value->type->alignment()},
+                            _active_mask);
+                    }
+                }
+                _builder.CreateRetVoid();
+            } else if constexpr (std::is_same_v<
+                                     T,
+                                     schedule::UnreachableTerminator>) {
+                _builder.CreateUnreachable();
+            } else {
+                _fail("unsupported Schedule IR terminator reached scalar LLVM emission");
+            }
+        },
+        terminator);
+}
+
 void ScheduleEmitter::_find_instruction_spills() {
     _spilled_instruction_values.assign(
         _source.values().size(), uint8_t{0u});
@@ -732,65 +834,71 @@ void ScheduleEmitter::_find_instruction_spills() {
 }
 
 void ScheduleEmitter::_allocate_state() {
-    auto *mask_type = _layout.mask_type();
-    auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
-    auto *i32_lanes = ::llvm::FixedVectorType::get(
-        _builder.getInt32Ty(), _width);
-    auto *zero_i32_lanes = ::llvm::Constant::getNullValue(i32_lanes);
-    _live_mask = _builder.CreateAlloca(
-        mask_type, nullptr, "live.mask");
-    _runnable_mask = _builder.CreateAlloca(
-        mask_type, nullptr, "runnable.mask");
-    _pc_state = _builder.CreateAlloca(
-        i32_lanes, nullptr, "lane.pc");
-    _token_state = _builder.CreateAlloca(
-        i32_lanes, nullptr, "lane.convergence.token");
-    _frame_active = _builder.CreateAlloca(
-        mask_type, nullptr, "frame.active");
-    _frame_static_id = _builder.CreateAlloca(
-        i32_lanes, nullptr, "frame.static.id");
-    _frame_parent_token = _builder.CreateAlloca(
-        i32_lanes, nullptr, "frame.parent.token");
-    auto *frame_masks = ::llvm::ArrayType::get(mask_type, _width);
-    _frame_expected = _builder.CreateAlloca(
-        frame_masks, nullptr, "frame.expected");
-    _frame_arrived = _builder.CreateAlloca(
-        frame_masks, nullptr, "frame.arrived");
-    _builder.CreateStore(zero_mask, _live_mask);
-    _builder.CreateStore(zero_mask, _runnable_mask);
-    _builder.CreateStore(zero_i32_lanes, _pc_state);
-    _builder.CreateStore(zero_i32_lanes, _token_state);
-    _builder.CreateStore(zero_mask, _frame_active);
-    _builder.CreateStore(zero_i32_lanes, _frame_static_id);
-    _builder.CreateStore(zero_i32_lanes, _frame_parent_token);
-    _builder.CreateStore(
-        ::llvm::Constant::getNullValue(frame_masks), _frame_expected);
-    _builder.CreateStore(
-        ::llvm::Constant::getNullValue(frame_masks), _frame_arrived);
+    if (_width != 1u) {
+        auto *mask_type = _layout.mask_type();
+        auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
+        auto *i32_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt32Ty(), _width);
+        auto *zero_i32_lanes = ::llvm::Constant::getNullValue(i32_lanes);
+        _live_mask = _builder.CreateAlloca(
+            mask_type, nullptr, "live.mask");
+        _runnable_mask = _builder.CreateAlloca(
+            mask_type, nullptr, "runnable.mask");
+        _pc_state = _builder.CreateAlloca(
+            i32_lanes, nullptr, "lane.pc");
+        _token_state = _builder.CreateAlloca(
+            i32_lanes, nullptr, "lane.convergence.token");
+        _frame_active = _builder.CreateAlloca(
+            mask_type, nullptr, "frame.active");
+        _frame_static_id = _builder.CreateAlloca(
+            i32_lanes, nullptr, "frame.static.id");
+        _frame_parent_token = _builder.CreateAlloca(
+            i32_lanes, nullptr, "frame.parent.token");
+        auto *frame_masks = ::llvm::ArrayType::get(mask_type, _width);
+        _frame_expected = _builder.CreateAlloca(
+            frame_masks, nullptr, "frame.expected");
+        _frame_arrived = _builder.CreateAlloca(
+            frame_masks, nullptr, "frame.arrived");
+        _builder.CreateStore(zero_mask, _live_mask);
+        _builder.CreateStore(zero_mask, _runnable_mask);
+        _builder.CreateStore(zero_i32_lanes, _pc_state);
+        _builder.CreateStore(zero_i32_lanes, _token_state);
+        _builder.CreateStore(zero_mask, _frame_active);
+        _builder.CreateStore(zero_i32_lanes, _frame_static_id);
+        _builder.CreateStore(zero_i32_lanes, _frame_parent_token);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(frame_masks),
+            _frame_expected);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(frame_masks),
+            _frame_arrived);
 
-    std::vector<::llvm::Constant *> convergence_targets;
-    convergence_targets.reserve(_source.convergence_points().size());
-    for (auto &&point : _source.convergence_points()) {
-        convergence_targets.emplace_back(
-            _builder.getInt32(point.target.value));
-    }
-    _convergence_targets = convergence_targets.empty() ? nullptr :
-        ::llvm::ConstantVector::get(convergence_targets);
-    _target_convergence_depths.assign(_source.blocks().size(), 0u);
-    for (auto &&point : _source.convergence_points()) {
-        ++_target_convergence_depths[point.target.value];
-    }
+        std::vector<::llvm::Constant *> convergence_targets;
+        convergence_targets.reserve(
+            _source.convergence_points().size());
+        for (auto &&point : _source.convergence_points()) {
+            convergence_targets.emplace_back(
+                _builder.getInt32(point.target.value));
+        }
+        _convergence_targets = convergence_targets.empty() ? nullptr :
+                                                             ::llvm::ConstantVector::get(convergence_targets);
+        _target_convergence_depths.assign(
+            _source.blocks().size(), 0u);
+        for (auto &&point : _source.convergence_points()) {
+            ++_target_convergence_depths[point.target.value];
+        }
 
-    _loop_epochs.resize(_source.loops().size());
-    _block_loops.resize(_source.blocks().size());
-    for (auto &&loop : _source.loops()) {
-        auto *epoch = _builder.CreateAlloca(
-            i32_lanes, nullptr,
-            "loop.epoch." + std::to_string(loop.id.value));
-        _builder.CreateStore(zero_i32_lanes, epoch);
-        _loop_epochs[loop.id.value] = epoch;
-        for (auto block : loop.blocks) {
-            _block_loops[block.value].emplace_back(loop.id);
+        _loop_epochs.resize(_source.loops().size());
+        _block_loops.resize(_source.blocks().size());
+        for (auto &&loop : _source.loops()) {
+            auto *epoch = _builder.CreateAlloca(
+                i32_lanes, nullptr,
+                "loop.epoch." + std::to_string(loop.id.value));
+            _builder.CreateStore(zero_i32_lanes, epoch);
+            _loop_epochs[loop.id.value] = epoch;
+            for (auto block : loop.blocks) {
+                _block_loops[block.value].emplace_back(loop.id);
+            }
         }
     }
     _find_instruction_spills();
@@ -834,8 +942,8 @@ void ScheduleEmitter::_allocate_state() {
             continue;
         }
         auto *type = _is_local_lvalue(value.id) ?
-            static_cast<::llvm::Type *>(_local_handle_type()) :
-            _layout.state_type(value);
+                         static_cast<::llvm::Type *>(_local_handle_type()) :
+                         _layout.state_type(value);
         if (type == nullptr) {
             _fail(_layout.error());
             return;
@@ -845,6 +953,41 @@ void ScheduleEmitter::_allocate_state() {
             value.name + (spill ? ".spill" : ".slot"));
         _builder.CreateStore(::llvm::Constant::getNullValue(type), slot);
         _state_slots[value.id.value] = slot;
+    }
+}
+
+void ScheduleEmitter::_build_scalar(::llvm::Value *initial_mask) {
+    auto &context = _module.getContext();
+    std::vector<::llvm::BasicBlock *> blocks;
+    blocks.reserve(_source.blocks().size());
+    for (auto &&block : _source.blocks()) {
+        blocks.emplace_back(::llvm::BasicBlock::Create(
+            context,
+            "scalar.schedule." + std::to_string(block.id.value),
+            _entry));
+    }
+    auto *inactive = ::llvm::BasicBlock::Create(
+        context, "scalar.inactive", _entry);
+    auto *active = _builder.CreateExtractElement(
+        initial_mask, uint64_t{0u});
+    _builder.CreateCondBr(
+        active, blocks[_source.entry().value], inactive);
+
+    _builder.SetInsertPoint(inactive);
+    _builder.CreateRetVoid();
+
+    _active_mask = ::llvm::ConstantVector::getSplat(
+        ::llvm::ElementCount::getFixed(1u),
+        _builder.getTrue());
+    for (auto &&block : _source.blocks()) {
+        _builder.SetInsertPoint(blocks[block.id.value]);
+        _locals.clear();
+        for (auto &&instruction : block.instructions) {
+            _emit_instruction(instruction);
+            if (_failed()) { return; }
+        }
+        _emit_scalar_terminator(block.terminator, blocks);
+        if (_failed()) { return; }
     }
 }
 
@@ -859,7 +1002,7 @@ void ScheduleEmitter::_build() {
         false);
     if (_entry_name.empty()) {
         _entry_name = _source.name().empty() ? "simd_kernel" :
-                                              _source.name();
+                                               _source.name();
         _entry_name += ".simd_w" + std::to_string(_width);
     }
     if (_module.getFunction(_entry_name) != nullptr) {
@@ -899,6 +1042,10 @@ void ScheduleEmitter::_build() {
                 _dispatch_id[i],
                 _builder.CreateVectorSplat(
                     _width, _dispatch_size[i])));
+    }
+    if (_width == 1u) {
+        _build_scalar(initial_mask);
+        return;
     }
     _builder.CreateStore(initial_mask, _live_mask);
     _builder.CreateStore(initial_mask, _runnable_mask);

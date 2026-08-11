@@ -296,8 +296,12 @@ private:
     void _emit_arrival(const schedule::ControlEdge &edge,
                        ::llvm::Value *mask);
     void _emit_terminator(const schedule::Terminator &terminator);
+    void _emit_scalar_terminator(
+        const schedule::Terminator &terminator,
+        const std::vector<::llvm::BasicBlock *> &blocks);
     void _find_instruction_spills();
     void _allocate_state();
+    void _build_scalar(::llvm::Value *initial_mask);
     void _build();
 
 public:

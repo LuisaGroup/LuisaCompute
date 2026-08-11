@@ -108,7 +108,29 @@ Target legalization may split `<16 x float>` into two or four physical vector
 instructions. That still satisfies `native`: the split is by physical vector
 width, not a hidden source-level lane loop or scalar device-library call.
 
-### 4.1 Host block concurrency
+### 4.1 Width-one scalar CFG refinement
+
+For `W = 1`, a warp has no distinct lanes that can diverge or rendezvous.
+Schedule-to-LLVM therefore emits the ordinary scalar CFG directly: an initial
+dispatch-bounds test guards the entry block, control-edge assignments preserve
+PHI/state semantics, and return exits the JIT entry immediately. The width-one
+path does not allocate or execute lane-PC, convergence-token, frame, runnable,
+or loop-epoch scheduler state. Cross-block Schedule values still use the
+verified state-slot representation before LLVM optimization, allowing
+`mem2reg` to recover scalar SSA on the direct CFG.
+
+This is an implementation refinement of the cohort model, not a separate
+semantic mode. Inactive dispatch-edge invocations perform no instruction or
+resource side effect; resource arguments, local storage, atomics, math, and
+the packet return ABI remain shared with wider specializations. W4/W8/W16
+continue to use the independent-lane cohort scheduler.
+
+Permanent code-shape and execution regressions cover a divergent diamond, a
+natural loop, a switch inside a loop with early exits, and an inactive W1
+dispatch. The unoptimized W1 module is rejected if it contains
+`scheduler.loop`, convergence-token, or frame-state storage.
+
+### 4.2 Host block concurrency
 
 A shader dispatch is synchronous at the stream boundary but parallel across
 thread blocks. The device-owned persistent worker pool dynamically partitions
