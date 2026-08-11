@@ -121,6 +121,31 @@ void configure_native_function(
         function, {vector}, std::string{"native."} + operation);
 }
 
+[[nodiscard]] ::llvm::Value *emit_atan2_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *y, ::llvm::Value *x, LLVMNativeMathMode mode) {
+    auto *type = f32_vector_type(y);
+    if (type == nullptr || x == nullptr || x->getType() != type) {
+        return nullptr;
+    }
+    auto width = type->getNumElements();
+    auto suffix = mode == LLVMNativeMathMode::fast ? "fast" : "u35";
+    auto name = std::string{"__luisa_cpu_native_atan2_f32_v"} +
+                std::to_string(width) + "_" + suffix;
+    auto *function = module.getFunction(name);
+    if (function == nullptr) {
+        auto *function_type = ::llvm::FunctionType::get(
+            type, {type, type}, false);
+        function = ::llvm::Function::Create(
+            function_type, ::llvm::GlobalValue::InternalLinkage,
+            name, module);
+        configure_native_function(function, false);
+        detail::build_atan2_f32(
+            module, function, width, mode);
+    }
+    return builder.CreateCall(function, {y, x}, "native.atan2");
+}
+
 [[nodiscard]] ::llvm::Value *emit_exp_log_f32(
     ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
     ::llvm::Value *vector, LLVMNativeMathMode mode,
@@ -208,6 +233,14 @@ void configure_native_function(
     return emit_inverse_trig_f32(
         module, builder, vector, mode,
         detail::NativeInverseTrigKind::atan);
+}
+
+::llvm::Value *LLVMNativeMath::emit_atan2_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *y, ::llvm::Value *x,
+    LLVMNativeMathMode mode) {
+    return cpu::emit_atan2_f32(
+        module, builder, y, x, mode);
 }
 
 ::llvm::Value *LLVMNativeMath::emit_exp_f32(

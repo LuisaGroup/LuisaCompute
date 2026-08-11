@@ -72,6 +72,7 @@ unset(_luisa_simd_codegen_line_count)
 
 add_library(luisa-compute-simd-llvm STATIC
         ../common/llvm_native_math.cpp
+        ../common/llvm_native_math_atan2.cpp
         ../common/llvm_native_math_fast_exp_log.cpp
         ../common/llvm_native_math_fast_inverse_trig.cpp
         ../common/llvm_native_math_fast_trig.cpp

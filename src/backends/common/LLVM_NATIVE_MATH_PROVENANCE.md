@@ -24,6 +24,11 @@ provider was split into:
 - `llvm_native_math_precise_inverse_trig.cpp`;
 - `llvm_native_math_precise_exp_log.cpp`.
 
+The binary `atan2` provider in `llvm_native_math_atan2.cpp` separately adapts
+SLEEF's `xatan2f`/`atan2kf` signed quadrant reduction and polynomial to generic
+fixed-vector LLVM IR. Its operand sanitization and explicit NaN, infinity, and
+signed-zero repair are local to this provider.
+
 The direct `exp2`, `exp10`, `log2`, and `log10` bodies were separately
 adapted and audited from SLEEF's `xexp2f`, `xexp10f`, `xlog2f_u35`, and
 `xlog10f` formulas. Their reductions and destination-base polynomials remain
@@ -60,6 +65,12 @@ The fast formulas are:
   pi/4 transforms. The reduced interval uses the alternating series through
   `z^9`, whose coefficients are the exact rationals `-1/3`, `1/5`, `-1/7`,
   and `1/9`.
+- `atan2`: divide the smaller operand magnitude by the larger, evaluate a
+  locally Remez-derived degree-11 odd minimax polynomial on `[-1, 1]`, and
+  reconstruct the quadrant from operand signs. None of its six coefficients
+  were copied from SLEEF or ISPC. A dense double audit measured maximum
+  approximation error `1.663e-6`; simulated f32 Horner evaluation measured
+  `1.756e-6` before quadrant and special-value repair.
 - `exp`: reduce by the nearest integer multiple of `ln(2)` and evaluate the
   degree-4 Maclaurin polynomial with exact rational coefficients `1/2`,
   `1/6`, and `1/24`. Exponent construction uses f32 bit operations.
@@ -78,7 +89,8 @@ The fast implementation resides in:
 
 - `llvm_native_math_fast_trig.cpp`;
 - `llvm_native_math_fast_inverse_trig.cpp`;
-- `llvm_native_math_fast_exp_log.cpp`.
+- `llvm_native_math_fast_exp_log.cpp`;
+- `llvm_native_math_atan2.cpp`.
 
 These bodies set only LLVM's contraction permission. NaN, infinity, signed
 zero, subnormal, and domain repair are explicit IR operations. The exact
@@ -93,8 +105,11 @@ and boundaries, 8,192 deterministic raw f32 bit patterns, 8,192 values focused
 on the mathematical domain, and 4,096 values focused on range-reduction and
 overflow transitions. The four independent `exp2`/`exp10`/`log2`/`log10`
 providers raise those counts to 65,536, 65,536, and 16,384 respectively and
-sample both precise and fast reduction partitions. The test also checks
-canonical special-value bits, generic IR shape, inactive tails, scalar
+sample both precise and fast reduction partitions. Binary `atan2` uses paired
+corpora of the same expanded sizes, including a permanent two-ULP precise
+counterexample, dense ratios, all quadrants, axes, infinities, and varied
+magnitudes. The test also checks canonical special-value bits, generic IR
+shape, inactive tails, scalar
 uniformity, and optimized assembly symbols. Schedule execution gives the four
 independent results distinct weights so a swapped operation-to-provider
 mapping cannot disappear inside a commutative sum.
@@ -110,8 +125,9 @@ least 1.05x aggregate throughput improvement at every width.
 
 On the 2026-08-11 audit host (AMD Ryzen 9 9950X3D, x86-64, LLVM 22.1.8,
 Release build), three consecutive runs of the independent-provider checkpoint
-kept all twelve individual operations faster in every width. Median aggregate
-speedups were 1.358x (W2), 1.359x (W3), 1.363x (W4), 1.357x (W8), and 1.354x
-(W16); the slowest individual result across the three runs was 1.103x. Every
+kept all thirteen individual operations faster in every width. Median
+aggregate speedups were 1.355x (W2), 1.352x (W3), 1.362x (W4), 1.355x (W8),
+and 1.317x (W16); the slowest individual result across the three runs was
+1.089x. The `atan2` medians ranged from 1.297x to 1.346x. Every
 reported row had `scalar_libm=no`. These numbers are a reproducibility record,
 not a cross-machine performance guarantee.

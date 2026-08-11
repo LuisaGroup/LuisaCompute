@@ -225,6 +225,15 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
     auto log10_weight_value = 7.0f;
     auto *log10_weight = xir_module.create_constant(
         Type::of<float>(), &log10_weight_value);
+    auto atan2_x_scale_value = 0.2f;
+    auto *atan2_x_scale = xir_module.create_constant(
+        Type::of<float>(), &atan2_x_scale_value);
+    auto atan2_x_offset_value = -1.25f;
+    auto *atan2_x_offset = xir_module.create_constant(
+        Type::of<float>(), &atan2_x_offset_value);
+    auto atan2_weight_value = 11.0f;
+    auto *atan2_weight = xir_module.create_constant(
+        Type::of<float>(), &atan2_weight_value);
     xir::XIRBuilder builder;
     builder.set_insertion_point(entry);
     auto *lane_f32 = builder.static_cast_(Type::of<float>(), lane);
@@ -252,6 +261,18 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         Type::of<float>(), xir::ArithmeticOp::ACOS, {inverse_input});
     auto *atan_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::ATAN, {inverse_input});
+    auto *atan2_x_unbiased = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {lane_f32, atan2_x_scale});
+    auto *atan2_x = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {atan2_x_unbiased, atan2_x_offset});
+    auto *atan2_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ATAN2,
+        {inverse_input, atan2_x});
+    auto *weighted_atan2 = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {atan2_result, atan2_weight});
     auto *exp_input = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
         {lane_f32, scale});
@@ -315,9 +336,12 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
     auto *extended_sum = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {tan_inverse_sum, inverse_sum});
+    auto *extended_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {extended_sum, weighted_atan2});
     auto *result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
-        {base_result, extended_sum});
+        {base_result, extended_result});
     result->set_name("native_math_result");
     builder.return_void();
 
@@ -389,6 +413,9 @@ make_uniform_schedule_math_module(
         Type::of<float>(), xir::ArithmeticOp::ACOS, {input});
     auto *atan_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::ATAN, {input});
+    auto *one = xir_module.create_constant_one(Type::of<float>());
+    auto *atan2_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::ATAN2, {input, one});
     auto *exp_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::EXP, {input});
     auto *log_result = builder.call(
@@ -411,9 +438,12 @@ make_uniform_schedule_math_module(
     auto *extended_sum = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {tan_inverse_sum, inverse_sum});
+    auto *extended_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {extended_sum, atan2_result});
     auto *result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
-        {base_result, extended_sum});
+        {base_result, extended_result});
     result->set_name("uniform_math_result");
     builder.return_void();
 
@@ -938,6 +968,8 @@ template<size_t Width>
           std::string::npos);
     CHECK(ir.find("llvm.atan.v" + std::to_string(Width) + "f32") ==
           std::string::npos);
+    CHECK(ir.find("llvm.atan2.v" + std::to_string(Width) + "f32") ==
+          std::string::npos);
     CHECK(ir.find("llvm.exp.v" + std::to_string(Width) + "f32") ==
           std::string::npos);
     CHECK(ir.find("llvm.log.v" + std::to_string(Width) + "f32") ==
@@ -971,6 +1003,10 @@ template<size_t Width>
                   std::to_string(Width) +
                   (fast_math ? "_fast" : "_u35")) !=
           std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_atan2_f32_v" +
+                  std::to_string(Width) +
+                  (fast_math ? "_fast" : "_u35")) !=
+          std::string::npos);
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
 
@@ -994,6 +1030,7 @@ template<size_t Width>
         CHECK(assembly.find("asinf") == std::string::npos);
         CHECK(assembly.find("acosf") == std::string::npos);
         CHECK(assembly.find("atanf") == std::string::npos);
+        CHECK(assembly.find("atan2f") == std::string::npos);
         CHECK(assembly.find("expf") == std::string::npos);
         CHECK(assembly.find("logf") == std::string::npos);
         CHECK(assembly.find("exp2f") == std::string::npos);
@@ -1049,7 +1086,10 @@ template<size_t Width>
                                 2.0f * std::exp2(lane_f32 * 0.125f) +
                                 3.0f * std::pow(10.0f, lane_f32 * 0.03125f) +
                                 5.0f * std::log2(lane_f32 + 1.0f) +
-                                7.0f * std::log10(lane_f32 + 1.0f);
+                                7.0f * std::log10(lane_f32 + 1.0f) +
+                                11.0f * std::atan2(
+                                            inverse_input,
+                                            lane_f32 * 0.2f - 1.25f);
                 auto equal = fast_math ?
                                  std::abs(output[lane] - expected) <=
                                      2.0e-3f * (1.0f + std::abs(expected)) :
@@ -1074,6 +1114,7 @@ template<size_t Width>
     CHECK(count_occurrences(ir, "call float @llvm.asin.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.acos.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.atan.f32") == 1u);
+    CHECK(count_occurrences(ir, "call float @llvm.atan2.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.exp.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.log.f32") == 1u);
     CHECK(ir.find("llvm.sin.v8f32") == std::string::npos);
@@ -1082,6 +1123,7 @@ template<size_t Width>
     CHECK(ir.find("llvm.asin.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.acos.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.atan.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.atan2.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.exp.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.log.v8f32") == std::string::npos);
 
@@ -1113,6 +1155,7 @@ template<size_t Width>
     auto expected = std::sin(input) + std::cos(input) +
                     std::tan(input) + std::asin(input) +
                     std::acos(input) + std::atan(input) +
+                    std::atan2(input, 1.0f) +
                     std::exp(input) + std::log(input);
     for (auto lane = size_t{0u}; lane < width; lane++) {
         CHECK(lane < 7u ?

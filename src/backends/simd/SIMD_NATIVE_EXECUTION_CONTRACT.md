@@ -155,12 +155,14 @@ The current f32 implementation checkpoint is:
 | `exp2` | direct nearest-integer base-2 reduction, split `ln(2)`, and native exponential polynomial | at most 1 ULP in the expanded independent corpus |
 | `exp10` | direct `log2(10)` reduction, split `log10(2)`/`ln(10)`, and native exponential polynomial | at most 1 ULP in the expanded independent corpus |
 | `log2`, `log10` | direct exponent/mantissa reduction and destination-base polynomial | at most 3 ULP in the expanded independent corpus |
+| `atan2` | SLEEF-derived signed quadrant reduction and degree-17 odd polynomial | at most 4 ULP by contract; at most 2 ULP in the expanded paired corpus |
 
 SIMD Schedule lowering instantiates these bodies at W1/W4/W8/W16. The
 fallback backend uses the same provider for `sin`, `cos`, `tan`, `asin`,
 `acos`, `atan`, `exp`, `exp2`, `exp10`, `log`, `log2`, and `log10` on DSL
-float2/float3/float4 values, so component-vector math does not become two,
-three, or four scalar libm calls. Its precise target options prohibit
+float2/float3/float4 values, and uses its binary provider for `atan2`, so
+component-vector math does not become two, three, or four scalar libm calls.
+Its precise target options prohibit
 aggressive FP contraction; helper functions are excluded from the later
 whole-module fast-flag rewrite.
 
@@ -179,6 +181,7 @@ For a finite fast-tier result `y` and the reference `R`, the accepted error is
 | `log` | exponent extraction and an `atanh` series through degree 5 | `3e-6` | `1e-6` |
 | `log2` | exponent/mantissa reduction combined directly in base two | `5e-6` | `2e-6` |
 | `log10` | exponent/mantissa reduction combined directly in base ten | `2e-6` | `1e-6` |
+| `atan2` | one min/max-magnitude ratio division and a locally derived degree-11 odd minimax polynomial | `3e-6` | `1e-6` |
 
 `exp2`, `exp10`, `log2`, and `log10` have independent provider symbols,
 range reductions, standard-function references, and numerical bounds. They
@@ -198,6 +201,12 @@ undefined fast-math assumptions:
   signed subnormal inputs; `acos` maps them to `pi/2`;
 - `atan(+-infinity) = +-pi/2` and preserves signed zero and signed
   subnormal inputs;
+- `atan2` returns canonical NaN when either argument is NaN; implements the
+  signed-zero axes (`atan2(+-0, +x) = +-0`, `atan2(+-0, -x) = +-pi`, and
+  `atan2(y, +-0) = copysign(pi/2, y)` for finite nonzero `y`); and handles
+  finite/infinite and infinite/infinite pairs with the corresponding signed
+  multiples of `pi/4`. Finite subnormal operands are evaluated without a
+  deliberate flush-to-zero;
 - `exp`, `exp2`, and `exp10` map either signed zero and every signed
   subnormal input to `1`, `-infinity` to `+0`, and `+infinity` to
   `+infinity`. Every positive subnormal result is flushed to `+0`;
@@ -217,13 +226,15 @@ The regression instantiates precise and fast bodies at W2/W3/W4/W8/W16.
 Every operation checks fixed boundaries and special values plus 8,192
 deterministic raw float bit patterns, 8,192 domain-focused values, and 4,096
 reduction/transition-focused values per width. The four independent
-`exp2`/`exp10`/`log2`/`log10` bodies raise those three deterministic corpora
-to 65,536, 65,536, and 16,384 values respectively, including integer and
-half-integer reduction points, exponent transitions, and both mantissa
-partition boundaries. Schedule tests cover W4/W8/W16 and inactive tails.
+`exp2`/`exp10`/`log2`/`log10` bodies and binary `atan2` raise those three
+deterministic corpora to 65,536, 65,536, and 16,384 values respectively.
+The radix operations include integer and half-integer reduction points,
+exponent transitions, and both mantissa partition boundaries; `atan2` uses
+paired raw patterns plus ratio, quadrant, axis, infinity, and magnitude
+partitions. Schedule tests cover W4/W8/W16 and inactive tails.
 Optimized assembly is rejected if it contains a varying scalar libm symbol.
-`atan2`, power, and hyperbolic functions remain explicit audit backlog and
-are not yet marked SIMD-native by this checkpoint.
+Power and hyperbolic functions remain explicit audit backlog and are not yet
+marked SIMD-native by this checkpoint.
 
 ### 5.2 LLVM/system vector libraries
 

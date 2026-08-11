@@ -8,6 +8,10 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 
+namespace luisa::compute::cpu {
+enum struct LLVMNativeMathMode : uint8_t;
+}// namespace luisa::compute::cpu
+
 namespace luisa::compute::cpu::detail {
 
 enum struct NativeTrigKind : uint8_t {
@@ -159,6 +163,10 @@ void build_fast_inverse_trig_f32(
 void build_precise_inverse_trig_f32(
     ::llvm::Module &module, ::llvm::Function *function, uint32_t width,
     NativeInverseTrigKind kind);
+
+void build_atan2_f32(::llvm::Module &module,
+                     ::llvm::Function *function, uint32_t width,
+                     LLVMNativeMathMode mode);
 
 void build_fast_exp_log_f32(::llvm::Module &module,
                             ::llvm::Function *function, uint32_t width,

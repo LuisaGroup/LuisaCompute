@@ -36,6 +36,7 @@ enum struct Operation : uint8_t {
     asin,
     acos,
     atan,
+    atan2,
     exp,
     exp2,
     exp10,
@@ -47,6 +48,7 @@ enum struct Operation : uint8_t {
 constexpr std::array operations{
     Operation::sin, Operation::cos, Operation::tan,
     Operation::asin, Operation::acos, Operation::atan,
+    Operation::atan2,
     Operation::exp, Operation::exp2, Operation::exp10,
     Operation::log, Operation::log2, Operation::log10};
 
@@ -74,6 +76,7 @@ struct Measurement {
         case Operation::asin: return "asin";
         case Operation::acos: return "acos";
         case Operation::atan: return "atan";
+        case Operation::atan2: return "atan2";
         case Operation::exp: return "exp";
         case Operation::exp2: return "exp2";
         case Operation::exp10: return "exp10";
@@ -95,7 +98,8 @@ struct Measurement {
 
 [[nodiscard]] ::llvm::Value *emit_operation(
     ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
-    ::llvm::Value *input, Operation operation,
+    ::llvm::Value *input, ::llvm::Value *secondary,
+    Operation operation,
     cpu::LLVMNativeMathMode mode) {
     switch (operation) {
         case Operation::sin:
@@ -116,6 +120,9 @@ struct Measurement {
         case Operation::atan:
             return cpu::LLVMNativeMath::emit_atan_f32(
                 module, builder, input, mode);
+        case Operation::atan2:
+            return cpu::LLVMNativeMath::emit_atan2_f32(
+                module, builder, input, secondary, mode);
         case Operation::exp:
             return cpu::LLVMNativeMath::emit_exp_f32(
                 module, builder, input, mode);
@@ -148,7 +155,9 @@ void add_entry(
     auto *pointer = ::llvm::PointerType::get(context, 0u);
     auto *function_type = ::llvm::FunctionType::get(
         ::llvm::Type::getVoidTy(context),
-        {pointer, pointer, ::llvm::Type::getInt64Ty(context)}, false);
+        {pointer, pointer, pointer,
+         ::llvm::Type::getInt64Ty(context)},
+        false);
     auto *function = ::llvm::Function::Create(
         function_type, ::llvm::GlobalValue::ExternalLinkage,
         entry_name(operation, width, mode), module);
@@ -160,7 +169,7 @@ void add_entry(
         context, "exit", function);
     ::llvm::IRBuilder<> builder{entry};
     builder.CreateCondBr(
-        builder.CreateICmpEQ(function->getArg(2u), builder.getInt64(0u)),
+        builder.CreateICmpEQ(function->getArg(3u), builder.getInt64(0u)),
         exit, loop);
 
     builder.SetInsertPoint(loop);
@@ -169,18 +178,22 @@ void add_entry(
     auto *element = builder.CreateMul(index, builder.getInt64(width));
     auto *input_pointer = builder.CreateGEP(
         float_type, function->getArg(0u), element);
-    auto *output_pointer = builder.CreateGEP(
+    auto *secondary_pointer = builder.CreateGEP(
         float_type, function->getArg(1u), element);
+    auto *output_pointer = builder.CreateGEP(
+        float_type, function->getArg(2u), element);
     auto *input = builder.CreateAlignedLoad(
         vector_type, input_pointer, ::llvm::Align{4u});
+    auto *secondary = builder.CreateAlignedLoad(
+        vector_type, secondary_pointer, ::llvm::Align{4u});
     auto *result = emit_operation(
-        module, builder, input, operation, mode);
+        module, builder, input, secondary, operation, mode);
     builder.CreateAlignedStore(
         result, output_pointer, ::llvm::Align{4u});
     auto *next = builder.CreateAdd(index, builder.getInt64(1u));
     index->addIncoming(next, loop);
     builder.CreateCondBr(
-        builder.CreateICmpULT(next, function->getArg(2u)), loop, exit);
+        builder.CreateICmpULT(next, function->getArg(3u)), loop, exit);
 
     builder.SetInsertPoint(exit);
     builder.CreateRetVoid();
@@ -215,7 +228,8 @@ void add_entry(
         case Operation::tan: return unit * 1.25f;
         case Operation::asin:
         case Operation::acos: return unit * 0.95f;
-        case Operation::atan: return unit * 4.0f;
+        case Operation::atan:
+        case Operation::atan2: return unit * 4.0f;
         case Operation::exp: return unit * 5.0f;
         case Operation::exp2: return unit * 7.0f;
         case Operation::exp10: return unit * 2.0f;
@@ -226,17 +240,32 @@ void add_entry(
     return 0.0f;
 }
 
+[[nodiscard]] float secondary_input_value(
+    Operation operation, size_t index) noexcept {
+    if (operation != Operation::atan2) { return 1.0f; }
+    auto bits = static_cast<uint32_t>(
+        index * 277803737u + 1013904223u);
+    auto unit = static_cast<float>(
+                    static_cast<int32_t>(bits & 0x00ffffffu)) /
+                    8388608.0f -
+                1.0f;
+    return unit * 4.0f + 0.125f;
+}
+
 volatile float benchmark_sink = 0.0f;
 
-using Entry = void(const float *, float *, uint64_t);
+using Entry = void(
+    const float *, const float *, float *, uint64_t);
 
 [[nodiscard]] double measure(
     Entry *entry, const std::vector<float> &input,
+    const std::vector<float> &secondary,
     std::vector<float> &output, uint64_t repetitions,
     uint32_t width) {
     auto begin = std::chrono::steady_clock::now();
     for (auto i = uint64_t{0u}; i < repetitions; i++) {
-        entry(input.data(), output.data(), packet_count);
+        entry(
+            input.data(), secondary.data(), output.data(), packet_count);
     }
     auto end = std::chrono::steady_clock::now();
     benchmark_sink = benchmark_sink +
@@ -290,7 +319,8 @@ using Entry = void(const float *, float *, uint64_t);
         });
     constexpr std::array symbols{
         "sinf", "cosf", "tanf", "asinf", "acosf", "atanf",
-        "expf", "exp2f", "exp10f", "logf", "log2f", "log10f"};
+        "atan2f", "expf", "exp2f", "exp10f", "logf", "log2f",
+        "log10f"};
     return std::ranges::any_of(symbols, [&](auto symbol) noexcept {
         return assembly.find(symbol) != std::string::npos;
     });
@@ -310,16 +340,19 @@ using Entry = void(const float *, float *, uint64_t);
                 std::numeric_limits<double>::infinity(), 0u, 0u};
     }
     std::vector<float> input(packet_count * width);
+    std::vector<float> secondary(packet_count * width);
     std::vector<float> output(packet_count * width);
     for (auto i = size_t{0u}; i < input.size(); i++) {
         input[i] = input_value(operation, i);
+        secondary[i] = secondary_input_value(operation, i);
     }
-    precise(input.data(), output.data(), packet_count);
-    fast(input.data(), output.data(), packet_count);
+    precise(
+        input.data(), secondary.data(), output.data(), packet_count);
+    fast(input.data(), secondary.data(), output.data(), packet_count);
 
     auto repetitions = uint64_t{1u};
     while (measure(
-               precise, input, output, repetitions, width) *
+               precise, input, secondary, output, repetitions, width) *
                static_cast<double>(
                    repetitions * packet_count * width) <
            2.0e7) {
@@ -332,14 +365,14 @@ using Entry = void(const float *, float *, uint64_t);
     for (auto trial = uint32_t{0u}; trial < 9u; trial++) {
         if ((trial & 1u) == 0u) {
             precise_samples.emplace_back(measure(
-                precise, input, output, repetitions, width));
+                precise, input, secondary, output, repetitions, width));
             fast_samples.emplace_back(measure(
-                fast, input, output, repetitions, width));
+                fast, input, secondary, output, repetitions, width));
         } else {
             fast_samples.emplace_back(measure(
-                fast, input, output, repetitions, width));
+                fast, input, secondary, output, repetitions, width));
             precise_samples.emplace_back(measure(
-                precise, input, output, repetitions, width));
+                precise, input, secondary, output, repetitions, width));
         }
     }
     return {

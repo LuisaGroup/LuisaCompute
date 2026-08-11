@@ -5,8 +5,8 @@ the dependency-light cohort semantic model, the independent-thread LLVM
 packet dispatcher, dispatch builtins, aggregate SoA values, and direct Buffer
 gather/scatter plus bindless buffer tables are implemented behind
 `LUISA_COMPUTE_ENABLE_SIMD`. The shared LLVM native-math layer now has
-independently implemented precise and fast tiers for the initial twelve f32
-operations.
+independently implemented precise and fast tiers for thirteen f32 operations:
+the initial twelve unary operations plus binary `atan2`.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -533,6 +533,8 @@ envelopes, and special-value behavior are linked from
 [`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md).
 `exp2`, `exp10`, `log2`, and `log10` have their own precise/fast symbols and
 direct range-reduction bodies rather than scaling an `exp` or `log` call.
+Binary `atan2` similarly has a dedicated portable vector body with explicit
+quadrant and IEEE special-value repair.
 
 Acceptance checks three layers:
 
@@ -548,7 +550,7 @@ CTest timing test. It interleaves precise and fast samples for fallback
 float2/float3/float4 and SIMD W4/W8/W16 and enforces a 1.05x aggregate
 throughput gate per width. On the recorded LLVM 22.1.8 x86-64 audit host, the
 median aggregate speedup across three independent-provider runs was
-1.354x-1.363x and every individual operation was faster. The benchmark also
+1.317x-1.362x and every individual operation was faster. The benchmark also
 prints static instruction counts; instruction count alone is not the
 acceptance metric because the common trig path retains a cold large-argument
 correctness branch.

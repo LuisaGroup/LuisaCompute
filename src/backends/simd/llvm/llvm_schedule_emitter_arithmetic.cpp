@@ -680,7 +680,26 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::atan, {value});
             });
         case xir::ArithmeticOp::ATAN2:
-            return binary_intrinsic(::llvm::Intrinsic::atan2);
+            return binary([&](::llvm::Value *y, ::llvm::Value *x,
+                              const Type *y_type, const Type *)
+                              -> ::llvm::Value * {
+                if (varying && y_type->is_float32()) {
+                    auto *safe_y = _builder.CreateSelect(
+                        _active_mask, y,
+                        float_constant_like(y, 0.0));
+                    auto *safe_x = _builder.CreateSelect(
+                        _active_mask, x,
+                        float_constant_like(x, 1.0));
+                    auto *native = cpu::LLVMNativeMath::emit_atan2_f32(
+                        _module, _builder, safe_y, safe_x,
+                        native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD atan2 requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return intrinsic(::llvm::Intrinsic::atan2, {y, x});
+            });
         case xir::ArithmeticOp::COS:
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {

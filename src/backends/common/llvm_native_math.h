@@ -46,6 +46,11 @@ public:
         ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
         ::llvm::Value *vector, LLVMNativeMathMode mode);
 
+    [[nodiscard]] static ::llvm::Value *emit_atan2_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *y, ::llvm::Value *x,
+        LLVMNativeMathMode mode);
+
     [[nodiscard]] static ::llvm::Value *emit_exp_f32(
         ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
         ::llvm::Value *vector, LLVMNativeMathMode mode);

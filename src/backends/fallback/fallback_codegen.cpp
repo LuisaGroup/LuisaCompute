@@ -1289,6 +1289,34 @@ private:
         return llvm_result;
     }
 
+    [[nodiscard]] llvm::Value *_translate_atan2(
+        CurrentFunction &current, IRBuilder &b,
+        const xir::Value *y, const xir::Value *x) noexcept {
+        auto llvm_y = _lookup_value(current, b, y);
+        auto llvm_x = _lookup_value(current, b, x);
+        auto type = y->type();
+        LUISA_ASSERT(type == x->type(), "Type mismatch.");
+        auto element = type->is_vector() ? type->element() : type;
+        if (element->is_float32() && llvm_y->getType()->isVectorTy()) {
+            auto mode = _enable_fast_math ?
+                            cpu::LLVMNativeMathMode::fast :
+                            cpu::LLVMNativeMathMode::precise;
+            auto native = cpu::LLVMNativeMath::emit_atan2_f32(
+                *_llvm_module, b, llvm_y, llvm_x, mode);
+            LUISA_ASSERT(
+                native != nullptr,
+                "Native fallback atan2 requires fixed f32 vectors.");
+            return native;
+        }
+#if LLVM_VERSION_MAJOR >= 20
+        return _translate_binary_fp_math_operation(
+            current, b, y, x, llvm::Intrinsic::atan2);
+#else
+        return _translate_binary_fp_math_operation(
+            current, b, y, x, "atan2");
+#endif
+    }
+
     [[nodiscard]] llvm::Value *_translate_vector_reduce(CurrentFunction &current, IRBuilder &b,
                                                         xir::ArithmeticOp op, const xir::Value *operand) noexcept {
         LUISA_ASSERT(operand->type() != nullptr && operand->type()->is_vector(),
@@ -2561,11 +2589,8 @@ private:
 #endif
             }
             case xir::ArithmeticOp::ATAN2: {
-#if LLVM_VERSION_MAJOR >= 20
-                return _translate_binary_fp_math_operation(current, b, inst->operand(0), inst->operand(1), llvm::Intrinsic::atan2);
-#else
-                return _translate_binary_fp_math_operation(current, b, inst->operand(0), inst->operand(1), "atan2");
-#endif
+                return _translate_atan2(
+                    current, b, inst->operand(0), inst->operand(1));
             }
             case xir::ArithmeticOp::ATANH: {
                 // atanh(x) = 0.5 * log((1 + x) / (1 - x))

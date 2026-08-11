@@ -70,6 +70,7 @@ enum struct Operation : uint8_t {
     acos,
     asin,
     atan,
+    atan2,
     sin,
     cos,
     tan,
@@ -82,7 +83,7 @@ enum struct Operation : uint8_t {
 };
 
 constexpr std::array operations{
-    Operation::acos, Operation::asin, Operation::atan,
+    Operation::acos, Operation::asin, Operation::atan, Operation::atan2,
     Operation::sin, Operation::cos, Operation::tan,
     Operation::exp, Operation::exp2, Operation::exp10,
     Operation::log, Operation::log2, Operation::log10};
@@ -93,6 +94,7 @@ constexpr std::array operations{
         case Operation::acos: return "acos";
         case Operation::asin: return "asin";
         case Operation::atan: return "atan";
+        case Operation::atan2: return "atan2";
         case Operation::sin: return "sin";
         case Operation::cos: return "cos";
         case Operation::tan: return "tan";
@@ -112,6 +114,7 @@ constexpr std::array operations{
         case Operation::acos: return xir::ArithmeticOp::ACOS;
         case Operation::asin: return xir::ArithmeticOp::ASIN;
         case Operation::atan: return xir::ArithmeticOp::ATAN;
+        case Operation::atan2: return xir::ArithmeticOp::ATAN2;
         case Operation::sin: return xir::ArithmeticOp::SIN;
         case Operation::cos: return xir::ArithmeticOp::COS;
         case Operation::tan: return xir::ArithmeticOp::TAN;
@@ -137,11 +140,18 @@ void add_math_callable(
     auto *function = module.create_callable(type);
     function->set_name(function_name(operation, width));
     auto *input = function->create_value_argument(type);
+    auto *secondary = operation == Operation::atan2 ?
+                          function->create_value_argument(type) :
+                          nullptr;
     auto *body = function->create_body_block();
     xir::XIRBuilder builder;
     builder.set_insertion_point(body);
-    auto *result = builder.call(
-        type, xir_operation(operation), {input});
+    auto *result = operation == Operation::atan2 ?
+                       builder.call(
+                           type, xir_operation(operation),
+                           {input, secondary}) :
+                       builder.call(
+                           type, xir_operation(operation), {input});
     builder.return_(result);
 }
 
@@ -168,7 +178,7 @@ void add_entry_wrapper(
     auto *pointer = ::llvm::PointerType::get(module.getContext(), 0u);
     auto *wrapper_type = ::llvm::FunctionType::get(
         ::llvm::Type::getVoidTy(module.getContext()),
-        {pointer, pointer}, false);
+        {pointer, pointer, pointer}, false);
     auto *wrapper = ::llvm::Function::Create(
         wrapper_type, ::llvm::GlobalValue::ExternalLinkage,
         name + "_entry", module);
@@ -179,16 +189,21 @@ void add_entry_wrapper(
         builder.getFloatTy(), width);
     auto *input = builder.CreateAlignedLoad(
         vector_type, wrapper->getArg(0u), ::llvm::Align{4u});
+    auto *secondary = builder.CreateAlignedLoad(
+        vector_type, wrapper->getArg(1u), ::llvm::Align{4u});
     ::llvm::SmallVector<::llvm::Value *, 8u> arguments;
     arguments.emplace_back(input);
-    for (auto i = 1u; i < native->arg_size(); i++) {
+    if (operation == Operation::atan2) {
+        arguments.emplace_back(secondary);
+    }
+    for (auto i = arguments.size(); i < native->arg_size(); i++) {
         arguments.emplace_back(::llvm::Constant::getNullValue(
             native->getFunctionType()->getParamType(i)));
     }
     auto *result = builder.CreateCall(native, arguments);
     result->setCallingConv(::llvm::CallingConv::Fast);
     builder.CreateAlignedStore(
-        result, wrapper->getArg(1u), ::llvm::Align{4u});
+        result, wrapper->getArg(2u), ::llvm::Align{4u});
     builder.CreateRetVoid();
 }
 
@@ -221,10 +236,13 @@ void add_entry_wrappers(::llvm::Module &module) {
 }
 
 template<Operation Op>
-[[nodiscard]] float reference(float x) {
+[[nodiscard]] float reference(float x, float secondary) {
     if constexpr (Op == Operation::acos) { return std::acos(x); }
     if constexpr (Op == Operation::asin) { return std::asin(x); }
     if constexpr (Op == Operation::atan) { return std::atan(x); }
+    if constexpr (Op == Operation::atan2) {
+        return std::atan2(x, secondary);
+    }
     if constexpr (Op == Operation::sin) { return std::sin(x); }
     if constexpr (Op == Operation::cos) { return std::cos(x); }
     if constexpr (Op == Operation::tan) { return std::tan(x); }
@@ -241,16 +259,19 @@ template<Operation Op>
 template<size_t Width, Operation Op>
 [[nodiscard]] bool check_entry(
     simd::LLVMJIT &jit, bool fast_math) {
-    using Entry = void(const float *, float *);
+    using Entry = void(const float *, const float *, float *);
     auto name = function_name(Op, Width) + "_entry";
     auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
     CHECK(entry != nullptr);
     alignas(16) std::array<float, Width> input{};
+    alignas(16) std::array<float, Width> secondary{};
     alignas(16) std::array<float, Width> output{};
     constexpr std::array general_values{
         -0.0f, 0.5f, 39001.25f, -1.0e10f};
     constexpr std::array unit_values{
         -1.0f, -0.5f, 0.5f, 1.0f};
+    constexpr std::array atan2_x_values{
+        -0.0f, 0.5f, -0.5f, 1.0f};
     for (auto lane = size_t{0u}; lane < Width; lane++) {
         if constexpr (Op == Operation::asin ||
                       Op == Operation::acos) {
@@ -258,10 +279,11 @@ template<size_t Width, Operation Op>
         } else {
             input[lane] = general_values[lane];
         }
+        secondary[lane] = atan2_x_values[lane];
     }
-    entry(input.data(), output.data());
+    entry(input.data(), secondary.data(), output.data());
     for (auto lane = size_t{0u}; lane < Width; lane++) {
-        auto expected = reference<Op>(input[lane]);
+        auto expected = reference<Op>(input[lane], secondary[lane]);
         auto matches = fast_math ?
                            (std::isnan(expected) ? std::isnan(output[lane]) :
                             std::isinf(expected) ? output[lane] == expected :
@@ -297,7 +319,8 @@ template<size_t Width, Operation Op>
                                   provider == "tan" ||
                                   provider == "asin" ||
                                   provider == "acos" ||
-                                  provider == "atan" ?
+                                  provider == "atan" ||
+                                  provider == "atan2" ?
                                       "u35" :
                                       "u10";
             for (auto width : {2u, 3u, 4u}) {
@@ -336,6 +359,7 @@ template<size_t Width, Operation Op>
         CHECK(assembly.find("asinf") == std::string::npos);
         CHECK(assembly.find("acosf") == std::string::npos);
         CHECK(assembly.find("atanf") == std::string::npos);
+        CHECK(assembly.find("atan2f") == std::string::npos);
         CHECK(assembly.find("expf") == std::string::npos);
         CHECK(assembly.find("exp2f") == std::string::npos);
         CHECK(assembly.find("exp10f") == std::string::npos);
@@ -361,6 +385,9 @@ template<size_t Width, Operation Op>
         CHECK((check_entry<2u, Operation::atan>(jit, fast_math)));
         CHECK((check_entry<3u, Operation::atan>(jit, fast_math)));
         CHECK((check_entry<4u, Operation::atan>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::atan2>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::atan2>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::atan2>(jit, fast_math)));
         CHECK((check_entry<2u, Operation::sin>(jit, fast_math)));
         CHECK((check_entry<3u, Operation::sin>(jit, fast_math)));
         CHECK((check_entry<4u, Operation::sin>(jit, fast_math)));
