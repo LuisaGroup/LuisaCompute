@@ -1888,6 +1888,55 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         }
         for (size_t i = 0u; i < result.frame_values.size(); ++i) {
             auto &value = result.frame_values[i];
+            auto append_membership = [](luisa::string &membership,
+                                        size_t owner) noexcept {
+                if (!membership.empty()) { membership.append(","); }
+                membership.append(luisa::format("{}", owner));
+            };
+            luisa::string scope_external;
+            luisa::string scope_touched;
+            luisa::string scope_live_in;
+            luisa::string scope_live_out;
+            for (size_t scope_index = 0u;
+                 scope_index < result.scopes.size(); ++scope_index) {
+                const auto &scope = result.scopes[scope_index];
+                if (std::find(scope.external_frame_value_indices.begin(),
+                              scope.external_frame_value_indices.end(), i) !=
+                    scope.external_frame_value_indices.end()) {
+                    append_membership(scope_external, scope_index);
+                }
+                if (std::find(scope.touched_frame_value_indices.begin(),
+                              scope.touched_frame_value_indices.end(), i) !=
+                    scope.touched_frame_value_indices.end()) {
+                    append_membership(scope_touched, scope_index);
+                }
+                if (std::find(scope.live_in_frame_value_indices.begin(),
+                              scope.live_in_frame_value_indices.end(), i) !=
+                    scope.live_in_frame_value_indices.end()) {
+                    append_membership(scope_live_in, scope_index);
+                }
+                if (std::find(scope.live_out_frame_value_indices.begin(),
+                              scope.live_out_frame_value_indices.end(), i) !=
+                    scope.live_out_frame_value_indices.end()) {
+                    append_membership(scope_live_out, scope_index);
+                }
+            }
+            luisa::string edge_live;
+            luisa::string edge_store;
+            for (size_t edge_index = 0u;
+                 edge_index < result.transition_edges.size(); ++edge_index) {
+                const auto &edge = result.transition_edges[edge_index];
+                if (std::find(edge.live_frame_value_indices.begin(),
+                              edge.live_frame_value_indices.end(), i) !=
+                    edge.live_frame_value_indices.end()) {
+                    append_membership(edge_live, edge_index);
+                }
+                if (std::find(edge.store_frame_value_indices.begin(),
+                              edge.store_frame_value_indices.end(), i) !=
+                    edge.store_frame_value_indices.end()) {
+                    append_membership(edge_store, edge_index);
+                }
+            }
             auto tag = luisa::string_view{"non-instruction"};
             if (value.value != nullptr && value.value->isa<Instruction>()) {
                 tag = to_string(static_cast<Instruction *>(value.value)
@@ -1896,7 +1945,9 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             LUISA_INFO(
                 "Coroutine logical frame value {}: name='{}' kind={} "
                 "path_depth={} type={} size={} align={} physical_slot={} "
-                "bit_offset={}.",
+                "bit_offset={} scope_external=[{}] scope_touched=[{}] "
+                "scope_live_in=[{}] scope_live_out=[{}] edge_live=[{}] "
+                "edge_store=[{}].",
                 i, value.name, tag, value.access_chain.size(),
                 value.type == nullptr ? luisa::string_view{"void"} :
                                         value.type->description(),
@@ -1905,7 +1956,9 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
                 value.slot,
                 value.bit_offset ?
                     luisa::format("{}", *value.bit_offset) :
-                    luisa::string{"none"});
+                    luisa::string{"none"},
+                scope_external, scope_touched, scope_live_in,
+                scope_live_out, edge_live, edge_store);
         }
     }
 }
