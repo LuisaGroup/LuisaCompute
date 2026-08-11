@@ -167,6 +167,38 @@ with a non-power-of-two static dimension is rejected before LLVM emission.
 Regression IR verifies `{32, 2, 1}` has named mask/shift decomposition and no
 `udiv`/`urem`, while `{48, 2, 1}` fails with a precise diagnostic.
 
+### 4.4 Predicated diamond refinement
+
+A raw conditional diamond may be replaced by straight-line predicated code
+only when the source branch condition is classified `varying`, both arms are
+speculation-safe, structural and weighted-cost limits pass, and every merge
+PHI has one well-typed incoming value from each arm. Warp- or cohort-uniform
+conditions remain scalar branches. The transformation is a refinement of the
+same per-lane CFG: for lane `i`, the generated select chooses exactly the PHI
+incoming associated with the scalar edge selected by that lane.
+
+Operand sanitization remains a precondition, not a post-hoc mask. Operations
+that may trap, form poison, index an invalid aggregate element, access memory,
+or produce a side effect are excluded even if their result would later be
+selected away. Inactive dispatch-tail lanes therefore execute only total pure
+operations before their results are discarded by the active mask.
+
+The follow-up identity
+
+```text
+select(f(a), f(b), c) = f(select(a, b, c))
+```
+
+is legal only for matching pure total operations. With a vector condition,
+`f` must be component-wise; with any condition, the selected operand types
+must match, exactly one operand pair may differ, both producers must be
+single-use, and all affected instructions must be free of local metadata.
+This rewrite reduces already-speculated work; it does not authorize a diamond
+that failed the original safety test or introduce a fast-math domain
+extension. IR-shape, inactive-tail execution, final assembly, and throughput
+are permanent gates in `benchmark_simd_predicated_if` and the Schedule-codegen
+regressions.
+
 ## 5. Vector-math providers
 
 Provider selection is ordered:

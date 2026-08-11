@@ -21,6 +21,7 @@
 #include <luisa/xir/translators/ast2xir.h>
 
 #include "llvm/llvm_schedule_codegen.h"
+#include "schedule/predicated_if_conversion.h"
 #include "schedule/xir_to_schedule.h"
 
 namespace luisa::compute::simd {
@@ -127,10 +128,23 @@ SIMDCompiledKernel compile_simd_kernel(
             static_cast<void>(xir::dce_pass_run_on_module(module.get()));
         }
     }
+    auto predication_info =
+        schedule::predicate_small_varying_diamonds(xir_kernel);
+    if (predication_info.changed()) {
+        static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    }
     auto result = compile_simd_kernel(
         xir_kernel, warp_width, entry_name, enable_fast_math);
     result.fast_math_identity_count = fast_math_info.identity_count;
     result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
+    result.predicated_diamond_count =
+        predication_info.if_conversion.converted_diamond_count;
+    result.predicated_instruction_count =
+        predication_info.if_conversion.hoisted_inst_count;
+    result.predicated_phi_count =
+        predication_info.if_conversion.replaced_phi_count;
+    result.factored_select_count =
+        predication_info.select_factoring.factored_select_count;
     return result;
 }
 

@@ -39,6 +39,15 @@ The source obligations are:
 Condition 3 is the operational reducibility check in `xir_to_schedule.cpp`.
 Irreducible input is rejected before Schedule IR is constructed.
 
+Speculation-safe diamond if-conversion is a semantics-preserving XIR
+preprocessing refinement, not a new scheduler transition. It removes two arm
+blocks and replaces their merge PHIs by lane-wise selects before this model is
+constructed. Its proof obligation is local: each active lane receives the
+same incoming value as its original scalar edge, and only total pure
+instructions may move. Diamonds that fail this obligation remain in `G` and
+use the transitions below. Consequently, the bounded scheduler checker and
+its reachable-CFG claim apply unchanged to the transformed graph.
+
 The subscript `T` is significant for natural loops. The repository's default
 post-dominator analysis conservatively treats a reachable cycle as a possible
 infinite maximal execution. SIMD scheduling instead requests

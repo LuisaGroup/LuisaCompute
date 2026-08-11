@@ -1,6 +1,8 @@
 #include "llvm_schedule_codegen.h"
 #include "llvm_jit.h"
+#include "predicated_if_conversion.h"
 #include "simd_compiler.h"
+#include "warp_uniformity.h"
 
 #include <algorithm>
 #include <array>
@@ -2269,6 +2271,117 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_predicated_diamond() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D varying_kernel = [](BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = 0u;
+        $if ((index & 1u) == 0u) {
+            value = index * 3u + 1u;
+        }
+        $else {
+            value = index * 5u + 1u;
+        };
+        output.write(index, value);
+    };
+    auto varying = compile_simd_kernel(
+        varying_kernel.function()->function(), width,
+        "simd_ast_predicated_diamond");
+    if (!varying.succeeded()) {
+        for (auto &&diagnostic : varying.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(varying.predicated_diamond_count == 1u);
+    CHECK(varying.predicated_instruction_count == 4u);
+    CHECK(varying.predicated_phi_count == 1u);
+    CHECK(varying.factored_select_count == 2u);
+
+    std::array<uint32_t, count> output{};
+    output.fill(0xdeadbeefu);
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(varying.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&argument, nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        auto expected = (i & 1u) == 0u ?
+                            i * 3u + 1u :
+                            i * 5u + 1u;
+        CHECK(output[i] == expected);
+    }
+
+    Kernel1D uniform_kernel = [](BufferUInt output,
+                                 UInt selector) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = 0u;
+        $if (selector == 0u) {
+            value = index * 3u + 1u;
+        }
+        $else {
+            value = index * 5u + 7u;
+        };
+        output.write(index, value);
+    };
+    auto uniform = compile_simd_kernel(
+        uniform_kernel.function()->function(), width,
+        "simd_ast_uniform_diamond");
+    CHECK(uniform.succeeded());
+    CHECK(uniform.predicated_diamond_count == 0u);
+    CHECK(uniform.predicated_instruction_count == 0u);
+    CHECK(uniform.predicated_phi_count == 0u);
+    CHECK(uniform.factored_select_count == 0u);
+
+    xir::Module cohort_module;
+    auto *cohort_kernel = cohort_module.create_kernel();
+    auto *cohort_entry = cohort_kernel->create_body_block();
+    auto *cohort_true = cohort_kernel->create_basic_block();
+    auto *cohort_false = cohort_kernel->create_basic_block();
+    auto *cohort_merge = cohort_kernel->create_basic_block();
+    auto *lane = cohort_module.create_warp_lane_id();
+    auto *zero = cohort_module.create_constant_zero(
+        Type::of<uint32_t>());
+    auto *one = cohort_module.create_constant_one(
+        Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(cohort_entry);
+    auto *lane_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL,
+        {lane, zero});
+    auto *cohort_condition = builder.call(
+        Type::of<bool>(),
+        xir::ThreadGroupOp::WARP_ACTIVE_ANY,
+        {lane_condition});
+    builder.cond_br(
+        cohort_condition, cohort_true, cohort_false);
+    builder.set_insertion_point(cohort_true);
+    builder.br(cohort_merge);
+    builder.set_insertion_point(cohort_false);
+    builder.br(cohort_merge);
+    builder.set_insertion_point(cohort_merge);
+    static_cast<void>(builder.phi(
+        Type::of<uint32_t>(),
+        {{one, cohort_true}, {zero, cohort_false}}));
+    builder.return_void();
+    schedule::WarpUniformityAnalysis cohort_uniformity;
+    cohort_uniformity.analyze(cohort_kernel);
+    CHECK(cohort_uniformity.classify(cohort_condition) ==
+          schedule::ValueClass::cohort_uniform);
+    auto cohort =
+        schedule::predicate_small_varying_diamonds(cohort_kernel);
+    CHECK(!cohort.changed());
+    CHECK(cohort_entry->terminator()->isa<xir::ConditionalBranchInst>());
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -2313,6 +2426,8 @@ int main() {
         {"AST select operand order", &run_ast_select_codegen},
         {"AST fast radix pow canonicalization",
          &run_ast_fast_math_canonicalization},
+        {"AST predicated varying diamond",
+         &run_ast_predicated_diamond},
     };
     auto failures = 0u;
     for (auto test : tests) {

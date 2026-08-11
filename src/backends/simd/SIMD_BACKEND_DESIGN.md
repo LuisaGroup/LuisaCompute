@@ -185,17 +185,48 @@ therefore records one of three execution strategies per region:
 3. **cohort**: materialize continuations and dynamically schedule a divergent
    region.
 
-The current lowering implements the uniform and cohort strategies. A varying
-conditional or switch also has a dynamic coherent fast path: when all active
-lanes select one successor, it behaves like directly threaded masked SIMT
-control flow. A genuinely divergent partition lazily allocates its convergence
-frame, appends nonempty successor records to the bounded worklist, and returns
-to the scalar dispatcher. Values live across cohort suspension points are
-spilled to warp-state slots; block-local temporaries remain LLVM SSA values.
+The current lowering implements all three strategies for conditional control.
+After CFG destructuring, inlining, and local SSA promotion, a varying diamond
+is predicated only when both arms contain at most four instructions, at most
+six in total, no more than four 32-bit live-out register units, and a weighted
+speculation cost no greater than twelve. Every hoisted instruction must be a
+total pure bitwise cast or an explicitly whitelisted total arithmetic
+operation. Memory/resource access, calls, division/remainder, shifts, dynamic
+aggregate indexing, side effects, metadata-bearing arms, and structured
+control are never speculated. Warp- and cohort-uniform conditions retain
+scalar control flow.
+
+Generated selects then undergo a bounded factoring rewrite. Matching one-use
+arithmetic producers with exactly one differing operand are transformed from
+`select(f(a), f(b), c)` to `f(select(a, b, c))`; matching chains are processed
+recursively. A vector condition permits only component-wise operations, while
+component-mixing reductions, normalization, matrix operations, and similar
+forms stay unchanged. Instruction metadata and multi-use producers are also
+fail-closed. This recovers one execution of common math without extending any
+domain or evaluating a formerly untaken memory operation.
+
+A remaining varying conditional or switch has a dynamic coherent fast path:
+when all active lanes select one successor, it behaves like directly threaded
+masked SIMT control flow. A genuinely divergent partition lazily allocates its
+convergence frame, appends nonempty successor records to the bounded worklist,
+and returns to the scalar dispatcher. Values live across cohort suspension
+points are spilled to warp-state slots; block-local temporaries remain LLVM SSA
+values.
+
 Convergence arrival is emitted once at the destination block entry rather than
 duplicated on every incoming edge. The executing cohort owns one scalar token,
 and each suspended record stores one scalar token; no per-lane token vector is
 materialized. Active convergence-frame slots use one scalar `iW` bitset.
+
+Loop unswitching is the next CFG-level pressure reduction. A warp-uniform
+loop-invariant condition can be hoisted as an ordinary scalar branch. A
+varying but loop-invariant condition may split cohorts once outside two cloned
+loop versions, removing a repeated scheduler transition from every iteration.
+A merely cohort-uniform value is not automatically invariant across loop
+epochs and cannot be hoisted without a separate proof. The profitability model
+must trade `trip_count * removed_transition_cost` against cloned code size,
+register pressure, exits/backedges, and JIT time; multi-exit or nested loops
+remain unchanged until their cloned convergence identities are verified.
 
 The O2 pipeline may otherwise promote every cross-block state slot through the
 global dispatcher and create more live vector PHIs than the physical register
@@ -956,6 +987,9 @@ A later, bounded optimization generalizes this into **SIMD axis rotation**.
 It treats packet lane and within-invocation value/loop dimensions as explicit
 layout axes, chooses one layout per coherent affine region, and inserts a
 target-independent `shufflevector` transpose only on profitable region edges.
+This is the CPU analogue of tile-compiler layout optimization: a fixed
+rectangular tile has an explicit lane-major or value-major layout, and a
+transpose changes that layout rather than changing source thread identity.
 It is deliberately not an arbitrary runtime lane-identity change: divergent
 control, warp collectives, barriers, atomics, and externally visible lane-wise
 side effects pin the packet axis. CFG joins must agree on layout, tails retain
@@ -963,9 +997,33 @@ their masks, and the cost model includes shuffle count, gather versus
 contiguous memory, horizontal reductions, scheduler suspension, and register
 pressure. The staged implementation order is lane-affine memory recognition,
 coherent-loop accumulator residency and unrolling, fixed rectangular tiles,
-then optional lane/value transposes. This preserves a small auditable first
-step while leaving room for GEMM-style microtiles rather than relying on LLVM
-to rediscover the axis through a scheduler CFG.
+then optional lane/value transposes. Predication and proven loop unswitching
+run first because removing suspension edges enlarges the coherent regions over
+which one register layout can remain resident. This preserves a small
+auditable first step while leaving room for GEMM-style microtiles rather than
+relying on LLVM to rediscover the axis through a scheduler CFG.
+
+The permanent small-diamond benchmark separates an empty-arm `select_only`
+case from a two-level factorable multiply/add case. Each process uses nine
+alternating samples of at least 20 ms, and the complete sweep was repeated
+three times while unrelated host work remained active. With static
+power-of-two block geometry, coherent and balanced factorable cases measured:
+
+| Width | coherent scheduled -> predicated ns | speedup | balanced scheduled -> predicated ns | speedup | final instructions | stack-reference instructions |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| W2 | 15.02 -> 2.14 | 7.03x | 26.82 -> 2.12 | 12.63x | 454 -> 56 | 70 -> 4 |
+| W4 | 23.92 -> 1.82 | 13.17x | 36.86 -> 1.83 | 20.11x | 520 -> 46 | 91 -> 4 |
+| W8 | 30.81 -> 2.25 | 13.67x | 42.60 -> 2.22 | 19.16x | 676 -> 49 | 133 -> 10 |
+| W16 | 56.59 -> 2.66 | 21.26x | 69.76 -> 2.67 | 26.16x | 1063 -> 49 | 213 -> 10 |
+
+All sparse and inactive-tail cases passed, and every observed speedup across
+the three runs was between 6.927x and 26.453x. The `select_only` timings are
+nearly identical to the arithmetic case, identifying scheduler state rather
+than ALU work as the removed cost. A delayed-enable five-run `perf stat` audit
+of balanced W8 measured 237.59 -> 12.03 cycles, 774.15 -> 51.00 retired
+instructions, and 85.00 -> 7.00 branches per packet. Assembly uses YMM data
+registers with AVX-512VL masks for W8 on this host and ZMM for W16; width alone
+does not require AVX-512 on a different target.
 
 The updated graphics matrix uses 31 alternating whole-process runs per
 backend/width because other host workloads were active. SIMD groups are

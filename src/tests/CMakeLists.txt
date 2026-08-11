@@ -140,6 +140,14 @@ if (TARGET luisa-compute-simd-llvm)
     target_include_directories(benchmark_llvm_native_math PRIVATE
             ${LLVM_INCLUDE_DIRS})
 
+    add_executable(benchmark_simd_predicated_if
+            unit/simd/benchmark_predicated_if_conversion.cpp)
+    target_compile_features(benchmark_simd_predicated_if PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_simd_predicated_if PRIVATE
+            luisa-compute-simd-compiler)
+    target_include_directories(benchmark_simd_predicated_if PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+
     add_executable(test_simd_llvm_value_layout
             unit/simd/test_llvm_value_layout.cpp)
     target_compile_features(test_simd_llvm_value_layout PRIVATE cxx_std_20)

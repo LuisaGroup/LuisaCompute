@@ -23,9 +23,13 @@ struct SIMDCompiledKernel {
     std::unique_ptr<LLVMJIT> jit{};
     void *entry{nullptr};
     size_t argument_buffer_size{0u};
-    // Pre-schedule fast-math rewrite feedback for diagnostics/tests.
+    // Pre-schedule rewrite feedback for diagnostics/tests.
     size_t fast_math_identity_count{0u};
     size_t fast_math_radix_pow_count{0u};
+    size_t predicated_diamond_count{0u};
+    size_t predicated_instruction_count{0u};
+    size_t predicated_phi_count{0u};
+    size_t factored_select_count{0u};
     uint32_t warp_width{0u};
     std::string target_triple{};
     std::vector<std::string> diagnostics{};

@@ -128,6 +128,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/gvn.cpp
         passes/phi_cleanup.cpp
         passes/if_conversion.cpp
+        passes/select_factor.cpp
         passes/indvar_simplify.cpp
         passes/irreducible_cfg_analysis.cpp
         passes/pass_pipeline.cpp

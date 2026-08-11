@@ -55,6 +55,7 @@
 #include <luisa/xir/passes/scalarizer.h>
 #include <luisa/xir/passes/scalar_evolution.h>
 #include <luisa/xir/passes/sccp.h>
+#include <luisa/xir/passes/select_factor.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/simplify_libcalls.h>
 #include <luisa/xir/passes/slp_vectorization.h>
@@ -311,6 +312,9 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)sccp_pass_run_on_module(nullptr, report);
         });
+        check_zero_report(2u, [](PassReport *report) noexcept {
+            (void)select_factor_pass_run_on_module(nullptr, report);
+        });
         check_zero_report(7u, [](PassReport *report) noexcept {
             (void)simplify_cfg_pass_run_on_module(nullptr, report);
         });
@@ -409,6 +413,7 @@ void reg_pass_entry_totality() {
         (void)reg2mem_pass_run_on_function(declaration);
         (void)scalarizer_pass_run_on_function(declaration);
         (void)sccp_pass_run_on_function(declaration);
+        (void)select_factor_pass_run_on_function(declaration);
         (void)simplify_cfg_pass_run_on_function(declaration);
         (void)simplify_libcalls_pass_run_on_function(declaration);
         (void)slp_vectorization_pass_run_on_function(declaration);
@@ -1593,6 +1598,227 @@ void reg_fast_math_simplify() {
         PassReport report;
         expect(!fast_math_simplify_pass_run_on_module(
                     nullptr, {.enable_fast_math = true}, &report)
+                    .changed());
+        expect(report.entries().size() == 2u);
+    };
+}
+
+// ---- select_factor ----
+
+void reg_select_factor() {
+
+    "select_factor_unary_arithmetic"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {false_input});
+        auto *true_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {true_input});
+        auto *select = b.call(
+            Type::of<float>(), ArithmeticOp::SELECT,
+            {false_sin, true_sin, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(info.factored_select_count == 1u);
+        expect(info.removed_arithmetic_count == 2u);
+        expect(ret->return_value()->isa<ArithmeticInst>());
+        auto *sin = static_cast<ArithmeticInst *>(ret->return_value());
+        expect(sin->op() == ArithmeticOp::SIN);
+        expect(sin->operand(0u)->isa<ArithmeticInst>());
+        auto *input_select =
+            static_cast<ArithmeticInst *>(sin->operand(0u));
+        expect(input_select->op() == ArithmeticOp::SELECT);
+        expect(input_select->operand(0u) == false_input);
+        expect(input_select->operand(1u) == true_input);
+        expect(input_select->operand(2u) == condition);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_recurses_through_matching_chains"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<uint32_t>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *input =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *body = f->create_body_block();
+        uint32_t three_value = 3u;
+        uint32_t five_value = 5u;
+        auto *three = m.create_constant(
+            Type::of<uint32_t>(), &three_value);
+        auto *five = m.create_constant(
+            Type::of<uint32_t>(), &five_value);
+        auto *one = m.create_constant_one(Type::of<uint32_t>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_mul = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_MUL,
+            {input, five});
+        auto *true_mul = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_MUL,
+            {input, three});
+        auto *false_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {false_mul, one});
+        auto *true_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {true_mul, one});
+        auto *select = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::SELECT,
+            {false_add, true_add, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(info.factored_select_count == 2u);
+        expect(info.removed_arithmetic_count == 4u);
+        auto *add = static_cast<ArithmeticInst *>(ret->return_value());
+        expect(add->op() == ArithmeticOp::BINARY_ADD);
+        auto *mul = static_cast<ArithmeticInst *>(add->operand(0u));
+        expect(mul->op() == ArithmeticOp::BINARY_MUL);
+        expect(mul->operand(0u) == input);
+        auto *constant_select =
+            static_cast<ArithmeticInst *>(mul->operand(1u));
+        expect(constant_select->op() == ArithmeticOp::SELECT);
+        expect(constant_select->operand(0u) == five);
+        expect(constant_select->operand(1u) == three);
+        expect(constant_select->operand(2u) == condition);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_rejects_two_differing_operands"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<uint32_t>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *a = f->create_value_argument(Type::of<uint32_t>());
+        auto *b_value =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *body = f->create_body_block();
+        auto *one = m.create_constant_one(Type::of<uint32_t>());
+        uint32_t two_value = 2u;
+        auto *two = m.create_constant(
+            Type::of<uint32_t>(), &two_value);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {a, one});
+        auto *true_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {b_value, two});
+        auto *select = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::SELECT,
+            {false_add, true_add, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_rejects_component_mixing_vector_op"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float3>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool3>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float3>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float3>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_normalized = b.call(
+            Type::of<float3>(), ArithmeticOp::NORMALIZE,
+            {false_input});
+        auto *true_normalized = b.call(
+            Type::of<float3>(), ArithmeticOp::NORMALIZE,
+            {true_input});
+        auto *select = b.call(
+            Type::of<float3>(), ArithmeticOp::SELECT,
+            {false_normalized, true_normalized, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_preserves_metadata"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {false_input});
+        false_sin->set_location("select_factor.cpp", 41);
+        auto *true_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {true_input});
+        auto *select = b.call(
+            Type::of<float>(), ArithmeticOp::SELECT,
+            {false_sin, true_sin, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(false_sin->find_metadata<LocationMD>() != nullptr);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_preserves_multi_use_producers"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {false_input});
+        auto *true_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {true_input});
+        auto *select = b.call(
+            Type::of<float>(), ArithmeticOp::SELECT,
+            {false_sin, true_sin, condition});
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::ABS, {true_sin}));
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(true_sin->use_list().count_size() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_null_entries_are_total"_test = [] {
+        expect(!select_factor_pass_run_on_function(nullptr).changed());
+        PassReport report;
+        expect(!select_factor_pass_run_on_module(nullptr, &report)
                     .changed());
         expect(report.entries().size() == 2u);
     };
@@ -5488,6 +5714,119 @@ void reg_if_conversion() {
             << (verification.errors.empty() ?
                     "unknown verifier failure" :
                     verification.errors.front().message.c_str());
+    };
+
+    "if_conversion_candidate_filter_can_retain_diamond"_test = [] {
+        Module m;
+        auto *function = m.create_callable(Type::of<int>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *true_block = function->create_basic_block();
+        auto *false_block = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *branch =
+            builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *phi = builder.phi(
+            Type::of<int>(),
+            {{one, true_block}, {zero, false_block}});
+        builder.return_(phi);
+
+        auto info = if_conversion_pass_run_on_function(
+            function,
+            {.candidate_filter =
+                 [](const ConditionalBranchInst *,
+                    const void *) noexcept { return false; }});
+        expect(!info.changed());
+        expect(entry->terminator() == branch);
+        expect(phi->incoming_count() == 2u);
+        expect(count_reachable_blocks(function) == 4u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "if_conversion_cost_model_rejects_transcendental_arms"_test = [] {
+        Module m;
+        auto *function = m.create_callable(Type::of<float>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *input =
+            function->create_value_argument(Type::of<float>());
+        auto *entry = function->create_body_block();
+        auto *true_block = function->create_basic_block();
+        auto *false_block = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *branch =
+            builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *true_value = builder.call(
+            Type::of<float>(), ArithmeticOp::SIN, {input});
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        auto *false_value = builder.call(
+            Type::of<float>(), ArithmeticOp::COS, {input});
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *phi = builder.phi(
+            Type::of<float>(),
+            {{true_value, true_block},
+             {false_value, false_block}});
+        builder.return_(phi);
+
+        auto info = if_conversion_pass_run_on_function(
+            function,
+            {.max_arm_instruction_count = 4u,
+             .max_total_instruction_count = 6u,
+             .max_live_out_register_units = 4u,
+             .max_speculation_cost = 12u});
+        expect(!info.changed());
+        expect(entry->terminator() == branch);
+        expect(phi->incoming_count() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "if_conversion_cost_model_limits_live_out_registers"_test = [] {
+        Module m;
+        auto *function = m.create_callable(Type::of<float4>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *true_block = function->create_basic_block();
+        auto *false_block = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        auto *one = m.create_constant_one(Type::of<float4>());
+        auto *zero = m.create_constant_zero(Type::of<float4>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *branch =
+            builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *phi = builder.phi(
+            Type::of<float4>(),
+            {{one, true_block}, {zero, false_block}});
+        builder.return_(phi);
+
+        auto info = if_conversion_pass_run_on_function(
+            function,
+            {.max_live_out_register_units = 3u});
+        expect(!info.changed());
+        expect(entry->terminator() == branch);
+        expect(phi->incoming_count() == 2u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "if_conversion_annotated_side_block_is_retained_atomically"_test = [] {
@@ -11519,6 +11858,7 @@ int main(int argc, char *argv[]) {
     reg_pass_entry_totality();
     reg_algebraic_simplify();
     reg_fast_math_simplify();
+    reg_select_factor();
     reg_const_fold();
     reg_dce();
     reg_gvn();

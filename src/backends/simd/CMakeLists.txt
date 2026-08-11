@@ -30,6 +30,7 @@ endif ()
 message(STATUS "Build SIMD CPU codegen core with LLVM ${LLVM_PACKAGE_VERSION}")
 
 add_library(luisa-compute-simd-schedule STATIC
+        schedule/predicated_if_conversion.cpp
         schedule/schedule_ir.cpp
         schedule/warp_uniformity.cpp
         schedule/xir_to_schedule.cpp)
