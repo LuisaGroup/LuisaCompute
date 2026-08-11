@@ -706,6 +706,48 @@ void register_coro_rematerialize_tests() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "recursive_replay_cache_survives_dense_map_rehash"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *seed = kernel->create_argument(
+            Type::of<uint>(), false);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint>());
+        auto *value = static_cast<Value *>(seed);
+        auto *one = module.create_constant_one(Type::of<uint>());
+        // Every recursive classifier activation inserts its VISITING entry
+        // before descending. This depth deliberately exceeds the dense map's
+        // successive capacities, so retaining an iterator across recursion
+        // would write through an invalidated iterator after rehash.
+        constexpr auto expression_depth = 512u;
+        for (auto i = 0u; i < expression_depth; ++i) {
+            value = builder.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                {value, one});
+        }
+        builder.store(state, value);
+        builder.coro_suspend(47u, "replay_cache_rehash", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(47u, nullptr);
+        static_cast<void>(builder.load(Type::of<uint>(), state));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.invalid_semantic_cfg_count == 0u);
+        expect(info.nonreplayable_candidate_count == 1u);
+        expect(info.promoted_nonreplayable_alloca_count == 1u);
+        expect(info.promoted_alloca_count == 1u);
+        expect(info.replaced_load_count == 1u);
+        expect(count_loads_from(kernel, state) == 0u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "unmatched_suspend_resume_graph_is_atomic_noop"_test = [] {
         Module module;
         BasicBlock *entry;

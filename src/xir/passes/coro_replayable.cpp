@@ -1,6 +1,7 @@
 #include <algorithm>
 
 #include <luisa/ast/type.h>
+#include <luisa/core/logging.h>
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/special_register.h>
 
@@ -82,9 +83,11 @@ CoroReplayableValueAnalysis::_classify(const Value *value) noexcept {
                    iter->second;
     }
 
-    auto [iter, inserted] = _cache.emplace(
-        value, Entry{State::VISITING, 0u});
-    static_cast<void>(inserted);
+    auto was_inserted = _cache.emplace(
+        value, Entry{State::VISITING, 0u}).second;
+    LUISA_ASSERT(
+        was_inserted,
+        "A previously classified replay value must have been found above.");
     auto *instruction = static_cast<const Instruction *>(value);
     auto result = Entry{State::NOT_REPLAYABLE, 0u};
     if (is_replayable_instruction_kind(instruction)) {
@@ -108,7 +111,15 @@ CoroReplayableValueAnalysis::_classify(const Value *value) noexcept {
             result = Entry{State::REPLAYABLE, cost};
         }
     }
-    iter->second = result;
+    // Operand classification recursively inserts into the same dense hash
+    // table and may rehash it. Its iterators are therefore not stable across
+    // the recursion. The key itself is an IR pointer and remains stable, so
+    // re-establish the iterator only after the recursive fixed point returns.
+    auto final_iter = _cache.find(value);
+    LUISA_ASSERT(
+        final_iter != _cache.end(),
+        "The visiting replay value disappeared during classification.");
+    final_iter->second = result;
     if (result.state == State::REPLAYABLE) {
         ++_replayable_value_count;
     } else {
