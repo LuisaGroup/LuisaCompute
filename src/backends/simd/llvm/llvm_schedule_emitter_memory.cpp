@@ -662,13 +662,20 @@ void ScheduleEmitter::_scatter_data(
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_read(
     const schedule::Instruction &instruction) {
-    if (!instruction.result || !instruction.source_op ||
-        instruction.operands.size() != 2u) {
+    if (!instruction.result || !instruction.source_op) {
         _fail("buffer read instruction is malformed");
         return nullptr;
     }
     auto op = static_cast<xir::ResourceReadOp>(
         *instruction.source_op);
+    if (op == xir::ResourceReadOp::BINDLESS_BUFFER_READ ||
+        op == xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ) {
+        return _bindless_resource_read(instruction);
+    }
+    if (instruction.operands.size() != 2u) {
+        _fail("direct resource read instruction is malformed");
+        return nullptr;
+    }
     if (op == xir::ResourceReadOp::TEXTURE2D_READ ||
         op == xir::ResourceReadOp::TEXTURE3D_READ) {
         return _texture_read(instruction);
@@ -702,12 +709,21 @@ void ScheduleEmitter::_scatter_data(
 }
 
 void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) {
-    if (!instruction.source_op || instruction.operands.size() != 3u) {
+    if (!instruction.source_op) {
         _fail("buffer write instruction is malformed");
         return;
     }
     auto op = static_cast<xir::ResourceWriteOp>(
         *instruction.source_op);
+    if (op == xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE ||
+        op == xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE) {
+        _bindless_resource_write(instruction);
+        return;
+    }
+    if (instruction.operands.size() != 3u) {
+        _fail("direct resource write instruction is malformed");
+        return;
+    }
     if (op == xir::ResourceWriteOp::TEXTURE2D_WRITE ||
         op == xir::ResourceWriteOp::TEXTURE3D_WRITE) {
         _texture_write(instruction);
@@ -745,9 +761,19 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_query(
     const schedule::Instruction &instruction) {
-    if (!instruction.result || !instruction.source_op ||
-        instruction.operands.size() != 1u) {
+    if (!instruction.result || !instruction.source_op) {
         _fail("buffer query instruction is malformed");
+        return nullptr;
+    }
+    auto op = static_cast<xir::ResourceQueryOp>(
+        *instruction.source_op);
+    if (op == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE ||
+        op == xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE ||
+        op == xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS) {
+        return _bindless_resource_query(instruction);
+    }
+    if (instruction.operands.size() != 1u) {
+        _fail("direct resource query instruction is malformed");
         return nullptr;
     }
     auto *result = _source.value(*instruction.result);
@@ -758,8 +784,6 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
         _fail("resource query has invalid operands");
         return nullptr;
     }
-    auto op = static_cast<xir::ResourceQueryOp>(
-        *instruction.source_op);
     if (op == xir::ResourceQueryOp::TEXTURE2D_SIZE ||
         op == xir::ResourceQueryOp::TEXTURE3D_SIZE) {
         if (!buffer_value->type->is_texture() ||

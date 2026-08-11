@@ -90,7 +90,8 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
             result = ::llvm::StructType::get(_context, members);
             break;
         }
-        case Tag::BUFFER: {
+        case Tag::BUFFER:
+        case Tag::BINDLESS_ARRAY: {
             result = ::llvm::StructType::get(
                 _context,
                 {::llvm::PointerType::getUnqual(_context),
@@ -100,7 +101,6 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
         case Tag::FLOAT8_E4M3:
         case Tag::FLOAT8_E5M2:
         case Tag::TEXTURE:
-        case Tag::BINDLESS_ARRAY:
         case Tag::ACCEL:
         case Tag::COOPERATIVE_VECTOR:
         case Tag::COOPERATIVE_VECTOR_REF:

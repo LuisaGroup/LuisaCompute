@@ -5,6 +5,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/command.h>
 
+#include "simd_bindless_array.h"
 #include "simd_buffer.h"
 #include "simd_shader.h"
 #include "simd_texture.h"
@@ -143,10 +144,14 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 LUISA_ERROR_WITH_LOCATION(
                     "Ray-tracing commands are not implemented by the SIMD "
                     "runtime checkpoint yet.");
-            case Command::Tag::EBindlessArrayUpdateCommand:
-                LUISA_ERROR_WITH_LOCATION(
-                    "Bindless arrays are not implemented by the SIMD runtime "
-                    "checkpoint yet.");
+            case Command::Tag::EBindlessArrayUpdateCommand: {
+                auto *update = static_cast<BindlessArrayUpdateCommand *>(
+                    command.get());
+                auto *array = reinterpret_cast<SIMDBindlessArray *>(
+                    update->handle());
+                array->update(*update);
+                break;
+            }
             case Command::Tag::ECustomCommand:
                 LUISA_ERROR_WITH_LOCATION(
                     "Custom commands are not implemented by the SIMD runtime "

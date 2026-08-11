@@ -3,7 +3,8 @@
 Status: Phase 2 fixed-vector compute checkpoint. XIR-to-Schedule lowering,
 the dependency-light cohort semantic model, the independent-thread LLVM
 packet dispatcher, dispatch builtins, aggregate SoA values, and direct Buffer
-gather/scatter are implemented behind `LUISA_COMPUTE_ENABLE_SIMD`.
+gather/scatter plus bindless buffer tables are implemented behind
+`LUISA_COMPUTE_ENABLE_SIMD`.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `74cde8c2acca8ef3d8061a0536c5dfaccba46670` (2026-08-11).
@@ -478,6 +479,7 @@ llvm_schedule_emitter.h                # private emitter state and contracts
 llvm_schedule_emitter.cpp              # validation, ABI, values, launch state
 llvm_schedule_emitter_arithmetic.cpp   # aggregates, arithmetic, and casts
 llvm_schedule_emitter_memory.cpp       # local/resource memory and atomics
+llvm_schedule_emitter_bindless.cpp     # bindless descriptor and buffer access
 llvm_schedule_emitter_collectives.cpp  # warp collective lowering
 llvm_schedule_emitter_control.cpp      # control flow, state, and dispatcher
 ```
@@ -746,6 +748,10 @@ on 2026-08-11. The repository now contains:
   construction/extraction/insertion/shuffle, and scalar/vector casts;
 - direct Buffer descriptors with typed and byte-address queries plus masked
   LLVM gather/scatter for scalar, vector, matrix, array, and structure leaves;
+- runtime-owned bindless slot tables with offset buffer views, update/remove
+  commands, bounds-checked slot lookup, and varying or uniform slot indices;
+  typed and byte-addressed bindless reads, writes, sizes, and device-address
+  queries lower in a dedicated LLVM translation unit;
 - lane-private local storage with Luisa ABI byte layout, masked loads/stores,
   and dynamic vector/array/matrix indexing through divergent control flow;
 - monotonic direct-buffer atomics scalarized only at the memory side effect,
@@ -777,7 +783,7 @@ on 2026-08-11. The repository now contains:
   tests, plus device-level specialization across warp1/4/8/16, local-memory
   isolation under divergence, and conflicting direct-buffer atomics.
 
-The next implementation boundary is callables and bindless resources, followed
-by cooperative shared memory and block barriers. The current compiler returns
-precise diagnostics for unsupported features rather than silently accepting
-them.
+The next implementation boundary is callable conformance and bindless texture
+access/sampling, followed by cooperative shared memory and block barriers. The
+current compiler returns precise diagnostics for unsupported features rather
+than silently accepting them.

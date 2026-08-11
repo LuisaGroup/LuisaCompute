@@ -7,6 +7,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/backends/ext/simd_config_ext.h>
 
+#include "simd_bindless_array.h"
 #include "simd_buffer.h"
 #include "simd_event.h"
 #include "simd_shader.h"
@@ -85,11 +86,19 @@ void SIMDDevice::destroy_texture(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo SIMDDevice::create_bindless_array(
-    size_t, BindlessSlotType) noexcept {
-    return ResourceCreationInfo::make_invalid();
+    size_t size, BindlessSlotType type) noexcept {
+    auto *array = luisa::new_with_allocator<SIMDBindlessArray>(
+        size, type);
+    return {
+        .handle = reinterpret_cast<uint64_t>(array),
+        .native_handle = array->native_handle(),
+    };
 }
 
-void SIMDDevice::destroy_bindless_array(uint64_t) noexcept {}
+void SIMDDevice::destroy_bindless_array(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(
+        reinterpret_cast<SIMDBindlessArray *>(handle));
+}
 
 ResourceCreationInfo SIMDDevice::create_stream(StreamTag) noexcept {
     auto *stream = luisa::new_with_allocator<SIMDStream>();

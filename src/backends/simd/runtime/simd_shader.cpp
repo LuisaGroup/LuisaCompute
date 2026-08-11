@@ -4,6 +4,7 @@
 
 #include <luisa/core/logging.h>
 
+#include "simd_bindless_array.h"
 #include "simd_buffer.h"
 #include "simd_texture.h"
 
@@ -178,11 +179,18 @@ void SIMDShader::dispatch(
                     allocate(sizeof(view)), &view, sizeof(view));
                 break;
             }
-            case Argument::Tag::BINDLESS_ARRAY:
+            case Argument::Tag::BINDLESS_ARRAY: {
+                auto *array = reinterpret_cast<SIMDBindlessArray *>(
+                    argument.bindless_array.handle);
+                auto view = array->host_view();
+                std::memcpy(
+                    allocate(sizeof(view)), &view, sizeof(view));
+                break;
+            }
             case Argument::Tag::ACCEL:
                 LUISA_ERROR_WITH_LOCATION(
-                    "This SIMD runtime checkpoint does not support bindless "
-                    "or acceleration-structure shader arguments yet.");
+                    "This SIMD runtime checkpoint does not support "
+                    "acceleration-structure shader arguments yet.");
         }
     };
     for (auto &&argument : _bound_arguments) { encode(argument); }

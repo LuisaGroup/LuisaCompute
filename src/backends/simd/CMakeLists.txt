@@ -44,6 +44,7 @@ set_target_properties(luisa-compute-simd-schedule PROPERTIES
 
 set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_codegen.cpp
+        llvm/llvm_schedule_emitter_bindless.cpp
         llvm/llvm_schedule_emitter.cpp
         llvm/llvm_schedule_emitter_arithmetic.cpp
         llvm/llvm_schedule_emitter_collectives.cpp
@@ -103,6 +104,7 @@ set_target_properties(luisa-compute-simd-compiler PROPERTIES
 
 luisa_compute_add_backend(simd SOURCES
         ../fallback/fallback_texture.cpp
+        runtime/simd_bindless_array.cpp
         runtime/simd_buffer.cpp
         runtime/simd_device.cpp
         runtime/simd_event.cpp

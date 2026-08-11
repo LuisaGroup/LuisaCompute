@@ -91,6 +91,11 @@ private:
         ::llvm::Value *, ::llvm::Value *, ::llvm::Value *,
         const Type *, const Type *, const Type *)>;
 
+    struct BindlessBufferLanes {
+        ::llvm::Value *data{nullptr};
+        ::llvm::Value *size_bytes{nullptr};
+    };
+
 private:
     void _fail(std::string message);
     [[nodiscard]] bool _failed() const noexcept;
@@ -154,6 +159,8 @@ private:
     [[nodiscard]] ::llvm::Value *_load_buffer_view(
         ::llvm::Value *base);
     [[nodiscard]] ::llvm::Value *_load_texture_view(
+        ::llvm::Value *base);
+    [[nodiscard]] ::llvm::Value *_load_bindless_view(
         ::llvm::Value *base);
     [[nodiscard]] ::llvm::Value *_load_launch_u32(size_t offset);
     void _ensure_launch_vectors();
@@ -239,6 +246,17 @@ private:
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, ::llvm::Value *value,
         size_t leaf_offset = 0u);
+    [[nodiscard]] BindlessBufferLanes _bindless_buffer_lanes(
+        schedule::ValueId bindless_id, schedule::ValueId slot_id);
+    [[nodiscard]] ::llvm::Value *_bindless_access_offsets(
+        const BindlessBufferLanes &buffer, ::llvm::Value *index,
+        uint64_t stride, size_t access_size);
+    [[nodiscard]] ::llvm::Value *_bindless_resource_read(
+        const schedule::Instruction &instruction);
+    void _bindless_resource_write(
+        const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_bindless_resource_query(
+        const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_read(
         const schedule::Instruction &instruction);
     void _resource_write(const schedule::Instruction &instruction);

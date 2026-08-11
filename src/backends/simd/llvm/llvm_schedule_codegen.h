@@ -24,6 +24,18 @@ struct alignas(16) SIMDHostBufferView {
     size_t size_bytes{0u};
 };
 
+// Bindless resources are resolved by the runtime into a dense host table.
+// Keep the slot representation plain and backend-local so JIT code can gather
+// buffer descriptors without depending on runtime C++ object layouts.
+struct alignas(16) SIMDHostBindlessSlot {
+    SIMDHostBufferView buffer{};
+};
+
+struct alignas(16) SIMDHostBindlessArrayView {
+    const SIMDHostBindlessSlot *slots{nullptr};
+    size_t size{0u};
+};
+
 // Texture operations are initially scalarized per active lane. Keeping the
 // host callbacks in the descriptor makes JIT modules self-contained: emitted
 // LLVM calls an opaque function pointer and never names a symbol from the

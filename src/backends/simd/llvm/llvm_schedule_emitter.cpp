@@ -57,6 +57,9 @@ void ScheduleEmitter::_fail(std::string message) {
     if (type != nullptr && type->is_texture()) {
         return sizeof(SIMDHostTextureView);
     }
+    if (type != nullptr && type->is_bindless_array()) {
+        return sizeof(SIMDHostBindlessArrayView);
+    }
     return type == nullptr ? 0u : type->size();
 }
 
@@ -66,6 +69,9 @@ void ScheduleEmitter::_fail(std::string message) {
     }
     if (type != nullptr && type->is_texture()) {
         return alignof(SIMDHostTextureView);
+    }
+    if (type != nullptr && type->is_bindless_array()) {
+        return alignof(SIMDHostBindlessArrayView);
     }
     return type == nullptr ? 1u : type->alignment();
 }
@@ -422,8 +428,9 @@ void ScheduleEmitter::_preflight() {
                 (argument_tag == xir::DerivedArgumentTag::RESOURCE &&
                  (value.type == nullptr ||
                   (!value.type->is_buffer() &&
-                   !value.type->is_texture())))) {
-                _fail("packet ABI supports data, buffer, and texture arguments only");
+                   !value.type->is_texture() &&
+                   !value.type->is_bindless_array())))) {
+                _fail("packet ABI supports data, buffer, texture, and bindless arguments only");
                 return;
             }
             if (parameters.size() <= metadata->index) {
@@ -437,7 +444,8 @@ void ScheduleEmitter::_preflight() {
         } else if (value.origin != schedule::ValueOrigin::scheduler_builtin &&
                    value.type != nullptr && !_is_data(value.type) &&
                    !value.type->is_buffer() &&
-                   !value.type->is_texture()) {
+                   !value.type->is_texture() &&
+                   !value.type->is_bindless_array()) {
             _fail("packet codegen encountered an unsupported Schedule IR value type");
             return;
         }
@@ -677,6 +685,28 @@ void ScheduleEmitter::_preflight() {
     return result;
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_bindless_view(
+    ::llvm::Value *base) {
+    auto &context = _module.getContext();
+    auto *type = ::llvm::StructType::get(
+        context,
+        {::llvm::PointerType::getUnqual(context),
+         _builder.getInt64Ty()});
+    auto *result = static_cast<::llvm::Value *>(
+        ::llvm::PoisonValue::get(type));
+    auto *slots = _builder.CreateLoad(
+        ::llvm::PointerType::getUnqual(context), base);
+    slots->setAlignment(
+        ::llvm::Align{alignof(SIMDHostBindlessArrayView)});
+    auto *size_pointer = _byte_pointer(
+        base, offsetof(SIMDHostBindlessArrayView, size));
+    auto *size = _builder.CreateLoad(
+        _builder.getInt64Ty(), size_pointer);
+    size->setAlignment(::llvm::Align{alignof(size_t)});
+    result = _builder.CreateInsertValue(result, slots, {0u});
+    return _builder.CreateInsertValue(result, size, {1u});
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_launch_u32(size_t offset) {
     auto *pointer = _byte_pointer(_launch_config, offset);
     auto *load = _builder.CreateLoad(_builder.getInt32Ty(), pointer);
@@ -780,11 +810,17 @@ void ScheduleEmitter::_create_external_values() {
                     i8, _argument_buffer, _builder.getInt64(offset));
                 auto tag = static_cast<xir::DerivedArgumentTag>(
                     metadata->argument_tag);
-                llvm_value = tag == xir::DerivedArgumentTag::RESOURCE ?
-                    value.type->is_buffer() ?
-                        _load_buffer_view(pointer) :
-                        _load_texture_view(pointer) :
-                    _load_uniform_data(pointer, value.type);
+                if (tag == xir::DerivedArgumentTag::RESOURCE) {
+                    if (value.type->is_buffer()) {
+                        llvm_value = _load_buffer_view(pointer);
+                    } else if (value.type->is_texture()) {
+                        llvm_value = _load_texture_view(pointer);
+                    } else {
+                        llvm_value = _load_bindless_view(pointer);
+                    }
+                } else {
+                    llvm_value = _load_uniform_data(pointer, value.type);
+                }
                 break;
             }
             case schedule::ValueOrigin::constant: {
