@@ -618,6 +618,38 @@ diagnostic environment flag
 for same-binary performance and fallback-path tests; it does not change the
 public texture layout or semantics.
 
+Bindless arrays extend the same packet boundary with a runtime-owned dense
+slot table. Each slot contains independent buffer, 2D-texture, and 3D-texture
+descriptors; a texture descriptor stores the resolved `SIMDTexture` and its
+sampler code. JIT code issues exactly one callback for a varying packet and
+passes divergent slot indices through a SoA scratch array. Before any scratch
+store, table lookup, coordinate conversion, mip conversion, or sampler decode,
+inactive lanes are selected to benign zero operands. Callback result storage
+is zero-initialized. The runtime then groups active lanes that resolve to the
+same texture, sampler, and (where applicable) mip before accessing the native
+row-major resource.
+
+A result classified warp- or cohort-uniform invokes the callback for only the
+first active lane and remains scalar after the callback. It is forbidden to
+broadcast a uniform bindless query and repeat the resource operation W times.
+The current supported bindless texture surface is 2D/3D `read`, `read_level`,
+`size`, `size_level`, `sample`, and `sample_level`, with either the sampler
+stored in the slot or an explicit filter/address pair. Gradient sampling is
+rejected with a compile-time diagnostic; it is not silently approximated by a
+non-gradient query.
+
+Mip behavior is explicit. A read whose integer level is outside the allocated
+mip range returns the initialized zero pixel. A size query is computed from
+the base extent as `max(base >> level, 1)`; levels at least the integer bit
+width return one without performing an invalid shift. Sampling without an
+explicit level uses mip zero. A finite explicit level below zero uses zero;
+finite positive levels clamp to the last allocated mip, `NaN` and negative
+infinity use zero, and positive infinity uses the last allocated mip. Point filtering
+retains the fallback contract and samples mip zero even when a positive level
+is supplied. The common 2D `BYTE1` stored-sampler path resolves the invariant
+view once per packet and performs the four bilinear taps directly; other
+formats and sparse masks retain the generic packet path.
+
 Embree traversal uses the packet API matching the specialization width:
 
 | Width | Trace | Occlusion | Validity |

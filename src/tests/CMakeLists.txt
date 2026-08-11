@@ -633,11 +633,19 @@ if (TARGET luisa-compute-backend-simd)
     luisa_compute_add_test(test_simd_bindless_buffers
             unit/simd/test_simd_bindless_buffers.cpp
             LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_bindless_textures
+            unit/simd/test_simd_bindless_textures.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_arithmetic
+            unit/simd/test_simd_arithmetic.cpp
+            LABELS integration_simd runtime_simd)
     foreach (_simd_backend_test IN ITEMS
             test_simd_runtime_widths
             test_simd_local_memory
             test_simd_atomics
-            test_simd_bindless_buffers)
+            test_simd_bindless_buffers
+            test_simd_bindless_textures
+            test_simd_arithmetic)
         add_dependencies(${_simd_backend_test}
                 luisa-compute-backend-simd)
     endforeach ()

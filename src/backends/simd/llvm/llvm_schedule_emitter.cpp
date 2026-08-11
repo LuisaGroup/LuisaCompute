@@ -741,23 +741,35 @@ void ScheduleEmitter::_preflight() {
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_bindless_view(
     ::llvm::Value *base) {
     auto &context = _module.getContext();
+    auto *pointer_type = ::llvm::PointerType::getUnqual(context);
     auto *type = ::llvm::StructType::get(
         context,
-        {::llvm::PointerType::getUnqual(context),
-         _builder.getInt64Ty()});
+        {pointer_type, _builder.getInt64Ty(),
+         pointer_type, pointer_type, pointer_type});
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     auto *slots = _builder.CreateLoad(
-        ::llvm::PointerType::getUnqual(context), base);
-    slots->setAlignment(
-        ::llvm::Align{alignof(SIMDHostBindlessArrayView)});
+        pointer_type, base);
+    slots->setAlignment(::llvm::Align{alignof(void *)});
     auto *size_pointer = _byte_pointer(
         base, offsetof(SIMDHostBindlessArrayView, size));
     auto *size = _builder.CreateLoad(
         _builder.getInt64Ty(), size_pointer);
     size->setAlignment(::llvm::Align{alignof(size_t)});
     result = _builder.CreateInsertValue(result, slots, {0u});
-    return _builder.CreateInsertValue(result, size, {1u});
+    result = _builder.CreateInsertValue(result, size, {1u});
+    constexpr std::array callback_offsets{
+        offsetof(SIMDHostBindlessArrayView, sample_texture),
+        offsetof(SIMDHostBindlessArrayView, read_texture),
+        offsetof(SIMDHostBindlessArrayView, size_texture),
+    };
+    for (auto i = uint32_t{0u}; i < callback_offsets.size(); i++) {
+        auto *callback = _builder.CreateLoad(
+            pointer_type, _byte_pointer(base, callback_offsets[i]));
+        callback->setAlignment(::llvm::Align{alignof(void *)});
+        result = _builder.CreateInsertValue(result, callback, {i + 2u});
+    }
+    return result;
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_launch_u32(size_t offset) {

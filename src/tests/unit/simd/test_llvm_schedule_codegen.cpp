@@ -2627,6 +2627,163 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+struct BindlessTexturePacketProbe {
+    bool valid{true};
+    uint32_t calls{0u};
+    std::array<uint64_t, 2u> masks{};
+    std::array<std::array<uint32_t, 8u>, 2u> slots{};
+};
+
+void bindless_texture_sample_probe(
+    const SIMDHostBindlessSlot *slots, size_t slot_count,
+    uint32_t dimension, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *slot_indices,
+    const uint32_t *sampler_codes,
+    const float *u, const float *v, const float *w,
+    const float *levels, float *values) {
+    auto *probe = static_cast<BindlessTexturePacketProbe *>(
+        slots[0u].texture2d.texture);
+    auto call = probe->calls++;
+    probe->valid &= call < probe->masks.size() && slot_count == 2u &&
+                    dimension == 2u && lane_count == 8u &&
+                    sampler_codes == nullptr && levels == nullptr &&
+                    u != nullptr && v != nullptr && w != nullptr;
+    if (call >= probe->masks.size()) { return; }
+    probe->masks[call] = active_mask_bits;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->slots[call][lane] = slot_indices[lane];
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            values[component * lane_count + lane] =
+                static_cast<float>(
+                    call * 100u + component * 10u + slot_indices[lane]);
+        }
+    }
+}
+
+[[nodiscard]] bool run_bindless_texture_packet_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("bindless_texture_packet");
+    auto *bindless = kernel->create_resource_argument(
+        Type::of<BindlessArray>());
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::float4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto uv_value = luisa::make_float2(0.25f, 0.75f);
+    auto *uv = module.create_constant(
+        Type::of<luisa::float2>(), &uv_value);
+    auto output_offset_value = uint32_t{8u};
+    auto *output_offset = module.create_constant(
+        Type::of<uint32_t>(), &output_offset_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *slot = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {x, one});
+    auto *varying_pixel = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE,
+        {bindless, slot, uv});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, varying_pixel});
+    auto *uniform_pixel = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE,
+        {bindless, zero, uv});
+    auto *uniform_output_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {x, output_offset});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, uniform_output_index, uniform_pixel});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-bindless-texture-packet", *context);
+    auto name = std::string{"simd_bindless_texture_packet"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostBindlessArrayView bindless;
+        SIMDHostBufferView output;
+    };
+    CHECK(codegen.argument_buffer_size == sizeof(Arguments));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("bindless.texture.sample.result") != std::string::npos);
+    CHECK(ir.find("bindless.texture.sample.lane") == std::string::npos);
+    CHECK(ir.find("bindless.uniform.callback.mask") != std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+
+    BindlessTexturePacketProbe probe;
+    std::array<SIMDHostBindlessSlot, 2u> slots{};
+    for (auto &slot_descriptor : slots) {
+        slot_descriptor.texture2d.texture = &probe;
+    }
+    std::array<luisa::float4, 16u> output_values{};
+    Arguments arguments{
+        .bindless = {
+            .slots = slots.data(),
+            .size = slots.size(),
+            .sample_texture = bindless_texture_sample_probe,
+        },
+        .output = {output_values.data(), sizeof(output_values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.calls == 2u);
+    CHECK(probe.masks[0u] == 0x1fu);
+    CHECK(probe.masks[1u] == 0x01u);
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        auto expected_slot = lane & 1u;
+        CHECK(probe.slots[0u][lane] == expected_slot);
+        CHECK(luisa::all(output_values[lane] == luisa::make_float4(
+            static_cast<float>(expected_slot),
+            static_cast<float>(10u + expected_slot),
+            static_cast<float>(20u + expected_slot),
+            static_cast<float>(30u + expected_slot))));
+        CHECK(luisa::all(output_values[8u + lane] ==
+                         luisa::make_float4(
+                             100.0f, 110.0f, 120.0f, 130.0f)));
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_buffer_codegen() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -3118,6 +3275,8 @@ int main() {
         {"uniform buffer read broadcast",
          &run_uniform_buffer_broadcast_codegen},
         {"XIR texture packet callback", &run_texture_packet_codegen},
+        {"XIR bindless texture packet callback",
+         &run_bindless_texture_packet_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST uniform-loop buffer broadcast",
          &run_ast_uniform_loop_buffer_broadcast},

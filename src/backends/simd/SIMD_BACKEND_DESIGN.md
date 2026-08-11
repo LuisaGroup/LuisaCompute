@@ -3,7 +3,7 @@
 Status: Phase 2 fixed-vector compute checkpoint. XIR-to-Schedule lowering,
 the dependency-light cohort semantic model, the scalar-target/vector-mask LLVM
 packet scheduler, dispatch builtins, aggregate SoA values, and direct Buffer
-gather/scatter plus bindless buffer tables are implemented behind
+gather/scatter plus bindless buffer/texture packet tables are implemented behind
 `LUISA_COMPUTE_ENABLE_SIMD`. The shared LLVM native-math layer now has
 independently implemented precise and fast tiers for twenty f32 operations:
 the initial twelve unary operations, binary `atan2` and `pow`, and six
@@ -1317,8 +1317,9 @@ fallback median are:
 
 Fallback game of life and n-body remain bimodal under concurrent host work;
 their speedup ratios are observations, while image, voxel, shader toy, and all
-SIMD distributions have tight interquartile ranges. `shader_toy_spacex` is the
-only gallery example that directly uses `tanh(float4)`, but it still fails
+SIMD distributions have tight interquartile ranges. At this historical
+hyperbolic-only checkpoint, `shader_toy_spacex` was the only gallery example
+that directly used `tanh(float4)`, but it still failed
 closed before shader execution at the pre-existing unsupported bindless-
 texture slot boundary. Hyperbolic execution is therefore accepted by the DSL
 Schedule and fallback fixed-vector regressions, not falsely claimed as a
@@ -1381,12 +1382,129 @@ per-lane prefetch calls.
 A separate libdispatch/system-parallel-for experiment changed fallback by
 +0.42%, SIMD W1 by -0.34%, and SIMD W16 by -0.05%, so the custom persistent
 block pool is retained. Perf sampling attributes about 99% of SDF cycles to
-JIT code and below 0.6% to backend/runtime scheduling. Additional example
-probes currently fail closed at their documented feature boundaries:
-`blackhole` and `wave_equation` require `smoothstep`,
-`shader_toy_spacex` requires bindless textures, and `mpm88` requires
-`matrix_linalg_mul`; a default-W8 `fire_simulation` probe exceeded the
-120-second conformance timeout.
+JIT code and below 0.6% to backend/runtime scheduling. At that checkpoint,
+additional example probes failed closed at their documented feature
+boundaries: `blackhole` and `wave_equation` required `smoothstep`,
+`shader_toy_spacex` required bindless textures, and `mpm88` required
+`matrix_linalg_mul`; the completion checkpoint below resolves those first
+three capability boundaries. A default-W8 `fire_simulation` probe still
+exceeded the 120-second conformance timeout.
+
+### Bindless-texture and real-example completion checkpoint
+
+The next vertical slice adds packet bindless texture execution rather than a
+per-active-lane host API loop. The backend-owned slot table now carries 2D and
+3D texture descriptors plus stored samplers. JIT code sanitizes inactive slot,
+coordinate, mip, and explicit-sampler operands, materializes component-major
+scratch once, and calls the runtime once per packet. The runtime batches lanes
+that resolve to the same texture/sampler/level. A uniform result narrows the
+callback mask to the first active lane, preserving the scalar-uniform contract.
+Supported operations are 2D/3D read, size, and sample, with explicit levels
+and either stored or explicit samplers. Gradient sampling still fails with a
+specific diagnostic.
+
+The common 2D `BYTE1` stored-sampler path hoists the invariant texture view and
+performs the four bilinear taps directly. Mirror addressing uses an absolute-
+value/floor identity instead of the serialized x87 `fprem` emitted for
+`std::fmod`. The physical texture ABI remains row-major; the callback scratch
+is the local AoS/SoA layout boundary. Generic matrix-vector,
+vector-matrix, and matrix-matrix multiplication for dimensions 2/3/4 plus
+`smoothstep` and `reflect` lowering unlock the Spacex, wave, MPM, and visual
+shader probes without adding target-specific intrinsics.
+
+The final Release sweep used the Ryzen 9 9950X3D host and LLVM 22.1.8. Every
+cell is the median of nine forward/reverse interleaved processes while other
+host work remained active; no best-run selection is used. SDF is the non-coro
+renderer at SPP 4. Image processing repeats its complete four-dispatch
+pipeline 32 times, voxel repeats its render dispatch 16 times, Spacex renders
+eight frames after a synchronized upload/update warm boundary, and portable
+DSL GEMM performs four warmups plus 128 timed 256-cubed dispatches. Parentheses
+are speedups over the paired fallback median:
+
+| Real steady-state workload | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| non-coro SDF samples/s | 8.9256 | 8.3377 (0.934x) | 9.6257 (1.078x) | 15.4895 (1.735x) | 23.0289 (2.580x) | 33.8576 (3.793x) |
+| image pipeline ms/iteration | 8.523 | 17.372 (0.491x) | 9.177 (0.929x) | 6.609 (1.290x) | 4.976 (1.713x) | 4.326 (1.970x) |
+| voxel render ms/iteration | 6.860 | 8.099 (0.847x) | 24.198 (0.284x) | 16.178 (0.424x) | 9.462 (0.725x) | 6.577 (1.043x) |
+| Spacex ms/frame | 155.448 | 168.780 (0.921x) | 110.090 (1.412x) | 72.658 (2.139x) | 54.056 (2.876x) | 44.842 (3.467x) |
+| portable GEMM GFLOP/s | 80.887 | 61.722 (0.763x) | 30.898 (0.382x) | 60.767 (0.751x) | 101.251 (1.252x) | 157.631 (1.949x) |
+
+Spacex is especially stable: fallback and W1/W2/W4/W8/W16 interquartile
+ranges are respectively 155.257--155.850, 168.556--169.467,
+110.031--110.361, 72.496--72.997, 53.949--54.080, and
+44.762--44.940 ms/frame. GEMM's SIMD distributions are also tight, but the
+fallback distribution spans a much wider 68.156--87.910 GFLOP/s IQR under
+concurrent load; the fallback-relative GEMM ratios are therefore observational
+on this host rather than a cross-machine claim.
+
+The paired whole-process graphics sweep, which includes backend loading, JIT,
+execution, synchronization, output, and reference comparison, gives:
+
+| Whole-process example | fallback ms | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Spacex | 233.405 | 0.812x | 0.899x | 1.066x | 1.125x | 1.091x |
+| shader toy | 186.167 | 1.069x | 1.161x | 1.335x | 1.408x | 1.367x |
+| game of life | 70.797 | 0.781x | 0.850x | 0.957x | 0.938x | 0.931x |
+| n-body | 324.915 | 0.697x | 0.370x | 0.536x | 0.605x | 0.560x |
+
+Game of life and fallback n-body remain bimodal, so their exact point ratios
+are observations. The distinction between whole-process and repeated-dispatch
+measurements explains why Spacex W16 is 3.47x in steady state but only 1.09x
+for a one-frame process: fixed backend load, JIT, PNG, and comparison work does
+not scale with packet width. W1 is not expected to equal fallback because it
+uses the SIMD Schedule/ABI, ORC pipeline, packet texture callback, and backend
+runtime rather than fallback's independently optimized scalar code.
+
+Correctness gates accompany every performance claim. Spacex passes its gallery
+reference at every SIMD width with 70.161 dB RGB PSNR (fallback 87.537 dB).
+A fresh W8 1024-SPP non-coro SDF run passes at 63.129 dB. Image and voxel pass
+at every width; the deterministic GEMM output is checked against an independent
+double-accumulation CPU oracle before timing. `wave_equation` and `mpm88` pass
+at W1/W2/W4/W8/W16, `mpm3d` passes at W8, and
+`shader_visuals_present` passes every width against a locally generated
+fallback reference. The repository `blackhole` reference remains host-
+sensitive: fallback itself scores 28.734 dB against a 29.5 dB threshold, so
+that probe is not reported as a SIMD regression.
+
+Profiling isolates the texture change. Before replacing the generic mirror
+path, W8 Spacex retired 36.40 billion instructions and 18.59 billion cycles;
+after the floor reduction and direct `BYTE1` packet path it retires 19.20
+billion instructions and 9.28 billion cycles. Over eight steady-state frames,
+fallback retires 414.69 billion instructions and consumes 38.99 seconds of
+aggregate task-clock, while W8 retires 139.36 billion and consumes 13.54
+seconds. The latest W8 cycle profile attributes 66.88% to the fixed-width
+texture sampling callback, 2.29% to bindless lane grouping, 1.11% to texture
+view resolution, and only 0.02% to the host `parallel_for`. Replacing the
+persistent pool with a system parallel-for cannot address the dominant cost.
+
+The remaining texture bottleneck is the scalar scatter of four random texel
+taps inside the packet callback. The next layout step should lower sampling
+and gather selection into fixed-vector JIT IR, or introduce a measured tile/
+swizzle layout with an explicit upload/download conversion boundary. A general
+lane-major/value-major transpose is retained as a layout-selection problem:
+switch only across a region large enough to amortize transpose/shuffle cost,
+and keep both inactive-mask and aggregate-ABI proofs. Software prefetch remains
+off until an affine lookahead distance is proven; the current 128-by-128
+`BYTE1` Spacex texture is L1-sized and each tap is consumed immediately.
+
+W8 remains a semantic width, not an AVX-512 guarantee. On this host it uses YMM
+for eight f32 values, AVX-512VL masks, and sometimes ZMM for eight 64-bit gather
+addresses; target features may lower the same fixed-vector IR differently.
+Voxel's W2/W4 regression is instead the dynamic masked DDA state machine: its
+instruction count, not the pool or LLVM's basic vector legalization, remains
+the limiting factor. Existing speculation-safe if-conversion and bounded loop
+unswitching reduce eligible state transitions, while dynamic same-target edges
+already stay on direct LLVM control flow. Density-driven cohort compaction and
+the region layout conversion above remain measured follow-up work.
+
+The required native-math/runtime-width tests plus the new arithmetic,
+bindless-texture, and dedicated bindless-IR callback tests pass 6/6. Combined
+SIMD, XIR, runtime, and graphics labels pass 78/78. Full-repository CTest
+passes 116/117; the sole failure is
+the pre-existing, untouched `test_coro_scheduler_base` lazy-dispatch assertion.
+The original `test_bindless_mip simd` intentionally fails at compile time on
+its gradient query, matching the explicit unsupported-feature contract rather
+than silently changing sampling semantics.
 
 ## 14. Delivery plan
 
@@ -1537,6 +1655,10 @@ on 2026-08-11. The repository now contains:
   loop, convergence, and PHI lowering paths that avoid global pairwise scans;
 - scalar kernel-argument/resource ABI and scalar uniform expression/state
   lowering, with lane splats introduced only at varying use sites;
+- shared target-independent fixed-vector native-math providers with separate
+  precise and true-fast implementations for the twenty f32 operations listed
+  above; uniform inputs stay scalar, while varying paths contain no scalar
+  libm lane loop;
 - a width-specialized LLVM value layout where varying scalars are exactly
   `<W x T>`, masks are `<W x i1>`, and varying aggregates are structure of
   arrays;
@@ -1552,6 +1674,9 @@ on 2026-08-11. The repository now contains:
   an `iW` active-frame bitset, destination-side cascading inner-to-outer joins,
   loop-gate reuse, dispatch-edge masks, and masked scalar returns; the old
   64-block ready bitmap and its CFG-size limit have been removed;
+- bounded speculation-safe diamond if-conversion, common-operation/select
+  factoring, and invariant-condition loop unswitching before Schedule
+  emission, each with a same-binary disable control and inactive-tail proof;
 - per-kernel cold/hot suspension-state partitioning that keeps frequently
   accessed slots promotable to registers while preventing a cold-slot majority
   from inflating global dispatcher PHIs and physical register spills;
@@ -1563,7 +1688,8 @@ on 2026-08-11. The repository now contains:
   multidimensional dispatch extents;
 - recursive Luisa-ABI loading for uniform aggregate values, SoA splatting,
   cohort spill/reload, component-wise integer arithmetic, aggregate
-  construction/extraction/insertion/shuffle, and scalar/vector casts;
+  construction/extraction/insertion/shuffle, scalar/vector casts, 2/3/4-wide
+  matrix linear algebra, `smoothstep`, and `reflect`;
 - direct Buffer descriptors with typed and byte-address queries plus masked
   LLVM gather/scatter for scalar, vector, matrix, array, and structure leaves;
 - use-site lane-step provenance for direct typed scalar buffers, with static
@@ -1571,10 +1697,11 @@ on 2026-08-11. The repository now contains:
   masked contiguous load/store at W4/W8/W16; sparse cohorts and partial tails
   retain the exact source mask while W2 keeps its measured gather/scatter
   policy;
-- runtime-owned bindless slot tables with offset buffer views, update/remove
-  commands, bounds-checked slot lookup, and varying or uniform slot indices;
-  typed and byte-addressed bindless reads, writes, sizes, and device-address
-  queries lower in a dedicated LLVM translation unit;
+- runtime-owned bindless slot tables with offset buffer and 2D/3D texture
+  views, update/remove commands, bounds-checked slot lookup, and varying or
+  uniform slot indices; typed and byte-addressed bindless reads, writes, sizes,
+  and device-address queries plus texture read/size/sample with stored or
+  explicit samplers lower in a dedicated LLVM translation unit;
 - lane-private local storage with Luisa ABI byte layout, masked loads/stores,
   and dynamic vector/array/matrix indexing through divergent control flow;
 - monotonic direct-buffer atomics scalarized only at the memory side effect,
@@ -1587,10 +1714,12 @@ on 2026-08-11. The repository now contains:
   streams, events, direct dispatch, and a public `SIMDDeviceConfigExt` that
   specializes every shader on the device to warp1/2/4/8/16 and selects the
   device worker count;
-- a W1/W2/W4/W8/W16 texture packet callback ABI with SoA coordinates and
-  components, packed active masks, same-texel broadcast detection, contiguous
-  row batching, sparse set-bit fallback, and inactive-tail sanitization while
-  retaining the public row-major texture storage ABI;
+- a W1/W2/W4/W8/W16 direct and bindless texture packet callback ABI with SoA
+  coordinates and components, packed active masks, same-resource/sampler/level
+  batching, same-texel broadcast detection, contiguous row batching, a direct
+  2D `BYTE1` sampling path, sparse set-bit fallback, uniform one-lane callback,
+  and inactive-tail sanitization while retaining the public row-major texture
+  storage ABI;
 - a device-owned persistent worker pool that dynamically schedules flattened
   block ranges, keeps all warps of one block together, joins before the next
   stream command, and retains a one-worker serial diagnostic mode;
@@ -1626,10 +1755,13 @@ on 2026-08-11. The repository now contains:
   tests, plus device-level specialization across warp1/2/4/8/16, persistent-pool
   exactly-once and concurrent-submission checks, local-memory isolation under
   divergence, and conflicting direct-buffer atomics across parallel blocks
-  with a partial dispatch tail.
+  with a partial dispatch tail; dedicated bindless texture and arithmetic
+  fixtures cover W1/W2/W4/W8/W16, divergent slots, 2D/3D sampling and reads,
+  explicit samplers, invalid mip levels, uniform execution, and a three-lane
+  W16 tail.
 
-The next implementation boundary is callable conformance and bindless texture
-access/sampling, followed by cooperative shared memory and block barriers.
+The next implementation boundary is bindless gradient sampling and broader
+callable conformance, followed by cooperative shared memory and block barriers.
 Acceleration structures then use Embree's matching 4/8/16-wide packet APIs,
 while the remaining device-library surface gains scalar-uniform and native
 `<W x T>` implementations. The current compiler returns precise diagnostics

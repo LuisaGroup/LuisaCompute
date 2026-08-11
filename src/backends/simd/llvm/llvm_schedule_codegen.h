@@ -26,15 +26,50 @@ struct alignas(16) SIMDHostBufferView {
 };
 
 // Bindless resources are resolved by the runtime into a dense host table.
-// Keep the slot representation plain and backend-local so JIT code can gather
-// buffer descriptors without depending on runtime C++ object layouts.
+// Keep the slot representation plain and backend-local so JIT code and packet
+// callbacks never depend on runtime C++ object layouts.
+struct alignas(16) SIMDHostBindlessTextureSlot {
+    void *texture{nullptr};
+    uint32_t sampler_code{0u};
+    uint32_t reserved{0u};
+};
+
 struct alignas(16) SIMDHostBindlessSlot {
     SIMDHostBufferView buffer{};
+    SIMDHostBindlessTextureSlot texture2d{};
+    SIMDHostBindlessTextureSlot texture3d{};
 };
+
+// Bindless texture callbacks consume one SoA packet. The runtime groups lanes
+// that resolve to the same texture/sampler before sampling, while slot_indices
+// remain free to diverge. A null sampler_codes pointer selects the sampler
+// stored in each slot; a null levels pointer selects mip zero. Results contain
+// four (sample/read) or three (size) consecutive component vectors.
+using SIMDHostBindlessTextureSample = void(
+    const SIMDHostBindlessSlot *slots, size_t slot_count,
+    uint32_t dimension, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *slot_indices,
+    const uint32_t *sampler_codes,
+    const float *u, const float *v, const float *w,
+    const float *levels, float *values);
+using SIMDHostBindlessTextureRead = void(
+    const SIMDHostBindlessSlot *slots, size_t slot_count,
+    uint32_t dimension, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *slot_indices,
+    const uint32_t *x, const uint32_t *y, const uint32_t *z,
+    const uint32_t *levels, float *values);
+using SIMDHostBindlessTextureSize = void(
+    const SIMDHostBindlessSlot *slots, size_t slot_count,
+    uint32_t dimension, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *slot_indices,
+    const uint32_t *levels, uint32_t *values);
 
 struct alignas(16) SIMDHostBindlessArrayView {
     const SIMDHostBindlessSlot *slots{nullptr};
     size_t size{0u};
+    SIMDHostBindlessTextureSample *sample_texture{nullptr};
+    SIMDHostBindlessTextureRead *read_texture{nullptr};
+    SIMDHostBindlessTextureSize *size_texture{nullptr};
 };
 
 // Texture callbacks operate once per SIMD packet. Coordinates are SoA vectors

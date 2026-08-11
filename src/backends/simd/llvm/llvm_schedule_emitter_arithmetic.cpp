@@ -615,6 +615,26 @@ namespace luisa::compute::simd::detail {
                         a, _builder.CreateFMul(
                                _builder.CreateFSub(b, a), t));
                 });
+        case xir::ArithmeticOp::SMOOTHSTEP:
+            return ternary(
+                [&](::llvm::Value *edge0, ::llvm::Value *edge1,
+                    ::llvm::Value *x, const Type *,
+                    const Type *, const Type *x_type) {
+                    auto *zero = float_constant_like(x, 0.0);
+                    auto *one = float_constant_like(x, 1.0);
+                    auto *minus_two = float_constant_like(x, -2.0);
+                    auto *three = float_constant_like(x, 3.0);
+                    auto *t = _builder.CreateFDiv(
+                        _builder.CreateFSub(x, edge0),
+                        _builder.CreateFSub(edge1, edge0));
+                    t = minmax_leaf(t, zero, x_type, true);
+                    t = minmax_leaf(t, one, x_type, false);
+                    auto *tt = _builder.CreateFMul(t, t);
+                    auto *polynomial = intrinsic(
+                        ::llvm::Intrinsic::fma,
+                        {minus_two, t, three});
+                    return _builder.CreateFMul(tt, polynomial);
+                });
         case xir::ArithmeticOp::ABS:
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
@@ -1039,6 +1059,104 @@ namespace luisa::compute::simd::detail {
                 });
         case xir::ArithmeticOp::COPYSIGN:
             return binary_intrinsic(::llvm::Intrinsic::copysign);
+        case xir::ArithmeticOp::MATRIX_LINALG_MUL: {
+            if (!require(2u)) { return nullptr; }
+            auto *lhs_type = operand_types[0u];
+            auto *rhs_type = operand_types[1u];
+            auto lhs_matrix = lhs_type->is_matrix();
+            auto rhs_matrix = rhs_type->is_matrix();
+            auto lhs_vector = lhs_type->is_float_vector();
+            auto rhs_vector = rhs_type->is_float_vector();
+            if ((!lhs_matrix && !lhs_vector) ||
+                (!rhs_matrix && !rhs_vector) ||
+                (!lhs_matrix && !rhs_matrix) ||
+                lhs_type->dimension() != rhs_type->dimension()) {
+                _fail("matrix linear-algebra multiply has invalid operand types");
+                return nullptr;
+            }
+            auto dimension = lhs_type->dimension();
+            auto vector_component = [&](::llvm::Value *value,
+                                        const Type *type,
+                                        uint32_t index) {
+                return _extract_child(
+                    value, type, index, varying);
+            };
+            auto matrix_element = [&](::llvm::Value *value,
+                                      const Type *type,
+                                      uint32_t column,
+                                      uint32_t row) {
+                auto *column_type = _child_type(type, column);
+                auto *column_value = _extract_child(
+                    value, type, column, varying);
+                return _extract_child(
+                    column_value, column_type, row, varying);
+            };
+            auto sum_products = [&](auto &&term) {
+                ::llvm::Value *sum = nullptr;
+                for (auto k = uint32_t{0u}; k < dimension; k++) {
+                    auto [a, b] = term(k);
+                    auto *product = _builder.CreateFMul(a, b);
+                    sum = sum == nullptr ? product :
+                                           _builder.CreateFAdd(sum, product);
+                }
+                return sum;
+            };
+            if (lhs_matrix && rhs_vector) {
+                if (!result->type->is_float_vector() ||
+                    result->type->dimension() != dimension) {
+                    _fail("matrix-vector multiply has an invalid result type");
+                    return nullptr;
+                }
+                return _assemble(
+                    result->type, varying, [&](uint32_t row) {
+                        return sum_products([&](uint32_t k) {
+                            return std::pair{
+                                matrix_element(
+                                    operands[0u], lhs_type, k, row),
+                                vector_component(
+                                    operands[1u], rhs_type, k)};
+                        });
+                    });
+            }
+            if (lhs_vector && rhs_matrix) {
+                if (!result->type->is_float_vector() ||
+                    result->type->dimension() != dimension) {
+                    _fail("vector-matrix multiply has an invalid result type");
+                    return nullptr;
+                }
+                return _assemble(
+                    result->type, varying, [&](uint32_t column) {
+                        return sum_products([&](uint32_t k) {
+                            return std::pair{
+                                vector_component(
+                                    operands[0u], lhs_type, k),
+                                matrix_element(
+                                    operands[1u], rhs_type, column, k)};
+                        });
+                    });
+            }
+            if (!lhs_matrix || !rhs_matrix ||
+                !result->type->is_matrix() ||
+                result->type->dimension() != dimension) {
+                _fail("matrix-matrix multiply has an invalid result type");
+                return nullptr;
+            }
+            return _assemble(
+                result->type, varying, [&](uint32_t column) {
+                    auto *column_type = _child_type(
+                        result->type, column);
+                    return _assemble(
+                        column_type, varying, [&](uint32_t row) {
+                            return sum_products([&](uint32_t k) {
+                                return std::pair{
+                                    matrix_element(
+                                        operands[0u], lhs_type, k, row),
+                                    matrix_element(
+                                        operands[1u], rhs_type, column, k)};
+                            });
+                        });
+                });
+        }
         case xir::ArithmeticOp::DOT:
             if (!require(2u)) { return nullptr; }
             return dot(
@@ -1069,6 +1187,27 @@ namespace luisa::compute::simd::detail {
                 [&](::llvm::Value *value, const Type *) {
                     return _builder.CreateFDiv(value, length);
                 });
+        }
+        case xir::ArithmeticOp::REFLECT: {
+            if (!require(2u) || !result->type->is_float_vector() ||
+                operand_types[0u] != result->type ||
+                operand_types[1u] != result->type) {
+                return nullptr;
+            }
+            auto *projection = dot(
+                operands[1u], operands[0u], result->type);
+            if (projection == nullptr) { return nullptr; }
+            auto *scale = _builder.CreateFMul(
+                float_constant_like(projection, -2.0), projection);
+            return _assemble(result->type, varying, [&](uint32_t i) {
+                auto *incident = _extract_child(
+                    operands[0u], result->type, i, varying);
+                auto *normal = _extract_child(
+                    operands[1u], result->type, i, varying);
+                return intrinsic(
+                    ::llvm::Intrinsic::fma,
+                    {scale, normal, incident});
+            });
         }
         case xir::ArithmeticOp::CROSS: {
             if (!require(2u) || !result->type->is_vector() ||

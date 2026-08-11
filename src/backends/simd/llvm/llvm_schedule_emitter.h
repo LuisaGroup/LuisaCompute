@@ -105,6 +105,13 @@ private:
         ::llvm::Value *size_bytes{nullptr};
     };
 
+    struct BindlessArrayLanes {
+        ::llvm::Value *view{nullptr};
+        ::llvm::Value *slots{nullptr};
+        ::llvm::Value *slot_count{nullptr};
+        ::llvm::Value *slot_indices{nullptr};
+    };
+
 private:
     void _fail(std::string message);
     [[nodiscard]] bool _failed() const noexcept;
@@ -261,6 +268,10 @@ private:
     void _store_contiguous_data(
         ::llvm::Value *base, ::llvm::Value *index,
         const Type *type, ::llvm::Value *value);
+    [[nodiscard]] BindlessArrayLanes _bindless_array_lanes(
+        schedule::ValueId bindless_id, schedule::ValueId slot_id);
+    [[nodiscard]] ::llvm::Value *_bindless_callback_mask(
+        bool varying_result);
     [[nodiscard]] BindlessBufferLanes _bindless_buffer_lanes(
         schedule::ValueId bindless_id, schedule::ValueId slot_id);
     [[nodiscard]] ::llvm::Value *_bindless_access_offsets(
@@ -271,6 +282,10 @@ private:
     void _bindless_resource_write(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_bindless_resource_query(
+        const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_bindless_texture_read(
+        const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_bindless_texture_query(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_read(
         const schedule::Instruction &instruction);

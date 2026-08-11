@@ -48,10 +48,19 @@ public:
     }
     [[nodiscard]] SIMDHostTextureView host_view(
         uint level) noexcept;
+    [[nodiscard]] uint3 size(uint32_t level) const noexcept;
+    void sample_float_packet(
+        Sampler sampler, uint32_t lane_count,
+        uint64_t active_mask_bits, const float *u,
+        const float *v, const float *w, const float *levels,
+        float *values) noexcept;
     [[nodiscard]] auto native_handle() const noexcept {
         return _texture.native_handle();
     }
     [[nodiscard]] auto dimension() const noexcept { return _dimension; }
+    [[nodiscard]] auto mip_levels() const noexcept {
+        return _texture.mip_levels();
+    }
     [[nodiscard]] auto contiguous_packets_enabled() const noexcept {
         return _enable_contiguous_packets;
     }

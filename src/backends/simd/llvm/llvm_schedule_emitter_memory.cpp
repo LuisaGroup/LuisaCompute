@@ -739,6 +739,12 @@ void ScheduleEmitter::_store_contiguous_data(
         op == xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ) {
         return _bindless_resource_read(instruction);
     }
+    if (op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ ||
+        op == xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ ||
+        op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL ||
+        op == xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL) {
+        return _bindless_texture_read(instruction);
+    }
     if (instruction.operands.size() != 2u) {
         _fail("direct resource read instruction is malformed");
         return nullptr;
@@ -924,6 +930,14 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
         op == xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE ||
         op == xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS) {
         return _bindless_resource_query(instruction);
+    }
+    if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE ||
+        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE ||
+        op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL ||
+        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL ||
+        (op >= xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE &&
+         op <= xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER)) {
+        return _bindless_texture_query(instruction);
     }
     if (instruction.operands.size() != 1u) {
         _fail("direct resource query instruction is malformed");
