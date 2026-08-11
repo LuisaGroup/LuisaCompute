@@ -863,7 +863,31 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::log10, {value});
             });
         case xir::ArithmeticOp::POW:
-            return binary_intrinsic(::llvm::Intrinsic::pow);
+            return binary([&](::llvm::Value *base,
+                              ::llvm::Value *exponent,
+                              const Type *base_type, const Type *)
+                              -> ::llvm::Value * {
+                if (varying && base_type->is_float32()) {
+                    // POW contains float-to-int conversion for its integer
+                    // exponent classification. Neutralize inactive lanes
+                    // before any operation that could otherwise create poison.
+                    auto *safe_base = _builder.CreateSelect(
+                        _active_mask, base,
+                        float_constant_like(base, 1.0));
+                    auto *safe_exponent = _builder.CreateSelect(
+                        _active_mask, exponent,
+                        float_constant_like(exponent, 0.0));
+                    auto *native = cpu::LLVMNativeMath::emit_pow_f32(
+                        _module, _builder, safe_base, safe_exponent,
+                        native_math_mode);
+                    if (native == nullptr) {
+                        _fail("native SIMD pow requires fixed f32 vectors");
+                    }
+                    return native;
+                }
+                return intrinsic(
+                    ::llvm::Intrinsic::pow, {base, exponent});
+            });
         case xir::ArithmeticOp::SQRT:
             return unary_intrinsic(::llvm::Intrinsic::sqrt);
         case xir::ArithmeticOp::RSQRT:

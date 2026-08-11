@@ -74,6 +74,11 @@ public:
     [[nodiscard]] static ::llvm::Value *emit_log10_f32(
         ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
         ::llvm::Value *vector, LLVMNativeMathMode mode);
+
+    [[nodiscard]] static ::llvm::Value *emit_pow_f32(
+        ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+        ::llvm::Value *base, ::llvm::Value *exponent,
+        LLVMNativeMathMode mode);
 };
 
 }// namespace luisa::compute::cpu

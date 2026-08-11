@@ -80,13 +80,21 @@ enum struct Operation : uint8_t {
     log,
     log2,
     log10,
+    pow,
 };
 
 constexpr std::array operations{
     Operation::acos, Operation::asin, Operation::atan, Operation::atan2,
     Operation::sin, Operation::cos, Operation::tan,
     Operation::exp, Operation::exp2, Operation::exp10,
-    Operation::log, Operation::log2, Operation::log10};
+    Operation::log, Operation::log2, Operation::log10,
+    Operation::pow};
+
+[[nodiscard]] constexpr bool is_binary(
+    Operation operation) noexcept {
+    return operation == Operation::atan2 ||
+           operation == Operation::pow;
+}
 
 [[nodiscard]] constexpr std::string_view operation_name(
     Operation operation) noexcept {
@@ -104,6 +112,7 @@ constexpr std::array operations{
         case Operation::log: return "log";
         case Operation::log2: return "log2";
         case Operation::log10: return "log10";
+        case Operation::pow: return "pow";
     }
     return {};
 }
@@ -124,6 +133,7 @@ constexpr std::array operations{
         case Operation::log: return xir::ArithmeticOp::LOG;
         case Operation::log2: return xir::ArithmeticOp::LOG2;
         case Operation::log10: return xir::ArithmeticOp::LOG10;
+        case Operation::pow: return xir::ArithmeticOp::POW;
     }
     return xir::ArithmeticOp::SIN;
 }
@@ -140,13 +150,13 @@ void add_math_callable(
     auto *function = module.create_callable(type);
     function->set_name(function_name(operation, width));
     auto *input = function->create_value_argument(type);
-    auto *secondary = operation == Operation::atan2 ?
+    auto *secondary = is_binary(operation) ?
                           function->create_value_argument(type) :
                           nullptr;
     auto *body = function->create_body_block();
     xir::XIRBuilder builder;
     builder.set_insertion_point(body);
-    auto *result = operation == Operation::atan2 ?
+    auto *result = is_binary(operation) ?
                        builder.call(
                            type, xir_operation(operation),
                            {input, secondary}) :
@@ -193,7 +203,7 @@ void add_entry_wrapper(
         vector_type, wrapper->getArg(1u), ::llvm::Align{4u});
     ::llvm::SmallVector<::llvm::Value *, 8u> arguments;
     arguments.emplace_back(input);
-    if (operation == Operation::atan2) {
+    if (is_binary(operation)) {
         arguments.emplace_back(secondary);
     }
     for (auto i = arguments.size(); i < native->arg_size(); i++) {
@@ -254,6 +264,7 @@ template<Operation Op>
     if constexpr (Op == Operation::log) { return std::log(x); }
     if constexpr (Op == Operation::log2) { return std::log2(x); }
     if constexpr (Op == Operation::log10) { return std::log10(x); }
+    if constexpr (Op == Operation::pow) { return std::pow(x, secondary); }
 }
 
 template<size_t Width, Operation Op>
@@ -272,14 +283,23 @@ template<size_t Width, Operation Op>
         -1.0f, -0.5f, 0.5f, 1.0f};
     constexpr std::array atan2_x_values{
         -0.0f, 0.5f, -0.5f, 1.0f};
+    constexpr std::array pow_base_values{
+        -2.0f, -0.0f, 0.5f, 4.0f};
+    constexpr std::array pow_exponent_values{
+        3.0f, -3.0f, -2.0f, 0.5f};
     for (auto lane = size_t{0u}; lane < Width; lane++) {
-        if constexpr (Op == Operation::asin ||
-                      Op == Operation::acos) {
+        if constexpr (Op == Operation::pow) {
+            input[lane] = pow_base_values[lane];
+            secondary[lane] = pow_exponent_values[lane];
+        } else if constexpr (Op == Operation::asin ||
+                             Op == Operation::acos) {
             input[lane] = unit_values[lane];
         } else {
             input[lane] = general_values[lane];
         }
-        secondary[lane] = atan2_x_values[lane];
+        if constexpr (Op != Operation::pow) {
+            secondary[lane] = atan2_x_values[lane];
+        }
     }
     entry(input.data(), secondary.data(), output.data());
     for (auto lane = size_t{0u}; lane < Width; lane++) {
@@ -366,6 +386,7 @@ template<size_t Width, Operation Op>
         CHECK(assembly.find("logf") == std::string::npos);
         CHECK(assembly.find("log2f") == std::string::npos);
         CHECK(assembly.find("log10f") == std::string::npos);
+        CHECK(assembly.find("powf") == std::string::npos);
     }
 
     for (auto fast_math : {false, true}) {
@@ -403,6 +424,9 @@ template<size_t Width, Operation Op>
         CHECK((check_entry<2u, Operation::log>(jit, fast_math)));
         CHECK((check_entry<3u, Operation::log2>(jit, fast_math)));
         CHECK((check_entry<4u, Operation::log10>(jit, fast_math)));
+        CHECK((check_entry<2u, Operation::pow>(jit, fast_math)));
+        CHECK((check_entry<3u, Operation::pow>(jit, fast_math)));
+        CHECK((check_entry<4u, Operation::pow>(jit, fast_math)));
     }
     return true;
 }

@@ -234,6 +234,9 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
     auto atan2_weight_value = 11.0f;
     auto *atan2_weight = xir_module.create_constant(
         Type::of<float>(), &atan2_weight_value);
+    auto pow_weight_value = 13.0f;
+    auto *pow_weight = xir_module.create_constant(
+        Type::of<float>(), &pow_weight_value);
     xir::XIRBuilder builder;
     builder.set_insertion_point(entry);
     auto *lane_f32 = builder.static_cast_(Type::of<float>(), lane);
@@ -294,6 +297,12 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         Type::of<float>(), xir::ArithmeticOp::LOG2, {log_input});
     auto *log10_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::LOG10, {log_input});
+    auto *pow_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::POW,
+        {log_input, tan_input});
+    auto *weighted_pow = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {pow_result, pow_weight});
     auto *weighted_exp2 = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
         {exp2_result, exp2_weight});
@@ -339,9 +348,12 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
     auto *extended_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {extended_sum, weighted_atan2});
+    auto *extended_pow_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {extended_result, weighted_pow});
     auto *result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
-        {base_result, extended_result});
+        {base_result, extended_pow_result});
     result->set_name("native_math_result");
     builder.return_void();
 
@@ -416,6 +428,8 @@ make_uniform_schedule_math_module(
     auto *one = xir_module.create_constant_one(Type::of<float>());
     auto *atan2_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::ATAN2, {input, one});
+    auto *pow_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::POW, {input, input});
     auto *exp_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::EXP, {input});
     auto *log_result = builder.call(
@@ -441,9 +455,12 @@ make_uniform_schedule_math_module(
     auto *extended_result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
         {extended_sum, atan2_result});
+    auto *extended_pow_result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {extended_result, pow_result});
     auto *result = builder.call(
         Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
-        {base_result, extended_result});
+        {base_result, extended_pow_result});
     result->set_name("uniform_math_result");
     builder.return_void();
 
@@ -982,6 +999,8 @@ template<size_t Width>
           std::string::npos);
     CHECK(ir.find("llvm.log10.v" + std::to_string(Width) + "f32") ==
           std::string::npos);
+    CHECK(ir.find("llvm.pow.v" + std::to_string(Width) + "f32") ==
+          std::string::npos);
     CHECK(ir.find("luisa.cpu.native_math") != std::string::npos);
     CHECK(ir.find("__luisa_cpu_native_sin_f32_v" +
                   std::to_string(Width) +
@@ -1006,6 +1025,10 @@ template<size_t Width>
     CHECK(ir.find("__luisa_cpu_native_atan2_f32_v" +
                   std::to_string(Width) +
                   (fast_math ? "_fast" : "_u35")) !=
+          std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_pow_f32_v" +
+                  std::to_string(Width) +
+                  (fast_math ? "_fast" : "_u10")) !=
           std::string::npos);
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
@@ -1037,6 +1060,7 @@ template<size_t Width>
         CHECK(assembly.find("exp10f") == std::string::npos);
         CHECK(assembly.find("log2f") == std::string::npos);
         CHECK(assembly.find("log10f") == std::string::npos);
+        CHECK(assembly.find("powf") == std::string::npos);
     }
 
     auto executable_module = make_schedule_math_module(
@@ -1089,11 +1113,24 @@ template<size_t Width>
                                 7.0f * std::log10(lane_f32 + 1.0f) +
                                 11.0f * std::atan2(
                                             inverse_input,
-                                            lane_f32 * 0.2f - 1.25f);
+                                            lane_f32 * 0.2f - 1.25f) +
+                                13.0f * std::pow(
+                                            lane_f32 + 1.0f,
+                                            lane_f32 * 0.03125f);
                 auto equal = fast_math ?
                                  std::abs(output[lane] - expected) <=
                                      2.0e-3f * (1.0f + std::abs(expected)) :
-                                 approximately_equal(output[lane], expected);
+                                 std::abs(output[lane] - expected) <=
+                                     1.0e-5f * (1.0f + std::abs(expected));
+                if (!equal) {
+                    std::cerr << "schedule native math W" << Width
+                              << (fast_math ? " fast" : " precise")
+                              << " lane=" << lane
+                              << " actual=" << output[lane]
+                              << " expected=" << expected
+                              << " error="
+                              << std::abs(output[lane] - expected) << '\n';
+                }
                 CHECK(equal);
             }
         }
@@ -1115,6 +1152,7 @@ template<size_t Width>
     CHECK(count_occurrences(ir, "call float @llvm.acos.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.atan.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.atan2.f32") == 1u);
+    CHECK(count_occurrences(ir, "call float @llvm.pow.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.exp.f32") == 1u);
     CHECK(count_occurrences(ir, "call float @llvm.log.f32") == 1u);
     CHECK(ir.find("llvm.sin.v8f32") == std::string::npos);
@@ -1126,6 +1164,7 @@ template<size_t Width>
     CHECK(ir.find("llvm.atan2.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.exp.v8f32") == std::string::npos);
     CHECK(ir.find("llvm.log.v8f32") == std::string::npos);
+    CHECK(ir.find("llvm.pow.v8f32") == std::string::npos);
 
     auto executable = make_uniform_schedule_math_module(
         width, fast_math);
@@ -1156,6 +1195,7 @@ template<size_t Width>
                     std::tan(input) + std::asin(input) +
                     std::acos(input) + std::atan(input) +
                     std::atan2(input, 1.0f) +
+                    std::pow(input, input) +
                     std::exp(input) + std::log(input);
     for (auto lane = size_t{0u}; lane < width; lane++) {
         CHECK(lane < 7u ?

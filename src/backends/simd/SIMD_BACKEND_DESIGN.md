@@ -5,8 +5,8 @@ the dependency-light cohort semantic model, the scalar-target/vector-mask LLVM
 packet scheduler, dispatch builtins, aggregate SoA values, and direct Buffer
 gather/scatter plus bindless buffer tables are implemented behind
 `LUISA_COMPUTE_ENABLE_SIMD`. The shared LLVM native-math layer now has
-independently implemented precise and fast tiers for thirteen f32 operations:
-the initial twelve unary operations plus binary `atan2`.
+independently implemented precise and fast tiers for fourteen f32 operations:
+the initial twelve unary operations plus binary `atan2` and `pow`.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -596,6 +596,10 @@ envelopes, and special-value behavior are linked from
 direct range-reduction bodies rather than scaling an `exp` or `log` call.
 Binary `atan2` similarly has a dedicated portable vector body with explicit
 quadrant and IEEE special-value repair.
+Binary `pow` uses a compensated SLEEF-derived precise magnitude path and a
+lower-cost fast log/multiply/exp path, both with explicit negative-base integer
+classification and exceptional-value repair. Neither path emits scalar
+`powf` calls or per-lane extraction loops.
 
 Acceptance checks three layers:
 
@@ -610,11 +614,11 @@ Acceptance checks three layers:
 CTest timing test. It interleaves precise and fast samples for fallback
 float2/float3/float4 and SIMD W4/W8/W16 and enforces a 1.05x aggregate
 throughput gate per width. On the recorded LLVM 22.1.8 x86-64 audit host, the
-median aggregate speedup across three independent-provider runs was
-1.317x-1.362x and every individual operation was faster. The benchmark also
-prints static instruction counts; instruction count alone is not the
-acceptance metric because the common trig path retains a cold large-argument
-correctness branch.
+three-run fourteen-operation aggregate speedups were 1.929x--1.975x at W2/W3
+and 1.601x--1.653x at W4/W8/W16. `pow` alone measured 2.219x--3.051x over the
+three runs, with no scalar libm symbol. The benchmark also prints static
+instruction counts; instruction count alone is not the acceptance metric
+because the common trig path retains a cold large-argument correctness branch.
 
 ## 11. Runtime factoring
 

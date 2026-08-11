@@ -47,6 +47,7 @@ enum struct Operation : uint8_t {
     log,
     log2,
     log10,
+    pow,
 };
 
 constexpr std::array operations{
@@ -54,7 +55,8 @@ constexpr std::array operations{
     Operation::asin, Operation::acos, Operation::atan,
     Operation::atan2,
     Operation::exp, Operation::exp2, Operation::exp10,
-    Operation::log, Operation::log2, Operation::log10};
+    Operation::log, Operation::log2, Operation::log10,
+    Operation::pow};
 
 constexpr std::array widths{2u, 3u, 4u, 8u, 16u};
 
@@ -88,6 +90,7 @@ struct MathModule {
         case Operation::log: return "log";
         case Operation::log2: return "log2";
         case Operation::log10: return "log10";
+        case Operation::pow: return "pow";
     }
     return {};
 }
@@ -150,6 +153,9 @@ struct MathModule {
         case Operation::log10:
             return cpu::LLVMNativeMath::emit_log10_f32(
                 module, builder, input, mode);
+        case Operation::pow:
+            return cpu::LLVMNativeMath::emit_pow_f32(
+                module, builder, input, secondary, mode);
     }
     return nullptr;
 }
@@ -232,6 +238,7 @@ void add_entry(
         case Operation::log: return std::log(input);
         case Operation::log2: return std::log2(input);
         case Operation::log10: return std::log10(input);
+        case Operation::pow: return std::pow(input, secondary);
     }
     return std::numeric_limits<float>::quiet_NaN();
 }
@@ -251,13 +258,36 @@ void add_entry(
         is_positive_subnormal(input)) {
         return -std::numeric_limits<float>::infinity();
     }
-    auto expected = reference(operation, input, secondary);
+    auto reference_input = input;
+    if (mode == cpu::LLVMNativeMathMode::fast &&
+        operation == Operation::pow &&
+        std::fpclassify(input) == FP_SUBNORMAL &&
+        secondary != 1.0f) {
+        auto finite_integer_exponent =
+            std::isfinite(secondary) &&
+            (std::abs(secondary) >= 16777216.0f ||
+             std::trunc(secondary) == secondary);
+        if (!std::signbit(input) || finite_integer_exponent ||
+            !std::isfinite(secondary)) {
+            reference_input = std::copysign(0.0f, input);
+        }
+    }
+    auto expected = reference(
+        operation, reference_input, secondary);
     if (mode == cpu::LLVMNativeMathMode::fast &&
         (operation == Operation::exp ||
          operation == Operation::exp2 ||
-         operation == Operation::exp10) &&
+         operation == Operation::exp10 ||
+         operation == Operation::pow) &&
+        (operation != Operation::pow || secondary != 1.0f) &&
         is_positive_subnormal(expected)) {
         return 0.0f;
+    }
+    if (mode == cpu::LLVMNativeMathMode::fast &&
+        operation == Operation::pow &&
+        secondary != 1.0f &&
+        std::fpclassify(expected) == FP_SUBNORMAL) {
+        return std::copysign(0.0f, expected);
     }
     return expected;
 }
@@ -284,6 +314,7 @@ struct ErrorBound {
         case Operation::log: return {3.0e-6f, 1.0e-6f, 0u};
         case Operation::log2: return {5.0e-6f, 2.0e-6f, 0u};
         case Operation::log10: return {2.0e-6f, 1.0e-6f, 0u};
+        case Operation::pow: return {2.0e-7f, 5.0e-4f, 0u};
     }
     return {};
 }
@@ -297,6 +328,7 @@ struct ErrorBound {
         case Operation::exp10: return {0.0f, 0.0f, 1u};
         case Operation::log2:
         case Operation::log10: return {0.0f, 0.0f, 3u};
+        case Operation::pow: return {0.0f, 0.0f, 4u};
         default: return {0.0f, 0.0f, 4u};
     }
 }
@@ -348,8 +380,24 @@ struct ErrorBound {
             auto positive = (bits & 0x7fffffffu) | 0x00800000u;
             return std::bit_cast<float>(positive);
         }
+        case Operation::pow: {
+            auto exponent = ((bits >> 20u) % 9u) + 123u;
+            auto positive = (bits & 0x007fffffu) |
+                            (exponent << 23u);
+            return std::bit_cast<float>(positive);
+        }
     }
     return 0.0f;
+}
+
+[[nodiscard]] float domain_secondary(
+    Operation operation, uint32_t bits) noexcept {
+    if (operation == Operation::pow) {
+        auto unit = static_cast<float>(std::bit_cast<int32_t>(bits)) /
+                    2147483648.0f;
+        return unit * 64.0f;
+    }
+    return domain_sample(operation, bits);
 }
 
 [[nodiscard]] std::pair<float, float> focused_atan2_pair(
@@ -387,6 +435,92 @@ struct ErrorBound {
         default:
             return {-std::numeric_limits<float>::infinity(),
                     std::numeric_limits<float>::infinity()};
+    }
+}
+
+[[nodiscard]] std::pair<float, float> focused_pow_pair(
+    uint32_t index) noexcept {
+    const std::array base_boundary{
+        -std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::max(),
+        -2.0f,
+        -1.0f,
+        -std::numeric_limits<float>::min(),
+        -std::numeric_limits<float>::denorm_min(),
+        -0.0f,
+        0.0f,
+        std::numeric_limits<float>::denorm_min(),
+        std::numeric_limits<float>::min(),
+        std::nextafter(1.0f, 0.0f),
+        1.0f,
+        std::nextafter(1.0f, 2.0f),
+        2.0f,
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::quiet_NaN(),
+    };
+    const std::array exponent_boundary{
+        -std::numeric_limits<float>::infinity(),
+        -16777216.0f,
+        -3.0f,
+        -2.0f,
+        -1.0f,
+        -0.5f,
+        -0.0f,
+        0.0f,
+        0.5f,
+        1.0f,
+        2.0f,
+        3.0f,
+        16777216.0f,
+        std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::quiet_NaN(),
+    };
+    auto boundary_count = static_cast<uint32_t>(
+        base_boundary.size() * exponent_boundary.size());
+    if (index < boundary_count) {
+        return {
+            base_boundary[index % base_boundary.size()],
+            exponent_boundary[(index / base_boundary.size()) %
+                              exponent_boundary.size()]};
+    }
+    index -= boundary_count;
+    switch ((index / 4096u) % 4u) {
+        case 0u: {
+            auto base = (index & 1u) == 0u ?
+                            std::nextafter(1.0f, 2.0f) :
+                            std::nextafter(1.0f, 0.0f);
+            auto exponent = static_cast<float>(
+                static_cast<int32_t>(index % 2000001u) - 1000000);
+            return {base, exponent};
+        }
+        case 1u: {
+            auto magnitude = 0.25f +
+                             static_cast<float>(index % 15361u) /
+                                 2048.0f;
+            auto exponent = static_cast<float>(
+                static_cast<int32_t>(index % 65u) - 32);
+            return {-magnitude, exponent};
+        }
+        case 2u: {
+            auto exponent = (index % 254u) + 1u;
+            auto mantissa = (index * 0x9e3779b9u) & 0x007fffffu;
+            auto base = std::bit_cast<float>(
+                (exponent << 23u) | mantissa);
+            auto power = static_cast<float>(
+                             static_cast<int32_t>((index / 254u) % 257u) - 128) /
+                         8.0f;
+            return {base, power};
+        }
+        default: {
+            auto base = std::ldexp(
+                1.0f + static_cast<float>(index & 0x7ffu) / 2048.0f,
+                static_cast<int32_t>((index >> 11u) % 17u) - 8);
+            auto exponent = static_cast<float>(
+                                static_cast<int32_t>((index >> 4u) % 513u) - 256) /
+                            16.0f;
+            return {base, exponent};
+        }
     }
 }
 
@@ -453,6 +587,8 @@ struct ErrorBound {
         }
         case Operation::atan2:
             return focused_atan2_pair(index).first;
+        case Operation::pow:
+            return focused_pow_pair(index).first;
         case Operation::exp: {
             const std::array boundary{
                 -104.0f,
@@ -588,9 +724,13 @@ struct ErrorBound {
 
 [[nodiscard]] float focused_secondary(
     Operation operation, uint32_t index) noexcept {
-    return operation == Operation::atan2 ?
-               focused_atan2_pair(index).second :
-               1.0f;
+    if (operation == Operation::atan2) {
+        return focused_atan2_pair(index).second;
+    }
+    if (operation == Operation::pow) {
+        return focused_pow_pair(index).second;
+    }
+    return 1.0f;
 }
 
 [[nodiscard]] bool run_numerical_audit(simd::LLVMJIT &jit) {
@@ -646,6 +786,7 @@ struct ErrorBound {
                                  precise_bound(operation);
                 auto independent_exp_log =
                     operation == Operation::atan2 ||
+                    operation == Operation::pow ||
                     operation == Operation::exp2 ||
                     operation == Operation::exp10 ||
                     operation == Operation::log2 ||
@@ -724,7 +865,7 @@ struct ErrorBound {
                         state = state * 1664525u + 1013904223u;
                         input[lane] = domain_sample(operation, state);
                         state = state * 1664525u + 1013904223u;
-                        secondary[lane] = domain_sample(
+                        secondary[lane] = domain_secondary(
                             operation, state);
                     }
                     if (!check_batch("domain")) { return false; }
@@ -930,6 +1071,24 @@ struct ErrorBound {
                     return false;
                 }
                 break;
+            case Operation::pow:
+                if (!expect_bits(operation, 0u, one) ||
+                    !expect_bits(operation, 1u, one) ||
+                    !expect_bits(operation, 2u, 0x00000001u) ||
+                    !expect_bits(operation, 3u, 0x80000001u) ||
+                    !expect_bits(operation, 4u, positive_infinity) ||
+                    !expect_bits(operation, 5u, positive_zero) ||
+                    !expect_bits(operation, 6u, qnan) ||
+                    !expect_bits(operation, 7u, one) ||
+                    !expect_bits(operation, 8u, one) ||
+                    !expect_bits(operation, 9u, one) ||
+                    !expect_bits(operation, 10u, one) ||
+                    !expect_bits(operation, 11u, qnan) ||
+                    !expect_bits(operation, 14u, positive_infinity) ||
+                    !expect_bits(operation, 15u, positive_zero)) {
+                    return false;
+                }
+                break;
         }
     }
     return true;
@@ -962,7 +1121,8 @@ bool test_llvm_native_math_fast() {
                                           provider == "cos" ||
                                           provider == "exp" ||
                                           provider == "exp2" ||
-                                          provider == "exp10" ?
+                                          provider == "exp10" ||
+                                          provider == "pow" ?
                                       "u10" :
                                       "u35";
             auto prefix = "__luisa_cpu_native_" +
@@ -993,7 +1153,7 @@ bool test_llvm_native_math_fast() {
         });
     for (auto symbol : {"sinf", "cosf", "tanf", "asinf", "acosf",
                         "atanf", "atan2f", "expf", "exp2f", "exp10f",
-                        "logf", "log2f", "log10f"}) {
+                        "logf", "log2f", "log10f", "powf"}) {
         if (!check(assembly.find(symbol) == std::string::npos,
                    std::string{"no scalar symbol "} + symbol)) {
             return false;

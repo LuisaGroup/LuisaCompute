@@ -176,4 +176,10 @@ void build_precise_exp_log_f32(::llvm::Module &module,
                                ::llvm::Function *function,
                                uint32_t width, NativeExpLogKind kind);
 
+void build_pow_f32(::llvm::Module &module,
+                   ::llvm::Function *function, uint32_t width,
+                   LLVMNativeMathMode mode,
+                   ::llvm::Function *fast_log_function,
+                   ::llvm::Function *fast_exp_function);
+
 }// namespace luisa::compute::cpu::detail

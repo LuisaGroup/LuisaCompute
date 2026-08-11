@@ -1317,6 +1317,29 @@ private:
 #endif
     }
 
+    [[nodiscard]] llvm::Value *_translate_pow(
+        CurrentFunction &current, IRBuilder &b,
+        const xir::Value *base, const xir::Value *exponent) noexcept {
+        auto llvm_base = _lookup_value(current, b, base);
+        auto llvm_exponent = _lookup_value(current, b, exponent);
+        auto type = base->type();
+        LUISA_ASSERT(type == exponent->type(), "Type mismatch.");
+        auto element = type->is_vector() ? type->element() : type;
+        if (element->is_float32() && llvm_base->getType()->isVectorTy()) {
+            auto mode = _enable_fast_math ?
+                            cpu::LLVMNativeMathMode::fast :
+                            cpu::LLVMNativeMathMode::precise;
+            auto native = cpu::LLVMNativeMath::emit_pow_f32(
+                *_llvm_module, b, llvm_base, llvm_exponent, mode);
+            LUISA_ASSERT(
+                native != nullptr,
+                "Native fallback pow requires fixed f32 vectors.");
+            return native;
+        }
+        return _translate_binary_fp_math_operation(
+            current, b, base, exponent, llvm::Intrinsic::pow);
+    }
+
     [[nodiscard]] llvm::Value *_translate_vector_reduce(CurrentFunction &current, IRBuilder &b,
                                                         xir::ArithmeticOp op, const xir::Value *operand) noexcept {
         LUISA_ASSERT(operand->type() != nullptr && operand->type()->is_vector(),
@@ -2661,7 +2684,7 @@ private:
             case xir::ArithmeticOp::LOG: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::log);
             case xir::ArithmeticOp::LOG2: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::log2);
             case xir::ArithmeticOp::LOG10: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::log10);
-            case xir::ArithmeticOp::POW: return _translate_binary_fp_math_operation(current, b, inst->operand(0u), inst->operand(1u), llvm::Intrinsic::pow);
+            case xir::ArithmeticOp::POW: return _translate_pow(current, b, inst->operand(0u), inst->operand(1u));
             case xir::ArithmeticOp::POW_INT: {
                 auto base = inst->operand(0u);
                 auto exponent = inst->operand(1u);

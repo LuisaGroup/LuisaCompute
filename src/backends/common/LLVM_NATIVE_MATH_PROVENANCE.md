@@ -22,12 +22,21 @@ provider was split into:
 - `llvm_native_math_range_reduction.cpp`;
 - `llvm_native_math_precise_trig.cpp`;
 - `llvm_native_math_precise_inverse_trig.cpp`;
-- `llvm_native_math_precise_exp_log.cpp`.
+- `llvm_native_math_precise_exp_log.cpp`;
+- `llvm_native_math_pow.cpp`.
 
 The binary `atan2` provider in `llvm_native_math_atan2.cpp` separately adapts
 SLEEF's `xatan2f`/`atan2kf` signed quadrant reduction and polynomial to generic
 fixed-vector LLVM IR. Its operand sanitization and explicit NaN, infinity, and
 signed-zero repair are local to this provider.
+
+The binary `pow` provider adapts SLEEF's `xpowf`, `logkf`, and `expkf`
+structure. Its precise magnitude keeps the logarithm, exponent multiplication,
+and exponential range reduction as compensated f32 pairs. The local adaptation
+uses SLEEF's non-FMA Dekker split and float-pair operation order, then performs
+integer-exponent classification and C/IEEE exceptional-value repair in generic
+LLVM vector IR. Inputs are neutralized before every potentially invalid
+float-to-int conversion.
 
 The direct `exp2`, `exp10`, `log2`, and `log10` bodies were separately
 adapted and audited from SLEEF's `xexp2f`, `xexp10f`, `xlog2f_u35`, and
@@ -84,13 +93,18 @@ The fast formulas are:
 - `log2` and `log10`: reuse that normalized mantissa series but combine the
   mantissa and extracted exponent directly in the destination base, without
   first rounding a base-e logarithm result.
+- `pow`: evaluate the existing low-order fast `log(abs(base))`, multiply by
+  the exponent, and evaluate the fast exponential body. Negative-base integer
+  classification, sign reconstruction, zero/infinity identities, NaN repair,
+  and the non-integer negative-base domain check remain explicit.
 
 The fast implementation resides in:
 
 - `llvm_native_math_fast_trig.cpp`;
 - `llvm_native_math_fast_inverse_trig.cpp`;
 - `llvm_native_math_fast_exp_log.cpp`;
-- `llvm_native_math_atan2.cpp`.
+- `llvm_native_math_atan2.cpp`;
+- `llvm_native_math_pow.cpp`.
 
 These bodies set only LLVM's contraction permission. NaN, infinity, signed
 zero, subnormal, and domain repair are explicit IR operations. The exact
@@ -108,7 +122,10 @@ providers raise those counts to 65,536, 65,536, and 16,384 respectively and
 sample both precise and fast reduction partitions. Binary `atan2` uses paired
 corpora of the same expanded sizes, including a permanent two-ULP precise
 counterexample, dense ratios, all quadrants, axes, infinities, and varied
-magnitudes. The test also checks canonical special-value bits, generic IR
+magnitudes. Binary `pow` uses the expanded paired counts as well, with
+near-one/large-exponent cases, all base/exponent special-value combinations,
+negative-base integer partitions, subnormals, and overflow transitions. The
+test also checks canonical special-value bits, generic IR
 shape, inactive tails, scalar
 uniformity, and optimized assembly symbols. Schedule execution gives the four
 independent results distinct weights so a swapped operation-to-provider
@@ -123,11 +140,12 @@ float2/float3/float4 and SIMD W4/W8/W16, reports nanoseconds per element and
 static entry instruction counts, rejects scalar libm symbols, and requires at
 least 1.05x aggregate throughput improvement at every width.
 
-On the 2026-08-11 audit host (AMD Ryzen 9 9950X3D, x86-64, LLVM 22.1.8,
-Release build), three consecutive runs of the independent-provider checkpoint
-kept all thirteen individual operations faster in every width. Median
-aggregate speedups were 1.355x (W2), 1.352x (W3), 1.362x (W4), 1.355x (W8),
-and 1.317x (W16); the slowest individual result across the three runs was
-1.089x. The `atan2` medians ranged from 1.297x to 1.346x. Every
-reported row had `scalar_libm=no`. These numbers are a reproducibility record,
-not a cross-machine performance guarantee.
+On the 2026-08-12 audit host (AMD Ryzen 9 9950X3D, x86-64, LLVM 22.1.8,
+Release build), three consecutive interleaved runs of the fourteen-operation
+checkpoint kept the aggregate gate clear at every width. Aggregate speedups
+ranged over 1.929x--1.936x (W2), 1.971x--1.975x (W3), 1.651x--1.653x (W4),
+1.649x--1.652x (W8), and 1.601x--1.610x (W16). Median `pow` speedups were
+3.041x, 3.426x, 2.273x, 2.271x, and 2.235x respectively. Every reported row
+had `scalar_libm=no`; the `pow` entry contained roughly 169--175 fast
+instructions versus 412--414 precise instructions. These numbers are a
+reproducibility record, not a cross-machine performance guarantee.

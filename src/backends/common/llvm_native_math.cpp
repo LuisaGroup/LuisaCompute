@@ -146,12 +146,9 @@ void configure_native_function(
     return builder.CreateCall(function, {y, x}, "native.atan2");
 }
 
-[[nodiscard]] ::llvm::Value *emit_exp_log_f32(
-    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
-    ::llvm::Value *vector, LLVMNativeMathMode mode,
-    detail::NativeExpLogKind kind) {
-    auto *type = f32_vector_type(vector);
-    if (type == nullptr) { return nullptr; }
+[[nodiscard]] ::llvm::Function *get_or_create_exp_log_f32(
+    ::llvm::Module &module, ::llvm::FixedVectorType *type,
+    LLVMNativeMathMode mode, detail::NativeExpLogKind kind) {
     auto width = type->getNumElements();
     auto logarithm = kind == detail::NativeExpLogKind::log ||
                      kind == detail::NativeExpLogKind::log2 ||
@@ -184,8 +181,64 @@ void configure_native_function(
                 module, function, width, kind);
         }
     }
+    return function;
+}
+
+[[nodiscard]] ::llvm::Value *emit_exp_log_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *vector, LLVMNativeMathMode mode,
+    detail::NativeExpLogKind kind) {
+    auto *type = f32_vector_type(vector);
+    if (type == nullptr) { return nullptr; }
+    auto *function = get_or_create_exp_log_f32(
+        module, type, mode, kind);
+    auto operation = kind == detail::NativeExpLogKind::exp   ? "exp" :
+                     kind == detail::NativeExpLogKind::exp2  ? "exp2" :
+                     kind == detail::NativeExpLogKind::exp10 ? "exp10" :
+                     kind == detail::NativeExpLogKind::log   ? "log" :
+                     kind == detail::NativeExpLogKind::log2  ? "log2" :
+                                                               "log10";
     return builder.CreateCall(
         function, {vector}, std::string{"native."} + operation);
+}
+
+[[nodiscard]] ::llvm::Value *emit_pow_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *base, ::llvm::Value *exponent,
+    LLVMNativeMathMode mode) {
+    auto *type = f32_vector_type(base);
+    if (type == nullptr || exponent == nullptr ||
+        exponent->getType() != type) {
+        return nullptr;
+    }
+    auto width = type->getNumElements();
+    auto suffix = mode == LLVMNativeMathMode::fast ? "fast" : "u10";
+    auto name = std::string{"__luisa_cpu_native_pow_f32_v"} +
+                std::to_string(width) + "_" + suffix;
+    auto *function = module.getFunction(name);
+    if (function == nullptr) {
+        auto *function_type = ::llvm::FunctionType::get(
+            type, {type, type}, false);
+        function = ::llvm::Function::Create(
+            function_type, ::llvm::GlobalValue::InternalLinkage,
+            name, module);
+        configure_native_function(function, false);
+        auto *fast_log = mode == LLVMNativeMathMode::fast ?
+                             get_or_create_exp_log_f32(
+                                 module, type, mode,
+                                 detail::NativeExpLogKind::log) :
+                             nullptr;
+        auto *fast_exp = mode == LLVMNativeMathMode::fast ?
+                             get_or_create_exp_log_f32(
+                                 module, type, mode,
+                                 detail::NativeExpLogKind::exp) :
+                             nullptr;
+        detail::build_pow_f32(
+            module, function, width, mode,
+            fast_log, fast_exp);
+    }
+    return builder.CreateCall(
+        function, {base, exponent}, "native.pow");
 }
 
 }// namespace
@@ -289,6 +342,14 @@ void configure_native_function(
     return emit_exp_log_f32(
         module, builder, vector, mode,
         detail::NativeExpLogKind::log10);
+}
+
+::llvm::Value *LLVMNativeMath::emit_pow_f32(
+    ::llvm::Module &module, ::llvm::IRBuilder<> &builder,
+    ::llvm::Value *base, ::llvm::Value *exponent,
+    LLVMNativeMathMode mode) {
+    return cpu::emit_pow_f32(
+        module, builder, base, exponent, mode);
 }
 
 }// namespace luisa::compute::cpu

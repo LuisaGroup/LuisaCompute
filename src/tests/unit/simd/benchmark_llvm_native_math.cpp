@@ -43,6 +43,7 @@ enum struct Operation : uint8_t {
     log,
     log2,
     log10,
+    pow,
 };
 
 constexpr std::array operations{
@@ -50,7 +51,8 @@ constexpr std::array operations{
     Operation::asin, Operation::acos, Operation::atan,
     Operation::atan2,
     Operation::exp, Operation::exp2, Operation::exp10,
-    Operation::log, Operation::log2, Operation::log10};
+    Operation::log, Operation::log2, Operation::log10,
+    Operation::pow};
 
 constexpr std::array widths{2u, 3u, 4u, 8u, 16u};
 constexpr auto packet_count = uint64_t{4096u};
@@ -83,6 +85,7 @@ struct Measurement {
         case Operation::log: return "log";
         case Operation::log2: return "log2";
         case Operation::log10: return "log10";
+        case Operation::pow: return "pow";
     }
     return {};
 }
@@ -141,6 +144,9 @@ struct Measurement {
         case Operation::log10:
             return cpu::LLVMNativeMath::emit_log10_f32(
                 module, builder, input, mode);
+        case Operation::pow:
+            return cpu::LLVMNativeMath::emit_pow_f32(
+                module, builder, input, secondary, mode);
     }
     return nullptr;
 }
@@ -235,21 +241,27 @@ void add_entry(
         case Operation::exp10: return unit * 2.0f;
         case Operation::log:
         case Operation::log2:
-        case Operation::log10: return std::exp2(unit * 3.0f);
+        case Operation::log10:
+        case Operation::pow: return std::exp2(unit * 3.0f);
     }
     return 0.0f;
 }
 
 [[nodiscard]] float secondary_input_value(
     Operation operation, size_t index) noexcept {
-    if (operation != Operation::atan2) { return 1.0f; }
+    if (operation != Operation::atan2 &&
+        operation != Operation::pow) {
+        return 1.0f;
+    }
     auto bits = static_cast<uint32_t>(
         index * 277803737u + 1013904223u);
     auto unit = static_cast<float>(
                     static_cast<int32_t>(bits & 0x00ffffffu)) /
                     8388608.0f -
                 1.0f;
-    return unit * 4.0f + 0.125f;
+    return operation == Operation::pow ?
+               unit * 4.0f :
+               unit * 4.0f + 0.125f;
 }
 
 volatile float benchmark_sink = 0.0f;
@@ -320,7 +332,7 @@ using Entry = void(
     constexpr std::array symbols{
         "sinf", "cosf", "tanf", "asinf", "acosf", "atanf",
         "atan2f", "expf", "exp2f", "exp10f", "logf", "log2f",
-        "log10f"};
+        "log10f", "powf"};
     return std::ranges::any_of(symbols, [&](auto symbol) noexcept {
         return assembly.find(symbol) != std::string::npos;
     });

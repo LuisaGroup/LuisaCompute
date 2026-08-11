@@ -215,11 +215,13 @@ The current f32 implementation checkpoint is:
 | `exp10` | direct `log2(10)` reduction, split `log10(2)`/`ln(10)`, and native exponential polynomial | at most 1 ULP in the expanded independent corpus |
 | `log2`, `log10` | direct exponent/mantissa reduction and destination-base polynomial | at most 3 ULP in the expanded independent corpus |
 | `atan2` | SLEEF-derived signed quadrant reduction and degree-17 odd polynomial | at most 4 ULP by contract; at most 2 ULP in the expanded paired corpus |
+| `pow` | SLEEF-derived compensated `logkf`/multiply/`expkf` magnitude with explicit integer/domain repair | at most 4 ULP in the expanded paired corpus |
 
 SIMD Schedule lowering instantiates these bodies at W1/W4/W8/W16. The
 fallback backend uses the same provider for `sin`, `cos`, `tan`, `asin`,
 `acos`, `atan`, `exp`, `exp2`, `exp10`, `log`, `log2`, and `log10` on DSL
-float2/float3/float4 values, and uses its binary provider for `atan2`, so
+float2/float3/float4 values, and uses its binary providers for `atan2` and
+`pow`, so
 component-vector math does not become two, three, or four scalar libm calls.
 Its precise target options prohibit
 aggressive FP contraction; helper functions are excluded from the later
@@ -241,6 +243,7 @@ For a finite fast-tier result `y` and the reference `R`, the accepted error is
 | `log2` | exponent/mantissa reduction combined directly in base two | `5e-6` | `2e-6` |
 | `log10` | exponent/mantissa reduction combined directly in base ten | `2e-6` | `1e-6` |
 | `atan2` | one min/max-magnitude ratio division and a locally derived degree-11 odd minimax polynomial | `3e-6` | `1e-6` |
+| `pow` | fast `log(abs(base))`, exponent multiply, and fast `exp`, plus explicit domain/sign repair | `2e-7` | `5e-4` |
 
 `exp2`, `exp10`, `log2`, and `log10` have independent provider symbols,
 range reductions, standard-function references, and numerical bounds. They
@@ -274,6 +277,16 @@ undefined fast-math assumptions:
   subnormals, and
   `-infinity` map to NaN; positive infinity maps to positive infinity and
   an input of one maps to `+0`.
+- `pow` returns canonical NaN for a negative finite nonzero base and a finite
+  non-integer exponent, or for a NaN operand except the required
+  `pow(x, +-0) = 1` and `pow(+1, y) = 1` identities. A negative result occurs
+  exactly for a negative base and odd integral exponent. Zero and infinity
+  bases, infinite exponents, and `pow(-1, +-infinity) = 1` follow the C/IEEE
+  magnitude rules. Fast magnitude evaluation treats subnormal bases as signed
+  zero and flushes subnormal results to signed zero, except that the exact
+  `pow(x, 1) = x` identity preserves every input bit; a negative subnormal
+  base with a finite non-integer exponent remains a domain error rather than a
+  real-domain extension.
 
 Only FP contraction is permitted inside the fast bodies. They do not set
 `nnan`, `ninf`, `nsz`, reassociation, approximate-function, or approximate-
@@ -285,15 +298,18 @@ The regression instantiates precise and fast bodies at W2/W3/W4/W8/W16.
 Every operation checks fixed boundaries and special values plus 8,192
 deterministic raw float bit patterns, 8,192 domain-focused values, and 4,096
 reduction/transition-focused values per width. The four independent
-`exp2`/`exp10`/`log2`/`log10` bodies and binary `atan2` raise those three
+`exp2`/`exp10`/`log2`/`log10` bodies and binary `atan2`/`pow` raise those three
 deterministic corpora to 65,536, 65,536, and 16,384 values respectively.
 The radix operations include integer and half-integer reduction points,
 exponent transitions, and both mantissa partition boundaries; `atan2` uses
 paired raw patterns plus ratio, quadrant, axis, infinity, and magnitude
-partitions. Schedule tests cover W4/W8/W16 and inactive tails.
+partitions. `pow` additionally covers near-one bases with large exponents,
+negative-base integer parity, every special-value pair, and overflow/underflow
+transitions. Schedule tests cover W4/W8/W16, scalar-uniform POW, and inactive
+tails.
 Optimized assembly is rejected if it contains a varying scalar libm symbol.
-Power and hyperbolic functions remain explicit audit backlog and are not yet
-marked SIMD-native by this checkpoint.
+Hyperbolic functions remain explicit audit backlog and are not yet marked
+SIMD-native by this checkpoint.
 
 #### 5.1.1 Fast-math XIR algebraic canonicalization backlog
 
