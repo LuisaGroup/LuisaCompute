@@ -287,6 +287,10 @@ constexpr auto dimension_v = dimension<T>::value;
 
 class Type;
 
+namespace detail {
+class TypeRegistry;
+}// namespace detail
+
 struct TypeVisitor {
     virtual void visit(const Type *) noexcept = 0;
     virtual ~TypeVisitor() noexcept = default;
@@ -321,6 +325,7 @@ constexpr size_t coop_ref_vec_type_size(CoopRefVecType type) {
 /// Type class
 class LUISA_AST_API Type {
     friend class ::luisa::MemorySanitizer;
+    friend class detail::TypeRegistry;
     static void reset_type_registry() noexcept;
 
 public:
@@ -360,6 +365,23 @@ public:
         CUSTOM
     };
 
+private:
+    static_assert(static_cast<uint32_t>(Tag::INT8) ==
+                  static_cast<uint32_t>(Tag::BOOL) + 1u);
+    static_assert(static_cast<uint32_t>(Tag::FLOAT8_E5M2) ==
+                  static_cast<uint32_t>(Tag::INT8) + 12u);
+    static_assert(static_cast<uint32_t>(Tag::VECTOR) ==
+                  static_cast<uint32_t>(Tag::FLOAT8_E5M2) + 1u);
+    static_assert(static_cast<uint32_t>(Tag::FLOAT8_E5M2) ==
+                  static_cast<uint32_t>(Tag::FLOAT16) + 4u);
+    static_assert(static_cast<uint32_t>(Tag::ACCEL) ==
+                  static_cast<uint32_t>(Tag::BUFFER) + 3u);
+
+    // Types are interned and immutable after registry publication. Keep the
+    // primary discriminator in the public base representation so exact tag
+    // queries and tag-only predicates do not cross the shared-library
+    // boundary merely to downcast to the private TypeImpl.
+    Tag _tag{};
 
 public:
     static constexpr auto custom_struct_size = static_cast<size_t>(4u);
@@ -465,7 +487,7 @@ public:
     [[nodiscard]] uint64_t hash() const noexcept;
     [[nodiscard]] size_t size() const noexcept;
     [[nodiscard]] size_t alignment() const noexcept;
-    [[nodiscard]] Tag tag() const noexcept;
+    [[nodiscard]] Tag tag() const noexcept { return _tag; }
     [[nodiscard]] luisa::string_view description() const noexcept;
     [[nodiscard]] uint dimension() const noexcept;
     [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
@@ -475,42 +497,60 @@ public:
     [[nodiscard]] uint2 coop_matrix_dimension() const noexcept;
 
     /// Scalar = bool || float || int || uint
-    [[nodiscard]] bool is_scalar() const noexcept;
-    [[nodiscard]] bool is_bool() const noexcept;
-    [[nodiscard]] bool is_int32() const noexcept;
-    [[nodiscard]] bool is_uint32() const noexcept;
-    [[nodiscard]] bool is_int64() const noexcept;
-    [[nodiscard]] bool is_uint64() const noexcept;
-    [[nodiscard]] bool is_float() const noexcept;
-    [[nodiscard]] bool is_int() const noexcept;
-    [[nodiscard]] bool is_uint() const noexcept;
-    [[nodiscard]] bool is_float16() const noexcept;
-    [[nodiscard]] bool is_float32() const noexcept;
-    [[nodiscard]] bool is_float64() const noexcept;
-    [[nodiscard]] bool is_float8() const noexcept;
-    [[nodiscard]] bool is_float8_e4m3() const noexcept;
-    [[nodiscard]] bool is_float8_e5m2() const noexcept;
-    [[nodiscard]] bool is_int8() const noexcept;
-    [[nodiscard]] bool is_uint8() const noexcept;
-    [[nodiscard]] bool is_int16() const noexcept;
-    [[nodiscard]] bool is_uint16() const noexcept;
+    [[nodiscard]] bool is_scalar() const noexcept {
+        return _tag <= Tag::FLOAT8_E5M2;
+    }
+    [[nodiscard]] bool is_bool() const noexcept { return _tag == Tag::BOOL; }
+    [[nodiscard]] bool is_int32() const noexcept { return _tag == Tag::INT32; }
+    [[nodiscard]] bool is_uint32() const noexcept { return _tag == Tag::UINT32; }
+    [[nodiscard]] bool is_int64() const noexcept { return _tag == Tag::INT64; }
+    [[nodiscard]] bool is_uint64() const noexcept { return _tag == Tag::UINT64; }
+    [[nodiscard]] bool is_float() const noexcept {
+        return _tag >= Tag::FLOAT16 && _tag <= Tag::FLOAT8_E5M2;
+    }
+    [[nodiscard]] bool is_int() const noexcept {
+        return _tag == Tag::INT8 || _tag == Tag::INT16 ||
+               _tag == Tag::INT32 || _tag == Tag::INT64;
+    }
+    [[nodiscard]] bool is_uint() const noexcept {
+        return _tag == Tag::UINT8 || _tag == Tag::UINT16 ||
+               _tag == Tag::UINT32 || _tag == Tag::UINT64;
+    }
+    [[nodiscard]] bool is_float16() const noexcept { return _tag == Tag::FLOAT16; }
+    [[nodiscard]] bool is_float32() const noexcept { return _tag == Tag::FLOAT32; }
+    [[nodiscard]] bool is_float64() const noexcept { return _tag == Tag::FLOAT64; }
+    [[nodiscard]] bool is_float8() const noexcept {
+        return _tag == Tag::FLOAT8_E4M3 || _tag == Tag::FLOAT8_E5M2;
+    }
+    [[nodiscard]] bool is_float8_e4m3() const noexcept { return _tag == Tag::FLOAT8_E4M3; }
+    [[nodiscard]] bool is_float8_e5m2() const noexcept { return _tag == Tag::FLOAT8_E5M2; }
+    [[nodiscard]] bool is_int8() const noexcept { return _tag == Tag::INT8; }
+    [[nodiscard]] bool is_uint8() const noexcept { return _tag == Tag::UINT8; }
+    [[nodiscard]] bool is_int16() const noexcept { return _tag == Tag::INT16; }
+    [[nodiscard]] bool is_uint16() const noexcept { return _tag == Tag::UINT16; }
 
-    [[nodiscard]] bool is_scalar_or_vector() const noexcept;
+    [[nodiscard]] bool is_scalar_or_vector() const noexcept {
+        return is_scalar() || _tag == Tag::VECTOR;
+    }
     [[nodiscard]] bool is_bool_or_bool_vector() const noexcept;
     [[nodiscard]] bool is_int_or_int_vector() const noexcept;
     [[nodiscard]] bool is_uint_or_uint_vector() const noexcept;
     [[nodiscard]] bool is_float_or_float_vector() const noexcept;
 
     /// Arithmetic = float || int || uint
-    [[nodiscard]] bool is_arithmetic() const noexcept;
+    [[nodiscard]] bool is_arithmetic() const noexcept {
+        return _tag >= Tag::INT8 && _tag <= Tag::FLOAT8_E5M2;
+    }
 
     /// Basic = scalar || vector || matrix
-    [[nodiscard]] bool is_basic() const noexcept;
-    [[nodiscard]] bool is_cooperative_vector() const noexcept;
-    [[nodiscard]] bool is_cooperative_matrix_ref() const noexcept;
-    [[nodiscard]] bool is_cooperative_vector_ref() const noexcept;
-    [[nodiscard]] bool is_array() const noexcept;
-    [[nodiscard]] bool is_vector() const noexcept;
+    [[nodiscard]] bool is_basic() const noexcept {
+        return is_scalar() || _tag == Tag::VECTOR || _tag == Tag::MATRIX;
+    }
+    [[nodiscard]] bool is_cooperative_vector() const noexcept { return _tag == Tag::COOPERATIVE_VECTOR; }
+    [[nodiscard]] bool is_cooperative_matrix_ref() const noexcept { return _tag == Tag::COOPERATIVE_MATRIX_REF; }
+    [[nodiscard]] bool is_cooperative_vector_ref() const noexcept { return _tag == Tag::COOPERATIVE_VECTOR_REF; }
+    [[nodiscard]] bool is_array() const noexcept { return _tag == Tag::ARRAY; }
+    [[nodiscard]] bool is_vector() const noexcept { return _tag == Tag::VECTOR; }
     [[nodiscard]] bool is_bool_vector() const noexcept;
     [[nodiscard]] bool is_int32_vector() const noexcept;
     [[nodiscard]] bool is_uint32_vector() const noexcept;
@@ -526,14 +566,19 @@ public:
     [[nodiscard]] bool is_int_vector() const noexcept;
     [[nodiscard]] bool is_uint_vector() const noexcept;
     [[nodiscard]] bool is_float_vector() const noexcept;
-    [[nodiscard]] bool is_matrix() const noexcept;
-    [[nodiscard]] bool is_structure() const noexcept;
-    [[nodiscard]] bool is_buffer() const noexcept;
-    [[nodiscard]] bool is_texture() const noexcept;
-    [[nodiscard]] bool is_bindless_array() const noexcept;
-    [[nodiscard]] bool is_accel() const noexcept;
-    [[nodiscard]] bool is_custom() const noexcept;
-    [[nodiscard]] bool is_resource() const noexcept;
+    [[nodiscard]] bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }
+    [[nodiscard]] bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
+    [[nodiscard]] bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
+    [[nodiscard]] bool is_texture() const noexcept { return _tag == Tag::TEXTURE; }
+    [[nodiscard]] bool is_bindless_array() const noexcept { return _tag == Tag::BINDLESS_ARRAY; }
+    [[nodiscard]] bool is_accel() const noexcept { return _tag == Tag::ACCEL; }
+    [[nodiscard]] bool is_custom() const noexcept { return _tag == Tag::CUSTOM; }
+    [[nodiscard]] bool is_resource() const noexcept {
+        return _tag >= Tag::BUFFER && _tag <= Tag::ACCEL;
+    }
 };
+
+static_assert(sizeof(Type) == sizeof(Type::Tag));
+static_assert(alignof(Type) == alignof(Type::Tag));
 
 }// namespace luisa::compute
