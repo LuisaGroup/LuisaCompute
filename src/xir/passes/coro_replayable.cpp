@@ -50,7 +50,10 @@ namespace {
     }
 }
 
-[[nodiscard]] size_t replay_budget(const Type *type) noexcept {
+}// namespace
+
+size_t CoroReplayableValueAnalysis::instruction_budget(
+    const Type *type) noexcept {
     // One frame value incurs at least one store and one load. Compare that
     // minimum traffic in 32-bit words with the number of XIR value operations
     // needed to rebuild it. Cap the budget so a large aggregate cannot expand
@@ -61,8 +64,6 @@ namespace {
         max_instruction_budget,
         std::max(size_t{1u}, words * size_t{2u}));
 }
-
-}// namespace
 
 CoroReplayableValueAnalysis::Entry
 CoroReplayableValueAnalysis::_classify(const Value *value) noexcept {
@@ -88,7 +89,7 @@ CoroReplayableValueAnalysis::_classify(const Value *value) noexcept {
     auto result = Entry{State::NOT_REPLAYABLE, 0u};
     if (is_replayable_instruction_kind(instruction)) {
         auto cost = size_t{1u};
-        auto budget = replay_budget(instruction->type());
+        auto budget = instruction_budget(instruction->type());
         auto valid = true;
         for (auto *operand_use : instruction->operand_uses()) {
             auto operand = _classify(operand_use->value());

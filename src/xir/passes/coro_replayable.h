@@ -5,6 +5,10 @@
 
 #include <luisa/core/stl/unordered_map.h>
 
+namespace luisa::compute {
+class Type;
+}// namespace luisa::compute
+
 namespace luisa::compute::xir {
 
 class Value;
@@ -38,6 +42,9 @@ private:
     [[nodiscard]] Entry _classify(const Value *value) noexcept;
 
 public:
+    [[nodiscard]] static size_t instruction_budget(
+        const Type *type) noexcept;
+
     [[nodiscard]] bool detect(const Value *value) noexcept {
         return _classify(value).state == State::REPLAYABLE;
     }

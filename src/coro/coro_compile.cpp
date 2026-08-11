@@ -18,6 +18,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/coro_rematerialize.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/dce.h>
@@ -217,6 +218,40 @@ void verify_coro_xir_or_error(
         r.set("removed_noop_gep", i.removed_noop_gep_count);
         return i.changed();
     });
+    p.add("coro-rematerialize-local-state",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::
+                  coro_rematerialize_local_state_pass_run_on_function(
+                      coroutine);
+              r.set("semantic_block", i.semantic_block_count);
+              r.set("semantic_edge", i.semantic_edge_count);
+              r.set("scanned_alloca", i.scanned_alloca_count);
+              r.set("replayable_single_store",
+                    i.replayable_single_store_count);
+              r.set("rejected_projected_replay_cost",
+                    i.rejected_projected_replay_cost_count);
+              r.set("promoted_alloca", i.promoted_alloca_count);
+              r.set("replaced_load", i.replaced_load_count);
+              r.set("inserted_extract", i.inserted_extract_count);
+              r.set("initializer_replay_instruction_cost",
+                    i.initializer_replay_instruction_cost);
+              r.set("promoted_state_bytes", i.promoted_state_bytes);
+              r.set("invalid_semantic_cfg",
+                    i.invalid_semantic_cfg_count);
+              return i.changed();
+          });
+    p.add("post-rematerialize-dce",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::dce_pass_run_on_function(coroutine);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("removed_block", i.removed_block_count);
+              r.set("inserted_terminator", i.inserted_terminator_count);
+              r.set("dead_code_instruction_scan",
+                    i.dead_code_instruction_scan_count);
+              r.set("dead_code_worklist_pop",
+                    i.dead_code_worklist_pop_count);
+              return i.changed();
+          });
     // Preserve the aggregate load's memory snapshot while exposing only the
     // statically projected fields to SROA and coroutine liveness. Running this
     // before the one-level SROA pass avoids recursively scalarizing the whole

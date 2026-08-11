@@ -75,7 +75,9 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/coro_cfg_distill.cpp
         passes/coro_frame_abi.cpp
         passes/coro_frame_access.cpp
+        passes/coro_rematerialize.cpp
         passes/coro_replayable.cpp
+        passes/coro_semantic_graph.cpp
         passes/defer_local_aggregate_load.cpp
         passes/coro_materialize.cpp
         passes/dead_field_elimination.cpp
