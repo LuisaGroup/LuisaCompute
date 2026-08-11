@@ -536,6 +536,43 @@ void reg_xir_pass_mutation_safety() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "if_conversion_accepts_total_integer_to_float_cast"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *integer =
+            kernel->create_value_argument(Type::of<int>());
+        auto *zero =
+            module.create_constant_zero(Type::of<float>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *converted =
+            builder.static_cast_(Type::of<float>(), integer);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.phi(
+            Type::of<float>(),
+            {{converted, true_block}, {zero, false_block}});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = if_conversion_pass_run_on_function(kernel);
+        expect(info.converted_diamond_count == 1u);
+        expect(converted->parent_block() == body);
+        expect(body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::BRANCH);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "if_conversion_rejects_speculative_dynamic_extract"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

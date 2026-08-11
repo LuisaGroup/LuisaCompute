@@ -190,11 +190,16 @@ After CFG destructuring, inlining, and local SSA promotion, a varying diamond
 is predicated only when both arms contain at most four instructions, at most
 six in total, no more than four 32-bit live-out register units, and a weighted
 speculation cost no greater than twelve. Every hoisted instruction must be a
-total pure bitwise cast or an explicitly whitelisted total arithmetic
-operation. Memory/resource access, calls, division/remainder, shifts, dynamic
-aggregate indexing, side effects, metadata-bearing arms, and structured
-control are never speculated. Warp- and cohort-uniform conditions retain
-scalar control flow.
+total pure cast or an explicitly whitelisted total arithmetic operation.
+Bitwise casts are total; static casts are accepted except for floating-point
+to signed/unsigned integer conversion, whose untaken result could be LLVM
+poison for NaN or an out-of-range value. In particular, integer-to-float
+coordinate updates are safe to hoist. Memory/resource access, calls,
+division/remainder, shifts, dynamic aggregate indexing, side effects,
+metadata-bearing arms, and structured control are never speculated. Warp- and
+cohort-uniform conditions retain scalar control flow. W1 also keeps its direct
+scalar CFG: one live lane cannot benefit from eliminating divergence, so
+speculating both arms would only add work.
 
 Generated selects then undergo a bounded factoring rewrite. Matching one-use
 arithmetic producers with exactly one differing operand are transformed from
@@ -1206,6 +1211,87 @@ work. W16 falls to 328.0 billion instructions and 32.00 seconds, but is still
 inside JIT code for fallback/W2/W16; the SIMD backend/runtime itself accounts
 for only 1.49% at W2 and 4.54% at W16. The divergent masked DDA state machine,
 not block dispatch or output texture code, is the next optimization target.
+
+The next DDA checkpoint makes the speculation classifier distinguish total
+integer-to-float conversion from potentially-poisoning float-to-integer
+conversion. This admits the three-instruction Y/Z step diamond in the real
+voxel kernel without relaxing the existing four-per-arm, six-total, four-live-
+out, cost-twelve limits. The optimization report rises from one to two
+predicated diamonds at W2/W4/W8/W16. W1 deliberately remains at zero.
+
+Nine forward/reverse Release runs were repeated while unrelated host work was
+active. SDF uses internal SPP-4 throughput; image processing repeats the full
+four-dispatch pipeline 32 times; voxel repeats its render dispatch 16 times.
+Every image/voxel invocation passed the gallery comparison. Parentheses are
+speedup relative to the paired fallback median:
+
+| Repeated real workload | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| non-coro SDF samples/s | 8.893 (1.000x) | 8.294 (0.933x) | 9.686 (1.089x) | 15.410 (1.733x) | 23.013 (2.588x) | 33.886 (3.811x) |
+| image pipeline ms/iteration | 9.070 (1.000x) | 17.537 (0.517x) | 9.320 (0.973x) | 6.642 (1.366x) | 5.158 (1.758x) | 4.573 (1.983x) |
+| voxel render ms/iteration | 6.931 (1.000x) | 8.255 (0.840x) | 24.135 (0.287x) | 16.118 (0.430x) | 9.392 (0.738x) | 6.535 (1.061x) |
+
+Thus the real texture pipeline now scales to almost 2x at W16 once fixed costs
+are amortized, and W16 voxel crosses fallback for the first time. Narrow voxel
+packets remain a counterexample: W2 still spends too much work advancing
+partially occupied DDA cohorts.
+
+The corresponding nine-run whole-process sweep includes backend loading, JIT,
+dispatch, synchronization, PNG encoding, and reference comparison. All 270
+graphics invocations, including 225 SIMD runs, passed their gallery references:
+
+| Whole-process example | fallback ms | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| image processing | 151.820 | 0.747x | 0.734x | 0.749x | 0.751x | 0.724x |
+| shader toy | 187.805 | 1.071x | 1.154x | 1.320x | 1.409x | 1.362x |
+| game of life | 72.399 | 0.804x | 0.882x | 0.969x | 0.973x | 0.958x |
+| voxel ray tracer | 62.408 | 0.874x | 0.366x | 0.405x | 0.415x | 0.393x |
+| n-body | 321.589 | 0.692x | 0.369x | 0.532x | 0.605x | 0.561x |
+
+The fallback game-of-life and n-body samples remain externally bimodal: their
+interquartile ranges are 65.784--87.960 ms and 312.971--365.146 ms. Their
+point ratios are observations, not stable claims. Shader toy, image, voxel,
+and every SIMD distribution are much tighter. Short whole-process image and
+voxel tests remain dominated by JIT/output fixed costs and therefore must not
+replace the repeated-pipeline result above.
+
+A same-binary nine-run voxel A/B attributes the improvement to scheduler-state
+elimination rather than different runtime dispatch. Enabled versus disabled
+predication medians are 24.179 versus 33.199 ms at W2, 16.246 versus 20.406 at
+W4, 9.456 versus 11.651 at W8, and 6.555 versus 7.983 at W16: speedups of
+1.373x/1.256x/1.232x/1.218x. W1 is noise-equivalent at 8.233 versus 8.151 ms
+and compiles no predicated diamond.
+
+Three-repeat `perf stat` over 64 render dispatches gives the following mean
+process-wide user counters. Ratios are relative to fallback:
+
+| Backend | instructions, B | cycles, B | task-clock, s |
+| --- | ---: | ---: | ---: |
+| fallback | 129.17 (1.000x) | 69.19 (1.000x) | 13.42 (1.000x) |
+| W1 | 170.54 (1.320x) | 83.63 (1.209x) | 16.31 (1.215x) |
+| W2 | 588.58 (4.557x) | 246.97 (3.569x) | 48.87 (3.641x) |
+| W4 | 323.98 (2.508x) | 166.87 (2.412x) | 32.67 (2.434x) |
+| W8 | 196.23 (1.519x) | 96.91 (1.401x) | 19.21 (1.431x) |
+| W16 | 132.37 (1.025x) | 67.57 (0.977x) | 13.39 (0.997x) |
+
+Against predication-disabled SIMD, enabled W2/W4/W8/W16 retire
+17.7%/19.3%/19.4%/20.0% fewer instructions and consume
+27.6%/20.7%/18.0%/17.6% fewer cycles. L1 data loads fall
+9.7%/10.2%/11.3%/14.2%. This is removed dynamic Schedule state and spill work,
+not a cache-miss or host parallel-loop effect.
+
+An O2-postpass/final-object audit of the real kernel reaches the same
+conclusion. Predication reduces W8 from 16,707 to 15,297 function bytes, 3,280
+to 2,974 static instructions, a 6,464- to 6,016-byte frame, 864 to 803 stack
+references, and 328 to 288 static branches. W16 falls from 19,177 to 17,779
+bytes, 3,723 to 3,420 instructions, a 12,160- to 11,392-byte frame, 963 to 902
+stack references, and 369 to 329 branches. Gather/scatter counts are unchanged,
+so the gain is specifically control-state simplification. The only unresolved
+math symbol is one uniform scalar `sincosf`; varying DDA code contains no
+scalar-libm lane loop. On this AVX-512 host W8 uses YMM f32 data, AVX-512VL
+masks, and ZMM where eight 64-bit gather addresses require 512 bits. W8 remains
+a semantic width, not an AVX-512 guarantee; target features choose the final
+ISA.
 
 Software prefetch is not enabled speculatively. LLVM's target-aware loop data
 prefetch pass inserted no prefetch into the post-scheduler masked-gather

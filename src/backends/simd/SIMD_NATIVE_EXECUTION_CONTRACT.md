@@ -184,15 +184,27 @@ A raw conditional diamond may be replaced by straight-line predicated code
 only when the source branch condition is classified `varying`, both arms are
 speculation-safe, structural and weighted-cost limits pass, and every merge
 PHI has one well-typed incoming value from each arm. Warp- or cohort-uniform
-conditions remain scalar branches. The transformation is a refinement of the
-same per-lane CFG: for lane `i`, the generated select chooses exactly the PHI
-incoming associated with the scalar edge selected by that lane.
+conditions remain scalar branches. W1 is never if-converted: its direct scalar
+CFG cannot diverge, so executing both arms has no scheduling benefit. The
+transformation is a refinement of the same per-lane CFG: for lane `i`, the
+generated select chooses exactly the PHI incoming associated with the scalar
+edge selected by that lane.
 
 Operand sanitization remains a precondition, not a post-hoc mask. Operations
 that may trap, form poison, index an invalid aggregate element, access memory,
 or produce a side effect are excluded even if their result would later be
 selected away. Inactive dispatch-tail lanes therefore execute only total pure
 operations before their results are discarded by the active mask.
+
+Cast safety is classified by operation and source/target type. Bitwise casts
+are total. A verifier-valid static cast is accepted unless it converts a
+floating-point scalar/vector to a signed or unsigned integer scalar/vector;
+LLVM permits that conversion to produce poison for NaN and out-of-range input.
+Integer-to-float, integer-width, float-width, Boolean, and float-to-Boolean
+conversions are total under the backend lowering and may be hoisted within the
+normal cost limits. The permanent pass regression keeps float-to-integer
+rejected, while Schedule codegen executes an integer-to-float diamond at W8
+with a 13-element inactive tail.
 
 The follow-up identity
 

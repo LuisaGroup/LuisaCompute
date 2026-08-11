@@ -20,12 +20,25 @@ namespace detail {
 [[nodiscard]] static bool is_speculation_safe(Instruction *inst) noexcept {
     auto info = get_memory_info(inst);
     if (!info.is_pure()) return false;
-    // Numeric casts can be undefined for verifier-valid values (notably an
-    // out-of-range float-to-integer conversion). Only representation-
-    // preserving bit casts are total on an untaken arm.
+    // Float-to-integer conversion can produce poison for verifier-valid NaN
+    // or out-of-range inputs. Every other verifier-valid scalar/vector static
+    // cast is total, including the integer-to-float step conversion commonly
+    // found in predicated coordinate updates.
     if (inst->isa<CastInst>()) {
-        return static_cast<CastInst *>(inst)->op() ==
-               CastOp::BITWISE_CAST;
+        auto *cast = static_cast<CastInst *>(inst);
+        if (cast->op() == CastOp::BITWISE_CAST) { return true; }
+        if (cast->op() != CastOp::STATIC_CAST) { return false; }
+        auto *source = cast->value() == nullptr ?
+                           nullptr :
+                           cast->value()->type();
+        auto *target = cast->type();
+        if (source == nullptr || target == nullptr) { return false; }
+        auto source_is_float =
+            source->is_float_or_float_vector();
+        auto target_is_integer =
+            target->is_int_or_int_vector() ||
+            target->is_uint_or_uint_vector();
+        return !(source_is_float && target_is_integer);
     }
     if (!inst->isa<ArithmeticInst>()) { return false; }
     return is_arithmetic_op_safe_to_speculate(

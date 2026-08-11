@@ -2620,6 +2620,15 @@ uint32_t texture_packet_size_probe(
     CHECK(varying.predicated_phi_count == 1u);
     CHECK(varying.factored_select_count == 2u);
 
+    auto scalar = compile_simd_kernel(
+        varying_kernel.function()->function(), 1u,
+        "simd_ast_scalar_diamond");
+    CHECK(scalar.succeeded());
+    CHECK(scalar.predicated_diamond_count == 0u);
+    CHECK(scalar.predicated_instruction_count == 0u);
+    CHECK(scalar.predicated_phi_count == 0u);
+    CHECK(scalar.factored_select_count == 0u);
+
     {
         ScopedEnvironmentVariable disable_predication{
             "LUISA_SIMD_DISABLE_PREDICATED_IF", "1"};
@@ -2651,6 +2660,41 @@ uint32_t texture_packet_size_probe(
                             i * 3u + 1u :
                             i * 5u + 1u;
         CHECK(output[i] == expected);
+    }
+
+    Kernel1D total_cast_kernel = [](BufferFloat output) noexcept {
+        auto index = dispatch_id().x;
+        auto signed_index = cast<int>(index);
+        $float value = 0.0f;
+        $if ((index & 1u) == 0u) {
+            value = cast<float>(signed_index) + 1.0f;
+        }
+        $else {
+            value = cast<float>(-signed_index) + 2.0f;
+        };
+        output.write(index, value);
+    };
+    auto total_cast = compile_simd_kernel(
+        total_cast_kernel.function()->function(), width,
+        "simd_ast_predicated_total_cast_diamond");
+    CHECK(total_cast.succeeded());
+    CHECK(total_cast.predicated_diamond_count == 1u);
+    CHECK(total_cast.predicated_phi_count == 1u);
+    std::array<float, count> cast_output{};
+    cast_output.fill(-1234.0f);
+    alignas(16) SIMDHostBufferView cast_argument{
+        cast_output.data(), sizeof(cast_output)};
+    auto cast_entry = reinterpret_cast<Entry *>(total_cast.entry);
+    CHECK(cast_entry != nullptr);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        cast_entry(&cast_argument, nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        auto expected = (i & 1u) == 0u ?
+                            static_cast<float>(i) + 1.0f :
+                            -static_cast<float>(i) + 2.0f;
+        CHECK(cast_output[i] == expected);
     }
 
     Kernel1D uniform_kernel = [](BufferUInt output,

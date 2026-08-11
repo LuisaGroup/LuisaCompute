@@ -136,7 +136,8 @@ SIMDCompiledKernel compile_simd_kernel(
     }
     auto predication_info =
         schedule::PredicatedIfConversionInfo{};
-    if (!detail::env_flag(
+    if (warp_width != 1u &&
+        !detail::env_flag(
             "LUISA_SIMD_DISABLE_PREDICATED_IF")) {
         predication_info =
             schedule::predicate_small_varying_diamonds(xir_kernel);
