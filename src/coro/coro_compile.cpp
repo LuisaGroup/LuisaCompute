@@ -218,6 +218,26 @@ void verify_coro_xir_or_error(
         r.set("removed_noop_gep", i.removed_noop_gep_count);
         return i.changed();
     });
+    // Preserve the aggregate load's memory snapshot while exposing only the
+    // statically projected fields before local-state promotion. This ordering
+    // is semantic: forwarding a non-replayable aggregate into SSA first would
+    // hide its narrow access paths and force the complete aggregate into the
+    // coroutine frame. The one-level SROA pass below can then expose the same
+    // projected storage without recursively scalarizing the whole source IR.
+    p.add("defer-local-aggregate-load",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::defer_local_aggregate_load_pass_run_on_function(
+                  coroutine);
+              r.set("aggregate_load", i.aggregate_load_count);
+              r.set("candidate_extract", i.candidate_extract_count);
+              r.set("rewritten_extract", i.rewritten_extract_count);
+              r.set("inserted_gep", i.inserted_gep_count);
+              r.set("inserted_load", i.inserted_load_count);
+              r.set("reused_projection", i.reused_projection_count);
+              r.set("removed_aggregate_load",
+                    i.removed_aggregate_load_count);
+              return i.changed();
+          });
     p.add("coro-rematerialize-local-state",
           [coroutine](xir::Module *, xir::PassReport &r) {
               auto i = xir::
@@ -230,6 +250,8 @@ void verify_coro_xir_or_error(
                     i.replayable_single_store_count);
               r.set("replayable_multi_store",
                     i.replayable_multi_store_count);
+              r.set("nonreplayable_candidate",
+                    i.nonreplayable_candidate_count);
               r.set("reaching_dataflow_alloca",
                     i.reaching_dataflow_alloca_count);
               r.set("reaching_dataflow_block_evaluation",
@@ -240,7 +262,15 @@ void verify_coro_xir_or_error(
                     i.unresolved_load_count);
               r.set("rejected_projected_replay_cost",
                     i.rejected_projected_replay_cost_count);
+              r.set("rejected_nonreplayable_projection",
+                    i.rejected_nonreplayable_projection_count);
+              r.set("rejected_nonreplayable_scope_local",
+                    i.rejected_nonreplayable_scope_local_count);
+              r.set("rejected_forwarding_cycle",
+                    i.rejected_forwarding_cycle_count);
               r.set("promoted_alloca", i.promoted_alloca_count);
+              r.set("promoted_nonreplayable_alloca",
+                    i.promoted_nonreplayable_alloca_count);
               r.set("replaced_load", i.replaced_load_count);
               r.set("inserted_extract", i.inserted_extract_count);
               r.set("initializer_replay_instruction_cost",
@@ -253,18 +283,27 @@ void verify_coro_xir_or_error(
                   LUISA_INFO(
                       "Coroutine local-state rematerialization: "
                       "allocas={} single_store={} multi_store={} "
+                      "nonreplayable_candidates={} "
                       "dataflow_allocas={} block_evaluations={} "
-                      "unresolved_loads={} promoted_allocas={} "
-                      "promoted_multi_store={} replaced_loads={} "
+                      "unresolved_loads={} rejected_nonreplayable_projection={} "
+                      "rejected_nonreplayable_scope_local={} "
+                      "rejected_forwarding_cycles={} promoted_allocas={} "
+                      "promoted_multi_store={} "
+                      "promoted_nonreplayable={} replaced_loads={} "
                       "promoted_bytes={}.",
                       i.scanned_alloca_count,
                       i.replayable_single_store_count,
                       i.replayable_multi_store_count,
+                      i.nonreplayable_candidate_count,
                       i.reaching_dataflow_alloca_count,
                       i.reaching_dataflow_block_evaluation_count,
                       i.unresolved_load_count,
+                      i.rejected_nonreplayable_projection_count,
+                      i.rejected_nonreplayable_scope_local_count,
+                      i.rejected_forwarding_cycle_count,
                       i.promoted_alloca_count,
                       i.promoted_multi_store_alloca_count,
+                      i.promoted_nonreplayable_alloca_count,
                       i.replaced_load_count,
                       i.promoted_state_bytes);
               }
@@ -280,24 +319,6 @@ void verify_coro_xir_or_error(
                     i.dead_code_instruction_scan_count);
               r.set("dead_code_worklist_pop",
                     i.dead_code_worklist_pop_count);
-              return i.changed();
-          });
-    // Preserve the aggregate load's memory snapshot while exposing only the
-    // statically projected fields to SROA and coroutine liveness. Running this
-    // before the one-level SROA pass avoids recursively scalarizing the whole
-    // source IR merely to discover a small live access path.
-    p.add("defer-local-aggregate-load",
-          [coroutine](xir::Module *, xir::PassReport &r) {
-              auto i = xir::defer_local_aggregate_load_pass_run_on_function(
-                  coroutine);
-              r.set("aggregate_load", i.aggregate_load_count);
-              r.set("candidate_extract", i.candidate_extract_count);
-              r.set("rewritten_extract", i.rewritten_extract_count);
-              r.set("inserted_gep", i.inserted_gep_count);
-              r.set("inserted_load", i.inserted_load_count);
-              r.set("reused_projection", i.reused_projection_count);
-              r.set("removed_aggregate_load",
-                    i.removed_aggregate_load_count);
               return i.changed();
           });
     p.add("sroa", [coroutine](xir::Module *, xir::PassReport &r) {

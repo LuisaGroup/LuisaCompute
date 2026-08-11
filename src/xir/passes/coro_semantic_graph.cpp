@@ -45,6 +45,7 @@ CoroSemanticGraph::CoroSemanticGraph(
 
     luisa::vector<luisa::vector<size_t>> owned_successors(
         owned_blocks.size());
+    luisa::vector<std::pair<size_t, size_t>> owned_suspend_edges;
     auto add_edge = [&](size_t from, size_t to) noexcept {
         auto &successors = owned_successors[from];
         if (std::find(successors.begin(), successors.end(), to) ==
@@ -72,6 +73,8 @@ CoroSemanticGraph::CoroSemanticGraph(
                 if (auto iter = owned_ids.find(successor);
                     iter != owned_ids.end()) {
                     add_edge(block_id, iter->second);
+                    owned_suspend_edges.emplace_back(
+                        block_id, iter->second);
                 } else {
                     owned_edges_valid = false;
                 }
@@ -131,6 +134,47 @@ CoroSemanticGraph::CoroSemanticGraph(
                 ++_edge_count;
             }
         }
+    }
+    _suspend_edges.reserve(owned_suspend_edges.size());
+    for (auto [from_owned, to_owned] : owned_suspend_edges) {
+        auto from = owned_to_rpo[from_owned];
+        auto to = owned_to_rpo[to_owned];
+        if (from != invalid_block_id && to != invalid_block_id) {
+            _suspend_edges.emplace_back(from, to);
+        }
+    }
+    _can_reach_suspend.reserve(_suspend_edges.size());
+    _reachable_from_resume.reserve(_suspend_edges.size());
+    for (auto [suspend, resume] : _suspend_edges) {
+        auto reverse_reachable = luisa::vector<uint8_t>(
+            _blocks.size(), 0u);
+        auto forward_reachable = luisa::vector<uint8_t>(
+            _blocks.size(), 0u);
+        luisa::vector<size_t> worklist{suspend};
+        reverse_reachable[suspend] = 1u;
+        for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+            for (auto predecessor : _predecessors[worklist[cursor]]) {
+                if (reverse_reachable[predecessor] == 0u) {
+                    reverse_reachable[predecessor] = 1u;
+                    worklist.emplace_back(predecessor);
+                }
+            }
+        }
+        worklist.clear();
+        worklist.emplace_back(resume);
+        forward_reachable[resume] = 1u;
+        for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+            for (auto successor : _successors[worklist[cursor]]) {
+                if (forward_reachable[successor] == 0u) {
+                    forward_reachable[successor] = 1u;
+                    worklist.emplace_back(successor);
+                }
+            }
+        }
+        _can_reach_suspend.emplace_back(
+            std::move(reverse_reachable));
+        _reachable_from_resume.emplace_back(
+            std::move(forward_reachable));
     }
 
     _immediate_dominators.assign(_blocks.size(), invalid_block_id);
@@ -218,6 +262,77 @@ bool CoroSemanticGraph::dominates(
     auto observed = use_iter->second;
     return _preorder_indices[def] <= _preorder_indices[observed] &&
            _preorder_indices[observed] < _subtree_end_indices[def];
+}
+
+bool CoroSemanticGraph::may_cross_suspend_between(
+    BasicBlock *definition, BasicBlock *use) const noexcept {
+    if (!_valid || definition == nullptr || use == nullptr) {
+        return false;
+    }
+    auto definition_iter = _block_ids.find(definition);
+    auto use_iter = _block_ids.find(use);
+    if (definition_iter == _block_ids.end() ||
+        use_iter == _block_ids.end()) {
+        return false;
+    }
+    for (size_t i = 0u; i < _suspend_edges.size(); ++i) {
+        if (_can_reach_suspend[i][definition_iter->second] != 0u &&
+            _reachable_from_resume[i][use_iter->second] != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CoroSemanticGraph::crosses_suspend_without_reentering(
+    BasicBlock *definition, BasicBlock *use) const noexcept {
+    if (!_valid || definition == nullptr || use == nullptr) {
+        return false;
+    }
+    auto definition_id = block_id(definition);
+    auto use_id = block_id(use);
+    if (definition_id >= _blocks.size() ||
+        use_id >= _blocks.size() || definition_id == use_id) {
+        return false;
+    }
+    // State is (block, crossed_suspend). The definition block is excluded
+    // after the initial store occurrence because re-entering it executes that
+    // same static store before any dominated load and starts a new version.
+    luisa::vector<uint8_t> visited(_blocks.size() * 2u, 0u);
+    luisa::vector<size_t> worklist;
+    auto enqueue = [&](size_t block, bool crossed) noexcept {
+        if (block == definition_id) { return; }
+        auto state = block * 2u + static_cast<size_t>(crossed);
+        if (visited[state] == 0u) {
+            visited[state] = 1u;
+            worklist.emplace_back(state);
+        }
+    };
+    for (auto successor : _successors[definition_id]) {
+        enqueue(
+            successor,
+            is_suspend_edge(definition_id, successor));
+    }
+    for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+        auto state = worklist[cursor];
+        auto block = state / 2u;
+        auto crossed = (state & 1u) != 0u;
+        if (block == use_id && crossed) { return true; }
+        for (auto successor : _successors[block]) {
+            enqueue(
+                successor,
+                crossed || is_suspend_edge(block, successor));
+        }
+    }
+    return false;
+}
+
+bool CoroSemanticGraph::is_suspend_edge(
+    size_t predecessor, size_t successor) const noexcept {
+    return std::find(
+               _suspend_edges.begin(), _suspend_edges.end(),
+               std::pair{predecessor, successor}) !=
+           _suspend_edges.end();
 }
 
 }// namespace luisa::compute::xir::detail

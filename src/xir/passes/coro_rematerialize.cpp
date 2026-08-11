@@ -28,6 +28,7 @@ struct LoadProjection {
     LoadInst *load{nullptr};
     luisa::vector<Value *> indices;
     Value *reaching_value{nullptr};
+    bool reaches_across_suspend{false};
 };
 
 struct LocalStateCandidate {
@@ -35,6 +36,7 @@ struct LocalStateCandidate {
     luisa::vector<StoreInst *> stores;
     luisa::vector<LoadProjection> loads;
     size_t replay_cost{0u};
+    bool replay_stored_values{false};
 };
 
 enum class ReachingValueTag : uint8_t {
@@ -47,22 +49,28 @@ enum class ReachingValueTag : uint8_t {
 struct ReachingValue {
     ReachingValueTag tag{ReachingValueTag::PENDING};
     Value *value{nullptr};
+    bool crossed_suspend{false};
 
     [[nodiscard]] static ReachingValue undefined() noexcept {
-        return ReachingValue{ReachingValueTag::UNDEFINED, nullptr};
+        return ReachingValue{
+            ReachingValueTag::UNDEFINED, nullptr, false};
     }
 
-    [[nodiscard]] static ReachingValue unique(Value *value) noexcept {
-        return ReachingValue{ReachingValueTag::UNIQUE, value};
+    [[nodiscard]] static ReachingValue unique(
+        Value *value, bool crossed_suspend = false) noexcept {
+        return ReachingValue{
+            ReachingValueTag::UNIQUE, value, crossed_suspend};
     }
 
     [[nodiscard]] static ReachingValue conflict() noexcept {
-        return ReachingValue{ReachingValueTag::CONFLICT, nullptr};
+        return ReachingValue{
+            ReachingValueTag::CONFLICT, nullptr, false};
     }
 
     [[nodiscard]] friend bool operator==(
         ReachingValue lhs, ReachingValue rhs) noexcept {
-        return lhs.tag == rhs.tag && lhs.value == rhs.value;
+        return lhs.tag == rhs.tag && lhs.value == rhs.value &&
+               lhs.crossed_suspend == rhs.crossed_suspend;
     }
 };
 
@@ -70,6 +78,13 @@ struct ReachingValue {
     ReachingValue lhs, ReachingValue rhs) noexcept {
     if (lhs.tag == ReachingValueTag::PENDING) { return rhs; }
     if (rhs.tag == ReachingValueTag::PENDING) { return lhs; }
+    if (lhs.tag == ReachingValueTag::UNIQUE &&
+        rhs.tag == ReachingValueTag::UNIQUE &&
+        lhs.value == rhs.value) {
+        return ReachingValue::unique(
+            lhs.value,
+            lhs.crossed_suspend || rhs.crossed_suspend);
+    }
     if (lhs == rhs) { return lhs; }
     return ReachingValue::conflict();
 }
@@ -174,26 +189,45 @@ struct ReachingValue {
     return true;
 }
 
-[[nodiscard]] ReachingValue transfer_reaching_value(
-    BasicBlock *block, AllocaInst *alloca,
-    ReachingValue incoming) noexcept {
-    auto state = incoming;
-    for (auto *instruction : block->instructions()) {
-        if (instruction->isa<StoreInst>()) {
-            auto *store = static_cast<StoreInst *>(instruction);
-            if (store->variable() == alloca) {
-                state = ReachingValue::unique(store->value());
-            }
-        }
-    }
-    return state;
-}
-
 [[nodiscard]] size_t resolve_reaching_values(
     const CoroSemanticGraph &graph,
+    const luisa::unordered_map<Instruction *, size_t> &instruction_indices,
     LocalStateCandidate &candidate,
     size_t &block_evaluation_count) noexcept {
     auto block_count = graph.block_count();
+    // The transfer function depends only on this candidate's stores. Index
+    // its sparse event stream once instead of rescanning every instruction in
+    // every block on each fixed-point evaluation.
+    luisa::vector<luisa::vector<Instruction *>> block_events(block_count);
+    for (auto *store : candidate.stores) {
+        auto block_id = graph.block_id(store->parent_block());
+        if (block_id < block_count) {
+            block_events[block_id].emplace_back(store);
+        }
+    }
+    for (auto &projection : candidate.loads) {
+        auto block_id = graph.block_id(
+            projection.load->parent_block());
+        if (block_id < block_count) {
+            block_events[block_id].emplace_back(projection.load);
+        }
+    }
+    luisa::vector<StoreInst *> last_stores(block_count, nullptr);
+    for (size_t block_id = 0u; block_id < block_count; ++block_id) {
+        auto &events = block_events[block_id];
+        std::sort(
+            events.begin(), events.end(),
+            [&](Instruction *lhs, Instruction *rhs) noexcept {
+                return instruction_indices.at(lhs) <
+                       instruction_indices.at(rhs);
+            });
+        for (auto *event : events) {
+            if (event->isa<StoreInst>()) {
+                last_stores[block_id] =
+                    static_cast<StoreInst *>(event);
+            }
+        }
+    }
     luisa::vector<ReachingValue> block_inputs(block_count);
     luisa::vector<ReachingValue> block_outputs(block_count);
     luisa::vector<uint8_t> queued(block_count, 0u);
@@ -208,12 +242,20 @@ struct ReachingValue {
                             ReachingValue::undefined() :
                             ReachingValue{};
         for (auto predecessor : graph.predecessors(block_id)) {
+            auto predecessor_output = block_outputs[predecessor];
+            if (predecessor_output.tag ==
+                    ReachingValueTag::UNIQUE &&
+                graph.is_suspend_edge(predecessor, block_id)) {
+                predecessor_output.crossed_suspend = true;
+            }
             incoming = meet_reaching_values(
-                incoming, block_outputs[predecessor]);
+                incoming, predecessor_output);
         }
         block_inputs[block_id] = incoming;
-        auto outgoing = transfer_reaching_value(
-            graph.block(block_id), candidate.alloca, incoming);
+        auto outgoing = last_stores[block_id] == nullptr ?
+                            incoming :
+                            ReachingValue::unique(
+                                last_stores[block_id]->value());
         if (outgoing == block_outputs[block_id]) { continue; }
         block_outputs[block_id] = outgoing;
         for (auto successor : graph.successors(block_id)) {
@@ -232,7 +274,7 @@ struct ReachingValue {
     auto unresolved = size_t{0u};
     for (size_t block_id = 0u; block_id < block_count; ++block_id) {
         auto state = block_inputs[block_id];
-        for (auto *instruction : graph.block(block_id)->instructions()) {
+        for (auto *instruction : block_events[block_id]) {
             if (instruction->isa<StoreInst>()) {
                 auto *store = static_cast<StoreInst *>(instruction);
                 if (store->variable() == candidate.alloca) {
@@ -245,6 +287,8 @@ struct ReachingValue {
                     if (state.tag == ReachingValueTag::UNIQUE) {
                         candidate.loads[iter->second].reaching_value =
                             state.value;
+                        candidate.loads[iter->second].reaches_across_suspend =
+                            state.crossed_suspend;
                     }
                 }
             }
@@ -283,6 +327,9 @@ struct ReachingValue {
         }
         if (resolved) {
             projection.reaching_value = store->value();
+            projection.reaches_across_suspend =
+                graph.crosses_suspend_without_reentering(
+                    store_block, load_block);
         } else {
             ++unresolved;
         }
@@ -343,11 +390,54 @@ coro_rematerialize_local_state_pass_run_on_function(
                 break;
             }
         }
-        if (!all_store_values_replayable) { continue; }
-        if (candidate.stores.size() == 1u) {
-            ++info.replayable_single_store_count;
+        candidate.replay_stored_values =
+            all_store_values_replayable;
+        if (all_store_values_replayable) {
+            if (candidate.stores.size() == 1u) {
+                ++info.replayable_single_store_count;
+            } else {
+                ++info.replayable_multi_store_count;
+            }
         } else {
-            ++info.replayable_multi_store_count;
+            ++info.nonreplayable_candidate_count;
+        }
+
+        // Keep aggregate access-path state in memory unless it is replayable:
+        // frame distillation can spill only the observed leaf, while direct
+        // SSA forwarding would retain the complete non-replayable aggregate.
+        if (!candidate.replay_stored_values &&
+            std::any_of(
+                candidate.loads.begin(), candidate.loads.end(),
+                [](const auto &projection) noexcept {
+                    return !projection.indices.empty();
+                })) {
+            ++info.rejected_nonreplayable_projection_count;
+            continue;
+        }
+
+        // A non-replayable local is useful to version only if at least one
+        // store/load pair can be separated by a semantic transfer edge. The
+        // graph precomputes reverse reachability into every suspend and
+        // forward reachability out of its resume, including self-resuming
+        // loops. This necessary condition rejects scope-local temporaries
+        // before the per-candidate reaching-value fixed point scans the IR.
+        if (!candidate.replay_stored_values) {
+            auto may_cross_suspend = false;
+            for (auto *store : candidate.stores) {
+                for (auto &projection : candidate.loads) {
+                    if (graph.may_cross_suspend_between(
+                            store->parent_block(),
+                            projection.load->parent_block())) {
+                        may_cross_suspend = true;
+                        break;
+                    }
+                }
+                if (may_cross_suspend) { break; }
+            }
+            if (!may_cross_suspend) {
+                ++info.rejected_nonreplayable_scope_local_count;
+                continue;
+            }
         }
 
         auto unresolved = size_t{0u};
@@ -357,11 +447,32 @@ coro_rematerialize_local_state_pass_run_on_function(
         } else {
             ++info.reaching_dataflow_alloca_count;
             unresolved = detail::resolve_reaching_values(
-                graph, candidate,
+                graph, instruction_indices, candidate,
                 info.reaching_dataflow_block_evaluation_count);
         }
         info.unresolved_load_count += unresolved;
         if (unresolved != 0u) { continue; }
+
+        // A non-replayable value may still replace a direct local load. It is
+        // computed exactly once at the original store and subsequently becomes
+        // ordinary SSA frame state. This is live-range splitting, not
+        // rematerialization. Do not forward projected aggregate loads here:
+        // inserting EXTRACT at the load would carry the complete aggregate
+        // across the suspension, whereas the original access-path analysis can
+        // carry only the observed leaf.
+        if (!candidate.replay_stored_values) {
+            auto crosses_suspend = std::any_of(
+                candidate.loads.begin(), candidate.loads.end(),
+                [](const auto &projection) noexcept {
+                    return projection.reaches_across_suspend;
+                });
+            if (!crosses_suspend) {
+                ++info.rejected_nonreplayable_scope_local_count;
+                continue;
+            }
+            accepted.emplace_back(std::move(candidate));
+            continue;
+        }
 
         // A projected scalar can have a smaller replay budget than its stored
         // aggregate. Prove every exact EXTRACT expression affordable before
@@ -413,33 +524,104 @@ coro_rematerialize_local_state_pass_run_on_function(
         accepted.emplace_back(std::move(candidate));
     }
 
-    luisa::vector<ManagedPtr<Instruction>> removed_loads;
-    luisa::vector<Value *> extract_arguments;
+    // Reaching values can themselves be loads that another accepted local is
+    // about to eliminate. A naive candidate-by-candidate rewrite can then
+    // retain a pointer to the already detached load. Treat simultaneous load
+    // substitution as a dependency graph: for a direct equation L = D, where
+    // D is another eliminated load, rewrite L before D. Subsequent RAUW of D
+    // then updates the uses introduced for L. A projected replacement is not
+    // an edge here: all EXTRACT nodes are created before any load is detached,
+    // so their operands participate in ordinary use-list rewriting.
+    luisa::vector<detail::LoadProjection *> projections;
+    luisa::unordered_map<LoadInst *, size_t> projection_indices;
     for (auto &candidate : accepted) {
         for (auto &projection : candidate.loads) {
-            auto *load = projection.load;
-            auto *replacement = projection.reaching_value;
-            if (!projection.indices.empty()) {
-                extract_arguments.clear();
-                extract_arguments.reserve(
-                    1u + projection.indices.size());
-                extract_arguments.emplace_back(
-                    projection.reaching_value);
-                extract_arguments.insert(
-                    extract_arguments.end(),
-                    projection.indices.begin(), projection.indices.end());
-                XIRBuilder builder;
-                builder.set_insertion_point(load);
-                replacement = builder.call(
-                    load->type(), ArithmeticOp::EXTRACT,
-                    extract_arguments);
-                ++info.inserted_extract_count;
-            }
-            load->replace_all_uses_with(replacement);
-            removed_loads.emplace_back(load->remove_self());
-            ++info.replaced_load_count;
+            projection_indices.emplace(
+                projection.load, projections.size());
+            projections.emplace_back(&projection);
         }
+    }
+    constexpr auto no_successor = static_cast<size_t>(-1);
+    luisa::vector<size_t> direct_successors(
+        projections.size(), no_successor);
+    luisa::vector<size_t> indegrees(projections.size(), 0u);
+    for (size_t i = 0u; i < projections.size(); ++i) {
+        auto &projection = *projections[i];
+        if (!projection.indices.empty() ||
+            projection.reaching_value == nullptr ||
+            !projection.reaching_value->isa<LoadInst>()) {
+            continue;
+        }
+        auto *dependency = static_cast<LoadInst *>(
+            projection.reaching_value);
+        if (auto iter = projection_indices.find(dependency);
+            iter != projection_indices.end()) {
+            direct_successors[i] = iter->second;
+            ++indegrees[iter->second];
+        }
+    }
+    luisa::vector<size_t> rewrite_order;
+    rewrite_order.reserve(projections.size());
+    for (size_t i = 0u; i < projections.size(); ++i) {
+        if (indegrees[i] == 0u) {
+            rewrite_order.emplace_back(i);
+        }
+    }
+    for (size_t cursor = 0u; cursor < rewrite_order.size(); ++cursor) {
+        auto successor = direct_successors[rewrite_order[cursor]];
+        if (successor != no_successor &&
+            --indegrees[successor] == 0u) {
+            rewrite_order.emplace_back(successor);
+        }
+    }
+    if (rewrite_order.size() != projections.size()) {
+        // A cycle cannot represent a valid exact SSA substitution. Preserve
+        // the original memory program atomically instead of partially
+        // rewriting a malformed or otherwise unsupported value graph.
+        info.rejected_forwarding_cycle_count =
+            projections.size() - rewrite_order.size();
+        return info;
+    }
+
+    luisa::vector<Value *> replacements(
+        projections.size(), nullptr);
+    luisa::vector<Value *> extract_arguments;
+    for (size_t i = 0u; i < projections.size(); ++i) {
+        auto &projection = *projections[i];
+        auto *load = projection.load;
+        auto *replacement = projection.reaching_value;
+        if (!projection.indices.empty()) {
+            extract_arguments.clear();
+            extract_arguments.reserve(
+                1u + projection.indices.size());
+            extract_arguments.emplace_back(
+                projection.reaching_value);
+            extract_arguments.insert(
+                extract_arguments.end(),
+                projection.indices.begin(), projection.indices.end());
+            XIRBuilder builder;
+            builder.set_insertion_point(load);
+            replacement = builder.call(
+                load->type(), ArithmeticOp::EXTRACT,
+                extract_arguments);
+            ++info.inserted_extract_count;
+        }
+        replacements[i] = replacement;
+    }
+
+    luisa::vector<ManagedPtr<Instruction>> removed_loads;
+    removed_loads.reserve(projections.size());
+    for (auto i : rewrite_order) {
+        auto *load = projections[i]->load;
+        load->replace_all_uses_with(replacements[i]);
+        removed_loads.emplace_back(load->remove_self());
+        ++info.replaced_load_count;
+    }
+    for (auto &candidate : accepted) {
         ++info.promoted_alloca_count;
+        if (!candidate.replay_stored_values) {
+            ++info.promoted_nonreplayable_alloca_count;
+        }
         if (candidate.stores.size() > 1u) {
             ++info.promoted_multi_store_alloca_count;
         }

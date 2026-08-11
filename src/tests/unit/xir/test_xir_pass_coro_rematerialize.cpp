@@ -331,28 +331,254 @@ void register_coro_rematerialize_tests() {
         expect(xir_verify_module(&module).succeeded());
     };
 
-    "clock_initialized_state_is_not_replayed"_test = [] {
+    "clock_initialized_state_is_forwarded_without_replay"_test = [] {
         Module module;
         BasicBlock *entry;
         auto *kernel = make_kernel(module, entry);
+        auto *output = kernel->create_reference_argument(
+            Type::of<uint64_t>());
         auto *resume = kernel->create_basic_block();
         XIRBuilder builder;
         builder.set_insertion_point(entry);
         auto *state = builder.alloca_local(Type::of<uint64_t>());
-        builder.store(state, builder.clock());
+        auto *clock = builder.clock();
+        builder.store(state, clock);
         builder.coro_suspend(23u, "clock", nullptr);
         builder.set_insertion_point(resume);
         builder.coro_resume(23u, nullptr);
-        static_cast<void>(builder.load(Type::of<uint64_t>(), state));
+        auto *loaded = builder.load(Type::of<uint64_t>(), state);
+        auto *one = module.create_constant_one(Type::of<uint64_t>());
+        auto *use = builder.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {loaded, one});
+        builder.store(output, use);
         builder.return_void();
 
         auto info =
             coro_rematerialize_local_state_pass_run_on_function(kernel);
 
         expect(info.replayable_single_store_count == 0u);
+        expect(info.nonreplayable_candidate_count == 1u);
+        expect(info.promoted_nonreplayable_alloca_count == 1u);
+        expect(info.promoted_alloca_count == 1u);
+        expect(info.replaced_load_count == 1u);
+        expect(count_loads_from(kernel, state) == 0u);
+        // Forward the one dynamic clock result itself; cloning/replaying the
+        // impure instruction would change program semantics.
+        expect(use->operand(0) == clock);
+        expect(xir_verify_module(&module).succeeded());
+        static_cast<void>(dce_pass_run_on_function(kernel));
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(std::any_of(
+            cfg.frame_values.begin(), cfg.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == clock;
+            }));
+        expect(std::none_of(
+            cfg.frame_values.begin(), cfg.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == state;
+            }));
+    };
+
+    "scope_local_nonreplayable_state_is_retained"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *output = kernel->create_reference_argument(
+            Type::of<uint64_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint64_t>());
+        builder.store(state, builder.clock());
+        auto *loaded = builder.load(Type::of<uint64_t>(), state);
+        builder.store(output, loaded);
+        builder.return_void();
+
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.nonreplayable_candidate_count == 1u);
+        expect(info.rejected_nonreplayable_scope_local_count == 1u);
+        expect(info.promoted_nonreplayable_alloca_count == 0u);
         expect(info.promoted_alloca_count == 0u);
         expect(count_loads_from(kernel, state) == 1u);
         expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_reexecuted_store_resets_cross_suspend_state"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *output = kernel->create_reference_argument(
+            Type::of<uint64_t>());
+        auto *initial_resume = kernel->create_basic_block();
+        auto *body = kernel->create_basic_block();
+        auto *backedge_resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.coro_suspend(30u, "enter_loop", nullptr);
+        builder.set_insertion_point(initial_resume);
+        builder.coro_resume(30u, nullptr);
+        builder.br(body);
+        builder.set_insertion_point(body);
+        auto *state = builder.alloca_local(Type::of<uint64_t>());
+        builder.store(state, builder.clock());
+        auto *loaded = builder.load(Type::of<uint64_t>(), state);
+        builder.store(output, loaded);
+        builder.coro_suspend(31u, "loop_backedge", nullptr);
+        builder.set_insertion_point(backedge_resume);
+        builder.coro_resume(31u, nullptr);
+        builder.br(body);
+
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.nonreplayable_candidate_count == 1u);
+        expect(info.rejected_nonreplayable_scope_local_count == 1u);
+        expect(info.promoted_nonreplayable_alloca_count == 0u);
+        expect(info.promoted_alloca_count == 0u);
+        expect(count_loads_from(kernel, state) == 1u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "phased_nonreplayable_state_tracks_each_suspend_edge"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *first_output = kernel->create_reference_argument(
+            Type::of<uint64_t>());
+        auto *second_output = kernel->create_reference_argument(
+            Type::of<uint64_t>());
+        auto *first_resume = kernel->create_basic_block();
+        auto *second_resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint64_t>());
+        auto *first_clock = builder.clock();
+        builder.store(state, first_clock);
+        builder.coro_suspend(26u, "first_clock", nullptr);
+        builder.set_insertion_point(first_resume);
+        builder.coro_resume(26u, nullptr);
+        auto *first = builder.load(Type::of<uint64_t>(), state);
+        auto *write_first = builder.store(first_output, first);
+        auto *second_clock = builder.clock();
+        builder.store(state, second_clock);
+        builder.coro_suspend(27u, "second_clock", nullptr);
+        builder.set_insertion_point(second_resume);
+        builder.coro_resume(27u, nullptr);
+        auto *second = builder.load(Type::of<uint64_t>(), state);
+        auto *write_second = builder.store(second_output, second);
+        builder.return_void();
+
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.nonreplayable_candidate_count == 1u);
+        expect(info.reaching_dataflow_alloca_count == 1u);
+        expect(info.promoted_nonreplayable_alloca_count == 1u);
+        expect(info.promoted_multi_store_alloca_count == 1u);
+        expect(info.replaced_load_count == 2u);
+        expect(write_first->value() == first_clock);
+        expect(write_second->value() == second_clock);
+        expect(count_loads_from(kernel, state) == 0u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "projected_nonreplayable_state_is_retained"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *pair = Type::array(Type::of<uint64_t>(), 2u);
+        auto *index = module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(pair);
+        auto *clock = builder.clock();
+        auto *zero = module.create_constant_zero(Type::of<uint64_t>());
+        auto *value = builder.call(
+            pair, ArithmeticOp::AGGREGATE,
+            std::array<Value *, 2u>{clock, zero});
+        builder.store(state, value);
+        builder.coro_suspend(24u, "projected_clock", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(24u, nullptr);
+        auto *field = builder.gep(Type::of<uint64_t>(), state, {index});
+        static_cast<void>(builder.load(Type::of<uint64_t>(), field));
+        builder.return_void();
+
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.replayable_single_store_count == 0u);
+        expect(info.nonreplayable_candidate_count == 1u);
+        expect(info.rejected_nonreplayable_projection_count == 1u);
+        expect(info.promoted_alloca_count == 0u);
+        expect(count_loads_from(kernel, state) == 1u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "cross_local_nonreplayable_copy_chain_is_rewritten_atomically"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *output = kernel->create_reference_argument(
+            Type::of<uint64_t>());
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        // Deliberately create the producer first. Candidate discovery then
+        // visits its load before the consumer load whose reaching value is the
+        // producer load; candidate-order rewriting would leave a dangling
+        // reference after detaching the producer.
+        auto *producer = builder.alloca_local(Type::of<uint64_t>());
+        auto *consumer = builder.alloca_local(Type::of<uint64_t>());
+        auto *clock = builder.clock();
+        builder.store(producer, clock);
+        auto *snapshot = builder.load(Type::of<uint64_t>(), producer);
+        builder.store(consumer, snapshot);
+        builder.coro_suspend(25u, "copy_chain", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(25u, nullptr);
+        auto *loaded = builder.load(Type::of<uint64_t>(), consumer);
+        auto *producer_after_suspend = builder.load(
+            Type::of<uint64_t>(), producer);
+        auto *sum = builder.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {loaded, producer_after_suspend});
+        builder.store(output, sum);
+        builder.return_void();
+
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.rejected_forwarding_cycle_count == 0u);
+        expect(info.promoted_nonreplayable_alloca_count == 2u);
+        expect(info.promoted_alloca_count == 2u);
+        expect(info.replaced_load_count == 3u);
+        expect(count_loads_from(kernel, producer) == 0u);
+        expect(count_loads_from(kernel, consumer) == 0u);
+        expect(xir_verify_module(&module).succeeded());
+        static_cast<void>(dce_pass_run_on_function(kernel));
+        expect(xir_verify_module(&module).succeeded());
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(std::any_of(
+            cfg.frame_values.begin(), cfg.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == clock;
+            }));
+        expect(std::none_of(
+            cfg.frame_values.begin(), cfg.frame_values.end(),
+            [&](const auto &field) noexcept {
+                return field.value == producer ||
+                       field.value == consumer ||
+                       field.value == snapshot ||
+                       field.value == loaded ||
+                       field.value == producer_after_suspend;
+            }));
     };
 
     "aggregate_gep_load_becomes_snapshot_extract"_test = [] {

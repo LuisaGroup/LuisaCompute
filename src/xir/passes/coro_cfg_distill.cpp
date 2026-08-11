@@ -1689,6 +1689,32 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     }
     if (auto *flag = std::getenv("LUISA_CORO_DUMP_FRAME_LAYOUT");
         flag != nullptr && luisa::string_view{flag} == "1") {
+        for (size_t i = 0u; i < result.scopes.size(); ++i) {
+            auto &scope = result.scopes[i];
+            LUISA_INFO(
+                "Coroutine scope {}: trigger_token={} blocks={} "
+                "external_values={} touched_values={} live_in_values={} "
+                "live_out_values={} terminal={}.",
+                i, scope.trigger_token, scope.blocks.size(),
+                scope.external_frame_value_indices.size(),
+                scope.touched_frame_value_indices.size(),
+                scope.live_in_frame_value_indices.size(),
+                scope.live_out_frame_value_indices.size(),
+                scope.is_terminal);
+        }
+        for (size_t i = 0u; i < result.transition_edges.size(); ++i) {
+            auto &edge = result.transition_edges[i];
+            LUISA_INFO(
+                "Coroutine transition edge {}: {} -> {} token={} "
+                "suspend={} killed_values={} touched_values={} "
+                "live_values={} store_values={}.",
+                i, edge.from_scope, edge.to_scope, edge.token,
+                edge.is_suspend,
+                edge.killed_frame_value_indices.size(),
+                edge.touched_frame_value_indices.size(),
+                edge.live_frame_value_indices.size(),
+                edge.store_frame_value_indices.size());
+        }
         for (size_t i = 0u; i < result.frame_values.size(); ++i) {
             auto &value = result.frame_values[i];
             auto tag = luisa::string_view{"non-instruction"};
