@@ -66,6 +66,7 @@ private:
     std::vector<::llvm::AllocaInst *> _loop_epochs{};
     std::vector<std::vector<schedule::LoopId>> _block_loops{};
     std::vector<::llvm::AllocaInst *> _state_slots{};
+    std::vector<uint8_t> _spilled_instruction_values{};
     std::vector<::llvm::Value *> _external_values{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
@@ -355,6 +356,7 @@ private:
                     instruction.opcode != schedule::Opcode::resource_query &&
                     instruction.opcode != schedule::Opcode::resource_read &&
                     instruction.opcode != schedule::Opcode::resource_write &&
+                    instruction.opcode != schedule::Opcode::atomic &&
                     instruction.opcode != schedule::Opcode::warp_collective) {
                     _fail("LLVM packet codegen encountered an unsupported Schedule IR instruction");
                     return;
@@ -687,7 +689,24 @@ private:
         if (auto iter = _locals.find(id.value); iter != _locals.end()) {
             return iter->second;
         }
-        _fail("instruction value is not available in the current Schedule IR block");
+        if (id.value < _spilled_instruction_values.size() &&
+            _spilled_instruction_values[id.value] != 0u) {
+            auto *state = _builder.CreateLoad(
+                _state_slots[id.value]->getAllocatedType(),
+                _state_slots[id.value], value->name + ".spill.load");
+            if (value->value_class == schedule::ValueClass::cohort_uniform) {
+                auto *first = _collectives.first_active_lane(
+                    _builder, _active_mask);
+                auto *any = _builder.CreateOrReduce(_active_mask);
+                auto *safe = _builder.CreateSelect(
+                    any, first, _builder.getInt32(0u));
+                return _extract_lane(state, value->type, safe);
+            }
+            return state;
+        }
+        _fail("instruction value '" + value->name + "' (#" +
+              std::to_string(id.value) +
+              ") is not available in the current Schedule IR block");
         return nullptr;
     }
 
@@ -992,15 +1011,19 @@ private:
             auto is_signed = lhs_type->is_int();
             switch (op) {
                 case xir::ArithmeticOp::BINARY_ADD:
+                case xir::ArithmeticOp::MATRIX_COMP_ADD:
                     return is_float ? _builder.CreateFAdd(lhs, rhs) :
                                       _builder.CreateAdd(lhs, rhs);
                 case xir::ArithmeticOp::BINARY_SUB:
+                case xir::ArithmeticOp::MATRIX_COMP_SUB:
                     return is_float ? _builder.CreateFSub(lhs, rhs) :
                                       _builder.CreateSub(lhs, rhs);
                 case xir::ArithmeticOp::BINARY_MUL:
+                case xir::ArithmeticOp::MATRIX_COMP_MUL:
                     return is_float ? _builder.CreateFMul(lhs, rhs) :
                                       _builder.CreateMul(lhs, rhs);
                 case xir::ArithmeticOp::BINARY_DIV:
+                case xir::ArithmeticOp::MATRIX_COMP_DIV:
                     return is_float ? _builder.CreateFDiv(lhs, rhs) :
                            is_signed ? _builder.CreateSDiv(lhs, rhs) :
                                        _builder.CreateUDiv(lhs, rhs);
@@ -1055,6 +1078,7 @@ private:
         };
         switch (op) {
             case xir::ArithmeticOp::UNARY_MINUS:
+            case xir::ArithmeticOp::MATRIX_COMP_NEG:
                 return unary([&](::llvm::Value *value, const Type *type) {
                     return type->is_float16() || type->is_float32() ||
                                    type->is_float64() ?
@@ -1066,9 +1090,13 @@ private:
                     return _builder.CreateNot(value);
                 });
             case xir::ArithmeticOp::BINARY_ADD:
+            case xir::ArithmeticOp::MATRIX_COMP_ADD:
             case xir::ArithmeticOp::BINARY_SUB:
+            case xir::ArithmeticOp::MATRIX_COMP_SUB:
             case xir::ArithmeticOp::BINARY_MUL:
+            case xir::ArithmeticOp::MATRIX_COMP_MUL:
             case xir::ArithmeticOp::BINARY_DIV:
+            case xir::ArithmeticOp::MATRIX_COMP_DIV:
             case xir::ArithmeticOp::BINARY_MOD:
             case xir::ArithmeticOp::BINARY_BIT_AND:
             case xir::ArithmeticOp::BINARY_BIT_OR:
@@ -1183,6 +1211,168 @@ private:
             extended,
             _builder.CreateVectorSplat(
                 _width, _builder.getInt64(stride)));
+    }
+
+    [[nodiscard]] ::llvm::Value *_atomic(
+        const schedule::Instruction &instruction) {
+        if (!instruction.result || !instruction.source_op) {
+            _fail("atomic instruction is missing a result or operation");
+            return nullptr;
+        }
+        auto op = static_cast<xir::AtomicOp>(*instruction.source_op);
+        auto value_count = xir::atomic_op_value_count(op);
+        if (instruction.operands.size() < 2u + value_count) {
+            _fail("atomic instruction has an invalid operand count");
+            return nullptr;
+        }
+        auto index_count =
+            instruction.operands.size() - 1u - value_count;
+        auto *result = _source.value(*instruction.result);
+        auto *buffer_value = _source.value(instruction.operands[0u]);
+        auto *index_value = _source.value(instruction.operands[1u]);
+        auto *buffer = _load_value(instruction.operands[0u]);
+        auto *index = index_value == nullptr ? nullptr :
+            _as_lane_vector(
+                _load_value(instruction.operands[1u]), *index_value);
+        if (result == nullptr || buffer_value == nullptr ||
+            buffer == nullptr || index == nullptr ||
+            !buffer_value->type->is_buffer() || index_count != 1u ||
+            !_is_scalar_data(result->type) ||
+            buffer_value->type->element() != result->type) {
+            _fail("LLVM packet codegen currently supports scalar direct-buffer atomics");
+            return nullptr;
+        }
+        std::vector<::llvm::Value *> values;
+        values.reserve(value_count);
+        for (auto i = size_t{0u}; i < value_count; i++) {
+            auto operand_id = instruction.operands[
+                instruction.operands.size() - value_count + i];
+            auto *operand = _source.value(operand_id);
+            auto *value = operand == nullptr ? nullptr :
+                _as_lane_vector(_load_value(operand_id), *operand);
+            if (value == nullptr) { return nullptr; }
+            values.emplace_back(value);
+        }
+
+        auto *base = _builder.CreateExtractValue(buffer, {0u});
+        auto *offsets = _lane_offsets(
+            index, static_cast<uint64_t>(result->type->size()));
+        auto *result_type = _layout.expression_type(*result);
+        if (result_type == nullptr || !result_type->isVectorTy()) {
+            _fail("buffer atomic result must be lane-varying");
+            return nullptr;
+        }
+        ::llvm::Value *old_values =
+            ::llvm::Constant::getNullValue(result_type);
+        auto alignment = ::llvm::MaybeAlign{result->type->alignment()};
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            auto *before = _builder.GetInsertBlock();
+            auto *active = _builder.CreateExtractElement(
+                _active_mask, lane);
+            auto *atomic_block = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "atomic.lane." + std::to_string(lane), _entry);
+            auto *continue_block = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "atomic.continue." + std::to_string(lane), _entry);
+            _builder.CreateCondBr(active, atomic_block, continue_block);
+
+            _builder.SetInsertPoint(atomic_block);
+            auto *offset = _builder.CreateExtractElement(offsets, lane);
+            auto *pointer = _builder.CreateGEP(
+                _builder.getInt8Ty(), base, offset);
+            std::vector<::llvm::Value *> lane_values;
+            lane_values.reserve(values.size());
+            for (auto *value : values) {
+                lane_values.emplace_back(
+                    _builder.CreateExtractElement(value, lane));
+            }
+            ::llvm::Value *old = nullptr;
+            if (op == xir::AtomicOp::COMPARE_EXCHANGE) {
+                auto *expected = lane_values[0u];
+                auto *desired = lane_values[1u];
+                auto *value_type = expected->getType();
+                auto floating = value_type->isFloatingPointTy();
+                if (floating) {
+                    auto *integer = ::llvm::IntegerType::get(
+                        _module.getContext(),
+                        value_type->getPrimitiveSizeInBits());
+                    expected = _builder.CreateBitCast(expected, integer);
+                    desired = _builder.CreateBitCast(desired, integer);
+                }
+                auto *pair = _builder.CreateAtomicCmpXchg(
+                    pointer, expected, desired, alignment,
+                    ::llvm::AtomicOrdering::Monotonic,
+                    ::llvm::AtomicOrdering::Monotonic);
+                old = _builder.CreateExtractValue(pair, {0u});
+                if (floating) {
+                    old = _builder.CreateBitCast(old, value_type);
+                }
+            } else {
+                auto atomic_op = ::llvm::AtomicRMWInst::BAD_BINOP;
+                auto floating = result->type->is_float16() ||
+                                result->type->is_float32() ||
+                                result->type->is_float64();
+                auto signed_integer = result->type->is_int();
+                switch (op) {
+                    case xir::AtomicOp::EXCHANGE:
+                        atomic_op = ::llvm::AtomicRMWInst::Xchg;
+                        break;
+                    case xir::AtomicOp::FETCH_ADD:
+                        atomic_op = floating ?
+                            ::llvm::AtomicRMWInst::FAdd :
+                            ::llvm::AtomicRMWInst::Add;
+                        break;
+                    case xir::AtomicOp::FETCH_SUB:
+                        atomic_op = floating ?
+                            ::llvm::AtomicRMWInst::FSub :
+                            ::llvm::AtomicRMWInst::Sub;
+                        break;
+                    case xir::AtomicOp::FETCH_AND:
+                        atomic_op = ::llvm::AtomicRMWInst::And;
+                        break;
+                    case xir::AtomicOp::FETCH_OR:
+                        atomic_op = ::llvm::AtomicRMWInst::Or;
+                        break;
+                    case xir::AtomicOp::FETCH_XOR:
+                        atomic_op = ::llvm::AtomicRMWInst::Xor;
+                        break;
+                    case xir::AtomicOp::FETCH_MIN:
+                        atomic_op = floating ?
+                            ::llvm::AtomicRMWInst::FMin :
+                            signed_integer ?
+                                ::llvm::AtomicRMWInst::Min :
+                                ::llvm::AtomicRMWInst::UMin;
+                        break;
+                    case xir::AtomicOp::FETCH_MAX:
+                        atomic_op = floating ?
+                            ::llvm::AtomicRMWInst::FMax :
+                            signed_integer ?
+                                ::llvm::AtomicRMWInst::Max :
+                                ::llvm::AtomicRMWInst::UMax;
+                        break;
+                    case xir::AtomicOp::COMPARE_EXCHANGE: break;
+                }
+                if (atomic_op == ::llvm::AtomicRMWInst::BAD_BINOP) {
+                    _fail("unsupported direct-buffer atomic operation");
+                    return nullptr;
+                }
+                old = _builder.CreateAtomicRMW(
+                    atomic_op, pointer, lane_values[0u], alignment,
+                    ::llvm::AtomicOrdering::Monotonic);
+            }
+            auto *updated = _builder.CreateInsertElement(
+                old_values, old, lane);
+            _builder.CreateBr(continue_block);
+            auto *atomic_end = _builder.GetInsertBlock();
+
+            _builder.SetInsertPoint(continue_block);
+            auto *phi = _builder.CreatePHI(result_type, 2u);
+            phi->addIncoming(old_values, before);
+            phi->addIncoming(updated, atomic_end);
+            old_values = phi;
+        }
+        return old_values;
     }
 
     [[nodiscard]] ::llvm::Value *_leaf_pointers(
@@ -1509,6 +1699,9 @@ private:
             case schedule::Opcode::resource_write:
                 _resource_write(instruction);
                 break;
+            case schedule::Opcode::atomic:
+                value = _atomic(instruction);
+                break;
             case schedule::Opcode::warp_collective:
                 value = _collective(instruction);
                 break;
@@ -1518,6 +1711,32 @@ private:
         }
         if (instruction.result && value != nullptr) {
             _locals.insert_or_assign(instruction.result->value, value);
+            auto id = instruction.result->value;
+            if (id < _spilled_instruction_values.size() &&
+                _spilled_instruction_values[id] != 0u) {
+                auto *schedule_value = _source.value(*instruction.result);
+                auto *slot = _state_slots[id];
+                if (schedule_value->value_class ==
+                    schedule::ValueClass::warp_uniform) {
+                    _builder.CreateStore(value, slot);
+                } else {
+                    auto *lanes = schedule_value->value_class ==
+                            schedule::ValueClass::token ?
+                        _splat(value) :
+                        _as_lane_vector(value, *schedule_value);
+                    if (lanes == nullptr) { return; }
+                    auto *old = _builder.CreateLoad(
+                        slot->getAllocatedType(), slot);
+                    auto *merged = schedule_value->type == nullptr ?
+                        _builder.CreateSelect(_active_mask, lanes, old) :
+                        _masked_merge(
+                            lanes, old, schedule_value->type,
+                            _active_mask);
+                    if (merged != nullptr) {
+                        _builder.CreateStore(merged, slot);
+                    }
+                }
+            }
         }
         if (!_collectives.succeeded()) { _fail(_collectives.error()); }
     }
@@ -1971,6 +2190,74 @@ private:
             terminator);
     }
 
+    void _find_instruction_spills() {
+        _spilled_instruction_values.assign(
+            _source.values().size(), uint8_t{0u});
+        auto mark = [&](schedule::ValueId id,
+                        schedule::BlockId use_block) noexcept {
+            auto *value = _source.value(id);
+            if (value != nullptr &&
+                value->origin == schedule::ValueOrigin::instruction &&
+                value->defining_block &&
+                *value->defining_block != use_block) {
+                _spilled_instruction_values[id.value] = 1u;
+            }
+        };
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                for (auto operand : instruction.operands) {
+                    mark(operand, block.id);
+                }
+                if (instruction.participant_mask) {
+                    mark(*instruction.participant_mask, block.id);
+                }
+            }
+            auto mark_assignments = [&](const auto &assignments) noexcept {
+                for (auto assignment : assignments) {
+                    mark(assignment.source, block.id);
+                }
+            };
+            auto mark_edge = [&](const schedule::ControlEdge &edge) noexcept {
+                mark_assignments(edge.assignments);
+            };
+            std::visit(
+                [&](const auto &terminator) noexcept {
+                    using T = std::decay_t<decltype(terminator)>;
+                    if constexpr (std::is_same_v<
+                                      T, schedule::BranchTerminator>) {
+                        mark_edge(terminator.edge);
+                    } else if constexpr (std::is_same_v<
+                                             T, schedule::SplitTerminator>) {
+                        mark(terminator.condition, block.id);
+                        mark_edge(terminator.true_edge);
+                        mark_edge(terminator.false_edge);
+                    } else if constexpr (std::is_same_v<
+                                             T, schedule::SwitchTerminator>) {
+                        mark(terminator.selector, block.id);
+                        for (auto &&item : terminator.cases) {
+                            mark_edge(item.edge);
+                        }
+                        mark_edge(terminator.default_edge);
+                    } else if constexpr (std::is_same_v<
+                                             T, schedule::JoinTerminator> ||
+                                         std::is_same_v<
+                                             T, schedule::LoopBackTerminator>) {
+                        mark_assignments(terminator.assignments);
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::BlockBarrierTerminator>) {
+                        mark_edge(terminator.resume_edge);
+                    } else if constexpr (std::is_same_v<
+                                             T, schedule::ReturnTerminator>) {
+                        if (terminator.value) {
+                            mark(*terminator.value, block.id);
+                        }
+                    }
+                },
+                block.terminator);
+        }
+    }
+
     void _allocate_state() {
         auto *mask_type = _layout.mask_type();
         auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
@@ -2020,9 +2307,14 @@ private:
                 _block_loops[block.value].emplace_back(loop.id);
             }
         }
+        _find_instruction_spills();
         _state_slots.resize(_source.values().size(), nullptr);
         for (auto &&value : _source.values()) {
-            if (value.origin != schedule::ValueOrigin::state_slot) {
+            auto spill = value.id.value <
+                             _spilled_instruction_values.size() &&
+                         _spilled_instruction_values[value.id.value] != 0u;
+            if (value.origin != schedule::ValueOrigin::state_slot &&
+                !spill) {
                 continue;
             }
             auto *type = _layout.state_type(value);
@@ -2031,7 +2323,8 @@ private:
                 return;
             }
             auto *slot = _builder.CreateAlloca(
-                type, nullptr, value.name + ".slot");
+                type, nullptr,
+                value.name + (spill ? ".spill" : ".slot"));
             _builder.CreateStore(::llvm::Constant::getNullValue(type), slot);
             _state_slots[value.id.value] = slot;
         }

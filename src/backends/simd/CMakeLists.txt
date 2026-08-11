@@ -39,6 +39,7 @@ target_include_directories(luisa-compute-simd-schedule PUBLIC
 target_link_libraries(luisa-compute-simd-schedule PUBLIC
         luisa-compute-xir)
 set_target_properties(luisa-compute-simd-schedule PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
         UNITY_BUILD OFF)
 
 add_library(luisa-compute-simd-llvm STATIC
@@ -59,6 +60,7 @@ target_link_libraries(luisa-compute-simd-llvm
 target_compile_definitions(luisa-compute-simd-llvm
         PRIVATE ${LLVM_DEFINITIONS})
 set_target_properties(luisa-compute-simd-llvm PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
         UNITY_BUILD OFF)
 
 add_library(luisa-compute-simd-compiler STATIC
@@ -69,4 +71,16 @@ target_include_directories(luisa-compute-simd-compiler PUBLIC
 target_link_libraries(luisa-compute-simd-compiler PUBLIC
         luisa-compute-simd-llvm)
 set_target_properties(luisa-compute-simd-compiler PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        UNITY_BUILD OFF)
+
+luisa_compute_add_backend(simd SOURCES
+        runtime/simd_buffer.cpp
+        runtime/simd_device.cpp
+        runtime/simd_event.cpp
+        runtime/simd_shader.cpp
+        runtime/simd_stream.cpp)
+target_link_libraries(luisa-compute-backend-simd PRIVATE
+        luisa-compute-simd-compiler)
+set_target_properties(luisa-compute-backend-simd PROPERTIES
         UNITY_BUILD OFF)
