@@ -69,6 +69,8 @@
 #include <limits>
 #include <type_traits>
 
+#include "../pointer_containers.h"
+
 namespace luisa::compute::xir {
 
 namespace detail {
@@ -429,7 +431,12 @@ void verify_xir_for_ast(const Module *module, luisa::string_view stage,
 
 class XIR2ASTContext {
 private:
-    using ValueMap = luisa::unordered_map<
+    // Bindings are short-lived translation state. No iterator or element
+    // address survives insertion/erase, so node stability has no semantic
+    // value here. Keep exact pointer identity while storing entries
+    // contiguously: system-STL builds otherwise allocate one node and run the
+    // general hash64 path for every materialized XIR value.
+    using ValueMap = detail::DensePointerMap<
         const Value *, const Expression *>;
     struct ValueMapFrame {
         ValueMap map;
