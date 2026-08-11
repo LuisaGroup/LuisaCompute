@@ -11,7 +11,6 @@
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
-#include <luisa/xir/metadata/name.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/passes/coro_rematerialize.h>
 
@@ -89,10 +88,22 @@ struct ReachingValue {
     return ReachingValue::conflict();
 }
 
-[[nodiscard]] bool has_only_debug_name_metadata(
+// NAME, LOCATION, and COMMENT metadata describe presentation rather than
+// runtime semantics, so they cannot invalidate an otherwise exact load
+// substitution. Other kinds fail closed: REG2MEM_SPILL, for example, carries
+// a structural compiler contract, and future kinds require a separate audit.
+[[nodiscard]] bool has_only_nonsemantic_metadata(
     const MetadataListMixin &value) noexcept {
     for (auto *metadata : value.metadata_list()) {
-        if (!metadata->isa<NameMD>()) { return false; }
+        switch (metadata->derived_metadata_tag()) {
+            case DerivedMetadataTag::NAME:
+            case DerivedMetadataTag::LOCATION:
+            case DerivedMetadataTag::COMMENT:
+                break;
+            case DerivedMetadataTag::CURVE_BASIS:
+            case DerivedMetadataTag::SIGNATURE_CONSTRAINT:
+            case DerivedMetadataTag::REG2MEM_SPILL: return false;
+        }
     }
     return true;
 }// namespace
@@ -124,7 +135,7 @@ struct ReachingValue {
 [[nodiscard]] bool collect_local_state_candidate(
     AllocaInst *alloca, LocalStateCandidate &candidate) noexcept {
     if (alloca == nullptr || !alloca->is_local() ||
-        !has_only_debug_name_metadata(*alloca)) {
+        !has_only_nonsemantic_metadata(*alloca)) {
         return false;
     }
     candidate.alloca = alloca;
@@ -144,7 +155,7 @@ struct ReachingValue {
             if (instruction->isa<GEPInst>()) {
                 auto *gep = static_cast<GEPInst *>(instruction);
                 if (gep->base() != pointer ||
-                    !has_only_debug_name_metadata(*gep)) {
+                    !has_only_nonsemantic_metadata(*gep)) {
                     return false;
                 }
                 worklist.emplace_back(gep);
@@ -153,7 +164,7 @@ struct ReachingValue {
             if (instruction->isa<LoadInst>()) {
                 auto *load = static_cast<LoadInst *>(instruction);
                 if (load->variable() != pointer ||
-                    !load->metadata_list().empty()) {
+                    !has_only_nonsemantic_metadata(*load)) {
                     return false;
                 }
                 LoadProjection projection{.load = load};
@@ -167,7 +178,7 @@ struct ReachingValue {
             if (instruction->isa<StoreInst>()) {
                 auto *store = static_cast<StoreInst *>(instruction);
                 if (store->variable() != pointer || pointer != alloca ||
-                    !store->metadata_list().empty()) {
+                    !has_only_nonsemantic_metadata(*store)) {
                     return false;
                 }
                 candidate.stores.emplace_back(store);

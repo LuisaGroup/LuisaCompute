@@ -11,6 +11,7 @@
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_rematerialize.h>
@@ -87,6 +88,72 @@ void register_coro_rematerialize_tests() {
             [&](const auto &field) noexcept {
                 return field.value == state;
             }));
+    };
+
+    "diagnostic_metadata_does_not_block_argument_rematerialization"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *argument = kernel->create_argument(Type::of<float>(), false);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<float>());
+        state->set_name("argument_copy");
+        state->set_location("coro_rematerialize_test.cpp", 17);
+        state->add_comment("Local copy of argument");
+        auto *store = builder.store(state, argument);
+        store->set_location("coro_rematerialize_test.cpp", 18);
+        store->add_comment("diagnostic store");
+        builder.coro_suspend(12u, "diagnostic_metadata", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(12u, nullptr);
+        auto *load = builder.load(Type::of<float>(), state);
+        load->set_location("coro_rematerialize_test.cpp", 19);
+        load->add_comment("diagnostic load");
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.replayable_single_store_count == 1u);
+        expect(info.promoted_alloca_count == 1u);
+        expect(info.replaced_load_count == 1u);
+        expect(count_loads_from(kernel, state) == 0u);
+        expect(xir_verify_module(&module).succeeded());
+        static_cast<void>(dce_pass_run_on_function(kernel));
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.empty());
+    };
+
+    "structural_metadata_remains_a_rematerialization_barrier"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<float>());
+        state->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::CROSS_BLOCK);
+        builder.store(state, module.create_constant_one(Type::of<float>()));
+        builder.coro_suspend(14u, "structural_metadata", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(14u, nullptr);
+        static_cast<void>(builder.load(Type::of<float>(), state));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            coro_rematerialize_local_state_pass_run_on_function(kernel);
+
+        expect(info.replayable_single_store_count == 0u);
+        expect(info.promoted_alloca_count == 0u);
+        expect(info.replaced_load_count == 0u);
+        expect(count_loads_from(kernel, state) == 1u);
+        expect(xir_verify_module(&module).succeeded());
     };
 
     "conditional_store_does_not_dominate_resume"_test = [] {

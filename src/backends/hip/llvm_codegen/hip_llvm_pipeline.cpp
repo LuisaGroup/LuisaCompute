@@ -8,6 +8,12 @@
 
 namespace luisa::compute::hip {
 
+bool preserve_generated_callable_boundary(
+    size_t instruction_count) noexcept {
+    return instruction_count >
+           generated_callable_inline_instruction_budget;
+}
+
 size_t preserve_hardware_ray_query_loop_form(
     std::string &pipeline) noexcept {
     // LLVM serializes SimplifyCFG options as semicolon-delimited tokens inside

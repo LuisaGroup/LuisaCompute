@@ -814,12 +814,18 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                     llvm_generated_callable_attribute);
             if (is_generated_callable) {
                 // Luisa Callable is an intentional DSL/JIT-stage function
-                // boundary. Let LLVM's inliner make its normal whole-module
-                // cost decision: single-use and small callables still fold,
-                // while large shared components are not multiplied into a
-                // megakernel merely because they originated in the DSL.
+                // boundary. LLVM gives a large bonus to single-call-site local
+                // functions, which can otherwise inline an entire generated
+                // continuation into its scheduler kernel. Bound that growth by
+                // the callee's structural IR size; small callables still use the
+                // normal whole-module cost model.
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.removeFnAttr(llvm::Attribute::NoInline);
+                if (preserve_generated_callable_boundary(
+                        func.getInstructionCount())) {
+                    func.addFnAttr(llvm::Attribute::NoInline);
+                } else {
+                    func.removeFnAttr(llvm::Attribute::NoInline);
+                }
             } else if (is_stack_overflow_fallback) {
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
                 func.addFnAttr(llvm::Attribute::NoInline);

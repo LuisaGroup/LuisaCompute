@@ -28,6 +28,88 @@ using namespace luisa::compute::coro;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+struct CoroAggregateArgument {
+    luisa::uint window_x;
+    luisa::uint window_y;
+    luisa::uint window_width;
+    luisa::uint full_width;
+    luisa::uint full_height;
+    luisa::uint seed;
+    luisa::uint sequence_size;
+    luisa::uint max_bounces;
+    luisa::uint min_bounces;
+    luisa::uint max_diffuse_bounces;
+    luisa::uint max_glossy_bounces;
+    luisa::uint max_transmission_bounces;
+    luisa::uint max_volume_bounces;
+    luisa::uint transparent_min_bounces;
+    luisa::uint transparent_max_bounces;
+    luisa::uint max_path_steps;
+    luisa::uint transparent_background;
+    luisa::uint path_trace_enabled;
+    luisa::uint path_trace_pixel_x;
+    luisa::uint path_trace_pixel_y;
+    luisa::uint path_trace_sample;
+    float direct_clamp;
+    float indirect_clamp;
+    float filter_glossy;
+    float light_inv_rr_threshold;
+    float camera_horizontal_tangent;
+    float camera_vertical_tangent;
+    float camera_ortho_vertical_span;
+    float camera_shift_x;
+    float camera_shift_y;
+    float camera_near;
+    float camera_far;
+    float camera_aperture_radius;
+    float camera_focal_distance;
+    float camera_aperture_ratio;
+    float pass_alpha_threshold;
+    luisa::float3 background;
+    luisa::float4x4 camera_transform;
+};
+
+LUISA_STRUCT(
+    CoroAggregateArgument,
+    window_x,
+    window_y,
+    window_width,
+    full_width,
+    full_height,
+    seed,
+    sequence_size,
+    max_bounces,
+    min_bounces,
+    max_diffuse_bounces,
+    max_glossy_bounces,
+    max_transmission_bounces,
+    max_volume_bounces,
+    transparent_min_bounces,
+    transparent_max_bounces,
+    max_path_steps,
+    transparent_background,
+    path_trace_enabled,
+    path_trace_pixel_x,
+    path_trace_pixel_y,
+    path_trace_sample,
+    direct_clamp,
+    indirect_clamp,
+    filter_glossy,
+    light_inv_rr_threshold,
+    camera_horizontal_tangent,
+    camera_vertical_tangent,
+    camera_ortho_vertical_span,
+    camera_shift_x,
+    camera_shift_y,
+    camera_near,
+    camera_far,
+    camera_aperture_radius,
+    camera_focal_distance,
+    camera_aperture_ratio,
+    pass_alpha_threshold,
+    background,
+    camera_transform) {};
+
 void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
     auto expect_filled = [](luisa::span<const uint> host, uint base, luisa::string_view label) noexcept {
@@ -557,6 +639,61 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             clear_and_check(
                 [&] { persistent(output, sample_count).dispatch(N)(stream); },
                 "nested_loop_sparse_token_persistent");
+        };
+
+    "aggregate_argument_is_identical_in_wavefront_continuations"_test =
+        [options] {
+            constexpr uint N = 64u;
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<float4>(N);
+
+            auto coroutine =
+                Coroutine<void(Buffer<float4>, CoroAggregateArgument)>(
+                    [](BufferFloat4 output,
+                       Var<CoroAggregateArgument> parameters) noexcept {
+                        auto tid = dispatch_x();
+                        $suspend("before-aggregate-argument-read");
+                        output.write(
+                            tid,
+                            make_float4(
+                                parameters.background *
+                                    parameters.direct_clamp,
+                                cast<float>(parameters.sequence_size) +
+                                    cast<float>(parameters.max_path_steps) +
+                                    parameters.indirect_clamp +
+                                    cast<float>(tid)));
+                    });
+            WavefrontCoroScheduler<
+                Buffer<float4>, CoroAggregateArgument>
+                scheduler{device, coroutine};
+            constexpr CoroAggregateArgument parameters{
+                .sequence_size = 257u,
+                .max_path_steps = 4096u,
+                .direct_clamp = 3.5f,
+                .indirect_clamp = 7.25f,
+                .background = float3{0.25f, 0.5f, 0.75f}};
+            scheduler(output, parameters).dispatch(N)(stream);
+
+            luisa::vector<float4> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+            auto ok = true;
+            for (auto i = 0u; i < N; ++i) {
+                auto expected = float4{
+                    0.875f, 1.75f, 2.625f,
+                    4360.25f + static_cast<float>(i)};
+                if (any(host[i] != expected)) {
+                    LUISA_WARNING(
+                        "aggregate continuation argument mismatch at {}: "
+                        "got {}, expected {}",
+                        i, host[i], expected);
+                    ok = false;
+                    break;
+                }
+            }
+            expect(ok)
+                << "wavefront continuation must receive the exact aggregate argument";
         };
 
     "coroutine_lowering_preserves_structured_helper_identity"_test = [] {

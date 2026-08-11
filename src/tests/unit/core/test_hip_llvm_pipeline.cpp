@@ -8,6 +8,14 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 static auto suite = [] {
+    "HIP generated callable inlining has a structural hard limit"_test = [] {
+        expect(!preserve_generated_callable_boundary(0u));
+        expect(!preserve_generated_callable_boundary(
+            generated_callable_inline_instruction_budget));
+        expect(preserve_generated_callable_boundary(
+            generated_callable_inline_instruction_budget + 1u));
+    };
+
     "HIP ray-query pipeline preserves only the canonical-loop option"_test = [] {
         auto pipeline = std::string{
             "module(function(loop-vectorize),"
