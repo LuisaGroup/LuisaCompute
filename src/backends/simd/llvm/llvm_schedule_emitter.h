@@ -65,6 +65,8 @@ private:
     ::llvm::AllocaInst *_frame_parent_token{nullptr};
     ::llvm::AllocaInst *_frame_expected{nullptr};
     ::llvm::AllocaInst *_frame_arrived{nullptr};
+    ::llvm::Constant *_convergence_targets{nullptr};
+    std::vector<uint32_t> _target_convergence_depths{};
     std::vector<::llvm::AllocaInst *> _loop_epochs{};
     std::vector<std::vector<schedule::LoopId>> _block_loops{};
     std::vector<::llvm::AllocaInst *> _state_slots{};
@@ -280,11 +282,13 @@ private:
     void _trap_if(::llvm::Value *condition, std::string_view label);
     [[nodiscard]] ::llvm::Value *_current_token(::llvm::Value *mask);
     void _declare_convergence(schedule::ConvergenceId convergence,
-                              ::llvm::Value *true_mask,
-                              ::llvm::Value *false_mask);
+                              ::llvm::Value *divergent);
     void _advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *mask);
-    [[nodiscard]] ::llvm::Value *_arrive_at_convergence(
-        schedule::ConvergenceId convergence, ::llvm::Value *flow);
+    [[nodiscard]] ::llvm::Value *_arrive_at_convergence_target(
+        ::llvm::Value *target, ::llvm::Value *flow,
+        ::llvm::Value **matched);
+    [[nodiscard]] ::llvm::Value *_cascade_at_convergence_target(
+        ::llvm::Value *target, ::llvm::Value *flow);
     void _resume(schedule::BlockId target, ::llvm::Value *mask);
     void _route_edge(const schedule::ControlEdge &edge,
                      ::llvm::Value *mask);

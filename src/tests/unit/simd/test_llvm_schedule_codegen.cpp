@@ -208,6 +208,166 @@ make_varying_loop(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_varying_loop_collective(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("varying_loop_collective");
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *body = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("entry");
+    header->set_name("header");
+    body->set_name("body");
+    exit->set_name("exit");
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    auto *bound = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, one});
+    auto *condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, bound});
+    builder.cond_br(condition, body, exit);
+    builder.set_insertion_point(body);
+    auto *next = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one});
+    builder.br(header);
+    builder.set_insertion_point(exit);
+    auto *sum = builder.call(
+        Type::of<uint32_t>(),
+        xir::ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+    sum->set_name("loop_exit_sum");
+    builder.return_void();
+    index->add_incoming(zero, entry);
+    index->add_incoming(next, body);
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> sum_id;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "loop_exit_sum") { sum_id = value.id; }
+    }
+    // A post-dominator definition that treats the natural back-edge as a
+    // virtual exit omits this gate. The first lane leaving the loop would then
+    // execute the collective alone and observe one participant.
+    auto header_has_exit_gate = false;
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "header") {
+            if (auto *split = std::get_if<schedule::SplitTerminator>(
+                    &block.terminator)) {
+                header_has_exit_gate = split->convergence.has_value();
+            }
+        } else if (block.name == "exit") {
+            block.terminator = schedule::ReturnTerminator{sum_id};
+        }
+    }
+    if (!sum_id || !header_has_exit_gate ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_multiple_exit_loop_collective(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *dispatch = kernel->create_basic_block();
+    auto *latch = kernel->create_basic_block();
+    auto *side_exit = kernel->create_basic_block();
+    auto *normal_exit = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    header->set_name("header");
+    dispatch->set_name("dispatch");
+    side_exit->set_name("side_exit");
+    normal_exit->set_name("normal_exit");
+    merge->set_name("merge");
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    auto *bound = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, one});
+    auto *running = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, bound});
+    builder.cond_br(running, dispatch, normal_exit);
+    builder.set_insertion_point(dispatch);
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *take_latch = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {parity, zero});
+    builder.cond_br(take_latch, latch, side_exit);
+    builder.set_insertion_point(latch);
+    auto *next = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one});
+    builder.br(header);
+    builder.set_insertion_point(side_exit);
+    builder.br(merge);
+    builder.set_insertion_point(normal_exit);
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *sum = builder.call(
+        Type::of<uint32_t>(),
+        xir::ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+    sum->set_name("multiple_exit_sum");
+    builder.return_void();
+    index->add_incoming(zero, entry);
+    index->add_incoming(next, latch);
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> sum_id;
+    auto gated_splits = 0u;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "multiple_exit_sum") { sum_id = value.id; }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "header" || block.name == "dispatch") {
+            auto *split = std::get_if<schedule::SplitTerminator>(
+                &block.terminator);
+            if (split != nullptr && split->convergence) {
+                ++gated_splits;
+            }
+        } else if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{sum_id};
+        }
+    }
+    if (!sum_id || gated_splits != 2u ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_nested_divergence(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -321,6 +481,527 @@ make_large_cfg(uint32_t width, uint32_t block_count) {
     return function;
 }
 
+[[nodiscard]] std::optional<schedule::Function>
+make_varying_switch(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("varying_switch");
+    auto *entry = kernel->create_body_block();
+    auto *case_zero = kernel->create_basic_block();
+    auto *case_two = kernel->create_basic_block();
+    auto *case_five = kernel->create_basic_block();
+    auto *default_case = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    case_zero->set_name("case_zero");
+    case_two->set_name("case_two");
+    case_five->set_name("case_five");
+    default_case->set_name("default_case");
+    merge->set_name("merge");
+    auto *lane = module.create_warp_lane_id();
+    uint32_t ten_value = 10u;
+    uint32_t twenty_value = 20u;
+    uint32_t thirty_value = 30u;
+    uint32_t forty_value = 40u;
+    auto *ten = module.create_constant(
+        Type::of<uint32_t>(), &ten_value);
+    auto *twenty = module.create_constant(
+        Type::of<uint32_t>(), &twenty_value);
+    auto *thirty = module.create_constant(
+        Type::of<uint32_t>(), &thirty_value);
+    auto *forty = module.create_constant(
+        Type::of<uint32_t>(), &forty_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *branch = builder.indexed_branch(lane);
+    branch->set_default_block(default_case);
+    branch->add_case(0u, case_zero);
+    branch->add_case(2u, case_two);
+    branch->add_case(5u, case_five);
+    builder.set_insertion_point(case_zero);
+    auto *zero_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, ten});
+    builder.br(merge);
+    builder.set_insertion_point(case_two);
+    auto *two_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, twenty});
+    builder.br(merge);
+    builder.set_insertion_point(case_five);
+    auto *five_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, thirty});
+    builder.br(merge);
+    builder.set_insertion_point(default_case);
+    auto *default_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, forty});
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *selected = builder.phi(
+        Type::of<uint32_t>(),
+        {{zero_result, case_zero},
+         {two_result, case_two},
+         {five_result, case_five},
+         {default_result, default_case}});
+    selected->set_name("varying_switch_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    auto saw_convergent_switch = false;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "varying_switch_result") {
+            result_id = value.id;
+            if (value.value_class != schedule::ValueClass::varying) {
+                return std::nullopt;
+            }
+        }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (auto *terminator = std::get_if<schedule::SwitchTerminator>(
+                &block.terminator)) {
+            saw_convergent_switch = terminator->convergence.has_value();
+        }
+        if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!result_id || !saw_convergent_switch ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_switch_loop_with_exits(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("switch_loop_with_exits");
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *dispatch = kernel->create_basic_block();
+    auto *continue_zero = kernel->create_basic_block();
+    auto *early_return = kernel->create_basic_block();
+    auto *break_return = kernel->create_basic_block();
+    auto *continue_default = kernel->create_basic_block();
+    auto *latch = kernel->create_basic_block();
+    auto *normal_return = kernel->create_basic_block();
+    entry->set_name("entry");
+    header->set_name("header");
+    dispatch->set_name("dispatch");
+    continue_zero->set_name("continue_zero");
+    early_return->set_name("early_return");
+    break_return->set_name("break_return");
+    continue_default->set_name("continue_default");
+    latch->set_name("latch");
+    normal_return->set_name("normal_return");
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t three_value = 3u;
+    uint32_t four_value = 4u;
+    uint32_t hundred_value = 100u;
+    uint32_t two_hundred_value = 200u;
+    uint32_t three_hundred_value = 300u;
+    auto *three = module.create_constant(
+        Type::of<uint32_t>(), &three_value);
+    auto *four = module.create_constant(
+        Type::of<uint32_t>(), &four_value);
+    auto *hundred = module.create_constant(
+        Type::of<uint32_t>(), &hundred_value);
+    auto *two_hundred = module.create_constant(
+        Type::of<uint32_t>(), &two_hundred_value);
+    auto *three_hundred = module.create_constant(
+        Type::of<uint32_t>(), &three_hundred_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    index->set_name("switch_loop_index");
+    auto *keep_running = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, four});
+    builder.cond_br(keep_running, dispatch, normal_return);
+    builder.set_insertion_point(dispatch);
+    auto *lane_and_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, index});
+    auto *selector = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane_and_index, three});
+    auto *switch_inst = builder.indexed_branch(selector);
+    switch_inst->set_default_block(continue_default);
+    switch_inst->add_case(0u, continue_zero);
+    switch_inst->add_case(1u, early_return);
+    switch_inst->add_case(2u, break_return);
+    builder.set_insertion_point(continue_zero);
+    builder.br(latch);
+    builder.set_insertion_point(continue_default);
+    builder.br(latch);
+    builder.set_insertion_point(latch);
+    auto *next = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one});
+    builder.br(header);
+    builder.set_insertion_point(early_return);
+    auto *early_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, hundred});
+    early_value->set_name("early_value");
+    builder.return_void();
+    builder.set_insertion_point(break_return);
+    auto *break_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, two_hundred});
+    break_value->set_name("break_value");
+    builder.return_void();
+    builder.set_insertion_point(normal_return);
+    auto *normal_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, three_hundred});
+    normal_value->set_name("normal_value");
+    builder.return_void();
+    index->add_incoming(zero, entry);
+    index->add_incoming(next, latch);
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> early_id;
+    std::optional<schedule::ValueId> break_id;
+    std::optional<schedule::ValueId> normal_id;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "early_value") { early_id = value.id; }
+        if (value.name == "break_value") { break_id = value.id; }
+        if (value.name == "normal_value") { normal_id = value.id; }
+    }
+    if (!early_id || !break_id || !normal_id ||
+        lowered.function->loops().empty()) {
+        return std::nullopt;
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "early_return") {
+            block.terminator = schedule::ReturnTerminator{early_id};
+        } else if (block.name == "break_return") {
+            block.terminator = schedule::ReturnTerminator{break_id};
+        } else if (block.name == "normal_return") {
+            block.terminator = schedule::ReturnTerminator{normal_id};
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_multiple_backedge_loop(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("multiple_backedge_loop");
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *body = kernel->create_basic_block();
+    auto *increment_one = kernel->create_basic_block();
+    auto *increment_two = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("entry");
+    header->set_name("header");
+    body->set_name("body");
+    increment_one->set_name("increment_one");
+    increment_two->set_name("increment_two");
+    exit->set_name("exit");
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_value = 2u;
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    index->set_name("multiple_backedge_index");
+    auto *bound = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, one});
+    auto *keep_running = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, bound});
+    builder.cond_br(keep_running, body, exit);
+    builder.set_insertion_point(body);
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *take_one = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {parity, zero});
+    builder.cond_br(take_one, increment_one, increment_two);
+    builder.set_insertion_point(increment_one);
+    auto *next_one = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one});
+    builder.br(header);
+    builder.set_insertion_point(increment_two);
+    auto *next_two = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, two});
+    builder.br(header);
+    builder.set_insertion_point(exit);
+    builder.return_void();
+    index->add_incoming(zero, entry);
+    index->add_incoming(next_one, increment_one);
+    index->add_incoming(next_two, increment_two);
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    auto loop_back_count = size_t{0u};
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "multiple_backedge_index") {
+            result_id = value.id;
+        }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (auto *branch = std::get_if<schedule::BranchTerminator>(
+                &block.terminator);
+            branch != nullptr && branch->edge.loop_back) {
+            ++loop_back_count;
+        }
+        if (block.name == "exit") {
+            block.terminator = schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!result_id || lowered.function->loops().size() != 1u ||
+        loop_back_count != 2u ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_non_dominating_convergence(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("non_dominating_convergence");
+    auto *entry = kernel->create_body_block();
+    auto *split = kernel->create_basic_block();
+    auto *bypass = kernel->create_basic_block();
+    auto *shared = kernel->create_basic_block();
+    auto *other = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    split->set_name("split");
+    bypass->set_name("bypass");
+    shared->set_name("shared");
+    other->set_name("other");
+    merge->set_name("merge");
+    auto *lane = module.create_warp_lane_id();
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t three_value = 3u;
+    uint32_t six_value = 6u;
+    auto *three = module.create_constant(
+        Type::of<uint32_t>(), &three_value);
+    auto *six = module.create_constant(
+        Type::of<uint32_t>(), &six_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *enter_split = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {lane, six});
+    builder.cond_br(enter_split, split, bypass);
+    builder.set_insertion_point(split);
+    auto *take_shared = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {lane, three});
+    builder.cond_br(take_shared, shared, other);
+    builder.set_insertion_point(bypass);
+    builder.br(shared);
+    builder.set_insertion_point(shared);
+    builder.br(merge);
+    builder.set_insertion_point(other);
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *sum = builder.call(
+        Type::of<uint32_t>(),
+        xir::ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+    sum->set_name("non_dominating_sum");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> sum_id;
+    std::optional<schedule::ConvergenceId> inner_convergence;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "non_dominating_sum") { sum_id = value.id; }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "split") {
+            auto *terminator = std::get_if<schedule::SplitTerminator>(
+                &block.terminator);
+            if (terminator != nullptr) {
+                inner_convergence = terminator->convergence;
+            }
+        }
+        if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{sum_id};
+        }
+    }
+    if (!sum_id || !inner_convergence) { return std::nullopt; }
+
+    // `shared` is intentionally not dominated by `split`, so the old static
+    // dominator-subtree annotation does not mention the still-live inner
+    // token on shared -> merge. Dynamic target matching must nevertheless
+    // rendezvous that cohort before executing the collective at merge.
+    auto static_join_is_missing = false;
+    for (auto &&block : lowered.function->blocks()) {
+        if (block.name != "shared") { continue; }
+        auto *branch = std::get_if<schedule::BranchTerminator>(
+            &block.terminator);
+        if (branch != nullptr) {
+            static_join_is_missing = std::find(
+                branch->edge.joins.begin(),
+                branch->edge.joins.end(),
+                *inner_convergence) == branch->edge.joins.end();
+        }
+    }
+    if (!static_join_is_missing ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_return_convergence_cascade(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("return_convergence_cascade");
+    auto *entry = kernel->create_body_block();
+    auto *nested = kernel->create_basic_block();
+    auto *inner_live = kernel->create_basic_block();
+    auto *early_return = kernel->create_basic_block();
+    auto *outer_right = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    nested->set_name("nested");
+    inner_live->set_name("inner_live");
+    early_return->set_name("early_return");
+    outer_right->set_name("outer_right");
+    merge->set_name("merge");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_value = 2u;
+    uint32_t four_value = 4u;
+    uint32_t hundred_value = 100u;
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *four = module.create_constant(
+        Type::of<uint32_t>(), &four_value);
+    auto *hundred = module.create_constant(
+        Type::of<uint32_t>(), &hundred_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *outer_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {lane, four});
+    builder.cond_br(outer_condition, nested, outer_right);
+    builder.set_insertion_point(nested);
+    auto *inner_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {lane, two});
+    builder.cond_br(inner_condition, inner_live, early_return);
+    builder.set_insertion_point(inner_live);
+    builder.br(merge);
+    builder.set_insertion_point(early_return);
+    auto *early_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, hundred});
+    early_value->set_name("early_value");
+    builder.br(merge);
+    builder.set_insertion_point(outer_right);
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *sum = builder.call(
+        Type::of<uint32_t>(),
+        xir::ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+    sum->set_name("return_cascade_sum");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> early_id;
+    std::optional<schedule::ValueId> sum_id;
+    std::optional<schedule::ConvergenceId> outer_convergence;
+    std::optional<schedule::ConvergenceId> inner_convergence;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "early_value") { early_id = value.id; }
+        if (value.name == "return_cascade_sum") { sum_id = value.id; }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "entry") {
+            if (auto *split = std::get_if<schedule::SplitTerminator>(
+                    &block.terminator)) {
+                outer_convergence = split->convergence;
+            }
+        } else if (block.name == "nested") {
+            if (auto *split = std::get_if<schedule::SplitTerminator>(
+                    &block.terminator)) {
+                inner_convergence = split->convergence;
+            }
+        } else if (block.name == "early_return") {
+            block.terminator = schedule::ReturnTerminator{early_id};
+        } else if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{sum_id};
+        }
+    }
+    if (!early_id || !sum_id || !outer_convergence ||
+        !inner_convergence) {
+        return std::nullopt;
+    }
+    auto *outer = lowered.function->convergence(*outer_convergence);
+    auto *inner = lowered.function->convergence(*inner_convergence);
+    if (outer == nullptr || inner == nullptr ||
+        outer->target != inner->target ||
+        inner->parent != outer_convergence ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
 template<size_t Width>
 [[nodiscard]] bool run_codegen() {
     auto schedule_function = make_divergent_collective(Width);
@@ -420,6 +1101,52 @@ template<size_t Width>
         CHECK(output[lane] == lane + 1u);
     }
     return true;
+}
+
+[[nodiscard]] bool run_loop_collective_codegen(
+    std::optional<schedule::Function> schedule_function,
+    std::string name) {
+    static constexpr auto width = 8u;
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(name, *context);
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    for (auto active_lanes : {uint32_t{5u}, uint32_t{8u}}) {
+        std::array<uint32_t, width> output{};
+        output.fill(0xdeadbeefu);
+        auto config = launch_1d(active_lanes, width);
+        function(nullptr, output.data(), &config, active_lanes);
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            CHECK(output[lane] ==
+                  (lane < active_lanes ? active_lanes : 0xdeadbeefu));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_varying_loop_collective_codegen() {
+    return run_loop_collective_codegen(
+        make_varying_loop_collective(8u),
+        "simd_varying_loop_collective");
+}
+
+[[nodiscard]] bool run_multiple_exit_loop_collective_codegen() {
+    return run_loop_collective_codegen(
+        make_multiple_exit_loop_collective(8u),
+        "simd_multiple_exit_loop_collective");
 }
 
 template<size_t Width>
@@ -594,6 +1321,322 @@ template<size_t Width>
         auto expected = bias_value +
                         (take_left ? left_addend : right_addend);
         for (auto value : output) { CHECK(value == expected); }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_uniform_switch_codegen() {
+    static constexpr auto width = 8u;
+    xir::Module xir_module;
+    auto *kernel = xir_module.create_kernel();
+    kernel->set_name("uniform_switch");
+    auto *selector = kernel->create_value_argument(Type::of<uint32_t>());
+    auto *bias = kernel->create_value_argument(Type::of<uint32_t>());
+    auto *entry = kernel->create_body_block();
+    auto *case_zero = kernel->create_basic_block();
+    auto *case_two = kernel->create_basic_block();
+    auto *default_case = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    case_zero->set_name("case_zero");
+    case_two->set_name("case_two");
+    default_case->set_name("default_case");
+    merge->set_name("merge");
+    uint32_t eleven_value = 11u;
+    uint32_t twenty_two_value = 22u;
+    uint32_t thirty_three_value = 33u;
+    auto *eleven = xir_module.create_constant(
+        Type::of<uint32_t>(), &eleven_value);
+    auto *twenty_two = xir_module.create_constant(
+        Type::of<uint32_t>(), &twenty_two_value);
+    auto *thirty_three = xir_module.create_constant(
+        Type::of<uint32_t>(), &thirty_three_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *switch_inst = builder.indexed_branch(selector);
+    switch_inst->set_default_block(default_case);
+    switch_inst->add_case(0u, case_zero);
+    switch_inst->add_case(2u, case_two);
+    builder.set_insertion_point(case_zero);
+    auto *zero_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {bias, eleven});
+    builder.br(merge);
+    builder.set_insertion_point(case_two);
+    auto *two_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {bias, twenty_two});
+    builder.br(merge);
+    builder.set_insertion_point(default_case);
+    auto *default_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {bias, thirty_three});
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *selected = builder.phi(
+        Type::of<uint32_t>(),
+        {{zero_result, case_zero},
+         {two_result, case_two},
+         {default_result, default_case}});
+    selected->set_name("uniform_switch_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    std::optional<schedule::ValueId> result_id;
+    auto saw_uniform_switch = false;
+    for (auto &&value : lowered.function->values()) {
+        if (value.origin == schedule::ValueOrigin::parameter) {
+            CHECK(value.value_class == schedule::ValueClass::warp_uniform);
+        }
+        if (value.name == "uniform_switch_result") {
+            CHECK(value.value_class == schedule::ValueClass::warp_uniform);
+            result_id = value.id;
+        }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (std::holds_alternative<schedule::SwitchTerminator>(
+                block.terminator)) {
+            saw_uniform_switch =
+                block.strategy == schedule::RegionStrategy::uniform_control;
+        }
+        if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{result_id};
+        }
+    }
+    CHECK(result_id.has_value());
+    CHECK(saw_uniform_switch);
+
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-uniform-switch", *context);
+    auto name = std::string{"simd_uniform_switch"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(codegen.argument_buffer_size == 32u);
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("uniform_switch_result.slot = alloca i32") !=
+          std::string::npos);
+    CHECK(ir.find("uniform.switch.default") != std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    alignas(16) std::array<std::byte, 32u> arguments{};
+    auto config = launch_1d(width, 32u);
+    auto bias_value = uint32_t{7u};
+    std::memcpy(arguments.data() + 16u,
+                &bias_value, sizeof(bias_value));
+    for (auto selector_value : {0u, 2u, 99u}) {
+        std::memcpy(arguments.data(),
+                    &selector_value, sizeof(selector_value));
+        std::array<uint32_t, width> output{};
+        output.fill(0xdeadbeefu);
+        function(arguments.data(), output.data(), &config, width);
+        auto addend = selector_value == 0u ? 11u :
+                      selector_value == 2u ? 22u :
+                                             33u;
+        for (auto value : output) {
+            CHECK(value == bias_value + addend);
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_varying_switch_codegen() {
+    static constexpr auto width = 8u;
+    auto schedule_function = make_varying_switch(width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-varying-switch", *context);
+    auto name = std::string{"simd_varying_switch"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    for (auto active_lanes : {uint32_t{8u}, uint32_t{6u}}) {
+        std::array<uint32_t, width> output{};
+        output.fill(0xdeadbeefu);
+        auto config = launch_1d(active_lanes, width);
+        function(nullptr, output.data(), &config, active_lanes);
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            if (lane >= active_lanes) {
+                CHECK(output[lane] == 0xdeadbeefu);
+                continue;
+            }
+            auto addend = lane == 0u ? 10u :
+                          lane == 2u ? 20u :
+                          lane == 5u ? 30u :
+                                       40u;
+            CHECK(output[lane] == lane + addend);
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_switch_loop_exits_codegen() {
+    static constexpr auto width = 8u;
+    auto schedule_function = make_switch_loop_with_exits(width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-switch-loop-exits", *context);
+    auto name = std::string{"simd_switch_loop_exits"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    std::array<uint32_t, width> output{};
+    output.fill(0xdeadbeefu);
+    auto config = launch_1d(width, width);
+    function(nullptr, output.data(), &config, width);
+    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+        auto expected = lane % 4u == 2u ? lane + 200u :
+                                          lane + 100u;
+        CHECK(output[lane] == expected);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_multiple_backedge_loop_codegen() {
+    static constexpr auto width = 8u;
+    auto schedule_function = make_multiple_backedge_loop(width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-multiple-backedge-loop", *context);
+    auto name = std::string{"simd_multiple_backedge_loop"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    std::array<uint32_t, width> output{};
+    output.fill(0xdeadbeefu);
+    auto config = launch_1d(width, width);
+    function(nullptr, output.data(), &config, width);
+    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+        CHECK(output[lane] == lane + 1u);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_non_dominating_convergence_codegen() {
+    static constexpr auto width = 8u;
+    auto schedule_function = make_non_dominating_convergence(width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-non-dominating-convergence", *context);
+    auto name = std::string{"simd_non_dominating_convergence"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    for (auto active_lanes : {uint32_t{5u}, uint32_t{8u}}) {
+        std::array<uint32_t, width> output{};
+        output.fill(0xdeadbeefu);
+        auto config = launch_1d(active_lanes, width);
+        function(nullptr, output.data(), &config, active_lanes);
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            CHECK(output[lane] ==
+                  (lane < active_lanes ? active_lanes : 0xdeadbeefu));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_return_convergence_cascade_codegen() {
+    static constexpr auto width = 8u;
+    auto schedule_function = make_return_convergence_cascade(width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-return-convergence-cascade", *context);
+    auto name = std::string{"simd_return_convergence_cascade"};
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint32_t *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    for (auto active_lanes : {uint32_t{5u}, uint32_t{8u}}) {
+        std::array<uint32_t, width> output{};
+        output.fill(0xdeadbeefu);
+        auto config = launch_1d(active_lanes, width);
+        function(nullptr, output.data(), &config, active_lanes);
+        auto expected_live = active_lanes - 2u;
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            auto expected = lane >= active_lanes ? 0xdeadbeefu :
+                            lane >= 2u && lane < 4u ? lane + 100u :
+                                                    expected_live;
+            CHECK(output[lane] == expected);
+        }
     }
     return true;
 }
@@ -801,9 +1844,21 @@ int main() {
         {"Schedule IR vector warp16", &run_codegen<16u>},
         {"Schedule IR loop warp4", &run_loop_codegen<4u>},
         {"Schedule IR loop warp8", &run_loop_codegen<8u>},
+        {"varying loop exit collective",
+         &run_varying_loop_collective_codegen},
+        {"multiple-exit loop collective",
+         &run_multiple_exit_loop_collective_codegen},
         {"Schedule IR nested convergence", &run_nested_codegen},
         {"Schedule IR 96-block CFG", &run_large_cfg_codegen},
         {"scalar uniform values", &run_uniform_value_codegen},
+        {"scalar uniform switch", &run_uniform_switch_codegen},
+        {"varying switch convergence", &run_varying_switch_codegen},
+        {"switch loop exits", &run_switch_loop_exits_codegen},
+        {"multiple loop backedges", &run_multiple_backedge_loop_codegen},
+        {"dynamic non-dominating convergence",
+         &run_non_dominating_convergence_codegen},
+        {"return convergence cascade",
+         &run_return_convergence_cascade_codegen},
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},

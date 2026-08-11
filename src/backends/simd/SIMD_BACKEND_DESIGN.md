@@ -86,15 +86,19 @@ flowchart TD
     H --> I[SIMD CPU runtime]
 ```
 
-The XIR handoff is unstructured, reducible CFG in the first milestone. XIR
-structured constructs are destructured before Schedule IR construction.
-Schedule IR eventually supports arbitrary CFG, but irreducible CFG is rejected
-with a precise diagnostic until its convergence rules are implemented.
-At the current checkpoint, conditional branches, natural-loop back-edges,
-nested reconvergence, and early returns execute end to end. Raw indexed
-branches are represented in Schedule IR but LLVM `SwitchTerminator` emission is
-still pending, so the implementation does not yet claim complete reducible-CFG
-coverage.
+The XIR handoff is an unstructured, reducible CFG. XIR structured constructs
+are destructured before Schedule IR construction. The current Schedule-to-LLVM
+path accepts arbitrary reachable reducible CFG built from unconditional,
+conditional, and indexed branches plus return and unreachable terminators,
+subject to the separately documented instruction and synchronization feature
+set. This includes nested control, natural loops with multiple back-edges and
+multiple exits, indexed branches without a post-dominator, and early returns.
+Irreducible CFG is rejected with a precise diagnostic until its convergence
+rules are implemented.
+
+The small-step semantics, uniformity lattice, inductive invariants, proof
+obligations, bounded exhaustive model, and implementation mapping are specified
+in [`SIMD_SCHEDULER_FORMAL_MODEL.md`](SIMD_SCHEDULER_FORMAL_MODEL.md).
 
 The intended initial XIR pipeline is:
 
@@ -107,8 +111,10 @@ The intended initial XIR pipeline is:
    analyses;
 7. build and verify Schedule IR.
 
-Early returns are deliberately retained. Per-lane termination is a feature of
-the scheduler and should not be expanded into artificial control flow.
+The canonical AST-to-XIR path currently spills early returns to one exit while
+destructuring. Schedule IR and the direct unstructured-XIR entry still model
+per-lane return explicitly, so CFG producers are not required to rely on that
+normalization for correctness.
 
 ## 4. Execution model
 
@@ -204,6 +210,19 @@ when their parent token and loop epochs are compatible. A loop back-edge
 advances that loop's epoch. Lanes in different iterations therefore remain
 separate even if they temporarily have the same static program counter.
 
+SIMD uses post-dominance over terminating executions. The default XIR analysis
+continues to treat reachable cycles as possible infinite virtual exits, but
+that conservative definition would erase a natural loop's real exit gate and
+let a post-loop collective run once per exiting cohort. For SIMD, back-edges
+are not virtual exits when computing rendezvous targets. If a scalar lane does
+not terminate at runtime, packet progress is correspondingly not promised.
+
+The destination block and the current dynamic frame, rather than a
+dominator-only edge annotation, determine whether an edge is a convergence
+arrival. This handles shared blocks with entries from both inside and outside
+a divergent scope. Several frames targeting the same block are released
+inner-to-outer by following their runtime parent tokens.
+
 The token implementation is not required to be a per-lane heap object. For
 structured/reducible CFG it can normally be represented by a small stack of
 compile-time token IDs and runtime epoch counters. Schedule IR makes the
@@ -211,7 +230,9 @@ contract explicit so codegen may specialize it.
 
 Lanes that return or are discarded are removed from the expected mask of every
 enclosing convergence point. Reconvergence therefore cannot deadlock waiting
-for a terminated lane.
+for a terminated lane. If this completes a frame, its waiting lanes traverse
+the same runtime target-arrival cascade as a normal edge before they become
+runnable; this preserves parent gates when nested frames share a merge block.
 
 ## 6. Warp intrinsic semantics
 
@@ -374,7 +395,8 @@ much larger than hand-written code. Compile-time complexity is therefore a
 correctness constraint, not a late performance polish. Let `B`, `E`, `I`, and
 `U` be reachable blocks, CFG edges, instructions, and operand uses; `C` the
 number of convergence gates; `A` the number of PHI edge assignments; `J` the
-number of emitted convergence arrivals; `R` the number of required
+number of emitted convergence arrivals; `T` the number of return terminators;
+`R` the number of required
 incoming-edge/state-slot obligations (including missing assignments in an
 invalid fixture); and `M` the loop-membership output already materialized by
 XIR's natural-loop analysis.
@@ -392,6 +414,7 @@ The Phase 1 implementation has the following budget:
 | convergence edge annotation | `O(B + E + C + J)` dominator-tree event walk | `O(B + C + J)` |
 | PHI edge lowering | expected `O(E + A)` | `O(E + A)` |
 | Schedule IR verification | `O(B + E + I + U + A + J + R)` | linear in IR plus diagnostics |
+| LLVM dynamic target-arrival emission | `O(J + T * W)` with bounded runtime cascades | `O(J + T * W)` target-independent IR |
 
 `discover_natural_loops` is an existing XIR analysis and is counted separately;
 the SIMD pass consumes its materialized membership once and must not add a
@@ -750,9 +773,9 @@ on 2026-08-11. The repository now contains:
   explicit collective masks,
   control terminators, convergence/loop tables, a linear indexed verifier, and
   a stable text printer;
-- a non-mutating XIR-to-Schedule-IR projection for destructured reducible CFGs,
-  arithmetic/resources, PHIs, natural-loop epoch transitions, post-dominator
-  convergence, and warp collectives;
+- a non-mutating XIR-to-Schedule-IR projection for arbitrary destructured
+  reducible CFGs, arithmetic/resources, PHIs, natural-loop epoch transitions,
+  post-dominator convergence, and warp collectives;
 - an `O(I + U)` dependency-worklist warp-uniformity analysis and indexed CFG,
   loop, convergence, and PHI lowering paths that avoid global pairwise scans;
 - scalar kernel-argument/resource ABI and scalar uniform expression/state
@@ -765,7 +788,8 @@ on 2026-08-11. The repository now contains:
   every low-level operation still consumes exactly one `<W x T>` value;
 - an independent-thread packet dispatcher whose per-lane fixed-vector state
   contains the current PC, dynamic convergence token, runnable/live bits, and
-  one epoch vector per natural loop;
+  one epoch vector per natural loop; conditional and indexed branches use the
+  same N-way convergence-frame protocol;
 - bounded dynamic convergence frames (at most `W` for a `W`-lane packet),
   cascading inner-to-outer joins, loop-gate reuse, dispatch-edge masks, and
   masked scalar returns; the old 64-block ready bitmap and its CFG-size limit
@@ -801,24 +825,35 @@ on 2026-08-11. The repository now contains:
   packets, matching fallback's separation of block size from warp size;
 - standalone unit coverage for warp1/4/8/16 control flow and positive/negative
   Schedule IR fixtures, plus XIR projection fixtures for divergent diamonds,
-  uniform control, lane-dependent loops, warp collectives, structured-CFG
-  diagnostics, and irreducible-CFG diagnostics;
+  uniform control, lane-dependent loops, a deterministic family of arbitrary
+  forward reducible graphs (all 122 reachable five-block topologies plus 96
+  larger generated graphs), warp collectives, structured-CFG diagnostics,
+  and irreducible-CFG diagnostics;
+- an executable bounded scheduler model that checks 342 active-mask/input
+  initial states, all 4,782 legal ready-cohort interleavings, 47,764 transition
+  steps, scalar-lane observational equivalence, and lane/gate ownership
+  invariants;
 - IR-shape assertions that reject target-specific intrinsic namespaces and ORC
   execution tests for warp1/4/8/16, including a divergent cohort-uniform lane
   read, lane-wise suspension spill, reconvergence, and active sum;
 - ORC execution fixtures for lane-dependent loops at warp4/8, nested dynamic
-  reconvergence, a 96-block CFG, vector Buffer gather/add/scatter, and a real
-  AST `Kernel1D` with a 13-thread dispatch edge inside a valid 32-thread block.
-  Loop membership is explicit in Schedule IR so epochs are compared only while
-  a cohort remains inside that loop;
+  reconvergence, scalar-uniform and varying indexed branches, switch-in-loop
+  multiple exits and early returns, multiple natural-loop back-edges, a
+  lane-dependent loop-exit collective, a two-exit loop collective, a
+  non-dominating shared-entry convergence counterexample, a same-target
+  parent/child convergence cascade completed by return, a 96-block CFG,
+  vector Buffer gather/add/scatter, and a real AST `Kernel1D` with a 13-thread
+  dispatch edge inside a valid 32-thread block. Loop membership is explicit in
+  Schedule IR so epochs are compared only while a cohort remains inside that
+  loop;
 - unattended runtime coverage from the repository's existing multidimensional
   lane-ID, warp matmul, sparse reduction/prefix, and aggregate lane-shuffle
   tests, plus device-level specialization across warp1/4/8/16, local-memory
   isolation under divergence, and conflicting direct-buffer atomics.
 
-The next implementation boundary is complete reducible-CFG control emission
-(`SwitchTerminator` plus nested switch/loop/multi-exit conformance), then
-callable conformance and bindless texture access/sampling, followed by
-cooperative shared memory and block barriers. The current compiler returns
-precise diagnostics for unsupported features rather than silently accepting
-them.
+The next implementation boundary is callable conformance and bindless texture
+access/sampling, followed by cooperative shared memory and block barriers.
+Acceleration structures then use Embree's matching 4/8/16-wide packet APIs,
+while the remaining device-library surface gains scalar-uniform and native
+`<W x T>` implementations. The current compiler returns precise diagnostics
+for unsupported features rather than silently accepting them.

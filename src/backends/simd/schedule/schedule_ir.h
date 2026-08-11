@@ -152,9 +152,11 @@ struct EdgeAssignment {
 
 struct ControlEdge {
     BlockId target{};
-    // Gates reached before entering target, ordered from the innermost
-    // dynamic scope to the outermost. More than one gate is possible when
-    // nested divergent regions share a post-dominator.
+    // Statically provable gates reached before entering target, ordered from
+    // the innermost scope to the outermost. A block with entries from both
+    // inside and outside a scope may need an additional context-dependent
+    // arrival; codegen therefore validates the current dynamic token against
+    // the target block even when that gate is absent from this hint list.
     std::vector<ConvergenceId> joins{};
     std::optional<LoopId> loop_back{};
     std::vector<EdgeAssignment> assignments{};

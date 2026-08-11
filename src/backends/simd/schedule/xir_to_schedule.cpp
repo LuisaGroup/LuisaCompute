@@ -1167,8 +1167,14 @@ public:
                 "CFG remains cyclic after removing natural back-edges; run lower_irreducible_cfg before SIMD scheduling");
             return std::move(_result);
         }
+        // SIMD reconvergence is conditional on scalar-lane termination. Use
+        // post-dominance over terminating executions so a natural-loop
+        // back-edge does not hide the common exit where lanes with different
+        // trip counts must rendezvous. The default XIR analysis remains
+        // conservative about genuinely infinite executions.
         auto post_dom_tree = xir::compute_post_dom_tree(
-            const_cast<xir::Function *>(_source));
+            const_cast<xir::Function *>(_source),
+            {.account_for_infinite_paths = false});
         _uniformity.analyze(_source);
 
         _create_function_and_blocks();

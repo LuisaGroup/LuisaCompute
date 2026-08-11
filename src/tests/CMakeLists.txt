@@ -40,6 +40,16 @@ add_test(NAME test_simd_cohort_scheduler
 set_tests_properties(test_simd_cohort_scheduler PROPERTIES
         LABELS "unit;unit_simd")
 
+add_executable(test_simd_scheduler_model
+        unit/simd/test_scheduler_model.cpp)
+target_compile_features(test_simd_scheduler_model PRIVATE cxx_std_20)
+target_include_directories(test_simd_scheduler_model PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_scheduler_model
+        COMMAND test_simd_scheduler_model)
+set_tests_properties(test_simd_scheduler_model PROPERTIES
+        LABELS "unit;unit_simd")
+
 add_executable(test_simd_reference_warp_collectives
         unit/simd/test_reference_warp_collectives.cpp)
 target_compile_features(test_simd_reference_warp_collectives PRIVATE cxx_std_20)

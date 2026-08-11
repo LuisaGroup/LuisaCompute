@@ -283,6 +283,16 @@ private:
             });
     }
 
+    [[nodiscard]] std::optional<CohortType> _take_at(
+        size_t selected) noexcept {
+        if (selected >= _ready.size()) { return std::nullopt; }
+        auto cohort = _ready[selected];
+        _queued = _queued - cohort.mask;
+        _ready.erase(_ready.begin() +
+                     static_cast<std::ptrdiff_t>(selected));
+        return cohort;
+    }
+
     [[nodiscard]] EnqueueResult _enqueue(Continuation continuation,
                                          Mask mask) noexcept {
         mask &= _live;
@@ -414,11 +424,67 @@ public:
             }
             if (choose) { selected = i; }
         }
-        auto cohort = _ready[selected];
-        _queued = _queued - cohort.mask;
-        _ready.erase(_ready.begin() +
-                     static_cast<std::ptrdiff_t>(selected));
-        return cohort;
+        return _take_at(selected);
+    }
+
+    // The executable formal model explores every legal scheduler choice,
+    // rather than only the two production policies. This method deliberately
+    // selects by ready-set index and otherwise performs the same transition
+    // as take().
+    [[nodiscard]] std::optional<CohortType> take_at(
+        size_t ready_index) noexcept {
+        return _take_at(ready_index);
+    }
+
+    // Checks the mask-partition and gate-ownership invariants of the abstract
+    // transition system. Gate expected masks may contain terminated lanes;
+    // completion is defined against expected & live.
+    [[nodiscard]] bool invariants_hold() const noexcept {
+        Mask ready_union;
+        for (auto i = size_t{0u}; i < _ready.size(); i++) {
+            auto &&cohort = _ready[i];
+            if (cohort.mask.none() ||
+                !cohort.mask.is_subset_of(_live) ||
+                cohort.mask.intersects(ready_union)) {
+                return false;
+            }
+            for (auto j = i + 1u; j < _ready.size(); j++) {
+                if (cohort.continuation == _ready[j].continuation) {
+                    return false;
+                }
+            }
+            ready_union |= cohort.mask;
+        }
+        if (ready_union != _queued ||
+            !_queued.is_subset_of(_live) ||
+            !_parked.is_subset_of(_live) ||
+            _queued.intersects(_parked)) {
+            return false;
+        }
+
+        Mask arrived_union;
+        for (auto i = size_t{0u}; i < _gates.size(); i++) {
+            auto &&gate = _gates[i];
+            if (!gate.arrived.is_subset_of(gate.expected) ||
+                !gate.arrived.is_subset_of(_live) ||
+                gate.arrived.intersects(arrived_union)) {
+                return false;
+            }
+            for (auto j = i + 1u; j < _gates.size(); j++) {
+                if (gate.continuation == _gates[j].continuation) {
+                    return false;
+                }
+            }
+            arrived_union |= gate.arrived;
+        }
+        return arrived_union == _parked;
+    }
+
+    // At a transition boundary no cohort is held by the caller, so every
+    // live lane must be either queued for execution or parked at one gate.
+    [[nodiscard]] bool quiescent_invariants_hold() const noexcept {
+        return invariants_hold() &&
+               _live == (_queued | _parked);
     }
 
     [[nodiscard]] auto policy() const noexcept { return _policy; }

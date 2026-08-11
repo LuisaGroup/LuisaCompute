@@ -173,12 +173,8 @@ void ScheduleEmitter::_trap_if(::llvm::Value *condition, std::string_view label)
         tokens, _safe_first_lane(mask));
 }
 
-void ScheduleEmitter::_declare_convergence(schedule::ConvergenceId convergence,
-                          ::llvm::Value *true_mask,
-                          ::llvm::Value *false_mask) {
-    auto *has_true = _builder.CreateOrReduce(true_mask);
-    auto *has_false = _builder.CreateOrReduce(false_mask);
-    auto *divergent = _builder.CreateAnd(has_true, has_false);
+void ScheduleEmitter::_declare_convergence(
+    schedule::ConvergenceId convergence, ::llvm::Value *divergent) {
     auto *current_token = _current_token(_active_mask);
     auto *has_current = _builder.CreateICmpNE(
         current_token, _builder.getInt32(0u));
@@ -270,8 +266,10 @@ void ScheduleEmitter::_advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *
         slot);
 }
 
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_arrive_at_convergence(
-    schedule::ConvergenceId convergence, ::llvm::Value *flow) {
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_arrive_at_convergence_target(
+    ::llvm::Value *target, ::llvm::Value *flow,
+    ::llvm::Value **matched) {
+    if (_convergence_targets == nullptr) { return flow; }
     auto *any = _builder.CreateOrReduce(flow);
     auto *token = _current_token(flow);
     auto *has_token = _builder.CreateAnd(
@@ -287,13 +285,14 @@ void ScheduleEmitter::_advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *
     auto *static_ids = _builder.CreateLoad(
         _frame_static_id->getAllocatedType(), _frame_static_id);
     auto *static_id = _builder.CreateExtractElement(static_ids, index);
+    auto *dynamic_target = _builder.CreateExtractElement(
+        _convergence_targets, static_id);
     auto *matches = _builder.CreateAnd(
         has_token,
         _builder.CreateAnd(
             frame_active,
-            _builder.CreateICmpEQ(
-                static_id,
-                _builder.getInt32(convergence.value))));
+            _builder.CreateICmpEQ(dynamic_target, target)));
+    *matched = matches;
 
     auto *expected_ptr = _frame_mask_pointer(_frame_expected, index);
     auto *arrived_ptr = _frame_mask_pointer(_frame_arrived, index);
@@ -345,6 +344,41 @@ void ScheduleEmitter::_advance_loop_epoch(schedule::LoopId loop, ::llvm::Value *
     return _builder.CreateSelect(_splat(matches), released, flow);
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_cascade_at_convergence_target(
+    ::llvm::Value *target, ::llvm::Value *flow) {
+    if (_convergence_targets == nullptr) { return flow; }
+    auto *preheader = _builder.GetInsertBlock();
+    auto *loop = ::llvm::BasicBlock::Create(
+        _module.getContext(), "convergence.cascade", _entry);
+    auto *exit = ::llvm::BasicBlock::Create(
+        _module.getContext(), "convergence.cascade.exit", _entry);
+    _builder.CreateBr(loop);
+    _builder.SetInsertPoint(loop);
+    auto *current_flow = _builder.CreatePHI(
+        _layout.mask_type(), 2u, "convergence.cascade.flow");
+    auto *depth = _builder.CreatePHI(
+        _builder.getInt32Ty(), 2u, "convergence.cascade.depth");
+    current_flow->addIncoming(flow, preheader);
+    depth->addIncoming(_builder.getInt32(0u), preheader);
+    ::llvm::Value *matched = nullptr;
+    auto *next_flow = _arrive_at_convergence_target(
+        target, current_flow, &matched);
+    auto *next_depth = _builder.CreateAdd(
+        depth, _builder.getInt32(1u));
+    auto *more = _builder.CreateAnd(
+        matched,
+        _builder.CreateAnd(
+            _builder.CreateOrReduce(next_flow),
+            _builder.CreateICmpULT(
+                next_depth, _builder.getInt32(_width))));
+    auto *latch = _builder.GetInsertBlock();
+    _builder.CreateCondBr(more, loop, exit);
+    current_flow->addIncoming(next_flow, latch);
+    depth->addIncoming(next_depth, latch);
+    _builder.SetInsertPoint(exit);
+    return next_flow;
+}
+
 void ScheduleEmitter::_resume(schedule::BlockId target, ::llvm::Value *mask) {
     _masked_write(_pc_state, _builder.getInt32(target.value), mask);
     auto *runnable = _builder.CreateLoad(
@@ -361,8 +395,15 @@ void ScheduleEmitter::_route_edge(const schedule::ControlEdge &edge,
         _advance_loop_epoch(*edge.loop_back, mask);
     }
     auto *flow = mask;
-    for (auto convergence : edge.joins) {
-        flow = _arrive_at_convergence(convergence, flow);
+    // A block may be reached both from inside and outside a convergence
+    // scope, so dominance alone cannot decide whether this edge is an
+    // arrival. The current dynamic token is authoritative. A W-step runtime
+    // cascade covers every live frame in a W-lane packet, including several
+    // nested gates sharing the same target, without emitting W copies of the
+    // arrival logic per CFG edge.
+    if (_target_convergence_depths[edge.target.value] != 0u) {
+        flow = _cascade_at_convergence_target(
+            _builder.getInt32(edge.target.value), flow);
     }
     _resume(edge.target, flow);
 }
@@ -395,7 +436,9 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                     if (control.convergence) {
                         _declare_convergence(
                             *control.convergence,
-                            true_mask, false_mask);
+                            _builder.CreateAnd(
+                                _builder.CreateOrReduce(true_mask),
+                                _builder.CreateOrReduce(false_mask)));
                     }
                     _route_edge(control.true_edge, true_mask);
                     _route_edge(control.false_edge, false_mask);
@@ -412,6 +455,91 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                     _emit_arrival(control.true_edge, _active_mask);
                     _builder.SetInsertPoint(false_path);
                     _emit_arrival(control.false_edge, _active_mask);
+                }
+            } else if constexpr (
+                std::is_same_v<T, schedule::SwitchTerminator>) {
+                auto *selector_value = _source.value(control.selector);
+                auto *selector = _load_value(control.selector);
+                if (selector == nullptr || selector_value == nullptr) {
+                    return;
+                }
+                if (selector_value->value_class ==
+                    schedule::ValueClass::varying) {
+                    auto *selector_type = ::llvm::cast<::llvm::VectorType>(
+                        selector->getType());
+                    auto *element_type = ::llvm::cast<::llvm::IntegerType>(
+                        selector_type->getElementType());
+                    std::vector<::llvm::Value *> case_masks;
+                    case_masks.reserve(control.cases.size());
+                    auto *remaining = _active_mask;
+                    ::llvm::Value *has_previous_path = _builder.getFalse();
+                    ::llvm::Value *divergent = _builder.getFalse();
+                    auto record_path = [&](::llvm::Value *mask) noexcept {
+                        auto *nonempty = _builder.CreateOrReduce(mask);
+                        divergent = _builder.CreateOr(
+                            divergent,
+                            _builder.CreateAnd(
+                                has_previous_path, nonempty));
+                        has_previous_path = _builder.CreateOr(
+                            has_previous_path, nonempty);
+                    };
+                    for (auto &&item : control.cases) {
+                        auto *case_value = ::llvm::ConstantInt::get(
+                            element_type, item.value);
+                        auto *matches = _builder.CreateICmpEQ(
+                            selector,
+                            _builder.CreateVectorSplat(
+                                _width, case_value));
+                        auto *case_mask = _builder.CreateAnd(
+                            remaining, matches);
+                        case_masks.emplace_back(case_mask);
+                        record_path(case_mask);
+                        remaining = _builder.CreateAnd(
+                            remaining, _builder.CreateNot(matches));
+                    }
+                    auto *default_mask = remaining;
+                    record_path(default_mask);
+                    if (control.convergence) {
+                        _declare_convergence(
+                            *control.convergence, divergent);
+                    }
+                    for (auto i = size_t{0u};
+                         i < control.cases.size(); i++) {
+                        _route_edge(
+                            control.cases[i].edge, case_masks[i]);
+                    }
+                    _route_edge(control.default_edge, default_mask);
+                    if (_failed()) { return; }
+                    _builder.CreateBr(_scheduler_loop);
+                } else {
+                    auto *default_path = ::llvm::BasicBlock::Create(
+                        _module.getContext(),
+                        "uniform.switch.default", _entry);
+                    std::vector<::llvm::BasicBlock *> case_paths;
+                    case_paths.reserve(control.cases.size());
+                    auto *llvm_switch = _builder.CreateSwitch(
+                        selector, default_path, control.cases.size());
+                    auto *selector_type = ::llvm::cast<
+                        ::llvm::IntegerType>(selector->getType());
+                    for (auto &&item : control.cases) {
+                        auto *case_path = ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "uniform.switch.case", _entry);
+                        case_paths.emplace_back(case_path);
+                        llvm_switch->addCase(
+                            ::llvm::ConstantInt::get(
+                                selector_type, item.value),
+                            case_path);
+                    }
+                    for (auto i = size_t{0u};
+                         i < control.cases.size(); i++) {
+                        _builder.SetInsertPoint(case_paths[i]);
+                        _emit_arrival(
+                            control.cases[i].edge, _active_mask);
+                    }
+                    _builder.SetInsertPoint(default_path);
+                    _emit_arrival(
+                        control.default_edge, _active_mask);
                 }
             } else if constexpr (
                 std::is_same_v<T, schedule::JoinTerminator>) {
@@ -449,14 +577,6 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                 // A lane that terminates is removed from every frame's
                 // expected mask. Frame storage is bounded by W rather
                 // than the number of static CFG convergence points.
-                std::vector<::llvm::Constant *> targets;
-                targets.reserve(_source.convergence_points().size());
-                for (auto &&point : _source.convergence_points()) {
-                    targets.emplace_back(
-                        _builder.getInt32(point.target.value));
-                }
-                auto *target_table = targets.empty() ? nullptr :
-                    ::llvm::ConstantVector::get(targets);
                 for (auto frame = uint32_t{0u}; frame < _width; frame++) {
                     auto *index = _builder.getInt32(frame);
                     auto *active_frames = _builder.CreateLoad(
@@ -509,10 +629,20 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                         _frame_static_id);
                     auto *static_id = _builder.CreateExtractElement(
                         static_ids, index);
-                    if (target_table != nullptr) {
+                    if (_convergence_targets != nullptr) {
                         auto *target = _builder.CreateExtractElement(
-                            target_table, static_id);
-                        _masked_write(_pc_state, target, released);
+                            _convergence_targets, static_id);
+                        auto *flow = released;
+                        // Returning lanes can complete an inner gate whose
+                        // parent has the same target. Route the released
+                        // cohort through the same dynamic target-arrival rule
+                        // as an ordinary CFG edge before making the target
+                        // executable. The bounded runtime cascade covers
+                        // every live frame without quadratically expanding
+                        // the return block's LLVM IR.
+                        flow = _cascade_at_convergence_target(target, flow);
+                        _masked_write(_pc_state, target, flow);
+                        released = flow;
                     }
                     auto *current_runnable = _builder.CreateLoad(
                         _runnable_mask->getAllocatedType(),
@@ -637,6 +767,19 @@ void ScheduleEmitter::_allocate_state() {
         ::llvm::Constant::getNullValue(frame_masks), _frame_expected);
     _builder.CreateStore(
         ::llvm::Constant::getNullValue(frame_masks), _frame_arrived);
+
+    std::vector<::llvm::Constant *> convergence_targets;
+    convergence_targets.reserve(_source.convergence_points().size());
+    for (auto &&point : _source.convergence_points()) {
+        convergence_targets.emplace_back(
+            _builder.getInt32(point.target.value));
+    }
+    _convergence_targets = convergence_targets.empty() ? nullptr :
+        ::llvm::ConstantVector::get(convergence_targets);
+    _target_convergence_depths.assign(_source.blocks().size(), 0u);
+    for (auto &&point : _source.convergence_points()) {
+        ++_target_convergence_depths[point.target.value];
+    }
 
     _loop_epochs.resize(_source.loops().size());
     _block_loops.resize(_source.blocks().size());

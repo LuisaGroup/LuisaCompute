@@ -1,9 +1,11 @@
 #include "ut/ut.hpp"
 
 #include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/builder.h>
@@ -356,6 +358,150 @@ void register_loop_tests() {
     };
 }
 
+void register_reducible_cfg_tests() {
+    "simd_xir_lowering_accepts_exhaustive_five_block_forward_cfgs"_test = [] {
+        constexpr auto block_count = 5u;
+        constexpr auto encoded_graph_count = 15u * 7u * 3u;
+        auto accepted_graph_count = 0u;
+        for (auto encoded_graph = 0u;
+             encoded_graph < encoded_graph_count; encoded_graph++) {
+            auto encoding = encoded_graph;
+            std::array<uint32_t, block_count - 1u> successor_masks{};
+            for (auto source = 0u; source + 1u < block_count; source++) {
+                auto option_count =
+                    (1u << (block_count - source - 1u)) - 1u;
+                successor_masks[source] = encoding % option_count + 1u;
+                encoding /= option_count;
+            }
+
+            std::array<bool, block_count> reachable{};
+            reachable[0u] = true;
+            for (auto source = 0u; source + 1u < block_count; source++) {
+                if (!reachable[source]) { continue; }
+                auto mask = successor_masks[source];
+                for (auto bit = 0u;
+                     bit < block_count - source - 1u; bit++) {
+                    if ((mask & (1u << bit)) != 0u) {
+                        reachable[source + bit + 1u] = true;
+                    }
+                }
+            }
+            if (!std::all_of(
+                    reachable.begin(), reachable.end(),
+                    [](bool value) noexcept { return value; })) {
+                continue;
+            }
+
+            Module module;
+            auto *kernel = module.create_kernel();
+            std::array<xir::BasicBlock *, block_count> blocks{};
+            blocks[0u] = kernel->create_body_block();
+            for (auto i = 1u; i < block_count; i++) {
+                blocks[i] = kernel->create_basic_block();
+            }
+            auto *lane = module.create_warp_lane_id();
+            XIRBuilder builder;
+            for (auto source = 0u; source + 1u < block_count; source++) {
+                builder.set_insertion_point(blocks[source]);
+                std::array<xir::BasicBlock *, block_count - 1u> targets{};
+                auto target_count = 0u;
+                auto mask = successor_masks[source];
+                for (auto bit = 0u;
+                     bit < block_count - source - 1u; bit++) {
+                    if ((mask & (1u << bit)) != 0u) {
+                        targets[target_count++] =
+                            blocks[source + bit + 1u];
+                    }
+                }
+                if (target_count == 1u) {
+                    builder.br(targets[0u]);
+                } else {
+                    auto *branch = builder.indexed_branch(lane);
+                    branch->set_default_block(targets[0u]);
+                    for (auto i = 1u; i < target_count; i++) {
+                        branch->add_case(i - 1u, targets[i]);
+                    }
+                }
+            }
+            builder.set_insertion_point(blocks.back());
+            builder.return_void();
+
+            auto result = lower_xir_to_schedule(
+                kernel, {.logical_warp_width = 8u});
+            expect(result.succeeded())
+                << "five-block forward graph " << encoded_graph << '\n'
+                << diagnostics_text(result);
+            if (!result.succeeded()) { return; }
+            expect(verify(*result.function).succeeded());
+            ++accepted_graph_count;
+        }
+        expect(accepted_graph_count == 122u);
+    };
+
+    "simd_xir_lowering_accepts_forward_reducible_cfg_family"_test = [] {
+        constexpr auto graph_count = 96u;
+        constexpr auto block_count = 12u;
+        auto random_state = uint32_t{0x6d2b79f5u};
+        auto next_random = [&]() noexcept {
+            random_state = random_state * 1664525u + 1013904223u;
+            return random_state;
+        };
+        for (auto graph = 0u; graph < graph_count; graph++) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            std::vector<xir::BasicBlock *> blocks;
+            blocks.reserve(block_count);
+            blocks.emplace_back(kernel->create_body_block());
+            for (auto i = 1u; i < block_count; i++) {
+                blocks.emplace_back(kernel->create_basic_block());
+            }
+            auto *lane = module.create_warp_lane_id();
+            XIRBuilder builder;
+            for (auto i = 0u; i + 1u < block_count; i++) {
+                builder.set_insertion_point(blocks[i]);
+                auto choose_forward_target = [&]() noexcept {
+                    auto remaining = block_count - i - 1u;
+                    return blocks[i + 1u + next_random() % remaining];
+                };
+                switch (next_random() % 3u) {
+                    case 0u:
+                        builder.br(blocks[i + 1u]);
+                        break;
+                    case 1u: {
+                        auto threshold_value = next_random() % 8u;
+                        auto *threshold = module.create_constant(
+                            Type::of<uint>(), &threshold_value);
+                        auto *condition = builder.call(
+                            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                            {lane, threshold});
+                        builder.cond_br(
+                            condition, blocks[i + 1u],
+                            choose_forward_target());
+                        break;
+                    }
+                    default: {
+                        auto *branch = builder.indexed_branch(lane);
+                        branch->set_default_block(blocks[i + 1u]);
+                        branch->add_case(0u, choose_forward_target());
+                        branch->add_case(2u, choose_forward_target());
+                        break;
+                    }
+                }
+            }
+            builder.set_insertion_point(blocks.back());
+            builder.return_void();
+
+            auto result = lower_xir_to_schedule(
+                kernel, {.logical_warp_width = 8u});
+            expect(result.succeeded())
+                << "forward reducible graph " << graph << '\n'
+                << diagnostics_text(result);
+            if (!result.succeeded()) { return; }
+            expect(verify(*result.function).succeeded());
+        }
+    };
+}
+
 void register_diagnostic_tests() {
     "simd_xir_lowering_rejects_structured_control"_test = [] {
         Module module;
@@ -426,6 +572,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     register_diamond_tests();
     register_loop_tests();
+    register_reducible_cfg_tests();
     register_diagnostic_tests();
     return 0;
 }

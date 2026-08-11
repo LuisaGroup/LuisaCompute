@@ -1,5 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
+#include <unordered_set>
+
 namespace luisa::compute::simd::detail {
 
 ScheduleEmitter::ScheduleEmitter(
@@ -494,6 +496,29 @@ void ScheduleEmitter::_preflight() {
                     std::is_same_v<T, schedule::SplitTerminator>) {
                     _preflight_edge(terminator.true_edge, true);
                     _preflight_edge(terminator.false_edge, true);
+                } else if constexpr (
+                    std::is_same_v<T, schedule::SwitchTerminator>) {
+                    auto *selector = _source.value(terminator.selector);
+                    if (selector == nullptr ||
+                        !_is_scalar_data(selector->type) ||
+                        selector->type->is_float()) {
+                        _fail("switch selector must be an integer scalar");
+                        return;
+                    }
+                    auto bit_width = selector->type->is_bool() ?
+                        1u :
+                        static_cast<uint32_t>(selector->type->size() * 8u);
+                    std::unordered_set<uint64_t> labels;
+                    for (auto &&item : terminator.cases) {
+                        if ((bit_width < 64u &&
+                             (item.value >> bit_width) != 0u) ||
+                            !labels.emplace(item.value).second) {
+                            _fail("switch case labels must be canonical and unique");
+                            return;
+                        }
+                        _preflight_edge(item.edge, true);
+                    }
+                    _preflight_edge(terminator.default_edge, true);
                 } else if constexpr (
                     std::is_same_v<T, schedule::JoinTerminator>) {
                     auto *point = _source.convergence(
