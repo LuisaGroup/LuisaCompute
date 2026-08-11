@@ -190,6 +190,7 @@ endif ()
 # --- unit/ast: standalone tests (backend-free tests are labeled for CTest) ---
 luisa_compute_add_test(test_ast             unit/ast/test_ast.cpp)
 luisa_compute_add_test(test_ast_basic       unit/ast/test_ast_basic.cpp)
+luisa_compute_add_test(test_function_builder_dag unit/ast/test_function_builder_dag.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_async_copy_ast  unit/ast/test_async_copy_ast.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_bindless_write_usage unit/ast/test_bindless_write_usage.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
