@@ -68,7 +68,7 @@ void reg_xir_verifier() {
         expect(!xir_verify_functions(selected).succeeded());
     };
 
-    "xir_verifier_use_list_membership_is_linear_in_fanout"_test = [] {
+    "xir_verifier_use_list_membership_is_constant_in_fanout"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *body = kernel->create_body_block();
@@ -97,21 +97,22 @@ void reg_xir_verifier() {
         auto result = xir_verify_module(&module);
         expect(result.succeeded());
         expect(
-            result.statistics.use_list_membership_queries ==
+            result.statistics.use_list_owner_checks ==
             fanout * 2u + 2u);
         expect(
-            result.statistics.distinct_use_lists_scanned == 2u);
-        expect(
-            result.statistics.use_list_entries_scanned ==
-            result.statistics.use_list_membership_queries)
-            << "each referenced use-list must be materialized once, not "
-               "rescanned for every operand";
+            result.statistics.use_list_membership_traversal_steps == 0u)
+            << "exact membership must use the intrusive owner identity, not "
+               "walk any fraction of the high-fanout list";
+        expect(one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
 
         // Caching the exact Use-node identities must preserve the verifier's
         // linkage semantics: a non-null operand detached from its Value's
         // use-list remains invalid.
         auto detached =
             first_fanout->operand_use(0u)->remove_self();
+        expect(!one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
         auto invalid = xir_verify_module(&module);
         expect(!invalid.succeeded());
         expect(has_verification_error(
@@ -119,6 +120,8 @@ void reg_xir_verifier() {
             "Operand use-list linkage is inconsistent."));
 
         zero->use_list().push_front(std::move(detached));
+        expect(!one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(zero->use_list().contains(first_fanout->operand_use(0u)));
         auto wrong_owner = xir_verify_module(&module);
         expect(!wrong_owner.succeeded());
         expect(has_verification_error(
@@ -127,6 +130,8 @@ void reg_xir_verifier() {
         detached =
             first_fanout->operand_use(0u)->remove_self();
         one->use_list().push_front(std::move(detached));
+        expect(one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
         expect(xir_verify_module(&module).succeeded());
     };
 

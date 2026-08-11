@@ -30,14 +30,12 @@ struct XIRVerificationError {
 struct XIRVerificationResult {
     luisa::vector<XIRVerificationError> errors;
     struct Statistics {
-        // Number of exact Use-node membership predicates evaluated while
-        // checking instruction operands.
-        size_t use_list_membership_queries{0u};
-        // A verifier invocation materializes each distinct referenced
-        // Value/use-list once. This is the operation count that guards the
-        // membership check against quadratic high-fanout behavior.
-        size_t distinct_use_lists_scanned{0u};
-        size_t use_list_entries_scanned{0u};
+        // Exact O(1) physical-owner predicates evaluated while checking the
+        // logical Value of each instruction operand.
+        size_t use_list_owner_checks{0u};
+        // Membership never traverses a use-list. Keeping the work observable
+        // makes an accidental return to fanout-dependent scans testable.
+        size_t use_list_membership_traversal_steps{0u};
         // Reachable CFG blocks represented by the verifier's sparse
         // immediate-dominator trees.
         size_t dominance_tree_nodes{0u};
