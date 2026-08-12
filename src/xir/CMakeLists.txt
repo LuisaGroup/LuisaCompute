@@ -73,6 +73,14 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/call_graph.cpp
         passes/convergence_region.cpp
         passes/coro_cfg_distill.cpp
+        passes/coro_alloca_scope.cpp
+        passes/coro_frame_abi.cpp
+        passes/coro_frame_access.cpp
+        passes/coro_rematerialize.cpp
+        passes/coro_predicate_analysis.cpp
+        passes/coro_replayable.cpp
+        passes/coro_semantic_graph.cpp
+        passes/defer_local_aggregate_load.cpp
         passes/coro_materialize.cpp
         passes/dead_field_elimination.cpp
         passes/coro_reg2mem.cpp
@@ -132,6 +140,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/select_factor.cpp
         passes/indvar_simplify.cpp
         passes/irreducible_cfg_analysis.cpp
+        passes/pass_verification.cpp
         passes/pass_pipeline.cpp
         passes/fuse_consecutive_buffer_reads.cpp
 )

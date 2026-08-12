@@ -3,7 +3,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <stdexcept>
 
 #if _WIN32 || _WIN64
 #include "fc/mmfile_win.h"

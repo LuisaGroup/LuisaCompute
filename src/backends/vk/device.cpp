@@ -244,6 +244,38 @@ static bool vk_instance_validation_enabled{};
 static vstd::unordered_set<luisa::string> vk_instance_extra_exts;
 static Settings settings{};
 static PFN_vkCreateDebugUtilsMessengerEXT vk_create_debug_utils_messenger_ext;
+
+// VK_KHR_shader_untyped_pointers was released in Vulkan 1.4.325. Validation
+// layers built against older headers do not know the extension's device
+// feature structure type and reject a vkCreateDevice pNext chain that
+// contains it (VUID-VkDeviceCreateInfo-pNext-pNext); the backend's debug
+// messenger escalates that into a fatal error and device creation fails.
+// Only enable the extension when the active Khronos validation layer is new
+// enough to recognize the structure type, or when validation is disabled.
+[[nodiscard]] bool validation_layer_supports_shader_untyped_pointers() noexcept {
+    if (!settings.validation) { return true; }
+    // settings.validation is only true when VK_LAYER_KHRONOS_validation was
+    // enabled at instance creation (see create_instance); query the API
+    // version the layer was built against.
+    uint32_t layer_count = 0u;
+    vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
+    vstd::vector<VkLayerProperties> layers;
+    luisa::enlarge_by(layers, layer_count);
+    if (layer_count != 0u) {
+        vkEnumerateInstanceLayerProperties(&layer_count, layers.data());
+    }
+    constexpr auto untyped_pointers_validation_version =
+        VK_MAKE_API_VERSION(0, 1, 4, 325);
+    for (auto const &layer : layers) {
+        if (luisa::string_view{layer.layerName} ==
+            "VK_LAYER_KHRONOS_validation") {
+            return layer.specVersion >= untyped_pointers_validation_version;
+        }
+    }
+    // Fail closed: validation claims to be active but the Khronos layer's
+    // version is unknown, so do not assume it understands the structure type.
+    return false;
+}
 static PFN_vkDestroyDebugUtilsMessengerEXT vk_destroy_debug_utils_messenger_ext;
 static VkDebugUtilsMessengerEXT debug_utils_messenger;
 static VkInstance debug_utils_messenger_instance;
@@ -551,6 +583,9 @@ uint Device::compute_warp_size() const noexcept {
         .pNext = &subgroup_properties};
     vkGetPhysicalDeviceProperties2(physical_device(), &properties2);
     return subgroup_properties.subgroupSize;
+}
+size_t Device::compute_max_shared_memory_size() const noexcept {
+    return properties().limits.maxComputeSharedMemorySize;
 }
 uint64_t Device::memory_granularity() const noexcept {
     return kSparseBufferSize;
@@ -1189,6 +1224,35 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         }
     }
 #endif
+    auto device_supports_untyped_pointers =
+        supported_ext.find(VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME) !=
+        supported_ext.end();
+    if (device_supports_untyped_pointers) {
+        if (detail::validation_layer_supports_shader_untyped_pointers()) {
+            VkPhysicalDeviceShaderUntypedPointersFeaturesKHR
+                supported_untyped_pointers{
+                    .sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
+                    .pNext = nullptr};
+            VkPhysicalDeviceFeatures2 features2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = &supported_untyped_pointers};
+            vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+            if (supported_untyped_pointers.shaderUntypedPointers == VK_TRUE) {
+                enable_device_extension(
+                    VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME);
+                shader_untyped_pointers_enabled = true;
+                LUISA_INFO(
+                    "VK_KHR_shader_untyped_pointers enabled on device.");
+            }
+        } else {
+            LUISA_WARNING(
+                "VK_KHR_shader_untyped_pointers is supported by the device "
+                "but the active validation layer (Vulkan < 1.4.325) predates "
+                "the extension and rejects its feature structure type; "
+                "leaving the extension disabled.");
+        }
+    }
     {
         VkPhysicalDeviceVulkan12Features vk12_subgroup_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -1695,6 +1759,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
         cooperative_vector_enabled = false;
         cooperative_vector_fp32_enabled = false;
+        shader_untyped_pointers_enabled = false;
 #if ENABLE_HIDDEN_FEATURES
         async_copy_enabled = false;
 #endif
@@ -1924,6 +1989,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (cooperative_vector_enabled) {
         cooperative_vector_features_nv.pNext = feature_next;
         feature_next = &cooperative_vector_features_nv;
+    }
+    VkPhysicalDeviceShaderUntypedPointersFeaturesKHR
+        untyped_pointers_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
+            .pNext = feature_next,
+            .shaderUntypedPointers = VK_TRUE};
+    if (shader_untyped_pointers_enabled) {
+        feature_next = &untyped_pointers_features;
     }
 #if ENABLE_HIDDEN_FEATURES
     if (async_copy_enabled) {
@@ -2617,6 +2690,9 @@ bool Device::print_code() {
 }
 
 luisa::string Device::query(luisa::string_view property) noexcept {
+    if (property == "shader_untyped_pointers") {
+        return shader_untyped_pointers_enabled ? "true" : "false";
+    }
     if (property == "shader_device_clock") {
         return _shader_device_clock_enabled ? "true" : "false";
     }
@@ -2742,6 +2818,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_device_clock);
     enable(owned_logical_device && device_address_enabled,
            target_feature::buffer_device_address);
+    enable(owned_logical_device && shader_untyped_pointers_enabled,
+           target_feature::shader_untyped_pointers);
     return mask;
 }
 

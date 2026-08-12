@@ -30,6 +30,12 @@ struct WavefrontCoroSchedulerConfig {
     luisa::vector<luisa::string> hint_fields;
     bool report_stats = false;
     ShaderOption shader_option{};
+    // Workgroup size for the thread-local generate/resume kernels. This is a
+    // shader-structure choice and intentionally independent of the runtime
+    // frame-pool capacity. Queue-management kernels retain their own block
+    // sizes because some of them use block-local collectives. Kept last to
+    // preserve the meaning of existing positional aggregate initializers.
+    uint execution_block_size = 256u;
 };
 
 template<typename... Args>
@@ -98,12 +104,10 @@ private:
     }
 
     [[nodiscard]] static auto _find_frame_field_index(const CoroFrameDesc &desc, luisa::string_view name) noexcept {
-        for (auto i = 0u; i < desc.field_count(); i++) {
-            if (desc.field(i).name == name) {
-                return CoroFrameDesc::reserved_field_count + i;
-            }
-        }
-        return static_cast<size_t>(-1);
+        auto index = desc.field_index(name);
+        return index == static_cast<size_t>(-1) ?
+                   index :
+                   CoroFrameDesc::reserved_field_count + index;
     }
 
     [[nodiscard]] auto _valid_hint_field_count() const noexcept {
@@ -272,12 +276,14 @@ private:
         if (auto entry_sub = coro[0u]) {
             Kernel1D k_gen = [&coro, frame_buffer, layout = _frame_layout, output_fields = _transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
+                              execution_block_size = _config.execution_block_size,
                               token_to_index](
                                  UInt frame_capacity,
                                  BufferUInt resume_index,
                                  UInt index_offset, UInt frame_offset, UInt global_start,
                                  UInt count, UInt3 dispatch_shape,
                                  Var<Args>... k_args) noexcept {
+                set_block_size(execution_block_size);
                 auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                 auto x = dispatch_x();
                 $if (x >= count) { $return(); };
@@ -308,11 +314,13 @@ private:
             if (!cont_sub) continue;
             Kernel1D k_cont = [&coro, frame_buffer, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
+                               execution_block_size = _config.execution_block_size,
                                read_scheduler_token, token_to_index](
                                   UInt frame_capacity,
                                   BufferUInt resume_index,
                                   UInt resume_offset, UInt count,
                                   Var<Args>... k_args) noexcept {
+                set_block_size(execution_block_size);
                 auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                 auto x = dispatch_x();
                 $if (x >= count) { $return(); };
@@ -667,6 +675,12 @@ public:
         : _config{config} {
         LUISA_ASSERT(_config.thread_count != 0u,
                      "Wavefront coroutine frame capacity must be positive.");
+        LUISA_ASSERT(_config.execution_block_size >= 32u &&
+                         _config.execution_block_size <= 1024u &&
+                         _config.execution_block_size % 32u == 0u,
+                     "Wavefront coroutine execution block size must be a "
+                     "multiple of 32 in [32, 1024], but got {}.",
+                     _config.execution_block_size);
         _create_shader(device, coro);
     }
     WavefrontCoroScheduler(Device &device, const Coro &coro) noexcept

@@ -431,3 +431,101 @@ Incremental validation evidence on 2026-08-04:
   offending construct. This is trace-only diagnostics; default verification
   remains exactly once at pass input and once at pass output, with intermediate
   checks still controlled solely by `LUISA_XIR_VERIFY_INTERMEDIATE=1`.
+
+## Incremental coroutine scalar/lifetime audit (2026-08-12)
+
+The coroutine pre-distill pipeline now reuses SCCP and GVN over the actual
+coroutine execution relation. An ordinary CFG traversal stops at
+`CoroSuspendInst`, so applying either pass only to the entry component silently
+ignored every resume component. `CoroSemanticGraph` augments ordinary
+successors with each uniquely token-matched `suspend -> resume` edge and is
+accepted only when that relation is valid. Invalid coroutine metadata falls
+back to the ordinary pass domain; it is never guessed or partially augmented.
+
+The audited contracts are:
+
+- SCCP starts only the coroutine entry block as executable. A resume component
+  becomes executable exactly when its matching suspend edge does. Its existing
+  three-point value lattice is unchanged, and rewriting is restricted to the
+  semantic graph's block domain. Consequently a constant in a reachable
+  continuation folds, while a continuation reached only from a constant-dead
+  suspend arm is neither visited nor rewritten.
+- GVN uses augmented dominance to discover continuation-local equivalents, but
+  rejects a leader-to-duplicate replacement whenever any semantic path between
+  their distinct blocks may cross a suspension. Dominance alone proves value
+  availability, not zero frame cost; this additional rejection prevents GVN
+  from converting intentional rematerialization into a new live-across-suspend
+  value. Same-block leaders are earlier in instruction order and execute on
+  every visit. Loads, resource reads, ray-query state, and calls without a
+  proved purity contract remain outside value numbering. Hashes only select a
+  bucket; exact opcode, type, and operand-value-number comparison decides
+  equality.
+- Predicate-sensitive allocation lifetime proofs value-number only pure,
+  total arithmetic expressions. Hash collisions are resolved by exact term
+  comparison. Dynamically re-executed instruction leaves kill every dependent
+  predicate fact, so a condition from an earlier loop iteration cannot justify
+  a later read. Arguments and constants are stable leaves; special registers
+  are rejected because their continuation semantics are not generally stable.
+- The unconditional initialization proof is the greatest fixed point of a
+  forward Must system, initialized at top with an empty lifetime-start boundary
+  and predecessor intersection. The guarded refinement carries a bounded
+  disjunction of predicate cubes with one Must fact set per cube. Subsumption
+  intersects facts, and both predicate/state caps widen only by forgetting
+  predicates and intersecting facts. Widening can therefore reject a legal
+  contraction but cannot manufacture definite initialization.
+- First-definition delay is admitted only for one full-root store, projections
+  and loads as the only other pointer uses, a non-escaping pointer, a store
+  dominating the observation common dominator, and an SSA value available at
+  the new insertion point. Moving that unique store cannot change which value
+  any load observes; unsupported partial stores, special-register values,
+  reference uses, or Phi-edge uses are rejected without mutation.
+- Reference effects use the existing field-sensitive pointer dataflow rather
+  than opcode or callable-name heuristics. For each reference formal,
+  `LIVE(entry)` is the May set read before a definite overwrite, while the
+  intersection of `KILL` at all reachable normal returns is the Must-defined
+  set. The lifetime proof currently consumes only whole-object facts; partial
+  effects and unsupported/nested calls conservatively remain reads. At a call,
+  all May reads precede all Must definitions in the abstract transfer so
+  aliased formals cannot become signature-order dependent.
+- A ray-query pipeline may invoke either candidate callback zero or more times.
+  Its captured-reference transfer therefore joins the two handlers' May-read
+  summaries but never treats callback writes as a pipeline Must definition.
+  This proves fresh write-only scratch captures while preserving callback
+  accumulators and rejecting a post-pipeline read that would rely on a
+  candidate having executed.
+
+Pass placement was measured rather than selected from one synthetic fixture.
+SCCP runs after algebraic simplification and constant folding expose constants,
+and before `simplify_cfg` consumes executable-edge information. GVN runs after
+aggregate projection, rematerialization, SROA, and their DCE, then another DCE
+removes the dead dependency chains before allocation lifetime placement. An
+early-GVN A/B replaced 615 instructions but left rematerialization work
+unchanged and increased the final distillation domain by 215 atoms
+(`31,476` versus `31,261`). The retained late placement replaced 266
+instructions in 4.14 ms, rejected 407 cross-suspend candidates, and did not
+increase frame liveness.
+
+Validation evidence:
+
+- `test_xir_pass_coro_alloca_scope`: 23 tests / 161 assertions, including
+  branch correlation, inverted predicates, dynamic-leaf invalidation, loops,
+  exact subaggregate versions, bounded conservative rejection, and unique
+  first-definition availability. The reference-effect regressions cover a
+  write-only call, read-before-write, a conditional non-Must write, aliased
+  formals, write-only ray-query captures, callback reads, and the zero-candidate
+  pipeline case.
+- The production Psycles Lone Monk coroutine contracts all 8,101 local
+  allocations after the callback-effect proof. Its frame decreases from 175
+  fields / 672 bytes to 81 fields / 336 bytes. A 64x64, one-sample HIP pairing
+  remains byte-identical to the non-coroutine megakernel for the display image
+  and all 15 linear film passes.
+- `test_xir_pass_sccp`: 10 tests / 41 assertions, including reachable and dead
+  token-matched continuations.
+- `test_xir_passes`: 366 tests / 2,257 assertions, including a GVN continuation
+  case that rejects the pre-suspend leader while merging the duplicate inside
+  the resume scope.
+- `test_coro_compile_trigger`: 10 tests / 25 assertions. Its aggregate contract
+  now distinguishes stable rematerializable constants (one four-byte frame
+  field) from two independently dynamic observed components (two fields).
+- `ctest -L unit_xir -j$(nproc)`: 53/53 passed; `ctest -L unit
+  -j$(nproc)`: 121/121 passed, including the EASTL allocation contract.

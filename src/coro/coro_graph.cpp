@@ -67,6 +67,7 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
                                node.index, name, node.token, node.is_terminal));
         s.append(luisa::format("  Input Fields: {}\n", node.input_fields));
         s.append(luisa::format("  Output Fields: {}\n", node.output_fields));
+        s.append(luisa::format("  Relocation Fields: {}\n", node.relocation_fields));
         s.append(luisa::format("  Transition Targets: {}\n", node.targets));
     }
     for (auto &edge : _edges) {
@@ -170,6 +171,60 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
         append_reserved_fields(node.input_fields);
         append_reserved_fields(node.output_fields);
     }
+
+    // cfg-distill has already solved the backward may-liveness equation
+    //
+    //   L(s) = External(s) union U_(s -> t) (L(t) - K(s -> t))
+    //
+    // to its least fixed point. Every transition's live values are exactly
+    // L(target), so project that existing analysis certificate through the
+    // interference-colored physical-slot map instead of reconstructing an
+    // approximation from materialized load/store fields. In particular,
+    // load_fields only denotes values evaluated by the immediate callable;
+    // it deliberately omits dormant values that remain resident until a
+    // later continuation.
+    luisa::vector<uint8_t> has_relocation_certificate(graph._nodes.size(), 0u);
+    for (auto &transition : cfg.transition_edges) {
+        LUISA_ASSERT(
+            transition.to_scope < graph._nodes.size(),
+            "Coroutine transition {} -> {} has an out-of-range target.",
+            transition.from_scope, transition.to_scope);
+        auto projected = luisa::vector<size_t>{};
+        append_reserved_fields(projected);
+        for (auto frame_value_index :
+             transition.live_frame_value_indices) {
+            LUISA_ASSERT(
+                frame_value_index < cfg.frame_values.size(),
+                "Coroutine transition {} -> {} references out-of-range "
+                "frame value {} (count {}).",
+                transition.from_scope, transition.to_scope,
+                frame_value_index, cfg.frame_values.size());
+            auto slot = cfg.frame_values[frame_value_index].slot;
+            LUISA_ASSERT(
+                slot < cfg.frame_slots.size(),
+                "Coroutine frame value {} references out-of-range slot {} "
+                "(count {}).",
+                frame_value_index, slot, cfg.frame_slots.size());
+            append_unique(
+                projected,
+                CoroFrameDesc::reserved_field_count + slot);
+        }
+        luisa::sort(projected.begin(), projected.end());
+        auto &target = graph._nodes[transition.to_scope];
+        if (has_relocation_certificate[transition.to_scope] == 0u) {
+            target.relocation_fields = std::move(projected);
+            has_relocation_certificate[transition.to_scope] = 1u;
+        } else {
+            // All edges entering one token target share the same L(target).
+            // Reject inconsistent/stale pass metadata instead of silently
+            // widening it, which would hide a broken analysis certificate.
+            LUISA_ASSERT(
+                target.relocation_fields == projected,
+                "Coroutine transitions entering scope {} disagree on its "
+                "relocation-live physical fields.",
+                transition.to_scope);
+        }
+    }
     for (auto &edge : graph._edges) {
         if (edge.from_index < graph._nodes.size()) {
             auto &from_node = graph._nodes[edge.from_index];
@@ -188,6 +243,7 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
     for (auto &node : graph._nodes) {
         luisa::sort(node.input_fields.begin(), node.input_fields.end());
         luisa::sort(node.output_fields.begin(), node.output_fields.end());
+        luisa::sort(node.relocation_fields.begin(), node.relocation_fields.end());
         luisa::sort(node.targets.begin(), node.targets.end());
     }
 

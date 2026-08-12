@@ -1572,6 +1572,56 @@ void reg_restructure_cfg() {
         expect(function_info.restructured_if_count == 1u);
         expect(function_info.boundary_verifier_count == 2u);
         expect(function_info.intermediate_verifier_count == 0u);
+
+        Module enclosing_module;
+        auto *enclosing_kernel = append_diamond(
+            enclosing_module);
+        auto verification_transaction =
+            begin_xir_pass_verification_transaction(
+                &enclosing_module);
+        auto enclosing_info =
+            restructure_cfg_pass_run_on_function(
+                enclosing_kernel,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     &verification_transaction});
+        expect(enclosing_info.succeeded());
+        expect(enclosing_info.restructured_if_count == 1u);
+        expect(enclosing_info.boundary_verifier_count == 0u);
+        expect(enclosing_info.intermediate_verifier_count == 0u);
+        expect(verification_transaction
+                   .verify_output(
+                       {.require_no_phi = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        Module enclosing_module_batch;
+        append_diamond(enclosing_module_batch);
+        append_diamond(enclosing_module_batch);
+        auto module_verification_transaction =
+            begin_xir_pass_verification_transaction(
+                &enclosing_module_batch);
+        auto enclosing_module_info =
+            restructure_cfg_pass_run_on_module(
+                &enclosing_module_batch, nullptr,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     &module_verification_transaction});
+        expect(enclosing_module_info.succeeded());
+        expect(enclosing_module_info.restructured_if_count == 2u);
+        expect(enclosing_module_info.boundary_verifier_count == 0u);
+        expect(enclosing_module_info.intermediate_verifier_count == 0u);
+        expect(module_verification_transaction
+                   .verify_output(
+                       {.require_no_phi = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                   .succeeded());
     };
 
     "restructure_intermediate_verification_is_explicitly_opt_in"_test = [] {
@@ -2628,6 +2678,121 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_selection_uses_exact_common_exit_as_merge"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *definition = kernel->definition();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *shared_exit = definition->create_basic_block();
+        auto *late_merge = definition->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *selection = builder.if_(condition);
+        auto *true_block = selection->create_true_block();
+        auto *false_block = selection->create_false_block();
+        selection->set_merge_block(late_merge);
+        builder.set_insertion_point(true_block);
+        builder.br(shared_exit);
+        builder.set_insertion_point(false_block);
+        builder.br(shared_exit);
+        builder.set_insertion_point(shared_exit);
+        builder.br(late_merge);
+        builder.set_insertion_point(late_merge);
+        builder.return_void();
+
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        expect(xir_verify_module(&module).succeeded());
+        auto first =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.selection_exit_merge_canonicalization_count > 0u);
+        expect(selection->merge_block() == shared_exit)
+            << "the declared selection merge must be the first exact "
+               "executable convergence block";
+        expect(count_owned_blocks(definition) == initial_block_count)
+            << "canonicalizing a declarative merge must not synthesize CFG";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) == initial_block_count);
+        expect(selection->merge_block() == shared_exit);
+    };
+
+    "restructure_simple_loop_selection_exit_dispatch_converges"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *definition = kernel->definition();
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(loop_body);
+        auto *selection = builder.switch_(selector);
+        auto *continue_arm = selection->create_default_block();
+        auto *break_arm = selection->create_case_block(1u);
+        auto *unreachable_merge = selection->create_merge_block();
+        builder.set_insertion_point(continue_arm);
+        builder.continue_(loop_body);
+        builder.set_insertion_point(break_arm);
+        builder.break_(loop_merge);
+        builder.set_insertion_point(unreachable_merge);
+        builder.unreachable_();
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        expect(xir_verify_module(&module).succeeded());
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.selection_exit_cfg_invalidation_count > 0u);
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(count_owned_blocks(definition) <=
+               initial_block_count + 12u)
+            << "SimpleLoop boundary normalization must consume the generated "
+               "exit dispatch instead of wrapping one copy per post round";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto stable_block_count =
+            count_owned_blocks(definition);
+        auto second = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) == stable_block_count)
+            << "the SimpleLoop exit protocol must be a fixed point";
+    };
+
     "restructure_splits_dispatch_reentry_through_fallback_proxy"_test = [] {
         Module m;
         BasicBlock *body;
@@ -3093,7 +3258,9 @@ void reg_restructure_cfg() {
         expect(static_cast<BranchInst *>(inner_case->terminator())->target_block() == inner->merge_block());
         expect(static_cast<BranchInst *>(inner->merge_block()->terminator())->target_block() == outer->merge_block());
         expect(static_cast<BranchInst *>(outer_case->terminator())->target_block() == outer->merge_block());
-        expect(static_cast<BranchInst *>(outer->merge_block()->terminator())->target_block() == ret);
+        expect(outer->merge_block() == ret)
+            << "the first exact common exit is the canonical outer merge";
+        expect(info.selection_exit_merge_canonicalization_count > 0u);
     };
 
     "restructure_routes_nested_if_exits_through_merges"_test = [] {
@@ -3149,7 +3316,6 @@ void reg_restructure_cfg() {
         auto *k = make_kernel_with_body(m, body);
         auto *def = k->definition();
         auto *condition = k->create_value_argument(Type::of<bool>());
-        auto *ret = def->create_basic_block();
         struct Site {
             IfInst *selection;
             BasicBlock *exit_arm;
@@ -3158,7 +3324,17 @@ void reg_restructure_cfg() {
         luisa::vector<Site> sites;
         sites.reserve(65u);
         XIRBuilder b;
-        auto *cursor = body;
+        // Give the common return block an existing structured role. The 65
+        // nested selections therefore cannot reuse it as their own merge and
+        // must exercise the explicit one-target exit-funnel path rather than
+        // the metadata-only exact-common-exit canonicalization.
+        b.set_insertion_point(body);
+        auto *root = b.if_(condition);
+        auto *cursor = root->create_true_block();
+        auto *root_false = root->create_false_block();
+        auto *ret = root->create_merge_block();
+        b.set_insertion_point(root_false);
+        b.br(ret);
         for (size_t i = 0u; i < 65u; i++) {
             b.set_insertion_point(cursor);
             auto *selection = b.if_(condition);
@@ -3190,11 +3366,12 @@ void reg_restructure_cfg() {
         expect(
             first.selection_exit_global_invalidation_count == 0u);
         // Each local rewrite dirties only itself and physical enclosing
-        // selections. The 65-site chain is therefore drained with linear
-        // queries instead of restarting a full scan after every rewrite.
+        // selections. The common-merge role owner adds one enclosing query
+        // per rewrite, so the 65-site chain must still drain linearly instead
+        // of restarting a full scan after every rewrite.
         expect(
             first.selection_exit_site_query_count <=
-            3u * sites.size());
+            4u * sites.size());
         expect(
             first.selection_exit_postdom_refresh_count > 0u);
         // All 65 independent rewrites are one drain batch. Dominance must be

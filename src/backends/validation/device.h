@@ -37,6 +37,9 @@ public:
     DeviceStats* device_stats;
     [[nodiscard]] auto underlying_device() const noexcept { return _native.get(); }
     uint compute_warp_size() const noexcept override { return _native->compute_warp_size(); }
+    size_t compute_max_shared_memory_size() const noexcept override {
+        return _native->compute_max_shared_memory_size();
+    }
     uint64_t memory_granularity() const noexcept override { return _native->memory_granularity(); }
     static void check_stream(uint64_t stream, StreamFunc func, uint64_t custom_cmd_id = 0);
     static void add_custom_stream(uint64_t handle, StreamOption &&opt);

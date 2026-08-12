@@ -9,6 +9,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_irreducible_cfg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -157,21 +158,26 @@ struct LoweringPreflight {
     bool needs_lowering{false};
     size_t irreducible_region_count{0u};
     size_t error_count{0u};
+    size_t boundary_verifier_count{0u};
 };
 
 [[nodiscard]] LoweringPreflight preflight_lowering(
-    Function *function) noexcept {
+    Function *function,
+    bool verify_boundary) noexcept {
     LoweringPreflight preflight;
     if (function == nullptr ||
         function->definition() == nullptr ||
         function->definition()->body_block() == nullptr) {
         return preflight;
     }
-    auto verification = xir_verify_function(
-        function, {.require_no_phi = true});
-    if (!verification.succeeded()) {
-        ++preflight.error_count;
-        return preflight;
+    if (verify_boundary) {
+        ++preflight.boundary_verifier_count;
+        auto verification = xir_verify_function(
+            function, {.require_no_phi = true});
+        if (!verification.succeeded()) {
+            ++preflight.error_count;
+            return preflight;
+        }
     }
 
     auto *definition = function->definition();
@@ -184,6 +190,18 @@ struct LoweringPreflight {
         return preflight;
     }
     preflight.needs_lowering = true;
+
+    // The enclosing transaction mode elides only the generic verifier. Keep
+    // every transform-specific precondition local and explicit: selector
+    // dispatch cannot preserve SSA Phi edge semantics, so Phi input is
+    // rejected before the first mutation in both verification scopes.
+    for (auto *block : analysis.blocks) {
+        for (auto *instruction : block->instructions()) {
+            if (instruction->isa<PhiInst>()) {
+                ++preflight.error_count;
+            }
+        }
+    }
 
     // The pass may expose nested irreducible regions after lowering an outer
     // one. Require the entire reachable successor relation to be raw before
@@ -318,7 +336,8 @@ void apply_lowering_plan(
 }
 
 [[nodiscard]] LowerIrreducibleCFGInfo run_lowering(
-    Function *function) noexcept {
+    Function *function,
+    bool verify_boundary) noexcept {
     LowerIrreducibleCFGInfo info;
     auto *definition = function->definition();
     auto initial_analysis =
@@ -358,10 +377,13 @@ void apply_lowering_plan(
             definition);
     info.remaining_irreducible_region_count =
         lowered_analysis.irreducible_region_count();
-    auto output_verification = xir_verify_function(
-        function, {.require_no_phi = true});
-    if (!output_verification.succeeded()) {
-        ++info.error_count;
+    if (verify_boundary) {
+        ++info.boundary_verifier_count;
+        auto output_verification = xir_verify_function(
+            function, {.require_no_phi = true});
+        if (!output_verification.succeeded()) {
+            ++info.error_count;
+        }
     }
     return info;
 }
@@ -378,28 +400,42 @@ void accumulate_info(
     total.remaining_irreducible_region_count +=
         info.remaining_irreducible_region_count;
     total.error_count += info.error_count;
+    total.boundary_verifier_count +=
+        info.boundary_verifier_count;
 }
 
 }// namespace
 
 LowerIrreducibleCFGInfo
 lower_irreducible_cfg_pass_run_on_function(
-    Function *function) noexcept {
+    Function *function,
+    const LowerIrreducibleCFGOptions &options) noexcept {
     LowerIrreducibleCFGInfo info;
     if (function == nullptr ||
         function->definition() == nullptr ||
         function->definition()->body_block() == nullptr) {
         return info;
     }
-    auto preflight = preflight_lowering(function);
+    auto verify_boundaries =
+        xir_pass_has_standalone_verification(
+            options.verification_transaction,
+            function);
+    auto preflight = preflight_lowering(
+        function, verify_boundaries);
     info.error_count = preflight.error_count;
     info.remaining_irreducible_region_count =
         preflight.irreducible_region_count;
+    info.boundary_verifier_count =
+        preflight.boundary_verifier_count;
     if (info.error_count != 0u ||
         !preflight.needs_lowering) {
         return info;
     }
-    return run_lowering(function);
+    auto lowered = run_lowering(
+        function, verify_boundaries);
+    lowered.boundary_verifier_count +=
+        preflight.boundary_verifier_count;
+    return lowered;
 }
 
 LowerIrreducibleCFGInfo
@@ -409,10 +445,13 @@ lower_irreducible_cfg_pass_run_on_module(
     if (module != nullptr) {
         luisa::vector<Function *> functions_to_lower;
         for (auto *function : module->function_list()) {
-            auto preflight = preflight_lowering(function);
+            auto preflight = preflight_lowering(
+                function, true);
             total.error_count += preflight.error_count;
             total.remaining_irreducible_region_count +=
                 preflight.irreducible_region_count;
+            total.boundary_verifier_count +=
+                preflight.boundary_verifier_count;
             if (preflight.needs_lowering) {
                 functions_to_lower.emplace_back(function);
             }
@@ -422,7 +461,7 @@ lower_irreducible_cfg_pass_run_on_module(
         if (total.error_count == 0u) {
             total.remaining_irreducible_region_count = 0u;
             for (auto *function : functions_to_lower) {
-                accumulate_info(total, run_lowering(function));
+                accumulate_info(total, run_lowering(function, true));
             }
         }
     }
@@ -440,6 +479,9 @@ lower_irreducible_cfg_pass_run_on_module(
             "remaining_irreducible_region",
             total.remaining_irreducible_region_count);
         report->set("error", total.error_count);
+        report->set(
+            "boundary_verifier",
+            total.boundary_verifier_count);
     }
     return total;
 }

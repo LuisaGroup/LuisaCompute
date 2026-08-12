@@ -3,6 +3,7 @@
 #include <cstddef>
 
 #include <luisa/core/dll_export.h>
+#include <luisa/xir/passes/pass_verification.h>
 
 namespace luisa::compute::xir {
 
@@ -16,6 +17,7 @@ struct LowerIrreducibleCFGInfo {
     size_t created_edge_block_count{0u};
     size_t remaining_irreducible_region_count{0u};
     size_t error_count{0u};
+    size_t boundary_verifier_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {
         return lowered_region_count != 0u;
@@ -24,6 +26,10 @@ struct LowerIrreducibleCFGInfo {
         return error_count == 0u &&
                remaining_irreducible_region_count == 0u;
     }
+};
+
+struct LowerIrreducibleCFGOptions {
+    const XIRPassVerificationTransaction *verification_transaction{nullptr};
 };
 
 // Makes every reachable multi-entry cyclic region reducible without cloning
@@ -43,7 +49,8 @@ struct LowerIrreducibleCFGInfo {
 // definition before mutating any definition.
 [[nodiscard]] LUISA_XIR_API LowerIrreducibleCFGInfo
 lower_irreducible_cfg_pass_run_on_function(
-    Function *function) noexcept;
+    Function *function,
+    const LowerIrreducibleCFGOptions &options = {}) noexcept;
 [[nodiscard]] LUISA_XIR_API LowerIrreducibleCFGInfo
 lower_irreducible_cfg_pass_run_on_module(
     Module *module, PassReport *report = nullptr) noexcept;

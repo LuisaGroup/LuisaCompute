@@ -481,8 +481,9 @@ template<typename Enum>
 }
 
 [[nodiscard]] bool instruction_opcode_valid(
-    const Instruction *instruction) noexcept {
-    switch (instruction->derived_instruction_tag()) {
+    const Instruction *instruction,
+    DerivedInstructionTag tag) noexcept {
+    switch (tag) {
         case DerivedInstructionTag::ALLOCA:
             return enum_value_between(
                 static_cast<const AllocaInst *>(instruction)->op(),
@@ -539,10 +540,10 @@ template<typename Enum>
 }
 
 [[nodiscard]] bool instruction_operand_shape_valid(
-    const Instruction *instruction) noexcept {
-    if (!instruction_opcode_valid(instruction)) { return false; }
+    const Instruction *instruction,
+    DerivedInstructionTag tag) noexcept {
     auto count = instruction->operand_count();
-    switch (instruction->derived_instruction_tag()) {
+    switch (tag) {
         case DerivedInstructionTag::IF:
         case DerivedInstructionTag::CONDITIONAL_BRANCH: return count == 3u;
         case DerivedInstructionTag::SWITCH:
@@ -622,8 +623,9 @@ template<typename Enum>
 }
 
 [[nodiscard]] int64_t instruction_opcode(
-    const Instruction *instruction) noexcept {
-    switch (instruction->derived_instruction_tag()) {
+    const Instruction *instruction,
+    DerivedInstructionTag tag) noexcept {
+    switch (tag) {
         case DerivedInstructionTag::ALLOCA:
             return static_cast<int64_t>(
                 static_cast<const AllocaInst *>(instruction)->op());
@@ -662,14 +664,16 @@ template<typename Enum>
 }
 
 [[nodiscard]] bool instruction_semantics_valid(
-    const Instruction *instruction) noexcept {
-    luisa::vector<const Value *> operands;
+    const Instruction *instruction,
+    DerivedInstructionTag tag,
+    luisa::vector<const Value *> &operands) noexcept {
+    operands.clear();
     operands.reserve(instruction->operand_count());
     for (auto *operand_use : instruction->operand_uses()) {
         operands.emplace_back(operand_use->value());
     }
     auto bindless_access = [&]() noexcept {
-        switch (instruction->derived_instruction_tag()) {
+        switch (tag) {
             case DerivedInstructionTag::RESOURCE_QUERY:
                 return static_cast<const ResourceQueryInst *>(instruction)
                     ->bindless_access();
@@ -683,7 +687,7 @@ template<typename Enum>
         }
     }();
     return interchange_instruction_semantics_valid(
-        instruction->derived_instruction_tag(), instruction_opcode(instruction),
+        tag, instruction_opcode(instruction, tag),
         instruction->type(), operands, bindless_access);
 }
 
@@ -1022,11 +1026,22 @@ public:
                    "Function body block is not owned by the function.");
             return;
         }
-        VerifierPointerMap<const Instruction *, size_t> instruction_order;
-        VerifierPointerMap<const Instruction *, const BasicBlock *> instruction_blocks;
+        struct InstructionFacts {
+            const BasicBlock *block;
+            size_t order;
+            DerivedInstructionTag tag;
+            bool operand_shape_valid;
+        };
+        // Verification is read-only. Classify every instruction exactly once
+        // and share the immutable facts between structural discovery and the
+        // detailed validation pass instead of repeating virtual tag dispatch
+        // and opcode/shape checks.
+        DensePointerMap<const Instruction *, InstructionFacts>
+            instruction_facts;
         BlockAdjacency successors;
         BlockAdjacency predecessors;
-        VerifierPointerMap<const BasicBlock *, const Instruction *> merge_owners;
+        DensePointerMap<const BasicBlock *, const Instruction *> merge_owners;
+        luisa::vector<const Value *> semantics_operands;
 
         for (auto *block : blocks) {
             auto terminated = block->is_terminated();
@@ -1037,26 +1052,40 @@ public:
             auto saw_non_phi = false;
             size_t order = 0u;
             for (auto *instruction : block->instructions()) {
-                instruction_order.emplace(instruction, order++);
-                instruction_blocks.emplace(instruction, block);
-                if (!instruction_opcode_valid(instruction)) {
+                ++_result.statistics.instruction_tag_queries;
+                auto tag = instruction->derived_instruction_tag();
+                auto opcode_valid =
+                    instruction_opcode_valid(instruction, tag);
+                auto operand_shape_valid =
+                    opcode_valid &&
+                    instruction_operand_shape_valid(instruction, tag);
+                instruction_facts.emplace(
+                    instruction,
+                    InstructionFacts{
+                        .block = block,
+                        .order = order++,
+                        .tag = tag,
+                        .operand_shape_valid = operand_shape_valid});
+                if (!opcode_valid) {
                     _error(
                         function, block, instruction,
                         luisa::format(
                             "Instruction opcode is invalid. Operation: '{}'.",
-                            to_string(instruction->derived_instruction_tag())));
-                } else if (!instruction_operand_shape_valid(instruction)) {
+                            to_string(tag)));
+                } else if (!operand_shape_valid) {
                     _error(
                         function, block, instruction,
                         luisa::format(
                             "Instruction operand count is invalid. Operation: '{}'.",
-                            to_string(instruction->derived_instruction_tag())));
-                } else if (!instruction_semantics_valid(instruction)) {
+                            to_string(tag)));
+                } else if (!instruction_semantics_valid(
+                               instruction, tag,
+                               semantics_operands)) {
                     _error(
                         function, block, instruction,
                         luisa::format(
                             "Instruction operands or result type are invalid. Operation: '{}'.",
-                            to_string(instruction->derived_instruction_tag())));
+                            to_string(tag)));
                 }
                 if (instruction->parent_block() != block) {
                     _error(function, block, instruction,
@@ -1066,7 +1095,7 @@ public:
                     _error(function, block, instruction,
                            "Instruction appears after a terminator.");
                 }
-                if (instruction->isa<PhiInst>()) {
+                if (tag == DerivedInstructionTag::PHI) {
                     if (saw_non_phi) {
                         _error(function, block, instruction,
                                "PHI instruction does not precede non-PHI instructions.");
@@ -1078,7 +1107,15 @@ public:
             }
             if (!terminated) { continue; }
             auto *terminator = block->terminator();
-            if (!instruction_operand_shape_valid(terminator)) { continue; }
+            auto terminator_facts = instruction_facts.find(terminator);
+            if (terminator_facts == instruction_facts.end()) {
+                _error(function, block, terminator,
+                       "Terminator was not classified by the verifier.");
+                continue;
+            }
+            if (!terminator_facts->second.operand_shape_valid) {
+                continue;
+            }
             auto add_successor = [&](size_t operand_index) noexcept {
                 auto *operand = terminator->operand(operand_index);
                 if (operand != nullptr && operand->isa<BasicBlock>()) {
@@ -1087,7 +1124,7 @@ public:
                     predecessors[target].emplace(block);
                 }
             };
-            switch (terminator->derived_instruction_tag()) {
+            switch (terminator_facts->second.tag) {
                 case DerivedInstructionTag::IF:
                 case DerivedInstructionTag::CONDITIONAL_BRANCH:
                     add_successor(ConditionalBranchTerminatorInstruction::operand_index_true_target);
@@ -1096,7 +1133,7 @@ public:
                 case DerivedInstructionTag::SWITCH:
                 case DerivedInstructionTag::INDEXED_BRANCH:
                     for (auto i = IndexedBranchTerminatorInstruction::
-                                      operand_index_default_block;
+                             operand_index_default_block;
                          i < terminator->operand_count(); i++) {
                         add_successor(i);
                     }
@@ -1176,21 +1213,28 @@ public:
             for (auto *block : blocks) {
                 if (!block->is_terminated()) { continue; }
                 auto *terminator = block->terminator();
-                if (terminator->isa<LoopInst>()) {
+                auto facts = instruction_facts.find(terminator);
+                if (facts == instruction_facts.end()) {
+                    _error(function, block, terminator,
+                           "Terminator was not classified by the verifier.");
+                    continue;
+                }
+                auto tag = facts->second.tag;
+                if (tag == DerivedInstructionTag::LOOP) {
                     auto *loop = static_cast<const LoopInst *>(terminator);
                     break_continue_scopes.emplace_back(BreakContinueScope{
                         .parent = block,
                         .merge = loop->merge_block(),
                         .continue_target = loop->update_block(),
                     });
-                } else if (terminator->isa<SimpleLoopInst>()) {
+                } else if (tag == DerivedInstructionTag::SIMPLE_LOOP) {
                     auto *loop = static_cast<const SimpleLoopInst *>(terminator);
                     break_continue_scopes.emplace_back(BreakContinueScope{
                         .parent = block,
                         .merge = loop->merge_block(),
                         .continue_target = loop->body_block(),
                     });
-                } else if (terminator->isa<SwitchInst>()) {
+                } else if (tag == DerivedInstructionTag::SWITCH) {
                     auto *switch_inst = static_cast<const SwitchInst *>(terminator);
                     break_continue_scopes.emplace_back(BreakContinueScope{
                         .parent = block,
@@ -1234,22 +1278,29 @@ public:
 
         for (auto *block : blocks) {
             for (auto *instruction : block->instructions()) {
-                if (_options.require_no_phi && instruction->isa<PhiInst>()) {
+                auto facts = instruction_facts.find(instruction);
+                if (facts == instruction_facts.end()) {
+                    _error(function, block, instruction,
+                           "Instruction was not classified by the verifier.");
+                    continue;
+                }
+                auto tag = facts->second.tag;
+                if (_options.require_no_phi &&
+                    tag == DerivedInstructionTag::PHI) {
                     _error(function, block, instruction, "PHI instruction is not allowed.");
                 }
                 if (_options.require_no_unstructured_control_flow &&
-                    (instruction->derived_instruction_tag() ==
-                         DerivedInstructionTag::CONDITIONAL_BRANCH ||
-                     instruction->derived_instruction_tag() ==
-                         DerivedInstructionTag::INDEXED_BRANCH)) {
+                    (tag == DerivedInstructionTag::CONDITIONAL_BRANCH ||
+                     tag == DerivedInstructionTag::INDEXED_BRANCH)) {
                     _error(function, block, instruction,
                            "Unstructured control flow is not allowed.");
                 }
-                if (!instruction_operand_shape_valid(instruction)) { continue; }
+                if (!facts->second.operand_shape_valid) { continue; }
 
                 if (auto *merge = instruction->control_flow_merge()) {
                     auto *merge_block = merge->merge_block();
-                    auto allows_null_merge = instruction->isa<IfInst>();
+                    auto allows_null_merge =
+                        tag == DerivedInstructionTag::IF;
                     if ((merge_block == nullptr && !allows_null_merge) ||
                         (merge_block != nullptr &&
                          (!block_set.contains(merge_block) ||
@@ -1268,7 +1319,7 @@ public:
                     }
                 }
 
-                if (instruction->isa<LoopInst>()) {
+                if (tag == DerivedInstructionTag::LOOP) {
                     auto *loop = static_cast<const LoopInst *>(instruction);
                     if (!is_owned_block(loop->operand(LoopInst::operand_index_prepare_block))) {
                         _error(function, block, instruction,
@@ -1281,35 +1332,35 @@ public:
                                    "Loop has an invalid owned block.");
                         }
                     }
-                } else if (instruction->isa<SimpleLoopInst>()) {
+                } else if (tag == DerivedInstructionTag::SIMPLE_LOOP) {
                     auto *loop = static_cast<const SimpleLoopInst *>(instruction);
                     if (!is_owned_block(loop->operand(
                             SimpleLoopInst::operand_index_body_block))) {
                         _error(function, block, instruction,
                                "Simple loop has an invalid body block.");
                     }
-                } else if (instruction->isa<AutodiffScopeInst>()) {
+                } else if (tag == DerivedInstructionTag::AUTODIFF_SCOPE) {
                     auto *scope = static_cast<const AutodiffScopeInst *>(instruction);
                     if (!is_owned_block(scope->operand(
                             AutodiffScopeInst::operand_index_entry_block))) {
                         _error(function, block, instruction,
                                "Autodiff scope has an invalid entry block.");
                     }
-                } else if (instruction->isa<OutlineInst>()) {
+                } else if (tag == DerivedInstructionTag::OUTLINE) {
                     auto *outline = static_cast<const OutlineInst *>(instruction);
                     if (!is_owned_block(outline->operand(
                             BranchTerminatorInstruction::operand_index_target))) {
                         _error(function, block, instruction,
                                "Outline instruction has an invalid target block.");
                     }
-                } else if (instruction->isa<RayQueryLoopInst>()) {
+                } else if (tag == DerivedInstructionTag::RAY_QUERY_LOOP) {
                     auto *loop = static_cast<const RayQueryLoopInst *>(instruction);
                     if (!is_owned_block(loop->operand(
                             RayQueryLoopInst::operand_index_dispatch_block))) {
                         _error(function, block, instruction,
                                "Ray-query loop has an invalid dispatch block.");
                     }
-                } else if (instruction->isa<RayQueryDispatchInst>()) {
+                } else if (tag == DerivedInstructionTag::RAY_QUERY_DISPATCH) {
                     auto *dispatch = static_cast<const RayQueryDispatchInst *>(instruction);
                     auto operand_count = dispatch->operand_count();
                     auto operand_at = [dispatch, operand_count](size_t index) noexcept {
@@ -1328,12 +1379,13 @@ public:
                                "Ray-query dispatch operands are invalid.");
                     }
                 } else if (
-                    instruction->isa<SwitchInst>() ||
-                    instruction->isa<IndexedBranchInst>()) {
+                    tag == DerivedInstructionTag::SWITCH ||
+                    tag == DerivedInstructionTag::INDEXED_BRANCH) {
                     auto *indexed_branch = static_cast<
                         const IndexedBranchTerminatorInstruction *>(
                         instruction);
-                    auto is_switch = instruction->isa<SwitchInst>();
+                    auto is_switch =
+                        tag == DerivedInstructionTag::SWITCH;
                     auto operand_count = indexed_branch->operand_count();
                     auto expected_operand_count =
                         indexed_branch->case_count() +
@@ -1438,17 +1490,20 @@ public:
                             }
                             case DerivedValueTag::INSTRUCTION: {
                                 auto *definition_instruction = static_cast<const Instruction *>(operand);
-                                auto definition_iter = instruction_blocks.find(definition_instruction);
-                                if (definition_iter == instruction_blocks.end()) {
+                                auto definition_iter =
+                                    instruction_facts.find(
+                                        definition_instruction);
+                                if (definition_iter == instruction_facts.end()) {
                                     _error(function, block, instruction,
                                            "Instruction references a definition from another function.");
                                     break;
                                 }
-                                if (instruction->isa<PhiInst>()) { break; }
-                                auto *definition_block = definition_iter->second;
+                                if (tag == DerivedInstructionTag::PHI) { break; }
+                                auto *definition_block =
+                                    definition_iter->second.block;
                                 if (definition_block == block) {
-                                    if (instruction_order[definition_instruction] >=
-                                        instruction_order[instruction]) {
+                                    if (definition_iter->second.order >=
+                                        facts->second.order) {
                                         _error(function, block, instruction,
                                                "Instruction operand does not precede its use.");
                                     }
@@ -1494,7 +1549,6 @@ public:
                     }
                 }
 
-                auto tag = instruction->derived_instruction_tag();
                 if (tag == DerivedInstructionTag::IF ||
                     tag == DerivedInstructionTag::CONDITIONAL_BRANCH) {
                     auto *condition = instruction->operand_count() >
@@ -1548,7 +1602,7 @@ public:
                     }
                 }
 
-                if (instruction->isa<LoadInst>()) {
+                if (tag == DerivedInstructionTag::LOAD) {
                     auto *load = static_cast<const LoadInst *>(instruction);
                     if (!typed_value_operand_valid(load->variable()) ||
                         !load->variable()->is_lvalue() ||
@@ -1556,7 +1610,7 @@ public:
                         _error(function, block, instruction,
                                "Load variable or result type is invalid.");
                     }
-                } else if (instruction->isa<StoreInst>()) {
+                } else if (tag == DerivedInstructionTag::STORE) {
                     auto *store = static_cast<const StoreInst *>(instruction);
                     if (!typed_value_operand_valid(store->variable()) ||
                         !store->variable()->is_lvalue() ||
@@ -1565,7 +1619,7 @@ public:
                         _error(function, block, instruction,
                                "Store variable or value type is invalid.");
                     }
-                } else if (instruction->isa<GEPInst>()) {
+                } else if (tag == DerivedInstructionTag::GEP) {
                     auto *gep = static_cast<const GEPInst *>(instruction);
                     if (!typed_value_operand_valid(gep->base()) ||
                         !gep->base()->is_lvalue() ||
@@ -1573,13 +1627,13 @@ public:
                         gep_indexed_type(gep) != gep->type()) {
                         _error(function, block, instruction, "GEP is invalid.");
                     }
-                } else if (instruction->isa<CastInst>()) {
+                } else if (tag == DerivedInstructionTag::CAST) {
                     auto *cast = static_cast<const CastInst *>(instruction);
                     if (!cast_types_valid(cast)) {
                         _error(function, block, instruction,
                                "Cast operands or result type are invalid.");
                     }
-                } else if (instruction->isa<ArithmeticInst>()) {
+                } else if (tag == DerivedInstructionTag::ARITHMETIC) {
                     auto *arithmetic = static_cast<const ArithmeticInst *>(instruction);
                     if (!arithmetic_types_valid(arithmetic)) {
                         _error(
@@ -1588,7 +1642,7 @@ public:
                                 "Arithmetic operands or result type are invalid. Operation: '{}'.",
                                 to_string(arithmetic->op())));
                     }
-                } else if (instruction->isa<CallInst>()) {
+                } else if (tag == DerivedInstructionTag::CALL) {
                     auto *call = static_cast<const CallInst *>(instruction);
                     auto *callee_value = call->operand_count() > CallInst::operand_index_callee ?
                                              call->operand(CallInst::operand_index_callee) :
@@ -1610,7 +1664,7 @@ public:
                             }
                         }
                     }
-                } else if (instruction->isa<ReturnInst>()) {
+                } else if (tag == DerivedInstructionTag::RETURN) {
                     auto *return_inst = static_cast<const ReturnInst *>(instruction);
                     auto *return_value = return_inst->return_value();
                     if ((function->type() == nullptr) != (return_value == nullptr) ||
@@ -1622,7 +1676,7 @@ public:
                     }
                 }
 
-                if (instruction->isa<PhiInst>()) {
+                if (tag == DerivedInstructionTag::PHI) {
                     auto *phi = static_cast<const PhiInst *>(instruction);
                     BlockSet incoming_blocks;
                     for (size_t i = 0u; i < phi->incoming_count(); ++i) {
@@ -1638,18 +1692,25 @@ public:
                         }
                         if (incoming.value->isa<Instruction>()) {
                             auto *incoming_instruction = static_cast<const Instruction *>(incoming.value);
-                            auto definition_iter = instruction_blocks.find(incoming_instruction);
-                            if (definition_iter == instruction_blocks.end()) {
+                            auto definition_iter =
+                                instruction_facts.find(
+                                    incoming_instruction);
+                            if (definition_iter == instruction_facts.end()) {
                                 _error(function, block, instruction,
                                        "PHI references a definition from another function.");
-                            } else if (definition_iter->second == incoming.block &&
+                            } else if (definition_iter->second.block == incoming.block &&
                                        incoming.block->is_terminated()) {
-                                if (instruction_order[incoming_instruction] >=
-                                    instruction_order[incoming.block->terminator()]) {
+                                auto terminator_iter = instruction_facts.find(
+                                    incoming.block->terminator());
+                                if (terminator_iter == instruction_facts.end()) {
+                                    _error(function, block, instruction,
+                                           "PHI predecessor terminator was not classified.");
+                                } else if (definition_iter->second.order >=
+                                           terminator_iter->second.order) {
                                     _error(function, block, instruction,
                                            "PHI incoming value does not precede the incoming edge.");
                                 }
-                            } else if (!block_dominates(definition_iter->second,
+                            } else if (!block_dominates(definition_iter->second.block,
                                                         incoming.block)) {
                                 _error(function, block, instruction,
                                        "PHI incoming value does not dominate the incoming edge.");

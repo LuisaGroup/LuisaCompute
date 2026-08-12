@@ -141,6 +141,15 @@ public:
     }
     void *native_handle() const noexcept override { return _handle.context(); }
     [[nodiscard]] uint compute_warp_size() const noexcept override { return 32u; }
+    [[nodiscard]] size_t compute_max_shared_memory_size() const noexcept override {
+        return with_handle([this] {
+            int bytes = 0;
+            LUISA_CHECK_CUDA(cuDeviceGetAttribute(
+                &bytes, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK,
+                _handle.device()));
+            return static_cast<size_t>(bytes);
+        });
+    }
     [[nodiscard]] uint64_t memory_granularity() const noexcept override { return _sparse_granularity; }
     [[nodiscard]] uint64_t sparse_granularity() const noexcept { return _sparse_granularity; }
 

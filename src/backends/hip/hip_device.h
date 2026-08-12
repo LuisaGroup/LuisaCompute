@@ -54,6 +54,7 @@ public:
     [[nodiscard]] hipUUID_t device_uuid_for_vulkan() const noexcept;
     [[nodiscard]] void *native_handle() const noexcept override;
     [[nodiscard]] uint compute_warp_size() const noexcept override;
+    [[nodiscard]] size_t compute_max_shared_memory_size() const noexcept override;
     [[nodiscard]] uint64_t memory_granularity() const noexcept override;
     [[nodiscard]] BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

@@ -55,8 +55,9 @@ inline constexpr SpirvTargetFeatureMask descriptor_binding_storage_buffer_update
 inline constexpr SpirvTargetFeatureMask storage_buffer_array_dynamic_indexing = 0x0000002000000000ull;
 inline constexpr SpirvTargetFeatureMask shader_device_clock = 0x0000004000000000ull;
 inline constexpr SpirvTargetFeatureMask buffer_device_address = 0x0000008000000000ull;
+inline constexpr SpirvTargetFeatureMask shader_untyped_pointers = 0x0000010000000000ull;
 
-inline constexpr SpirvTargetFeatureMask known_mask = 0x000000ffffffffffull;
+inline constexpr SpirvTargetFeatureMask known_mask = 0x000000ffffffffffull | shader_untyped_pointers;
 
 }// namespace target_feature
 
@@ -105,7 +106,8 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::descriptor_binding_storage_buffer_update_after_bind, "descriptorBindingStorageBufferUpdateAfterBind"},
     SpirvTargetFeatureDescription{target_feature::storage_buffer_array_dynamic_indexing, "shaderStorageBufferArrayDynamicIndexing"},
     SpirvTargetFeatureDescription{target_feature::shader_device_clock, "shaderDeviceClock"},
-    SpirvTargetFeatureDescription{target_feature::buffer_device_address, "bufferDeviceAddress"}};
+    SpirvTargetFeatureDescription{target_feature::buffer_device_address, "bufferDeviceAddress"},
+    SpirvTargetFeatureDescription{target_feature::shader_untyped_pointers, "shaderUntypedPointers"}};
 
 [[nodiscard]] constexpr std::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

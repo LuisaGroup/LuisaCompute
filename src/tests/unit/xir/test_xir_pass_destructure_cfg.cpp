@@ -96,12 +96,48 @@ void reg_destructure_cfg() {
         b.set_insertion_point(body);
         b.return_void();
         auto info = destructure_cfg_pass_run_on_function(k);
+        expect(info.boundary_verifier_count == 1u);
         expect(info.destructured_if_count == 0u);
         expect(info.destructured_switch_count == 0u);
         expect(info.destructured_loop_count == 0u);
         expect(info.destructured_simple_loop_count == 0u);
         expect(info.destructured_break_count == 0u);
         expect(info.destructured_continue_count == 0u);
+    };
+
+    "destructure_composes_inside_enclosing_verification_transaction"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *if_inst = [&] {
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            return builder.if_(condition);
+        }();
+        auto *true_block = if_inst->create_true_block();
+        auto *false_block = if_inst->create_false_block();
+        auto *merge = if_inst->create_merge_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        auto verification_transaction =
+            begin_xir_pass_verification_transaction(&module);
+        auto info = destructure_cfg_pass_run_on_function(
+            kernel,
+            {.verification_transaction =
+                 &verification_transaction});
+        expect(info.succeeded());
+        expect(info.destructured_if_count == 1u);
+        expect(info.boundary_verifier_count == 0u)
+            << "the enclosing transaction, not the composed pass, owns full verification";
+        expect(verification_transaction.verify_output().succeeded());
     };
 
     "destructure_single_if"_test = [] {

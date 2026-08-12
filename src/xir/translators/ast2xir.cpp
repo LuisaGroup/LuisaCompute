@@ -1,6 +1,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/ast/external_function.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/function.h>
@@ -20,12 +21,48 @@ public:
         BasicBlock *continue_target{nullptr};
     };
 
+    class VariableBindings {
+
+    private:
+        // Variable equality is exactly UID equality, and FunctionBuilder
+        // assigns UIDs monotonically within one function. Current instances
+        // are function-local, so a direct UID index is the complete key; null
+        // slots represent builtin-variable gaps that are resolved separately.
+        luisa::vector<Value *> _values;
+
+    public:
+        [[nodiscard]] Value *lookup(Variable variable) const noexcept {
+            auto uid = static_cast<size_t>(variable.uid());
+            return uid < _values.size() ? _values[uid] : nullptr;
+        }
+
+        [[nodiscard]] bool contains(Variable variable) const noexcept {
+            return lookup(variable) != nullptr;
+        }
+
+        [[nodiscard]] Value *bind(Variable variable,
+                                  Value *value) noexcept {
+            LUISA_ASSERT(value != nullptr,
+                         "Cannot bind an AST variable to a null XIR value.");
+            auto uid = static_cast<size_t>(variable.uid());
+            if (uid >= _values.size()) {
+                _values.resize(uid + 1u, nullptr);
+            }
+            LUISA_ASSERT(
+                _values[uid] == nullptr,
+                "AST variable UID {} was bound more than once in one function.",
+                variable.uid());
+            _values[uid] = value;
+            return value;
+        }
+    };
+
     struct Current {
         FunctionDefinition *f{nullptr};
         const ASTFunction *ast{nullptr};
         const RayQueryStmt *rq{nullptr};
         BreakContinueTarget break_continue_target;
-        luisa::unordered_map<Variable, Value *> variables;
+        VariableBindings variables;
         luisa::vector<const CommentStmt *> comments;
     };
 
@@ -296,8 +333,7 @@ private:
     [[nodiscard]] Value *_translate_ref_expr(XIRBuilder &b, const RefExpr *expr, bool load_lval) noexcept {
         auto ast_var = expr->variable();
         LUISA_ASSERT(ast_var.type() == expr->type(), "Variable type mismatch.");
-        if (auto iter = _current.variables.find(ast_var); iter != _current.variables.end()) {
-            auto var = iter->second;
+        if (auto var = _current.variables.lookup(ast_var)) {
             return load_lval && var->is_lvalue() ? b.load(expr->type(), var) : var;
         }
         return _translate_builtin_variable(ast_var);
@@ -1243,15 +1279,18 @@ private:
                 auto local = b.alloca_local(arg->type());
                 local->add_comment("Local copy of argument");
                 b.store(local, arg);
-                _current.variables.emplace(ast_arg, local);
+                static_cast<void>(
+                    _current.variables.bind(ast_arg, local));
             } else {// otherwise, we can directly use the argument
-                _current.variables.emplace(ast_arg, arg);
+                static_cast<void>(
+                    _current.variables.bind(ast_arg, arg));
             }
         }
         for (auto ast_local : _current.ast->local_variables()) {
-            LUISA_DEBUG_ASSERT(_current.variables.find(ast_local) == _current.variables.end(),
+            LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_local),
                                "Local variable already exists.");
-            auto v = _current.variables.emplace(ast_local, b.alloca_local(ast_local.type())).first->second;
+            auto v = _current.variables.bind(
+                ast_local, b.alloca_local(ast_local.type()));
             if (auto name = _current.ast->get_variable_name(ast_local.uid()); !name.empty()) {
                 v->set_name(name);
             } else {
@@ -1264,9 +1303,10 @@ private:
             }
         }
         for (auto ast_shared : _current.ast->shared_variables()) {
-            LUISA_DEBUG_ASSERT(_current.variables.find(ast_shared) == _current.variables.end(),
+            LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_shared),
                                "Shared variable already exists.");
-            _current.variables.emplace(ast_shared, b.alloca_shared(ast_shared.type()));
+            static_cast<void>(_current.variables.bind(
+                ast_shared, b.alloca_shared(ast_shared.type())));
         }
         _translate_statements(b, _current.ast->body()->statements());
         if (!b.is_insertion_point_terminator()) {

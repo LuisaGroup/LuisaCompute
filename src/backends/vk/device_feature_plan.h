@@ -6,6 +6,8 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include "vk_shader_untyped_pointers.h"
+
 namespace lc::vk::detail {
 
 // The three global update-after-bind heaps contain C storage buffers, C 2D
@@ -171,6 +173,7 @@ inline constexpr VkStructureType backend_owned_device_feature_structure_types[]{
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_FEATURES_KHR,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
 
     // Aliases promoted into VkPhysicalDeviceVulkan11Features (VUID 02829).
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,

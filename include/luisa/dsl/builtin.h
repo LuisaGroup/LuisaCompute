@@ -1999,19 +1999,26 @@ inline void sync_block() noexcept {
         CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
-// async copy (CUDA LDGSTS, CC 8.0+)
+// async copy (CUDA cp.async, CC 8.0+)
 
-/// Initiate an async copy from global to shared memory (CUDA: LDGSTS via cp.async).
-/// Returns a dummy uint (event handle in SPIR-V, zero in CUDA).
-/// Signature: async_copy(scope, dst, src, elem_bytes, num, stride, event) -> uint
-inline void async_copy(Expr<uint> scope, Expr<uint> dst, Expr<uint> src,
+/// Initiate an async copy from global to shared memory (CUDA: cp.async).
+/// `dst` is an lvalue of the shared-memory destination (e.g. `shared_array[i]`)
+/// and `src` is the 64-bit device address of the global source (e.g.
+/// `buffer.device_address() + byte_offset`). `elem_bytes * num` must be 4, 8,
+/// or 16 on CUDA. `scope`, `stride`, and `event` are reserved for the SPIR-V
+/// OpGroupAsyncCopyKHR semantics and are ignored on CUDA.
+/// Signature: async_copy(scope, dst_lvalue, src_addr, elem_bytes, num, stride, event)
+template<typename Dst, typename Src>
+inline void async_copy(Expr<uint> scope, Dst &&dst, Src &&src,
                        Expr<uint> elem_bytes, Expr<uint> num,
                        Expr<uint> stride, Expr<uint> event) noexcept {
-    static_cast<void>(detail::FunctionBuilder::current()->call(
-        Type::of<uint>(), CallOp::ASYNC_COPY,
-        {scope.expression(), dst.expression(), src.expression(),
-         elem_bytes.expression(), num.expression(),
-         stride.expression(), event.expression()}));
+    auto f = detail::FunctionBuilder::current();
+    f->call(CallOp::ASYNC_COPY,
+            {scope.expression(),
+             detail::extract_expression(std::forward<Dst>(dst)),
+             detail::extract_expression(std::forward<Src>(src)),
+             elem_bytes.expression(), num.expression(),
+             stride.expression(), event.expression()});
 }
 
 /// Commit pending async copies in the pipeline (CUDA).

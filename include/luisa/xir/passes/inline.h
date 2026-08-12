@@ -24,6 +24,10 @@ struct InlineInfo {
     size_t skipped_structured_call_count{0u};
     size_t skipped_constrained_call_count{0u};
     size_t skipped_metadata_call_count{0u};
+    // Mandatory lowering may consume source-only metadata on a call because
+    // the call itself has no one-to-one replacement after inlining. Semantic
+    // metadata is never included in this count and remains an inline barrier.
+    size_t consumed_call_site_diagnostic_metadata_count{0u};
     size_t skipped_declaration_call_count{0u};
     size_t rejected_malformed_call_count{0u};
     size_t skipped_costly_callable_count{0u};
@@ -61,6 +65,11 @@ struct InlineInfo {
 
 struct InlineOptions {
     bool allow_autodiff_scope_in_caller{false};
+    // Name, location, and comment metadata describe the removed call site but
+    // do not affect executable semantics. Mandatory legalization passes may
+    // explicitly consume them after the complete selected-call-site plan has
+    // passed preflight. All other metadata remains unmappable.
+    bool consume_call_site_diagnostic_metadata{false};
 };
 
 // Single-block callees can be inlined into structured callers without changing
@@ -68,7 +77,9 @@ struct InlineOptions {
 // opt-in option permits only a retained caller-side autodiff scope after the
 // caller and callee's ordinary structured CFG has already been destructured.
 // Signature-constrained callees and calls whose metadata cannot be assigned to
-// one replacement owner are rejected without mutation. Bodyless callable
+// one replacement owner are rejected without mutation. An explicit mandatory
+// lowering option may consume only source-diagnostic call metadata after
+// atomic preflight; semantic metadata is always rejected. Bodyless callable
 // declarations are valid references but are never inline candidates. Callee
 // instruction and basic-block metadata is cloned one-to-one;
 // function/argument names are debug declarations and are not materialized into

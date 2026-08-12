@@ -54,6 +54,11 @@ struct CoroutineCompileResult {
     CoroFrameDesc frame_desc;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> subroutines;
     luisa::vector<uint32_t> trigger_tokens;
+    // The enclosing coroutine transaction owns exactly its input and output
+    // full-XIR verifier boundaries. Composed passes expose their counts so a
+    // regression cannot silently reintroduce nested full verification.
+    size_t boundary_verifier_count{0u};
+    size_t nested_pass_boundary_verifier_count{0u};
 };
 
 /// Run the full coroutine compilation pipeline on an AST function.

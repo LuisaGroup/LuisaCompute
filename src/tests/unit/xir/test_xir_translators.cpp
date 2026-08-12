@@ -198,6 +198,41 @@ void reg_ast2xir() {
             << "kernel + callable should produce at least 2 functions";
     };
 
+    "xir_ast_to_xir_dense_variable_uids_are_function_local"_test = [] {
+        // FunctionBuilder assigns UIDs independently per builder. The callee
+        // therefore deliberately overlaps the kernel's argument/local UIDs,
+        // while kernel builtins leave unmapped holes before its local values.
+        Callable add_one = [](Float x) {
+            Var<float> local = x + 1.0f;
+            return local;
+        };
+        Kernel1D kernel = [&add_one](BufferFloat output) {
+            auto thread = thread_id().x;
+            auto block = block_id().x;
+            auto dispatch = dispatch_id().x;
+            auto kernel_index = kernel_id();
+            auto lane_count = warp_lane_count();
+            auto lane = warp_lane_id();
+            Var<uint> mixed = thread + block + dispatch + kernel_index +
+                              lane_count + lane;
+            Var<float> local = add_one(cast<float>(mixed));
+            output.write(dispatch, local);
+        };
+
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        expect(xir_verify_module(module.get()).succeeded());
+        expect(module->special_register_list().count_size() == 6u)
+            << "builtin UID holes must resolve to their six exact registers";
+        auto *callable = find_only_callable(module.get());
+        auto *kernel_definition = find_kernel_definition(module.get());
+        expect(callable != nullptr);
+        expect(kernel_definition != nullptr);
+        expect(count_calls_to(kernel_definition, callable) == 1u)
+            << "overlapping caller/callee UIDs must remain frame-local";
+    };
+
     "xir_ast_to_xir_merges_equivalent_callable_definitions"_test = [] {
         // One callable used from many call sites must produce a single
         // definition that every call site references.

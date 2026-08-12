@@ -20,6 +20,9 @@ xir_to_ast_translate_continuation(const FunctionDefinition &function,
 /// Translate a set of continuations from the same immutable XIR module. Root
 /// value/CFG state remains isolated, while ordinary callable dependencies are
 /// translated once and shared by pointer identity across the returned ASTs.
+/// XIR2ASTConfig::verify_same_module_once replaces per-function verification
+/// with one stronger whole-module verification performed synchronously before
+/// translation starts.
 [[nodiscard]] LUISA_XIR_API
 luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>>
 xir_to_ast_translate_continuations(

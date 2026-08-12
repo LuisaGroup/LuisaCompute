@@ -23,6 +23,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/instructions/load.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/fix_self_referential.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -286,11 +287,20 @@ int main(int argc, char *argv[]) {
         expect(xir_verify_module(&module).succeeded());
 
         lc::spirv::SpirvFunctionArgumentAnalysisStatistics statistics;
+        lc::spirv::SpirvFunctionCallSiteList call_sites;
         auto analysis =
             lc::spirv::analyze_spirv_function_argument_usage(
-                &module, &statistics);
+                &module, &statistics, {}, &call_sites);
         expect(lc::spirv::spirv_function_argument_usage_of(
                    analysis, kernel, kernel_buffer) == Usage::READ);
+        expect(eq(call_sites.size(), chain_length));
+        auto origins = lc::spirv::
+            analyze_spirv_readonly_resource_origins_from_call_sites(
+                analysis, luisa::span{call_sites});
+        expect(eq(origins.size(), chain_length));
+        for (auto *argument : arguments) {
+            expect(origins.at(argument) == kernel_buffer);
+        }
         expect(eq(statistics.structural_closure_count,
                   chain_length + 1u));
         expect(eq(statistics.instruction_scan_count,
@@ -307,6 +317,23 @@ int main(int argc, char *argv[]) {
         auto kernel = make_pointer_switch_kernel();
         auto module = ast_to_xir_translate(
             kernel.function()->function(), {});
+        CallInst *pointer_call = nullptr;
+        for (auto *function : module->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](Instruction *instruction) noexcept {
+                        if (instruction->isa<CallInst>()) {
+                            expect(pointer_call == nullptr)
+                                << "the fixture must contain exactly one call";
+                            pointer_call =
+                                static_cast<CallInst *>(instruction);
+                        }
+                    });
+            }
+        }
+        expect(pointer_call != nullptr);
+        pointer_call->add_comment(
+            "mandatory pointer specialization call site");
         auto destructured =
             destructure_cfg_pass_run_on_module(module.get());
         expect(destructured.succeeded());
@@ -319,6 +346,11 @@ int main(int argc, char *argv[]) {
         expect(eq(legalized.destructured_blocking_function_count, 0u));
         expect(eq(legalized.destructured_switch_count, 0u));
         expect(eq(legalized.inline_info.inlined_call_count, 1u));
+        expect(eq(
+            legalized.inline_info
+                .consumed_call_site_diagnostic_metadata_count,
+            1u));
+        expect(eq(legalized.inline_info.skipped_metadata_call_count, 0u));
         expect(eq(legalized.remaining_pointer_call_count, 0u));
         expect(eq(legalized.argument_usage_analysis_count, 2u));
         expect(xir_verify_module(module.get()).succeeded());
@@ -342,6 +374,47 @@ int main(int argc, char *argv[]) {
                                spv::Op::OpSwitch),
                   1u))
             << "pointer specialization must preserve native switch selection";
+    };
+
+    "spirv_pointer_legalization_rejects_semantic_call_metadata"_test = [] {
+        auto kernel = make_pointer_switch_kernel();
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        CallInst *pointer_call = nullptr;
+        for (auto *function : module->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](Instruction *instruction) noexcept {
+                        if (instruction->isa<CallInst>()) {
+                            expect(pointer_call == nullptr)
+                                << "the fixture must contain exactly one call";
+                            pointer_call =
+                                static_cast<CallInst *>(instruction);
+                        }
+                    });
+            }
+        }
+        expect(pointer_call != nullptr);
+        pointer_call->metadata_list().push_front(
+            luisa::make_managed<Reg2MemSpillMD>(
+                Reg2MemSpillKind::CROSS_BLOCK));
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(!legalized.succeeded());
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(eq(
+            legalized.inline_info
+                .consumed_call_site_diagnostic_metadata_count,
+            0u));
+        expect(eq(legalized.inline_info.skipped_metadata_call_count, 1u));
+        expect(legalized.diagnostic.find("metadata=1") !=
+               luisa::string::npos);
+        expect(pointer_call->is_linked());
+        expect(xir_verify_module(module.get()).succeeded());
     };
 
     "spirv_pointer_legalization_preserves_unblocked_native_switch"_test = [] {
@@ -630,6 +703,169 @@ int main(int argc, char *argv[]) {
                    luisa::span{compiled.spv_bin},
                    spv::Op::OpFunctionCall) >= 2u)
             << "both forwarding callables must remain outlined";
+    };
+
+    "spirv_pointer_legalization_excludes_dead_wrapper_resource_edges"_test = [] {
+        Callable read = [](BufferUInt input, UInt index) noexcept {
+            return input.read(index);
+        };
+        Callable inner = [&read](UInt &value,
+                                 BufferUInt input) noexcept {
+            value = read(input, 0u);
+        };
+        Callable outer = [&inner](UInt &value,
+                                  BufferUInt input) noexcept {
+            inner(value, input);
+        };
+        Kernel1D kernel = [&outer](BufferUInt input,
+                                   BufferUInt output) noexcept {
+            Var<std::array<uint32_t, 2u>> values;
+            values[0u] = 3u;
+            values[1u] = 5u;
+            // The derived reference forces outer and then inner to be
+            // specialized. Their old definitions must leave the reachable
+            // resource-flow domain before the next fixed-point iteration.
+            outer(values[1u], input);
+            output.write(0u, values[1u]);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+
+        // Reproduce the production coroutine shape: a wrapper that must be
+        // specialized owns an orphan block which references another callable.
+        // The orphan calls the same live resource helper through a formal with
+        // no semantic incoming edge. Physical ownership keeps that callable
+        // alive until the wrapper is removed, but neither the orphan nor its
+        // unresolved resource edge belongs to the kernel-rooted codegen
+        // closure used by pointer legalization.
+        CallableFunction *outer_xir = nullptr;
+        CallableFunction *inner_xir = nullptr;
+        CallableFunction *read_xir = nullptr;
+        KernelFunction *kernel_xir = nullptr;
+        for (auto *function : module->function_list()) {
+            if (function->isa<KernelFunction>()) {
+                kernel_xir = static_cast<KernelFunction *>(function);
+                break;
+            }
+        }
+        auto first_callable = [](FunctionDefinition *definition) noexcept
+            -> CallableFunction * {
+            CallableFunction *result = nullptr;
+            definition->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (result != nullptr ||
+                        !instruction->isa<CallInst>()) {
+                        return;
+                    }
+                    auto *callee = static_cast<CallInst *>(instruction)
+                                       ->callee();
+                    if (callee != nullptr &&
+                        callee->isa<CallableFunction>()) {
+                        result = static_cast<CallableFunction *>(callee);
+                    }
+                });
+            return result;
+        };
+        expect(kernel_xir != nullptr);
+        outer_xir = first_callable(kernel_xir);
+        expect(outer_xir != nullptr);
+        inner_xir = first_callable(outer_xir);
+        expect(inner_xir != nullptr);
+        read_xir = first_callable(inner_xir);
+        expect(read_xir != nullptr);
+
+        auto *buffer_type = Type::buffer(Type::of<uint32_t>());
+        auto *orphan = module->create_callable(Type::of<void>());
+        auto *orphan_input =
+            orphan->create_resource_argument(buffer_type);
+        auto *orphan_body = orphan->create_body_block();
+        auto *zero = module->create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(orphan_body);
+        static_cast<void>(builder.call(
+            Type::of<uint32_t>(), read_xir,
+            {orphan_input, zero}));
+        builder.return_void();
+
+        ResourceArgument *outer_input = nullptr;
+        for (auto *argument : outer_xir->arguments()) {
+            if (argument->is_resource() &&
+                argument->type() == buffer_type) {
+                outer_input = static_cast<ResourceArgument *>(argument);
+                break;
+            }
+        }
+        expect(outer_input != nullptr);
+        auto *disconnected = outer_xir->create_basic_block();
+        builder.set_insertion_point(disconnected);
+        static_cast<void>(builder.call(
+            nullptr, orphan, {outer_input}));
+        builder.return_void();
+        expect(xir_verify_module(module.get()).succeeded());
+
+        lc::spirv::SpirvFunctionCallSiteList live_call_sites;
+        auto live_usage =
+            lc::spirv::analyze_spirv_function_argument_usage(
+                module.get(), nullptr,
+                {.kernel_reachable_only = true},
+                &live_call_sites);
+        expect(eq(live_call_sites.size(), 3u))
+            << "only kernel->outer->inner->read belongs to the semantic call graph";
+        for (auto *call : live_call_sites) {
+            expect(call->callee() != orphan)
+                << "an orphan physical function operand must not enter the sparse call-site index";
+        }
+        auto live_origins = lc::spirv::
+            analyze_spirv_readonly_resource_origins_from_call_sites(
+                live_usage, luisa::span{live_call_sites});
+        expect(eq(live_origins.size(), 3u));
+        expect(!live_origins.contains(orphan_input))
+            << "the orphan formal must not receive an origin proof";
+
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 2u))
+            << "only the two derived-reference wrappers require specialization";
+        expect(eq(legalized.inline_info.inlined_call_count, 2u));
+        expect(eq(legalized.pruned_unreachable_callable_count, 1u))
+            << "the orphan-only callable must be pruned after its wrapper is removed";
+        expect(eq(legalized.remaining_pointer_call_count, 0u));
+        expect(eq(legalized.argument_usage_analysis_count, 3u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto callable_count = size_t{0u};
+        auto call_count = size_t{0u};
+        for (auto *function : module->function_list()) {
+            callable_count += function->isa<CallableFunction>() ? 1u : 0u;
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](const Instruction *instruction) noexcept {
+                        call_count += instruction->isa<CallInst>() ? 1u : 0u;
+                    });
+            }
+        }
+        expect(eq(callable_count, 1u));
+        expect(eq(call_count, 1u))
+            << "the uniquely rooted read helper must remain outlined";
+
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(
+                module.get());
+        expect(dialect.succeeded())
+            << (dialect.diagnostics.empty() ?
+                    "unknown dialect failure" :
+                    dialect.diagnostics.front().message);
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get());
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(
+                   luisa::span{compiled.spv_bin},
+                   spv::Op::OpFunctionCall) > 0u)
+            << "dead wrappers must not force the live read helper inline";
     };
 
     "spirv_pointer_legalization_specializes_conflicting_readonly_buffer_origins"_test = [] {

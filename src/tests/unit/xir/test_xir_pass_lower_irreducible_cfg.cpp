@@ -101,6 +101,7 @@ void reg_xir_pass_lower_irreducible_cfg() {
             lower_irreducible_cfg_pass_run_on_function(
                 callable);
         expect(lowered.succeeded());
+        expect(lowered.boundary_verifier_count == 2u);
         expect(lowered.lowered_region_count == 1u);
         expect(lowered.created_dispatch_block_count == 1u);
         expect(lowered.created_edge_block_count == 4u)
@@ -166,17 +167,22 @@ void reg_xir_pass_lower_irreducible_cfg() {
             << "the unique outer header must not hide the two-entry "
                "left/right cycle";
 
+        auto verification_transaction =
+            begin_xir_pass_verification_transaction(&module);
         auto lowered =
             lower_irreducible_cfg_pass_run_on_function(
-                callable);
+                callable,
+                {.verification_transaction =
+                     &verification_transaction});
         expect(lowered.succeeded());
+        expect(lowered.boundary_verifier_count == 0u);
         expect(lowered.lowered_region_count == 1u);
         expect(lowered.created_dispatch_block_count == 1u);
         expect(lowered.created_edge_block_count == 4u);
         expect(lowered.remaining_irreducible_region_count == 0u);
-        expect(xir_verify_function(
-                   callable,
-                   {.require_no_phi = true})
+        expect(verification_transaction
+                   .verify_output(
+                       {.require_no_phi = true})
                    .succeeded());
 
         auto restructured =

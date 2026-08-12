@@ -212,7 +212,7 @@ void reg_pass_entry_totality() {
             (void)dead_store_elimination_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(9u, [](PassReport *report) noexcept {
+        check_zero_report(10u, [](PassReport *report) noexcept {
             (void)destructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
@@ -233,7 +233,7 @@ void reg_pass_entry_totality() {
             (void)fuse_consecutive_buffer_reads_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(2u, [](PassReport *report) noexcept {
+        check_zero_report(3u, [](PassReport *report) noexcept {
             (void)gvn_pass_run_on_module(nullptr, report);
         });
         check_zero_report(4u, [](PassReport *report) noexcept {
@@ -242,17 +242,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(31u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -3587,6 +3587,50 @@ void reg_gvn() {
         expect(pair->operand(1u) == plain);
         expect(annotated->find_metadata<LocationMD>() != nullptr);
         expect(plain->metadata_list().empty());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "gvn_optimizes_continuations_without_crossing_suspend"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *x = k->create_value_argument(Type::of<int>());
+        auto *entry = k->create_body_block();
+        auto *resume = k->create_basic_block();
+        auto *one = m.create_constant_one(Type::of<int>());
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        auto *entry_sink = b.alloca_local(Type::of<int>());
+        auto *before = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        b.store(entry_sink, before);
+        b.coro_suspend(7u, "gvn-boundary", nullptr);
+
+        b.set_insertion_point(resume);
+        b.coro_resume(7u, nullptr);
+        auto *resume_sink = b.alloca_local(Type::of<int2>());
+        auto *after0 = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *after1 = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *pair = b.call(
+            Type::of<int2>(), ArithmeticOp::AGGREGATE,
+            {after0, after1});
+        auto *store = b.store(resume_sink, pair);
+        b.coro_terminate();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = gvn_pass_run_on_function(k);
+
+        // `after0` must remain continuation-local: replacing it with `before`
+        // would create a new frame use. The second expression is in the same
+        // continuation and is therefore safely coalesced with `after0`.
+        expect(info.rejected_cross_suspend_count >= 1u);
+        expect(info.replaced_inst_count == 1u);
+        expect(pair->operand(0u) == after0);
+        expect(pair->operand(1u) == after0);
+        expect(store->value() == pair);
+        expect(after0->is_linked());
         expect(xir_verify_module(&m).succeeded());
     };
 
@@ -7498,15 +7542,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 31u);
+        expect(report.entries().size() == 32u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 31u);
+        expect(report.entries().size() == 32u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 31u);
+        expect(report.entries().size() == 32u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {
@@ -7608,6 +7652,84 @@ void reg_inline() {
         };
         run(true);
         run(false);
+    };
+
+    "inline_selected_consumes_only_diagnostic_call_metadata_atomically"_test = [] {
+        {
+            Module m;
+            auto *callee = m.create_callable(Type::of<int>());
+            auto *callee_body = callee->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(callee_body);
+            b.return_(m.create_constant_one(Type::of<int>()));
+
+            BasicBlock *body;
+            auto *caller = make_kernel_with_body(m, body);
+            b.set_insertion_point(body);
+            auto *storage = b.alloca_local(Type::of<int>());
+            auto *call = b.call(Type::of<int>(), callee, {});
+            call->set_name("mandatory_inline_call");
+            call->set_location("mandatory_inline.cpp", 41);
+            call->add_comment("source-only call annotation");
+            b.store(storage, call);
+            b.return_void();
+
+            std::array<CallInst *, 1u> selected_calls{call};
+            auto info = inline_call_sites_pass_run_on_module(
+                &m, luisa::span{selected_calls},
+                {.consume_call_site_diagnostic_metadata = true});
+            expect(eq(info.inlined_call_count, 1u));
+            expect(eq(
+                info.consumed_call_site_diagnostic_metadata_count, 3u));
+            expect(eq(info.skipped_metadata_call_count, 0u));
+            expect(eq(count_reachable_insts(
+                          caller, DerivedInstructionTag::CALL),
+                      0u));
+            expect(xir_verify_module(&m).succeeded());
+        }
+        {
+            Module m;
+            auto *callee = m.create_callable(Type::of<int>());
+            auto *callee_body = callee->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(callee_body);
+            b.return_(m.create_constant_one(Type::of<int>()));
+
+            BasicBlock *body;
+            auto *caller = make_kernel_with_body(m, body);
+            b.set_insertion_point(body);
+            auto *first_storage = b.alloca_local(Type::of<int>());
+            auto *second_storage = b.alloca_local(Type::of<int>());
+            auto *diagnostic_call =
+                b.call(Type::of<int>(), callee, {});
+            diagnostic_call->add_comment("admissible only as a group");
+            b.store(first_storage, diagnostic_call);
+            auto *semantic_call =
+                b.call(Type::of<int>(), callee, {});
+            semantic_call->metadata_list().push_front(
+                luisa::make_managed<Reg2MemSpillMD>(
+                    Reg2MemSpillKind::CROSS_BLOCK));
+            b.store(second_storage, semantic_call);
+            b.return_void();
+            auto before = xir_to_text_translate(&m, true);
+
+            std::array<CallInst *, 2u> selected_calls{
+                diagnostic_call, semantic_call};
+            auto info = inline_call_sites_pass_run_on_module(
+                &m, luisa::span{selected_calls},
+                {.consume_call_site_diagnostic_metadata = true});
+            auto after = xir_to_text_translate(&m, true);
+            expect(!info.changed());
+            expect(eq(info.inlined_call_count, 0u));
+            expect(eq(
+                info.consumed_call_site_diagnostic_metadata_count, 0u));
+            expect(eq(info.skipped_metadata_call_count, 1u));
+            expect(before == after);
+            expect(eq(count_reachable_insts(
+                          caller, DerivedInstructionTag::CALL),
+                      2u));
+            expect(xir_verify_module(&m).succeeded());
+        }
     };
 
     "inline_single_block_with_block_metadata_is_rejected_without_mutation"_test = [] {

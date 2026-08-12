@@ -13,6 +13,7 @@
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/IR/PassInstrumentation.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Constants.h>
@@ -31,6 +32,7 @@
 #include <luisa/core/stl/hash.h>
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
+#include "hip_llvm_pipeline.h"
 #include "hiprt_device_wrapper.hip"
 #include "hip_codegen_llvm_device_bitcode.h"
 
@@ -812,12 +814,18 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                     llvm_generated_callable_attribute);
             if (is_generated_callable) {
                 // Luisa Callable is an intentional DSL/JIT-stage function
-                // boundary. Let LLVM's inliner make its normal whole-module
-                // cost decision: single-use and small callables still fold,
-                // while large shared components are not multiplied into a
-                // megakernel merely because they originated in the DSL.
+                // boundary. LLVM gives a large bonus to single-call-site local
+                // functions, which can otherwise inline an entire generated
+                // continuation into its scheduler kernel. Bound that growth by
+                // the callee's structural IR size; small callables still use the
+                // normal whole-module cost model.
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.removeFnAttr(llvm::Attribute::NoInline);
+                if (preserve_generated_callable_boundary(
+                        func.getInstructionCount())) {
+                    func.addFnAttr(llvm::Attribute::NoInline);
+                } else {
+                    func.removeFnAttr(llvm::Attribute::NoInline);
+                }
             } else if (is_stack_overflow_fallback) {
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
                 func.addFnAttr(llvm::Attribute::NoInline);
@@ -895,7 +903,10 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     PTO.SLPVectorization = true;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
-    llvm::PassBuilder PB{_target_machine, PTO};
+    llvm::PassInstrumentationCallbacks instrumentation;
+    llvm::PassBuilder PB{
+        _target_machine, PTO, std::nullopt,
+        &instrumentation};
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
     PB.registerFunctionAnalyses(FAM);
@@ -915,7 +926,40 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_DEFAULT: opt_level = llvm::OptimizationLevel::O2; break;
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE: opt_level = llvm::OptimizationLevel::O3; break;
     }
-    llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(opt_level);
+    auto MPM = PB.buildPerModuleDefaultPipeline(opt_level);
+    // gfx12 ray queries lower to resumable traversal loops whose state is
+    // carried through nested callback loops. LLVM's pre-SLP cleanup normally
+    // opts out of preserving canonical loops; on AMDGPU this can collapse the
+    // unique latches into a multi-latch CFG that the downstream structurizer
+    // miscompiles. Keep the exact default pipeline, but retain canonical loop
+    // form at that one stage for hardware ray-query modules.
+    auto preserve_hardware_ray_query_loops =
+        _uses_hardware_rt_stack && _rt_analysis.uses_ray_query &&
+        (_config.opt_level == HIPCodegenLLVMConfig::OptLevel::LEVEL_DEFAULT ||
+         _config.opt_level == HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE);
+    if (preserve_hardware_ray_query_loops) {
+        auto pipeline = std::string{};
+        auto stream = llvm::raw_string_ostream{pipeline};
+        MPM.printPipeline(
+            stream,
+            [&instrumentation](llvm::StringRef class_name) noexcept {
+                return instrumentation.getPassNameForClassName(class_name);
+            });
+        stream.flush();
+        auto replacement_count =
+            preserve_hardware_ray_query_loop_form(pipeline);
+        LUISA_ASSERT(replacement_count == 1u,
+                     "Expected exactly one non-canonical loop optimization "
+                     "stage in the HIP LLVM pipeline, found {}.",
+                     replacement_count);
+        auto canonical_mpm = llvm::ModulePassManager{};
+        if (auto error = PB.parsePassPipeline(canonical_mpm, pipeline)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to rebuild the canonical-loop HIP LLVM pipeline: {}.",
+                llvm::toString(std::move(error)));
+        }
+        MPM = std::move(canonical_mpm);
+    }
     MPM.run(*_llvm_module, MAM);
 
     // make hiprt/hiprtc happy

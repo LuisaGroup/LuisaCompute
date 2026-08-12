@@ -52,7 +52,7 @@ static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
 // that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 6u;
+static constexpr auto hip_shader_cache_codegen_revision = 8u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -846,6 +846,14 @@ luisa::string HIPDevice::query(luisa::string_view property) noexcept {
         return _amdgpu_arch;
     }
     return DeviceInterface::query(property);
+}
+
+size_t HIPDevice::compute_max_shared_memory_size() const noexcept {
+    return with_device([this] {
+        hipDeviceProp_t properties{};
+        LUISA_CHECK_HIP(hipGetDeviceProperties(&properties, _device_id));
+        return properties.sharedMemPerBlock;
+    });
 }
 
 DeviceExtension *HIPDevice::extension(luisa::string_view name) noexcept {

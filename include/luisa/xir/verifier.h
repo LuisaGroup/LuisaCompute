@@ -53,6 +53,10 @@ struct XIRVerificationResult {
         // Exact dominance predicates requested by SSA and structured-control
         // validation. Each query is answered by two ancestry-interval tests.
         size_t dominance_queries{0u};
+        // Exact virtual instruction-tag queries used to build the immutable
+        // per-function fact table. This must equal the number of owned
+        // instructions: all later verifier stages consume the cached tag.
+        size_t instruction_tag_queries{0u};
     } statistics;
     [[nodiscard]] bool succeeded() const noexcept { return errors.empty(); }
 };

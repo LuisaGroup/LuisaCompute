@@ -260,6 +260,52 @@ void reg_coro_persistent_integration(luisa::test::coro_test::Options options) {
         dispatch_and_validate(device, stream, scheduler, "T36_minimal_thread_count_dispatches");
         LUISA_INFO("T36: minimal thread count dispatch complete");
     };
+
+    // ----------------------------------------------------------------
+    // 9. Fit an oversized workgroup to an explicit shared-memory budget
+    // ----------------------------------------------------------------
+    "T36_shared_memory_budget_reduces_block_and_dispatches"_test =
+        [options, make_coro, dispatch_and_validate] {
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+
+            auto coro = make_coro();
+            PersistentThreadsCoroSchedulerConfig baseline_config{
+                .thread_count = 128u,
+                .block_size = 128u,
+            };
+            PersistentThreadsCoroScheduler<Buffer<uint>> baseline{
+                device, coro, baseline_config};
+            auto baseline_shared_memory =
+                baseline.static_shared_memory_size_bytes();
+            expect(baseline.config().block_size == 128u);
+            expect(baseline_shared_memory > 0u);
+            LUISA_ASSERT(
+                baseline_shared_memory > 0u,
+                "Persistent scheduler must report non-zero static shared memory.");
+
+            auto fitted_config = baseline_config;
+            fitted_config.shared_memory_limit_bytes =
+                baseline_shared_memory - 1u;
+            PersistentThreadsCoroScheduler<Buffer<uint>> fitted{
+                device, coro, fitted_config};
+
+            expect(fitted.config().block_size <
+                   baseline.config().block_size)
+                << "an over-budget workgroup must be rebuilt at a smaller block size";
+            expect(fitted.config().thread_count %
+                       fitted.config().block_size ==
+                   0u)
+                << "resource fitting must preserve complete persistent workgroups";
+            expect(fitted.static_shared_memory_size_bytes() <=
+                   fitted_config.shared_memory_limit_bytes)
+                << "the rebuilt kernel must satisfy the explicit shared-memory budget";
+
+            dispatch_and_validate(
+                device, stream, fitted,
+                "T36_shared_memory_budget_reduces_block_and_dispatches");
+        };
 }
 
 int main(int argc, char *argv[]) {

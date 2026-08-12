@@ -229,10 +229,17 @@ void reg_coro_xir2ast() {
 
         std::array<const FunctionDefinition *, 2u> roots{
             continuations[0u], continuations[1u]};
+        XIR2ASTTranslationStatistics statistics;
         auto asts = xir_to_ast_translate_continuations(
-            luisa::span{roots});
+            luisa::span{roots},
+            {.statistics = &statistics,
+             .verify_same_module_once = true});
 
         expect(asts.size() == roots.size());
+        expect(statistics.whole_module_verification_count == 1u);
+        expect(statistics.function_verification_count == 0u)
+            << "one immutable module boundary must replace all root/helper verification";
+        expect(statistics.verification_milliseconds >= 0.0);
         expect(asts[0u] != nullptr && asts[1u] != nullptr);
         expect(asts[0u].get() != asts[1u].get())
             << "continuation roots must remain distinct builders";
@@ -256,8 +263,13 @@ void reg_coro_xir2ast() {
         b.return_void();
 
         // Using regular xir_to_ast_translate (not continuation-specific)
-        auto ast = xir_to_ast_translate(*cf, {});
+        XIR2ASTTranslationStatistics statistics;
+        auto ast = xir_to_ast_translate(
+            *cf, {.statistics = &statistics});
         expect(ast != nullptr);
+        expect(statistics.whole_module_verification_count == 0u);
+        expect(statistics.function_verification_count == 1u)
+            << "the default standalone API must retain independent verification";
         expect(ast->function().tag() == ASTFunction::Tag::CALLABLE);
         expect(ast->arguments().size() == 1u);
         expect(!ast->arguments().front().is_reference());

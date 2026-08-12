@@ -49,6 +49,33 @@ namespace {
     int TrackedDestroy::alive_count = 0;
     int TrackedDestroy::destroy_count = 0;
 
+    struct TaggedAllocator {
+        eastl::allocator backing;
+        int tag;
+
+        TaggedAllocator() : backing("TaggedAllocator"), tag(0) {}
+        explicit TaggedAllocator(int value) : backing("TaggedAllocator"), tag(value) {}
+
+        void* allocate(size_t size, int flags = 0) {
+            return backing.allocate(size, flags);
+        }
+        void* allocate(size_t size, size_t alignment, size_t offset, int flags = 0) {
+            return backing.allocate(size, alignment, offset, flags);
+        }
+        void deallocate(void* pointer, size_t size) {
+            backing.deallocate(pointer, size);
+        }
+        [[nodiscard]] const char* get_name() const { return backing.get_name(); }
+        void set_name(const char* name) { backing.set_name(name); }
+
+        friend bool operator==(const TaggedAllocator& lhs, const TaggedAllocator& rhs) {
+            return lhs.tag == rhs.tag;
+        }
+        friend bool operator!=(const TaggedAllocator& lhs, const TaggedAllocator& rhs) {
+            return !(lhs == rhs);
+        }
+    };
+
     // Reset tracked counters
     void reset_tracked() {
         TrackedDestroy::alive_count = 0;
@@ -897,6 +924,49 @@ void reg_fixed_vector_move_construct_overflowed_non_trivial() {
     };
 }
 
+void reg_fixed_vector_move_construct_preserves_overflow_allocator() {
+    "fixed_vector_move_construct_preserves_overflow_allocator"_test = [] {
+        reset_tracked();
+        {
+            using Vector = eastl::fixed_vector<TrackedDestroy, 3, true, TaggedAllocator>;
+            Vector source(TaggedAllocator{17});
+            for (int i = 0; i < 8; ++i) { source.push_back(TrackedDestroy(i)); }
+            auto* source_storage = source.data();
+
+            Vector destination(eastl::move(source));
+            expect(destination.data() == source_storage)
+                << "the default move constructor may steal compatible overflow storage";
+            expect(destination.get_overflow_allocator().tag == 17_i)
+                << "the allocator that owns the stolen storage must follow it";
+            expect(source.empty() && !source.has_overflowed())
+                << "the source must return to its own inline storage";
+            expect(TrackedDestroy::alive_count == 8_i);
+        }
+        expect(TrackedDestroy::alive_count == 0_i);
+    };
+}
+
+void reg_fixed_vector_move_construct_rejects_incompatible_allocator_steal() {
+    "fixed_vector_move_construct_rejects_incompatible_allocator_steal"_test = [] {
+        reset_tracked();
+        {
+            using Vector = eastl::fixed_vector<TrackedDestroy, 3, true, TaggedAllocator>;
+            Vector source(TaggedAllocator{17});
+            for (int i = 0; i < 8; ++i) { source.push_back(TrackedDestroy(i)); }
+            auto* source_storage = source.data();
+
+            Vector destination(eastl::move(source), TaggedAllocator{29});
+            expect(destination.data() != source_storage)
+                << "an explicit incompatible allocator must not inherit foreign storage";
+            expect(destination.get_overflow_allocator().tag == 29_i)
+                << "the explicit destination allocator must be retained";
+            expect(source.empty() && !source.has_overflowed());
+            expect(TrackedDestroy::alive_count == 8_i);
+        }
+        expect(TrackedDestroy::alive_count == 0_i);
+    };
+}
+
 void reg_fixed_vector_move_assign_within_fixed_to_within_fixed() {
     "fixed_vector_move_assign_within_fixed_to_within_fixed"_test = [] {
         reset_tracked();
@@ -1013,6 +1083,31 @@ void reg_fixed_vector_move_assign_fixed_to_heap() {
             expect(TrackedDestroy::alive_count == 3_i) << "3 alive after move assign";
         }
         expect(TrackedDestroy::alive_count == 0_i) << "no leaks after fixed-to-heap move assign";
+    };
+}
+
+void reg_fixed_vector_move_assign_rejects_incompatible_allocator_steal() {
+    "fixed_vector_move_assign_rejects_incompatible_allocator_steal"_test = [] {
+        reset_tracked();
+        {
+            using Vector = eastl::fixed_vector<TrackedDestroy, 3, true, TaggedAllocator>;
+            Vector destination(TaggedAllocator{29});
+            for (int i = 0; i < 6; ++i) { destination.push_back(TrackedDestroy(100 + i)); }
+            Vector source(TaggedAllocator{17});
+            for (int i = 0; i < 8; ++i) { source.push_back(TrackedDestroy(i)); }
+            auto* source_storage = source.data();
+
+            destination = eastl::move(source);
+            expect(destination.data() != source_storage)
+                << "a non-propagating incompatible allocator must move elements instead of stealing";
+            expect(destination.get_overflow_allocator().tag == 29_i);
+            expect(destination.size() == 8u);
+            for (int i = 0; i < 8; ++i) { expect(destination[i].id == i); }
+            expect(source.empty() && !source.has_overflowed());
+            expect(TrackedDestroy::alive_count == 8_i)
+                << "the replaced destination elements and moved-from source elements must be destroyed";
+        }
+        expect(TrackedDestroy::alive_count == 0_i);
     };
 }
 
@@ -1135,10 +1230,13 @@ int main(int argc, char *argv[]) {
     reg_fixed_vector_move_construct_within_fixed();
     reg_fixed_vector_move_construct_overflowed();
     reg_fixed_vector_move_construct_overflowed_non_trivial();
+    reg_fixed_vector_move_construct_preserves_overflow_allocator();
+    reg_fixed_vector_move_construct_rejects_incompatible_allocator_steal();
     reg_fixed_vector_move_assign_within_fixed_to_within_fixed();
     reg_fixed_vector_move_assign_overflowed_to_overflowed();
     reg_fixed_vector_move_assign_heap_to_fixed();
     reg_fixed_vector_move_assign_fixed_to_heap();
+    reg_fixed_vector_move_assign_rejects_incompatible_allocator_steal();
     reg_fixed_vector_move_construct_no_overflow();
     reg_fixed_vector_move_assign_no_overflow();
     reg_fixed_vector_move_self_assign();

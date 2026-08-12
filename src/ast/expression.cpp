@@ -103,6 +103,16 @@ void CallExpr::_mark() const noexcept {
                     _arguments[i]->mark(Usage::READ);
                 }
                 break;
+            case CallOp::ASYNC_COPY:
+                // args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]
+                // The async copy writes the shared-memory destination and reads
+                // the global-memory source.
+                _arguments[0]->mark(Usage::READ);
+                _arguments[1]->mark(Usage::WRITE);
+                for (size_t i = 2; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
             default:
                 for (auto arg : _arguments) {
                     arg->mark(Usage::READ);

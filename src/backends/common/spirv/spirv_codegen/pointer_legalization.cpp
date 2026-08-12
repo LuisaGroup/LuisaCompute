@@ -18,6 +18,7 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/unused_callable_removal.h>
 
 namespace lc::spirv {
 
@@ -110,33 +111,29 @@ struct StructuredInventory {
 }
 
 [[nodiscard]] luisa::vector<PointerCall> collect_pointer_calls(
-    xir::Module *module,
+    luisa::span<const xir::CallInst *const> call_sites,
     const SpirvFunctionArgumentAnalysisMap &usage,
     const SpirvReadonlyResourceOriginMap
         &readonly_resource_origins) noexcept {
     luisa::vector<PointerCall> calls;
-    for (auto *function : module->function_list()) {
-        auto *definition = function->definition();
-        if (definition == nullptr) { continue; }
-        auto closure = plan_spirv_codegen_structural_closure(definition);
-        if (!closure.succeeded()) { continue; }
-        for (auto *const_block : closure.blocks) {
-            auto *block = const_cast<xir::BasicBlock *>(const_block);
-            for (auto *instruction : block->instructions()) {
-                if (!instruction->isa<xir::CallInst>()) { continue; }
-                auto *call = static_cast<xir::CallInst *>(instruction);
-                auto *callee = call->callee();
-                if (callee == nullptr || callee->definition() == nullptr ||
-                    callee->derived_function_tag() !=
-                        xir::DerivedFunctionTag::CALLABLE) {
-                    continue;
-                }
-                if (call_requires_specialization(
-                        call, callee, usage,
-                        readonly_resource_origins)) {
-                    calls.emplace_back(PointerCall{call, callee});
-                }
-            }
+    calls.reserve(call_sites.size());
+    for (auto *const_call : call_sites) {
+        auto *call = const_cast<xir::CallInst *>(const_call);
+        if (call == nullptr ||
+            !usage.contains(call->parent_function())) {
+            continue;
+        }
+        auto *callee = call->callee();
+        if (callee == nullptr || !usage.contains(callee) ||
+            callee->definition() == nullptr ||
+            callee->derived_function_tag() !=
+                xir::DerivedFunctionTag::CALLABLE) {
+            continue;
+        }
+        if (call_requires_specialization(
+                call, callee, usage,
+                readonly_resource_origins)) {
+            calls.emplace_back(PointerCall{call, callee});
         }
     }
     return calls;
@@ -234,7 +231,9 @@ struct StructuredInventory {
 }
 
 [[nodiscard]] luisa::unordered_set<xir::Function *>
-find_recursive_callables(xir::Module *module) noexcept {
+find_recursive_callables(
+    xir::Module *module,
+    luisa::span<const xir::CallInst *const> call_sites) noexcept {
     luisa::vector<xir::Function *> callables;
     luisa::unordered_set<xir::Function *> callable_set;
     for (auto *function : module->function_list()) {
@@ -245,20 +244,14 @@ find_recursive_callables(xir::Module *module) noexcept {
         }
     }
     luisa::unordered_map<xir::Function *, luisa::vector<xir::Function *>> edges;
-    for (auto *function : callables) {
-        auto closure = plan_spirv_codegen_structural_closure(
-            function->definition());
-        if (!closure.succeeded()) { continue; }
-        for (auto *block : closure.blocks) {
-            block->traverse_instructions(
-                [&](const xir::Instruction *instruction) noexcept {
-                    if (!instruction->isa<xir::CallInst>()) { return; }
-                    auto *callee = const_cast<xir::Function *>(
-                        static_cast<const xir::CallInst *>(instruction)->callee());
-                    if (callable_set.contains(callee)) {
-                        edges[function].emplace_back(callee);
-                    }
-                });
+    for (auto *call : call_sites) {
+        if (call == nullptr) { continue; }
+        auto *caller = const_cast<xir::Function *>(
+            call->parent_function());
+        auto *callee = const_cast<xir::Function *>(call->callee());
+        if (callable_set.contains(caller) &&
+            callable_set.contains(callee)) {
+            edges[caller].emplace_back(callee);
         }
     }
     luisa::unordered_set<xir::Function *> recursive;
@@ -290,6 +283,14 @@ void accumulate_inline_info(
         increment.skipped_recursive_callable_count;
     total.skipped_structured_call_count +=
         increment.skipped_structured_call_count;
+    total.skipped_constrained_call_count +=
+        increment.skipped_constrained_call_count;
+    total.skipped_metadata_call_count +=
+        increment.skipped_metadata_call_count;
+    total.consumed_call_site_diagnostic_metadata_count +=
+        increment.consumed_call_site_diagnostic_metadata_count;
+    total.skipped_declaration_call_count +=
+        increment.skipped_declaration_call_count;
     total.rejected_malformed_call_count +=
         increment.rejected_malformed_call_count;
     total.skipped_costly_callable_count +=
@@ -390,11 +391,25 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
         return result;
     }
 
-    auto analyze_argument_usage = [&]() noexcept {
+    struct AnalysisSnapshot {
+        SpirvFunctionArgumentAnalysisMap usage;
+        SpirvReadonlyResourceOriginMap readonly_resource_origins;
+        SpirvFunctionCallSiteList call_sites;
+    };
+    auto analyze_argument_flow = [&]() noexcept {
         SpirvFunctionArgumentAnalysisStatistics statistics;
-        auto usage = analyze_spirv_function_argument_usage(
-            module, &statistics);
+        AnalysisSnapshot snapshot;
+        snapshot.usage = analyze_spirv_function_argument_usage(
+            module, &statistics,
+            {.kernel_reachable_only = true},
+            &snapshot.call_sites);
+        snapshot.readonly_resource_origins =
+            analyze_spirv_readonly_resource_origins_from_call_sites(
+                snapshot.usage,
+                luisa::span{snapshot.call_sites});
         ++result.argument_usage_analysis_count;
+        result.indexed_call_site_count +=
+            snapshot.call_sites.size();
         result.argument_usage_structural_closure_count +=
             statistics.structural_closure_count;
         result.argument_usage_instruction_scan_count +=
@@ -405,21 +420,21 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             statistics.worklist_pop_count;
         result.argument_usage_dependency_visit_count +=
             statistics.dependency_visit_count;
-        return usage;
+        return snapshot;
     };
 
     luisa::unordered_set<xir::Function *> blocking_functions_seen;
     for (;;) {
-        auto usage = analyze_argument_usage();
-        auto readonly_resource_origins =
-            analyze_spirv_readonly_resource_origins(
-                module, usage);
+        auto analysis = analyze_argument_flow();
         auto pointer_calls = collect_pointer_calls(
-            module, usage, readonly_resource_origins);
+            luisa::span{analysis.call_sites},
+            analysis.usage,
+            analysis.readonly_resource_origins);
         if (pointer_calls.empty()) { break; }
         result.planned_pointer_call_count += pointer_calls.size();
 
-        auto recursive = find_recursive_callables(module);
+        auto recursive = find_recursive_callables(
+            module, luisa::span{analysis.call_sites});
         luisa::unordered_set<xir::Function *> recursive_callees;
         auto malformed_count = size_t{0u};
         for (auto &&pointer_call : pointer_calls) {
@@ -509,14 +524,12 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             if (!destructured.succeeded()) {
                 result.status =
                     SpirvPointerLegalizationStatus::DESTRUCTURE_FAILED;
-                auto remaining_usage = analyze_argument_usage();
-                auto remaining_readonly_resource_origins =
-                    analyze_spirv_readonly_resource_origins(
-                        module, remaining_usage);
+                auto remaining = analyze_argument_flow();
                 result.remaining_pointer_call_count =
                     collect_pointer_calls(
-                        module, remaining_usage,
-                        remaining_readonly_resource_origins)
+                        luisa::span{remaining.call_sites},
+                        remaining.usage,
+                        remaining.readonly_resource_origins)
                         .size();
                 result.diagnostic = luisa::format(
                     "SPIR-V pointer-argument fallback could not destructure a "
@@ -534,32 +547,51 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             call_sites.emplace_back(pointer_call.call);
         }
         auto inline_info = xir::inline_call_sites_pass_run_on_module(
-            module, luisa::span{call_sites});
+            module, luisa::span{call_sites},
+            {.consume_call_site_diagnostic_metadata = true});
         accumulate_inline_info(result.inline_info, inline_info);
         if (inline_info.inlined_call_count == 0u ||
             inline_info.skipped_structured_call_count != 0u ||
+            inline_info.skipped_constrained_call_count != 0u ||
+            inline_info.skipped_metadata_call_count != 0u ||
+            inline_info.skipped_declaration_call_count != 0u ||
             inline_info.rejected_malformed_call_count != 0u ||
             inline_info.skipped_recursive_callable_count != 0u) {
-            auto remaining_usage = analyze_argument_usage();
-            auto remaining_readonly_resource_origins =
-                analyze_spirv_readonly_resource_origins(
-                    module, remaining_usage);
+            auto remaining = analyze_argument_flow();
             result.remaining_pointer_call_count =
                 collect_pointer_calls(
-                    module, remaining_usage,
-                    remaining_readonly_resource_origins)
+                    luisa::span{remaining.call_sites},
+                    remaining.usage,
+                    remaining.readonly_resource_origins)
                     .size();
             result.status =
                 SpirvPointerLegalizationStatus::INLINE_RETRY_FAILED;
             result.diagnostic = luisa::format(
                 "SPIR-V pointer-argument inline retry failed "
-                "(remaining={}, structured={}, malformed={}, recursive={}).",
+                "(remaining={}, structured={}, malformed={}, recursive={}, "
+                "constrained={}, metadata={}, declaration={}).",
                 result.remaining_pointer_call_count,
                 result.inline_info.skipped_structured_call_count,
                 result.inline_info.rejected_malformed_call_count,
-                result.inline_info.skipped_recursive_callable_count);
+                result.inline_info.skipped_recursive_callable_count,
+                result.inline_info.skipped_constrained_call_count,
+                result.inline_info.skipped_metadata_call_count,
+                result.inline_info.skipped_declaration_call_count);
             return result;
         }
+
+        // Pointer legalization is a fixed point over the semantic call graph
+        // reachable from kernel roots. The argument/resource analyses above
+        // explicitly project onto that domain, including when an orphan block
+        // still owns a physical function operand. Inlining a wrapper can then
+        // drop the last physical use of a callable that has left the semantic
+        // domain. Remove such definitions at the mutation boundary so later
+        // whole-module passes and SPIR-V emission observe the same domain, and
+        // so subsequent fixed-point iterations need not rescan dead bodies.
+        auto pruned =
+            xir::unused_callable_removal_pass_run_on_module(module);
+        result.pruned_unreachable_callable_count +=
+            pruned.removed_callable_count;
     }
     result.remaining_pointer_call_count = 0u;
     return result;

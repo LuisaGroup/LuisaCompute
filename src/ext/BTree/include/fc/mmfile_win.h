@@ -1,11 +1,11 @@
 #ifndef FC_MMFILE_WIN_H
 #define FC_MMFILE_WIN_H
 
+#include "fc/details.h"
 #include <windows.h>
 
 #include <cstdint>
 #include <filesystem>
-#include <stdexcept>
 
 namespace frozenca {
 
@@ -56,7 +56,7 @@ class MemoryMappedFileImpl {
     handle_ = CreateFileW(path, dwDesiredAccess, FILE_SHARE_READ, 0,
                           dwCreationDisposition, dwFlagsandAttributes, 0);
     if (handle_ == INVALID_HANDLE_VALUE) {
-      throw std::runtime_error("file open failed\n");
+      btree_fatal("file open failed\n");
     }
 
     if (!exists) {
@@ -65,7 +65,7 @@ class MemoryMappedFileImpl {
       DWORD result = SetFilePointer(handle_, sizelow, &sizehigh, FILE_BEGIN);
       if ((result == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) ||
           !SetEndOfFile(handle_)) {
-        throw std::runtime_error("failed setting file size\n");
+        btree_fatal("failed setting file size\n");
       }
     }
 
@@ -80,7 +80,7 @@ class MemoryMappedFileImpl {
             ((static_cast<std::int64_t>(info.HighPart) << 32) | info.LowPart);
         size_ = static_cast<std::size_t>(size);
       } else {
-        throw std::runtime_error("failed querying file size");
+        btree_fatal("failed querying file size");
       }
     } else {
       DWORD hi = 0;
@@ -89,7 +89,7 @@ class MemoryMappedFileImpl {
         std::int64_t size = (static_cast<std::int64_t>(hi) << 32) | low;
         size_ = static_cast<std::size_t>(size);
       } else {
-        throw std::runtime_error("failed querying file size");
+        btree_fatal("failed querying file size");
         return;
       }
     }
@@ -99,13 +99,13 @@ class MemoryMappedFileImpl {
     DWORD protect = PAGE_READWRITE;
     mapped_handle_ = CreateFileMappingA(handle_, 0, protect, 0, 0, 0);
     if (!mapped_handle_) {
-      throw std::runtime_error("failed mapping file");
+      btree_fatal("failed mapping file");
     }
 
     DWORD access = FILE_MAP_WRITE;
     void *data = MapViewOfFileEx(mapped_handle_, access, 0, 0, size_, 0);
     if (!data) {
-      throw std::runtime_error("failed mapping file");
+      btree_fatal("failed mapping file");
     }
     data_ = data;
   }
@@ -123,22 +123,22 @@ class MemoryMappedFileImpl {
  public:
   void resize(std::size_t new_size) {
     if (!data_) {
-      throw std::runtime_error("file is closed\n");
+      btree_fatal("file is closed\n");
     }
     if (!unmap_file()) {
-      throw std::runtime_error("failed unmappping file\n");
+      btree_fatal("failed unmappping file\n");
     }
 
     std::int64_t offset = SetFilePointer(handle_, 0, 0, FILE_CURRENT);
     if (offset == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
-      throw std::runtime_error("failed querying file pointer");
+      btree_fatal("failed querying file pointer");
     }
     LONG sizehigh = (new_size >> (sizeof(LONG) * 8));
     LONG sizelow = (new_size & 0xffffffff);
     DWORD result = SetFilePointer(handle_, sizelow, &sizehigh, FILE_BEGIN);
     if ((result == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) ||
         !SetEndOfFile(handle_)) {
-      throw std::runtime_error("failed resizing mapped file");
+      btree_fatal("failed resizing mapped file");
     }
     sizehigh = (offset >> (sizeof(LONG) * 8));
     sizelow = (offset & 0xffffffff);

@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 
@@ -14,12 +16,16 @@
 #include <luisa/xir/passes/const_fold.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/coro_alloca_scope.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/coro_rematerialize.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/defer_local_aggregate_load.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_irreducible_cfg.h>
@@ -27,6 +33,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/trace_gep.h>
@@ -78,6 +85,22 @@ public:
         if (_enabled) {
             LUISA_INFO("Coroutine compilation phase '{}': {:.3f} ms",
                        phase, _phase_clock.toc());
+            _phase_clock.tic();
+        }
+    }
+
+    void checkpoint_split(luisa::string_view first_phase,
+                          double first_milliseconds,
+                          luisa::string_view second_phase) noexcept {
+        if (_enabled) {
+            auto total_milliseconds = _phase_clock.toc();
+            auto bounded_first = std::clamp(
+                first_milliseconds, 0.0, total_milliseconds);
+            LUISA_INFO("Coroutine compilation phase '{}': {:.3f} ms",
+                       first_phase, bounded_first);
+            LUISA_INFO("Coroutine compilation phase '{}': {:.3f} ms",
+                       second_phase,
+                       total_milliseconds - bounded_first);
             _phase_clock.tic();
         }
     }
@@ -167,6 +190,25 @@ void verify_coro_xir_or_error(
         r.set("folded_inst", i.folded_inst_count);
         return i.folded_inst_count > 0u;
     });
+    // SCCP belongs after local algebraic/constant folding has exposed branch
+    // constants, but before CFG cleanup consumes executable-edge information.
+    // Its coroutine-aware graph includes the token-matched suspend->resume
+    // edges, so a dead suspend arm makes the matching continuation dead too.
+    p.add("sccp", [coroutine](xir::Module *, xir::PassReport &r) {
+        luisa::Clock clock;
+        auto i = xir::sccp_pass_run_on_function(coroutine);
+        auto elapsed_ms = clock.toc();
+        r.set("folded_inst", i.folded_inst_count);
+        r.set("removed_branch", i.removed_branch_count);
+        if (environment_flag_enabled(
+                "LUISA_CORO_PROFILE_COMPILATION")) {
+            LUISA_INFO(
+                "Coroutine SCCP: folded={} branches={} time={:.3f} ms.",
+                i.folded_inst_count, i.removed_branch_count,
+                elapsed_ms);
+        }
+        return i.changed();
+    });
     // Coro scope/token metadata must describe the executable CFG, not the
     // front-end statement list. In particular, an AST suspend may live in a
     // constant-dead arm while a later live suspend keeps its (now sparse)
@@ -198,6 +240,109 @@ void verify_coro_xir_or_error(
         r.set("removed_noop_gep", i.removed_noop_gep_count);
         return i.changed();
     });
+    // Preserve the aggregate load's memory snapshot while exposing only the
+    // statically projected fields before local-state promotion. This ordering
+    // is semantic: forwarding a non-replayable aggregate into SSA first would
+    // hide its narrow access paths and force the complete aggregate into the
+    // coroutine frame. The one-level SROA pass below can then expose the same
+    // projected storage without recursively scalarizing the whole source IR.
+    p.add("defer-local-aggregate-load",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::defer_local_aggregate_load_pass_run_on_function(
+                  coroutine);
+              r.set("aggregate_load", i.aggregate_load_count);
+              r.set("candidate_extract", i.candidate_extract_count);
+              r.set("rewritten_extract", i.rewritten_extract_count);
+              r.set("inserted_gep", i.inserted_gep_count);
+              r.set("inserted_load", i.inserted_load_count);
+              r.set("reused_projection", i.reused_projection_count);
+              r.set("removed_aggregate_load",
+                    i.removed_aggregate_load_count);
+              return i.changed();
+          });
+    p.add("coro-rematerialize-local-state",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::
+                  coro_rematerialize_local_state_pass_run_on_function(
+                      coroutine);
+              r.set("semantic_block", i.semantic_block_count);
+              r.set("semantic_edge", i.semantic_edge_count);
+              r.set("scanned_alloca", i.scanned_alloca_count);
+              r.set("replayable_single_store",
+                    i.replayable_single_store_count);
+              r.set("replayable_multi_store",
+                    i.replayable_multi_store_count);
+              r.set("nonreplayable_candidate",
+                    i.nonreplayable_candidate_count);
+              r.set("reaching_dataflow_alloca",
+                    i.reaching_dataflow_alloca_count);
+              r.set("reaching_dataflow_block_evaluation",
+                    i.reaching_dataflow_block_evaluation_count);
+              r.set("promoted_multi_store_alloca",
+                    i.promoted_multi_store_alloca_count);
+              r.set("unresolved_load",
+                    i.unresolved_load_count);
+              r.set("rejected_projected_replay_cost",
+                    i.rejected_projected_replay_cost_count);
+              r.set("rejected_nonreplayable_projection",
+                    i.rejected_nonreplayable_projection_count);
+              r.set("rejected_nonreplayable_scope_local",
+                    i.rejected_nonreplayable_scope_local_count);
+              r.set("rejected_forwarding_cycle",
+                    i.rejected_forwarding_cycle_count);
+              r.set("promoted_alloca", i.promoted_alloca_count);
+              r.set("promoted_nonreplayable_alloca",
+                    i.promoted_nonreplayable_alloca_count);
+              r.set("replaced_load", i.replaced_load_count);
+              r.set("inserted_extract", i.inserted_extract_count);
+              r.set("initializer_replay_instruction_cost",
+                    i.initializer_replay_instruction_cost);
+              r.set("promoted_state_bytes", i.promoted_state_bytes);
+              r.set("invalid_semantic_cfg",
+                    i.invalid_semantic_cfg_count);
+              if (environment_flag_enabled(
+                      "LUISA_CORO_PROFILE_COMPILATION")) {
+                  LUISA_INFO(
+                      "Coroutine local-state rematerialization: "
+                      "allocas={} single_store={} multi_store={} "
+                      "nonreplayable_candidates={} "
+                      "dataflow_allocas={} block_evaluations={} "
+                      "unresolved_loads={} rejected_nonreplayable_projection={} "
+                      "rejected_nonreplayable_scope_local={} "
+                      "rejected_forwarding_cycles={} promoted_allocas={} "
+                      "promoted_multi_store={} "
+                      "promoted_nonreplayable={} replaced_loads={} "
+                      "promoted_bytes={}.",
+                      i.scanned_alloca_count,
+                      i.replayable_single_store_count,
+                      i.replayable_multi_store_count,
+                      i.nonreplayable_candidate_count,
+                      i.reaching_dataflow_alloca_count,
+                      i.reaching_dataflow_block_evaluation_count,
+                      i.unresolved_load_count,
+                      i.rejected_nonreplayable_projection_count,
+                      i.rejected_nonreplayable_scope_local_count,
+                      i.rejected_forwarding_cycle_count,
+                      i.promoted_alloca_count,
+                      i.promoted_multi_store_alloca_count,
+                      i.promoted_nonreplayable_alloca_count,
+                      i.replaced_load_count,
+                      i.promoted_state_bytes);
+              }
+              return i.changed();
+          });
+    p.add("post-rematerialize-dce",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::dce_pass_run_on_function(coroutine);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("removed_block", i.removed_block_count);
+              r.set("inserted_terminator", i.inserted_terminator_count);
+              r.set("dead_code_instruction_scan",
+                    i.dead_code_instruction_scan_count);
+              r.set("dead_code_worklist_pop",
+                    i.dead_code_worklist_pop_count);
+              return i.changed();
+          });
     p.add("sroa", [coroutine](xir::Module *, xir::PassReport &r) {
         auto i = xir::sroa_pass_run_on_function(
             coroutine, {.decompose_vectors = true});
@@ -205,6 +350,150 @@ void verify_coro_xir_or_error(
         r.set("inserted_alloca", i.inserted_alloca_count);
         return i.changed();
     });
+    // One-level SROA deliberately does not recurse, but it reconstructs a
+    // parent aggregate from loads of its new child allocas. Fold projections
+    // of that reconstruction once, then apply the same snapshot-preserving
+    // load projection to the now-visible child aggregate. This is bounded to
+    // one cleanup round; it does not recursively scalarize the source IR.
+    p.add("post-sroa-algebraic-simplify",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::algebraic_simplify_pass_run_on_function(
+                  coroutine);
+              r.set("simplified_inst", i.simplified_inst_count);
+              return i.simplified_inst_count > 0u;
+          });
+    p.add("post-sroa-defer-local-aggregate-load",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::defer_local_aggregate_load_pass_run_on_function(
+                  coroutine);
+              r.set("aggregate_load", i.aggregate_load_count);
+              r.set("candidate_extract", i.candidate_extract_count);
+              r.set("rewritten_extract", i.rewritten_extract_count);
+              r.set("inserted_gep", i.inserted_gep_count);
+              r.set("inserted_load", i.inserted_load_count);
+              r.set("reused_projection", i.reused_projection_count);
+              r.set("removed_aggregate_load",
+                    i.removed_aggregate_load_count);
+              return i.changed();
+          });
+    p.add("post-sroa-dce",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::dce_pass_run_on_function(coroutine);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("removed_block", i.removed_block_count);
+              r.set("inserted_terminator", i.inserted_terminator_count);
+              r.set("dead_code_instruction_scan",
+                    i.dead_code_instruction_scan_count);
+              r.set("dead_code_worklist_pop",
+                    i.dead_code_worklist_pop_count);
+              return i.changed();
+          });
+    // SROA and aggregate-load projection expose the final scalar expression
+    // graph. Run GVN here, rather than before rematerialization: the earlier
+    // placement did not reduce rematerialization's dataflow work and left 215
+    // more atoms for distillation on the Psycles production coroutine. The
+    // augmented-CFG pass refuses cross-suspend replacements, and the following
+    // DCE removes newly dead dependency chains before alloca placement consumes
+    // the final use/def set.
+    p.add("post-sroa-gvn",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              luisa::Clock clock;
+              auto i = xir::gvn_pass_run_on_function(coroutine);
+              auto elapsed_ms = clock.toc();
+              r.set("replaced_inst", i.replaced_inst_count);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("rejected_cross_suspend",
+                    i.rejected_cross_suspend_count);
+              if (environment_flag_enabled(
+                      "LUISA_CORO_PROFILE_COMPILATION")) {
+                  LUISA_INFO(
+                      "Coroutine scope-local GVN: replaced={} removed={} "
+                      "cross_suspend_rejected={} time={:.3f} ms.",
+                      i.replaced_inst_count, i.removed_inst_count,
+                      i.rejected_cross_suspend_count, elapsed_ms);
+              }
+              return i.changed();
+          });
+    p.add("post-gvn-dce",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::dce_pass_run_on_function(coroutine);
+              r.set("removed_inst", i.removed_inst_count);
+              r.set("removed_block", i.removed_block_count);
+              r.set("inserted_terminator", i.inserted_terminator_count);
+              r.set("dead_code_instruction_scan",
+                    i.dead_code_instruction_scan_count);
+              r.set("dead_code_worklist_pop",
+                    i.dead_code_worklist_pop_count);
+              return i.changed();
+          });
+    // Keep this last: SROA and its cleanup create the final local-allocation
+    // set consumed by coroutine liveness. After proving definite
+    // initialization, moving a lifetime start to the nearest augmented-CFG
+    // dominator lets a continuation loop begin with undefined scratch storage
+    // instead of preserving bytes from the previous iteration.
+    p.add("coro-alloca-scope",
+          [coroutine](xir::Module *, xir::PassReport &r) {
+              auto i = xir::coro_alloca_scope_pass_run_on_function(
+                  coroutine);
+              r.set("semantic_block", i.semantic_block_count);
+              r.set("semantic_edge", i.semantic_edge_count);
+              r.set("scanned_local_alloca",
+                    i.scanned_local_alloca_count);
+              r.set("contracted_alloca", i.contracted_alloca_count);
+              r.set("cross_block_contraction",
+                    i.cross_block_contraction_count);
+              r.set("intra_block_contraction",
+                    i.intra_block_contraction_count);
+              r.set("delayed_first_definition",
+                    i.delayed_first_definition_count);
+              r.set("cross_block_first_definition_delay",
+                    i.cross_block_first_definition_delay_count);
+              r.set("intra_block_first_definition_delay",
+                    i.intra_block_first_definition_delay_count);
+              r.set("rejected_phi_use", i.rejected_phi_use_count);
+              r.set("rejected_unreachable_use",
+                    i.rejected_unreachable_use_count);
+              r.set("rejected_non_dominating_alloca",
+                    i.rejected_non_dominating_alloca_count);
+              r.set("definite_initialization_proof",
+                    i.definite_initialization_proof_count);
+              r.set("guarded_initialization_proof",
+                    i.guarded_initialization_proof_count);
+              r.set("rejected_prior_lifetime_observation",
+                    i.rejected_prior_lifetime_observation_count);
+              r.set("definite_initialization_block_evaluation",
+                    i.definite_initialization_block_evaluation_count);
+              r.set("guarded_initialization_state_evaluation",
+                    i.guarded_initialization_state_evaluation_count);
+              r.set("predicate_widening",
+                    i.predicate_widening_count);
+              r.set("invalid_semantic_cfg",
+                    i.invalid_semantic_cfg_count);
+              if (environment_flag_enabled(
+                      "LUISA_CORO_PROFILE_COMPILATION")) {
+                  LUISA_INFO(
+                      "Coroutine alloca lifetime contraction: "
+                      "allocas={} contracted={} cross_block={} "
+                      "intra_block={} delayed_first_defs={} "
+                      "definite_proofs={} "
+                      "guarded_proofs={} "
+                      "rejected_prior_lifetime={} "
+                      "proof_block_evaluations={} "
+                      "guarded_state_evaluations={} widenings={}.",
+                      i.scanned_local_alloca_count,
+                      i.contracted_alloca_count,
+                      i.cross_block_contraction_count,
+                      i.intra_block_contraction_count,
+                      i.delayed_first_definition_count,
+                      i.definite_initialization_proof_count,
+                      i.guarded_initialization_proof_count,
+                      i.rejected_prior_lifetime_observation_count,
+                      i.definite_initialization_block_evaluation_count,
+                      i.guarded_initialization_state_evaluation_count,
+                      i.predicate_widening_count);
+              }
+              return i.changed();
+          });
     return p;
 }
 
@@ -229,9 +518,18 @@ CoroutineCompileResult compile_coroutine_pipeline(
             coro_func->parent_module() == module.get(),
         "Coroutine compilation failed: AST->XIR translation lost root-function provenance.");
     profiler.checkpoint("AST-to-XIR translation");
-    verify_coro_xir_or_error(module.get(), "AST translation");
+    auto verification_transaction =
+        xir::begin_xir_pass_verification_transaction(
+            module.get());
+    ++result.boundary_verifier_count;
     profiler.checkpoint("input verification");
     profiler.checkpoint("coroutine root provenance");
+    const auto verify_intermediate_xir =
+        verify_intermediate_xir_enabled();
+    auto *nested_pass_verification_transaction =
+        verify_intermediate_xir ? nullptr :
+                                  &verification_transaction;
+    size_t nested_pass_boundary_verifier_count = 0u;
 
     // Coro cfg distill/split/materialize intentionally accept only raw CFG.
     // A ray-query candidate loop is not coroutine scheduling control flow: no
@@ -263,7 +561,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // Destructure then converts the remaining structured constructs to the raw
     // CFG expected by coroutine distillation.
     auto destructure_info =
-        xir::destructure_cfg_pass_run_on_function(coro_func);
+        xir::destructure_cfg_pass_run_on_function(
+            coro_func,
+            {.verification_transaction =
+                 nested_pass_verification_transaction});
+    nested_pass_boundary_verifier_count +=
+        destructure_info.boundary_verifier_count;
     if (!destructure_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine destructuring failed (errors={}, leaked_blocks={}).",
@@ -283,7 +586,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     }
     pre_distill_stats.log("Coroutine pre-distill optimization");
     profiler.checkpoint("pre-distill optimization");
-    if (verify_intermediate_xir_enabled()) {
+    if (verify_intermediate_xir) {
         verify_coro_xir_or_error(module.get(), "pre-distill optimization");
         profiler.checkpoint("intermediate verification");
     }
@@ -297,7 +600,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
             coro_func->parent_module() == module.get(),
         "Coroutine source definition was lost during pre-distill optimization.");
 
-    auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
+    auto cfg = xir::coro_cfg_distill_pass_run_on_function(
+        coro_func,
+        {.verification_transaction =
+             nested_pass_verification_transaction});
+    nested_pass_boundary_verifier_count +=
+        cfg.boundary_verifier_count;
     if (!ordinary_callable_snapshots.empty()) {
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "CFG distillation");
@@ -314,9 +622,9 @@ CoroutineCompileResult compile_coroutine_pipeline(
     for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
         frame_fields.push_back(Type::of<uint>());
     }
-    for (auto &value : cfg.frame_values) {
-        frame_fields.push_back(value.type);
-        frame_alignment = std::max(frame_alignment, value.type->alignment());
+    for (auto &slot : cfg.frame_slots) {
+        frame_fields.push_back(slot.type);
+        frame_alignment = std::max(frame_alignment, slot.type->alignment());
     }
     auto *frame_type = Type::structure(frame_alignment, frame_fields);
     profiler.checkpoint("frame layout");
@@ -389,7 +697,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // is independent of coroutine scheduling.
     for (auto &subroutine : split_info.subroutines) {
         destructure_info = xir::destructure_cfg_pass_run_on_function(
-            subroutine.callable);
+            subroutine.callable,
+            {.verification_transaction =
+                 nested_pass_verification_transaction});
+        nested_pass_boundary_verifier_count +=
+            destructure_info.boundary_verifier_count;
         if (!destructure_info.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Coroutine continuation {} post-materialization "
@@ -414,7 +726,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
     for (auto &subroutine : split_info.subroutines) {
         auto irreducible_info =
             xir::lower_irreducible_cfg_pass_run_on_function(
-                subroutine.callable);
+                subroutine.callable,
+                {.verification_transaction =
+                     nested_pass_verification_transaction});
+        nested_pass_boundary_verifier_count +=
+            irreducible_info.boundary_verifier_count;
         if (!irreducible_info.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Coroutine irreducible-CFG lowering failed "
@@ -430,7 +746,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
                 subroutine.callable,
                 {.mutation_mode =
                      xir::RestructureCFGMutationMode::
-                         IN_PLACE_DISCARDABLE});
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     nested_pass_verification_transaction});
+        nested_pass_boundary_verifier_count +=
+            restructure_info.boundary_verifier_count;
         if (!restructure_info.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Coroutine continuation {} restructuring failed "
@@ -453,9 +773,6 @@ CoroutineCompileResult compile_coroutine_pipeline(
             ordinary_callable_snapshots, "continuation normalization");
         profiler.checkpoint("pass-domain verification");
     }
-    verify_coro_xir_or_error(module.get(), "codegen handoff", {.require_no_phi = true});
-    profiler.checkpoint("output verification");
-
     // Keep continuation code and its routing token as one atomic relation.
     // Silently skipping a failed XIR->AST translation and then independently
     // rebuilding tokens from cfg.scopes would shift every later token onto the
@@ -513,7 +830,34 @@ CoroutineCompileResult compile_coroutine_pipeline(
             {.statistics = &xir_to_ast_statistics,
              .verify_value_map_checkpoints =
                  environment_flag_enabled(
-                     "LUISA_XIR2AST_VERIFY_VALUE_MAP_CHECKPOINTS")});
+                     "LUISA_XIR2AST_VERIFY_VALUE_MAP_CHECKPOINTS"),
+             .verification_transaction =
+                 &verification_transaction});
+    LUISA_ASSERT(
+        verification_transaction.output_boundary_checked(),
+        "Coroutine XIR-to-AST translation did not close the enclosing pass "
+        "transaction with a complete output verifier boundary.");
+    LUISA_ASSERT(
+        verify_intermediate_xir ||
+            nested_pass_boundary_verifier_count == 0u,
+        "Coroutine lowering inside its enclosing verification transaction "
+        "performed {} redundant nested pass-boundary verification(s).",
+        nested_pass_boundary_verifier_count);
+    LUISA_ASSERT(
+        xir_to_ast_statistics.whole_module_verification_count == 1u &&
+            xir_to_ast_statistics.function_verification_count == 0u,
+        "Coroutine XIR-to-AST handoff must verify exactly one immutable "
+        "whole-module boundary and perform no redundant per-function "
+        "verification.");
+    result.boundary_verifier_count +=
+        xir_to_ast_statistics.whole_module_verification_count;
+    result.nested_pass_boundary_verifier_count =
+        nested_pass_boundary_verifier_count;
+    LUISA_ASSERT(
+        result.boundary_verifier_count == 2u,
+        "Coroutine lowering must own exactly one complete input and one "
+        "complete output verifier boundary (observed {}).",
+        result.boundary_verifier_count);
     LUISA_ASSERT(
         continuation_asts.size() == subroutines_by_scope.size(),
         "Coroutine XIR->AST batch translation returned {} AST(s) for {} scope(s).",
@@ -532,14 +876,24 @@ CoroutineCompileResult compile_coroutine_pipeline(
             result.trigger_tokens.front() == 0u &&
             result.subroutines.size() == result.trigger_tokens.size(),
         "Coroutine lowering lost the entry continuation or callable/token pairing.");
-    profiler.checkpoint("XIR-to-AST continuation translation");
+    profiler.checkpoint_split(
+        "output verification",
+        xir_to_ast_statistics.verification_milliseconds,
+        "XIR-to-AST continuation translation");
     if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
         LUISA_INFO(
             "Coroutine XIR-to-AST work: functions={} cache_hits={} "
+            "module_verifications={} function_verifications={} "
+            "verification_ms={:.3f} "
+            "nested_pass_boundary_verifications={} "
             "value_bindings={} checkpoints={} rollback_work={} "
             "peak_value_map_size={}.",
             xir_to_ast_statistics.function_translations,
             xir_to_ast_statistics.function_cache_hits,
+            xir_to_ast_statistics.whole_module_verification_count,
+            xir_to_ast_statistics.function_verification_count,
+            xir_to_ast_statistics.verification_milliseconds,
+            nested_pass_boundary_verifier_count,
             xir_to_ast_statistics.value_binding_insertions,
             xir_to_ast_statistics.value_map_checkpoint_count,
             xir_to_ast_statistics.value_map_rollback_work,

@@ -370,6 +370,48 @@ void reg_coro_dead_field() {
         expect(desc.field(1u).name == "d");
     };
 
+    "colored_field_aliases_survive_validation_and_remapping"_test = [] {
+        auto r = CoroFrameDesc::reserved_field_count;
+        CoroMaterializeInfo info;
+        info.frame_field_count = r + 2u;
+        info.frame_fields.emplace_back(
+            CoroMaterializeInfo::FrameField{
+                .name = "live_physical",
+                .type = Type::of<float>(),
+                .index = r});
+        info.frame_fields.emplace_back(
+            CoroMaterializeInfo::FrameField{
+                .name = "dead_physical",
+                .type = Type::of<float>(),
+                .index = r + 1u});
+        for (auto name : {"live_physical", "live_alias"}) {
+            info.name_to_field.emplace(name, r);
+            info.name_to_type.emplace(name, Type::of<float>());
+        }
+        for (auto name : {"dead_physical", "dead_alias"}) {
+            info.name_to_field.emplace(name, r + 1u);
+            info.name_to_type.emplace(name, Type::of<float>());
+        }
+        CoroMaterializeInfo::TransitionEdge edge;
+        edge.load_fields = {r};
+        edge.store_fields = {r, r + 1u};
+        info.edges.emplace_back(edge);
+        CoroFrameDesc desc;
+        desc.from_materialize_info(info);
+
+        auto result = dead_field_elimination_pass_run(info, desc);
+
+        expect(result.succeeded());
+        expect(result.eliminated_field_count == 1u);
+        expect(info.frame_fields.size() == 1u);
+        expect(info.name_to_field.at("live_physical") == r);
+        expect(info.name_to_field.at("live_alias") == r);
+        expect(!info.name_to_field.contains("dead_physical"));
+        expect(!info.name_to_field.contains("dead_alias"));
+        expect(desc.field_count() == 1u);
+        expect(desc.field("live_alias") == &desc.field(0u));
+    };
+
     "malformed_materialize_metadata_is_rejected_without_mutation"_test = [] {
         auto r = CoroFrameDesc::reserved_field_count;
         CoroMaterializeInfo info;

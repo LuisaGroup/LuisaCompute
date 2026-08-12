@@ -2,12 +2,15 @@
 
 #include "ut/ut.hpp"
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/stl/format.h>
+#include <luisa/dsl/coro_frame.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
@@ -51,6 +54,21 @@ size_t count_instructions_with_tag(Module &m, DerivedInstructionTag tag) noexcep
         if (auto *def = f->definition()) {
             def->traverse_instructions([&](Instruction *inst) noexcept {
                 if (inst->derived_instruction_tag() == tag) { n++; }
+            });
+        }
+    }
+    return n;
+}
+
+size_t count_arithmetic_op(Module &m, ArithmeticOp op) noexcept {
+    size_t n = 0u;
+    for (auto *f : m.function_list()) {
+        if (auto *def = f->definition()) {
+            def->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->isa<ArithmeticInst>() &&
+                    static_cast<ArithmeticInst *>(inst)->op() == op) {
+                    ++n;
+                }
             });
         }
     }
@@ -1472,6 +1490,400 @@ void reg_coro_split() {
             expect(dom_tree.dominates(definition_parent, use_parent));
         }
         expect(xir_verify_function(subroutine).succeeded());
+    };
+
+    "replayed_value_is_cloned_per_non_dominating_use_region"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *x = kernel->create_argument(Type::of<float>(), false);
+        auto *branch = kernel->create_argument(Type::of<bool>(), false);
+        auto *resume = kernel->create_basic_block();
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<float>());
+        b.set_insertion_point(entry);
+        auto *replay = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD,
+            {x, one});
+        b.coro_suspend(53u, "branch-replay", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(53u, nullptr);
+        b.cond_br(branch, left, right);
+        b.set_insertion_point(left);
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_MUL,
+            {replay, one}));
+        b.br(merge);
+        b.set_insertion_point(right);
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_SUB,
+            {replay, one}));
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.empty());
+        auto split = coro_split_pass_run_on_module_info(&m);
+
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        if (split.subroutines.size() != 2u) { return; }
+        auto *continuation = split.subroutines[1u].callable;
+        luisa::vector<ArithmeticInst *> replayed_adds;
+        continuation->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (instruction->isa<ArithmeticInst>() &&
+                    static_cast<ArithmeticInst *>(instruction)->op() ==
+                        ArithmeticOp::BINARY_ADD) {
+                    replayed_adds.emplace_back(
+                        static_cast<ArithmeticInst *>(instruction));
+                }
+            });
+        expect(replayed_adds.size() == 2u);
+        if (replayed_adds.size() == 2u) {
+            expect(replayed_adds[0u]->parent_block() !=
+                   replayed_adds[1u]->parent_block());
+        }
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
+    };
+
+    "split_materializes_colored_frame_slot_once"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<uint64_t>());
+        b.set_insertion_point(entry);
+        auto *first = b.clock();
+        b.coro_suspend(79u, "first", nullptr);
+        b.set_insertion_point(resume_first);
+        b.coro_resume(79u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {first, one}));
+        auto *second = b.clock();
+        b.coro_suspend(83u, "second", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(83u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {second, one}));
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 2u);
+        expect(cfg.frame_slots.size() == 1u);
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 3u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                expect(subroutine.frame_argument->type()->members().size() ==
+                       CoroFrameDesc::reserved_field_count + 1u);
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 2u);
+        expect(materialized.frame_fields.size() == 1u);
+        expect(materialized.frame_field_count ==
+               CoroFrameDesc::reserved_field_count + 1u);
+        expect(materialized.name_to_field.size() == 2u);
+        expect(materialized.name_to_type.size() == 2u);
+        if (cfg.frame_values.size() == 2u) {
+            expect(materialized.name_to_field.at(
+                       cfg.frame_values[0u].name) ==
+                   materialized.name_to_field.at(
+                       cfg.frame_values[1u].name));
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "split_spills_and_restores_only_the_live_aggregate_path"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *pair = Type::structure(
+            {Type::of<float>(), Type::of<float>()});
+        uint32_t zero_value = 0u;
+        uint32_t one_value = 1u;
+        auto *zero = m.create_constant(
+            Type::of<uint32_t>(), &zero_value);
+        auto *one = m.create_constant(
+            Type::of<uint32_t>(), &one_value);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(pair);
+        state->set_name("path_state");
+        auto *first = b.gep(Type::of<float>(), state, {zero});
+        auto *second = b.gep(Type::of<float>(), state, {one});
+        b.store(first, m.create_constant_zero(Type::of<float>()));
+        b.store(second, m.create_constant_one(Type::of<float>()));
+        b.coro_suspend(137u, "path", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(137u, nullptr);
+        auto *resumed_second = b.gep(Type::of<float>(), state, {one});
+        static_cast<void>(b.load(Type::of<float>(), resumed_second));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 1u);
+        if (cfg.frame_values.size() == 1u) {
+            expect(cfg.frame_values.front().value == state);
+            expect(cfg.frame_values.front().access_chain ==
+                   luisa::vector<uint32_t>{1u});
+            expect(cfg.frame_values.front().type == Type::of<float>());
+        }
+
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                auto members = subroutine.frame_argument->type()->members();
+                expect(members.size() ==
+                       CoroFrameDesc::reserved_field_count + 1u);
+                expect(members.back() == Type::of<float>());
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 1u);
+        expect(materialized.frame_fields.size() == 1u);
+        expect(materialized.name_to_type.at("path_state.1") ==
+               Type::of<float>());
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
+    };
+
+    "split_materializes_padded_aggregate_as_packed_abi_fields"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        auto *padded = Type::structure(
+            {Type::of<float2>(), Type::of<float>()});
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(padded);
+        state->set_name("padded_state");
+        b.store(state, m.create_constant_zero(padded));
+        b.coro_suspend(229u, "padded", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(229u, nullptr);
+        static_cast<void>(b.load(padded, state));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 2u);
+        expect(cfg.frame_slots.size() == 2u);
+
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                auto members = subroutine.frame_argument->type()->members();
+                expect(members.size() ==
+                       CoroFrameDesc::reserved_field_count + 2u);
+                expect(members[CoroFrameDesc::reserved_field_count] ==
+                       Type::of<float>());
+                expect(members[CoroFrameDesc::reserved_field_count + 1u] ==
+                       Type::of<float2>());
+                expect(subroutine.frame_argument->type()->size() == 40u);
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 2u);
+        expect(materialized.frame_fields.size() == 2u);
+        expect(materialized.name_to_type.at("padded_state.0") ==
+               Type::of<float2>());
+        expect(materialized.name_to_type.at("padded_state.1") ==
+               Type::of<float>());
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
+    };
+
+    "split_extracts_and_completely_reconstructs_ssa_float3"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *tick = b.clock();
+        auto *x = b.static_cast_(Type::of<float>(), tick);
+        auto *one = m.create_constant_one(Type::of<float>());
+        auto *y = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *z = b.call(
+            Type::of<float>(), ArithmeticOp::BINARY_ADD, {y, one});
+        auto *state = b.call(
+            Type::of<float3>(), ArithmeticOp::AGGREGATE, {x, y, z});
+        state->set_name("ssa_float3_state");
+        b.coro_suspend(233u, "ssa-float3", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(233u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<float3>(), ArithmeticOp::BINARY_ADD,
+            {state, m.create_constant_zero(Type::of<float3>())}));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 3u);
+        expect(cfg.frame_slots.size() == 3u);
+
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        expect(count_arithmetic_op(m, ArithmeticOp::EXTRACT) == 3u);
+        expect(count_arithmetic_op(m, ArithmeticOp::INSERT) == 3u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                auto members = subroutine.frame_argument->type()->members();
+                expect(members.size() ==
+                       CoroFrameDesc::reserved_field_count + 3u);
+                for (auto i = 0u; i < 3u; ++i) {
+                    expect(members[CoroFrameDesc::reserved_field_count + i] ==
+                           Type::of<float>());
+                }
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 3u);
+        expect(materialized.frame_fields.size() == 3u);
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
+    };
+
+    "split_materializes_interfering_booleans_as_one_uint_word"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *tick = b.clock();
+        luisa::vector<Value *> flags;
+        for (auto i = 0u; i < 6u; ++i) {
+            auto threshold = uint64_t{i + 1u};
+            auto *limit = m.create_constant(
+                Type::of<uint64_t>(), &threshold);
+            auto *flag = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+                {tick, limit});
+            auto name = luisa::format("packed_flag_{}", i);
+            flag->set_name(name);
+            flags.emplace_back(flag);
+        }
+        b.coro_suspend(239u, "packed-bools", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(239u, nullptr);
+        auto *combined = flags.front();
+        for (auto *flag : luisa::span{flags}.subspan(1u)) {
+            combined = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                {combined, flag});
+        }
+        static_cast<void>(combined);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 6u);
+        expect(cfg.frame_slots.size() == 1u);
+        luisa::vector<luisa::string> frame_value_names;
+        for (auto &value : cfg.frame_values) {
+            frame_value_names.emplace_back(value.name);
+        }
+        if (cfg.frame_slots.size() == 1u) {
+            expect(cfg.frame_slots.front().type == Type::of<uint>());
+        }
+
+        auto split =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+        expect(split.succeeded());
+        expect(split.subroutines.size() == 2u);
+        for (auto &subroutine : split.subroutines) {
+            expect(subroutine.frame_argument != nullptr);
+            if (subroutine.frame_argument != nullptr) {
+                auto members = subroutine.frame_argument->type()->members();
+                expect(members.size() ==
+                       CoroFrameDesc::reserved_field_count + 1u);
+                expect(members.back() == Type::of<uint>());
+            }
+        }
+        auto materialized =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+        expect(materialized.succeeded());
+        expect(materialized.register_count == 6u);
+        expect(materialized.frame_fields.size() == 1u);
+        for (auto &name : frame_value_names) {
+            auto iter = materialized.name_to_type.find(name);
+            expect(iter != materialized.name_to_type.end());
+            if (iter != materialized.name_to_type.end()) {
+                expect(iter->second == Type::of<uint>());
+            }
+        }
+        auto verification = xir_verify_module(&m);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown XIR verification error" :
+                    verification.errors.front().message.c_str());
     };
 }
 

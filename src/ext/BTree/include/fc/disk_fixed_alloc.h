@@ -15,7 +15,6 @@ namespace stdpmr = std::experimental::pmr;
 #include <memory_resource>
 namespace stdpmr = std::pmr;
 #endif
-#include <stdexcept>
 #include <type_traits>
 
 namespace frozenca {
@@ -29,17 +28,17 @@ class MemoryResourceFixed : public stdpmr::memory_resource {
 public:
   MemoryResourceFixed(unsigned char *pool_ptr, std::size_t pool_byte_size) {
     if (!pool_ptr) {
-      throw std::invalid_argument("pool ptr is null");
+      btree_fatal("pool ptr is null");
     }
     if ((std::bit_cast<std::size_t>(pool_ptr) % alignof(T)) ||
         (std::bit_cast<std::size_t>(pool_ptr) % sizeof(T *))) {
-      throw std::invalid_argument("pool ptr is not aligned with T/T*");
+      btree_fatal("pool ptr is not aligned with T/T*");
     }
     if (pool_byte_size < sizeof(T)) {
-      throw std::invalid_argument("pool byte size is too small");
+      btree_fatal("pool byte size is too small");
     }
     if ((pool_byte_size % alignof(T)) || (pool_byte_size % sizeof(T *))) {
-      throw std::invalid_argument("pool byte size is not aligned with T/T*");
+      btree_fatal("pool byte size is not aligned with T/T*");
     }
 
     pool_ = reinterpret_cast<T *>(pool_ptr);
@@ -62,7 +61,7 @@ private:
   void *do_allocate([[maybe_unused]] std::size_t num_bytes,
                     [[maybe_unused]] std::size_t alignment) override {
     if (free_ == pool_ + pool_size_) {
-      throw std::invalid_argument("fixed allocator out of memory");
+      btree_fatal("fixed allocator out of memory");
     } else {
       auto x = free_;
       free_ = std::bit_cast<T *>(*(reinterpret_cast<uint64_t *>(x)));

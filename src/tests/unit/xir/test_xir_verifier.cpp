@@ -96,6 +96,9 @@ void reg_xir_verifier() {
 
         auto result = xir_verify_module(&module);
         expect(result.succeeded());
+        expect(result.statistics.instruction_tag_queries ==
+               fanout + 2u)
+            << "the verifier must classify each instruction exactly once";
         expect(
             result.statistics.use_list_owner_checks ==
             fanout * 2u + 2u);

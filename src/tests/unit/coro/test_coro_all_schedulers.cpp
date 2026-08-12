@@ -1,6 +1,7 @@
 #include "ut/ut.hpp"
 #include "coro_test_utils.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 
@@ -27,6 +28,88 @@ using namespace luisa::compute;
 using namespace luisa::compute::coro;
 using namespace boost::ut;
 using namespace boost::ut::literals;
+
+struct CoroAggregateArgument {
+    luisa::uint window_x;
+    luisa::uint window_y;
+    luisa::uint window_width;
+    luisa::uint full_width;
+    luisa::uint full_height;
+    luisa::uint seed;
+    luisa::uint sequence_size;
+    luisa::uint max_bounces;
+    luisa::uint min_bounces;
+    luisa::uint max_diffuse_bounces;
+    luisa::uint max_glossy_bounces;
+    luisa::uint max_transmission_bounces;
+    luisa::uint max_volume_bounces;
+    luisa::uint transparent_min_bounces;
+    luisa::uint transparent_max_bounces;
+    luisa::uint max_path_steps;
+    luisa::uint transparent_background;
+    luisa::uint path_trace_enabled;
+    luisa::uint path_trace_pixel_x;
+    luisa::uint path_trace_pixel_y;
+    luisa::uint path_trace_sample;
+    float direct_clamp;
+    float indirect_clamp;
+    float filter_glossy;
+    float light_inv_rr_threshold;
+    float camera_horizontal_tangent;
+    float camera_vertical_tangent;
+    float camera_ortho_vertical_span;
+    float camera_shift_x;
+    float camera_shift_y;
+    float camera_near;
+    float camera_far;
+    float camera_aperture_radius;
+    float camera_focal_distance;
+    float camera_aperture_ratio;
+    float pass_alpha_threshold;
+    luisa::float3 background;
+    luisa::float4x4 camera_transform;
+};
+
+LUISA_STRUCT(
+    CoroAggregateArgument,
+    window_x,
+    window_y,
+    window_width,
+    full_width,
+    full_height,
+    seed,
+    sequence_size,
+    max_bounces,
+    min_bounces,
+    max_diffuse_bounces,
+    max_glossy_bounces,
+    max_transmission_bounces,
+    max_volume_bounces,
+    transparent_min_bounces,
+    transparent_max_bounces,
+    max_path_steps,
+    transparent_background,
+    path_trace_enabled,
+    path_trace_pixel_x,
+    path_trace_pixel_y,
+    path_trace_sample,
+    direct_clamp,
+    indirect_clamp,
+    filter_glossy,
+    light_inv_rr_threshold,
+    camera_horizontal_tangent,
+    camera_vertical_tangent,
+    camera_ortho_vertical_span,
+    camera_shift_x,
+    camera_shift_y,
+    camera_near,
+    camera_far,
+    camera_aperture_radius,
+    camera_focal_distance,
+    camera_aperture_ratio,
+    pass_alpha_threshold,
+    background,
+    camera_transform) {};
 
 void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
@@ -559,6 +642,242 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 "nested_loop_sparse_token_persistent");
         };
 
+    "aggregate_argument_is_identical_in_wavefront_continuations"_test =
+        [options] {
+            constexpr uint N = 64u;
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<float4>(N);
+
+            auto coroutine =
+                Coroutine<void(Buffer<float4>, CoroAggregateArgument)>(
+                    [](BufferFloat4 output,
+                       Var<CoroAggregateArgument> parameters) noexcept {
+                        auto tid = dispatch_x();
+                        $suspend("before-aggregate-argument-read");
+                        output.write(
+                            tid,
+                            make_float4(
+                                parameters.background *
+                                    parameters.direct_clamp,
+                                cast<float>(parameters.sequence_size) +
+                                    cast<float>(parameters.max_path_steps) +
+                                    parameters.indirect_clamp +
+                                    cast<float>(tid)));
+                    });
+            WavefrontCoroScheduler<
+                Buffer<float4>, CoroAggregateArgument>
+                scheduler{device, coroutine};
+            constexpr CoroAggregateArgument parameters{
+                .sequence_size = 257u,
+                .max_path_steps = 4096u,
+                .direct_clamp = 3.5f,
+                .indirect_clamp = 7.25f,
+                .background = float3{0.25f, 0.5f, 0.75f}};
+            scheduler(output, parameters).dispatch(N)(stream);
+
+            luisa::vector<float4> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+            auto ok = true;
+            for (auto i = 0u; i < N; ++i) {
+                auto expected = float4{
+                    0.875f, 1.75f, 2.625f,
+                    4360.25f + static_cast<float>(i)};
+                if (any(host[i] != expected)) {
+                    LUISA_WARNING(
+                        "aggregate continuation argument mismatch at {}: "
+                        "got {}, expected {}",
+                        i, host[i], expected);
+                    ok = false;
+                    break;
+                }
+            }
+            expect(ok)
+                << "wavefront continuation must receive the exact aggregate argument";
+        };
+
+    "ssa_float3_frame_partition_is_exact_in_all_schedulers"_test =
+        [options] {
+            constexpr uint N = 64u;
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto input = device.create_buffer<float3>(N);
+            auto output = device.create_buffer<float3>(N);
+
+            luisa::vector<float3> source(N);
+            for (auto i = 0u; i < N; ++i) {
+                source[i] = float3{
+                    static_cast<float>(i),
+                    static_cast<float>(i + 100u),
+                    static_cast<float>(i + 200u)};
+            }
+            stream << input.copy_from(luisa::span{source})
+                   << synchronize();
+
+            auto coroutine = Coroutine<
+                void(Buffer<float3>, Buffer<float3>)>(
+                [](BufferFloat3 input, BufferFloat3 output) noexcept {
+                    auto tid = dispatch_x();
+                    auto carried = input.read(tid);
+                    $suspend("after-float3-read");
+                    output.write(
+                        tid, carried + make_float3(1.0f, 2.0f, 3.0f));
+                });
+
+            // Seven uint scheduler fields plus three scalar payload fields.
+            // Keeping the ABI-padded float3 whole would require 48 bytes.
+            expect(coroutine.frame().frame_type()->size() == 40u);
+
+            auto clear_and_check =
+                [&](auto &&dispatch, luisa::string_view label) noexcept {
+                    luisa::vector<float3> zero(N);
+                    stream << output.copy_from(luisa::span{zero});
+                    dispatch();
+                    luisa::vector<float3> host(N);
+                    stream << output.copy_to(luisa::span{host})
+                           << synchronize();
+                    auto ok = true;
+                    for (auto i = 0u; i < N; ++i) {
+                        auto expected =
+                            source[i] + float3{1.0f, 2.0f, 3.0f};
+                        if (any(host[i] != expected)) {
+                            LUISA_WARNING(
+                                "{} mismatch at {}: got {}, expected {}",
+                                label, i, host[i], expected);
+                            ok = false;
+                            break;
+                        }
+                    }
+                    expect(ok) << label;
+                };
+
+            StateMachineCoroScheduler<
+                Buffer<float3>, Buffer<float3>>
+                state_machine{device, coroutine};
+            clear_and_check(
+                [&] {
+                    state_machine(input, output).dispatch(N)(stream);
+                },
+                "ssa_float3_state_machine");
+
+            WavefrontCoroScheduler<
+                Buffer<float3>, Buffer<float3>>
+                wavefront{device, coroutine};
+            clear_and_check(
+                [&] { wavefront(input, output).dispatch(N)(stream); },
+                "ssa_float3_wavefront");
+
+            PersistentThreadsCoroScheduler<
+                Buffer<float3>, Buffer<float3>>
+                persistent{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+            clear_and_check(
+                [&] { persistent(input, output).dispatch(N)(stream); },
+                "ssa_float3_persistent");
+        };
+
+    "packed_boolean_rmw_preserves_dormant_bits_in_all_schedulers"_test =
+        [options] {
+            constexpr uint N = 64u;
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto input = device.create_buffer<uint>(N * 2u);
+            auto output = device.create_buffer<uint>(N);
+
+            luisa::vector<uint> source(N * 2u);
+            for (auto i = 0u; i < N; ++i) {
+                source[i] = i & 1u;
+                source[N + i] = (i & 2u) != 0u ? 2u : 0u;
+            }
+            stream << input.copy_from(luisa::span{source})
+                   << synchronize();
+
+            auto coroutine = Coroutine<
+                void(Buffer<uint>, Buffer<uint>)>(
+                [](BufferUInt input, BufferUInt output) noexcept {
+                    auto tid = dispatch_x();
+                    auto first = (input.read(tid) & 1u) != 0u;
+                    $suspend("remember-first-bit");
+                    auto second =
+                        (input.read(dispatch_size_x() + tid) & 2u) != 0u;
+                    $suspend("add-second-bit");
+                    output.write(
+                        tid,
+                        ite(first, 1u, 0u) |
+                            ite(second, 2u, 0u));
+                });
+
+            // Both logical booleans coexist at the second transition but
+            // occupy distinct bits of one physical uint frame word.
+            expect(coroutine.frame().frame_type()->size() == 32u);
+            auto *partial_update_node =
+                coroutine.graph().node_by_name("remember-first-bit");
+            expect(partial_update_node != nullptr);
+            if (partial_update_node != nullptr) {
+                auto packed_word_field =
+                    CoroFrameDesc::reserved_field_count;
+                expect(std::find(
+                           partial_update_node->input_fields.begin(),
+                           partial_update_node->input_fields.end(),
+                           packed_word_field) !=
+                       partial_update_node->input_fields.end())
+                    << "partial packed-word update must load pass-through bits";
+            }
+
+            auto clear_and_check =
+                [&](auto &&dispatch, luisa::string_view label) noexcept {
+                    luisa::vector<uint> zero(N);
+                    stream << output.copy_from(luisa::span{zero});
+                    dispatch();
+                    luisa::vector<uint> host(N);
+                    stream << output.copy_to(luisa::span{host})
+                           << synchronize();
+                    auto ok = true;
+                    for (auto i = 0u; i < N; ++i) {
+                        auto expected = source[i] | source[N + i];
+                        if (host[i] != expected) {
+                            LUISA_WARNING(
+                                "{} mismatch at {}: got {}, expected {}",
+                                label, i, host[i], expected);
+                            ok = false;
+                            break;
+                        }
+                    }
+                    expect(ok) << label;
+                };
+
+            StateMachineCoroScheduler<
+                Buffer<uint>, Buffer<uint>>
+                state_machine{device, coroutine};
+            clear_and_check(
+                [&] {
+                    state_machine(input, output).dispatch(N)(stream);
+                },
+                "packed_bool_state_machine");
+
+            WavefrontCoroScheduler<
+                Buffer<uint>, Buffer<uint>>
+                wavefront{device, coroutine};
+            clear_and_check(
+                [&] { wavefront(input, output).dispatch(N)(stream); },
+                "packed_bool_wavefront");
+
+            PersistentThreadsCoroScheduler<
+                Buffer<uint>, Buffer<uint>>
+                persistent{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+            clear_and_check(
+                [&] { persistent(input, output).dispatch(N)(stream); },
+                "packed_bool_persistent");
+        };
+
     "coroutine_lowering_preserves_structured_helper_identity"_test = [] {
         // An ordinary helper is a dependency of the coroutine, not a member of
         // its state machine. Coroutine CFG passes must therefore leave the
@@ -624,6 +943,28 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 #else
         unsetenv("LUISA_CORO_VERIFY_PASS_DOMAIN");
 #endif
+
+        expect(lowered.boundary_verifier_count == 2u)
+            << "the complete coroutine transaction must verify only its input and output";
+        expect(lowered.nested_pass_boundary_verifier_count == 0u)
+            << "composed passes must not repeat full-XIR boundary verification";
+
+#ifdef _WIN32
+        _putenv_s("LUISA_XIR_VERIFY_INTERMEDIATE", "1");
+#else
+        setenv("LUISA_XIR_VERIFY_INTERMEDIATE", "1", 1);
+#endif
+        auto diagnostic_lowered =
+            luisa::compute::detail::compile_coroutine_pipeline(
+                coroutine.function_builder());
+#ifdef _WIN32
+        _putenv_s("LUISA_XIR_VERIFY_INTERMEDIATE", "");
+#else
+        unsetenv("LUISA_XIR_VERIFY_INTERMEDIATE");
+#endif
+        expect(diagnostic_lowered.boundary_verifier_count == 2u);
+        expect(diagnostic_lowered.nested_pass_boundary_verifier_count > 0u)
+            << "the explicit diagnostic environment flag must restore nested pass boundaries";
 
         size_t dependency_count = 0u;
         size_t canonical_dependency_count = 0u;
