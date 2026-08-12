@@ -867,7 +867,8 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
     }
     if (op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
         op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK ||
-        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID) {
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID ||
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY) {
         _accel_instance_write(instruction);
         return;
     }

@@ -899,18 +899,30 @@ Conflicting active lanes that write the same keyframe remain an unordered
 device data race. No host callback or per-lane extract/call/insert loop is used
 for keyframe metadata.
 
+`RAY_TRACING_SET_INSTANCE_OPACITY` writes the stable instance table without a
+host callback. The value type is exactly `bool`. A warp- or cohort-uniform
+instance/value pair performs one scalar store; a varying pair selects both the
+instance index and value to benign zero before bounds checking, address
+formation, or a masked scatter. The ABI byte is the zero-extended boolean, so
+only zero or one may be stored. Every active write sets the same dirty byte as
+other instance metadata writes. An opaque surface query auto-commits and skips
+the surface handler; a non-opaque query publishes the candidate to the handler.
+Inactive lanes neither participate in bounds checks nor touch the opacity or
+dirty bytes. Conflicting active writes to the same instance remain a device
+data race.
+
 All Embree scenes in one backend module share a single `RTCDevice`. If that
 device reports the oneTBB tasking system, backend teardown must quiesce the
 attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Cutout filtering, device-side opacity mutation, nonidentity outer affine
-composition for SRT motion, `update_instance_buffer_only`, and deeper
-instance-stack behavior are not part of this slice. They must fail at a
-specific capability boundary until their independent semantic, IR-shape, and
-machine-boundary gates exist; triangle/curve/procedural query support does not
-imply those filter or deeper-instancing capabilities.
+Nonidentity outer affine composition for SRT motion,
+`update_instance_buffer_only`, and deeper instance-stack behavior are not part
+of this slice. They must fail at a specific capability boundary until their
+independent semantic, IR-shape, and machine-boundary gates exist; triangle,
+curve, procedural-query, and opacity support does not imply those deeper
+instancing capabilities.
 
 ## 7. Executable audit matrix
 

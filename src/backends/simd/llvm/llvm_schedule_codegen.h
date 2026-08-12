@@ -255,6 +255,8 @@ static_assert(sizeof(SIMDHostAccelInstance) == 80u);
 static_assert(offsetof(SIMDHostAccelInstance, affine) == 0u);
 static_assert(offsetof(SIMDHostAccelInstance, user_id) == 48u);
 static_assert(offsetof(SIMDHostAccelInstance, mask) == 52u);
+static_assert(offsetof(SIMDHostAccelInstance, opaque) == 53u);
+static_assert(offsetof(SIMDHostAccelInstance, dirty) == 54u);
 static_assert(offsetof(SIMDHostAccelInstance, geometry_kind) == 55u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_frames) == 64u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_keyframe_count) == 72u);

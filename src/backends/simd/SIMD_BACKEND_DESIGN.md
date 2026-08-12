@@ -1606,8 +1606,8 @@ The complete methodology, absolute medians, assembly counts, caveats, and
 next measured optimization targets are in
 [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
 The required native-math/runtime-width gate passes 3/3, the combined SIMD/XIR/
-runtime/graphics label gate passes 87/87, and this configured complete CTest
-suite passes 128/128, including the coroutine-frame tests merged from `next`
+runtime/graphics label gate passes 88/88, and this configured complete CTest
+suite passes 129/129, including the coroutine-frame tests merged from `next`
 and the lazy-dispatch scalar snapshot regression.
 
 ### Embree packet-traversal checkpoint
@@ -1807,8 +1807,21 @@ surfaces of the same primitive. Triangle insertion remains O(1) until batch
 overflow. The exact curve regression covers all four bases, opaque automatic
 commit, non-opaque accept/reject, query-all/query-any, direct closest/any,
 control-point motion, curve motion instances, W1/W2/W4/W8/W16, and inactive
-tails. Cutout/device-opacity mutation, nonidentity outer affine composition for
-SRT motion, and full instance-stack semantics remain explicit work.
+tails. Host-selected opaque/non-opaque instances and cutout surface handlers
+therefore share the same query path for triangles, curves, and motion children.
+
+Device opacity mutation now uses the stable instance table directly. A uniform
+instance/value pair performs one scalar byte store, while a varying pair first
+sanitizes the instance index and boolean value under the cohort mask and then
+issues one masked byte scatter. The stored value is normalized to zero or one
+and the same dirty byte as transform/mask/user-id mutation is set. A subsequent
+query observes the new opacity bit: opaque surface hits auto-commit without
+entering the handler, while non-opaque hits enter it exactly once. The exact
+LLVM fixture requires scalar and masked paths without an indirect callback;
+the runtime fixture covers W1/W2/W4/W8/W16, thirty-five distinct instances,
+both query modes, divergent opacity, and a three-lane W16 tail. Nonidentity
+outer affine composition for SRT motion and full instance-stack semantics
+remain explicit work.
 
 Procedural primitives now use Embree user geometry with public AABB buffers,
 including primitive motion and MATRIX/SRT motion-instance children. Bounds are
@@ -2277,11 +2290,12 @@ on 2026-08-11. The repository now contains:
   explicit samplers, invalid mip levels, uniform execution, and a three-lane
   W16 tail.
 
-The next implementation boundary is completion of the Embree vertical slice:
-add opacity/cutout semantics, nonidentity outer affine composition for SRT
-motion, and a SoA packet-query-state experiment guarded by stable measurement.
-Candidate chains beyond the fixed batch remain a measured continuation case
-rather than an unbounded state allocation. Broader callable conformance,
-cooperative shared memory, block barriers, and the remaining device-library
-surface follow. The current compiler returns precise diagnostics for
-unsupported features rather than silently accepting them.
+The next implementation boundary is completion of the remaining Embree
+vertical slice: nonidentity outer affine composition for SRT motion, deeper
+instance-stack semantics, `update_instance_buffer_only`, and a SoA packet-
+query-state experiment guarded by stable measurement. Candidate chains beyond
+the fixed batch remain a measured continuation case rather than an unbounded
+state allocation. Broader callable conformance, cooperative shared memory,
+block barriers, and the remaining device-library surface follow. The current
+compiler returns precise diagnostics for unsupported features rather than
+silently accepting them.

@@ -290,7 +290,9 @@ void ScheduleEmitter::_accel_instance_write(
         op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK;
     auto user_id =
         op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID;
-    if (!transform && !visibility && !user_id) {
+    auto opacity =
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY;
+    if (!transform && !visibility && !user_id && !opacity) {
         _fail("unsupported acceleration-structure instance write");
         return;
     }
@@ -304,6 +306,7 @@ void ScheduleEmitter::_accel_instance_write(
         written_value == nullptr || accel == nullptr || value == nullptr ||
         accel_value->type == nullptr || !accel_value->type->is_accel() ||
         (transform ? !is_float4x4_type(written_value->type) :
+         opacity   ? !written_value->type->is_bool() :
                      !written_value->type->is_uint32())) {
         _fail("acceleration-structure instance write has invalid types");
         return;
@@ -370,6 +373,16 @@ void ScheduleEmitter::_accel_instance_write(
         store(
             _builder.CreateTrunc(value, i8),
             offsetof(SIMDHostAccelInstance, mask),
+            alignof(uint8_t));
+    } else if (opacity) {
+        auto *i8 = varying ?
+                       static_cast<::llvm::Type *>(::llvm::FixedVectorType::get(
+                           _builder.getInt8Ty(), _width)) :
+                       _builder.getInt8Ty();
+        auto *byte = _builder.CreateZExt(
+            value, i8, "accel.instance.opacity.byte");
+        store(
+            byte, offsetof(SIMDHostAccelInstance, opaque),
             alignof(uint8_t));
     } else {
         store(

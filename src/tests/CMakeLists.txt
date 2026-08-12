@@ -745,6 +745,7 @@ if (TARGET luisa-compute-backend-simd)
             test_buffer_io
             test_texture_io
             test_accel_build_modes
+            test_accel_visibility
             test_ray_query_world_ray
             test_dsl_slp_vectorization
             test_warp

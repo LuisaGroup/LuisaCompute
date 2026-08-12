@@ -2780,6 +2780,10 @@ uint32_t texture_packet_size_probe(
     auto *dispatch_id = module.create_dispatch_id();
     auto *zero = module.create_constant_zero(Type::of<uint32_t>());
     auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto two_value = uint32_t{2u};
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *true_value = module.create_constant_one(Type::of<bool>());
     xir::XIRBuilder builder;
     builder.set_insertion_point(entry_block);
     auto *x = builder.call(
@@ -2825,6 +2829,15 @@ uint32_t texture_packet_size_probe(
     builder.call(
         xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID,
         {accel, zero, uniform_user_id});
+    auto *varying_opacity = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {instance_id, zero});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY,
+        {accel, instance_id, varying_opacity});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY,
+        {accel, two, true_value});
     builder.return_void();
 
     auto lowered = schedule::lower_xir_to_schedule(
@@ -2858,17 +2871,23 @@ uint32_t texture_packet_size_probe(
     CHECK(count_occurrences(ir, "llvm.masked.scatter") >= 17u);
     CHECK(ir.find("accel.instance.scalar.load") != std::string::npos);
     CHECK(ir.find("accel.instance.scalar.store") != std::string::npos);
+    CHECK(ir.find("accel.instance.opacity.byte") != std::string::npos);
     CHECK(ir.find("call void %") == std::string::npos);
 
-    LLVMJIT jit;
+    LLVMJIT jit{true};
     CHECK(jit.succeeded());
+    auto assembly = jit.emit_assembly_copy(*llvm_module);
+    CHECK(!assembly.empty());
+    CHECK(assembly.find("accel_set_instance_opacity") ==
+          std::string::npos);
     CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
     using Entry = void(
         const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
     auto function = reinterpret_cast<Entry *>(jit.lookup(name));
     CHECK(function != nullptr);
+    CHECK(!jit.object().empty());
 
-    std::array<SIMDHostAccelInstance, 2u> instances{};
+    std::array<SIMDHostAccelInstance, 3u> instances{};
     std::array affine0{
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -2883,8 +2902,11 @@ uint32_t texture_packet_size_probe(
         instances[1u].affine, affine1.data(), sizeof(affine1));
     instances[0u].user_id = 11u;
     instances[0u].mask = 0x1u;
+    instances[0u].opaque = 0u;
     instances[1u].user_id = 22u;
     instances[1u].mask = 0x2u;
+    instances[1u].opaque = 0u;
+    instances[2u].opaque = 0u;
     SIMDHostAccelInstanceTable instance_table{
         .data = instances.data(),
         .size = instances.size(),
@@ -2922,6 +2944,10 @@ uint32_t texture_packet_size_probe(
     }
     CHECK(instances[0u].dirty == 1u);
     CHECK(instances[1u].dirty == 1u);
+    CHECK(instances[2u].dirty == 1u);
+    CHECK(instances[0u].opaque == 1u);
+    CHECK(instances[1u].opaque == 0u);
+    CHECK(instances[2u].opaque == 1u);
     return true;
 }
 

@@ -322,6 +322,17 @@ identical.
 5. Add software prefetch only for proven affine lookahead with a stable A/B.
    Immediate masked gathers and L1-sized textures have not justified it.
 
+Device-side instance-opacity mutation is now complete but is intentionally not
+reported as a throughput optimization. It adds no work to a trace/query kernel
+that does not execute `set_instance_opaque`; when used, it lowers to one scalar
+byte store for a uniform operation or one inactive-safe masked byte scatter for
+a varying operation, without a host callback. The exact LLVM and W1/W2/W4/W8/
+W16 runtime gates validate the capability. The measured ray-query targets above
+remain unchanged. A fresh 1024-SPP cutout gallery sweep passed at W1/W2/W4/W8/
+W16 with RGB PSNR 39.10/39.74/39.67/39.58/39.48 dB respectively. These are
+correctness runs under shared-host load, not a replacement for the alternating
+multi-process performance table.
+
 ## Bindless gradient-sampling completion
 
 Bindless 2D/3D gradient sampling now derives LOD in JIT IR and passes one level
@@ -354,7 +365,7 @@ metadata did not regress its hot descriptor layout.
 ## Validation
 
 The required native-math/fallback-math/runtime-width gate passes 3/3. The
-combined SIMD, XIR, runtime, and graphics label gate passes 87/87. After a full
-default build, the complete configured repository CTest suite passes 128/128.
+combined SIMD, XIR, runtime, and graphics label gate passes 88/88. After a full
+default build, the complete configured repository CTest suite passes 129/129.
 This includes the coroutine-frame tests merged from `next` and the repaired
 lazy-dispatch scalar snapshot regression.

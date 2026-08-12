@@ -5,6 +5,7 @@
 // - MATRIX/SRT motion-instance keyframes, quaternion interpolation, device
 //   mutation, and packet traversal
 // - non-opaque triangle ray-query rejection/commit under divergent handlers
+// - varying device opacity mutation, opaque auto-commit, and inactive tails
 // - direct varying and uniform instance metadata reads
 // - divergent visibility masks, ray intervals, directions, and misses
 // - uniform static and motion traces that must remain scalar within a packet
@@ -195,6 +196,16 @@ int main(int argc, char *argv[]) {
                     -2.0f * static_cast<float>(candidate))),
                 0x20u, false, candidate);
         }
+        auto opacity_accel = device.create_accel({.allow_update = true});
+        for (auto instance = 0u; instance < thread_count; instance++) {
+            auto x =
+                (static_cast<float>(instance) -
+                 static_cast<float>(thread_count / 2u)) *
+                3.0f;
+            opacity_accel.emplace_back(
+                mesh, translation(make_float3(x, 0.0f, 0.0f)),
+                0x40u, false, instance);
+        }
 
         std::array<Ray, thread_count> host_rays{};
         std::array<uint, thread_count> host_masks{};
@@ -325,6 +336,7 @@ int main(int argc, char *argv[]) {
                << instance_motion_accel.build()
                << query_accel.build()
                << deep_query_accel.build()
+               << opacity_accel.build()
                << shader(
                       rays, masks, ids, details, accel,
                       motion_accel, motion_ids, motion_details,
@@ -1074,6 +1086,81 @@ int main(int argc, char *argv[]) {
                         updated_transforms[i][column])))
                     << "device instance mutation transform mismatch";
             }
+        }
+
+        Kernel1D mutate_opacity = [width](AccelVar scene) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            scene.set_instance_opaque(index, (index & 1u) == 0u);
+        };
+        Kernel1D trace_opacity = [width](
+                                     AccelVar scene,
+                                     BufferUInt4 metadata) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto x =
+                (cast<float>(index) -
+                 static_cast<float>(thread_count / 2u)) *
+                3.0f;
+            auto ray = make_ray(
+                make_float3(x, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto options = AccelTraceOptions{
+                .visibility_mask = 0x40u};
+            UInt closest_callback_count = 0u;
+            auto closest = scene.traverse(ray, options)
+                               .on_surface_candidate(
+                                   [&](SurfaceCandidate &candidate) noexcept {
+                                       closest_callback_count += 1u;
+                                       candidate.commit();
+                                   })
+                               .on_procedural_candidate(
+                                   [](ProceduralCandidate &) noexcept {})
+                               .trace();
+            UInt any_callback_count = 0u;
+            auto any = scene.traverse_any(ray, options)
+                           .on_surface_candidate(
+                               [&](SurfaceCandidate &candidate) noexcept {
+                                   any_callback_count += 1u;
+                                   candidate.commit();
+                               })
+                           .on_procedural_candidate(
+                               [](ProceduralCandidate &) noexcept {})
+                           .trace();
+            metadata.write(
+                index,
+                make_uint4(
+                    closest->inst, closest_callback_count,
+                    any->inst, any_callback_count));
+        };
+        auto mutate_opacity_shader = device.compile(mutate_opacity);
+        auto trace_opacity_shader = device.compile(trace_opacity);
+        auto opacity_metadata =
+            device.create_buffer<uint4>(thread_count);
+        std::array<uint4, thread_count> host_opacity_metadata{};
+        stream << mutate_opacity_shader(opacity_accel)
+                      .dispatch(thread_count)
+               << opacity_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE)
+               << trace_opacity_shader(
+                      opacity_accel, opacity_metadata)
+                      .dispatch(thread_count)
+               << opacity_metadata.copy_to(
+                      luisa::span{host_opacity_metadata})
+               << synchronize();
+        for (auto i = 0u; i < thread_count; i++) {
+            auto expected_callback_count = i & 1u;
+            expect(static_cast<bool>(
+                all(host_opacity_metadata[i] ==
+                    make_uint4(
+                        i, expected_callback_count,
+                        i, expected_callback_count))))
+                << luisa::format(
+                       "device opacity mutation mismatch at width {} lane {}",
+                       width, i);
         }
     }
 }
