@@ -4,12 +4,14 @@
 C++ Syntax Checker using clangd LSP
 
 This script uses clangd Language Server Protocol to check syntax of C++ files.
-It reads compile_commands.json from .vscode directory for proper compilation flags.
+It locates a compilation database containing the requested source file so
+clangd receives the matching compilation flags.
 """
 
 import argparse
 import orjson
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -20,6 +22,14 @@ if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+
+def resolve_executable(command: str) -> str | None:
+    """Resolve an executable path using the host platform's PATH rules."""
+    resolved = shutil.which(os.path.expanduser(command))
+    if resolved is None:
+        return None
+    return str(Path(resolved).resolve())
 
 
 class ClangdLSPClient:
@@ -202,26 +212,99 @@ class ClangdLSPClient:
         return []
 
 
-def load_compile_commands(project_root: str = ".", verbose: bool = False) -> str:
-    """Find and validate compile_commands.json location."""
-    vscode_dir = Path(project_root) / ".vscode"
-    compile_commands = vscode_dir / "compile_commands.json"
+def _compile_commands_contains(database: Path, file_path: Path) -> bool:
+    """Return whether a compilation database contains the requested file."""
+    try:
+        entries = orjson.loads(database.read_bytes())
+    except (OSError, orjson.JSONDecodeError):
+        return False
+    if not isinstance(entries, list):
+        return False
+    requested = file_path.resolve()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        source_value = entry.get("file")
+        if not isinstance(source_value, str) or not source_value:
+            continue
+        source = Path(source_value)
+        if not source.is_absolute():
+            directory_value = entry.get("directory")
+            directory = (
+                Path(directory_value)
+                if isinstance(directory_value, str) and directory_value
+                else database.parent
+            )
+            if not directory.is_absolute():
+                directory = database.parent / directory
+            source = directory / source
+        try:
+            if source.resolve() == requested:
+                return True
+        except OSError:
+            continue
+    return False
 
-    if compile_commands.exists():
+
+def load_compile_commands(
+    project_root: str | Path = ".",
+    file_path: str | Path | None = None,
+    explicit_path: str | Path | None = None,
+    verbose: bool = False,
+) -> str:
+    """Find a compilation database directory for the requested source file."""
+    root = Path(project_root).resolve()
+    if explicit_path is not None:
+        candidate = Path(explicit_path)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        database = (
+            candidate
+            if candidate.name == "compile_commands.json"
+            else candidate / "compile_commands.json"
+        )
+        if not database.is_file():
+            raise FileNotFoundError(
+                f"Could not find compile_commands.json at {database}"
+            )
+        if file_path is not None and not _compile_commands_contains(
+            database, Path(file_path)
+        ):
+            raise FileNotFoundError(
+                f"Compilation database does not contain {Path(file_path).resolve()}: {database}"
+            )
         if verbose:
-            print(f"[verbose] Found compile_commands.json in: {vscode_dir}")
-        return str(vscode_dir)
+            print(f"[verbose] Using compile_commands.json in: {database.parent}")
+        return str(database.parent)
 
-    # Try build directory
-    build_dir = Path(project_root) / "build"
-    compile_commands = build_dir / "compile_commands.json"
-    if compile_commands.exists():
+    candidate_directories = [root / ".vscode", root / "build", root]
+    candidate_directories.extend(
+        path for path in sorted(root.glob("build*")) if path.is_dir()
+    )
+    seen = set()
+    for directory in candidate_directories:
+        directory = directory.resolve()
+        if directory in seen:
+            continue
+        seen.add(directory)
+        database = directory / "compile_commands.json"
+        if not database.is_file():
+            continue
+        if file_path is not None and not _compile_commands_contains(
+            database, Path(file_path)
+        ):
+            continue
         if verbose:
-            print(f"[verbose] Found compile_commands.json in: {build_dir}")
-        return str(build_dir)
+            print(f"[verbose] Found compile_commands.json in: {directory}")
+        return str(directory)
 
+    requested = (
+        ""
+        if file_path is None
+        else f" containing {Path(file_path).resolve()}"
+    )
     raise FileNotFoundError(
-        "Could not find compile_commands.json in .vscode or build directory"
+        f"Could not find compile_commands.json{requested} under {root}"
     )
 
 
@@ -249,7 +332,13 @@ def format_diagnostic(diag: dict) -> str:
     return result
 
 
-def check_syntax(file_path: str, project_root: str = ".", clangd_path: str = "clangd", verbose: bool = False) -> int:
+def check_syntax(
+    file_path: str,
+    project_root: str | Path = ".",
+    clangd_path: str = "clangd",
+    compile_commands_path: str | Path | None = None,
+    verbose: bool = False,
+) -> int:
     """Check syntax of a C++ file using clangd.
 
     Returns:
@@ -266,11 +355,19 @@ def check_syntax(file_path: str, project_root: str = ".", clangd_path: str = "cl
 
     # Find compile_commands.json
     try:
-        compile_commands_dir = load_compile_commands(project_root, verbose=verbose)
+        compile_commands_dir = load_compile_commands(
+            project_root,
+            file_path=file_path,
+            explicit_path=compile_commands_path,
+            verbose=verbose,
+        )
     except FileNotFoundError as e:
+        if compile_commands_path is not None:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
         if verbose:
             print(f"[verbose] {e}")
-        compile_commands_dir = project_root
+        compile_commands_dir = str(Path(project_root).resolve())
 
     # Read file content
     try:
@@ -346,8 +443,8 @@ Examples:
     )
     parser.add_argument(
         "--compile-commands-dir",
-        default=".vscode/compile_commands.json",
-        help="Directory containing compile_commands.json (overrides auto-detection)",
+        default=None,
+        help="Directory or file for compile_commands.json (overrides auto-detection)",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -381,32 +478,23 @@ Examples:
                             clangd_path = str(config_path.resolve())
             except (orjson.JSONDecodeError, IOError):
                 pass  # Fall back to default behavior
-    if not Path(clangd_path).exists():
-        # Try to find in PATH
-        try:
-            result = subprocess.run(
-                ["where", clangd_path],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                print(
-                    f"Error: clangd not found: {clangd_path}",
-                    file=sys.stderr,
-                )
-                print(
-                    "Please install clangd or provide correct path with --clangd",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            clangd_path = result.stdout.strip().split("\n")[0].strip()
-        except Exception as e:
-            print(f"Error finding clangd: {e}", file=sys.stderr)
-            sys.exit(2)
+    resolved_clangd_path = resolve_executable(clangd_path)
+    if resolved_clangd_path is None:
+        print(
+            f"Error: clangd not found: {clangd_path}",
+            file=sys.stderr,
+        )
+        print(
+            "Please install clangd or provide correct path with --clangd",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    clangd_path = resolved_clangd_path
     exit_code = check_syntax(
         args.file,
         project_root=args.project_root,
         clangd_path=clangd_path,
+        compile_commands_path=args.compile_commands_dir,
         verbose=args.verbose,
     )
     sys.exit(exit_code)

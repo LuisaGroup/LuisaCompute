@@ -34,12 +34,20 @@ def is_only_unknown_argument_error(stdout: str, stderr: str) -> bool:
     return len(error_lines) == 1 and "unknown argument" in error_lines[0].lower()
 
 
-def check_file(file_path: str, script_path: str, project_root: str | None, clangd_path: str | None) -> tuple[str, int, str, str]:
+def check_file(
+    file_path: str,
+    script_path: str,
+    project_root: str | None,
+    clangd_path: str | None,
+    compile_commands_path: str | None,
+) -> tuple[str, int, str, str]:
     cmd = [sys.executable, str(script_path), file_path]
     if project_root is not None:
         cmd += ["--project-root", project_root]
     if clangd_path is not None:
         cmd += ["--clangd", clangd_path]
+    if compile_commands_path is not None:
+        cmd += ["--compile-commands-dir", compile_commands_path]
 
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return file_path, result.returncode, result.stdout, result.stderr
@@ -98,7 +106,14 @@ def main():
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(check_file, f, script_path, args.project_root, args.clangd): f
+            executor.submit(
+                check_file,
+                f,
+                script_path,
+                args.project_root,
+                args.clangd,
+                str(compile_commands_path.resolve()),
+            ): f
             for f in files
         }
         for future in as_completed(futures):
