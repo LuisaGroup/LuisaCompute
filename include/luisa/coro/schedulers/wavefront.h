@@ -64,6 +64,37 @@ struct WavefrontCoroSchedulerConfig {
     bool incremental_continuation_counts = false;
 };
 
+/// Host-observed work executed by one coroutine graph node during the most
+/// recent scheduler dispatch. Node zero is the entry generator; for every
+/// other node, `executed_count` is exactly the number of frames submitted to
+/// that continuation and `peak_queued_count` is the maximum materialized
+/// queue cardinality observed at a scheduler boundary.
+struct WavefrontCoroContinuationStats {
+    size_t index{0u};
+    size_t token{0u};
+    luisa::string name;
+    uint64_t dispatch_count{0u};
+    uint64_t executed_count{0u};
+    uint peak_queued_count{0u};
+};
+
+/// Diagnostics for the most recent dispatch. Collection is enabled by
+/// WavefrontCoroSchedulerConfig::report_stats or
+/// LUISA_CORO_WAVEFRONT_STATS. It is a host-only observation: enabling it
+/// does not change generated shaders, coroutine frames, or queue semantics.
+struct WavefrontCoroDispatchStats {
+    bool collected{false};
+    uint64_t iteration_count{0u};
+    uint64_t generated_count{0u};
+    uint64_t resumed_count{0u};
+    uint64_t gather_scan_count{0u};
+    uint64_t compact_scan_count{0u};
+    uint max_scan_count{0u};
+    uint max_active_count{0u};
+    double elapsed_ms{0.0};
+    luisa::vector<WavefrontCoroContinuationStats> continuations;
+};
+
 template<typename... Args>
 class WavefrontCoroScheduler : public CoroScheduler<Args...> {
 
@@ -103,6 +134,7 @@ private:
     luisa::vector<luisa::vector<size_t>> _output_fields;
     luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
     luisa::vector<uint64_t> _shader_structure_hashes;
+    WavefrontCoroDispatchStats _last_dispatch_stats;
     size_t _hint_field_index{static_cast<size_t>(-1)};
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
@@ -167,7 +199,17 @@ private:
         _input_fields.resize(nc);
         _output_fields.resize(nc);
         _transition_output_fields.resize(nc);
+        _last_dispatch_stats.continuations.clear();
+        _last_dispatch_stats.continuations.reserve(nc);
         for (auto i = 0u; i < nc; i++) {
+            auto &&node = coro.graph().node(i);
+            _last_dispatch_stats.continuations.emplace_back(
+                WavefrontCoroContinuationStats{
+                    .index = node.index,
+                    .token = node.token,
+                    .name = node.index == 0u ?
+                                luisa::string{"<entry>"} :
+                                node.name});
             _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
             _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
             _transition_output_fields[i].resize(nc);
@@ -577,6 +619,22 @@ private:
         Stream &stream, uint3 dispatch_size,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
         uint N = dispatch_size.x * dispatch_size.y * dispatch_size.z;
+        auto report_stats = _config.report_stats ||
+                            std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr;
+        _last_dispatch_stats.collected = report_stats;
+        _last_dispatch_stats.iteration_count = 0u;
+        _last_dispatch_stats.generated_count = 0u;
+        _last_dispatch_stats.resumed_count = 0u;
+        _last_dispatch_stats.gather_scan_count = 0u;
+        _last_dispatch_stats.compact_scan_count = 0u;
+        _last_dispatch_stats.max_scan_count = 0u;
+        _last_dispatch_stats.max_active_count = 0u;
+        _last_dispatch_stats.elapsed_ms = 0.0;
+        for (auto &continuation : _last_dispatch_stats.continuations) {
+            continuation.dispatch_count = 0u;
+            continuation.executed_count = 0u;
+            continuation.peak_queued_count = 0u;
+        }
         // `thread_count` is the allocated frame-pool ceiling, not a mandate to
         // initialize and scan every slot. A paper-scale pool (2^24 frames) is
         // intentionally much larger than many tiled or diagnostic dispatches;
@@ -600,7 +658,6 @@ private:
         stream << _resume_count.copy_from(luisa::span{_host_count.data(), _host_count.size()});
 
         auto dispatch_counter = 0u;
-        auto report_stats = _config.report_stats || std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr;
         auto trace_iterations =
             std::getenv("LUISA_CORO_WAVEFRONT_TRACE_ITERATIONS") != nullptr;
         auto verify_queues =
@@ -700,6 +757,13 @@ private:
             auto active_count = 0u;
             for (size_t i = 1u; i < nc; ++i) {
                 active_count += _host_count[i];
+                if (report_stats) {
+                    auto &continuation =
+                        _last_dispatch_stats.continuations[i];
+                    continuation.peak_queued_count = std::max(
+                        continuation.peak_queued_count,
+                        _host_count[i]);
+                }
             }
             max_active_count = std::max(max_active_count, active_count);
             LUISA_ASSERT(active_count <= scan_count,
@@ -811,6 +875,12 @@ private:
                                       _host_offset[0u], frame_offset,
                                       dispatch_counter, gen_count, dispatch_size, args...)
                               .dispatch(gen_count);
+                if (report_stats) {
+                    auto &entry =
+                        _last_dispatch_stats.continuations[0u];
+                    entry.dispatch_count++;
+                    entry.executed_count += gen_count;
+                }
                 dispatch_counter += gen_count;
                 generated_count += gen_count;
                 if (_config.frame_buffer_compaction) {
@@ -850,6 +920,12 @@ private:
                     auto count = _host_count[i];
                     if (count == 0u) { continue; }
                     resumed_count += count;
+                    if (report_stats) {
+                        auto &continuation =
+                            _last_dispatch_stats.continuations[i];
+                        continuation.dispatch_count++;
+                        continuation.executed_count += count;
+                    }
                     if (_has_hint_sort && _have_hint[i]) {
                         auto sorted_index = _sort_hint_range(stream, _host_offset[i], count);
                         BufferView<uint> indices[2] = {
@@ -869,16 +945,39 @@ private:
             }
         }
         if (report_stats) {
+            _last_dispatch_stats.iteration_count = iteration_count;
+            _last_dispatch_stats.generated_count = generated_count;
+            _last_dispatch_stats.resumed_count = resumed_count;
+            _last_dispatch_stats.gather_scan_count = gather_scan_count;
+            _last_dispatch_stats.compact_scan_count = compact_scan_count;
+            _last_dispatch_stats.max_scan_count = max_scan_count;
+            _last_dispatch_stats.max_active_count = max_active_count;
+            _last_dispatch_stats.elapsed_ms = dispatch_clock.toc();
             LUISA_INFO("Wavefront stats: iterations={} generated={} resumed={} gather_scan={} compact_scan={} max_scan={} max_active={} elapsed_ms={:.3f}",
                        iteration_count, generated_count, resumed_count,
                        gather_scan_count, compact_scan_count,
-                       max_scan_count, max_active_count, dispatch_clock.toc());
+                       max_scan_count, max_active_count,
+                       _last_dispatch_stats.elapsed_ms);
+            for (auto &&continuation :
+                 _last_dispatch_stats.continuations) {
+                LUISA_INFO(
+                    "Wavefront continuation: index={} token={} name='{}' "
+                    "dispatches={} executed={} peak_queued={}.",
+                    continuation.index, continuation.token,
+                    continuation.name, continuation.dispatch_count,
+                    continuation.executed_count,
+                    continuation.peak_queued_count);
+            }
         }
     }
 
 public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
     [[nodiscard]] uint active_frame_capacity() const noexcept { return _active_frame_capacity; }
+    [[nodiscard]] const WavefrontCoroDispatchStats &
+    last_dispatch_stats() const noexcept {
+        return _last_dispatch_stats;
+    }
     /// Structural hashes of the scheduler-owned generate, continuation, and
     /// queue-management kernels. These exclude allocation sizes and provide a
     /// direct cache-identity diagnostic for scheduler configuration changes.

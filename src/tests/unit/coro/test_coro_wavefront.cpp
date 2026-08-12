@@ -135,6 +135,65 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             << "the multi-suspend smoke test should use a bounded frame pool";
     };
 
+    "wavefront_reports_semantic_continuation_work"_test = [options] {
+        constexpr uint N = 64u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
+            auto tid = dispatch_x();
+            $if ((tid & 1u) == 0u) {
+                $suspend("even");
+            }
+            $else {
+                $suspend("odd");
+            };
+            $suspend("join");
+            buf.write(tid, tid + 1u);
+        });
+
+        WavefrontCoroScheduler<Buffer<uint>> scheduler{
+            device, coro,
+            WavefrontCoroSchedulerConfig{
+                .thread_count = N,
+                .gather_by_sorting = false,
+                .frame_buffer_compaction = true,
+                .report_stats = true}};
+        scheduler(output).dispatch(N)(stream);
+        stream << synchronize();
+
+        auto &&stats = scheduler.last_dispatch_stats();
+        expect(stats.collected);
+        expect(stats.generated_count == N);
+        expect(stats.resumed_count == 2u * N);
+        expect(stats.continuations.size() == coro.subroutine_count());
+
+        auto expect_node = [&](luisa::string_view name,
+                               uint64_t executed,
+                               uint peak) noexcept {
+            auto *node = coro.graph().node_by_name(name);
+            expect(node != nullptr);
+            if (node == nullptr) { return; }
+            auto &&node_stats = stats.continuations[node->index];
+            expect(node_stats.index == node->index);
+            expect(node_stats.token == node->token);
+            expect(node_stats.name == name);
+            expect(node_stats.dispatch_count == 1u);
+            expect(node_stats.executed_count == executed);
+            expect(node_stats.peak_queued_count == peak);
+        };
+        auto &&entry = stats.continuations.front();
+        expect(entry.name == "<entry>");
+        expect(entry.dispatch_count == 1u);
+        expect(entry.executed_count == N);
+        expect_node("even", N / 2u, N / 2u);
+        expect_node("odd", N / 2u, N / 2u);
+        expect_node("join", N, N);
+    };
+
     "wavefront_fixed_capacity_pool_runs_oversubscribed_dispatch"_test = [options] {
         constexpr uint N = 257u;
         constexpr uint capacity = 64u;
