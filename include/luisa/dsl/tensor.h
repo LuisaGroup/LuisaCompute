@@ -40,10 +40,11 @@
 #pragma once
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/format.h>// luisa::format
+#include <luisa/core/stl/string.h>// luisa::string
 
 #include <array>
 #include <cstdint>
-#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -98,11 +99,11 @@ template<>
 inline const char *dtype_name<int32>() noexcept { return "i32"; }
 
 template<size_t R>
-inline std::string join_ints(const std::array<int, R> &a, const char *sep = ",") {
-    std::string s;
+inline luisa::string join_ints(const std::array<int, R> &a, const char *sep = ",") {
+    luisa::string s;
     for (size_t i = 0; i < R; ++i) {
         if (i != 0) { s += sep; }
-        s += std::to_string(a[i]);
+        s += luisa::format("{}", a[i]);
     }
     return s;
 }
@@ -155,26 +156,23 @@ class TileExpr {
 public:
     static constexpr size_t rank = Rank;
 
-    std::string name;
+    luisa::string name;
     Scope scope = Scope::Global;
     std::array<int, Rank> offset{};// anchor in the base tensor
     std::array<int, Rank> extent{};// tile extents (0 = unknown)
 
     TileExpr() = default;
-    TileExpr(std::string n, Scope sc,
+    TileExpr(luisa::string n, Scope sc,
              std::array<int, Rank> off,
              std::array<int, Rank> ext) noexcept
         : name(std::move(n)), scope(sc),
           offset(std::move(off)), extent(std::move(ext)) {}
 
-    [[nodiscard]] std::string describe() const {
-        std::string s = name;
+    [[nodiscard]] luisa::string describe() const {
         if (extent != std::array<int, Rank>{}) {
-            s += "[" + detail::join_ints(extent) + "]";
-        } else {
-            s += "@(" + detail::join_ints(offset) + ")";
+            return luisa::format("{}[{}]", name, detail::join_ints(extent));
         }
-        return s;
+        return luisa::format("{}@({})", name, detail::join_ints(offset));
     }
 
     // C_local[BM, BN] = <tile expr>;  A_powsum[blk_m] = T.rsqrt(...)
@@ -203,11 +201,11 @@ public:
 private:
     std::array<int, Rank> _dims{};
     Scope _scope = Scope::Global;
-    std::string _name;
+    luisa::string _name;
 
-    [[nodiscard]] std::string make_default_name() const {
-        return std::string(scope_name(_scope)) + "<" + detail::dtype_name<DType>() + "," +
-               std::to_string(Rank) + ">#" + std::to_string(detail::next_tensor_id());
+    [[nodiscard]] luisa::string make_default_name() const {
+        return luisa::format("{}<{},{}>#{}", scope_name(_scope), detail::dtype_name<DType>(),
+                             Rank, detail::next_tensor_id());
     }
 
     [[nodiscard]] const char *factory_prefix() const noexcept {
@@ -223,7 +221,7 @@ public:
         _name = make_default_name();
     }
 
-    explicit Tensor(const Shape<Rank> &s, Scope scope = Scope::Global, std::string name = {})
+    explicit Tensor(const Shape<Rank> &s, Scope scope = Scope::Global, luisa::string name = {})
         : _dims(s.dims), _scope(scope), _name(std::move(name)) {
         if (_name.empty()) { _name = make_default_name(); }
         LUISA_INFO("[tensor-dsl] {}: {}({})", factory_prefix(), _name, detail::join_ints(_dims));
@@ -239,10 +237,10 @@ public:
 
     [[nodiscard]] const std::array<int, Rank> &dims() const noexcept { return _dims; }
     [[nodiscard]] Scope scope() const noexcept { return _scope; }
-    [[nodiscard]] const std::string &name() const noexcept { return _name; }
+    [[nodiscard]] const luisa::string &name() const noexcept { return _name; }
 
-    [[nodiscard]] std::string describe() const {
-        return _name + "(" + detail::join_ints(_dims) + ")";
+    [[nodiscard]] luisa::string describe() const {
+        return luisa::format("{}({})", _name, detail::join_ints(_dims));
     }
 
     // Tile indexing is spelled with `operator()`: the pseudo-code `A[i, j]`
@@ -294,9 +292,9 @@ template<typename T>
 inline constexpr size_t tile_rank_v = tile_rank<std::remove_cvref_t<T>>::value;
 
 template<typename DType, size_t R>
-inline std::string describe(const language::Tensor<DType, R> &t) { return t.describe(); }
+inline luisa::string describe(const language::Tensor<DType, R> &t) { return t.describe(); }
 template<size_t R>
-inline std::string describe(const language::TileExpr<R> &t) { return t.describe(); }
+inline luisa::string describe(const language::TileExpr<R> &t) { return t.describe(); }
 
 template<size_t R>
 inline language::TileExpr<R> binary_op(const char *op,
@@ -304,7 +302,7 @@ inline language::TileExpr<R> binary_op(const char *op,
                                        const language::TileExpr<R> &b) {
     LUISA_INFO("[tensor-dsl] tile-op: {} {} {}", describe(a), op, describe(b));
     language::TileExpr<R> e = a;
-    e.name = std::string("expr(") + op + ")";
+    e.name = luisa::format("expr({})", op);
     return e;
 }
 
@@ -314,7 +312,7 @@ inline language::TileExpr<R> scalar_op(const char *op,
                                        float b) {
     LUISA_INFO("[tensor-dsl] tile-op: {} {} {}", describe(a), op, b);
     language::TileExpr<R> e = a;
-    e.name = std::string("expr(") + op + ")";
+    e.name = luisa::format("expr({})", op);
     return e;
 }
 
@@ -601,8 +599,8 @@ public:
     template<typename... ConfigArgs>
     auto compile(ConfigArgs &&...config_args) const {
         using traits = detail::fn_traits<F>;
-        std::string cfg;
-        ((cfg += std::to_string(static_cast<long long>(config_args)), cfg += " "), ...);
+        luisa::string cfg;
+        ((cfg += luisa::format("{} ", static_cast<long long>(config_args))), ...);
         LUISA_INFO("[tensor-dsl] kernel.compile: {} ({} compile-time args: {})",
                    "prim_function", sizeof...(ConfigArgs), cfg);
         // Trace the kernel body exactly like a real DSL would at compile time:
@@ -618,10 +616,10 @@ public:
 template<typename Ret>
 class CompiledKernel {
 public:
-    std::string name = "compiled_kernel";
+    luisa::string name = "compiled_kernel";
 
     CompiledKernel() = default;
-    explicit CompiledKernel(std::string n) : name(std::move(n)) {}
+    explicit CompiledKernel(luisa::string n) : name(std::move(n)) {}
 
     template<typename... Args>
     Ret operator()(Args &&.../*args*/) const {
@@ -629,7 +627,7 @@ public:
         return Ret{};// stub: no real computation
     }
 
-    [[nodiscard]] std::string get_kernel_source() const {
+    [[nodiscard]] luisa::string get_kernel_source() const {
         LUISA_INFO("[tensor-dsl] kernel.get_kernel_source: stub (no kernel source generated)");
         return "// tensor-dsl stub: no kernel source generated\n";
     }
@@ -645,7 +643,7 @@ inline void assert_close(const A &a, const B &b, float rtol, float atol) {
 
 }// namespace testing
 
-inline void print(const std::string &s) {
+inline void print(const luisa::string &s) {
     LUISA_INFO("[tensor-dsl] luisa::compute::tile::print: {}", s);
 }
 
