@@ -178,6 +178,8 @@ private:
         ::llvm::Value *base);
     [[nodiscard]] ::llvm::Value *_load_bindless_view(
         ::llvm::Value *base);
+    [[nodiscard]] ::llvm::Value *_load_accel_view(
+        ::llvm::Value *base);
     [[nodiscard]] ::llvm::Value *_load_launch_u32(size_t offset);
     void _ensure_launch_vectors();
     [[nodiscard]] ::llvm::Value *_triplet(
@@ -286,6 +288,8 @@ private:
     [[nodiscard]] ::llvm::Value *_bindless_texture_read(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_bindless_texture_query(
+        const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_accel_query(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_read(
         const schedule::Instruction &instruction);

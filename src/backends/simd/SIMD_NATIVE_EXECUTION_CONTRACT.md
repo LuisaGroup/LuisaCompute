@@ -655,6 +655,7 @@ Embree traversal uses the packet API matching the specialization width:
 | Width | Trace | Occlusion | Validity |
 | ---: | --- | --- | --- |
 | 1 | `rtcIntersect1` | `rtcOccluded1` | scalar active lane |
+| 2 | `rtcIntersect4` | `rtcOccluded4` | lanes 0--1 from the cohort; lanes 2--3 invalid |
 | 4 | `rtcIntersect4` | `rtcOccluded4` | 4-lane valid mask |
 | 8 | `rtcIntersect8` | `rtcOccluded8` | 8-lane valid mask |
 | 16 | `rtcIntersect16` | `rtcOccluded16` | 16-lane valid mask |
@@ -662,7 +663,34 @@ Embree traversal uses the packet API matching the specialization width:
 Ray/hit state is stored in packet-compatible structure-of-arrays form. The
 current cohort mask and dispatch tail jointly form Embree's valid mask.
 Inactive rays are initialized to benign values even though the validity mask
-excludes them.
+excludes them. LLVM performs that sanitization before the callback and
+initializes every result scratch lane. For a native-width W4/W8/W16 packet the
+runtime may consequently copy complete component vectors even when the valid
+mask is sparse: inactive values are already benign and remain excluded from
+traversal. W2 may not read beyond its two-lane source scratch while constructing
+the padded W4 packet.
+
+The currently accepted acceleration surface is static triangle-mesh build,
+top-level instance build, affine transform, visibility mask,
+`RAY_TRACING_TRACE_CLOSEST`, and `RAY_TRACING_TRACE_ANY`. A result classified
+warp- or cohort-uniform invokes only the first active lane and stays scalar.
+Closest-hit scratch starts with invalid instance/primitive IDs and zero
+barycentrics/distance; occlusion scratch starts false. Therefore an inactive
+lane cannot observe poison or mutate query state even if complete initialized
+vectors cross the callback boundary.
+
+All Embree scenes in one backend module share a single `RTCDevice`. If that
+device reports the oneTBB tasking system, backend teardown must quiesce the
+attached task scheduler after releasing the device and before `dlclose` can
+unmap libtbb. Repeated device creation/destruction in one process is a required
+lifecycle regression, not merely a leak check.
+
+Ray-query callbacks, motion trace, curves, procedural geometry,
+cutout/opacity filtering, device-side instance metadata/mutation, and deeper
+instance-stack behavior are not part of this static slice. They must fail at a
+specific capability boundary until their independent semantic, IR-shape, and
+machine-boundary gates exist; closest/any packet traversal does not imply
+their support.
 
 ## 7. Executable audit matrix
 

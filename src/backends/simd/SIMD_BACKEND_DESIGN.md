@@ -580,10 +580,12 @@ did not translate into lower end-to-end latency.
 Embree remains the CPU ray-tracing implementation. Width-specialized kernels
 must use the matching packet traversal interfaces (`rtcIntersect4/8/16` and
 `rtcOccluded4/8/16`) with the scheduler mask wired to Embree's valid-lane mask.
-Per-active-lane scalar traversal is allowed only for width 1, a documented
-sparse-cohort fallback, or a temporary bring-up fixture; it is not the final
-SIMD4/8/16 implementation. Packet traversal must preserve inactive-lane,
-instance-stack, motion, and ray-query callback semantics.
+W2 pads its two live lanes into the four-wide API with lanes two and three
+invalid; it never invokes two scalar traces. Per-active-lane scalar traversal
+is allowed only for width 1, a documented sparse-cohort fallback, or a
+temporary bring-up fixture; it is not the final SIMD2/4/8/16 implementation.
+Packet traversal must preserve inactive-lane, instance-stack, motion, and
+ray-query callback semantics.
 
 The same rule applies to the rest of the device library. Math, bit, packing,
 texture helper, transform, and ray utility operations need scalar-uniform and
@@ -1497,11 +1499,74 @@ unswitching reduce eligible state transitions, while dynamic same-target edges
 already stay on direct LLVM control flow. Density-driven cohort compaction and
 the region layout conversion above remain measured follow-up work.
 
-The required native-math/runtime-width tests plus the new arithmetic,
-bindless-texture, and dedicated bindless-IR callback tests pass 6/6. Combined
-SIMD, XIR, runtime, and graphics labels pass 78/78. Full-repository CTest
-passes 116/117; the sole failure is
-the pre-existing, untouched `test_coro_scheduler_base` lazy-dispatch assertion.
+### Static Embree packet-traversal checkpoint
+
+The first Phase-4 vertical slice supports static triangle meshes, top-level
+instances, affine transforms, visibility masks, closest-hit, and occlusion.
+The JIT passes component-major ray vectors and a packed cohort mask through one
+callback. W1 alone calls `rtcIntersect1`/`rtcOccluded1`; W2 pads into W4; W4,
+W8, and W16 call the matching Embree packet entry exactly once. Uniform trace
+results narrow the callback mask to the first active lane. The path-tracing
+kernel's `reorder_shader_execution` remains an optional hint and is discarded
+because the explicit scheduler already forms cohorts; varying `all`/`any`
+reduce logical vector components without collapsing physical SIMD lanes.
+
+Inactive ray and visibility operands are selected to benign values in LLVM
+before the callback, and all hit scratch is initialized. The runtime may
+therefore copy a complete native-width packet even for a sparse cohort while
+keeping Embree's `valid` array sparse. W2 retains a guarded copy because its
+two-lane scratch is smaller than the padded W4 object. Object inspection shows
+one callsite for each of `rtcIntersect1/4/8/16` and
+`rtcOccluded1/4/8/16`; there is no per-lane scalar traversal loop at W2 or
+wider. Embree scenes share one backend-owned `RTCDevice`; when Embree uses
+oneTBB, module teardown attaches to and finalizes the scheduler before the
+dynamically loaded backend releases its final dependency.
+
+A real Cornell-box path tracer was measured at 1024x1024 and 16 spp. Every
+cell below is a median of nine forward/reverse interleaved processes while
+other host work remained active; parentheses are fallback-relative throughput
+and the ranges are interquartile ranges in spp/s:
+
+| Backend/width | Median spp/s | IQR | Speedup |
+| --- | ---: | ---: | ---: |
+| fallback | 71.7006 | 71.2715--72.0352 | 1.000x |
+| SIMD W1 | 79.8812 | 79.7236--80.3229 | 1.114x |
+| SIMD W2 | 55.9127 | 55.5920--56.4191 | 0.780x |
+| SIMD W4 | 64.6468 | 64.5428--64.8400 | 0.902x |
+| SIMD W8 | 69.2405 | 68.9931--69.4245 | 0.966x |
+| SIMD W16 | 67.4776 | 67.4046--67.7376 | 0.941x |
+
+These are whole renderer measurements, not isolated traversal calls. In
+particular, fallback deliberately uses one sample per dispatch while SIMD may
+execute up to 64 samples per dispatch, so W1's result includes dispatch
+amortization and must not be presented as an Embree scalar traversal speedup.
+W2 pays for a four-wide packet with only two useful lanes. The wider packets
+still lose on this highly divergent path kernel: W8 is closest to parity and
+W16 does not win merely because the host supports AVX-512.
+
+The sparse-packet bulk-copy refinement raised W4/W8/W16 from
+62.3807/66.0094/63.2109 to 64.6468/69.2405/67.4776 spp/s, or
+3.63%/4.90%/6.75%. A 128-spp W8 `perf record` after that change attributes
+47.73% of sampled cycles to JIT code, 44.47% to Embree, and 6.80% to the SIMD
+runtime. Packet initialization is still 3.87% and the closest/any wrappers are
+1.37%/0.72%; before complete sparse-packet copies those figures were 7.33%,
+1.99%, and 1.17%, with 10.68% in the SIMD runtime overall. The remaining
+runtime ceiling is therefore small enough that direct Embree-shaped JIT
+scratch is a follow-up, not a substitute for reducing divergent JIT state
+work or improving ray coherence.
+
+The exact device regression covers W1/W2/W4/W8/W16, divergent visibility,
+ray direction and interval, closest/any results, a uniform trace, and a
+35-thread dispatch whose W16 tail has three live lanes. A separate 64-spp
+renderer sweep completed at every width. Ray-query callbacks, motion trace,
+curves, procedural primitives, cutout/opacity filters, device-side instance
+queries/mutation, and full instance-stack semantics remain explicit Phase-4
+work; the static slice does not claim them.
+
+The required native-math/runtime-width tests plus the arithmetic,
+bindless-texture, dedicated bindless-IR callback, and acceleration tests pass
+7/7. Combined SIMD, XIR, runtime, and graphics labels pass 79/79. A fresh
+full-repository CTest passes 129/129; no coroutine source was modified.
 The original `test_bindless_mip simd` intentionally fails at compile time on
 its gradient query, matching the explicit unsupported-feature contract rather
 than silently changing sampling semantics.
@@ -1720,6 +1785,12 @@ on 2026-08-11. The repository now contains:
   2D `BYTE1` sampling path, sparse set-bit fallback, uniform one-lane callback,
   and inactive-tail sanitization while retaining the public row-major texture
   storage ABI;
+- a static-triangle Embree packet ABI for closest-hit and occlusion where W1
+  alone uses the scalar interface, W2 pads into W4, and W4/W8/W16 call the
+  matching packet interface once; the callback carries the exact cohort/tail
+  mask, pre-sanitizes inactive operands, initializes inactive results, narrows
+  uniform queries to the first active lane, and bulk-copies safe sparse native
+  packets;
 - a device-owned persistent worker pool that dynamically schedules flattened
   block ranges, keeps all warps of one block together, joins before the next
   stream command, and retains a one-worker serial diagnostic mode;
@@ -1760,9 +1831,10 @@ on 2026-08-11. The repository now contains:
   explicit samplers, invalid mip levels, uniform execution, and a three-lane
   W16 tail.
 
-The next implementation boundary is bindless gradient sampling and broader
-callable conformance, followed by cooperative shared memory and block barriers.
-Acceleration structures then use Embree's matching 4/8/16-wide packet APIs,
-while the remaining device-library surface gains scalar-uniform and native
-`<W x T>` implementations. The current compiler returns precise diagnostics
-for unsupported features rather than silently accepting them.
+The next implementation boundary is completion of the Embree vertical slice:
+ray-query callbacks, motion, instance metadata/mutation, curve/procedural and
+cutout semantics, plus a direct packet-layout experiment guarded by stable
+measurement. Bindless gradient sampling, broader callable conformance,
+cooperative shared memory, block barriers, and the remaining device-library
+surface follow. The current compiler returns precise diagnostics for
+unsupported features rather than silently accepting them.

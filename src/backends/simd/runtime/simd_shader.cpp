@@ -6,6 +6,7 @@
 
 #include "../../common/env_flag.h"
 #include "simd_bindless_array.h"
+#include "simd_accel.h"
 #include "simd_buffer.h"
 #include "simd_thread_pool.h"
 #include "simd_texture.h"
@@ -223,10 +224,14 @@ void SIMDShader::dispatch(
                     allocate(sizeof(view)), &view, sizeof(view));
                 break;
             }
-            case Argument::Tag::ACCEL:
-                LUISA_ERROR_WITH_LOCATION(
-                    "This SIMD runtime checkpoint does not support "
-                    "acceleration-structure shader arguments yet.");
+            case Argument::Tag::ACCEL: {
+                auto *accel = reinterpret_cast<SIMDAccel *>(
+                    argument.accel.handle);
+                auto view = accel->host_view();
+                std::memcpy(
+                    allocate(sizeof(view)), &view, sizeof(view));
+                break;
+            }
         }
     };
     for (auto &&argument : _bound_arguments) { encode(argument); }

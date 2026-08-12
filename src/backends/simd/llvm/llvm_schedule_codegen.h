@@ -72,6 +72,31 @@ struct alignas(16) SIMDHostBindlessArrayView {
     SIMDHostBindlessTextureSize *size_texture{nullptr};
 };
 
+// Acceleration-structure callbacks consume component-major ray packets:
+// origin.xyz, t_min, direction.xyz, and t_max are eight consecutive float
+// vectors. Closest-hit ids contain instance and primitive vectors; hit values
+// contain barycentric u/v and committed t vectors. W2 is padded to Embree's
+// four-wide ABI by the runtime, while W1 alone may use the scalar API.
+using SIMDHostAccelTraceClosest = void(
+    void *accel, uint32_t lane_count, uint64_t active_mask_bits,
+    const float *ray_components, const uint32_t *visibility_masks,
+    uint32_t *hit_ids, float *hit_values);
+using SIMDHostAccelTraceAny = void(
+    void *accel, uint32_t lane_count, uint64_t active_mask_bits,
+    const float *ray_components, const uint32_t *visibility_masks,
+    uint32_t *occluded);
+
+struct alignas(16) SIMDHostAccelView {
+    void *accel{nullptr};
+    SIMDHostAccelTraceClosest *trace_closest{nullptr};
+    SIMDHostAccelTraceAny *trace_any{nullptr};
+};
+static_assert(sizeof(SIMDHostAccelTraceClosest *) == sizeof(void *));
+static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
+static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
+static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
+static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
+
 // Texture callbacks operate once per SIMD packet. Coordinates are SoA vectors
 // of lane_count elements and values contain four consecutive component
 // vectors. inactive_mask_bits uses its low lane_count bits. This keeps the JIT

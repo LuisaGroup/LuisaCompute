@@ -6,7 +6,9 @@
 #include <luisa/runtime/rhi/command.h>
 
 #include "simd_bindless_array.h"
+#include "simd_accel.h"
 #include "simd_buffer.h"
+#include "simd_mesh.h"
 #include "simd_shader.h"
 #include "simd_texture.h"
 
@@ -137,8 +139,22 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 source.copy_to(destination.data);
                 break;
             }
-            case Command::Tag::EAccelBuildCommand:
-            case Command::Tag::EMeshBuildCommand:
+            case Command::Tag::EAccelBuildCommand: {
+                auto *build = static_cast<AccelBuildCommand *>(
+                    command.get());
+                auto *accel = reinterpret_cast<SIMDAccel *>(
+                    build->handle());
+                accel->build(*build);
+                break;
+            }
+            case Command::Tag::EMeshBuildCommand: {
+                auto *build = static_cast<MeshBuildCommand *>(
+                    command.get());
+                auto *mesh = reinterpret_cast<SIMDMesh *>(
+                    build->handle());
+                mesh->build(*build);
+                break;
+            }
             case Command::Tag::ECurveBuildCommand:
             case Command::Tag::EProceduralPrimitiveBuildCommand:
             case Command::Tag::EMotionInstanceBuildCommand:

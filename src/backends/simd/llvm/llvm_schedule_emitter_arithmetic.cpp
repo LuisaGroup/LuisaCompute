@@ -546,6 +546,39 @@ namespace luisa::compute::simd::detail {
         }
     };
     switch (op) {
+        case xir::ArithmeticOp::ALL:
+        case xir::ArithmeticOp::ANY: {
+            if (!require(1u) || !result->type->is_bool() ||
+                !operand_types[0u]->is_bool_vector()) {
+                _fail("all/any requires one boolean-vector operand and a boolean result");
+                return nullptr;
+            }
+            auto combine = [&](::llvm::Value *lhs,
+                               ::llvm::Value *rhs) {
+                return op == xir::ArithmeticOp::ALL ?
+                           _builder.CreateAnd(lhs, rhs) :
+                           _builder.CreateOr(lhs, rhs);
+            };
+            if (!varying) {
+                return op == xir::ArithmeticOp::ALL ?
+                           _builder.CreateAndReduce(operands[0u]) :
+                           _builder.CreateOrReduce(operands[0u]);
+            }
+            // Varying aggregates use an SoA layout: each boolean component
+            // is a <W x i1>. Reduce components here while preserving the W
+            // physical lanes; LLVM's vector-reduce intrinsics would instead
+            // collapse distinct logical threads into one scalar.
+            auto *reduced = _extract_child(
+                operands[0u], operand_types[0u], 0u, true);
+            for (auto i = uint32_t{1u};
+                 i < operand_types[0u]->dimension(); i++) {
+                reduced = combine(
+                    reduced,
+                    _extract_child(
+                        operands[0u], operand_types[0u], i, true));
+            }
+            return reduced;
+        }
         case xir::ArithmeticOp::UNARY_MINUS:
         case xir::ArithmeticOp::MATRIX_COMP_NEG:
             return unary([&](::llvm::Value *value, const Type *type)

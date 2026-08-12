@@ -6,6 +6,10 @@
 #include <string_view>
 #include <thread>
 
+#if LUISA_COMPUTE_SIMD_HAS_TBB_SCHEDULER_HANDLE
+#include <oneapi/tbb/global_control.h>
+#endif
+
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -14,14 +18,72 @@
 #include <luisa/backends/ext/simd_config_ext.h>
 
 #include "simd_bindless_array.h"
+#include "simd_accel.h"
 #include "simd_buffer.h"
 #include "simd_event.h"
+#include "simd_mesh.h"
 #include "simd_shader.h"
 #include "simd_stream.h"
 #include "simd_thread_pool.h"
 #include "simd_texture.h"
 
 namespace luisa::compute::simd {
+
+namespace {
+
+class SharedEmbreeDevice {
+
+private:
+    RTCDevice _handle;
+
+public:
+    SharedEmbreeDevice() noexcept
+        : _handle{rtcNewDevice(nullptr)} {
+        LUISA_ASSERT(
+            _handle != nullptr,
+            "Failed to create the shared SIMD Embree device.");
+        rtcSetDeviceErrorFunction(
+            _handle,
+            [](void *, RTCError code, const char *message) noexcept {
+                if (code != RTC_ERROR_NONE) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "SIMD Embree error (code = {}): {}",
+                        luisa::to_underlying(code), message);
+                }
+            },
+            nullptr);
+    }
+
+    ~SharedEmbreeDevice() noexcept {
+#if LUISA_COMPUTE_SIMD_HAS_TBB_SCHEDULER_HANDLE
+        if (rtcGetDeviceProperty(
+                _handle,
+                RTC_DEVICE_PROPERTY_TASKING_SYSTEM) == 1) {
+            oneapi::tbb::task_scheduler_handle scheduler{
+                oneapi::tbb::attach{}};
+            rtcReleaseDevice(_handle);
+            _handle = nullptr;
+            if (!oneapi::tbb::finalize(scheduler, std::nothrow)) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to quiesce the Embree TBB scheduler before "
+                    "unloading the SIMD backend.");
+            }
+            return;
+        }
+#endif
+        rtcReleaseDevice(_handle);
+        _handle = nullptr;
+    }
+
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+};
+
+[[nodiscard]] RTCDevice shared_embree_device() noexcept {
+    static SharedEmbreeDevice device;
+    return device.handle();
+}
+
+}// namespace
 
 SIMDDevice::SIMDDevice(
     Context &&context, const DeviceConfig *config) noexcept
@@ -60,6 +122,7 @@ SIMDDevice::SIMDDevice(
             requested_width);
         _warp_width = requested_width;
     }
+    _rtc_device = shared_embree_device();
     auto hardware_worker_count = static_cast<uint32_t>(
         std::max(std::thread::hardware_concurrency(), 1u));
     _thread_pool = luisa::make_unique<SIMDThreadPool>(
@@ -242,11 +305,19 @@ void SIMDDevice::synchronize_event(
 }
 
 ResourceCreationInfo SIMDDevice::create_mesh(
-    const AccelOption &) noexcept {
-    return ResourceCreationInfo::make_invalid();
+    const AccelOption &option) noexcept {
+    auto *mesh = luisa::new_with_allocator<SIMDMesh>(
+        _rtc_device, option);
+    return {
+        .handle = reinterpret_cast<uint64_t>(mesh),
+        .native_handle = mesh->handle(),
+    };
 }
 
-void SIMDDevice::destroy_mesh(uint64_t) noexcept {}
+void SIMDDevice::destroy_mesh(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(
+        reinterpret_cast<SIMDMesh *>(handle));
+}
 
 ResourceCreationInfo SIMDDevice::create_procedural_primitive(
     const AccelOption &) noexcept {
@@ -256,11 +327,19 @@ ResourceCreationInfo SIMDDevice::create_procedural_primitive(
 void SIMDDevice::destroy_procedural_primitive(uint64_t) noexcept {}
 
 ResourceCreationInfo SIMDDevice::create_accel(
-    const AccelOption &) noexcept {
-    return ResourceCreationInfo::make_invalid();
+    const AccelOption &option) noexcept {
+    auto *accel = luisa::new_with_allocator<SIMDAccel>(
+        _rtc_device, option);
+    return {
+        .handle = reinterpret_cast<uint64_t>(accel),
+        .native_handle = accel->native_handle(),
+    };
 }
 
-void SIMDDevice::destroy_accel(uint64_t) noexcept {}
+void SIMDDevice::destroy_accel(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(
+        reinterpret_cast<SIMDAccel *>(handle));
+}
 
 void SIMDDevice::set_name(
     Resource::Tag, uint64_t, luisa::string_view) noexcept {}

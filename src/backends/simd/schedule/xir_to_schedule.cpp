@@ -752,6 +752,11 @@ private:
             case Tag::THREAD_GROUP: {
                 auto op = static_cast<const xir::ThreadGroupInst *>(instruction)
                               ->op();
+                // SER is an optional scheduling hint. The explicit SIMD
+                // scheduler already forms and reconverges dynamic cohorts,
+                // so preserving the hint as an executable instruction would
+                // add no semantics. Drop it below instead of turning it into
+                // an unsupported opaque operation.
                 return is_collective(op) ? Opcode::warp_collective :
                                            Opcode::opaque;
             }
@@ -969,6 +974,12 @@ private:
         const xir::Instruction *source_instruction,
         BasicBlock &target_block) {
         if (source_instruction->isa<xir::PhiInst>()) { return; }
+        if (source_instruction->isa<xir::ThreadGroupInst>() &&
+            static_cast<const xir::ThreadGroupInst *>(source_instruction)
+                    ->op() ==
+                xir::ThreadGroupOp::SHADER_EXECUTION_REORDER) {
+            return;
+        }
         Instruction instruction{
             .opcode = _opcode(source_instruction),
             .source_op = _source_op(source_instruction),

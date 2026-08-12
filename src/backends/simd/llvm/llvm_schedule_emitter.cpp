@@ -86,6 +86,9 @@ void ScheduleEmitter::_fail(std::string message) {
     if (type != nullptr && type->is_bindless_array()) {
         return sizeof(SIMDHostBindlessArrayView);
     }
+    if (type != nullptr && type->is_accel()) {
+        return sizeof(SIMDHostAccelView);
+    }
     return type == nullptr ? 0u : type->size();
 }
 
@@ -460,8 +463,9 @@ void ScheduleEmitter::_preflight() {
                  (value.type == nullptr ||
                   (!value.type->is_buffer() &&
                    !value.type->is_texture() &&
-                   !value.type->is_bindless_array())))) {
-                _fail("packet ABI supports data, buffer, texture, and bindless arguments only");
+                   !value.type->is_bindless_array() &&
+                   !value.type->is_accel())))) {
+                _fail("packet ABI supports data, buffer, texture, bindless, and accel arguments only");
                 return;
             }
             if (parameters.size() <= metadata->index) {
@@ -476,7 +480,8 @@ void ScheduleEmitter::_preflight() {
                    value.type != nullptr && !_is_data(value.type) &&
                    !value.type->is_buffer() &&
                    !value.type->is_texture() &&
-                   !value.type->is_bindless_array()) {
+                   !value.type->is_bindless_array() &&
+                   !value.type->is_accel()) {
             _fail("packet codegen encountered an unsupported Schedule IR value type");
             return;
         }
@@ -509,7 +514,14 @@ void ScheduleEmitter::_preflight() {
                 instruction.opcode != schedule::Opcode::resource_write &&
                 instruction.opcode != schedule::Opcode::atomic &&
                 instruction.opcode != schedule::Opcode::warp_collective) {
-                _fail("LLVM packet codegen encountered an unsupported Schedule IR instruction");
+                auto message = std::string{
+                                   "LLVM packet codegen encountered unsupported Schedule IR opcode '"} +
+                               schedule::to_string(instruction.opcode) + "' in block '" + block.name + "'";
+                if (instruction.source_op) {
+                    message += " (source op " +
+                               std::to_string(*instruction.source_op) + ")";
+                }
+                _fail(std::move(message));
                 return;
             }
         }
@@ -772,6 +784,28 @@ void ScheduleEmitter::_preflight() {
     return result;
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_accel_view(
+    ::llvm::Value *base) {
+    auto &context = _module.getContext();
+    auto *pointer_type = ::llvm::PointerType::getUnqual(context);
+    auto *type = ::llvm::StructType::get(
+        context, {pointer_type, pointer_type, pointer_type});
+    auto *result = static_cast<::llvm::Value *>(
+        ::llvm::PoisonValue::get(type));
+    constexpr std::array offsets{
+        offsetof(SIMDHostAccelView, accel),
+        offsetof(SIMDHostAccelView, trace_closest),
+        offsetof(SIMDHostAccelView, trace_any),
+    };
+    for (auto i = uint32_t{0u}; i < offsets.size(); i++) {
+        auto *field = _builder.CreateLoad(
+            pointer_type, _byte_pointer(base, offsets[i]));
+        field->setAlignment(::llvm::Align{alignof(void *)});
+        result = _builder.CreateInsertValue(result, field, {i});
+    }
+    return result;
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_launch_u32(size_t offset) {
     auto *pointer = _byte_pointer(_launch_config, offset);
     auto *load = _builder.CreateLoad(_builder.getInt32Ty(), pointer);
@@ -907,8 +941,10 @@ void ScheduleEmitter::_create_external_values() {
                         llvm_value = _load_buffer_view(pointer);
                     } else if (value.type->is_texture()) {
                         llvm_value = _load_texture_view(pointer);
-                    } else {
+                    } else if (value.type->is_bindless_array()) {
                         llvm_value = _load_bindless_view(pointer);
+                    } else {
+                        llvm_value = _load_accel_view(pointer);
                     }
                 } else {
                     llvm_value = _load_uniform_data(pointer, value.type);

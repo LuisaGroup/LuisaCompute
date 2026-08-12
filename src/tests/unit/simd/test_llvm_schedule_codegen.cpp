@@ -3231,6 +3231,82 @@ void bindless_texture_sample_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_shader_execution_reorder() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        reorder_shader_execution(index & 3u, 2u);
+        output.write(index, index * 7u + 3u);
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_shader_execution_reorder");
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    std::array<uint32_t, count> output{};
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&argument, nullptr, &config, width);
+    }
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        CHECK(output[index] == index * 7u + 3u);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_ast_boolean_vector_reduction() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferUInt2 output) noexcept {
+        auto index = dispatch_id().x;
+        auto bits = make_bool3(
+            (index & 1u) != 0u,
+            (index & 2u) != 0u,
+            (index & 4u) != 0u);
+        output.write(
+            index,
+            make_uint2(cast<uint>(any(bits)), cast<uint>(all(bits))));
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_boolean_vector_reduction");
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    std::array<uint2, count> output{};
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&argument, nullptr, &config, width);
+    }
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        CHECK(output[index].x == ((index & 7u) != 0u));
+        CHECK(output[index].y == ((index & 7u) == 7u));
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -3287,6 +3363,10 @@ int main() {
          &run_ast_predicated_diamond},
         {"AST invariant varying loop unswitch",
          &run_ast_loop_unswitch},
+        {"AST shader execution reorder hint",
+         &run_ast_shader_execution_reorder},
+        {"AST boolean-vector all/any",
+         &run_ast_boolean_vector_reduction},
     };
     auto failures = 0u;
     for (auto test : tests) {

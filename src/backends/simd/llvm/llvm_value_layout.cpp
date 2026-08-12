@@ -98,10 +98,15 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
                  ::llvm::Type::getInt64Ty(_context)});
             break;
         }
+        case Tag::ACCEL: {
+            auto *pointer = ::llvm::PointerType::getUnqual(_context);
+            result = ::llvm::StructType::get(
+                _context, {pointer, pointer, pointer});
+            break;
+        }
         case Tag::FLOAT8_E4M3:
         case Tag::FLOAT8_E5M2:
         case Tag::TEXTURE:
-        case Tag::ACCEL:
         case Tag::COOPERATIVE_VECTOR:
         case Tag::COOPERATIVE_VECTOR_REF:
         case Tag::COOPERATIVE_MATRIX_REF:
