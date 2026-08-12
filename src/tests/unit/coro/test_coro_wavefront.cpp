@@ -137,11 +137,14 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         struct ReadbackCase {
             uint batch_size;
             uint pipeline_depth;
+            uint worker_count;
             bool soa;
         };
-        for (auto [batch_size, pipeline_depth, soa] :
-             {ReadbackCase{1u, 1u, false}, ReadbackCase{4u, 2u, true},
-              ReadbackCase{8u, 4u, true}}) {
+        luisa::vector<uint64_t> reference_shader_hashes[2];
+        for (auto [batch_size, pipeline_depth, worker_count, soa] :
+             {ReadbackCase{1u, 1u, 1u, false},
+              ReadbackCase{4u, 2u, 5u, true},
+              ReadbackCase{8u, 4u, capacity, true}}) {
             luisa::vector<uint> zeros(N);
             stream << output.copy_from(luisa::span{zeros})
                    << loop_visits.copy_from(luisa::span{zeros})
@@ -153,6 +156,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .thread_count = capacity,
                     .global_memory_soa = soa,
                     .execution_block_size = 32u,
+                    .worker_count = worker_count,
                     .counter_readback_batch_size = batch_size,
                     .counter_readback_pipeline_depth = pipeline_depth,
                     .tail_megakernel_threshold = 0u,
@@ -191,6 +195,23 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                    "and self-loop iteration exactly once";
             expect(scheduler.node_count() == coroutine.graph().node_count());
             expect(scheduler.active_frame_capacity() == capacity);
+            expect(scheduler.last_dispatch_stats().worker_count ==
+                   worker_count);
+
+            auto shader_hashes = scheduler.shader_structure_hashes();
+            expect(!shader_hashes.empty());
+            auto &reference = reference_shader_hashes[soa ? 1u : 0u];
+            if (reference.empty()) {
+                reference.assign(
+                    shader_hashes.begin(), shader_hashes.end());
+            } else {
+                expect(shader_hashes.size() ==
+                       reference.size());
+                expect(std::equal(shader_hashes.begin(), shader_hashes.end(),
+                                  reference.begin(), reference.end()))
+                    << "worker count and readback policy are runtime scheduler "
+                       "parameters and must not invalidate shader caches";
+            }
 
             auto &&stats = scheduler.last_dispatch_stats();
             expect(stats.generated_count == N);

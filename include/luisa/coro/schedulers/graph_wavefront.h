@@ -25,6 +25,11 @@ struct GraphWavefrontCoroSchedulerConfig {
     uint thread_count = static_cast<uint>(2_M);
     bool global_memory_soa = true;
     uint execution_block_size = 256u;
+    // Maximum logical lanes launched for one queue consumer. A zero value
+    // preserves the full-frame-capacity grid. A smaller runtime value uses a
+    // grid-stride bijection over the actual device queue count, so it changes
+    // scheduling cost but neither shader identity nor coroutine semantics.
+    uint worker_count = 0u;
     uint counter_readback_batch_size = 4u;
     // Number of readback slots kept in flight. A value greater than one lets
     // the GPU execute later fixed sweeps while the host waits for an older
@@ -53,6 +58,15 @@ struct GraphWavefrontCoroDispatchStats {
     uint max_readbacks_in_flight{0u};
     uint tail_dispatch_count{0u};
     uint tail_instance_count{0u};
+    uint worker_count{0u};
+    // Host-observed destination populations for each CoroGraph node. Node
+    // zero is always zero here because free frames are reported separately.
+    // In a non-tail dispatch, summing q[t + 1] over all snapshots is exactly
+    // the number of later consumer executions: every queued frame is consumed
+    // once in the following sweep.
+    luisa::vector<uint64_t> queued_count_sum;
+    luisa::vector<uint64_t> nonempty_snapshot_count;
+    luisa::vector<uint> peak_queued_count;
     double elapsed_ms{0.0};
 };
 
@@ -113,6 +127,7 @@ private:
     Shader1D<uint> _prepare_tail_offsets_shader;
     Shader1D<uint, uint, Args...> _tail_shader;
     luisa::vector<uint> _host_snapshots;
+    luisa::vector<uint64_t> _shader_structure_hashes;
     GraphWavefrontCoroDispatchStats _last_dispatch_stats;
     uint _node_count{};
     uint _snapshot_stride{};
@@ -133,7 +148,9 @@ private:
     template<typename Kernel>
     [[nodiscard]] auto _compile(
         Device &device, const Kernel &kernel,
-        luisa::string_view stage) const noexcept {
+        luisa::string_view stage) noexcept {
+        _shader_structure_hashes.emplace_back(
+            kernel.function()->function().hash());
         return device.compile(
             kernel,
             detail::coro_scheduler_shader_option(
@@ -141,6 +158,7 @@ private:
     }
 
     void _create_shaders(Device &device, const Coro &coro) {
+        _shader_structure_hashes.clear();
         auto *frame_buffer = &_frame_buffer;
         auto *queue_indices = &_queue_indices;
         auto *queue_counts = &_queue_counts;
@@ -289,10 +307,10 @@ private:
                              UInt3 dispatch_shape,
                              Var<Args>... args) noexcept {
             set_block_size(block_size);
-            auto x = dispatch_x();
             auto admit_count =
                 Expr<Buffer<uint>>{*work_state}.read(1u);
-            $if (x < admit_count) {
+            auto x = def(dispatch_x());
+            $while (x < admit_count) {
                 auto free_first =
                     Expr<Buffer<uint>>{*work_state}.read(2u);
                 auto frame_index =
@@ -318,6 +336,7 @@ private:
                 };
                 push_frame(destination_bank, next, frame_index,
                            storage_capacity, active_node_count);
+                x += dispatch_size_x();
             };
         };
         _entry_shader = _compile(
@@ -347,12 +366,12 @@ private:
                              UInt storage_capacity,
                              Var<Args>... args) noexcept {
                     set_block_size(block_size);
-                    auto x = dispatch_x();
                     auto source_queue = 1u + source_bank * active_node_count +
                                         node_index - 1u;
                     auto count = Expr<Buffer<uint>>{*work_state}.read(
                         5u + node_index - 1u);
-                    $if (x < count) {
+                    auto x = def(dispatch_x());
+                    $while (x < count) {
                         auto frame_index =
                             Expr<Buffer<uint>>{*queue_indices}.read(
                                 source_queue * storage_capacity + x);
@@ -376,6 +395,7 @@ private:
                         }
                         push_frame(destination_bank, next, frame_index,
                                    storage_capacity, active_node_count);
+                        x += dispatch_size_x();
                     };
                 };
             _continuation_shaders[node_index] = _compile(
@@ -423,15 +443,16 @@ private:
 
         Kernel1D copy_returns = [queue_indices, work_state, return_queue](
                                     UInt storage_capacity) noexcept {
-            auto x = dispatch_x();
             auto indices = Expr<Buffer<uint>>{*queue_indices};
             auto work = Expr<Buffer<uint>>{*work_state};
             auto free_first = work.read(3u);
             auto returned_count = work.read(4u);
-            $if (x < returned_count) {
+            auto x = def(dispatch_x());
+            $while (x < returned_count) {
                 auto frame_index = indices.read(
                     return_queue * storage_capacity + x);
                 indices.write(free_first + x, frame_index);
+                x += dispatch_size_x();
             };
         };
         _copy_returns_shader = _compile(
@@ -586,6 +607,10 @@ private:
         if (logical_count == 0u) { return; }
         _active_frame_capacity =
             std::min(_config.thread_count, logical_count);
+        auto worker_count = _config.worker_count == 0u ?
+                                _active_frame_capacity :
+                                std::min(_config.worker_count,
+                                         _active_frame_capacity);
         auto active_node_count = _node_count - 1u;
         auto queue_count = 2u + 2u * active_node_count;
         auto initialize_count =
@@ -599,6 +624,10 @@ private:
                                 nullptr;
         _last_dispatch_stats = {};
         _last_dispatch_stats.collected = report_stats;
+        _last_dispatch_stats.worker_count = worker_count;
+        _last_dispatch_stats.queued_count_sum.resize(_node_count, 0u);
+        _last_dispatch_stats.nonempty_snapshot_count.resize(_node_count, 0u);
+        _last_dispatch_stats.peak_queued_count.resize(_node_count, 0u);
         Clock clock;
         struct PendingReadback {
             uint slot{};
@@ -634,7 +663,13 @@ private:
                               static_cast<size_t>(epoch) * _snapshot_stride;
                 auto live_count = 0u;
                 for (auto node = 1u; node < _node_count; ++node) {
-                    live_count += _host_snapshots[offset + node];
+                    auto queued = _host_snapshots[offset + node];
+                    live_count += queued;
+                    _last_dispatch_stats.queued_count_sum[node] += queued;
+                    _last_dispatch_stats.nonempty_snapshot_count[node] +=
+                        queued != 0u;
+                    _last_dispatch_stats.peak_queued_count[node] = std::max(
+                        _last_dispatch_stats.peak_queued_count[node], queued);
                 }
                 _last_dispatch_stats.max_live_count = std::max(
                     _last_dispatch_stats.max_live_count, live_count);
@@ -667,18 +702,18 @@ private:
                        << _entry_shader(destination_bank,
                                         _config.thread_count, dispatch_size,
                                         args...)
-                              .dispatch(_active_frame_capacity);
+                              .dispatch(worker_count);
                 for (auto node = 1u; node < _node_count; ++node) {
                     stream << _continuation_shaders[node](
                                   source_bank, destination_bank,
                                   _config.thread_count, args...)
-                                  .dispatch(_active_frame_capacity);
+                                  .dispatch(worker_count);
                 }
                 stream << _prepare_returns_shader(
                               _config.thread_count, _active_frame_capacity)
                               .dispatch(1u)
                        << _copy_returns_shader(_config.thread_count)
-                              .dispatch(_active_frame_capacity)
+                              .dispatch(worker_count)
                        << _commit_returns_shader().dispatch(1u);
                 auto snapshot_index = slot * snapshots_per_slot + epoch;
                 stream << _snapshot_shader(snapshot_index, destination_bank)
@@ -763,7 +798,7 @@ private:
             LUISA_INFO(
                 "Graph wavefront stats: sweeps={} snapshots={} "
                 "readbacks={} bytes={} waits={} max_in_flight={} generated={} "
-                "max_live={} tail_dispatches={} tail_instances={} "
+                "max_live={} workers={} tail_dispatches={} tail_instances={} "
                 "elapsed_ms={:.3f}.",
                 _last_dispatch_stats.sweep_count,
                 _last_dispatch_stats.counter_snapshot_count,
@@ -773,9 +808,18 @@ private:
                 _last_dispatch_stats.max_readbacks_in_flight,
                 _last_dispatch_stats.generated_count,
                 _last_dispatch_stats.max_live_count,
+                _last_dispatch_stats.worker_count,
                 _last_dispatch_stats.tail_dispatch_count,
                 _last_dispatch_stats.tail_instance_count,
                 _last_dispatch_stats.elapsed_ms);
+            for (auto node = 1u; node < _node_count; ++node) {
+                LUISA_INFO(
+                    "Graph wavefront queue: index={} queued_sum={} "
+                    "nonempty_snapshots={} peak_queued={}.",
+                    node, _last_dispatch_stats.queued_count_sum[node],
+                    _last_dispatch_stats.nonempty_snapshot_count[node],
+                    _last_dispatch_stats.peak_queued_count[node]);
+            }
         }
     }
 
@@ -857,6 +901,14 @@ public:
     [[nodiscard]] const GraphWavefrontCoroDispatchStats &
     last_dispatch_stats() const noexcept {
         return _last_dispatch_stats;
+    }
+    /// Structural hashes of all scheduler-owned kernels. Runtime launch
+    /// policy (frame capacity, worker count, readback batching, and pipeline
+    /// depth) is deliberately absent from these hashes.
+    [[nodiscard]] luisa::span<const uint64_t>
+    shader_structure_hashes() const noexcept {
+        return {_shader_structure_hashes.data(),
+                _shader_structure_hashes.size()};
     }
 };
 
