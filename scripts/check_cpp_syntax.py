@@ -9,12 +9,15 @@ clangd receives the matching compilation flags.
 """
 
 import argparse
+from contextlib import contextmanager
 import orjson
 import os
 import queue
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -37,9 +40,16 @@ def resolve_executable(command: str) -> str | None:
 class ClangdLSPClient:
     """Minimal LSP client for clangd to get diagnostics."""
 
-    def __init__(self, clangd_path: str, compile_commands_dir: str, verbose: bool = False):
+    def __init__(
+        self,
+        clangd_path: str,
+        compile_commands_dir: str,
+        clang_tidy: bool = False,
+        verbose: bool = False,
+    ):
         self.clangd_path = clangd_path
         self.compile_commands_dir = compile_commands_dir
+        self.clang_tidy = clang_tidy
         self.process = None
         self.request_id = 0
         self.verbose = verbose
@@ -52,7 +62,7 @@ class ClangdLSPClient:
             self.clangd_path,
             "--compile-commands-dir=" + self.compile_commands_dir,
             "--log=error",
-            "--clang-tidy=true",
+            "--clang-tidy=" + ("true" if self.clang_tidy else "false"),
             "--completion-style=bundled",
             "--pch-storage=memory",
         ]
@@ -244,38 +254,126 @@ class ClangdLSPClient:
                     return params.get("diagnostics", [])
 
 
-def _compile_commands_contains(database: Path, file_path: Path) -> bool:
-    """Return whether a compilation database contains the requested file."""
+def _compile_command_source(database: Path, entry: dict) -> Path | None:
+    """Resolve one compilation-database entry's source path."""
+    if not isinstance(entry, dict):
+        return None
+    source_value = entry.get("file")
+    if not isinstance(source_value, str) or not source_value:
+        return None
+    source = Path(source_value)
+    if not source.is_absolute():
+        directory_value = entry.get("directory")
+        directory = (
+            Path(directory_value)
+            if isinstance(directory_value, str) and directory_value
+            else database.parent
+        )
+        if not directory.is_absolute():
+            directory = database.parent / directory
+        source = directory / source
+    try:
+        return source.resolve()
+    except OSError:
+        return None
+
+
+def _load_compile_command_entries(database: Path) -> list[dict]:
     try:
         entries = orjson.loads(database.read_bytes())
     except (OSError, orjson.JSONDecodeError):
-        return False
+        return []
     if not isinstance(entries, list):
-        return False
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _compile_commands_contains(database: Path, file_path: Path) -> bool:
+    """Return whether a compilation database contains the requested file."""
     requested = file_path.resolve()
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        source_value = entry.get("file")
-        if not isinstance(source_value, str) or not source_value:
-            continue
-        source = Path(source_value)
-        if not source.is_absolute():
-            directory_value = entry.get("directory")
-            directory = (
-                Path(directory_value)
-                if isinstance(directory_value, str) and directory_value
-                else database.parent
-            )
-            if not directory.is_absolute():
-                directory = database.parent / directory
-            source = directory / source
-        try:
-            if source.resolve() == requested:
-                return True
-        except OSError:
-            continue
+    for entry in _load_compile_command_entries(database):
+        if _compile_command_source(database, entry) == requested:
+            return True
     return False
+
+
+def _split_compile_command(command: str) -> list[str]:
+    arguments = shlex.split(command, posix=os.name != "nt")
+    if os.name == "nt":
+        arguments = [
+            argument[1:-1]
+            if len(argument) >= 2 and argument[0] == argument[-1] == '"'
+            else argument
+            for argument in arguments
+        ]
+    return arguments
+
+
+def _syntax_only_arguments(arguments: list[str]) -> list[str]:
+    """Demote warning-as-error flags without hiding compiler warnings."""
+    result = []
+    for argument in arguments:
+        if argument == "-Werror":
+            result.append("-Wno-error")
+        elif argument.startswith("-Werror="):
+            result.append("-Wno-error=" + argument[len("-Werror="):])
+        elif argument == "-pedantic-errors":
+            result.append("-pedantic")
+        elif argument.lower() == "/wx":
+            result.append("/WX-")
+        else:
+            result.append(argument)
+    return result
+
+
+def _syntax_only_entry(entry: dict) -> dict:
+    sanitized = dict(entry)
+    arguments = entry.get("arguments")
+    if isinstance(arguments, list) and all(
+        isinstance(argument, str) for argument in arguments
+    ):
+        parsed = list(arguments)
+    else:
+        command = entry.get("command")
+        if not isinstance(command, str):
+            return sanitized
+        try:
+            parsed = _split_compile_command(command)
+        except ValueError:
+            return sanitized
+    sanitized["arguments"] = _syntax_only_arguments(parsed)
+    sanitized.pop("command", None)
+    return sanitized
+
+
+@contextmanager
+def syntax_compile_commands(
+    compile_commands_dir: str | Path,
+    file_path: str | Path,
+):
+    """Yield a per-TU database with warning-as-error flags demoted."""
+    directory = Path(compile_commands_dir).resolve()
+    database = directory / "compile_commands.json"
+    if not database.is_file():
+        yield str(directory)
+        return
+    requested = Path(file_path).resolve()
+    entries = [
+        _syntax_only_entry(entry)
+        for entry in _load_compile_command_entries(database)
+        if _compile_command_source(database, entry) == requested
+    ]
+    if not entries:
+        yield str(directory)
+        return
+    with tempfile.TemporaryDirectory(
+        prefix="luisa-clangd-syntax-"
+    ) as temporary_directory:
+        temporary_database = (
+            Path(temporary_directory) / "compile_commands.json"
+        )
+        temporary_database.write_bytes(orjson.dumps(entries))
+        yield temporary_directory
 
 
 def load_compile_commands(
@@ -369,6 +467,8 @@ def check_syntax(
     project_root: str | Path = ".",
     clangd_path: str = "clangd",
     compile_commands_path: str | Path | None = None,
+    diagnostic_timeout: float = 30.0,
+    clang_tidy: bool = False,
     verbose: bool = False,
 ) -> int:
     """Check syntax of a C++ file using clangd.
@@ -409,16 +509,25 @@ def check_syntax(
         return 2
 
     # Create and use clangd client
-    client = ClangdLSPClient(clangd_path, compile_commands_dir, verbose=verbose)
-
     try:
-        client.start()
-
-        client.initialize()
-
-        client.open_document(str(file_path), content)
-
-        diagnostics = client.get_diagnostics(str(file_path))
+        with syntax_compile_commands(
+            compile_commands_dir, file_path
+        ) as diagnostic_database_dir:
+            client = ClangdLSPClient(
+                clangd_path,
+                diagnostic_database_dir,
+                clang_tidy=clang_tidy,
+                verbose=verbose,
+            )
+            try:
+                client.start()
+                client.initialize(timeout=diagnostic_timeout)
+                client.open_document(str(file_path), content)
+                diagnostics = client.get_diagnostics(
+                    str(file_path), timeout=diagnostic_timeout
+                )
+            finally:
+                client.stop()
         
         if not diagnostics:
             print("[OK] No issues found!")
@@ -443,8 +552,6 @@ def check_syntax(
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
-    finally:
-        client.stop()
 
 
 def main():
@@ -474,6 +581,17 @@ Examples:
         "--compile-commands-dir",
         default=None,
         help="Directory or file for compile_commands.json (overrides auto-detection)",
+    )
+    parser.add_argument(
+        "--diagnostic-timeout",
+        type=float,
+        default=30.0,
+        help="Maximum seconds to wait for initialization and diagnostics (default: 30)",
+    )
+    parser.add_argument(
+        "--clang-tidy",
+        action="store_true",
+        help="Include clang-tidy diagnostics (disabled for syntax-only checks)",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -524,6 +642,8 @@ Examples:
         project_root=args.project_root,
         clangd_path=clangd_path,
         compile_commands_path=args.compile_commands_dir,
+        diagnostic_timeout=args.diagnostic_timeout,
+        clang_tidy=args.clang_tidy,
         verbose=args.verbose,
     )
     sys.exit(exit_code)

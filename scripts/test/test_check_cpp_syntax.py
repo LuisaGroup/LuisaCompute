@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import orjson
 import sys
 import tempfile
 import unittest
@@ -15,9 +16,11 @@ from check_all_cpp_syntax import check_file
 from check_all_cpp_syntax import load_compile_command_files
 from check_cpp_syntax import (
     ClangdLSPClient,
+    _syntax_only_arguments,
     check_syntax,
     load_compile_commands,
     resolve_executable,
+    syntax_compile_commands,
 )
 
 
@@ -149,6 +152,48 @@ class DiagnosticsTest(unittest.TestCase):
             self.assertIn("diagnostic timeout", error.getvalue())
 
 
+class SyntaxCompileCommandsTest(unittest.TestCase):
+
+    def test_demotes_warning_as_error_flags(self):
+        self.assertEqual(
+            _syntax_only_arguments([
+                "c++", "-Werror", "-Werror=deprecated-copy",
+                "-pedantic-errors", "-Wall", "/WX",
+            ]),
+            [
+                "c++", "-Wno-error", "-Wno-error=deprecated-copy",
+                "-pedantic", "-Wall", "/WX-",
+            ],
+        )
+
+    def test_builds_per_translation_unit_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.cpp"
+            other = root / "other.cpp"
+            source.write_text("", encoding="utf-8")
+            other.write_text("", encoding="utf-8")
+            database = root / "compile_commands.json"
+            database.write_text(
+                '[{"directory":"' + str(root) +
+                '","file":"' + str(source) +
+                '","command":"c++ -Werror -c ' + str(source) +
+                '"},{"directory":"' + str(root) +
+                '","file":"' + str(other) +
+                '","command":"c++ -c ' + str(other) + '"}]',
+                encoding="utf-8",
+            )
+            with syntax_compile_commands(root, source) as syntax_directory:
+                entries = orjson.loads(
+                    (Path(syntax_directory) / "compile_commands.json")
+                    .read_bytes()
+                )
+                self.assertEqual(len(entries), 1)
+                self.assertEqual(entries[0]["file"], str(source))
+                self.assertIn("-Wno-error", entries[0]["arguments"])
+                self.assertNotIn("command", entries[0])
+
+
 class CheckAllSyntaxTest(unittest.TestCase):
 
     def test_resolves_relative_files_and_removes_duplicates(self):
@@ -189,6 +234,7 @@ class CheckAllSyntaxTest(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("--compile-commands-dir", command)
         self.assertIn("/project/build/compile_commands.json", command)
+        self.assertIn("--diagnostic-timeout", command)
 
 
 if __name__ == "__main__":

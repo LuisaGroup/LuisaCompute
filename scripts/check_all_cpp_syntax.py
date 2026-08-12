@@ -52,6 +52,8 @@ def check_file(
     project_root: str | None,
     clangd_path: str | None,
     compile_commands_path: str | None,
+    diagnostic_timeout: float = 30.0,
+    clang_tidy: bool = False,
 ) -> tuple[str, int, str, str]:
     cmd = [sys.executable, str(script_path), file_path]
     if project_root is not None:
@@ -60,6 +62,9 @@ def check_file(
         cmd += ["--clangd", clangd_path]
     if compile_commands_path is not None:
         cmd += ["--compile-commands-dir", compile_commands_path]
+    cmd += ["--diagnostic-timeout", str(diagnostic_timeout)]
+    if clang_tidy:
+        cmd.append("--clang-tidy")
 
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return file_path, result.returncode, result.stdout, result.stderr
@@ -89,6 +94,17 @@ def main():
         type=int,
         default=DEFAULT_JOBS,
         help=f"Maximum parallel jobs (default: {DEFAULT_JOBS})",
+    )
+    parser.add_argument(
+        "--diagnostic-timeout",
+        type=float,
+        default=30.0,
+        help="Per-file clangd timeout in seconds (default: 30)",
+    )
+    parser.add_argument(
+        "--clang-tidy",
+        action="store_true",
+        help="Include clang-tidy diagnostics (disabled by default)",
     )
 
     args = parser.parse_args()
@@ -125,6 +141,8 @@ def main():
                 args.project_root,
                 args.clangd,
                 str(compile_commands_path.resolve()),
+                args.diagnostic_timeout,
+                args.clang_tidy,
             ): f
             for f in files
         }
