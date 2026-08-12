@@ -31,7 +31,8 @@ void initialize_ray_packet(
     RayPacket &ray, std::array<int, packet_width> &valid,
     uint32_t lane_count, uint64_t active_mask_bits,
     const float *components,
-    const uint32_t *visibility_masks) noexcept {
+    const uint32_t *visibility_masks,
+    const float *times) noexcept {
     if (lane_count == packet_width) {
         constexpr auto component_bytes =
             sizeof(float) * packet_width;
@@ -70,7 +71,11 @@ void initialize_ray_packet(
         std::memcpy(
             ray.dir_z, components + 6u * packet_width,
             component_bytes);
-        std::memset(ray.time, 0, component_bytes);
+        if (times == nullptr) {
+            std::memset(ray.time, 0, component_bytes);
+        } else {
+            std::memcpy(ray.time, times, component_bytes);
+        }
         std::memcpy(
             ray.tfar, components + 7u * packet_width,
             component_bytes);
@@ -106,7 +111,7 @@ void initialize_ray_packet(
         ray.dir_x[lane] = component(4u);
         ray.dir_y[lane] = component(5u);
         ray.dir_z[lane] = component(6u, 1.0f);
-        ray.time[lane] = 0.0f;
+        ray.time[lane] = active && times != nullptr ? times[lane] : 0.0f;
         ray.tfar[lane] = component(7u);
         ray.mask[lane] = active ? visibility_masks[lane] : 0u;
         ray.id[lane] = lane;
@@ -134,7 +139,8 @@ void initialize_hit_packet(HitPacket &hit) noexcept {
 void initialize_scalar_ray(
     RTCRay &ray, uint32_t lane_count,
     uint64_t active_mask_bits, const float *components,
-    const uint32_t *visibility_masks) noexcept {
+    const uint32_t *visibility_masks,
+    const float *times) noexcept {
     auto active = lane_active(active_mask_bits, 0u, lane_count);
     auto component = [&](uint32_t index, float fallback = 0.0f) {
         return active ? components[index * lane_count] : fallback;
@@ -146,7 +152,7 @@ void initialize_scalar_ray(
     ray.dir_x = component(4u);
     ray.dir_y = component(5u);
     ray.dir_z = component(6u, 1.0f);
-    ray.time = 0.0f;
+    ray.time = active && times != nullptr ? times[0u] : 0.0f;
     ray.tfar = component(7u);
     ray.mask = active ? visibility_masks[0u] : 0u;
     ray.id = 0u;
@@ -195,13 +201,13 @@ void trace_closest_packet(
     RTCScene scene, uint32_t lane_count,
     uint64_t active_mask_bits, const float *components,
     const uint32_t *visibility_masks,
-    uint32_t *hit_ids, float *hit_values,
+    const float *times, uint32_t *hit_ids, float *hit_values,
     Invoke &&invoke) noexcept {
     alignas(64) RayHitPacket packet{};
     alignas(64) std::array<int, packet_width> valid{};
     initialize_ray_packet<packet_width>(
         packet.ray, valid, lane_count, active_mask_bits,
-        components, visibility_masks);
+        components, visibility_masks, times);
     initialize_hit_packet<packet_width>(packet.hit);
     invoke(valid.data(), scene, &packet);
     if (lane_count == packet_width) {
@@ -239,13 +245,14 @@ template<size_t packet_width, typename RayPacket, typename Invoke>
 void trace_any_packet(
     RTCScene scene, uint32_t lane_count,
     uint64_t active_mask_bits, const float *components,
-    const uint32_t *visibility_masks, uint32_t *occluded,
+    const uint32_t *visibility_masks, const float *times,
+    uint32_t *occluded,
     Invoke &&invoke) noexcept {
     alignas(64) RayPacket packet{};
     alignas(64) std::array<int, packet_width> valid{};
     initialize_ray_packet<packet_width>(
         packet, valid, lane_count, active_mask_bits,
-        components, visibility_masks);
+        components, visibility_masks, times);
     invoke(valid.data(), scene, &packet);
     if (lane_count == packet_width) {
         for (auto lane = uint32_t{0u}; lane < packet_width; lane++) {
@@ -350,7 +357,8 @@ void SIMDAccel::_trace_closest(
     void *accel, uint32_t lane_count,
     uint64_t active_mask_bits, const float *ray_components,
     const uint32_t *visibility_masks,
-    uint32_t *hit_ids, float *hit_values) noexcept {
+    const float *times, uint32_t *hit_ids,
+    float *hit_values) noexcept {
     auto *self = static_cast<SIMDAccel *>(accel);
     LUISA_ASSERT(
         self != nullptr && ray_components != nullptr &&
@@ -363,7 +371,7 @@ void SIMDAccel::_trace_closest(
             RTCRayHit ray_hit{};
             initialize_scalar_ray(
                 ray_hit.ray, lane_count, active_mask_bits,
-                ray_components, visibility_masks);
+                ray_components, visibility_masks, times);
             initialize_scalar_hit(ray_hit.hit);
             intersect_scalar(self->_scene, ray_hit);
             hit_ids[0u] = ray_hit.hit.instID[0u];
@@ -377,7 +385,8 @@ void SIMDAccel::_trace_closest(
         case 4u:
             trace_closest_packet<4u, RTCRayHit4>(
                 self->_scene, lane_count, active_mask_bits,
-                ray_components, visibility_masks, hit_ids, hit_values,
+                ray_components, visibility_masks, times,
+                hit_ids, hit_values,
                 [](const int *valid, RTCScene scene,
                    RTCRayHit4 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -394,7 +403,8 @@ void SIMDAccel::_trace_closest(
         case 8u:
             trace_closest_packet<8u, RTCRayHit8>(
                 self->_scene, lane_count, active_mask_bits,
-                ray_components, visibility_masks, hit_ids, hit_values,
+                ray_components, visibility_masks, times,
+                hit_ids, hit_values,
                 [](const int *valid, RTCScene scene,
                    RTCRayHit8 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -411,7 +421,8 @@ void SIMDAccel::_trace_closest(
         case 16u:
             trace_closest_packet<16u, RTCRayHit16>(
                 self->_scene, lane_count, active_mask_bits,
-                ray_components, visibility_masks, hit_ids, hit_values,
+                ray_components, visibility_masks, times,
+                hit_ids, hit_values,
                 [](const int *valid, RTCScene scene,
                    RTCRayHit16 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -435,7 +446,7 @@ void SIMDAccel::_trace_any(
     void *accel, uint32_t lane_count,
     uint64_t active_mask_bits, const float *ray_components,
     const uint32_t *visibility_masks,
-    uint32_t *occluded) noexcept {
+    const float *times, uint32_t *occluded) noexcept {
     auto *self = static_cast<SIMDAccel *>(accel);
     LUISA_ASSERT(
         self != nullptr && ray_components != nullptr &&
@@ -447,7 +458,7 @@ void SIMDAccel::_trace_any(
             RTCRay ray{};
             initialize_scalar_ray(
                 ray, lane_count, active_mask_bits,
-                ray_components, visibility_masks);
+                ray_components, visibility_masks, times);
             occlude_scalar(self->_scene, ray);
             occluded[0u] = ray.tfar < 0.0f ? 1u : 0u;
             break;
@@ -456,7 +467,7 @@ void SIMDAccel::_trace_any(
         case 4u:
             trace_any_packet<4u, RTCRay4>(
                 self->_scene, lane_count, active_mask_bits,
-                ray_components, visibility_masks, occluded,
+                ray_components, visibility_masks, times, occluded,
                 [](const int *valid, RTCScene scene,
                    RTCRay4 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -473,7 +484,7 @@ void SIMDAccel::_trace_any(
         case 8u:
             trace_any_packet<8u, RTCRay8>(
                 self->_scene, lane_count, active_mask_bits,
-                ray_components, visibility_masks, occluded,
+                ray_components, visibility_masks, times, occluded,
                 [](const int *valid, RTCScene scene,
                    RTCRay8 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -490,7 +501,7 @@ void SIMDAccel::_trace_any(
         case 16u:
             trace_any_packet<16u, RTCRay16>(
                 self->_scene, lane_count, active_mask_bits,
-                ray_components, visibility_masks, occluded,
+                ray_components, visibility_masks, times, occluded,
                 [](const int *valid, RTCScene scene,
                    RTCRay16 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3

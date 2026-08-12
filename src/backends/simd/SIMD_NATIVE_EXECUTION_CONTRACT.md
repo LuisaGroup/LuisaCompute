@@ -670,9 +670,12 @@ mask is sparse: inactive values are already benign and remain excluded from
 traversal. W2 may not read beyond its two-lane source scratch while constructing
 the padded W4 packet.
 
-The currently accepted acceleration surface is static triangle-mesh build,
-top-level instance build, affine transform, visibility mask,
-`RAY_TRACING_TRACE_CLOSEST`, and `RAY_TRACING_TRACE_ANY`. A result classified
+The currently accepted acceleration surface is static and vertex-motion
+triangle-mesh build, top-level static-instance build, affine transform,
+visibility mask, `RAY_TRACING_TRACE_CLOSEST`, `RAY_TRACING_TRACE_ANY`, and
+their motion-blur variants. A static query passes a null time pointer and the
+runtime initializes Embree time to zero. A motion query passes one f32 time
+vector sanitized under the cohort mask before the callback. A result classified
 warp- or cohort-uniform invokes only the first active lane and stays scalar.
 Closest-hit scratch starts with invalid instance/primitive IDs and zero
 barycentrics/distance; occlusion scratch starts false. Therefore an inactive
@@ -685,9 +688,9 @@ attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Ray-query callbacks, motion trace, curves, procedural geometry,
+Ray-query callbacks, motion instances, curves, procedural geometry,
 cutout/opacity filtering, device-side instance metadata/mutation, and deeper
-instance-stack behavior are not part of this static slice. They must fail at a
+instance-stack behavior are not part of this slice. They must fail at a
 specific capability boundary until their independent semantic, IR-shape, and
 machine-boundary gates exist; closest/any packet traversal does not imply
 their support.

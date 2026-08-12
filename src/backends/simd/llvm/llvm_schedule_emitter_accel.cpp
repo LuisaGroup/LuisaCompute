@@ -37,8 +37,7 @@ namespace {
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_accel_query(
     const schedule::Instruction &instruction) {
-    if (!instruction.result || !instruction.source_op ||
-        instruction.operands.size() != 3u) {
+    if (!instruction.result || !instruction.source_op) {
         _fail("acceleration-structure query instruction is malformed");
         return nullptr;
     }
@@ -49,27 +48,46 @@ namespace {
     auto op = static_cast<xir::ResourceQueryOp>(
         *instruction.source_op);
     auto closest =
-        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST;
-    if (!closest &&
-        op != xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY) {
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST ||
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR;
+    auto any =
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY ||
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR;
+    auto motion =
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR ||
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR;
+    auto expected_operand_count = motion ? 4u : 3u;
+    if ((!closest && !any) ||
+        instruction.operands.size() != expected_operand_count) {
         _fail("unsupported SIMD acceleration-structure query");
         return nullptr;
     }
 
+    auto mask_operand = motion ? 3u : 2u;
     auto *result = _source.value(*instruction.result);
     auto *accel_value = _source.value(instruction.operands[0u]);
     auto *ray_value = _source.value(instruction.operands[1u]);
-    auto *mask_value = _source.value(instruction.operands[2u]);
+    auto *time_value = motion ?
+                           _source.value(instruction.operands[2u]) :
+                           nullptr;
+    auto *mask_value = _source.value(instruction.operands[mask_operand]);
     auto *accel = _load_value(instruction.operands[0u]);
     auto *ray = ray_value == nullptr ? nullptr :
                                        _as_lane_vector(
                                            _load_value(instruction.operands[1u]), *ray_value);
+    auto *time = time_value == nullptr ? nullptr :
+                                         _as_lane_vector(
+                                             _load_value(instruction.operands[2u]), *time_value);
     auto *visibility = mask_value == nullptr ? nullptr :
                                                _as_lane_vector(
-                                                   _load_value(instruction.operands[2u]), *mask_value);
+                                                   _load_value(instruction.operands[mask_operand]), *mask_value);
     if (result == nullptr || accel_value == nullptr ||
         ray_value == nullptr || mask_value == nullptr ||
         accel == nullptr || ray == nullptr || visibility == nullptr ||
+        (motion &&
+         (time_value == nullptr || time == nullptr ||
+          time_value->type == nullptr ||
+          !time_value->type->is_float32())) ||
         accel_value->type == nullptr ||
         !accel_value->type->is_accel() ||
         !is_ray_type(ray_value->type) ||
@@ -87,6 +105,8 @@ namespace {
         _builder.getFloatTy(), _width);
     auto *i32_lanes = ::llvm::FixedVectorType::get(
         _builder.getInt32Ty(), _width);
+    auto *null_pointer =
+        ::llvm::ConstantPointerNull::get(pointer_type);
     visibility = _builder.CreateZExtOrTrunc(visibility, i32_lanes);
     visibility = _builder.CreateSelect(
         _active_mask, visibility,
@@ -137,13 +157,23 @@ namespace {
         "accel.masks." +
             std::to_string(instruction.result->value));
     _builder.CreateStore(visibility, mask_scratch);
+    auto *time_scratch = static_cast<::llvm::Value *>(null_pointer);
+    if (motion) {
+        auto *safe_time = _builder.CreateSelect(
+            _active_mask, time, zero_float,
+            "accel.safe.ray.time");
+        auto *scratch = _entry_scratch(
+            float_lanes,
+            "accel.times." +
+                std::to_string(instruction.result->value));
+        _builder.CreateStore(safe_time, scratch);
+        time_scratch = scratch;
+    }
 
     auto *object = _builder.CreateExtractValue(accel, {0u});
     auto callback_index = closest ? 1u : 2u;
     auto *callback = _builder.CreateExtractValue(
         accel, {callback_index});
-    auto *null_pointer =
-        ::llvm::ConstantPointerNull::get(pointer_type);
     auto *missing_callback = _builder.CreateOr(
         _builder.CreateICmpEQ(object, null_pointer),
         _builder.CreateICmpEQ(callback, null_pointer));
@@ -177,12 +207,14 @@ namespace {
             _builder.getVoidTy(),
             {pointer_type, _builder.getInt32Ty(),
              _builder.getInt64Ty(), pointer_type,
-             pointer_type, pointer_type, pointer_type},
+             pointer_type, pointer_type, pointer_type,
+             pointer_type},
             false);
         _builder.CreateCall(
             callback_type, callback,
             {object, _builder.getInt32(_width), active_mask_bits,
-             ray_scratch, mask_scratch, ids, values});
+             ray_scratch, mask_scratch, time_scratch,
+             ids, values});
 
         auto load_ids = [&](uint32_t component) {
             auto *pointer = _builder.CreateGEP(
@@ -227,12 +259,12 @@ namespace {
         _builder.getVoidTy(),
         {pointer_type, _builder.getInt32Ty(),
          _builder.getInt64Ty(), pointer_type,
-         pointer_type, pointer_type},
+         pointer_type, pointer_type, pointer_type},
         false);
     _builder.CreateCall(
         callback_type, callback,
         {object, _builder.getInt32(_width), active_mask_bits,
-         ray_scratch, mask_scratch, occluded});
+         ray_scratch, mask_scratch, time_scratch, occluded});
     auto *bits = _builder.CreateICmpNE(
         _builder.CreateLoad(i32_lanes, occluded),
         ::llvm::Constant::getNullValue(i32_lanes));

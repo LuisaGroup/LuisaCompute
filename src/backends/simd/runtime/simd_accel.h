@@ -29,12 +29,13 @@ private:
         void *accel, uint32_t lane_count,
         uint64_t active_mask_bits, const float *ray_components,
         const uint32_t *visibility_masks,
-        uint32_t *hit_ids, float *hit_values) noexcept;
+        const float *times, uint32_t *hit_ids,
+        float *hit_values) noexcept;
     static void _trace_any(
         void *accel, uint32_t lane_count,
         uint64_t active_mask_bits, const float *ray_components,
         const uint32_t *visibility_masks,
-        uint32_t *occluded) noexcept;
+        const float *times, uint32_t *occluded) noexcept;
 
 public:
     SIMDAccel(RTCDevice device, const AccelOption &option) noexcept;

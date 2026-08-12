@@ -74,17 +74,19 @@ struct alignas(16) SIMDHostBindlessArrayView {
 
 // Acceleration-structure callbacks consume component-major ray packets:
 // origin.xyz, t_min, direction.xyz, and t_max are eight consecutive float
-// vectors. Closest-hit ids contain instance and primitive vectors; hit values
-// contain barycentric u/v and committed t vectors. W2 is padded to Embree's
-// four-wide ABI by the runtime, while W1 alone may use the scalar API.
+// vectors. Motion queries additionally provide one time vector; static queries
+// pass a null time pointer and use time zero. Closest-hit ids contain instance
+// and primitive vectors; hit values contain barycentric u/v and committed t
+// vectors. W2 is padded to Embree's four-wide ABI by the runtime, while W1
+// alone may use the scalar API.
 using SIMDHostAccelTraceClosest = void(
     void *accel, uint32_t lane_count, uint64_t active_mask_bits,
     const float *ray_components, const uint32_t *visibility_masks,
-    uint32_t *hit_ids, float *hit_values);
+    const float *times, uint32_t *hit_ids, float *hit_values);
 using SIMDHostAccelTraceAny = void(
     void *accel, uint32_t lane_count, uint64_t active_mask_bits,
     const float *ray_components, const uint32_t *visibility_masks,
-    uint32_t *occluded);
+    const float *times, uint32_t *occluded);
 
 struct alignas(16) SIMDHostAccelView {
     void *accel{nullptr};

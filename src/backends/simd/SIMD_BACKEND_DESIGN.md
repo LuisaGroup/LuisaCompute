@@ -1499,7 +1499,7 @@ unswitching reduce eligible state transitions, while dynamic same-target edges
 already stay on direct LLVM control flow. Density-driven cohort compaction and
 the region layout conversion above remain measured follow-up work.
 
-### Static Embree packet-traversal checkpoint
+### Embree packet-traversal checkpoint
 
 The first Phase-4 vertical slice supports static triangle meshes, top-level
 instances, affine transforms, visibility masks, closest-hit, and occlusion.
@@ -1558,10 +1558,23 @@ work or improving ray coherence.
 The exact device regression covers W1/W2/W4/W8/W16, divergent visibility,
 ray direction and interval, closest/any results, a uniform trace, and a
 35-thread dispatch whose W16 tail has three live lanes. A separate 64-spp
-renderer sweep completed at every width. Ray-query callbacks, motion trace,
-curves, procedural primitives, cutout/opacity filters, device-side instance
-queries/mutation, and full instance-stack semantics remain explicit Phase-4
-work; the static slice does not claim them.
+renderer sweep completed at every width.
+
+Vertex-motion triangle meshes now use Embree geometry time steps and the
+configured time range. Motion closest/any instructions carry one
+component-major time vector through the same callback: LLVM selects inactive
+times to zero before the call, W2 pads them into W4 without reading beyond the
+two-lane scratch, and native W4/W8/W16 packets copy them directly into the
+Embree ray time field. Static instructions pass null and retain time zero.
+The exact regression varies time from zero through one, checks the resulting
+linear hit distance and occlusion at every width, includes divergent
+visibility and the three-lane W16 tail, and separately checks a uniform motion
+trace remains one-lane scalar work.
+
+Ray-query callbacks, motion instances, curves, procedural primitives,
+cutout/opacity filters, device-side instance queries/mutation, and full
+instance-stack semantics remain explicit Phase-4 work; closest/any support
+does not claim them.
 
 The required native-math/runtime-width tests plus the arithmetic,
 bindless-texture, dedicated bindless-IR callback, and acceleration tests pass
@@ -1785,12 +1798,13 @@ on 2026-08-11. The repository now contains:
   2D `BYTE1` sampling path, sparse set-bit fallback, uniform one-lane callback,
   and inactive-tail sanitization while retaining the public row-major texture
   storage ABI;
-- a static-triangle Embree packet ABI for closest-hit and occlusion where W1
+- a static and vertex-motion triangle Embree packet ABI for closest-hit and
+  occlusion where W1
   alone uses the scalar interface, W2 pads into W4, and W4/W8/W16 call the
   matching packet interface once; the callback carries the exact cohort/tail
-  mask, pre-sanitizes inactive operands, initializes inactive results, narrows
-  uniform queries to the first active lane, and bulk-copies safe sparse native
-  packets;
+  mask and an optional sanitized motion-time vector, pre-sanitizes inactive
+  operands, initializes inactive results, narrows uniform queries to the first
+  active lane, and bulk-copies safe sparse native packets;
 - a device-owned persistent worker pool that dynamically schedules flattened
   block ranges, keeps all warps of one block together, joins before the next
   stream command, and retains a one-worker serial diagnostic mode;
@@ -1832,9 +1846,9 @@ on 2026-08-11. The repository now contains:
   W16 tail.
 
 The next implementation boundary is completion of the Embree vertical slice:
-ray-query callbacks, motion, instance metadata/mutation, curve/procedural and
-cutout semantics, plus a direct packet-layout experiment guarded by stable
-measurement. Bindless gradient sampling, broader callable conformance,
-cooperative shared memory, block barriers, and the remaining device-library
-surface follow. The current compiler returns precise diagnostics for
-unsupported features rather than silently accepting them.
+ray-query callbacks, motion instances, instance metadata/mutation,
+curve/procedural and cutout semantics, plus a direct packet-layout experiment
+guarded by stable measurement. Bindless gradient sampling, broader callable
+conformance, cooperative shared memory, block barriers, and the remaining
+device-library surface follow. The current compiler returns precise
+diagnostics for unsupported features rather than silently accepting them.

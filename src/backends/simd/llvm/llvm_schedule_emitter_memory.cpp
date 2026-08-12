@@ -927,7 +927,9 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
     auto op = static_cast<xir::ResourceQueryOp>(
         *instruction.source_op);
     if (op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST ||
-        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY) {
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY ||
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR ||
+        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR) {
         return _accel_query(instruction);
     }
     if (op == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE ||
