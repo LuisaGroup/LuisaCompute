@@ -1,5 +1,103 @@
 #pragma once
+/*
+Storage rules:
+  R1  C++ host / compile-time value    -> store the C++ variable itself,
+                                          e.g. `int32_t rank = 2;`
+                                          (a non-type template parameter /
+                                          host compile-time constant; no AST
+                                          node is allocated for it).
 
+  R2  Host-side constant, fixed at the -> store `const LiteralExpr *`
+      compiling stage                  (include/luisa/ast/expression.h):
+                                          LiteralExpr(const Type *type,
+                                                      detail::LiteralValue v)
+                                          - Value = detail::LiteralValue, a
+                                            variant over basic_types (bool,
+                                            float, int, uint, short, ushort,
+                                            slong, ulong, half, double and
+                                            their vector/matrix forms)
+                                          - Tag::LITERAL, accessor value()
+                                          - string literals are NOT in the
+                                            variant: use `const StringIDExpr *`
+                                            (Tag::STRING_ID, accessor data()).
+
+  R3  Runtime variable truly in kernel  -> store `const RefExpr *`
+                                          (include/luisa/ast/expression.h):
+                                          RefExpr(Variable v)
+                                          - holds a Variable { type, uid,
+                                            tag } (include/luisa/ast/
+                                            variable.h); Variable::Tag:
+                                            LOCAL, SHARED, REFERENCE, BUFFER,
+                                            TEXTURE, BINDLESS_ARRAY, ACCEL,
+                                            THREAD_ID, BLOCK_ID, DISPATCH_ID,
+                                            DISPATCH_SIZE, KERNEL_ID,
+                                            WARP_LANE_COUNT, WARP_LANE_ID, ...
+                                          - Tag::REF, accessor variable().
+
+Shorthand used below:
+  i32     = int32_t                       (R1: host-side value)
+  ten     = TensorExpr *                  (tensor operand, section 4)
+  lit     = const LiteralExpr *           (R2: host-side constant fixed at
+                                            the compiling stage)
+  ref     = const RefExpr *               (R3: runtime kernel variable)
+  sid     = const StringIDExpr *          (R2 string: static const string)
+
+Reference implementation: include/luisa/dsl/tensor.h (tracing stub).
+Namespace: luisa::compute::tile (language = luisa::compute::tile::language).
+Dot-syntax handle: constexpr auto T = luisa::compute::tile::language::dsl;
+
+=============================================================================
+0. Shared storage legend
+=============================================================================
+kind  stored as                  used when
+----  -------------------------  -------------------------------------------
+i32   int32_t                    member is a host-side value fixed on the
+                                 host during the compiling stage (rank,
+                                 extents, scope, grid, stages...)
+ten   TensorExpr *               member is a tensor operand (section 4)
+lit   const LiteralExpr *        member is a constant value embedded in the
+                                 kernel IR (0.0f, 1e-12f, dim=1, block 0)
+sid   const StringIDExpr *       member is a constant string in the kernel
+                                 (print message / format tag)
+ref   const RefExpr *            member is a real kernel variable (tensor,
+                                 block id, loop index, tile base)
+
+=============================================================================
+1. Scalar / dtype nodes (host-side type tags, R1)
+=============================================================================
+Node    Member  Kind  C++ member                        Note
+------  ------  ----  --------------------------------  ----------------------
+half    -       -     (type tag only)                   f16; scalar value
+float32 -       -     (type tag only)                   f32; scalar value
+int32   -       -     (type tag only)                   i32; scalar value
+  -> in the DSL a dtype is used as a template argument (`Tensor<f16, 2>`);
+     in the AST the dtype is stored as an ordinary R1 member of TensorExpr
+     (e.g. TensorElementType), NOT as a template parameter (F1); its
+     *values* (`f32(0.0f)`, `f32(N)`) are R2 `lit`.
+
+=============================================================================
+2. Memory scope (R1)
+=============================================================================
+Node         Member  Kind  C++ member      Note
+-----------  ------  ----  --------------  ------------------------------
+Scope        -       -     (enum)          Global=0, Shared=1, Fragment=2
+scope_name   s       i32   0|1|2           kept as host-side value
+
+=============================================================================
+3. Shape / slice nodes
+=============================================================================
+Node                  Member     Kind  C++ member                Note
+--------------------  ---------  ----  -------------------------  ---------------
+Shape<R>              dims       i32   std::array<int32_t, R>     R1: extents are
+                                                                    host constexpr
+shape(Ints...)        (builder)  -     -> Shape<sizeof...(Ints)>  R1
+Slice                 begin      i32   int32_t                    R1
+                      end        i32   int32_t                    exclusive; -1
+                                                                  = to end
+                      is_all     i32   int32_t                    R1 (0|1)
+all()                 (builder)  -     Slice{0, -1, 1}            R1
+range(b,e)            (builder)  -     Slice{b, e, 0}             R1
+*/
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
