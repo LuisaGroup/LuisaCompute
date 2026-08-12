@@ -37,8 +37,11 @@ struct SIMDCompiledKernel {
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};
+    bool direct_control_flow{false};
     uint32_t warp_width{0u};
     std::string target_triple{};
+    // Populated only when explicitly requested by a diagnostic benchmark.
+    std::string assembly{};
     std::vector<std::string> diagnostics{};
 
     [[nodiscard]] bool succeeded() const noexcept {
@@ -54,13 +57,15 @@ struct SIMDCompiledKernel {
     const xir::Function *function, uint32_t warp_width,
     std::string_view entry_name = {}, bool enable_fast_math = false,
     bool enable_uniform_buffer_broadcast = true,
-    bool enable_lane_affine_buffer = true);
+    bool enable_lane_affine_buffer = true,
+    bool capture_assembly = false);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet
 // compiler above. This is the front door used by the runtime backend.
 [[nodiscard]] SIMDCompiledKernel compile_simd_kernel(
     const compute::Function &kernel, uint32_t warp_width,
-    std::string_view entry_name = {}, bool enable_fast_math = false);
+    std::string_view entry_name = {}, bool enable_fast_math = false,
+    bool capture_assembly = false);
 
 }// namespace luisa::compute::simd

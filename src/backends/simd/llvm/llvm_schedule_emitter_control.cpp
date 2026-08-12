@@ -1,5 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
+#include "../../common/env_flag.h"
+
 namespace luisa::compute::simd::detail {
 
 void ScheduleEmitter::_emit_instruction(const schedule::Instruction &instruction) {
@@ -63,7 +65,10 @@ void ScheduleEmitter::_emit_instruction(const schedule::Instruction &instruction
                         value, old, _active_mask),
                     slot);
             } else if (schedule_value->value_class ==
-                       schedule::ValueClass::warp_uniform) {
+                           schedule::ValueClass::warp_uniform ||
+                       (_direct_control_flow &&
+                        schedule_value->value_class ==
+                            schedule::ValueClass::cohort_uniform)) {
                 _builder.CreateStore(value, slot);
             } else {
                 auto *lanes = schedule_value->value_class ==
@@ -103,7 +108,10 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
             _merge_local_handles(value, old, mask), slot);
         return;
     }
-    if (destination->value_class == schedule::ValueClass::warp_uniform) {
+    if (destination->value_class == schedule::ValueClass::warp_uniform ||
+        (_direct_control_flow &&
+         destination->value_class ==
+             schedule::ValueClass::cohort_uniform)) {
         _builder.CreateStore(value, slot);
         return;
     }
@@ -806,7 +814,7 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
         terminator);
 }
 
-void ScheduleEmitter::_emit_scalar_terminator(
+void ScheduleEmitter::_emit_direct_terminator(
     const schedule::Terminator &terminator,
     const std::vector<::llvm::BasicBlock *> &blocks) {
     auto scalar = [&](::llvm::Value *value) -> ::llvm::Value * {
@@ -833,9 +841,9 @@ void ScheduleEmitter::_emit_scalar_terminator(
                     _load_value(control.condition));
                 if (condition == nullptr) { return; }
                 auto *true_path = ::llvm::BasicBlock::Create(
-                    _module.getContext(), "scalar.true", _entry);
+                    _module.getContext(), "direct.true", _entry);
                 auto *false_path = ::llvm::BasicBlock::Create(
-                    _module.getContext(), "scalar.false", _entry);
+                    _module.getContext(), "direct.false", _entry);
                 _builder.CreateCondBr(
                     condition, true_path, false_path);
                 _builder.SetInsertPoint(true_path);
@@ -849,7 +857,7 @@ void ScheduleEmitter::_emit_scalar_terminator(
                 if (selector == nullptr) { return; }
                 auto *default_path = ::llvm::BasicBlock::Create(
                     _module.getContext(),
-                    "scalar.switch.default", _entry);
+                    "direct.switch.default", _entry);
                 std::vector<::llvm::BasicBlock *> case_paths;
                 case_paths.reserve(control.cases.size());
                 auto *llvm_switch = _builder.CreateSwitch(
@@ -859,7 +867,7 @@ void ScheduleEmitter::_emit_scalar_terminator(
                 for (auto &&item : control.cases) {
                     auto *case_path = ::llvm::BasicBlock::Create(
                         _module.getContext(),
-                        "scalar.switch.case", _entry);
+                        "direct.switch.case", _entry);
                     case_paths.emplace_back(case_path);
                     llvm_switch->addCase(
                         ::llvm::ConstantInt::get(
@@ -902,7 +910,7 @@ void ScheduleEmitter::_emit_scalar_terminator(
                                      schedule::UnreachableTerminator>) {
                 _builder.CreateUnreachable();
             } else {
-                _fail("unsupported Schedule IR terminator reached scalar LLVM emission");
+                _fail("unsupported Schedule IR terminator reached direct LLVM emission");
             }
         },
         terminator);
@@ -977,7 +985,7 @@ void ScheduleEmitter::_find_instruction_spills() {
 }
 
 void ScheduleEmitter::_allocate_state() {
-    if (_width != 1u) {
+    if (!_direct_control_flow) {
         auto *mask_type = _layout.mask_type();
         auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
         auto *i32_lanes = ::llvm::FixedVectorType::get(
@@ -1107,6 +1115,10 @@ void ScheduleEmitter::_allocate_state() {
         }
         auto *type = _is_local_lvalue(value.id) ?
                          static_cast<::llvm::Type *>(_local_handle_type()) :
+                     _direct_control_flow &&
+                             value.value_class ==
+                                 schedule::ValueClass::cohort_uniform ?
+                         _layout.expression_type(value) :
                          _layout.state_type(value);
         if (type == nullptr) {
             _fail(_layout.error());
@@ -1159,29 +1171,80 @@ void ScheduleEmitter::_partition_state_residency() {
     }
 }
 
-void ScheduleEmitter::_build_scalar(::llvm::Value *initial_mask) {
+bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
+    if (!_source.convergence_points().empty()) { return false; }
+    for (auto &&block : _source.blocks()) {
+        auto supported = std::visit(
+            [&](const auto &control) noexcept {
+                using T = std::decay_t<decltype(control)>;
+                if constexpr (std::is_same_v<
+                                  T, schedule::SplitTerminator>) {
+                    auto *condition = _source.value(control.condition);
+                    return condition != nullptr &&
+                           schedule::is_uniform(
+                               condition->value_class);
+                } else if constexpr (std::is_same_v<
+                                         T,
+                                         schedule::SwitchTerminator>) {
+                    auto *selector = _source.value(control.selector);
+                    return selector != nullptr &&
+                           schedule::is_uniform(
+                               selector->value_class);
+                } else {
+                    return std::is_same_v<
+                               T, schedule::BranchTerminator> ||
+                           std::is_same_v<
+                               T, schedule::ReturnTerminator> ||
+                           std::is_same_v<
+                               T, schedule::UnreachableTerminator>;
+                }
+            },
+            block.terminator);
+        if (!supported) { return false; }
+    }
+    return true;
+}
+
+void ScheduleEmitter::_build_direct(::llvm::Value *initial_mask) {
     auto &context = _module.getContext();
     std::vector<::llvm::BasicBlock *> blocks;
     blocks.reserve(_source.blocks().size());
     for (auto &&block : _source.blocks()) {
         blocks.emplace_back(::llvm::BasicBlock::Create(
             context,
-            "scalar.schedule." + std::to_string(block.id.value),
+            "direct.schedule." + std::to_string(block.id.value),
             _entry));
     }
+    auto *activate = ::llvm::BasicBlock::Create(
+        context, "direct.activate", _entry);
     auto *inactive = ::llvm::BasicBlock::Create(
-        context, "scalar.inactive", _entry);
-    auto *active = _builder.CreateExtractElement(
-        initial_mask, uint64_t{0u});
-    _builder.CreateCondBr(
-        active, blocks[_source.entry().value], inactive);
+        context, "direct.inactive", _entry);
+    auto *active = _builder.CreateOrReduce(initial_mask);
+    _builder.CreateCondBr(active, activate, inactive);
 
     _builder.SetInsertPoint(inactive);
     _builder.CreateRetVoid();
 
-    _active_mask = ::llvm::ConstantVector::getSplat(
-        ::llvm::ElementCount::getFixed(1u),
-        _builder.getTrue());
+    _builder.SetInsertPoint(activate);
+    _active_mask = _width == 1u ?
+                       static_cast<::llvm::Value *>(
+                           ::llvm::ConstantVector::getSplat(
+                               ::llvm::ElementCount::getFixed(1u),
+                               _builder.getTrue())) :
+                       initial_mask;
+    // With a statically row-aligned packet, any nonempty dispatch-edge mask
+    // is a prefix and therefore contains lane zero. Direct control never
+    // changes that mask, so keep the seed in a register constant instead of
+    // repeating first-active extraction in hot memory loops.
+    auto lane_zero_is_active =
+        _width == 1u ||
+        (_static_block_size[0u] >= _width &&
+         _static_block_size[0u] % _width == 0u);
+    _seed_lane = lane_zero_is_active ?
+                     static_cast<::llvm::Value *>(
+                         _builder.getInt32(0u)) :
+                     _safe_first_lane(_active_mask);
+    _builder.CreateBr(blocks[_source.entry().value]);
     for (auto &&block : _source.blocks()) {
         _builder.SetInsertPoint(blocks[block.id.value]);
         _locals.clear();
@@ -1189,7 +1252,7 @@ void ScheduleEmitter::_build_scalar(::llvm::Value *initial_mask) {
             _emit_instruction(instruction);
             if (_failed()) { return; }
         }
-        _emit_scalar_terminator(block.terminator, blocks);
+        _emit_direct_terminator(block.terminator, blocks);
         if (_failed()) { return; }
     }
 }
@@ -1228,6 +1291,12 @@ void ScheduleEmitter::_build() {
     auto *prologue = ::llvm::BasicBlock::Create(
         context, "prologue", _entry);
     _builder.SetInsertPoint(prologue);
+    _direct_control_flow =
+        _width == 1u ||
+        (!luisa::compute::detail::env_flag(
+             "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG") &&
+         _can_emit_direct_control_flow());
+    _result.direct_control_flow = _direct_control_flow;
     _allocate_state();
     if (_failed()) { return; }
     _create_external_values();
@@ -1246,8 +1315,8 @@ void ScheduleEmitter::_build() {
                 _builder.CreateVectorSplat(
                     _width, _dispatch_size[i])));
     }
-    if (_width == 1u) {
-        _build_scalar(initial_mask);
+    if (_direct_control_flow) {
+        _build_direct(initial_mask);
         return;
     }
     _builder.CreateStore(initial_mask, _live_mask);

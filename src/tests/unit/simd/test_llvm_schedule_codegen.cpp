@@ -1373,9 +1373,15 @@ template<size_t Width>
     module->print(stream, nullptr);
     stream.flush();
     CHECK(ir.find("lane.convergence.token") == std::string::npos);
-    CHECK(ir.find("ready.token") != std::string::npos);
-    CHECK(count_occurrences(ir, "\nconvergence.cascade") ==
-          2u * convergence_target_count);
+    if (codegen.direct_control_flow) {
+        CHECK(ir.find("ready.token") == std::string::npos);
+        CHECK(convergence_target_count == 0u);
+        CHECK(count_occurrences(ir, "\nconvergence.cascade") == 0u);
+    } else {
+        CHECK(ir.find("ready.token") != std::string::npos);
+        CHECK(count_occurrences(ir, "\nconvergence.cascade") ==
+              2u * convergence_target_count);
+    }
     LLVMJIT jit;
     CHECK(jit.succeeded());
     CHECK(jit.add_module(std::move(module), std::move(context)));
@@ -1531,6 +1537,7 @@ template<size_t Width>
         return false;
     }
     CHECK(codegen.argument_buffer_size == 32u);
+    CHECK(codegen.direct_control_flow);
     CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
 
     std::string ir;
@@ -1689,7 +1696,7 @@ template<size_t Width>
     stream.flush();
     CHECK(ir.find("uniform_switch_result.slot = alloca i32") !=
           std::string::npos);
-    CHECK(ir.find("uniform.switch.default") != std::string::npos);
+    CHECK(ir.find("direct.switch.default") != std::string::npos);
 
     LLVMJIT jit;
     CHECK(jit.succeeded());
@@ -1929,7 +1936,8 @@ template<size_t Width>
     builder.return_void();
 
     auto compiled = compile_simd_kernel(
-        kernel, 8u, "simd_compiler_facade");
+        kernel, 8u, "simd_compiler_facade", false,
+        true, true, true);
     if (!compiled.succeeded()) {
         for (auto &&diagnostic : compiled.diagnostics) {
             std::cerr << diagnostic << '\n';
@@ -1938,6 +1946,10 @@ template<size_t Width>
     }
     CHECK(compiled.argument_buffer_size == 0u);
     CHECK(!compiled.target_triple.empty());
+    CHECK(!compiled.direct_control_flow);
+    CHECK(!compiled.assembly.empty());
+    CHECK(compiled.assembly.find("simd_compiler_facade") !=
+          std::string::npos);
     using Entry = void(
         const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
     auto entry = reinterpret_cast<Entry *>(compiled.entry);
@@ -3520,6 +3532,109 @@ void bindless_texture_sample_probe(
            run_ast_uniform_loop_buffer_broadcast_width(16u, 1u);
 }
 
+[[nodiscard]] bool run_ast_coherent_loop_direct_control() {
+    static constexpr auto count = 13u;
+    static constexpr auto input_count = 16u;
+    Kernel1D kernel = [](BufferUInt input, BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint sum = 0u;
+        $for (inner, input_count) {
+            sum += input.read(inner) * (index + 1u);
+        };
+        output.write(index, sum);
+    };
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto compiled = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_coherent_loop_direct_w" +
+                std::to_string(width),
+            false, width == 8u);
+        CHECK(compiled.succeeded());
+        CHECK(compiled.direct_control_flow);
+        if (width == 8u) {
+            CHECK(!compiled.assembly.empty());
+            CHECK(compiled.assembly.find(".LJTI") ==
+                  std::string::npos);
+            CHECK(compiled.assembly.find("jmpq\t*") ==
+                  std::string::npos);
+        }
+
+        std::array<uint32_t, input_count> input{};
+        std::array<uint32_t, count> output{};
+        auto total = uint32_t{0u};
+        for (auto i = uint32_t{0u}; i < input_count; i++) {
+            input[i] = i + 1u;
+            total += input[i];
+        }
+        output.fill(0xdeadbeefu);
+        alignas(16) std::array<SIMDHostBufferView, 2u> arguments{
+            SIMDHostBufferView{input.data(), sizeof(input)},
+            SIMDHostBufferView{output.data(), sizeof(output)},
+        };
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            entry(arguments.data(), nullptr, &config, width);
+        }
+        for (auto i = uint32_t{0u}; i < count; i++) {
+            CHECK(output[i] == total * (i + 1u));
+        }
+    }
+    {
+        ScopedEnvironmentVariable disable{
+            "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG", "1"};
+        auto scheduled = compile_simd_kernel(
+            kernel.function()->function(), 8u,
+            "simd_ast_coherent_loop_scheduled_w8");
+        CHECK(scheduled.succeeded());
+        CHECK(!scheduled.direct_control_flow);
+    }
+    {
+        Kernel1D cohort_branch = [](BufferUInt output) noexcept {
+            auto index = dispatch_id().x;
+            auto enabled =
+                warp_active_sum(warp_lane_id()) > 20u;
+            $if (enabled) {
+                output.write(index, index + 7u);
+            }
+            $else {
+                output.write(index, index + 11u);
+            };
+        };
+        auto compiled = compile_simd_kernel(
+            cohort_branch.function()->function(), 8u,
+            "simd_ast_cohort_branch_direct_w8");
+        CHECK(compiled.succeeded());
+        CHECK(compiled.direct_control_flow);
+
+        std::array<uint32_t, count> output{};
+        alignas(16) std::array<SIMDHostBufferView, 1u> arguments{
+            SIMDHostBufferView{output.data(), sizeof(output)},
+        };
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        auto config = launch_1d(count, 16u);
+        output.fill(0xdeadbeefu);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += 8u) {
+            config.thread_index = first;
+            entry(arguments.data(), nullptr, &config, 8u);
+        }
+        for (auto i = uint32_t{0u}; i < count; i++) {
+            auto expected_offset = i < 8u ? 7u : 11u;
+            CHECK(output[i] == i + expected_offset);
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_select_codegen() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -3986,6 +4101,8 @@ int main() {
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST uniform-loop buffer broadcast",
          &run_ast_uniform_loop_buffer_broadcast},
+        {"AST coherent-loop direct control",
+         &run_ast_coherent_loop_direct_control},
         {"AST select operand order", &run_ast_select_codegen},
         {"AST fast radix pow canonicalization",
          &run_ast_fast_math_canonicalization},

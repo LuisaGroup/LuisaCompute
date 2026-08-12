@@ -50,6 +50,7 @@ private:
     std::array<uint32_t, 3u> _static_block_size{};
     bool _enable_uniform_buffer_broadcast{true};
     bool _enable_lane_affine_buffer{true};
+    bool _direct_control_flow{false};
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
     LLVMWarpCollectives _collectives;
@@ -367,13 +368,14 @@ private:
     void _emit_arrival(const schedule::ControlEdge &edge,
                        ::llvm::Value *mask);
     void _emit_terminator(const schedule::Terminator &terminator);
-    void _emit_scalar_terminator(
+    void _emit_direct_terminator(
         const schedule::Terminator &terminator,
         const std::vector<::llvm::BasicBlock *> &blocks);
+    [[nodiscard]] bool _can_emit_direct_control_flow() const noexcept;
     void _find_instruction_spills();
     void _allocate_state();
     void _partition_state_residency();
-    void _build_scalar(::llvm::Value *initial_mask);
+    void _build_direct(::llvm::Value *initial_mask);
     void _build();
 
 public:

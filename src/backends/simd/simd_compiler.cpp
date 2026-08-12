@@ -70,7 +70,7 @@ SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
     std::string_view entry_name, bool enable_fast_math,
     bool enable_uniform_buffer_broadcast,
-    bool enable_lane_affine_buffer) {
+    bool enable_lane_affine_buffer, bool capture_assembly) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -111,6 +111,7 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.contiguous_buffer_read_count;
     result.contiguous_buffer_write_count =
         llvm_result.contiguous_buffer_write_count;
+    result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();
     result.jit = std::make_unique<LLVMJIT>();
     if (!result.jit->succeeded()) {
@@ -119,6 +120,14 @@ SIMDCompiledKernel compile_simd_kernel(
         return result;
     }
     result.target_triple = result.jit->target_triple();
+    if (capture_assembly) {
+        result.assembly = result.jit->emit_assembly_copy(*module);
+        if (result.assembly.empty()) {
+            result.diagnostics.emplace_back(result.jit->error());
+            result.jit.reset();
+            return result;
+        }
+    }
     if (!result.jit->add_module(
             std::move(module), std::move(context))) {
         result.diagnostics.emplace_back(result.jit->error());
@@ -135,7 +144,8 @@ SIMDCompiledKernel compile_simd_kernel(
 
 SIMDCompiledKernel compile_simd_kernel(
     const compute::Function &kernel, uint32_t warp_width,
-    std::string_view entry_name, bool enable_fast_math) {
+    std::string_view entry_name, bool enable_fast_math,
+    bool capture_assembly) {
     auto *translation = xir::ast_to_xir_translate_begin({});
     auto *xir_kernel = xir::ast_to_xir_translate_add_function(
         translation, kernel);
@@ -215,7 +225,8 @@ SIMDCompiledKernel compile_simd_kernel(
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST"),
         !detail::env_flag(
-            "LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"));
+            "LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
+        capture_assembly);
     result.fast_math_identity_count = fast_math_info.identity_count;
     result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
     result.predicated_diamond_count =

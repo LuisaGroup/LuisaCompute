@@ -348,9 +348,11 @@ void WarpUniformityAnalysis::analyze(
         }
     }
 
-    // Track whether every static path decision reaching a block is provably
-    // warp-uniform. A single non-uniform incoming edge permanently downgrades
-    // the block, so propagation touches every CFG edge at most once.
+    // Track the strongest control class reaching each block. Cohort-uniform
+    // control does not split the current cohort, so a PHI selected by such a
+    // path remains scalar inside that cohort. Varying control still degrades
+    // the PHI to lane-wise state. This is the same monotone lattice as value
+    // propagation, and every block changes class at most twice.
     std::vector<std::vector<size_t>> successors(blocks.size());
     for (auto block_index = size_t{0u}; block_index < blocks.size();
          block_index++) {
@@ -372,11 +374,14 @@ void WarpUniformityAnalysis::analyze(
             block_phis[iter->second].emplace_back(instruction_index);
         }
     }
-    std::vector<uint8_t> warp_uniform_path(blocks.size(), uint8_t{1u});
+    std::vector<State> control_states(
+        blocks.size(), State::warp_uniform);
     std::deque<size_t> block_worklist;
-    auto degrade_block = [&](size_t index) noexcept {
-        if (warp_uniform_path[index] != 0u) {
-            warp_uniform_path[index] = 0u;
+    auto degrade_block = [&](size_t index, State state) noexcept {
+        auto old_state = control_states[index];
+        auto new_state = join_state(old_state, state);
+        if (new_state != old_state) {
+            control_states[index] = new_state;
             block_worklist.emplace_back(index);
         }
     };
@@ -392,12 +397,12 @@ void WarpUniformityAnalysis::analyze(
             switch (terminator->derived_instruction_tag()) {
                 case Tag::CONDITIONAL_BRANCH:
                     selector = static_cast<
-                        const xir::ConditionalBranchInst *>(terminator)
+                                   const xir::ConditionalBranchInst *>(terminator)
                                    ->condition();
                     break;
                 case Tag::INDEXED_BRANCH:
                     selector = static_cast<
-                        const xir::IndexedBranchInst *>(terminator)
+                                   const xir::IndexedBranchInst *>(terminator)
                                    ->value();
                     break;
                 default: break;
@@ -405,16 +410,17 @@ void WarpUniformityAnalysis::analyze(
         }
         if (selector != nullptr) {
             selector_blocks[selector].emplace_back(block_index);
-            if (_state(selector) != State::warp_uniform) {
+            auto state = _state(selector);
+            if (state != State::warp_uniform) {
                 for (auto successor : successors[block_index]) {
-                    degrade_block(successor);
+                    degrade_block(successor, state);
                 }
             }
         } else if (successors[block_index].size() > 1u) {
             // Structured/multi-way control should be destructured before this
             // analysis. Stay conservative if an unrecognized split remains.
             for (auto successor : successors[block_index]) {
-                degrade_block(successor);
+                degrade_block(successor, State::varying);
             }
         }
     }
@@ -437,7 +443,7 @@ void WarpUniformityAnalysis::analyze(
                     iter != selector_blocks.end()) {
                     for (auto source : iter->second) {
                         for (auto successor : successors[source]) {
-                            degrade_block(successor);
+                            degrade_block(successor, state);
                         }
                     }
                 }
@@ -446,11 +452,12 @@ void WarpUniformityAnalysis::analyze(
         if (!block_worklist.empty()) {
             auto block_index = block_worklist.front();
             block_worklist.pop_front();
+            auto state = control_states[block_index];
             for (auto phi : block_phis[block_index]) {
-                degrade_value(phi, State::varying);
+                degrade_value(phi, state);
             }
             for (auto successor : successors[block_index]) {
-                degrade_block(successor);
+                degrade_block(successor, state);
             }
         }
     }

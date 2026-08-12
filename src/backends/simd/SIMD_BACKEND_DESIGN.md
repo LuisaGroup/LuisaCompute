@@ -11,9 +11,12 @@ hyperbolic/inverse-hyperbolic operations. Static, vertex-motion, and
 instance-motion triangle traversal now includes both closest/any traces and
 stateful query-all/query-any handlers at W1/W2/W4/W8/W16.
 
-Baseline: `LuisaGroup/LuisaCompute@next`, commit
-`d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
-`7bd81e18cad2956d12afdb65d5a5d247346db392`.
+Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
+commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
+`7bd81e18cad2956d12afdb65d5a5d247346db392`. The current integration also
+contains `origin/next` through commit
+`4546cd535ff620f78ae80a1dbe573be8b99ba39d`, merged by
+`a80e13ddb7423a694185c15d57616da000eec602` without rebasing the SIMD history.
 
 ## 1. Goal
 
@@ -229,6 +232,20 @@ convergence frame, appends nonempty successor records to the bounded worklist,
 and returns to the scalar dispatcher. Values live across cohort suspension
 points are spilled to warp-state slots; block-local temporaries remain LLVM SSA
 values.
+
+There is also a whole-function coherent refinement. Uniformity propagation
+tracks control with the complete `warp_uniform -> cohort_uniform -> varying`
+lattice. If Schedule IR contains no convergence point and every conditional or
+indexed selector is warp- or cohort-uniform, control can never split the
+current cohort. W2/W4/W8/W16 then emit the ordinary vector CFG directly, keep
+cohort-uniform cross-block values scalar, and retain only the immutable initial
+tail mask for predicated memory and side effects. This is stronger than the
+runtime same-successor fast path: the dispatcher, ready worklist, frames, and
+suspension spills are absent from the function, so LLVM `mem2reg` can keep hot
+loop state in registers. `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` provides a
+same-binary diagnostic A/B. A truly varying selector remains on the verified
+cohort scheduler even when one particular runtime packet happens to choose a
+single target.
 
 Convergence arrival is emitted once at the destination block entry rather than
 duplicated on every incoming edge. The executing cohort owns one scalar token,
@@ -1509,6 +1526,63 @@ the limiting factor. Existing speculation-safe if-conversion and bounded loop
 unswitching reduce eligible state transitions, while dynamic same-target edges
 already stay on direct LLVM control flow. Density-driven cohort compaction and
 the region layout conversion above remain measured follow-up work.
+
+### Coherent direct-CFG and ISPC comparison checkpoint
+
+The whole-function coherent refinement removes the remaining scheduler from
+the exact portable DSL GEMM. On the recorded host, optimized W8 assembly falls
+from 753 static instructions, 73 branches, and 145 stack-reference
+instructions to 74, 2, and 0. W1/W2/W4/W8/W16 direct bodies contain
+80/122/73/74/74 instructions and no stack references. The permanent execution
+gate covers every width, an inactive 13-thread tail, a cohort-uniform branch
+whose result differs between packets, and the disabled scheduled path.
+
+Seven independent Release processes, with seven timed samples inside each
+process and eight explicit SIMD workers, measured portable GEMM medians of
+23.332/25.627/115.914/190.521/316.449 GFLOP/s for W1/W2/W4/W8/W16. The paired
+fallback process median was 64.895 GFLOP/s, giving
+0.360x/0.395x/1.786x/2.936x/4.876x. Fallback varied from 41.594 to
+88.326 GFLOP/s while other host work was active, so those fallback-relative
+ratios are observations; the SIMD distributions were tight.
+
+An independently authored, same-layout ISPC control was compiled by official
+ISPC 1.31.0 with precise arithmetic, FMA disabled, `--cpu=znver5`, and eight
+workers. It reaches 93.170/139.472 GFLOP/s for AVX2 i32x4/i32x8 and
+92.101/142.812/223.911 GFLOP/s for AVX-512 x4/x8/x16. No ISPC source or
+coefficient is incorporated into production; the optional benchmark compiler
+is an explicit CMake cache path. ISPC is BSD-3-Clause licensed; provenance is
+recorded in [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
+
+The real-example gate was repeated rather than extrapolated from GEMM. Seven
+forward/reverse process rounds produced these fallback-relative steady-state
+medians:
+
+| Workload | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| non-coro SDF | 0.942x | 1.089x | 1.736x | 2.593x | 3.786x |
+| image processing | 0.488x | 0.914x | 1.290x | 1.678x | 1.972x |
+| voxel ray tracer | 0.850x | 0.286x | 0.428x | 0.736x | 1.066x |
+| Spacex shader | 1.052x | 1.674x | 2.471x | 3.177x | 3.720x |
+| cutout path tracing | 0.674x | 0.438x | 0.506x | 0.525x | 0.495x |
+
+Every image, voxel, Spacex, and 64-SPP path-tracing invocation passed its
+gallery comparison. SDF used the internal four-SPP throughput metric; its
+separate high-SPP conformance gate remains the image check. Image and Spacex
+are coherent/direct, while the voxel, SDF, and ray-tracing main kernels remain
+varying. A 16-SPP W8 path-tracing `perf stat` comparison against fallback
+measured 2.00x cycles, 1.51x instructions, 2.10x branches, 4.17x branch
+misses, 2.00x L1 loads, and 13.53x L1 load misses, but only 1.20x last-level
+cache misses. This localizes the deficit to hot scheduler/frame traffic and
+poor sparse-cohort utilization rather than the block pool or DRAM. Embree
+4.4.1 reports native W4/W8/W16 packets enabled, and the object audit still
+finds no per-active-lane `rtcIntersect1` loop.
+
+The complete methodology, absolute medians, assembly counts, caveats, and
+next measured optimization targets are in
+[`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
+The required native-math/runtime-width gate passes 3/3, the combined SIMD/XIR/
+runtime/graphics label gate passes 86/86, and the complete configured CTest
+suite passes 138/138, including the coroutine-frame tests merged from `next`.
 
 ### Embree packet-traversal checkpoint
 

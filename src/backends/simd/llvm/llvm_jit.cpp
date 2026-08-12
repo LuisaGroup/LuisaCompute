@@ -17,6 +17,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 
 namespace luisa::compute::simd {
 
@@ -130,6 +131,21 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
     return true;
 }
 
+std::string LLVMJIT::_emit_assembly(::llvm::Module &module) noexcept {
+    if (!_prepare_module(module)) { return {}; }
+    ::llvm::SmallVector<char, 0u> storage;
+    ::llvm::raw_svector_ostream output{storage};
+    ::llvm::legacy::PassManager codegen;
+    if (_target_machine->addPassesToEmitFile(
+            codegen, output, nullptr,
+            ::llvm::CodeGenFileType::AssemblyFile)) {
+        _fail("LLVM host target cannot emit assembly");
+        return {};
+    }
+    codegen.run(module);
+    return std::string{storage.begin(), storage.end()};
+}
+
 std::string LLVMJIT::emit_assembly(
     std::unique_ptr<::llvm::Module> module,
     std::unique_ptr<::llvm::LLVMContext> context) noexcept {
@@ -140,18 +156,14 @@ std::string LLVMJIT::emit_assembly(
         _fail("LLVM assembly module and context ownership do not match");
         return {};
     }
-    if (!_prepare_module(*module)) { return {}; }
-    ::llvm::SmallVector<char, 0u> storage;
-    ::llvm::raw_svector_ostream output{storage};
-    ::llvm::legacy::PassManager codegen;
-    if (_target_machine->addPassesToEmitFile(
-            codegen, output, nullptr,
-            ::llvm::CodeGenFileType::AssemblyFile)) {
-        _fail("LLVM host target cannot emit assembly");
-        return {};
-    }
-    codegen.run(*module);
-    return std::string{storage.begin(), storage.end()};
+    return _emit_assembly(*module);
+}
+
+std::string LLVMJIT::emit_assembly_copy(
+    const ::llvm::Module &module) noexcept {
+    if (!succeeded()) { return {}; }
+    auto copy = ::llvm::CloneModule(module);
+    return _emit_assembly(*copy);
 }
 
 void *LLVMJIT::lookup(std::string_view name) noexcept {

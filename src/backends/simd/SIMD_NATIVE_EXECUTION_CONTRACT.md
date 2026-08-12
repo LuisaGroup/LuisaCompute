@@ -108,7 +108,7 @@ Target legalization may split `<16 x float>` into two or four physical vector
 instructions. That still satisfies `native`: the split is by physical vector
 width, not a hidden source-level lane loop or scalar device-library call.
 
-### 4.1 Width-one scalar CFG refinement
+### 4.1 Direct coherent CFG refinement
 
 For `W = 1`, a warp has no distinct lanes that can diverge or rendezvous.
 Schedule-to-LLVM therefore emits the ordinary scalar CFG directly: an initial
@@ -125,6 +125,25 @@ resource side effect; resource arguments, local storage, atomics, math, and
 the packet return ABI remain shared with wider specializations. W2/W4/W8/W16
 refine the independent-lane model with the bounded scalar-target/vector-mask
 worklist described by the scheduler formal model.
+
+The same refinement applies at W2/W4/W8/W16 when static uniformity proves that
+the whole reachable Schedule CFG cannot split a cohort: it has no convergence
+point, and every conditional or indexed selector is `warp_uniform` or
+`cohort_uniform`. The LLVM function then contains direct scalar branches around
+fixed-vector values. Its active mask is the immutable dispatch-tail mask;
+cohort-uniform state remains scalar across blocks, and varying memory/effects
+remain predicated by that mask. A cohort-uniform selector may choose a
+different edge for different packet invocations, but never chooses different
+edges for active lanes in one packet.
+
+This proof is fail-closed. Any varying selector, convergence point, or
+unsupported terminator retains the general worklist scheduler. Separately, the
+general scheduler may discover at runtime that every active lane of one
+varying branch chose the same successor and directly thread that edge; this
+does not make subsequent control statically direct or discard scheduler state.
+`LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces the scheduled implementation
+for differential diagnostics. Permanent tests cover all widths, partial tails,
+cohort-uniform branches with packet-dependent outcomes, and the forced fallback.
 
 Permanent code-shape and execution regressions cover a divergent diamond, a
 natural loop, a switch inside a loop with early exits, and an inactive W1
@@ -157,6 +176,8 @@ Reproducible example sweeps may use `LUISA_SIMD_WARP_WIDTH=1|2|4|8|16` when
 the application does not construct `SIMDDeviceConfigExt`; an explicit nonzero
 API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
 `LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide control-flow A/B controls;
+`LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces otherwise coherent functions
+through the general cohort scheduler;
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
 refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
 lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`

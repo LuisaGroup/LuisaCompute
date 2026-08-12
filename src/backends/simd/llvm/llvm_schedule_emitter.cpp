@@ -1017,7 +1017,8 @@ void ScheduleEmitter::_create_external_values() {
         auto *state = _builder.CreateLoad(
             _state_slots[id.value]->getAllocatedType(),
             _state_slots[id.value], value->name + ".state");
-        if (value->value_class == schedule::ValueClass::cohort_uniform) {
+        if (value->value_class == schedule::ValueClass::cohort_uniform &&
+            !_direct_control_flow) {
             auto *first = _collectives.first_active_lane(
                 _builder, _active_mask);
             auto *any = _builder.CreateOrReduce(_active_mask);
@@ -1035,7 +1036,8 @@ void ScheduleEmitter::_create_external_values() {
         auto *state = _builder.CreateLoad(
             _state_slots[id.value]->getAllocatedType(),
             _state_slots[id.value], value->name + ".spill.load");
-        if (value->value_class == schedule::ValueClass::cohort_uniform) {
+        if (value->value_class == schedule::ValueClass::cohort_uniform &&
+            !_direct_control_flow) {
             auto *first = _collectives.first_active_lane(
                 _builder, _active_mask);
             auto *any = _builder.CreateOrReduce(_active_mask);

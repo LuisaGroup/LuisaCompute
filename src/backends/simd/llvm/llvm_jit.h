@@ -31,6 +31,8 @@ private:
 private:
     void _fail(std::string message) noexcept;
     [[nodiscard]] bool _prepare_module(::llvm::Module &module) noexcept;
+    [[nodiscard]] std::string _emit_assembly(
+        ::llvm::Module &module) noexcept;
 
 public:
     LLVMJIT() noexcept;
@@ -48,6 +50,11 @@ public:
     [[nodiscard]] std::string emit_assembly(
         std::unique_ptr<::llvm::Module> module,
         std::unique_ptr<::llvm::LLVMContext> context) noexcept;
+    // Clones a caller-owned module and synchronously emits host assembly.
+    // The source module and its context remain untouched and may subsequently
+    // be submitted to this JIT.
+    [[nodiscard]] std::string emit_assembly_copy(
+        const ::llvm::Module &module) noexcept;
     [[nodiscard]] void *lookup(std::string_view name) noexcept;
 
     [[nodiscard]] bool succeeded() const noexcept {

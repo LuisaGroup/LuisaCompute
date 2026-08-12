@@ -59,6 +59,7 @@ SIMDShader::SIMDShader(
             "SIMD optimization report [{} W{}]: predicated_diamonds={}, "
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
             "cloned_instructions={}, merged_live_outs={}, "
+            "direct_control_flow={}, "
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
             "contiguous_buffer_writes={}.",
             kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
@@ -68,6 +69,7 @@ SIMDShader::SIMDShader(
             _compiled.unswitched_cloned_block_count,
             _compiled.unswitched_cloned_instruction_count,
             _compiled.unswitched_live_out_count,
+            _compiled.direct_control_flow,
             _compiled.uniform_buffer_broadcast_count,
             _compiled.contiguous_buffer_read_count,
             _compiled.contiguous_buffer_write_count);
