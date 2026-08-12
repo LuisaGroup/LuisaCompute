@@ -2910,17 +2910,21 @@ struct RayQueryPacketProbe {
     uint32_t calls{0u};
     uint32_t lane_count{0u};
     uint64_t mask{0u};
+    uint32_t expected_lane_count{0u};
+    uint64_t expected_mask{0u};
+    SIMDHostAccelRayQueryProceed *expected_proceed{nullptr};
     bool valid{true};
 };
 
-void ray_query_packet_probe(
+void ray_query_packet_probe_impl(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) {
     auto *probe = static_cast<RayQueryPacketProbe *>(states[0u]->accel);
     probe->calls++;
     probe->lane_count = lane_count;
     probe->mask = active_mask_bits;
-    probe->valid &= lane_count == 8u && active_mask_bits == 0x1fu;
+    probe->valid &= lane_count == probe->expected_lane_count &&
+                    active_mask_bits == probe->expected_mask;
     for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
         auto active = (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
         if (!active) {
@@ -2929,7 +2933,7 @@ void ray_query_packet_probe(
         }
         auto *state = states[lane];
         probe->valid &= state != nullptr && state->accel == probe &&
-                        state->proceed == ray_query_packet_probe &&
+                        state->proceed == probe->expected_proceed &&
                         state->time == 0.0f &&
                         state->visibility_mask == 0x5au &&
                         state->terminate_on_first == 0u &&
@@ -2968,9 +2972,23 @@ void ray_query_packet_probe(
     }
 }
 
-[[nodiscard]] bool run_ray_query_packet_codegen() {
-    static constexpr auto width = 8u;
-    static constexpr auto active_lanes = 5u;
+void ray_query_packet_probe_narrow(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    ray_query_packet_probe_impl(
+        lane_count, active_mask_bits, states);
+}
+
+void ray_query_packet_probe_wide(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    ray_query_packet_probe_impl(
+        lane_count, active_mask_bits, states);
+}
+
+[[nodiscard]] bool run_ray_query_packet_codegen_case(
+    uint32_t width, uint32_t active_lanes,
+    bool expect_wide) {
     xir::Module module;
     auto *kernel = module.create_kernel();
     kernel->set_name("ray_query_packet");
@@ -3066,12 +3084,21 @@ void ray_query_packet_probe(
     CHECK(function != nullptr);
 
     RayQueryPacketProbe probe;
-    std::array<luisa::uint4, width> values{};
-    values.fill(luisa::make_uint4(0xdeadbeefu));
+    luisa::vector<luisa::uint4> values(width);
+    std::fill(
+        values.begin(), values.end(),
+        luisa::make_uint4(0xdeadbeefu));
+    auto expected_proceed = expect_wide ?
+                                ray_query_packet_probe_wide :
+                                ray_query_packet_probe_narrow;
+    probe.expected_lane_count = width;
+    probe.expected_mask = (uint64_t{1u} << active_lanes) - 1u;
+    probe.expected_proceed = expected_proceed;
     Arguments arguments{
         .accel = {
             .accel = &probe,
-            .ray_query_proceed = ray_query_packet_probe,
+            .ray_query_proceed = ray_query_packet_probe_narrow,
+            .ray_query_proceed_wide = ray_query_packet_probe_wide,
         },
         .ray = {
             .compressed_origin = {1.0f, 2.0f, 3.0f},
@@ -3086,7 +3113,7 @@ void ray_query_packet_probe(
     CHECK(probe.valid);
     CHECK(probe.calls == 1u);
     CHECK(probe.lane_count == width);
-    CHECK(probe.mask == 0x1fu);
+    CHECK(probe.mask == probe.expected_mask);
     for (auto lane = uint32_t{0u}; lane < width; lane++) {
         auto expected = lane < active_lanes ?
                             luisa::make_uint4(
@@ -3098,6 +3125,11 @@ void ray_query_packet_probe(
         CHECK(luisa::all(values[lane] == expected));
     }
     return true;
+}
+
+[[nodiscard]] bool run_ray_query_packet_codegen() {
+    return run_ray_query_packet_codegen_case(4u, 3u, false) &&
+           run_ray_query_packet_codegen_case(8u, 5u, true);
 }
 
 struct RayQueryScratchProbe {
@@ -3279,6 +3311,7 @@ void ray_query_scratch_probe(
         .accel = {
             .accel = &probe,
             .ray_query_proceed = ray_query_scratch_probe,
+            .ray_query_proceed_wide = ray_query_scratch_probe,
         },
         .ray = {
             .compressed_origin = {1.0f, 2.0f, 3.0f},
@@ -3437,6 +3470,7 @@ void ray_query_scratch_probe(
         .accel = {
             .accel = &probe,
             .ray_query_proceed = ray_query_scratch_probe,
+            .ray_query_proceed_wide = ray_query_scratch_probe,
         },
         .ray = {
             .compressed_origin = {1.0f, 2.0f, 3.0f},

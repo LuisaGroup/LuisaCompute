@@ -205,7 +205,9 @@ struct alignas(16) SIMDHostAccelView {
     SIMDHostAccelTraceAny *trace_any{nullptr};
     const SIMDHostAccelInstanceTable *instances{nullptr};
     SIMDHostAccelRayQueryProceed *ray_query_proceed{nullptr};
-    void *reserved{nullptr};
+    // W8/W16 provider with runtime dense/sparse cohort selection. Narrow
+    // specializations select ray_query_proceed instead.
+    SIMDHostAccelRayQueryProceed *ray_query_proceed_wide{nullptr};
 };
 static_assert(sizeof(SIMDHostAccelTraceClosest *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
@@ -236,6 +238,8 @@ static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, instances) == 3u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, ray_query_proceed) ==
               4u * sizeof(void *));
+static_assert(offsetof(SIMDHostAccelView, ray_query_proceed_wide) ==
+              5u * sizeof(void *));
 static_assert(sizeof(SIMDHostAccelView) == 6u * sizeof(void *));
 
 // Texture callbacks operate once per SIMD packet. Coordinates are SoA vectors

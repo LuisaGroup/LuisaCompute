@@ -785,6 +785,20 @@ ascending handler delivery before the final commit. This removes repeated
 traversal for the common bounded case without moving handler execution or its
 control flow into the runtime.
 
+At W8/W16, a full runtime cohort mask must use the original dense proceed
+loop in the adaptive provider. A sparse mask may iterate its set bits and may
+initialize/install only the corresponding lane records, but it must retain the
+physical Embree packet width and pass the exact sparse valid mask to one packet
+traversal. This is a runtime refinement of a varying cohort, not a promotion
+in the static `warp_uniform -> cohort_uniform -> varying` lattice. If a
+varying control-flow region happens to reconverge to a full cohort, the next
+proceed call must take the dense path automatically. W1/W2/W4 statically use
+the original provider and do not carry adaptive control flow. The host-view
+provider choice must be fixed by specialization width; a distinct-provider
+LLVM boundary regression covers W4 and W8. No inactive state pointer or
+operand may be inspected before its mask check, and overflow/cursor ordering
+is identical on both paths.
+
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build; static and control-point-motion round-curve build for
 piecewise-linear, cubic B-spline, Catmull--Rom, and Bezier bases; static and

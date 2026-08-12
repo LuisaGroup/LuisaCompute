@@ -1567,7 +1567,7 @@ medians:
 | image processing | 0.488x | 0.914x | 1.290x | 1.678x | 1.972x |
 | voxel ray tracer | 0.850x | 0.286x | 0.428x | 0.736x | 1.066x |
 | Spacex shader | 1.052x | 1.674x | 2.471x | 3.177x | 3.720x |
-| cutout path tracing | 0.654x | 0.414x | 0.481x | 0.504x | 0.478x |
+| cutout path tracing | 0.654x | 0.414x | 0.481x | 0.522x | 0.504x |
 
 Every image, voxel, Spacex, and 64-SPP path-tracing invocation passed its
 gallery comparison. SDF used the internal four-SPP throughput metric; its
@@ -1669,6 +1669,40 @@ mechanism: W8 L1 data-load misses fall from 8.586 to 6.967 billion (-18.9%),
 cycles from 282.82 to 280.35 billion (-0.87%), and retired instructions from
 403.14 to 402.06 billion (-0.27%). This is retained as a cache/state-layout
 improvement, not presented as closing the path-tracing gap.
+
+The active query cohort may also become much smaller than its physical width
+after construction. A W8 cutout audit observed 3.62 active lanes per proceed
+call on average and found that 78.0% of active lanes needed a packet scan.
+The host view exposes the original callback and a wide adaptive callback in
+its previously reserved pointer slot. JIT specialization statically chooses
+the original provider for W1/W2/W4 and the adaptive provider for W8/W16; there
+is no per-`PROCEED` varying callback selection. In the adaptive provider, a
+full mask is the likely fall-through and uses an ordinary dense lane loop. A
+sparse mask visits only set bits with `countr_zero`/clear-lowest-bit in state
+advance, group formation, packet input initialization, scan-context setup, and
+batch installation. This is runtime dynamic convergence rather than a new
+static uniformity class: when a nominally varying cohort happens to reconverge
+fully, it automatically returns to the dense path. All paths preserve the
+Embree packet width and valid mask.
+
+Experiments with a per-call JIT callback select added 12--16 static
+instructions and up to 128 bytes of kernel stack; a host wrapper cost about 2%
+on the full-cohort rejection benchmark. Both were rejected. Provider
+separation and two explicit force-inline annotations keep the original
+callback at 11,881 bytes with its baseline `0x1100` stack frame (11,876 bytes
+before the change), so narrow widths do not inherit adaptive control flow. A
+boundary regression supplies distinct providers and proves W4/W8 select the
+intended one.
+
+Ten alternating W8 64-spp cutout pairs improve by a 1.0387x paired geometric
+mean with 9/10 wins; medians are 34.151 and 35.816 spp/s. Ten W16 pairs
+improve by 1.0519x with 10/10 wins and medians of 32.785/34.525 spp/s.
+Full-cohort W8 rejection is neutral-positive at 1.0024x over twelve pairs;
+W1/W2/W4 ten-pair gates are 1.0001x/1.0036x/1.0071x. Five W8 pairs of the
+real procedural-callable renderer improve by 1.0090x with 4/5 wins. Every
+path, procedural, overflow, and inactive-tail reference check passes. These
+results justify the set-bit specialization while preserving the dense baseline
+rather than claiming a general scheduler rewrite.
 
 Vertex-motion triangle meshes now use Embree geometry time steps and the
 configured time range. Motion closest/any instructions carry one

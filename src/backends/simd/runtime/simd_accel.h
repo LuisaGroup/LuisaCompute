@@ -41,6 +41,12 @@ private:
     static void _ray_query_proceed(
         uint32_t lane_count, uint64_t active_mask_bits,
         SIMDHostRayQueryState *const *states) noexcept;
+    static void _ray_query_proceed_wide(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states) noexcept;
+    static LUISA_FORCE_INLINE void _ray_query_proceed_wide_lane(
+        SIMDHostRayQueryState *state, uint32_t lane,
+        uint64_t bit, uint64_t &pending) noexcept;
 
 public:
     SIMDAccel(RTCDevice device, const AccelOption &option) noexcept;
@@ -55,6 +61,7 @@ public:
             .trace_any = _trace_any,
             .instances = &_instance_table,
             .ray_query_proceed = _ray_query_proceed,
+            .ray_query_proceed_wide = _ray_query_proceed_wide,
         };
     }
 };

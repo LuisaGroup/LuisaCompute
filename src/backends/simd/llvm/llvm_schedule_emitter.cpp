@@ -812,7 +812,7 @@ void ScheduleEmitter::_preflight() {
     auto *type = ::llvm::StructType::get(
         context,
         {pointer_type, pointer_type, pointer_type,
-         pointer_type, pointer_type});
+         pointer_type, pointer_type, pointer_type});
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     constexpr std::array offsets{
@@ -821,6 +821,7 @@ void ScheduleEmitter::_preflight() {
         offsetof(SIMDHostAccelView, trace_any),
         offsetof(SIMDHostAccelView, instances),
         offsetof(SIMDHostAccelView, ray_query_proceed),
+        offsetof(SIMDHostAccelView, ray_query_proceed_wide),
     };
     for (auto i = uint32_t{0u}; i < offsets.size(); i++) {
         auto *field = _builder.CreateLoad(

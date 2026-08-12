@@ -655,7 +655,8 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     };
 
     auto *object = _builder.CreateExtractValue(accel, {0u});
-    auto *proceed = _builder.CreateExtractValue(accel, {4u});
+    auto *proceed = _builder.CreateExtractValue(
+        accel, {_width >= 8u ? 5u : 4u});
     auto *null_pointer = ::llvm::ConstantPointerNull::get(pointer_type);
     auto *missing_callback = _builder.CreateOr(
         _builder.CreateICmpEQ(object, null_pointer),

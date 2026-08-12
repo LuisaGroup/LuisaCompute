@@ -21,7 +21,9 @@ Cutout path tracing uses 64 spp and forces one spp per dispatch on both backends
 to remove a batching asymmetry. Image, voxel, Spacex, and path tracing compare
 every measured output with the repository gallery reference. SDF uses its
 internal four-SPP throughput metric; high-SPP SDF image comparison remains a
-separate conformance gate.
+separate conformance gate. The accepted runtime-sparse study below supersedes
+the W8/W16 cutout cells with ten-pair medians; other cells retain the
+seven-process sweep.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -34,7 +36,7 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 34.580 (0.504x) | 32.779 (0.478x) |
+| cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 35.816 (0.522x) | 34.525 (0.504x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -109,6 +111,53 @@ counter samples measured 6.967 versus 8.586 billion L1 data-load misses
 403.14 billion instructions (-0.27%). The small throughput change despite the
 large L1-miss reduction confirms that query allocation was one pressure source,
 not the whole divergent-scheduler deficit.
+
+## Runtime-sparse ray-query cohorts
+
+A W8 `perf record` of the 64-spp cutout renderer places 9.14% of sampled
+cycles in `_ray_query_proceed`, 5.29% in the argument filter, and 4.22% in
+candidate-batch installation. A temporary counter build, removed after the
+audit, observed 81.25 million proceed calls and 294.20 million active lanes:
+only 3.62 of eight lanes were active on average. Pending scans covered 78.0%
+of active lanes, while only 4.6% could publish an already cached candidate.
+The candidate distribution also rules out reducing the 32-entry batch: 99.5%
+of surface scan-lanes had at most four candidates here, but permanent
+40-candidate continuation tests require the existing capacity and overflow
+path.
+
+W8 and W16 now select an adaptive host callback at JIT specialization time;
+W1/W2/W4 retain the original callback. The adaptive callback uses a dense
+fall-through loop when the runtime mask is full and iterates set bits for a
+sparse mask. Its packet scan likewise initializes and installs only active
+records while still issuing exactly one native `rtcIntersect8/16` or
+`rtcOccluded8/16` call. The choice between callbacks is static for a compiled
+width, not another varying function-pointer select in each `PROCEED`.
+
+Keeping the providers separate matters for code generation. The original
+callback remains 11,881 bytes with the baseline `0x1100` stack frame, versus
+11,876 bytes before the change. Two helpers are explicitly force-inlined to
+keep that shape stable. A permanent LLVM boundary test supplies distinct
+providers and proves W4 selects the original callback while W8 selects the
+adaptive one.
+
+The final rejection-kernel assembly reports are 1,368 instructions, 673
+vector instructions, and 7,200 bytes of stack at W4; 1,473, 709, and 14,336
+bytes at W8; and 2,273, 1,251, and 28,288 bytes at W16. Each specialization
+has one callback callsite and zero scalar-math callsites. The runtime-object
+disassembly contains `tzcnt` set-bit iteration in the adaptive callback and
+native `rtcIntersect8/16` plus `rtcOccluded8/16` callsites; W4 remains on the
+original provider and its native packet entrypoints.
+
+Ten alternating W8 cutout process pairs have a paired geometric-mean speedup
+of 1.0387x with 9/10 wins; independent medians move from 34.151 to 35.816
+spp/s (1.0488x), and every image passes the gallery comparison. This includes
+two opposite-side host-load outliers rather than deleting them. Ten W16 pairs
+all improve, by a 1.0519x paired geometric mean; independent medians move from
+32.785 to 34.525 spp/s (1.0531x). A twelve-pair full-cohort 16-candidate W8
+gate is neutral-positive at 1.0024x (8/12 wins). W1/W2/W4 ten-pair gates are
+1.0001x, 1.0036x, and 1.0071x respectively. Five final-binary W8 pairs of
+the real procedural-callable renderer improve by a 1.0090x geometric mean
+with 4/5 wins; all five gallery comparisons pass.
 
 ## Same-algorithm ISPC control and provenance
 
