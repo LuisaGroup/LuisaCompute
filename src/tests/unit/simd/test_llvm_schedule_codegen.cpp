@@ -2986,10 +2986,8 @@ void ray_query_packet_probe_impl(
                         state->candidate_kind == 0u &&
                         state->candidate_committed == 0u &&
                         state->terminated == 0u &&
-                        state->candidate_batch_count == 0u &&
-                        state->candidate_batch_index == 0u &&
-                        state->candidate_batch_has_more == 0u &&
                         state->candidate_batch_initialized == 0u &&
+                        state->procedural_batch_initialized == 0u &&
                         state->committed.inst == ~0u &&
                         state->committed.prim == ~0u &&
                         state->committed.kind == 0u &&
@@ -3033,7 +3031,10 @@ void ray_query_packet_probe_wide(
 
 [[nodiscard]] bool run_ray_query_packet_codegen_case(
     uint32_t width, uint32_t active_lanes,
-    bool expect_wide) {
+    bool expect_wide, bool disable_lazy_batch_init = false) {
+    ScopedEnvironmentVariable lazy_batch_init{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT",
+        disable_lazy_batch_init ? "1" : nullptr};
     xir::Module module;
     auto *kernel = module.create_kernel();
     kernel->set_name("ray_query_packet");
@@ -3117,7 +3118,8 @@ void ray_query_packet_probe_wide(
     CHECK(ir.find("ray.query.packet") != std::string::npos);
     CHECK(ir.find("ray.query.proceed.lane") == std::string::npos);
     CHECK(count_occurrences(ir, "call void %") == 1u);
-    CHECK(count_occurrences(ir, "llvm.masked.scatter") >= 20u);
+    CHECK(count_occurrences(ir, "llvm.masked.scatter") ==
+          (width == 2u || disable_lazy_batch_init ? 40u : 34u));
     CHECK(count_occurrences(ir, "llvm.masked.gather") >= 9u);
 
     LLVMJIT jit;
@@ -3173,8 +3175,12 @@ void ray_query_packet_probe_wide(
 }
 
 [[nodiscard]] bool run_ray_query_packet_codegen() {
-    return run_ray_query_packet_codegen_case(4u, 3u, false) &&
-           run_ray_query_packet_codegen_case(8u, 5u, true);
+    return run_ray_query_packet_codegen_case(1u, 1u, false) &&
+           run_ray_query_packet_codegen_case(2u, 2u, false) &&
+           run_ray_query_packet_codegen_case(4u, 3u, false) &&
+           run_ray_query_packet_codegen_case(8u, 5u, true) &&
+           run_ray_query_packet_codegen_case(8u, 5u, true, true) &&
+           run_ray_query_packet_codegen_case(16u, 3u, true);
 }
 
 struct RayQueryScratchProbe {

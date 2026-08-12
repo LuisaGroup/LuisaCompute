@@ -270,6 +270,50 @@ neutral at 0.9978x, and all reference comparisons pass. An alternative that
 let Embree accept opaque closest-query hits while also batching them was
 rejected: ten W8 path pairs measured 0.9877x with only 2/10 wins.
 
+### Lazy ray-query batch metadata
+
+The two batch `initialized` fields are the only gates read before the first
+scan. W1/W4/W8/W16 query construction now clears only those gates; the first
+scan clears count, index, and continuation for both surface and procedural
+batches before publishing the gates. W2 remains eager. A same-binary oracle,
+`LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT=1`, restores all six redundant
+construction stores. The exact LLVM fixture locks the default/oracle at 34/40
+masked scatters and covers W1/W2/W4/W8/W16 plus a three-lane W16 tail.
+
+The exact W8 cutout object changes as follows:
+
+| W8 main kernel | eager | lazy |
+| --- | ---: | ---: |
+| instructions | 6,367 | 6,319 |
+| vector instructions | 3,824 | 3,776 |
+| stack references | 1,487 | 1,469 |
+| stack allocation | 24,192 B | 23,808 B |
+| branches / calls | 506 / 5 | 506 / 5 |
+
+Alternating 64-SPP, same-binary cutout processes measured the following paired
+geometric means. No outlier was removed:
+
+| Width | Pairs | Lazy/eager | Wins |
+| --- | ---: | ---: | ---: |
+| W1 | 6 | 1.0144x | 6/6 |
+| W2 | 16 | 0.9972x | 12/16 |
+| W4 | 6 | 1.0248x | 6/6 |
+| W8 | 10 | 1.0294x | 10/10 |
+| W16 | 6 | 1.0350x | 6/6 |
+
+W2's padded-W4 path therefore keeps eager initialization. A separate ten-pair
+W8 16-candidate rejection chain is directionally positive at 1.0068x with
+6/10 wins; it is a non-regression stress gate, not the acceptance result.
+
+A 192-byte-hot/1024-byte-cold split of the existing 1216-byte per-lane query
+record was also rejected. Ten W8 rejection-chain pairs measured 1.0025x with
+5/10 wins and ten W8 cutout pairs measured 1.0015x with 6/10 wins. The split
+object had 6,381 rather than 6,379 instructions and one extra stack reference,
+while retaining the same 24,320-byte frame: the extra cold-batch pointer offset
+the smaller hot stride. The production ABI remains the single AoS record; a
+future SoA experiment must change the packet/state crossing rather than merely
+partitioning the same fields.
+
 ## Same-algorithm ISPC control and provenance
 
 `benchmark_ispc_gemm.ispc` was independently written to match the DSL loop and

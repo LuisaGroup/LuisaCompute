@@ -804,6 +804,16 @@ than 32 procedural keys use another scan strictly after the cursor.
 
 The fixed state ABI is 1216 bytes per lane: it contains 32 surface hits, 32
 procedural keys, independent cursors, and explicit metadata for both batches.
+At query construction, `candidate_batch_initialized` and
+`procedural_batch_initialized` are the only readable batch gates. W1/W4/W8/
+W16 therefore leave the corresponding count, index, and continuation fields
+uninitialized until the first scan, which clears all six fields before either
+initialized bit is published. `advance_ray_query_candidate` must test both
+gates before reading any of those fields. W2 retains eager initialization: its
+padded-W4 renderer measurements did not establish a stable benefit from the
+lazy path. The eager oracle is selected with
+`LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT=1`; exact LLVM tests require 34
+construction scatters for the accepted widths and 40 for W2/the oracle.
 The permanent surface 35-candidate and procedural 40-candidate regressions
 cross the respective boundaries at W1/W2/W4/W8/W16 and require exactly-once
 ascending handler delivery before the final commit. This removes repeated

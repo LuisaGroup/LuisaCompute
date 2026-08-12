@@ -711,30 +711,42 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         zero_i32,
         offsetof(SIMDHostRayQueryState, procedural_cursor_valid),
         alignof(uint32_t));
-    scatter(
-        zero_i32, offsetof(SIMDHostRayQueryState, candidate_batch_count),
-        alignof(uint32_t));
-    scatter(
-        zero_i32, offsetof(SIMDHostRayQueryState, candidate_batch_index),
-        alignof(uint32_t));
-    scatter(
-        zero_i32, offsetof(SIMDHostRayQueryState, candidate_batch_has_more),
-        alignof(uint32_t));
+    auto eager_batch_init =
+        _width == 2u ||
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT");
+    // The initialized fields gate every runtime read of the six metadata
+    // fields below. The first scan clears them before publishing both gates,
+    // so eager construction stores are redundant at accepted widths.
+    if (eager_batch_init) {
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, candidate_batch_count),
+            alignof(uint32_t));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, candidate_batch_index),
+            alignof(uint32_t));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, candidate_batch_has_more),
+            alignof(uint32_t));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, procedural_batch_count),
+            alignof(uint32_t));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, procedural_batch_index),
+            alignof(uint32_t));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, procedural_batch_has_more),
+            alignof(uint32_t));
+    }
     scatter(
         zero_i32,
         offsetof(SIMDHostRayQueryState, candidate_batch_initialized),
-        alignof(uint32_t));
-    scatter(
-        zero_i32,
-        offsetof(SIMDHostRayQueryState, procedural_batch_count),
-        alignof(uint32_t));
-    scatter(
-        zero_i32,
-        offsetof(SIMDHostRayQueryState, procedural_batch_index),
-        alignof(uint32_t));
-    scatter(
-        zero_i32,
-        offsetof(SIMDHostRayQueryState, procedural_batch_has_more),
         alignof(uint32_t));
     scatter(
         zero_i32,

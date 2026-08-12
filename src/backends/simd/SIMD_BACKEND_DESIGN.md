@@ -1692,6 +1692,19 @@ cycles from 282.82 to 280.35 billion (-0.87%), and retired instructions from
 403.14 to 402.06 billion (-0.27%). This is retained as a cache/state-layout
 improvement, not presented as closing the path-tracing gap.
 
+Query construction now publishes only the two batch-initialized gates at W1/
+W4/W8/W16. The six count/index/continuation fields cannot be read while either
+gate is zero; the first runtime scan clears them before publishing both gates.
+This removes six masked scatters at each construction without changing the
+1216-byte ABI, candidate capacity, callback count, or Embree traversal. The
+exact W8 cutout object falls from 6,367 to 6,319 instructions, from 3,824 to
+3,776 vector instructions, from 1,487 to 1,469 stack references, and from
+24,192 to 23,808 bytes of stack; branches and calls remain 506 and five.
+Ten same-binary W8 cutout pairs improve by 1.0294x with 10/10 wins. Six-pair
+W1/W4/W16 gates improve by 1.0144x/1.0248x/1.0350x with 6/6 wins each. W2
+retains eager initialization because all sixteen pairs, including every shared-
+host outlier, measured 0.9972x despite 12/16 wins.
+
 The active query cohort may also become much smaller than its physical width
 after construction. A W8 cutout audit observed 3.62 active lanes per proceed
 call on average and found that 78.0% of active lanes needed a packet scan.
