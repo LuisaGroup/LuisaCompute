@@ -58,7 +58,17 @@ uint64_t LoopStmt::_compute_hash() const noexcept {
 }
 
 uint64_t SuspendStmt::_compute_hash() const noexcept {
-    return hash_combine({static_cast<uint64_t>(_token), hash_value(_name)});
+    auto h = hash_combine(
+        {static_cast<uint64_t>(_token), hash_value(_name)});
+    // Export order is observable only as an ABI declaration order. Delimit
+    // each (name, value) pair so no concatenation ambiguity can alias another
+    // boundary contract.
+    h = hash_value(_frame_exports.size(), h);
+    for (auto &&frame_export : _frame_exports) {
+        h = hash_value(frame_export.name, h);
+        h = hash_value(frame_export.value->hash(), h);
+    }
+    return h;
 }
 
 uint64_t ExprStmt::_compute_hash() const noexcept {

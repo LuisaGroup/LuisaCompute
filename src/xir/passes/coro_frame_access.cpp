@@ -300,7 +300,8 @@ void collect_atom_partition(
 }// namespace
 
 CoroFrameAtomDomain::CoroFrameAtomDomain(
-    FunctionDefinition *definition) noexcept {
+    FunctionDefinition *definition,
+    luisa::span<Value *const> designated_values) noexcept {
     if (definition == nullptr) { return; }
 
     luisa::unordered_map<AllocaInst *, AllocaProjectionAnalysis>
@@ -398,6 +399,25 @@ CoroFrameAtomDomain::CoroFrameAtomDomain(
                 _ssa_indices.emplace(instruction, index);
             }
         }
+    }
+
+    // Ordinary frame atoms intentionally omit constants, arguments and
+    // special registers because they are available without a spill. A
+    // scheduler-visible designated value is different: the host observes a
+    // stored frame between continuation executions, so even an otherwise
+    // replayable/always-available root needs a concrete ABI atom. Preserve
+    // instruction atoms already numbered above and append only missing roots.
+    for (auto *value : designated_values) {
+        if (value == nullptr || value->type() == nullptr ||
+            value->is_lvalue() || value->type()->is_resource() ||
+            value->type()->is_custom() ||
+            _ssa_indices.contains(value)) {
+            continue;
+        }
+        auto index = _atoms.size();
+        _atoms.emplace_back(Atom{
+            .root = value, .type = value->type()});
+        _ssa_indices.emplace(value, index);
     }
 
     // Every GEP of an unsplit local denotes the same whole-allocation atom.

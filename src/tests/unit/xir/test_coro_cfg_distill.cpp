@@ -19,6 +19,7 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/xir/special_register.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -116,6 +117,151 @@ void reg_coro_cfg_distill() {
 
         // edges
         expect(result.edges.size() == 2u);
+    };
+
+    "designated_replayable_value_is_spilled_only_on_export_edge"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume_first = kernel->create_basic_block();
+        auto *resume_second = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *dispatch_id = m.create_special_register(
+            DerivedSpecialRegisterTag::DISPATCH_ID);
+        uint32_t component_x = 0u;
+        uint32_t bias_value = 17u;
+        auto *x = m.create_constant(
+            Type::of<uint32_t>(), &component_x);
+        auto *bias = m.create_constant(
+            Type::of<uint32_t>(), &bias_value);
+        b.set_insertion_point(entry);
+        auto *tid = b.call(
+            Type::of<uint>(), ArithmeticOp::EXTRACT,
+            {dispatch_id, x});
+        auto *hint = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {tid, bias});
+        std::array<luisa::string, 1u> export_names{
+            luisa::string{"coro_hint"}};
+        std::array<Value *, 1u> export_values{hint};
+        b.coro_suspend(
+            151u, "sort", nullptr,
+            luisa::span{export_names},
+            luisa::span{export_values});
+        b.set_insertion_point(resume_first);
+        b.coro_resume(151u, nullptr);
+        b.coro_suspend(157u, "done", nullptr);
+        b.set_insertion_point(resume_second);
+        b.coro_resume(157u, nullptr);
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        auto field = std::find_if(
+            result.frame_values.begin(),
+            result.frame_values.end(),
+            [&](const auto &value) noexcept {
+                return value.value == hint;
+            });
+        expect(field != result.frame_values.end());
+        if (field != result.frame_values.end()) {
+            expect(std::find(field->aliases.begin(),
+                             field->aliases.end(),
+                             "coro_hint") !=
+                   field->aliases.end());
+        }
+        const CoroCfgDistillResult::Edge *sort_edge = nullptr;
+        const CoroCfgDistillResult::Edge *done_edge = nullptr;
+        for (auto &edge : result.transition_edges) {
+            if (edge.token == 151u) { sort_edge = &edge; }
+            if (edge.token == 157u) { done_edge = &edge; }
+        }
+        expect(sort_edge != nullptr);
+        expect(done_edge != nullptr);
+        if (sort_edge != nullptr) {
+            expect(std::find(sort_edge->store_values.begin(),
+                             sort_edge->store_values.end(),
+                             hint) != sort_edge->store_values.end());
+            expect(std::find(sort_edge->live_values.begin(),
+                             sort_edge->live_values.end(),
+                             hint) != sort_edge->live_values.end());
+        }
+        if (done_edge != nullptr) {
+            expect(std::find(done_edge->store_values.begin(),
+                             done_edge->store_values.end(),
+                             hint) == done_edge->store_values.end());
+            expect(std::find(done_edge->live_values.begin(),
+                             done_edge->live_values.end(),
+                             hint) == done_edge->live_values.end());
+        }
+    };
+
+    "diagnostic_name_does_not_designate_frame_abi"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<uint>());
+        b.set_insertion_point(entry);
+        auto *named = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD, {one, one});
+        named->set_name("coro_hint");
+        b.coro_suspend(163u, "sort", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(163u, nullptr);
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(std::none_of(
+            result.frame_values.begin(), result.frame_values.end(),
+            [](const auto &value) noexcept {
+                return std::find(value.aliases.begin(), value.aliases.end(),
+                                 "coro_hint") != value.aliases.end();
+            }));
+        expect(std::none_of(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &value) noexcept {
+                return value.value == named;
+            }));
+    };
+
+    "partial_export_on_bypassed_token_is_rejected"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *suspend_block = kernel->create_basic_block();
+        auto *bypass_block = kernel->create_basic_block();
+        auto *resume_block = kernel->create_basic_block();
+        XIRBuilder b;
+        auto *condition = m.create_constant_one(Type::of<bool>());
+        auto *hint = m.create_constant_one(Type::of<uint>());
+        std::array<luisa::string, 1u> export_names{
+            luisa::string{"coro_hint"}};
+        std::array<Value *, 1u> export_values{hint};
+
+        b.set_insertion_point(entry);
+        b.cond_br(condition, suspend_block, bypass_block);
+        b.set_insertion_point(suspend_block);
+        b.coro_suspend(167u, "sort", nullptr,
+                       luisa::span{export_names},
+                       luisa::span{export_values});
+        b.set_insertion_point(bypass_block);
+        b.br(resume_block);
+        b.set_insertion_point(resume_block);
+        b.coro_resume(167u, nullptr);
+        b.return_void();
+
+        auto result =
+            coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(!result.succeeded());
+        expect(result.invalid_cfg_error_count == 1u);
     };
 
     "three_suspends_four_scopes"_test = [] {

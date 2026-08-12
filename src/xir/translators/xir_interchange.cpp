@@ -2505,6 +2505,9 @@ public:
         case DerivedInstructionTag::CONDITIONAL_BRANCH: return operand_count == 3u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::UNREACHABLE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 1u;
         case DerivedInstructionTag::RASTER_DISCARD: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
+        // Interchange v1 predates semantic coroutine frame exports. Refuse to
+        // encode an exported suspension rather than silently dropping its ABI
+        // names; the core verifier accepts the in-memory extended shape.
         case DerivedInstructionTag::CORO_SUSPEND: return operand_count == 1u && auxiliary_count == 1u && payload_count == 1u;
         case DerivedInstructionTag::CORO_RESUME: return operand_count == 1u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::CORO_TERMINATE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
@@ -3787,6 +3790,12 @@ template<typename OperandSpan>
             }
             return true;
         case DerivedInstructionTag::CORO_SUSPEND:
+            if (type != nullptr || operands.empty() ||
+                (operands[0] != nullptr &&
+                 !typed_value_operand_valid(operands[0]))) {
+                return false;
+            }
+            return data_operands_valid(1u);
         case DerivedInstructionTag::CORO_RESUME:
             return type == nullptr &&
                    (operands[0] == nullptr || typed_value_operand_valid(operands[0]));
@@ -4873,6 +4882,13 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 if (!name ||
                     !round_trippable_type(instruction->type())) {
                     fail("XIR interchange v1 encountered an unsupported instruction.");
+                    return result;
+                }
+                if (instruction->isa<CoroSuspendInst>() &&
+                    static_cast<const CoroSuspendInst *>(instruction)
+                            ->frame_export_count() != 0u) {
+                    fail("XIR interchange v1 cannot serialize semantic "
+                         "coroutine frame exports.");
                     return result;
                 }
                 auto op = int64_t{-1};

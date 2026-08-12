@@ -52,7 +52,9 @@ private:
     size_t _split_atom_count{0u};
 
 public:
-    explicit CoroFrameAtomDomain(FunctionDefinition *definition) noexcept;
+    explicit CoroFrameAtomDomain(
+        FunctionDefinition *definition,
+        luisa::span<Value *const> designated_values = {}) noexcept;
 
     [[nodiscard]] size_t size() const noexcept { return _atoms.size(); }
     [[nodiscard]] const Atom &atom(size_t index) const noexcept {

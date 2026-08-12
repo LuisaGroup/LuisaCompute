@@ -1251,7 +1251,25 @@ private:
                     auto *parent_bb = b.insertion_point()->parent_block();
 
                     b.set_insertion_point(suspend_bb);
-                    _commented(b.coro_suspend(ast_suspend->token(), luisa::string{ast_suspend->name()}, nullptr));
+                    luisa::vector<luisa::string> frame_export_names;
+                    luisa::vector<Value *> frame_export_values;
+                    frame_export_names.reserve(
+                        ast_suspend->frame_exports().size());
+                    frame_export_values.reserve(
+                        ast_suspend->frame_exports().size());
+                    for (auto &&frame_export :
+                         ast_suspend->frame_exports()) {
+                        frame_export_names.emplace_back(
+                            frame_export.name);
+                        frame_export_values.emplace_back(
+                            _translate_expression(
+                                b, frame_export.value, true));
+                    }
+                    _commented(b.coro_suspend(
+                        ast_suspend->token(),
+                        luisa::string{ast_suspend->name()}, nullptr,
+                        luisa::span{frame_export_names},
+                        luisa::span{frame_export_values}));
 
                     auto *always_true = _module->create_constant_one(compute::Type::of<bool>());
                     b.set_insertion_point(parent_bb);

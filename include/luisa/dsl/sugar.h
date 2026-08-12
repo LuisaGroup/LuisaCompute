@@ -30,6 +30,39 @@ inline void suspend_impl(uint32_t token, const char *name) {
     detail::FunctionBuilder::current()->suspend_(token, luisa::string{name});
 }
 
+template<typename T>
+[[nodiscard]] inline CoroFrameExport coro_frame_export(
+    luisa::string name, T &&value) noexcept {
+    return CoroFrameExport{
+        .value = detail::extract_expression(std::forward<T>(value)),
+        .name = std::move(name)};
+}
+
+template<typename... Exports>
+    requires(sizeof...(Exports) != 0u &&
+             (std::same_as<std::remove_cvref_t<Exports>,
+                           CoroFrameExport> && ...))
+inline void suspend_impl(const char *name, Exports &&...exports) {
+    luisa::vector<CoroFrameExport> values;
+    values.reserve(sizeof...(Exports));
+    (values.emplace_back(std::forward<Exports>(exports)), ...);
+    detail::FunctionBuilder::current()->suspend_(
+        luisa::string{name}, std::move(values));
+}
+
+template<typename... Exports>
+    requires(sizeof...(Exports) != 0u &&
+             (std::same_as<std::remove_cvref_t<Exports>,
+                           CoroFrameExport> && ...))
+inline void suspend_impl(uint32_t token, const char *name,
+                         Exports &&...exports) {
+    luisa::vector<CoroFrameExport> values;
+    values.reserve(sizeof...(Exports));
+    (values.emplace_back(std::forward<Exports>(exports)), ...);
+    detail::FunctionBuilder::current()->suspend_(
+        token, luisa::string{name}, std::move(values));
+}
+
 }
 }// namespace luisa::compute::dsl
 

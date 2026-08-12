@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/indexed_branch.h>
@@ -559,7 +560,6 @@ template<typename Enum>
         case DerivedInstructionTag::LOOP:
         case DerivedInstructionTag::SIMPLE_LOOP:
         case DerivedInstructionTag::BRANCH:
-        case DerivedInstructionTag::CORO_SUSPEND:
         case DerivedInstructionTag::CORO_RESUME:
         case DerivedInstructionTag::RETURN:
         case DerivedInstructionTag::LOAD:
@@ -571,6 +571,13 @@ template<typename Enum>
         case DerivedInstructionTag::ASSERT:
         case DerivedInstructionTag::ASSUME:
         case DerivedInstructionTag::OUTLINE: return count == 1u;
+        case DerivedInstructionTag::CORO_SUSPEND: {
+            auto *suspend =
+                static_cast<const CoroSuspendInst *>(instruction);
+            return count ==
+                   CoroSuspendInst::operand_index_frame_export_offset +
+                       suspend->frame_export_count();
+        }
         case DerivedInstructionTag::UNREACHABLE:
         case DerivedInstructionTag::RASTER_DISCARD:
         case DerivedInstructionTag::CORO_TERMINATE:
@@ -671,6 +678,26 @@ template<typename Enum>
     operands.reserve(instruction->operand_count());
     for (auto *operand_use : instruction->operand_uses()) {
         operands.emplace_back(operand_use->value());
+    }
+    if (tag == DerivedInstructionTag::CORO_SUSPEND) {
+        auto *suspend =
+            static_cast<const CoroSuspendInst *>(instruction);
+        luisa::unordered_set<luisa::string_view> names;
+        if (suspend->frame_export_count() +
+                CoroSuspendInst::operand_index_frame_export_offset !=
+            operands.size()) {
+            return false;
+        }
+        for (size_t i = 0u;
+             i < suspend->frame_export_count(); ++i) {
+            auto &name = suspend->frame_export_name(i);
+            auto *value = suspend->frame_export_value(i);
+            if (name.empty() || !names.emplace(name).second ||
+                !data_operand_valid(value) ||
+                !value->type()->is_basic()) {
+                return false;
+            }
+        }
     }
     auto bindless_access = [&]() noexcept {
         switch (tag) {

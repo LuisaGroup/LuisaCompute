@@ -1103,8 +1103,19 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
 [[nodiscard]] bool is_canonical_loop_break_path(
     BasicBlock *target, BasicBlock *merge) noexcept {
     if (target == nullptr || merge == nullptr) { return false; }
+    // The loop merge is a structural identity, even when it is itself an
+    // empty forwarding block. A fully contracted branch-chain target walks
+    // through that identity and would make the already-canonical path
+    //
+    //     arm ->* loop.merge -> continuation
+    //
+    // appear to target `continuation`. Test reachability to the declared
+    // boundary before taking the ordinary forwarding quotient. This is also
+    // the canonical XIR spelling for a loop exit nested in a Switch, where a
+    // BreakInst would denote the nearer Switch scope and the edge must remain
+    // an ordinary BranchInst to the loop merge.
+    if (trivial_branch_chain_reaches(target, merge)) { return true; }
     auto *resolved = trivial_branch_chain_target(target);
-    if (resolved == merge) { return true; }
     return has_only_terminator(resolved) &&
            resolved->terminator()->isa<BreakInst>() &&
            static_cast<BreakInst *>(resolved->terminator())
@@ -1215,6 +1226,81 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     return kind;
 }
 
+// A semantic path may eventually reach a loop boundary after executing
+// arbitrary work. That fact alone does not make the first edge a physical
+// break/continue edge: SPIR-V may omit a selection merge only when the arm is
+// an exclusive, side-effect-free forwarding chain to that boundary.
+//
+// The proof is local and exact. Every proper forwarding block must contain
+// only its terminator and have the immediately preceding chain block as its
+// sole predecessor. `selection_merge` is an optional convergence barrier: an
+// arm may start at the declared merge, but the sibling arm may not pass
+// through it and still claim an independent boundary edge.
+[[nodiscard]] LoopBoundaryTargetKind
+classify_exclusive_loop_boundary_arm(
+    BasicBlock *branch_header,
+    BasicBlock *entry,
+    BasicBlock *selection_merge,
+    BasicBlock *continue_target,
+    BasicBlock *loop_entry,
+    BasicBlock *merge) noexcept {
+    if (branch_header == nullptr || entry == nullptr ||
+        continue_target == nullptr || loop_entry == nullptr ||
+        merge == nullptr) {
+        return LoopBoundaryTargetKind::NONE;
+    }
+    auto *expected_predecessor = branch_header;
+    auto *block = entry;
+    luisa::unordered_set<BasicBlock *> visited;
+    while (block != nullptr && visited.emplace(block).second) {
+        if (block == continue_target || block == loop_entry) {
+            return LoopBoundaryTargetKind::CONTINUE;
+        }
+        if (block == merge) {
+            return LoopBoundaryTargetKind::BREAK;
+        }
+        if ((block == selection_merge && block != entry) ||
+            !has_only_terminator(block)) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        auto predecessor_count = size_t{0u};
+        auto has_unexpected_predecessor = false;
+        block->traverse_predecessors(
+            false, [&](BasicBlock *predecessor) noexcept {
+                ++predecessor_count;
+                has_unexpected_predecessor |=
+                    predecessor != expected_predecessor;
+            });
+        if (predecessor_count != 1u ||
+            has_unexpected_predecessor) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        auto *terminator = block->terminator();
+        if (terminator->isa<BreakInst>()) {
+            return static_cast<BreakInst *>(terminator)
+                               ->target_block() == merge ?
+                       LoopBoundaryTargetKind::BREAK :
+                       LoopBoundaryTargetKind::NONE;
+        }
+        if (terminator->isa<ContinueInst>()) {
+            auto *target =
+                static_cast<ContinueInst *>(terminator)
+                    ->target_block();
+            return target == continue_target ||
+                           target == loop_entry ?
+                       LoopBoundaryTargetKind::CONTINUE :
+                       LoopBoundaryTargetKind::NONE;
+        }
+        if (!terminator->isa<BranchInst>()) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        expected_predecessor = block;
+        block = static_cast<BranchInst *>(terminator)
+                    ->target_block();
+    }
+    return LoopBoundaryTargetKind::NONE;
+}
+
 [[nodiscard]] bool normalize_one_loop_boundary_conditional_branch(FunctionDefinition *def,
                                                                   luisa::unordered_set<BasicBlock *> &
                                                                       exit_dispatch_headers,
@@ -1262,6 +1348,11 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
         BasicBlock *merge{nullptr};
         BasicBlock *selection_merge{nullptr};
         Value *condition{nullptr};
+        LoopBoundaryTargetKind true_kind{
+            LoopBoundaryTargetKind::NONE};
+        LoopBoundaryTargetKind false_kind{
+            LoopBoundaryTargetKind::NONE};
+        bool generated_boundary_guard{false};
         size_t loop_depth{0u};
     };
     luisa::vector<Candidate> candidates;
@@ -1317,18 +1408,57 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
                 auto one_sided_boundary =
                     singular_boundary(true_kind) !=
                     singular_boundary(false_kind);
-                auto generated_boundary_guard =
+                // Terminal dataflow and physical edge shape are different
+                // facts. A generated state-dispatch arm may perform ordinary
+                // work before eventually continuing the loop; only the exact
+                // forwarding-chain proof permits boundary lowering.
+                auto physical_true_kind =
+                    classify_exclusive_loop_boundary_arm(
+                        branch_block, t, nullptr,
+                        site.continue_target, site.entry,
+                        site.merge);
+                auto physical_false_kind =
+                    classify_exclusive_loop_boundary_arm(
+                        branch_block, f, nullptr,
+                        site.continue_target, site.entry,
+                        site.merge);
+                auto physical_one_sided_boundary =
+                    singular_boundary(physical_true_kind) !=
+                    singular_boundary(physical_false_kind);
+                auto physical_opposing_boundaries =
+                    (physical_true_kind ==
+                         LoopBoundaryTargetKind::BREAK &&
+                     physical_false_kind ==
+                         LoopBoundaryTargetKind::CONTINUE) ||
+                    (physical_true_kind ==
+                         LoopBoundaryTargetKind::CONTINUE &&
+                     physical_false_kind ==
+                         LoopBoundaryTargetKind::BREAK);
+                auto generated_dispatch =
                     generated_exit_dispatch_headers.contains(
-                        branch_block) &&
-                    one_sided_boundary;
-                if (generated_boundary_guard || opposing ||
-                    (allow_one_sided_boundary &&
-                     one_sided_boundary)) {
+                        branch_block);
+                auto generated_boundary_guard =
+                    generated_dispatch &&
+                    (physical_one_sided_boundary ||
+                     physical_opposing_boundaries);
+                if (generated_boundary_guard ||
+                    (!generated_dispatch &&
+                     (opposing ||
+                      (allow_one_sided_boundary &&
+                       one_sided_boundary)))) {
                     candidates.emplace_back(Candidate{
                         branch_block, t, f, site.entry,
                         site.continue_target, site.merge,
                         site.selection_merge,
-                        cbr->condition(), site.depth});
+                        cbr->condition(),
+                        generated_boundary_guard ?
+                            physical_true_kind :
+                            true_kind,
+                        generated_boundary_guard ?
+                            physical_false_kind :
+                            false_kind,
+                        generated_boundary_guard,
+                        site.depth});
                 }
             };
         // A canonical conditional prepare is already the native loop guard.
@@ -1408,8 +1538,8 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     if (cand.branch_block == nullptr || !cand.branch_block->is_terminated()) { return false; }
     auto *old_term = cand.branch_block->terminator();
     if (!old_term->isa<ConditionalBranchInst>()) { return false; }
-    auto true_kind = classify_loop_boundary_path(cand.true_target, cand.continue_target, cand.loop_entry, cand.merge);
-    auto false_kind = classify_loop_boundary_path(cand.false_target, cand.continue_target, cand.loop_entry, cand.merge);
+    auto true_kind = cand.true_kind;
+    auto false_kind = cand.false_kind;
 
     auto opposing =
         (true_kind == LoopBoundaryTargetKind::BREAK &&
@@ -1420,9 +1550,7 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
         singular_boundary(true_kind) !=
         singular_boundary(false_kind);
     auto generated_boundary_guard =
-        generated_exit_dispatch_headers.contains(
-            cand.branch_block) &&
-        (one_sided_boundary || opposing);
+        cand.generated_boundary_guard;
     old_term->remove_self();
     // Keep the exit-dispatch role when a raw dispatch becomes a loop-boundary
     // guard. The IfInst is the structured XIR spelling of a physical branch
@@ -1988,73 +2116,16 @@ void remove_write_only_dispatch_selectors(
     auto *selection_merge = if_inst->merge_block();
     auto true_is_merge = if_inst->true_block() == selection_merge;
     auto false_is_merge = if_inst->false_block() == selection_merge;
-    auto classify_physical_arm =
-        [&](BasicBlock *entry) noexcept {
-            auto *expected_predecessor = if_inst->parent_block();
-            auto *block = entry;
-            luisa::unordered_set<BasicBlock *> visited;
-            while (block != nullptr &&
-                   visited.emplace(block).second) {
-                if (block == continue_target ||
-                    block == loop_entry) {
-                    return LoopBoundaryTargetKind::CONTINUE;
-                }
-                if (block == merge) {
-                    return LoopBoundaryTargetKind::BREAK;
-                }
-                // The declared merge may itself be an arm and then end in a
-                // loop boundary terminator. Reaching it later from the other
-                // arm is ordinary selection convergence, not an independently
-                // lowerable loop-boundary edge.
-                if ((block == selection_merge && entry != selection_merge) ||
-                    !has_only_terminator(block)) {
-                    return LoopBoundaryTargetKind::NONE;
-                }
-
-                auto predecessor_count = size_t{0u};
-                auto has_unexpected_predecessor = false;
-                block->traverse_predecessors(
-                    false,
-                    [&](BasicBlock *predecessor) noexcept {
-                        ++predecessor_count;
-                        has_unexpected_predecessor |=
-                            predecessor != expected_predecessor;
-                    });
-                if (predecessor_count != 1u ||
-                    has_unexpected_predecessor) {
-                    return LoopBoundaryTargetKind::NONE;
-                }
-
-                auto *terminator = block->terminator();
-                if (terminator->isa<BreakInst>()) {
-                    return static_cast<BreakInst *>(terminator)
-                                       ->target_block() == merge ?
-                               LoopBoundaryTargetKind::BREAK :
-                               LoopBoundaryTargetKind::NONE;
-                }
-                if (terminator->isa<ContinueInst>()) {
-                    auto *target =
-                        static_cast<ContinueInst *>(terminator)
-                            ->target_block();
-                    return target == continue_target ||
-                                   target == loop_entry ?
-                               LoopBoundaryTargetKind::CONTINUE :
-                               LoopBoundaryTargetKind::NONE;
-                }
-                if (!terminator->isa<BranchInst>()) {
-                    return LoopBoundaryTargetKind::NONE;
-                }
-                expected_predecessor = block;
-                block = static_cast<BranchInst *>(terminator)
-                            ->target_block();
-            }
-            return LoopBoundaryTargetKind::NONE;
-        };
-
     auto true_kind =
-        classify_physical_arm(if_inst->true_block());
+        classify_exclusive_loop_boundary_arm(
+            if_inst->parent_block(), if_inst->true_block(),
+            selection_merge, continue_target, loop_entry,
+            merge);
     auto false_kind =
-        classify_physical_arm(if_inst->false_block());
+        classify_exclusive_loop_boundary_arm(
+            if_inst->parent_block(), if_inst->false_block(),
+            selection_merge, continue_target, loop_entry,
+            merge);
     auto opposing_boundaries =
         (true_kind == LoopBoundaryTargetKind::BREAK &&
          false_kind == LoopBoundaryTargetKind::CONTINUE) ||
@@ -2258,6 +2329,19 @@ collect_loop_boundary_selection_entries(
         // block numbering, reverse edges, and terminal facts, so restart from
         // a fresh snapshot before inspecting another loop context.
         LoopBoundaryPathDataflow dataflow{def};
+        luisa::unordered_map<BasicBlock *, size_t>
+            structured_merge_owner_counts;
+        def->traverse_basic_blocks(
+            [&](BasicBlock *block) noexcept {
+                if (block == nullptr || !block->is_terminated()) {
+                    return;
+                }
+                if (auto *merge = structured_statement_merge(
+                        block->terminator());
+                    merge != nullptr) {
+                    ++structured_merge_owner_counts[merge];
+                }
+            });
         ++info.boundary_merge_analysis_count;
         auto applied_batch = false;
         for (auto &&loop : loops) {
@@ -2327,7 +2411,9 @@ collect_loop_boundary_selection_entries(
                     boundary_if &&
                     ((!true_is_selection_merge &&
                       !false_is_selection_merge) ||
-                     rewrite.selection_merge == loop.merge);
+                     rewrite.selection_merge == loop.merge ||
+                     structured_merge_owner_counts[
+                         rewrite.selection_merge] > 1u);
                 if (rewrite.true_break_proxy ||
                     rewrite.false_break_proxy ||
                     rewrite.merge_proxy) {
@@ -2877,19 +2963,32 @@ collect_enclosing_loop_exits(
 }
 
 struct SelectionExitCFGRelations {
-    struct LoopContext {
+    enum struct ContextKind : uint8_t {
+        LOOP,
+        SWITCH,
+    };
+    struct Context {
         size_t parent{SIZE_MAX};
-        luisa::vector<BasicBlock *> exits;
+        ContextKind kind{ContextKind::LOOP};
+        BasicBlock *break_target{nullptr};
+        BasicBlock *continue_target{nullptr};
+        size_t dom_depth{0u};
     };
     luisa::unordered_set<BasicBlock *>
         loop_boundary_selection_entries;
-    luisa::vector<LoopContext> loop_contexts;
+    luisa::vector<Context> contexts;
     luisa::unordered_map<BasicBlock *, size_t>
-        selection_loop_contexts;
+        selection_contexts;
+    luisa::unordered_map<BasicBlock *, size_t>
+        block_contexts;
     // A physical structured merge has one owner. Reusing another construct's
     // merge as the boundary of a selection would satisfy reachability while
     // violating SPIR-V's role-uniqueness constraint.
     luisa::unordered_set<BasicBlock *> structured_merge_blocks;
+    // Empty branch proxies are transparent only until the first structured
+    // merge/continue role. Crossing such a role would skip a lexical
+    // construct boundary rather than contract a representation-only edge.
+    luisa::unordered_set<BasicBlock *> structured_exit_boundaries;
 };
 
 // Materialize the exact CFG relations consumed by one selection-exit scan.
@@ -2906,27 +3005,98 @@ build_selection_exit_cfg_relations(
     SelectionExitCFGRelations relations;
     relations.loop_boundary_selection_entries =
         collect_loop_boundary_selection_entries(def, &info);
-    auto loops = collect_structured_loop_exit_info(def);
-    relations.loop_contexts.reserve(loops.size());
+    struct ContextSite {
+        BasicBlock *header{nullptr};
+        BasicBlock *merge{nullptr};
+        SelectionExitCFGRelations::ContextKind kind{
+            SelectionExitCFGRelations::ContextKind::LOOP};
+        BasicBlock *break_target{nullptr};
+        BasicBlock *continue_target{nullptr};
+        size_t dom_depth{0u};
+        bool can_be_active{true};
+    };
+    luisa::vector<ContextSite> sites;
     luisa::unordered_map<BasicBlock *, size_t>
-        loop_index_by_header;
-    loop_index_by_header.reserve(loops.size());
-    for (auto i = size_t{0u}; i < loops.size(); ++i) {
-        loop_index_by_header.emplace(loops[i].header, i);
+        site_index_by_header;
+    luisa::unordered_map<BasicBlock *, luisa::vector<size_t>>
+        merge_events;
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        if (block == nullptr || !block->is_terminated()) { return; }
+        auto *term = block->terminator();
+        if (auto *merge = structured_statement_merge(term);
+            merge != nullptr) {
+            relations.structured_merge_blocks.emplace(merge);
+            relations.structured_exit_boundaries.emplace(merge);
+        }
+        ContextSite site;
+        site.header = block;
+        if (term->isa<LoopInst>()) {
+            auto *loop = static_cast<LoopInst *>(term);
+            site.merge = loop->merge_block();
+            site.break_target = site.merge;
+            site.continue_target = loop->update_block();
+            if (site.continue_target == nullptr) {
+                site.continue_target = loop->prepare_block();
+            }
+            relations.structured_exit_boundaries.emplace(
+                site.continue_target);
+        } else if (term->isa<SimpleLoopInst>()) {
+            auto *loop = static_cast<SimpleLoopInst *>(term);
+            site.merge = loop->merge_block();
+            site.break_target = site.merge;
+            site.continue_target = loop->body_block();
+            relations.structured_exit_boundaries.emplace(
+                site.continue_target);
+        } else if (term->isa<SwitchInst>()) {
+            site.kind =
+                SelectionExitCFGRelations::ContextKind::SWITCH;
+            site.merge = static_cast<SwitchInst *>(term)->merge_block();
+            site.break_target = site.merge;
+        } else {
+            return;
+        }
+        if (!dom.contains(block)) { return; }
+        site.dom_depth = dom_depth(dom, block);
+        auto site_index = sites.size();
+        site_index_by_header.emplace(block, site_index);
+        sites.emplace_back(std::move(site));
+    });
+    relations.contexts.reserve(sites.size());
+    luisa::vector<size_t> context_id_by_site(
+        sites.size(), SIZE_MAX);
+    for (auto site_index = size_t{0u};
+         site_index < sites.size(); ++site_index) {
+        auto &site = sites[site_index];
+        if (site.merge == nullptr ||
+            !dom.contains(site.merge)) {
+            continue;
+        }
+        if (dom.dominates(site.merge, site.header)) {
+            // A merge that dominates its header cannot delimit a lexical
+            // interior in this dominance version. Cyclic Switches are later
+            // loop-wrapped; until then they are not enclosing switch scopes.
+            site.can_be_active = false;
+        } else if (dom.dominates(site.header, site.merge)) {
+            merge_events[site.merge].emplace_back(site_index);
+        }
     }
 
-    // Dominance is ancestry in `dom`. Carry a persistent linked loop context
-    // down that sparse tree: entering a reachable loop header creates exactly
-    // one node whose parent is the previously active context. A selection
-    // records only the current context ID. This represents the same relation
-    // as the old block-by-loop Cartesian materialization because a loop header
-    // dominates a block iff it is an ancestor of that block in this tree.
+    // Dominance is ancestry in `dom`. Carry a persistent linked construct
+    // context down that sparse tree. A loop context contributes its
+    // merge/continue boundaries. A Switch contributes its merge because
+    // SPIR-V permits a selection to exit to the nearest enclosing switch
+    // before the nearest enclosing loop. If/selection contexts need no node:
+    // they are not legal non-local exit targets, so retaining only loops and
+    // switches is the exact quotient needed by the structured-exit rule.
     struct DomWalkFrame {
         const DomTreeNode *node{nullptr};
-        size_t loop_context{SIZE_MAX};
         size_t next_child{0u};
-        bool entered{false};
+        size_t activated_context{SIZE_MAX};
+        luisa::vector<size_t> suspended_contexts;
     };
+    using ActiveContextKey =
+        std::pair<size_t, size_t>;// (dom depth, context id)
+    std::set<ActiveContextKey> active_contexts;
     luisa::vector<DomWalkFrame> walk;
     if (dom.root() != nullptr) {
         walk.emplace_back(DomWalkFrame{
@@ -2934,32 +3104,55 @@ build_selection_exit_cfg_relations(
     }
     while (!walk.empty()) {
         auto &frame = walk.back();
-        if (!frame.entered) {
-            frame.entered = true;
+        if (frame.next_child == 0u) {
             auto *block = frame.node->block();
-            if (auto loop_iter =
-                    loop_index_by_header.find(block);
-                loop_iter != loop_index_by_header.end()) {
-                auto context =
-                    relations.loop_contexts.size();
-                relations.loop_contexts.emplace_back(
-                    SelectionExitCFGRelations::LoopContext{
-                        .parent = frame.loop_context,
-                        .exits = loops[loop_iter->second].exits});
-                frame.loop_context = context;
-                ++info.selection_exit_loop_context_count;
+            if (auto event = merge_events.find(block);
+                event != merge_events.end()) {
+                for (auto site_index : event->second) {
+                    auto context_id =
+                        context_id_by_site[site_index];
+                    if (context_id == SIZE_MAX) { continue; }
+                    auto key = ActiveContextKey{
+                        relations.contexts[context_id].dom_depth,
+                        context_id};
+                    if (active_contexts.erase(key) != 0u) {
+                        frame.suspended_contexts.emplace_back(
+                            context_id);
+                    }
+                }
             }
+            auto current_context = active_contexts.empty() ?
+                                       SIZE_MAX :
+                                       active_contexts.rbegin()->second;
+            relations.block_contexts.emplace(
+                block, current_context);
             if (block->is_terminated()) {
                 auto *term = block->terminator();
-                if (auto *merge =
-                        structured_statement_merge(term);
-                    merge != nullptr) {
-                    relations.structured_merge_blocks.emplace(merge);
+                if (term->isa<IfInst>() || term->isa<SwitchInst>()) {
+                    relations.selection_contexts.emplace(
+                        block, current_context);
                 }
-                if (term->isa<IfInst>() ||
-                    term->isa<SwitchInst>()) {
-                    relations.selection_loop_contexts.emplace(
-                        block, frame.loop_context);
+            }
+            if (auto site_iter = site_index_by_header.find(block);
+                site_iter != site_index_by_header.end() &&
+                sites[site_iter->second].can_be_active) {
+                auto site_index = site_iter->second;
+                auto &site = sites[site_index];
+                auto context_id = relations.contexts.size();
+                relations.contexts.emplace_back(
+                    SelectionExitCFGRelations::Context{
+                        .parent = current_context,
+                        .kind = site.kind,
+                        .break_target = site.break_target,
+                        .continue_target = site.continue_target,
+                        .dom_depth = site.dom_depth});
+                context_id_by_site[site_index] = context_id;
+                active_contexts.emplace(
+                    site.dom_depth, context_id);
+                frame.activated_context = context_id;
+                if (site.kind ==
+                    SelectionExitCFGRelations::ContextKind::LOOP) {
+                    ++info.selection_exit_loop_context_count;
                 }
             }
         }
@@ -2967,9 +3160,19 @@ build_selection_exit_cfg_relations(
         if (frame.next_child < children.size()) {
             auto *child = children[frame.next_child++];
             walk.emplace_back(DomWalkFrame{
-                .node = child,
-                .loop_context = frame.loop_context});
+                .node = child});
             continue;
+        }
+        if (frame.activated_context != SIZE_MAX) {
+            auto context_id = frame.activated_context;
+            active_contexts.erase(ActiveContextKey{
+                relations.contexts[context_id].dom_depth,
+                context_id});
+        }
+        for (auto context_id : frame.suspended_contexts) {
+            active_contexts.emplace(
+                relations.contexts[context_id].dom_depth,
+                context_id);
         }
         walk.pop_back();
     }
@@ -3024,27 +3227,132 @@ struct SelectionExitAnalysis {
     luisa::vector<SelectionExitEdge> merge_exits;
 };
 
-[[nodiscard]] size_t selection_loop_context(
+[[nodiscard]] size_t selection_context(
     const SelectionExitCFGRelations &relations,
     BasicBlock *header) noexcept {
-    auto iter = relations.selection_loop_contexts.find(header);
-    return iter == relations.selection_loop_contexts.end() ?
+    auto iter = relations.selection_contexts.find(header);
+    return iter == relations.selection_contexts.end() ?
                SIZE_MAX :
                iter->second;
 }
 
-[[nodiscard]] bool is_enclosing_selection_loop_exit(
+// SPIR-V structured exits for a selection form a lexical prefix, not the set
+// of every dominating boundary. Starting at the selection's current context,
+// the first enclosing Switch merge is legal; the first enclosing Loop's
+// merge/continue targets are legal and terminate the search. More distant
+// loops and switches are not direct exits of the selection construct.
+[[nodiscard]] bool is_legal_enclosing_selection_exit(
     const SelectionExitCFGRelations &relations,
-    size_t loop_context,
-    BasicBlock *block) noexcept {
-    for (auto context = loop_context;
+    size_t selection_context,
+    BasicBlock *block,
+    bool allow_enclosing_switch) noexcept {
+    auto switch_available = allow_enclosing_switch;
+    for (auto context = selection_context;
          context != SIZE_MAX;
-         context = relations.loop_contexts[context].parent) {
-        for (auto *exit : relations.loop_contexts[context].exits) {
-            if (exit == block) { return true; }
+         context = relations.contexts[context].parent) {
+        auto &&node = relations.contexts[context];
+        if (node.kind ==
+            SelectionExitCFGRelations::ContextKind::LOOP) {
+            return block == node.break_target ||
+                   block == node.continue_target;
+        }
+        if (switch_available &&
+            block == node.break_target) {
+            return true;
+        }
+        if (node.kind ==
+            SelectionExitCFGRelations::ContextKind::SWITCH) {
+            switch_available = false;
         }
     }
     return false;
+}
+
+// Empty forwarding chains do not introduce another structured activation;
+// they are one edge in the quotient CFG used by the SPIR-V exit rules. Keep
+// this normalization in the legality predicate so mutation and final audit
+// cannot disagree about a physical loop/switch boundary hidden by proxies.
+[[nodiscard]] bool is_legal_enclosing_selection_exit_in_quotient(
+    const SelectionExitCFGRelations &relations,
+    size_t selection_context,
+    BasicBlock *block,
+    bool allow_enclosing_switch) noexcept {
+    if (is_legal_enclosing_selection_exit(
+            relations, selection_context, block,
+            allow_enclosing_switch)) {
+        return true;
+    }
+    // Contract only representation-only forwarding blocks. A block carrying
+    // any structured merge/continue role is an observable lexical boundary;
+    // following through it could incorrectly make a farther loop/switch exit
+    // look like the nearest legal one.
+    luisa::unordered_set<BasicBlock *> visited;
+    auto *current = block;
+    while (current != nullptr &&
+           visited.emplace(current).second &&
+           !relations.structured_exit_boundaries.contains(current)) {
+        auto *next = trivial_branch_target(current);
+        if (next == nullptr) { break; }
+        current = next;
+        if (is_legal_enclosing_selection_exit(
+                relations, selection_context, current,
+                allow_enclosing_switch)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// BreakInst denotes the nearest lexical break scope in XIR. Inside a Switch,
+// however, SPIR-V also permits an ordinary edge to that Switch construct's
+// nearest enclosing loop merge/continue boundary. A destructured or imported
+// CFG can spell such an edge as BreakInst(loop_merge), which has the right
+// executable target but the wrong lexical operator once the Switch is
+// reconstructed.
+//
+// Normalize only this proven case to BranchInst. The executable graph is
+// unchanged. A BreakInst that skips an intervening Loop is not accepted, and
+// a canonical BreakInst to the current Switch merge is retained.
+[[nodiscard]] bool canonicalize_nonlocal_switch_breaks(
+    FunctionDefinition *def,
+    const SelectionExitCFGRelations &relations) noexcept {
+    auto modified = false;
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || !block->is_terminated() ||
+            !block->terminator()->isa<BreakInst>()) {
+            continue;
+        }
+        auto context_iter =
+            relations.block_contexts.find(block);
+        if (context_iter == relations.block_contexts.end() ||
+            context_iter->second == SIZE_MAX) {
+            continue;
+        }
+        auto context = context_iter->second;
+        auto &&nearest = relations.contexts[context];
+        if (nearest.kind !=
+            SelectionExitCFGRelations::ContextKind::SWITCH) {
+            continue;
+        }
+        auto *break_inst =
+            static_cast<BreakInst *>(block->terminator());
+        auto *target = break_inst->target_block();
+        if (target == nearest.break_target ||
+            !is_legal_enclosing_selection_exit(
+                relations, context, target, false)) {
+            continue;
+        }
+        auto removed = break_inst->remove_self();
+        XIRBuilder builder;
+        builder.set_insertion_point(block);
+        auto *replacement = builder.br(target);
+        for (auto *metadata : removed->metadata_list()) {
+            replacement->metadata_list().push_front(
+                metadata->clone());
+        }
+        modified = true;
+    }
+    return modified;
 }
 
 // Compute the exact executable exit cut of a structured selection. The cut is
@@ -3066,12 +3374,14 @@ struct SelectionExitAnalysis {
         exit_dispatch_headers) noexcept {
     SelectionExitAnalysis analysis;
     analysis.entries = selection_entries(term);
-    auto loop_context =
-        selection_loop_context(cfg_relations, header);
-    auto is_enclosing_loop_exit =
+    auto enclosing_context =
+        selection_context(cfg_relations, header);
+    auto allow_enclosing_switch = !term->isa<SwitchInst>();
+    auto is_legal_structured_exit =
         [&](BasicBlock *block) noexcept {
-            return is_enclosing_selection_loop_exit(
-                cfg_relations, loop_context, block);
+            return is_legal_enclosing_selection_exit_in_quotient(
+                cfg_relations, enclosing_context, block,
+                allow_enclosing_switch);
         };
     luisa::unordered_set<BasicBlock *> region;
     auto entry_is_valid = [&](BasicBlock *entry) noexcept {
@@ -3082,6 +3392,9 @@ struct SelectionExitAnalysis {
         if (entry == merge) {
             append_unique_exit_edge(
                 analysis.merge_exits, header, merge);
+            continue;
+        }
+        if (is_legal_structured_exit(entry)) {
             continue;
         }
         if (!entry_is_valid(entry)) {
@@ -3128,12 +3441,12 @@ struct SelectionExitAnalysis {
                     }
                     auto *canonical_successor =
                         canonical_exit_target(successor);
-                    if (is_enclosing_loop_exit(successor) ||
-                        is_enclosing_loop_exit(
-                            canonical_successor)) {
-                        append_unique_exit_edge(
-                            analysis.invalid_exits, bb,
-                            successor);
+                    if (is_legal_structured_exit(successor)) {
+                        // A selection may leave directly through the nearest
+                        // enclosing loop/switch boundary. An otherwise empty
+                        // branch chain is the same executable edge in the
+                        // quotient CFG; later boundary normalization gives it
+                        // the required Break/Continue spelling.
                         return;
                     }
                     if (successor == header ||
@@ -3204,12 +3517,14 @@ void repair_target_state_dispatch_ssa(
     }
     if (selection_entries(term).empty()) { return {}; }
     ++info.selection_exit_enclosing_loop_query_count;
-    auto loop_context =
-        selection_loop_context(cfg_relations, header);
-    auto is_enclosing_loop_exit =
+    auto enclosing_context =
+        selection_context(cfg_relations, header);
+    auto allow_enclosing_switch = !term->isa<SwitchInst>();
+    auto is_legal_structured_exit =
         [&](BasicBlock *block) noexcept {
-            return is_enclosing_selection_loop_exit(
-                cfg_relations, loop_context, block);
+            return is_legal_enclosing_selection_exit_in_quotient(
+                cfg_relations, enclosing_context, block,
+                allow_enclosing_switch);
         };
     auto analysis = analyze_selection_exits(
         header, term, merge, dom, cfg_relations,
@@ -3218,7 +3533,6 @@ void repair_target_state_dispatch_ssa(
     auto &invalid_exits = analysis.invalid_exits;
     auto &merge_exits = analysis.merge_exits;
     if (invalid_exits.empty()) { return {}; }
-
     // A declared arm may itself be the canonical target of an exit reached
     // from another arm. This is common after duplicate switch labels are
     // split through forwarding proxies: one label still names the shared
@@ -3298,7 +3612,7 @@ void repair_target_state_dispatch_ssa(
         common_direct_exit != merge &&
         dom.contains(common_direct_exit) &&
         dom.dominates(header, common_direct_exit) &&
-        !is_enclosing_loop_exit(common_direct_exit) &&
+        !is_legal_structured_exit(common_direct_exit) &&
         !cfg_relations.structured_merge_blocks.contains(
             common_direct_exit)) {
         auto *control_flow_merge = term->control_flow_merge();
@@ -3354,9 +3668,9 @@ void repair_target_state_dispatch_ssa(
         targets.begin(), targets.end(),
         [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
             auto lhs_boundary =
-                is_enclosing_loop_exit(lhs);
+                is_legal_structured_exit(lhs);
             auto rhs_boundary =
-                is_enclosing_loop_exit(rhs);
+                is_legal_structured_exit(rhs);
             return lhs_boundary && !rhs_boundary;
         });
     target_ids.clear();
@@ -3606,6 +3920,9 @@ struct SelectionExitDrainResult {
             build_selection_exit_cfg_relations(
                 def, dom, info);
         ++info.selection_exit_boundary_analysis_count;
+        drain.modified |=
+            canonicalize_nonlocal_switch_breaks(
+                def, cfg_relations);
         struct Query {
             size_t site_index{0u};
             size_t depth{0u};
@@ -3812,26 +4129,10 @@ struct SelectionExitDrainResult {
         auto analysis = analyze_selection_exits(
             header, term, merge, dom, cfg_relations,
             audit_work, exit_dispatch_headers);
-        auto loop_context =
-            selection_loop_context(cfg_relations, header);
-        auto has_illegal_exit = false;
-        for (auto edge : analysis.invalid_exits) {
-            auto *canonical_target =
-                canonical_exit_target(edge.dst);
-            // A structured selection may terminate through an enclosing
-            // loop's break/continue boundary. What must not survive is an
-            // ordinary early convergence block T before its declared merge.
-            if (is_enclosing_selection_loop_exit(
-                    cfg_relations, loop_context, edge.dst) ||
-                is_enclosing_selection_loop_exit(
-                    cfg_relations, loop_context,
-                    canonical_target)) {
-                continue;
-            }
-            has_illegal_exit = true;
-            break;
-        }
-        invalid_count += has_illegal_exit ? 1u : 0u;
+        // analyze_selection_exits uses the same structured-exit predicate as
+        // the mutating phase; any surviving edge is therefore illegal by the
+        // exact proof obligation, with no weaker audit-side exception.
+        invalid_count += analysis.invalid_exits.empty() ? 0u : 1u;
     }
     info.selection_exit_audit_invalid_count +=
         invalid_count;
@@ -3919,8 +4220,6 @@ struct SelectionExitDrainResult {
         if (!header->is_terminated()) { continue; }
         if (already_loop_headers.contains(header)) { continue; }
         if (newly_restructured_headers.contains(header)) { continue; }
-        auto *header_term = header->terminator();
-        if (header_term->isa<LoopInst>() || header_term->isa<SimpleLoopInst>()) { continue; }
 
         // Re-validate latches: they may have been modified by earlier restructuring.
         luisa::vector<BasicBlock *> valid_latches;
@@ -5123,6 +5422,146 @@ struct PostMergeSelectionReentry {
     luisa::vector<BasicBlock *> entries;
 };
 
+enum struct SelectionReentryAnalysisPurpose : uint8_t {
+    TRANSFORM,
+    AUDIT,
+};
+
+// Return one witness edge for every selection whose current activation can be
+// re-entered after its merge. For a selection (H, M), an executable edge
+// (P, E) is such a witness exactly when
+//
+//   H dom E, M !dom E, M dom P, and P -> E,
+//
+// provided E is not the nearest enclosing loop/switch boundary. The last
+// clause quotients the cyclic CFG by lexical construct epochs: completing an
+// enclosing loop iteration and entering H again is a new activation, not a
+// re-entry into the old one. Since E is in M's dominance frontier whenever
+// the first four predicates hold, a sparse frontier walk is complete.
+//
+// Both the mutating phase and final audit call this analyzer. They can no
+// longer disagree by using subtly different structured-exit exceptions.
+[[nodiscard]] luisa::vector<PostMergeSelectionReentry>
+analyze_post_merge_selection_reentries(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    const SelectionExitCFGRelations &cfg_relations,
+    const luisa::unordered_set<BasicBlock *> &ignored_headers,
+    RestructureCFGInfo &info,
+    SelectionReentryAnalysisPurpose purpose,
+    bool stop_after_first) noexcept {
+    luisa::vector<PostMergeSelectionReentry> result;
+    const auto &loop_boundary_selection_entries =
+        cfg_relations.loop_boundary_selection_entries;
+    for (auto *header : def->basic_blocks()) {
+        if (header == nullptr || !header->is_terminated() ||
+            !dom.contains(header) ||
+            ignored_headers.contains(header) ||
+            loop_boundary_selection_entries.contains(header)) {
+            continue;
+        }
+        auto *term = header->terminator();
+        if (!term->isa<IfInst>() &&
+            !term->isa<SwitchInst>()) {
+            continue;
+        }
+        auto *merge = structured_statement_merge(term);
+        if (merge == nullptr || !dom.contains(merge)) {
+            continue;
+        }
+        if (purpose == SelectionReentryAnalysisPurpose::AUDIT) {
+            ++info.selection_reentry_audit_selection_query_count;
+        }
+        auto enclosing_context =
+            selection_context(cfg_relations, header);
+        auto allow_enclosing_switch = !term->isa<SwitchInst>();
+        auto enclosing_loop_context = enclosing_context;
+        while (enclosing_loop_context != SIZE_MAX &&
+               cfg_relations.contexts[enclosing_loop_context].kind !=
+                   SelectionExitCFGRelations::ContextKind::LOOP) {
+            enclosing_loop_context =
+                cfg_relations.contexts[enclosing_loop_context].parent;
+        }
+        // A loop boundary separates dynamic activations of a nested
+        // selection. Lazily materialize the portion reachable from M before
+        // entering the nearest enclosing loop's merge/continue target. The
+        // dominance-frontier query below supplies only sparse candidates, so
+        // this bounded reachability is paid only for selections that can
+        // actually have a witness.
+        auto same_epoch_materialized = false;
+        luisa::unordered_set<BasicBlock *> same_epoch_after_merge;
+        auto in_same_epoch_after_merge =
+            [&](BasicBlock *candidate) noexcept {
+                if (enclosing_loop_context == SIZE_MAX) {
+                    return true;
+                }
+                if (!same_epoch_materialized) {
+                    same_epoch_materialized = true;
+                    auto &&loop =
+                        cfg_relations.contexts[enclosing_loop_context];
+                    luisa::vector<BasicBlock *> work{merge};
+                    while (!work.empty()) {
+                        auto *block = work.back();
+                        work.pop_back();
+                        if (block == nullptr ||
+                            (block != merge &&
+                             (block == loop.break_target ||
+                              block == loop.continue_target)) ||
+                            !same_epoch_after_merge.emplace(block).second) {
+                            continue;
+                        }
+                        traverse_executable_successors(
+                            block, [&](BasicBlock *successor) noexcept {
+                                work.emplace_back(successor);
+                            });
+                    }
+                }
+                return same_epoch_after_merge.contains(candidate);
+            };
+        for (auto *frontier : dom.node(merge)->frontiers()) {
+            if (purpose == SelectionReentryAnalysisPurpose::AUDIT) {
+                ++info.selection_reentry_audit_frontier_query_count;
+            } else {
+                ++info.selection_reentry_edge_query_count;
+            }
+            auto *reentered = frontier->block();
+            if (reentered == nullptr || reentered == header ||
+                reentered == merge || !dom.contains(reentered) ||
+                !dom.dominates(header, reentered) ||
+                dom.dominates(merge, reentered) ||
+                is_legal_enclosing_selection_exit_in_quotient(
+                    cfg_relations, enclosing_context, reentered,
+                    allow_enclosing_switch)) {
+                continue;
+            }
+            BasicBlock *offender = nullptr;
+            reentered->traverse_predecessors(
+                false, [&](BasicBlock *predecessor) noexcept {
+                    if (offender != nullptr) { return; }
+                    if (purpose ==
+                        SelectionReentryAnalysisPurpose::AUDIT) {
+                        ++info.selection_reentry_audit_predecessor_query_count;
+                    }
+                    if (dom.contains(predecessor) &&
+                        has_executable_edge(predecessor, reentered) &&
+                        dom.dominates(merge, predecessor) &&
+                        in_same_epoch_after_merge(predecessor)) {
+                        offender = predecessor;
+                    }
+                });
+            if (offender == nullptr) { continue; }
+            result.emplace_back(PostMergeSelectionReentry{
+                .header = header,
+                .merge = merge,
+                .reentered_block = reentered,
+                .reentry_predecessor = offender});
+            if (stop_after_first) { return result; }
+            break;
+        }
+    }
+    return result;
+}
+
 // An exit-state dispatch can re-enter an arm of a selection that has already
 // merged. In graph terms, the original selection edge and the dispatch edge
 // are two entries into the newly formed cycle, so wrapping the dispatch in
@@ -5159,13 +5598,16 @@ struct PostMergeSelectionReentry {
         collect_loop_boundary_selection_entries(def);
     for (auto *dispatch : exit_dispatch_headers) {
         if (dispatch == nullptr || !dispatch->is_terminated() ||
-            !dispatch->terminator()
-                 ->isa<ConditionalBranchInst>() ||
             !dom.contains(dispatch)) {
             continue;
         }
-        auto *branch = static_cast<ConditionalBranchInst *>(
-            dispatch->terminator());
+        auto *term = dispatch->terminator();
+        if (!term->isa<ConditionalBranchInst>() &&
+            !term->isa<IfInst>()) {
+            continue;
+        }
+        auto *branch = static_cast<
+            ConditionalBranchTerminatorInstruction *>(term);
         auto arm_entries =
             std::array{branch->true_block(),
                        branch->false_block()};
@@ -5277,6 +5719,46 @@ struct PostMergeSelectionReentry {
     return false;
 }
 
+[[nodiscard]] bool split_one_post_merge_selection_reentry(
+    FunctionDefinition *def,
+    DomTree &dom,
+    PostDomInfo &pdom,
+    RestructureCFGInfo &info,
+    const luisa::unordered_set<BasicBlock *> &
+        exit_dispatch_headers) noexcept {
+    ++info.selection_reentry_boundary_analysis_count;
+    RestructureCFGInfo relation_work;
+    const auto cfg_relations =
+        build_selection_exit_cfg_relations(
+            def, dom, relation_work);
+    auto reentries = analyze_post_merge_selection_reentries(
+        def, dom, cfg_relations, exit_dispatch_headers,
+        info, SelectionReentryAnalysisPurpose::TRANSFORM,
+        true);
+    if (reentries.empty()) { return false; }
+    auto reentry = std::move(reentries.front());
+    collect_construct_entries(
+        reentry.header, reentry.entries);
+    if (reentry.entries.empty()) { return false; }
+    repair_target_state_dispatch_ssa(def);
+    dom = compute_dom_tree(def);
+    pdom = compute_post_dom(def, info);
+    LUISA_ASSERT(
+        clone_owned_subgraph_for_edge(
+            def, reentry.header,
+            reentry.reentered_block,
+            reentry.reentry_predecessor,
+            luisa::span<BasicBlock *const>{
+                reentry.entries.data(),
+                reentry.entries.size()},
+            reentry.merge, dom, true),
+        "Selection re-entry frontier splitting made no progress.");
+    ++info.canonicalized_cfg_count;
+    dom = compute_dom_tree(def);
+    pdom = compute_post_dom(def, info);
+    return true;
+}
+
 [[nodiscard]] bool split_exit_dispatch_selection_reentries(
     FunctionDefinition *def,
     DomTree &dom,
@@ -5288,6 +5770,11 @@ struct PostMergeSelectionReentry {
         "split_exit_dispatch_selection_reentries");
     auto modified = false;
     while (split_one_exit_dispatch_selection_reentry(
+        def, dom, pdom, info,
+        exit_dispatch_headers)) {
+        modified = true;
+    }
+    while (split_one_post_merge_selection_reentry(
         def, dom, pdom, info,
         exit_dispatch_headers)) {
         modified = true;
@@ -5676,8 +6163,10 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 // 1. Rebuild the construct tree from the current merge declarations.
 // 2. Visit constructs from inner to outer.
 // 3. Compute the construct block set from dominance and ancestor boundaries.
-// 4. If an exit targets anything except the construct's own merge/continue,
-//    route *all* exits through one new merge, carrying the old target as state.
+// 4. If a construct has an actually illegal exit, or its merge conflicts with
+//    its parent's merge/continue role, route its exits through one new merge.
+//    Selection exits to the nearest enclosing loop or switch boundary are
+//    legal in SPIR-V and do not themselves trigger a rewrite.
 // 5. Invalidate dominance/post-dominance and rebuild after one rewrite.
 //
 // Exit-state dispatch headers are intentionally transparent here. LLVM emits
@@ -5700,8 +6189,13 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         // boundary relation once for this CFG version; the successful rewrite
         // at the bottom invalidates it together with dominance.
         ++info.construct_exit_boundary_analysis_count;
-        const auto loop_boundary_selection_entries =
-            collect_loop_boundary_selection_entries(def);
+        RestructureCFGInfo relation_work;
+        const auto structured_exit_relations =
+            build_selection_exit_cfg_relations(
+                def, dom, relation_work);
+        const auto &loop_boundary_selection_entries =
+            structured_exit_relations
+                .loop_boundary_selection_entries;
         struct Construct {
             BasicBlock *header{nullptr};
             Instruction *term{nullptr};
@@ -5881,6 +6375,22 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         for (auto *node_ptr : construct_order) {
             auto &node = *node_ptr;
             if (node.parent == nullptr) { continue; }
+            auto selection = node.term->isa<IfInst>() ||
+                             node.term->isa<SwitchInst>();
+            auto enclosing_context = selection_context(
+                structured_exit_relations, node.header);
+            auto allow_enclosing_switch =
+                !node.term->isa<SwitchInst>();
+            auto is_legal_exit =
+                [&](BasicBlock *target) noexcept {
+                    return target == node.merge ||
+                           target == node.continue_target ||
+                           (selection &&
+                            is_legal_enclosing_selection_exit_in_quotient(
+                                structured_exit_relations,
+                                enclosing_context, target,
+                                allow_enclosing_switch));
+                };
             luisa::unordered_set<BasicBlock *> outside_boundaries;
             for (auto *ancestor = node.parent;
                  ancestor != nullptr;
@@ -5905,6 +6415,21 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                      dom.dominates(node.merge, block))) {
                     continue;
                 }
+                // Ordinary dominance alone over-approximates a selection
+                // construct when one arm exits an enclosing construct. Once
+                // such an arm reaches the nearest legal loop/switch boundary,
+                // every block after that boundary belongs to the enclosing
+                // construct, even if the selection header happens to dominate
+                // it in the executable CFG. This is structural dominance's
+                // epoch cut. Do not apply it to the header itself: a selection
+                // may begin at a SimpleLoop continue/body target.
+                if (selection && block != node.header &&
+                    is_legal_enclosing_selection_exit_in_quotient(
+                        structured_exit_relations,
+                        enclosing_context, block,
+                        allow_enclosing_switch)) {
+                    continue;
+                }
                 if (!blocks.emplace(block).second) { continue; }
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
@@ -5927,8 +6452,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                        node.merge ==
                            node.parent->continue_target;
             for (auto edge : exits) {
-                if (edge.dst != node.merge &&
-                    edge.dst != node.continue_target) {
+                if (!is_legal_exit(edge.dst)) {
                     bad = true;
                 }
             }
@@ -6229,73 +6753,18 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_post_merge_selection_reentries(
     FunctionDefinition *def,
     RestructureCFGInfo &info) noexcept {
-    size_t count = 0u;
     auto dom = compute_dom_tree(def);
-    const auto loop_boundary_selection_entries =
-        collect_loop_boundary_selection_entries(def);
-    for (auto *header : def->basic_blocks()) {
-        if (header == nullptr || !header->is_terminated() ||
-            !dom.contains(header)) {
-            continue;
-        }
-        auto *term = header->terminator();
-        if (!term->isa<IfInst>() &&
-            !term->isa<SwitchInst>()) {
-            continue;
-        }
-        // Loop-boundary IfInst nodes are the XIR spelling of physical
-        // break/continue guards. The SPIR-V emitter deliberately does not
-        // declare them as selection constructs, so selection re-entry rules
-        // do not apply to those provenance-checked nodes.
-        if (!requires_unique_construct_entries(
-                header,
-                loop_boundary_selection_entries)) {
-            continue;
-        }
-        auto *merge =
-            term->control_flow_merge()->merge_block();
-        if (merge == nullptr || !dom.contains(merge)) {
-            continue;
-        }
-        ++info.selection_reentry_audit_selection_query_count;
-
-        // For a structured selection (H, M), its executable interior is the
-        // H-dominated region before M. An edge from an M-dominated block back
-        // into that region is precisely a second entry after the construct
-        // has merged. SPIR-V rejects this graph even when the two declared arm
-        // entries themselves have unique predecessors.
-        //
-        // Such a destination is, by definition, in M's dominance frontier:
-        // M dominates an executable predecessor but does not dominate the
-        // destination. Query that sparse relation instead of scanning every
-        // block for every selection. The executable-predecessor check below
-        // filters any ownership-only XIR use-list edges, preserving the exact
-        // graph predicate rather than relying on representation details.
-        auto invalid = false;
-        for (auto *frontier : dom.node(merge)->frontiers()) {
-            ++info.selection_reentry_audit_frontier_query_count;
-            auto *block = frontier->block();
-            if (block == nullptr || block == header ||
-                block == merge || !dom.contains(block) ||
-                !dom.dominates(header, block) ||
-                dom.dominates(merge, block)) {
-                continue;
-            }
-            block->traverse_predecessors(
-                false,
-                [&](BasicBlock *predecessor) noexcept {
-                    if (invalid) { return; }
-                    ++info.selection_reentry_audit_predecessor_query_count;
-                    invalid |=
-                        dom.contains(predecessor) &&
-                        has_executable_edge(predecessor, block) &&
-                        dom.dominates(merge, predecessor);
-                });
-            if (invalid) { break; }
-        }
-        count += invalid ? 1u : 0u;
-    }
-    return count;
+    RestructureCFGInfo relation_work;
+    const auto cfg_relations =
+        build_selection_exit_cfg_relations(
+            def, dom, relation_work);
+    const luisa::unordered_set<BasicBlock *> no_ignored_headers;
+    return analyze_post_merge_selection_reentries(
+               def, dom, cfg_relations,
+               no_ignored_headers, info,
+               SelectionReentryAnalysisPurpose::AUDIT,
+               false)
+        .size();
 }
 
 [[nodiscard]] RestructureCFGInfo preflight_restructure_cfg(

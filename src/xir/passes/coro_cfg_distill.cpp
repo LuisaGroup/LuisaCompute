@@ -81,7 +81,7 @@ static void hash_optional_token(DistillCertificateHasher &h,
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{3u});
+    h.add(uint64_t{4u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -118,6 +118,11 @@ static void hash_optional_token(DistillCertificateHasher &h,
                             static_cast<const CoroSuspendInst *>(instruction);
                         h.add(suspend->token());
                         h.add_string(suspend->name());
+                        h.add(suspend->frame_export_count());
+                        for (auto &name :
+                             suspend->frame_export_names()) {
+                            h.add_string(name);
+                        }
                         break;
                     }
                     case DerivedInstructionTag::CORO_RESUME:
@@ -216,6 +221,10 @@ static void hash_optional_token(DistillCertificateHasher &h,
         h.add(frame_value.access_chain.size());
         for (auto index : frame_value.access_chain) { h.add(index); }
         h.add_string(frame_value.name);
+        h.add(frame_value.aliases.size());
+        for (auto &alias : frame_value.aliases) {
+            h.add_string(alias);
+        }
         h.add_pointer(frame_value.type);
         h.add(frame_value.slot);
         h.add(frame_value.bit_offset.has_value());
@@ -244,11 +253,38 @@ static void hash_optional_token(DistillCertificateHasher &h,
         def->find_metadata<SignatureConstraintMD>() != nullptr) {
         return false;
     }
+    luisa::unordered_map<luisa::string, const Value *>
+        designated_values;
     for (auto *block : def->basic_blocks()) {
         auto resume_count = 0u;
         for (auto *inst : block->instructions()) {
             if (inst->isa<PhiInst>()) { return false; }
             if (inst->isa<CoroResumeInst>()) { ++resume_count; }
+            if (inst->isa<CoroSuspendInst>()) {
+                auto *suspend =
+                    static_cast<CoroSuspendInst *>(inst);
+                luisa::unordered_set<luisa::string> local_names;
+                for (size_t i = 0u;
+                     i < suspend->frame_export_count(); ++i) {
+                    auto &name = suspend->frame_export_name(i);
+                    auto *value = suspend->frame_export_value(i);
+                    if (name.empty() ||
+                        !local_names.emplace(name).second ||
+                        value == nullptr || value->type() == nullptr ||
+                        value->is_lvalue() ||
+                        !value->type()->is_basic()) {
+                        return false;
+                    }
+                    auto inserted =
+                        designated_values.try_emplace(name, value).second;
+                    if (!inserted) {
+                        // An ABI alias is declared exactly once. Reusing it at
+                        // another boundary would make its validity interval
+                        // path-dependent and scheduler reads ambiguous.
+                        return false;
+                    }
+                }
+            }
         }
         // A block has one continuation identity. Two resume tokens in one
         // block create two roots with the same block set; a resume in the
@@ -491,8 +527,10 @@ private:
     detail::CoroFrameAtomDomain _atoms;
 
 public:
-    explicit DenseValueDomain(FunctionDefinition *definition) noexcept
-        : _atoms{definition} {}
+    explicit DenseValueDomain(
+        FunctionDefinition *definition,
+        luisa::span<Value *const> designated_values = {}) noexcept
+        : _atoms{definition, designated_values} {}
 
     [[nodiscard]] size_t size() const noexcept { return _atoms.size(); }
 
@@ -751,7 +789,14 @@ static void transfer_instruction(Instruction *inst, State &state) noexcept {
             if (atomic->type() != nullptr && !atomic->is_lvalue()) { touch_value(atomic, state); }
             break;
         }
-        case DerivedInstructionTag::CORO_SUSPEND:
+        case DerivedInstructionTag::CORO_SUSPEND: {
+            auto *suspend = static_cast<CoroSuspendInst *>(inst);
+            for (size_t i = 0u;
+                 i < suspend->frame_export_count(); ++i) {
+                use_value(suspend->frame_export_value(i), state);
+            }
+            break;
+        }
         case DerivedInstructionTag::CORO_TERMINATE:
             break;
         default: {
@@ -1370,9 +1415,60 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
 
 static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinition *def) noexcept {
     auto n = result.scopes.size();
-    DenseValueDomain value_domain{def};
+    // Collect the semantic scheduler ABI before constructing the immutable
+    // atom domain. A designated value may otherwise be omitted as replayable
+    // or always available even though the host needs a concrete frame field.
+    luisa::vector<Value *> designated_values;
+    luisa::unordered_map<luisa::string, Value *>
+        designated_values_by_name;
+    luisa::unordered_map<Value *, luisa::vector<luisa::string>>
+        designated_aliases_by_value;
+    for (auto *block : def->basic_blocks()) {
+        for (auto *instruction : block->instructions()) {
+            if (!instruction->isa<CoroSuspendInst>()) { continue; }
+            auto *suspend =
+                static_cast<CoroSuspendInst *>(instruction);
+            for (size_t i = 0u;
+                 i < suspend->frame_export_count(); ++i) {
+                auto *value = suspend->frame_export_value(i);
+                auto &name = suspend->frame_export_name(i);
+                auto name_inserted =
+                    designated_values_by_name.try_emplace(name, value)
+                        .second;
+                LUISA_ASSERT(
+                    name_inserted,
+                    "Validated coroutine designated-value alias '{}' "
+                    "appeared more than once.",
+                    name);
+                auto [alias_iter, value_inserted] =
+                    designated_aliases_by_value.try_emplace(value);
+                if (value_inserted) {
+                    designated_values.emplace_back(value);
+                }
+                if (std::find(alias_iter->second.begin(),
+                              alias_iter->second.end(), name) ==
+                    alias_iter->second.end()) {
+                    alias_iter->second.emplace_back(name);
+                }
+            }
+        }
+    }
+    DenseValueDomain value_domain{def,
+                                  luisa::span{designated_values}};
     detail::CoroReplayableValueAnalysis replayable;
     auto value_count = value_domain.size();
+    auto designated_atoms = DenseValueSet{value_count};
+    luisa::unordered_map<size_t, luisa::vector<luisa::string>>
+        designated_aliases_by_atom;
+    for (auto *value : designated_values) {
+        auto atom_index = value_domain.ssa_index(value);
+        LUISA_ASSERT(
+            atom_index.has_value(),
+            "Validated coroutine designated value has no frame atom.");
+        designated_atoms.set(*atom_index);
+        designated_aliases_by_atom.emplace(
+            *atom_index, designated_aliases_by_value.at(value));
+    }
 
     luisa::vector<DenseScopeDataflowResult> scope_data;
     scope_data.reserve(n);
@@ -1428,12 +1524,14 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     struct DenseTransitionData {
         DenseValueSet killed;
         DenseValueSet touched;
+        DenseValueSet designated;
         DenseValueSet live;
         DenseValueSet store;
 
         explicit DenseTransitionData(size_t count) noexcept
             : killed{count},
               touched{count},
+              designated{count},
               live{count},
               store{count} {}
     };
@@ -1459,6 +1557,19 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             scope_data[from].killed_at_exit[location->second];
         dense.touched =
             scope_data[from].touched_at_exit[location->second];
+        if (is_suspend) {
+            auto *suspend = static_cast<CoroSuspendInst *>(
+                exit_block->terminator());
+            for (size_t i = 0u;
+                 i < suspend->frame_export_count(); ++i) {
+                auto atom_index = value_domain.ssa_index(
+                    suspend->frame_export_value(i));
+                LUISA_ASSERT(
+                    atom_index.has_value(),
+                    "Validated coroutine designated value has no frame atom.");
+                dense.designated.set(*atom_index);
+            }
+        }
     };
 
     for (size_t from = 0u; from < n; ++from) {
@@ -1488,6 +1599,33 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         if (std::find(dependents.begin(), dependents.end(),
                       edge.from_scope) == dependents.end()) {
             dependents.emplace_back(edge.from_scope);
+        }
+    }
+
+    // A scheduler observes an exported value by continuation token, not by
+    // the source edge that produced the frame. Therefore its validity is a
+    // must property over all transitions entering that token:
+    //
+    //   D(t) = D(e)  for every edge e whose target is t.
+    //
+    // A suspension plus an ordinary cross-scope bypass into the same token
+    // would otherwise make the field initialized only on one path. Reject
+    // that partial ABI instead of widening liveness, inventing a value for
+    // the bypass, or leaving scheduler reads path-dependent. Repeated dynamic
+    // executions of one static exported suspend (including self-edges) carry
+    // the same designated set and remain valid.
+    luisa::vector<luisa::optional<DenseValueSet>>
+        target_designated(n);
+    for (size_t edge_index = 0u;
+         edge_index < result.transition_edges.size(); ++edge_index) {
+        auto target = result.transition_edges[edge_index].to_scope;
+        if (target >= n) { continue; }
+        auto &expected = target_designated[target];
+        if (!expected) {
+            expected.emplace(edge_data[edge_index].designated);
+        } else if (!(*expected == edge_data[edge_index].designated)) {
+            ++result.invalid_cfg_error_count;
+            return;
         }
     }
 
@@ -1546,6 +1684,9 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             auto store = live_begin[edge.to_scope];
             store.intersect_with(edge_data[edge_index].touched);
             edge_data[edge_index].live = live_begin[edge.to_scope];
+            edge_data[edge_index].live.union_with(
+                edge_data[edge_index].designated);
+            store.union_with(edge_data[edge_index].designated);
             edge_data[edge_index].store = std::move(store);
             live_out[s].union_with(edge_data[edge_index].store);
         }
@@ -1557,6 +1698,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         frame_value_set.union_with(live_in[i]);
         frame_value_set.union_with(live_out[i]);
     }
+    frame_value_set.union_with(designated_atoms);
 
     struct PlannedFrameAtom {
         size_t atom_index;
@@ -1596,14 +1738,40 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     luisa::vector<std::pair<size_t, size_t>> atom_to_frame_value_range(
         value_count, {static_cast<size_t>(-1), 0u});
     luisa::unordered_set<luisa::string> used_names;
+    for (auto &[atom_index, aliases] :
+         designated_aliases_by_atom) {
+        static_cast<void>(atom_index);
+        for (auto &alias : aliases) {
+            auto inserted = used_names.emplace(alias).second;
+            LUISA_ASSERT(
+                inserted,
+                "Validated coroutine designated alias '{}' is duplicated.",
+                alias);
+        }
+    }
     for (auto &planned : planned_frame_atoms) {
         auto &atom = value_domain.atom(planned.atom_index);
+        auto designated_alias_iter =
+            designated_aliases_by_atom.find(planned.atom_index);
+        auto is_designated =
+            designated_alias_iter != designated_aliases_by_atom.end();
+        if (is_designated && planned.abi.fields.size() != 1u) {
+            ++result.invalid_cfg_error_count;
+            return;
+        }
         auto first = result.frame_values.size();
         for (auto &field : planned.abi.fields) {
-            auto name = frame_value_name(
-                atom.root, field.access_chain,
-                result.frame_values.size());
-            if (!used_names.emplace(name).second) {
+            auto aliases = luisa::vector<luisa::string>{};
+            if (is_designated) {
+                aliases = designated_alias_iter->second;
+            }
+            auto name = !aliases.empty() ?
+                            aliases.front() :
+                            frame_value_name(
+                                atom.root, field.access_chain,
+                                result.frame_values.size());
+            if (!is_designated &&
+                !used_names.emplace(name).second) {
                 auto base = name;
                 auto suffix = result.frame_values.size();
                 do {
@@ -1615,6 +1783,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
                     .value = atom.root,
                     .access_chain = field.access_chain,
                     .name = std::move(name),
+                    .aliases = std::move(aliases),
                     .type = field.type,
                     .slot = 0u,
                     .bit_offset = luisa::nullopt,
@@ -1738,13 +1907,18 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             oracle_edge_killed;
         luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_touched;
+        luisa::vector<luisa::unordered_set<size_t>>
+            oracle_edge_designated;
         oracle_edge_killed.reserve(edge_data.size());
         oracle_edge_touched.reserve(edge_data.size());
+        oracle_edge_designated.reserve(edge_data.size());
         for (auto &data : edge_data) {
             oracle_edge_killed.emplace_back(
                 to_pointer_set(data.killed));
             oracle_edge_touched.emplace_back(
                 to_pointer_set(data.touched));
+            oracle_edge_designated.emplace_back(
+                to_pointer_set(data.designated));
         }
 
         luisa::vector<luisa::unordered_set<size_t>>
@@ -1790,9 +1964,13 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
                 append(oracle_live_in[scope], reload);
                 oracle_edge_live[edge_index] =
                     oracle_live_begin[edge.to_scope];
+                append(oracle_edge_live[edge_index],
+                       oracle_edge_designated[edge_index]);
                 oracle_edge_store[edge_index] = intersection(
                     oracle_live_begin[edge.to_scope],
                     oracle_edge_touched[edge_index]);
+                append(oracle_edge_store[edge_index],
+                       oracle_edge_designated[edge_index]);
                 append(oracle_live_out[scope],
                        oracle_edge_store[edge_index]);
             }

@@ -554,12 +554,25 @@ template<>
 void CallableLibrary::ser_value(SuspendStmt const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(t._token, vec);
     ser_value(t._name, vec);
+    ser_value(t._frame_exports.size(), vec);
+    for (auto &&frame_export : t._frame_exports) {
+        ser_value(frame_export.name, vec);
+        ser_value(*frame_export.value, vec);
+    }
 }
 template<>
 void CallableLibrary::deser_ptr(SuspendStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
-    (void)pack;
     obj->_token = deser_value<uint32_t>(ptr, pack);
     obj->_name = deser_value<luisa::string>(ptr, pack);
+    auto count = deser_value<size_t>(ptr, pack);
+    obj->_frame_exports.reserve(count);
+    for (size_t i = 0u; i < count; ++i) {
+        auto name = deser_value<luisa::string>(ptr, pack);
+        auto *value = deser_value<Expression const *>(ptr, pack);
+        obj->_frame_exports.emplace_back(CoroFrameExport{
+            .value = value, .name = std::move(name)});
+        if (value != nullptr) { value->mark(Usage::READ); }
+    }
 }
 template<>
 void CallableLibrary::ser_value(AutoDiffStmt const &t, luisa::vector<std::byte> &vec) noexcept {
