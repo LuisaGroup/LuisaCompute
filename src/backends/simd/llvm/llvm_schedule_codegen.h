@@ -100,21 +100,25 @@ struct alignas(16) SIMDHostBindlessArrayView {
     SIMDHostBindlessTextureSize *size_texture{nullptr};
 };
 
-// Acceleration-structure callbacks consume component-major ray packets:
-// origin.xyz, t_min, direction.xyz, and t_max are eight consecutive float
-// vectors. Motion queries additionally provide one time vector; static queries
-// pass a null time pointer and use time zero. Closest-hit ids contain instance
-// and primitive vectors; hit values contain barycentric u/v and committed t
-// vectors. W2 is padded to Embree's four-wide ABI by the runtime, while W1
-// alone may use the scalar API.
+// Acceleration-structure callbacks consume an in-place, component-major packet
+// with Embree's public RTCRay/RTCHit field order. Each field is one vector of
+// lane_count 32-bit words. The stable field indices below are shared by the
+// target-independent JIT and the runtime; the runtime statically proves them
+// against the configured Embree headers. W2 is still padded to Embree's W4
+// ABI, while W1 alone may use the scalar API. W4/W8/W16 pass this scratch
+// directly to Embree, which also writes the result fields in place.
+inline constexpr auto simd_host_accel_ray_tfar_field = 8u;
+inline constexpr auto simd_host_accel_hit_u_field = 15u;
+inline constexpr auto simd_host_accel_hit_v_field = 16u;
+inline constexpr auto simd_host_accel_hit_prim_field = 17u;
+inline constexpr auto simd_host_accel_hit_geom_field = 18u;
+inline constexpr auto simd_host_accel_hit_inst_field = 19u;
 using SIMDHostAccelTraceClosest = void(
     void *accel, uint32_t lane_count, uint64_t active_mask_bits,
-    const float *ray_components, const uint32_t *visibility_masks,
-    const float *times, uint32_t *hit_ids, float *hit_values);
+    void *ray_hit_packet);
 using SIMDHostAccelTraceAny = void(
     void *accel, uint32_t lane_count, uint64_t active_mask_bits,
-    const float *ray_components, const uint32_t *visibility_masks,
-    const float *times, uint32_t *occluded);
+    void *ray_packet);
 
 enum class SIMDHostRayQueryCandidateKind : uint32_t {
     none = 0u,

@@ -4,7 +4,8 @@ Snapshot date: 2026-08-13. This report covers the Release build after merging
 `origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
-postprocessing from curve-free acceleration structures.
+postprocessing from curve-free acceleration structures and native-width
+direct-trace packet copies.
 
 ## Test host and method
 
@@ -38,7 +39,7 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 71.935 | 58.522 (0.814x) | 43.605 (0.606x) | 51.833 (0.721x) | 57.308 (0.797x) | 57.497 (0.799x) |
+| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 73.286 | 62.123 (0.848x) | 44.564 (0.608x) | 53.265 (0.727x) | 58.537 (0.799x) | 57.814 (0.789x) |
 | cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 36.591 (0.534x) | 34.688 (0.506x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
@@ -50,13 +51,13 @@ process medians ranged from 41.594 to 88.326 GFLOP/s under shared-host load,
 while the SIMD distributions were tight. Its relative speedups must therefore
 be treated as host observations, not cross-machine constants.
 
-The ordinary path-tracing row is the final eight-process sweep at 64 spp. It
+The ordinary path-tracing row is the final eight-process sweep at 128 spp. It
 uses the shared `--max-spp-per-dispatch 1` option on both backends so the row
 measures width, divergent scheduling, resource callbacks, and Embree packets
 without a dispatch-batching asymmetry. Its observed ranges were
-70.046--73.815, 57.216--59.738, 41.082--44.248, 49.543--52.726,
-55.802--58.504, and 55.914--58.484 spp/s from fallback through W16. Paired
-geometric-mean speedups were 0.813x/0.601x/0.717x/0.797x/0.795x for
+70.702--75.216, 60.345--63.179, 42.889--46.091, 51.333--54.531,
+55.273--60.255, and 57.637--59.810 spp/s from fallback through W16. Paired
+geometric-mean speedups were 0.844x/0.610x/0.726x/0.802x/0.798x for
 W1/W2/W4/W8/W16. A separate twelve-process real-default sweep, where fallback
 uses one spp per dispatch and SIMD uses up to 64, produced medians of
 72.205/78.657/55.056/62.260/66.910/65.413 spp/s. That batching policy makes
@@ -109,6 +110,56 @@ cycling through L1/L2, not a DRAM bandwidth wall. Object and runtime audits
 confirm W8 calls `rtcIntersect8`/`rtcOccluded8` once per packet and that Embree
 advertises native W8 support.
 
+Packet-density instrumentation explains why native traversal alone does not
+make this renderer faster than fallback. At W8 and 16 spp, direct closest-hit
+issued 8,517,551 packets with a mean 3.992 active lanes (49.90% utilization):
+31.88% were singleton and only 25.77% were full. Occlusion issued 7,979,581
+packets with a mean 3.772 active lanes (47.15% utilization): 34.35% singleton
+and 26.36% full. The counters were an environment-gated diagnostic experiment
+and are not present in production. Bounce divergence, not a missing W8 Embree
+entry point, is therefore the dominant utilization limit.
+
+### In-place direct-trace packet ABI
+
+The old callback received eight ray vectors, visibility, optional time, and
+separate hit scratch. It constructed a second Embree packet, traversed, and
+copied instance/primitive/u/v/t back. The JIT now constructs Embree's public
+component order directly and the W1/W4/W8/W16 runtime passes that aligned
+scratch in place; W2 alone performs its required pad-to-W4 conversion.
+Compile-time layout assertions fail the build if the configured Embree headers
+do not match. A permanent sparse-tail callback probe checks inputs and returned
+closest/any fields at W1/W2/W4/W8/W16, while the runtime accel and curve gates
+exercise real Embree.
+
+Isolated old/new backend modules ran ordinary path tracing at 128 spp and one
+spp per dispatch, with alternating order and no removed sample. Output files
+were byte-identical within every width:
+
+| Width | Pairs | New/old paired geometric mean | Wins | Median ratio |
+| --- | ---: | ---: | ---: | ---: |
+| W1 | 8 | 1.0450x | 8/8 | 1.0470x |
+| W2 | 8 | 1.0435x | 8/8 | 1.0530x |
+| W4 | 8 | 1.0293x | 8/8 | 1.0352x |
+| W8 | 10 | 1.0221x | 10/10 | 1.0265x |
+| W16 | 8 | 1.0263x | 8/8 | 1.0271x |
+
+Three 256-spp W8 `perf stat` repetitions measured candidate/baseline mean
+ratios of 0.9710 for cycles, 0.9661 for instructions, 0.9510 for branches,
+0.9965 for branch misses, 0.9546 for L1 data loads, and 0.8393 for L1
+data-load misses. The JIT main-kernel stack grows from 9,472 to 9,728 bytes
+because it now owns the complete public hit packet, but its final assembly
+still contains vector arithmetic and no scalar math symbol; runtime object
+disassembly shows direct native-width Embree calls without the old packet
+initialization/copy path.
+
+A final eight-process rotating sweep at 128 spp, again forcing one spp per
+dispatch for every backend, measured medians of 73.286/62.123/44.564/53.265/
+58.537/57.814 spp/s for fallback/W1/W2/W4/W8/W16. Paired geometric-mean
+SIMD/fallback throughputs were 0.844x/0.610x/0.726x/0.802x/0.798x. The host
+load average rose to about 19 by the end, so the paired measurements are the
+preferred ratios. The optimization is real and repeatable, but does not erase
+the renderer's divergence-driven fallback deficit.
+
 ### Curve-free direct-trace postprocessing
 
 Direct closest-hit traversal historically scanned every active result after
@@ -138,7 +189,9 @@ for instructions, about 0.9547 for branches, 0.7349--0.7496 for branch
 misses, about 0.9974 for L1 data loads, and 0.9146--0.9694 for L1 data-load
 misses. A tempting removal of the zero initialization for temporary Embree ray
 packets was rejected separately: it changed machine code but ten W8 pairs
-measured 0.9952x with only 4/10 wins. The production code keeps the bulk zero.
+measured 0.9952x with only 4/10 wins. That experiment predates the in-place ABI:
+native widths no longer materialize a temporary packet, while W2 still clears
+its padded W4 storage and the JIT initializes every public packet field.
 
 Fresh 1024-spp ordinary path-tracing comparisons passed at W1/W2/W4/W8/W16
 with RGB PSNR 35.43/42.78/40.94/39.22/37.80 dB respectively. The gallery
@@ -497,8 +550,9 @@ metadata did not regress its hot descriptor layout.
 ## Validation
 
 The required native-math/fallback-math/runtime-width gate passes 3/3. A
-focused gate including accel, curve-summary replacement, and example-option
-parsing passes 6/6. After a full Release build, the complete configured
+focused gate including in-place packet codegen, accel, curve-summary
+replacement, and example-option parsing passes 7/7. After a full Release
+build, the complete configured
 repository CTest suite passes 140/140: 26 integration-SIMD, 21 runtime-SIMD,
 and three graphics-SIMD tests are included. This also includes the
 coroutine-frame tests merged from `next` and the repaired lazy-dispatch scalar

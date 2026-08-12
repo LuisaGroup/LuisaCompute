@@ -2952,6 +2952,227 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+struct AccelDirectPacketProbe {
+    uint32_t closest_calls{0u};
+    uint32_t any_calls{0u};
+    uint32_t failure_code{0u};
+    uint32_t expected_lane_count{0u};
+    uint32_t expected_active_lanes{0u};
+    bool valid{true};
+};
+
+void accel_direct_closest_probe(
+    void *accel, uint32_t lane_count,
+    uint64_t active_mask_bits, void *packet_storage) {
+    auto *probe = static_cast<AccelDirectPacketProbe *>(accel);
+    auto *words = static_cast<uint32_t *>(packet_storage);
+    auto *floats = static_cast<float *>(packet_storage);
+    probe->closest_calls++;
+    auto verify = [&](bool condition, uint32_t code) {
+        if (!condition && probe->failure_code == 0u) {
+            probe->failure_code = code;
+        }
+        probe->valid &= condition;
+    };
+    auto expected_mask =
+        (uint64_t{1u} << probe->expected_active_lanes) - 1u;
+    verify(lane_count == probe->expected_lane_count, 1u);
+    verify(active_mask_bits == expected_mask, 2u);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto active = lane < probe->expected_active_lanes;
+        verify(words[10u * lane_count + lane] == lane, 10u + lane);
+        verify(words[11u * lane_count + lane] == 0u, 20u + lane);
+        verify(
+            words[9u * lane_count + lane] == (active ? 0x5au : 0u),
+            30u + lane);
+        for (auto component = uint32_t{0u}; component < 7u;
+             component++) {
+            static constexpr std::array expected_components{
+                1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
+            auto expected = active ?
+                                expected_components[component] :
+                            component == 6u ? 1.0f :
+                                              0.0f;
+            verify(
+                floats[component * lane_count + lane] == expected,
+                100u + component * lane_count + lane);
+        }
+        verify(floats[7u * lane_count + lane] == 0.0f, 200u + lane);
+        verify(
+            floats[simd_host_accel_ray_tfar_field * lane_count + lane] ==
+                (active ? 8.0f : 0.0f),
+            210u + lane);
+        if (!active) { continue; }
+        words[simd_host_accel_hit_inst_field * lane_count + lane] =
+            10u + lane;
+        words[simd_host_accel_hit_prim_field * lane_count + lane] =
+            20u + lane;
+        floats[simd_host_accel_hit_u_field * lane_count + lane] =
+            0.125f + static_cast<float>(lane);
+        floats[simd_host_accel_hit_v_field * lane_count + lane] =
+            0.25f + static_cast<float>(lane);
+        floats[simd_host_accel_ray_tfar_field * lane_count + lane] =
+            30.0f + static_cast<float>(lane);
+    }
+}
+
+void accel_direct_any_probe(
+    void *accel, uint32_t lane_count,
+    uint64_t active_mask_bits, void *packet_storage) {
+    auto *probe = static_cast<AccelDirectPacketProbe *>(accel);
+    auto *floats = static_cast<float *>(packet_storage);
+    probe->any_calls++;
+    auto expected_mask =
+        (uint64_t{1u} << probe->expected_active_lanes) - 1u;
+    probe->valid &= lane_count == probe->expected_lane_count &&
+                    active_mask_bits == expected_mask;
+    for (auto lane = uint32_t{0u};
+         lane < probe->expected_active_lanes; lane++) {
+        floats[simd_host_accel_ray_tfar_field * lane_count + lane] =
+            (lane & 1u) == 0u ? -1.0f : 1.0f;
+    }
+}
+
+[[nodiscard]] bool check_accel_direct_packet_ir_shape() {
+    static constexpr auto width = 8u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("accel_direct_packet_shape");
+    auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+    auto *ray = kernel->create_value_argument(Type::of<Ray>());
+    auto *visibility = kernel->create_value_argument(Type::of<uint32_t>());
+    auto *entry = kernel->create_body_block();
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    static_cast<void>(builder.call(
+        Type::of<SurfaceHit>(),
+        xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST,
+        {accel, ray, visibility}));
+    builder.return_void();
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-accel-direct-packet-shape", *context);
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width,
+        "simd_accel_direct_packet_shape");
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("accel.rayhit.packet") != std::string::npos);
+    CHECK(ir.find("accel.closest.ids") == std::string::npos);
+    CHECK(ir.find("accel.closest.values") == std::string::npos);
+    CHECK(count_occurrences(ir, "call void %") == 1u);
+    return true;
+}
+
+[[nodiscard]] bool run_accel_direct_packet_codegen_case(
+    uint32_t width, uint32_t active_lanes) {
+    Kernel1D kernel = [](
+                          AccelVar accel,
+                          BufferVar<Ray> rays,
+                          BufferUInt visibility,
+                          BufferVar<SurfaceHit> hits,
+                          BufferUInt any_hits) noexcept {
+        auto index = dispatch_x();
+        auto ray = rays.read(index);
+        auto options = AccelTraceOptions{
+            .visibility_mask = visibility.read(index)};
+        hits.write(index, accel.intersect(ray, options));
+        any_hits.write(
+            index, cast<uint>(accel.intersect_any(ray, options)));
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_accel_direct_packet_w" + std::to_string(width));
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        SIMDHostBufferView rays;
+        SIMDHostBufferView visibility;
+        SIMDHostBufferView hits;
+        SIMDHostBufferView any_hits;
+    };
+    CHECK(compiled.argument_buffer_size == sizeof(Arguments));
+    std::array<Ray, 16u> rays{};
+    std::array<uint32_t, 16u> visibility{};
+    std::array<SurfaceHit, 16u> hits{};
+    std::array<uint32_t, 16u> any_hits{};
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        rays[lane] = Ray{
+            .compressed_origin = {1.0f, 2.0f, 3.0f},
+            .compressed_t_min = 4.0f,
+            .compressed_direction = {5.0f, 6.0f, 7.0f},
+            .compressed_t_max = 8.0f,
+        };
+        visibility[lane] = 0x5au;
+    }
+    AccelDirectPacketProbe probe{
+        .expected_lane_count = width,
+        .expected_active_lanes = active_lanes,
+    };
+    Arguments arguments{
+        .accel = {
+            .accel = &probe,
+            .trace_closest = accel_direct_closest_probe,
+            .trace_any = accel_direct_any_probe,
+        },
+        .rays = {rays.data(), sizeof(rays)},
+        .visibility = {visibility.data(), sizeof(visibility)},
+        .hits = {hits.data(), sizeof(hits)},
+        .any_hits = {any_hits.data(), sizeof(any_hits)},
+    };
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    auto config = launch_1d(active_lanes, width);
+    entry(&arguments, nullptr, &config, width);
+    if (!probe.valid) {
+        std::cerr << "direct packet failure code: "
+                  << probe.failure_code << '\n';
+    }
+    CHECK(probe.valid);
+    CHECK(probe.closest_calls == 1u);
+    CHECK(probe.any_calls == 1u);
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        CHECK(hits[lane].inst == 10u + lane);
+        CHECK(hits[lane].prim == 20u + lane);
+        CHECK(hits[lane].bary.x ==
+              0.125f + static_cast<float>(lane));
+        CHECK(hits[lane].bary.y ==
+              0.25f + static_cast<float>(lane));
+        CHECK(hits[lane].committed_ray_t ==
+              30.0f + static_cast<float>(lane));
+        CHECK(any_hits[lane] == ((lane & 1u) == 0u ? 1u : 0u));
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_accel_direct_packet_codegen() {
+    return check_accel_direct_packet_ir_shape() &&
+           run_accel_direct_packet_codegen_case(1u, 1u) &&
+           run_accel_direct_packet_codegen_case(2u, 1u) &&
+           run_accel_direct_packet_codegen_case(4u, 3u) &&
+           run_accel_direct_packet_codegen_case(8u, 5u) &&
+           run_accel_direct_packet_codegen_case(16u, 3u);
+}
+
 struct RayQueryPacketProbe {
     uint32_t calls{0u};
     uint32_t lane_count{0u};
@@ -4779,6 +5000,8 @@ int main() {
         {"XIR texture packet callback", &run_texture_packet_codegen},
         {"XIR accel instance metadata",
          &run_accel_instance_metadata_codegen},
+        {"XIR accel direct packet ABI",
+         &run_accel_direct_packet_codegen},
         {"XIR ray-query packet callback",
          &run_ray_query_packet_codegen},
         {"sequential ray-query scratch coloring",

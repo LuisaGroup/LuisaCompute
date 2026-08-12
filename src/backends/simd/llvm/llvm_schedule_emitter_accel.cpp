@@ -1,10 +1,58 @@
 #include "llvm_schedule_emitter.h"
 
+#include "../runtime/simd_embree.h"
+
 #include <array>
 
 namespace luisa::compute::simd::detail {
 
 namespace {
+
+#if defined(RTC_GEOMETRY_INSTANCE_ARRAY)
+inline constexpr auto embree_hit_packet_field_count =
+    7u + 2u * RTC_MAX_INSTANCE_LEVEL_COUNT;
+#else
+inline constexpr auto embree_hit_packet_field_count =
+    7u + RTC_MAX_INSTANCE_LEVEL_COUNT;
+#endif
+inline constexpr auto embree_ray_packet_field_count = 12u;
+
+[[nodiscard]] constexpr uint32_t embree_packet_field_count(
+    uint32_t width, bool closest) noexcept {
+    if (!closest) { return embree_ray_packet_field_count; }
+    switch (width) {
+        case 1u:
+            return static_cast<uint32_t>(
+                sizeof(RTCRayHit) / sizeof(uint32_t));
+        case 2u:
+        case 4u:
+            return static_cast<uint32_t>(
+                sizeof(RTCRayHit4) /
+                (4u * sizeof(uint32_t)));
+        case 8u:
+            return static_cast<uint32_t>(
+                sizeof(RTCRayHit8) /
+                (8u * sizeof(uint32_t)));
+        case 16u:
+            return static_cast<uint32_t>(
+                sizeof(RTCRayHit16) /
+                (16u * sizeof(uint32_t)));
+        default: return 0u;
+    }
+}
+
+static_assert(
+    simd_host_accel_ray_tfar_field == 8u &&
+    simd_host_accel_hit_u_field ==
+        embree_ray_packet_field_count + 3u &&
+    simd_host_accel_hit_v_field ==
+        embree_ray_packet_field_count + 4u &&
+    simd_host_accel_hit_prim_field ==
+        embree_ray_packet_field_count + 5u &&
+    simd_host_accel_hit_geom_field ==
+        embree_ray_packet_field_count + 6u &&
+    simd_host_accel_hit_inst_field ==
+        embree_ray_packet_field_count + 7u);
 
 [[nodiscard]] bool is_float_array(
     const Type *type, uint32_t dimension) noexcept {
@@ -792,41 +840,73 @@ void ScheduleEmitter::_accel_motion_write(
     auto *one_float = ::llvm::ConstantVector::getSplat(
         ::llvm::ElementCount::getFixed(_width),
         ::llvm::ConstantFP::get(_builder.getFloatTy(), 1.0));
-    auto *ray_scratch_type = ::llvm::ArrayType::get(
-        float_lanes, ray_components.size());
-    auto *ray_scratch = _entry_scratch(
-        ray_scratch_type,
-        "accel.rays." +
-            std::to_string(instruction.result->value));
-    _builder.CreateStore(
-        ::llvm::Constant::getNullValue(ray_scratch_type), ray_scratch);
-    for (auto component = uint32_t{0u};
-         component < ray_components.size(); component++) {
-        auto *fallback = component == 6u ? one_float : zero_float;
-        auto *safe = _builder.CreateSelect(
-            _active_mask, ray_components[component], fallback,
-            "accel.safe.ray.component");
+    auto *zero_i32 = ::llvm::Constant::getNullValue(i32_lanes);
+    auto *invalid_i32 = ::llvm::Constant::getAllOnesValue(i32_lanes);
+    auto packet_field_count =
+        embree_packet_field_count(_width, closest);
+    auto *packet_type = ::llvm::ArrayType::get(
+        i32_lanes, packet_field_count);
+    auto *packet = _entry_scratch(
+        packet_type,
+        closest ?
+            "accel.rayhit.packet." +
+                std::to_string(instruction.result->value) :
+            "accel.ray.packet." +
+                std::to_string(instruction.result->value));
+    packet->setAlignment(::llvm::Align{
+        _width * sizeof(uint32_t) < 16u ?
+            16u :
+            _width * sizeof(uint32_t)});
+    auto store_packet_field = [&](uint32_t field, ::llvm::Value *value) {
         auto *pointer = _builder.CreateGEP(
-            ray_scratch_type, ray_scratch,
-            {_builder.getInt32(0u), _builder.getInt32(component)});
-        _builder.CreateStore(safe, pointer);
+            packet_type, packet,
+            {_builder.getInt32(0u), _builder.getInt32(field)});
+        _builder.CreateStore(value, pointer);
+    };
+    auto safe_float_bits = [&](::llvm::Value *value,
+                               ::llvm::Value *fallback,
+                               const char *name) {
+        auto *safe = _builder.CreateSelect(
+            _active_mask, value, fallback, name);
+        return _builder.CreateBitCast(safe, i32_lanes);
+    };
+    for (auto component = uint32_t{0u}; component < 7u; component++) {
+        store_packet_field(
+            component,
+            safe_float_bits(
+                ray_components[component],
+                component == 6u ? one_float : zero_float,
+                "accel.safe.ray.component"));
     }
-    auto *mask_scratch = _entry_scratch(
-        i32_lanes,
-        "accel.masks." +
-            std::to_string(instruction.result->value));
-    _builder.CreateStore(visibility, mask_scratch);
-    auto *time_scratch = static_cast<::llvm::Value *>(null_pointer);
+    auto *safe_time = static_cast<::llvm::Value *>(zero_float);
     if (motion) {
-        auto *safe_time = _builder.CreateSelect(
+        safe_time = _builder.CreateSelect(
             _active_mask, time, zero_float,
             "accel.safe.ray.time");
-        auto *scratch = _entry_scratch(
-            float_lanes,
-            "accel.times." +
-                std::to_string(instruction.result->value));
-        _builder.CreateStore(safe_time, scratch);
-        time_scratch = scratch;
+    }
+    store_packet_field(7u, _builder.CreateBitCast(safe_time, i32_lanes));
+    store_packet_field(
+        simd_host_accel_ray_tfar_field,
+        safe_float_bits(
+            ray_components[7u], zero_float,
+            "accel.safe.ray.tfar"));
+    store_packet_field(9u, visibility);
+    std::vector<::llvm::Constant *> lane_ids;
+    lane_ids.reserve(_width);
+    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+        lane_ids.emplace_back(_builder.getInt32(lane));
+    }
+    store_packet_field(10u, ::llvm::ConstantVector::get(lane_ids));
+    store_packet_field(11u, zero_i32);
+    if (closest) {
+        for (auto field = embree_ray_packet_field_count;
+             field < simd_host_accel_hit_prim_field; field++) {
+            store_packet_field(field, zero_i32);
+        }
+        for (auto field = simd_host_accel_hit_prim_field;
+             field < packet_field_count; field++) {
+            store_packet_field(field, invalid_i32);
+        }
     }
 
     auto *object = _builder.CreateExtractValue(accel, {0u});
@@ -845,62 +925,46 @@ void ScheduleEmitter::_accel_motion_write(
         result->value_class == schedule::ValueClass::varying);
 
     if (closest) {
-        auto *ids_type = ::llvm::ArrayType::get(i32_lanes, 2u);
-        auto *values_type = ::llvm::ArrayType::get(float_lanes, 3u);
-        auto *ids = _entry_scratch(
-            ids_type,
-            "accel.closest.ids." +
-                std::to_string(instruction.result->value));
-        auto *values = _entry_scratch(
-            values_type,
-            "accel.closest.values." +
-                std::to_string(instruction.result->value));
-        auto *invalid_ids = ::llvm::ConstantArray::get(
-            ids_type,
-            {::llvm::Constant::getAllOnesValue(i32_lanes),
-             ::llvm::Constant::getAllOnesValue(i32_lanes)});
-        _builder.CreateStore(invalid_ids, ids);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(values_type), values);
         auto *callback_type = ::llvm::FunctionType::get(
             _builder.getVoidTy(),
             {pointer_type, _builder.getInt32Ty(),
-             _builder.getInt64Ty(), pointer_type,
-             pointer_type, pointer_type, pointer_type,
-             pointer_type},
+             _builder.getInt64Ty(), pointer_type},
             false);
         _builder.CreateCall(
             callback_type, callback,
             {object, _builder.getInt32(_width), active_mask_bits,
-             ray_scratch, mask_scratch, time_scratch,
-             ids, values});
+             packet});
 
-        auto load_ids = [&](uint32_t component) {
+        auto load_field = [&](uint32_t field) {
             auto *pointer = _builder.CreateGEP(
-                ids_type, ids,
-                {_builder.getInt32(0u), _builder.getInt32(component)});
+                packet_type, packet,
+                {_builder.getInt32(0u), _builder.getInt32(field)});
             return _builder.CreateLoad(i32_lanes, pointer);
         };
-        auto load_values = [&](uint32_t component) {
-            auto *pointer = _builder.CreateGEP(
-                values_type, values,
-                {_builder.getInt32(0u), _builder.getInt32(component)});
-            return _builder.CreateLoad(float_lanes, pointer);
+        auto load_float_field = [&](uint32_t field) {
+            return _builder.CreateBitCast(
+                load_field(field), float_lanes);
         };
         auto *bary_type = _child_type(result->type, 2u);
         auto *bary = _assemble(
             bary_type, true,
-            [&](uint32_t component) { return load_values(component); });
+            [&](uint32_t component) {
+                return load_float_field(
+                    simd_host_accel_hit_u_field + component);
+            });
         auto *hits = static_cast<::llvm::Value *>(
             ::llvm::PoisonValue::get(_data_type(result->type, true)));
         hits = _insert_child(
-            hits, load_ids(0u), result->type, 0u, true);
+            hits, load_field(simd_host_accel_hit_inst_field),
+            result->type, 0u, true);
         hits = _insert_child(
-            hits, load_ids(1u), result->type, 1u, true);
+            hits, load_field(simd_host_accel_hit_prim_field),
+            result->type, 1u, true);
         hits = _insert_child(
             hits, bary, result->type, 2u, true);
         hits = _insert_child(
-            hits, load_values(2u), result->type, 3u, true);
+            hits, load_float_field(simd_host_accel_ray_tfar_field),
+            result->type, 3u, true);
         return result->value_class == schedule::ValueClass::varying ?
                    hits :
                    _extract_lane(
@@ -908,25 +972,23 @@ void ScheduleEmitter::_accel_motion_write(
                        _safe_first_lane(_active_mask));
     }
 
-    auto *occluded = _entry_scratch(
-        i32_lanes,
-        "accel.any.result." +
-            std::to_string(instruction.result->value));
-    _builder.CreateStore(
-        ::llvm::Constant::getNullValue(i32_lanes), occluded);
     auto *callback_type = ::llvm::FunctionType::get(
         _builder.getVoidTy(),
         {pointer_type, _builder.getInt32Ty(),
-         _builder.getInt64Ty(), pointer_type,
-         pointer_type, pointer_type, pointer_type},
+         _builder.getInt64Ty(), pointer_type},
         false);
     _builder.CreateCall(
         callback_type, callback,
         {object, _builder.getInt32(_width), active_mask_bits,
-         ray_scratch, mask_scratch, time_scratch, occluded});
-    auto *bits = _builder.CreateICmpNE(
-        _builder.CreateLoad(i32_lanes, occluded),
-        ::llvm::Constant::getNullValue(i32_lanes));
+         packet});
+    auto *tfar_pointer = _builder.CreateGEP(
+        packet_type, packet,
+        {_builder.getInt32(0u),
+         _builder.getInt32(simd_host_accel_ray_tfar_field)});
+    auto *tfar = _builder.CreateBitCast(
+        _builder.CreateLoad(i32_lanes, tfar_pointer),
+        float_lanes);
+    auto *bits = _builder.CreateFCmpOLT(tfar, zero_float);
     return result->value_class == schedule::ValueClass::varying ?
                bits :
                _builder.CreateExtractElement(

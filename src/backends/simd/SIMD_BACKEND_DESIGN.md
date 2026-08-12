@@ -1605,9 +1605,9 @@ finds no per-active-lane `rtcIntersect1` loop.
 The complete methodology, absolute medians, assembly counts, caveats, and
 next measured optimization targets are in
 [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
-The required native-math/runtime-width gate passes 3/3. A focused accel,
-curve-summary replacement, and example-option gate passes 6/6. After a full
-Release build, this configured complete CTest suite passes 140/140, including
+The required native-math/runtime-width gate passes 3/3. A focused codegen,
+accel, curve-summary replacement, and example-option gate passes 7/7. After a
+full Release build, this configured complete CTest suite passes 140/140, including
 26 integration-SIMD, 21 runtime-SIMD, three graphics-SIMD, the coroutine-frame
 tests merged from `next`, and the lazy-dispatch scalar snapshot regression.
 
@@ -1615,19 +1615,22 @@ tests merged from `next`, and the lazy-dispatch scalar snapshot regression.
 
 The first Phase-4 vertical slice supports static triangle meshes, top-level
 instances, affine transforms, visibility masks, closest-hit, and occlusion.
-The JIT passes component-major ray vectors and a packed cohort mask through one
-callback. W1 alone calls `rtcIntersect1`/`rtcOccluded1`; W2 pads into W4; W4,
-W8, and W16 call the matching Embree packet entry exactly once. Uniform trace
+The JIT builds one component-major in-place ray/hit packet plus a packed cohort
+mask. W1 alone calls `rtcIntersect1`/`rtcOccluded1`; W2 pads into W4; W4, W8,
+and W16 pass the JIT scratch directly to the matching Embree packet entry
+exactly once. Embree writes `tfar` and hit fields into the same scratch, so the
+native widths have no runtime-side ray construction or hit copy. Uniform trace
 results narrow the callback mask to the first active lane. The path-tracing
 kernel's `reorder_shader_execution` remains an optional hint and is discarded
 because the explicit scheduler already forms cohorts; varying `all`/`any`
 reduce logical vector components without collapsing physical SIMD lanes.
 
 Inactive ray and visibility operands are selected to benign values in LLVM
-before the callback, and all hit scratch is initialized. The runtime may
-therefore copy a complete native-width packet even for a sparse cohort while
-keeping Embree's `valid` array sparse. W2 retains a guarded copy because its
-two-lane scratch is smaller than the padded W4 object. Object inspection shows
+before the callback, and all public hit fields are initialized. Compile-time
+layout checks bind the shared field indices to the configured Embree header's
+public `sizeof`, `alignof`, and `offsetof` values. W2 retains a guarded copy
+because its two-lane scratch is smaller than the padded W4 object. Object
+inspection shows
 one callsite for each of `rtcIntersect1/4/8/16` and
 `rtcOccluded1/4/8/16`; there is no per-lane scalar traversal loop at W2 or
 wider. Embree scenes share one backend-owned `RTCDevice`; when Embree uses

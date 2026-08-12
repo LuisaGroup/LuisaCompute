@@ -717,11 +717,14 @@ Ray/hit state is stored in packet-compatible structure-of-arrays form. The
 current cohort mask and dispatch tail jointly form Embree's valid mask.
 Inactive rays are initialized to benign values even though the validity mask
 excludes them. LLVM performs that sanitization before the callback and
-initializes every result scratch lane. For a native-width W4/W8/W16 packet the
-runtime may consequently copy complete component vectors even when the valid
-mask is sparse: inactive values are already benign and remain excluded from
-traversal. W2 may not read beyond its two-lane source scratch while constructing
-the padded W4 packet.
+initializes every public result field. The scratch uses Embree's public
+`RTCRayN`/`RTCHitN` component order; compile-time `sizeof`, `alignof`, and
+`offsetof` checks prove the configured Embree headers match the shared field
+indices. For native W4/W8/W16, the runtime passes this scratch directly to
+Embree and Embree writes the result in place. No intermediate ray packet or
+hit copy is permitted. W1 uses the same in-place layout with the scalar API.
+W2 alone copies its two-lane fields into a zero-padded W4 packet and copies
+the public fields back, and may not read beyond the two-lane source scratch.
 
 Direct closest-hit traversal sets `bary.y = -1` for round curves after Embree
 returns. Each normal accel build recomputes whether its current instance table

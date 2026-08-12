@@ -107,9 +107,12 @@ target_include_directories(luisa-compute-simd-llvm SYSTEM PUBLIC
         ${LLVM_INCLUDE_DIRS})
 target_link_libraries(luisa-compute-simd-llvm
         PUBLIC luisa-compute-simd-schedule
-        PRIVATE ${_luisa_simd_llvm_libraries})
+        PRIVATE ${_luisa_simd_llvm_libraries}
+        embree)
 target_compile_definitions(luisa-compute-simd-llvm
-        PRIVATE ${LLVM_DEFINITIONS})
+        PRIVATE
+        ${LLVM_DEFINITIONS}
+        LUISA_COMPUTE_SIMD_EMBREE_VERSION=${embree_VERSION_MAJOR})
 set_target_properties(luisa-compute-simd-llvm PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         UNITY_BUILD OFF)
