@@ -36,6 +36,8 @@ struct Something {
 
 LUISA_STRUCT(Something, x, v) {};
 
+constexpr auto cross_dispatch_atomic_element_count = 4096u;
+
 void test_raw_buffer_atomic_matrix(Device &device) {
 
     constexpr size_t uint_value_count = 10u;
@@ -214,6 +216,82 @@ void test_shared_compare_exchange(Device &device) {
     for (auto old : old_values) {
         expect(old == 0u || old == winner_value)
             << "losing shared compare-exchange lanes must observe the winner";
+    }
+}
+
+void test_float_atomic_cross_dispatch_visibility(Device &device) {
+    // Each floating-point location has exactly one writer per dispatch, while
+    // an unrelated integer counter is highly contended at the start of every
+    // dispatch. This is the scheduler/film pattern which exposed the HIP
+    // lowering bug: the old float CAS loop started with a non-atomic raw load,
+    // so its initial observation did not belong to the same device-wide
+    // modification order as its compare-exchange.
+    constexpr auto element_count = cross_dispatch_atomic_element_count;
+    constexpr auto stage_count = 8u;
+    constexpr auto initial_value = 64.0f;
+
+    auto values = device.create_buffer<float>(element_count);
+    auto old_values =
+        device.create_buffer<float>(element_count * stage_count);
+    auto counters = device.create_buffer<uint>(stage_count);
+
+    Kernel1D add_stage = [](BufferFloat values,
+                            BufferFloat old_values,
+                            BufferUInt counters,
+                            UInt stage) noexcept {
+        const auto index = dispatch_x();
+        counters.atomic(stage).fetch_add(1u);
+        const auto delta = cast<float>(1u << stage);
+        const auto old = values.atomic(index).fetch_add(delta);
+        old_values.write(
+            stage * cross_dispatch_atomic_element_count + index, old);
+    };
+    Kernel1D subtract_stage = [](BufferFloat values,
+                                 BufferFloat old_values,
+                                 BufferUInt counters,
+                                 UInt stage) noexcept {
+        const auto index = dispatch_x();
+        counters.atomic(stage).fetch_add(1u);
+        const auto delta = cast<float>(1u << stage);
+        const auto old = values.atomic(index).fetch_sub(delta);
+        old_values.write(
+            stage * cross_dispatch_atomic_element_count + index, old);
+    };
+    auto add_shader = device.compile(add_stage);
+    auto subtract_shader = device.compile(subtract_stage);
+
+    luisa::vector<float> host_values(element_count, initial_value);
+    luisa::vector<float> host_old_values(element_count * stage_count);
+    luisa::vector<uint> host_counters(stage_count, 0u);
+    auto stream = device.create_stream();
+    stream << values.copy_from(host_values.data())
+           << counters.copy_from(host_counters.data());
+    for (auto stage = 0u; stage < stage_count; stage++) {
+        auto &&shader = (stage & 1u) == 0u ? add_shader : subtract_shader;
+        stream << shader(values, old_values, counters, stage)
+                      .dispatch(element_count);
+    }
+    stream << values.copy_to(host_values.data())
+           << old_values.copy_to(host_old_values.data())
+           << counters.copy_to(host_counters.data())
+           << synchronize();
+
+    auto expected = initial_value;
+    for (auto stage = 0u; stage < stage_count; stage++) {
+        for (auto index = 0u; index < element_count; index++) {
+            expect(host_old_values[stage * element_count + index] == expected)
+                << "float atomic at stage " << stage << ", element " << index
+                << " did not observe the preceding dispatch";
+        }
+        const auto delta = static_cast<float>(1u << stage);
+        expected += (stage & 1u) == 0u ? delta : -delta;
+        expect(host_counters[stage] == element_count)
+            << "integer scheduler counter did not record every invocation";
+    }
+    for (auto index = 0u; index < element_count; index++) {
+        expect(host_values[index] == expected)
+            << "cross-dispatch float atomic sequence lost an update at element "
+            << index;
     }
 }
 
@@ -396,5 +474,6 @@ int main(int argc, char *argv[]) {
     auto &device = dc->device;
     test_raw_buffer_atomic_matrix(device);
     test_shared_compare_exchange(device);
+    test_float_atomic_cross_dispatch_visibility(device);
     test_atomic(device);
 }
