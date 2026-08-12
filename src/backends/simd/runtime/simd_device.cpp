@@ -24,6 +24,7 @@
 #include "simd_event.h"
 #include "simd_mesh.h"
 #include "simd_motion_instance.h"
+#include "simd_procedural_primitive.h"
 #include "simd_shader.h"
 #include "simd_stream.h"
 #include "simd_thread_pool.h"
@@ -346,11 +347,25 @@ void SIMDDevice::destroy_curve(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo SIMDDevice::create_procedural_primitive(
-    const AccelOption &) noexcept {
-    return ResourceCreationInfo::make_invalid();
+    const AccelOption &option) noexcept {
+    auto *procedural = luisa::new_with_allocator<SIMDProceduralPrimitive>(
+        _rtc_device, option);
+    auto *primitive = static_cast<SIMDPrimitive *>(procedural);
+    return {
+        .handle = reinterpret_cast<uint64_t>(primitive),
+        .native_handle = procedural->handle(),
+    };
 }
 
-void SIMDDevice::destroy_procedural_primitive(uint64_t) noexcept {}
+void SIMDDevice::destroy_procedural_primitive(uint64_t handle) noexcept {
+    auto *primitive = reinterpret_cast<SIMDPrimitive *>(handle);
+    LUISA_ASSERT(
+        primitive != nullptr &&
+            primitive->kind() == SIMDPrimitive::Kind::procedural,
+        "Invalid SIMD procedural-primitive handle.");
+    luisa::delete_with_allocator(
+        static_cast<SIMDProceduralPrimitive *>(primitive));
+}
 
 ResourceCreationInfo SIMDDevice::create_motion_instance(
     const AccelMotionOption &option) noexcept {

@@ -1540,12 +1540,12 @@ and the ranges are interquartile ranges in spp/s:
 
 | Backend/width | Median spp/s | IQR | Speedup |
 | --- | ---: | ---: | ---: |
-| fallback | 71.7006 | 71.2715--72.0352 | 1.000x |
-| SIMD W1 | 79.8812 | 79.7236--80.3229 | 1.114x |
-| SIMD W2 | 55.9127 | 55.5920--56.4191 | 0.780x |
-| SIMD W4 | 64.6468 | 64.5428--64.8400 | 0.902x |
-| SIMD W8 | 69.2405 | 68.9931--69.4245 | 0.966x |
-| SIMD W16 | 67.4776 | 67.4046--67.7376 | 0.941x |
+| fallback | 65.8357 | 64.4383--66.2050 | 1.000x |
+| SIMD W1 | 74.7475 | 74.1061--75.0756 | 1.135x |
+| SIMD W2 | 52.3766 | 51.6259--52.6591 | 0.796x |
+| SIMD W4 | 59.1959 | 58.6763--60.1739 | 0.899x |
+| SIMD W8 | 63.9721 | 63.4640--65.0818 | 0.972x |
+| SIMD W16 | 62.9528 | 61.9327--64.1526 | 0.956x |
 
 These are whole renderer measurements, not isolated traversal calls. In
 particular, fallback deliberately uses one sample per dispatch while SIMD may
@@ -1553,9 +1553,11 @@ execute up to 64 samples per dispatch, so W1's result includes dispatch
 amortization and must not be presented as an Embree scalar traversal speedup.
 W2 pays for a four-wide packet with only two useful lanes. The wider packets
 still lose on this highly divergent path kernel: W8 is closest to parity and
-W16 does not win merely because the host supports AVX-512.
+W16 does not win merely because the host supports AVX-512. The first three
+runs of this rerun placed W8/W16 at 1.025x/1.005x, but that apparent crossover
+did not survive the full nine-run rotation; it is not reported as a speedup.
 
-The sparse-packet bulk-copy refinement raised W4/W8/W16 from
+An earlier same-binary sparse-packet bulk-copy A/B raised W4/W8/W16 from
 62.3807/66.0094/63.2109 to 64.6468/69.2405/67.4776 spp/s, or
 3.63%/4.90%/6.75%. A 128-spp W8 `perf record` after that change attributes
 47.73% of sampled cycles to JIT code, 44.47% to Embree, and 6.80% to the SIMD
@@ -1626,9 +1628,71 @@ surfaces of the same primitive. Triangle insertion remains O(1) until batch
 overflow. The exact curve regression covers all four bases, opaque automatic
 commit, non-opaque accept/reject, query-all/query-any, direct closest/any,
 control-point motion, curve motion instances, W1/W2/W4/W8/W16, and inactive
-tails. Procedural candidates, cutout/device-opacity mutation, nonidentity outer
-affine composition for SRT motion, and full instance-stack semantics remain
-explicit work.
+tails. Cutout/device-opacity mutation, nonidentity outer affine composition for
+SRT motion, and full instance-stack semantics remain explicit work.
+
+Procedural primitives now use Embree user geometry with public AABB buffers,
+including primitive motion and MATRIX/SRT motion-instance children. Bounds are
+copied by Embree during geometry commit; the temporary callback payload is
+removed immediately afterward. Direct closest/any callbacks reject user
+geometry because those operations have no public intersection handler. During
+query-all/query-any only, a scoped thread-local scan context collects stable
+`(instance, primitive)` candidates and returns to the generated cohort CFG
+before executing the DSL handler. Visibility, ray interval, motion time,
+inactive tails, and divergent/sparse packets retain the packet valid mask.
+
+Procedural keys have an independent 32-entry speculative batch. Rejects consume
+cached candidates; overflow uses a strict cursor and another packet scan. A
+commit can shrink `t_max`, so unexposed conservative procedural candidates are
+discarded while cached exact surface hits are kept and interval-filtered. The
+permanent regression covers W1/W2/W4/W8/W16, a 35-thread inactive tail,
+query-all/query-any commit/reject/terminate, invalid commit distances,
+deterministic order, visibility, a 40-candidate continuation, mixed triangle
+and procedural hits, primitive motion, and procedural motion instances. It has
+970 exact assertions. Rebuilding a child BLAS also exposed an independent TLAS
+refit bug: every parent instance geometry is now recommitted before the scene,
+even when transform/mask metadata is clean, so updated child bounds propagate.
+
+The public rejection-chain benchmark uses 65,536 rays per dispatch, 128 timed
+dispatches per sample, and seven samples per process. On the shared 9950X3D
+host, fallback process medians remained scheduling-sensitive while SIMD W16
+was stable around 85--93 Mray/s, so no wall-time speedup is claimed. A
+three-repeat whole-process counter comparison for 16 candidates reports W16 at
+1.094x fallback cycles, 1.114x instructions, and 1.798x branches; this is still
+a real throughput deficit, not a completed optimization. With one candidate a
+paired run reached 342.19 versus 353.71 Mray/s (0.968x), while a 40-candidate
+overflow chain reached 25.48 versus 45.67 Mray/s (0.558x).
+
+Post-batch sampling attributes 22.74% of cycles to `_ray_query_proceed`, 17.32%
+to procedural collection, and 10.37% to sorting/installation. Replacing the
+finite `nextafterf32` continuation step with an audited IEEE-754 bit step
+removed that scalar symbol and reduced W16 whole-process instructions from
+214.893 to 212.975 billion and cycles from 87.008 to 85.287 billion
+(0.89%/1.98%). An attempted JIT-side resident-candidate fast path instead
+regressed the short W16 harness from about 97--98 to 83.5 Mray/s and was
+reverted: masked gathers/scatters over the current AoS lane records cost more
+than the optimized host loop. A future register-resident version therefore
+requires a SoA/packet query-state layout rather than merely moving the same
+loads into generated code.
+
+The repository's real `test_procedural_callable` is the complementary sparse
+graphics workload: 1280x720, 1024 spp, 1024 procedural spheres, one triangle,
+and progressive image traffic. Three rotated/reversed render intervals give:
+
+| Backend/width | Median render time (ms) | Speedup vs fallback |
+| --- | ---: | ---: |
+| fallback | 4737.2 | 1.000x |
+| SIMD W1 | 6075.0 | 0.780x |
+| SIMD W2 | 8298.0 | 0.571x |
+| SIMD W4 | 5311.1 | 0.892x |
+| SIMD W8 | 3745.3 | 1.265x |
+| SIMD W16 | 3242.9 | 1.461x |
+
+Every render passes the gallery comparison; SIMD reports 58.37 dB RGB PSNR
+and fallback 68.60 dB. Unlike the overlapping rejection chain, each ray in
+this scene sees only a sparse subset of AABBs, so packet throughput across rays
+outweighs the host-boundary/state cost. The W8/W16 gains are real end-to-end
+graphics results, but they do not erase the measured dense-chain deficit.
 
 Two existing graphics examples provide end-to-end and motion-heavy reality
 checks on the same Ryzen 9 9950X3D/Embree 4.4.1 Release host. The 800x600
@@ -1748,10 +1812,10 @@ MATRIX composition, post-write refit/traversal, W1/W2/W4/W8/W16, and W8/W16
 partial tails.
 
 The required native-math/runtime-width tests plus the arithmetic,
-bindless-texture, dedicated bindless-IR callback, acceleration, and curve tests
-pass 8/8. Combined SIMD, XIR, runtime, and graphics labels pass 80/80 in both
-Release configurations. Fresh full-repository CTest runs pass 130/130 in both;
-no coroutine source was modified.
+bindless-texture, dedicated bindless-IR callback, acceleration, curve, and
+procedural tests pass 9/9. Combined SIMD, XIR, runtime, and graphics labels pass
+83/83 in both Release configurations. Fresh full-repository CTest runs pass
+133/133 in both; no coroutine source was modified.
 The original `test_bindless_mip simd` intentionally fails at compile time on
 its gradient query, matching the explicit unsupported-feature contract rather
 than silently changing sampling semantics.
@@ -2034,11 +2098,10 @@ on 2026-08-11. The repository now contains:
   W16 tail.
 
 The next implementation boundary is completion of the Embree vertical slice:
-add opacity/cutout semantics, procedural candidates, nonidentity outer affine
-composition for SRT motion, and a direct packet-layout experiment guarded by
-stable measurement. Candidate chains beyond the fixed batch remain a measured
-continuation case rather than an unbounded state allocation. Bindless gradient
-sampling, broader callable conformance, cooperative shared memory, block
-barriers, and the remaining device-library surface follow. The current compiler
-returns precise diagnostics for unsupported features rather than silently
-accepting them.
+add opacity/cutout semantics, nonidentity outer affine composition for SRT
+motion, and a SoA packet-query-state experiment guarded by stable measurement.
+Candidate chains beyond the fixed batch remain a measured continuation case
+rather than an unbounded state allocation. Bindless gradient sampling, broader
+callable conformance, cooperative shared memory, block barriers, and the
+remaining device-library surface follow. The current compiler returns precise
+diagnostics for unsupported features rather than silently accepting them.

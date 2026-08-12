@@ -45,8 +45,9 @@ void SIMDMotionInstance::build(
     LUISA_ASSERT(
         child != nullptr &&
             (child->kind() == Kind::mesh ||
-             child->kind() == Kind::curve),
-        "SIMD motion instances require a mesh or curve child.");
+             child->kind() == Kind::curve ||
+             child->kind() == Kind::procedural),
+        "SIMD motion instances require a mesh, curve, or procedural child.");
     _child = child;
     _keyframes.assign(
         command.keyframes().begin(), command.keyframes().end());

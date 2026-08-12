@@ -10,6 +10,7 @@ public:
     enum class Kind : uint8_t {
         mesh,
         curve,
+        procedural,
         motion_instance,
     };
 

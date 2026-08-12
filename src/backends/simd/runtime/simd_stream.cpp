@@ -11,6 +11,7 @@
 #include "simd_curve.h"
 #include "simd_mesh.h"
 #include "simd_motion_instance.h"
+#include "simd_procedural_primitive.h"
 #include "simd_shader.h"
 #include "simd_texture.h"
 
@@ -173,10 +174,14 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 instance->build(*build);
                 break;
             }
-            case Command::Tag::EProceduralPrimitiveBuildCommand:
-                LUISA_ERROR_WITH_LOCATION(
-                    "Ray-tracing commands are not implemented by the SIMD "
-                    "runtime checkpoint yet.");
+            case Command::Tag::EProceduralPrimitiveBuildCommand: {
+                auto *build = static_cast<ProceduralPrimitiveBuildCommand *>(
+                    command.get());
+                auto *procedural = static_cast<SIMDProceduralPrimitive *>(
+                    reinterpret_cast<SIMDPrimitive *>(build->handle()));
+                procedural->build(*build);
+                break;
+            }
             case Command::Tag::EBindlessArrayUpdateCommand: {
                 auto *update = static_cast<BindlessArrayUpdateCommand *>(
                     command.get());

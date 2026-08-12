@@ -670,8 +670,8 @@ mask is sparse: inactive values are already benign and remain excluded from
 traversal. W2 may not read beyond its two-lane source scratch while constructing
 the padded W4 packet.
 
-Surface ray queries use the same width mapping, but retain state across
-candidate handlers. The AST `RayQueryLoop` is first lowered to ordinary XIR
+Ray queries use the same width mapping, but retain state across candidate
+handlers. The AST `RayQueryLoop` is first lowered to ordinary XIR
 loop/if control containing `PROCEED`, candidate-kind reads, and object writes;
 the existing cohort scheduler therefore executes divergent handlers without a
 second callback-side PC machine. Query construction is always varying even
@@ -687,13 +687,13 @@ for the current cohort. The callback groups states by accel and query-all/
 query-any mode, then uses W1 scalar traversal, W2 padded W4 traversal, or the
 matching W4/W8/W16 packet entry. No active-lane extract/call/insert traversal
 loop is permitted. Query-all and query-any support triangle and round-curve
-surface candidate reads, reject-by-return, surface commit, explicit terminate,
-world-ray reads, committed-hit reads, static time zero, and motion time.
-Committing immediately updates the public world-ray `t_max`; query-any
-terminates after the first commit. An opaque instance auto-commits without
-entering the surface handler. Miss state begins with invalid
-instance/primitive IDs, `HitType::Miss`, zero barycentrics, and zero committed
-distance.
+surface candidates plus procedural candidates, reject-by-return, surface and
+procedural commit, explicit terminate, world-ray reads, committed-hit reads,
+static time zero, and motion time. Committing immediately updates the public
+world-ray `t_max`; query-any terminates after the first commit. An opaque
+surface instance auto-commits without entering the surface handler. Miss state
+begins with invalid instance/primitive IDs, `HitType::Miss`, zero
+barycentrics, and zero committed distance.
 
 Surface candidate enumeration uses a bounded speculative batch. During one
 Embree traversal, the argument filter rejects physical candidates while
@@ -714,21 +714,43 @@ curve-primitive contract without adding the O(N) duplicate check to triangle
 insertion. Direct and query hits preserve Embree `u` as the curve parameter and
 set `bary.y = -1` as the public curve discriminator.
 
-The fixed state ABI is 928 bytes per lane, including the 32 surface hits and
-four explicit batch metadata fields. If more than 32 candidates survive the
-cursor and current interval, exhaustion triggers another grouped packet scan
-starting strictly after the last published key. The permanent 35-candidate
-regression crosses this boundary at W1/W2/W4/W8/W16, including the five-live-
-lane W16 tail, and requires exactly-once ascending handler delivery before the
-last candidate commits. This removes repeated traversal for the common bounded
-case without moving handler execution or its control flow into the runtime.
+Procedural resources use Embree user geometry whose public AABB buffer is a
+conservative bound, not a physical hit. The intersect and occluded callbacks
+always reject the Embree hit. During an active query scan, a thread-local scope
+identifies the exact runtime query context and records `(instance, primitive)`;
+outside that scope, including direct closest/any traversal, user geometry
+remains a miss. The generated handler executes only after packet traversal
+returns to the ordinary cohort scheduler. Embree occlusion traversal may
+conservatively invoke a user callback even when the ray does not intersect the
+exact AABB; such a callback is a rejectable procedural candidate and cannot by
+itself create a committed hit.
+
+Procedural candidates have a separate 32-entry speculative batch ordered by
+`(instance, primitive)`. Duplicate callback invocations sort adjacently and the
+cursor publishes each key at most once. Rejecting a candidate consumes the
+cache without another BVH traversal. A surface or procedural commit changes
+`t_max`, so every unexposed conservative procedural candidate is discarded;
+cached exact surface hits remain and are interval-filtered, and a continuation
+scan is requested only when discarded or overflow candidates may remain. More
+than 32 procedural keys use another scan strictly after the cursor.
+
+The fixed state ABI is 1216 bytes per lane: it contains 32 surface hits, 32
+procedural keys, independent cursors, and explicit metadata for both batches.
+The permanent surface 35-candidate and procedural 40-candidate regressions
+cross the respective boundaries at W1/W2/W4/W8/W16 and require exactly-once
+ascending handler delivery before the final commit. This removes repeated
+traversal for the common bounded case without moving handler execution or its
+control flow into the runtime.
 
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build; static and control-point-motion round-curve build for
-piecewise-linear, cubic B-spline, Catmull--Rom, and Bezier bases; top-level
-static and mesh/curve motion-instance build; affine transform; visibility mask;
-`RAY_TRACING_TRACE_CLOSEST`; `RAY_TRACING_TRACE_ANY`; surface
+piecewise-linear, cubic B-spline, Catmull--Rom, and Bezier bases; static and
+AABB-motion procedural build; top-level static and mesh/curve/procedural
+motion-instance build; affine transform; visibility mask;
+`RAY_TRACING_TRACE_CLOSEST`; `RAY_TRACING_TRACE_ANY`; surface/procedural
 `RAY_TRACING_QUERY_ALL`/`RAY_TRACING_QUERY_ANY`; and their motion-blur variants.
+Direct closest/any deliberately rejects procedural geometry because no public
+intersection handler exists on those operations.
 Instance transform, user-id, visibility-mask, MATRIX-motion, and SRT-motion
 queries are also accepted. A static trace/query uses time zero. A motion
 operation passes one f32 time vector sanitized under the cohort mask before the
@@ -753,6 +775,9 @@ dirty; a subsequent normal accel build commits dirty transforms and masks to
 Embree before traversal. Conflicting active lanes that write the same instance
 remain a device data race, as in other unordered device writes. JIT code must
 not alias the private runtime object or C++ vector layout.
+Every accel build also recommits each instance geometry before the TLAS scene,
+even when its metadata is clean, because a rebuilt child mesh, curve, or
+procedural scene can change bounds without changing the parent instance record.
 
 Motion-instance resources accept two through `RTC_MAX_TIME_STEP_COUNT`
 keyframes, a finite strictly increasing time range, and MATRIX or quaternion
@@ -787,12 +812,12 @@ attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Procedural ray-query candidates, cutout filtering, device-side opacity mutation,
-nonidentity outer affine composition for SRT motion,
-`update_instance_buffer_only`, and deeper instance-stack behavior are not part
-of this slice. They must fail at a specific capability boundary until their
-independent semantic, IR-shape, and machine-boundary gates exist; triangle
-ray-query support does not imply those geometry/filter capabilities.
+Cutout filtering, device-side opacity mutation, nonidentity outer affine
+composition for SRT motion, `update_instance_buffer_only`, and deeper
+instance-stack behavior are not part of this slice. They must fail at a
+specific capability boundary until their independent semantic, IR-shape, and
+machine-boundary gates exist; triangle/curve/procedural query support does not
+imply those filter or deeper-instancing capabilities.
 
 ## 7. Executable audit matrix
 

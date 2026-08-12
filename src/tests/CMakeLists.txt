@@ -158,6 +158,8 @@ if (TARGET luisa-compute-simd-llvm)
 
     luisa_compute_add_test(benchmark_simd_ray_query
             unit/simd/benchmark_simd_ray_query.cpp)
+    luisa_compute_add_test(benchmark_simd_procedural_ray_query
+            unit/simd/benchmark_simd_procedural_ray_query.cpp)
 
     add_executable(test_simd_llvm_value_layout
             unit/simd/test_llvm_value_layout.cpp)
@@ -648,6 +650,9 @@ if (TARGET luisa-compute-backend-simd)
     luisa_compute_add_test(test_simd_curves
             unit/simd/test_simd_curves.cpp
             LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_procedural
+            unit/simd/test_simd_procedural.cpp
+            LABELS integration_simd runtime_simd)
     foreach (_simd_backend_test IN ITEMS
             test_simd_runtime_widths
             test_simd_local_memory
@@ -656,7 +661,8 @@ if (TARGET luisa-compute-backend-simd)
             test_simd_bindless_textures
             test_simd_arithmetic
             test_simd_accel
-            test_simd_curves)
+            test_simd_curves
+            test_simd_procedural)
         add_dependencies(${_simd_backend_test}
                 luisa-compute-backend-simd)
     endforeach ()
@@ -666,6 +672,8 @@ if (TARGET luisa-compute-backend-simd)
             test_buffer_view
             test_buffer_io
             test_texture_io
+            test_accel_build_modes
+            test_ray_query_world_ray
             test_dsl_slp_vectorization
             test_warp
             test_warp_prefix_scan

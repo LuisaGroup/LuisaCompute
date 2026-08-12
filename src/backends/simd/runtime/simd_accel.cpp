@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -9,6 +10,7 @@
 #include <luisa/core/logging.h>
 
 #include "simd_motion_instance.h"
+#include "simd_procedural_primitive.h"
 
 namespace luisa::compute::simd {
 
@@ -370,7 +372,8 @@ void mark_curve_surface_hits(
         LUISA_ASSERT(
             instances.data != nullptr && inst < instances.size,
             "SIMD curve trace returned an invalid instance ID {}.", inst);
-        if (instances.data[inst].curve != 0u) {
+        if (instances.data[inst].geometry_kind ==
+            static_cast<uint8_t>(SIMDHostAccelGeometryKind::curve)) {
             hit_values[lane_count + lane] = -1.0f;
         }
     }
@@ -394,18 +397,62 @@ struct RayQueryScanContext {
     const SIMDHostAccelInstanceTable *instances{nullptr};
     std::array<SIMDHostRayQueryState *, 16u> states{};
     std::array<RayQueryBatchBuildState, 16u> batch_build{};
+    std::array<RayQueryBatchBuildState, 16u> procedural_batch_build{};
 };
 static_assert(offsetof(RayQueryScanContext, rtc) == 0u);
 
-[[nodiscard]] float ray_query_embree_tnear(float tnear) noexcept {
-    if (!std::isfinite(tnear)) { return tnear; }
-    auto widened = std::nextafter(
-        tnear, -std::numeric_limits<float>::infinity());
-    if (std::abs(widened) < std::numeric_limits<float>::min()) {
-        widened = -std::numeric_limits<float>::min();
+thread_local RayQueryScanContext *active_ray_query_scan_context{nullptr};
+
+class ScopedRayQueryScanContext {
+
+private:
+    RayQueryScanContext *_previous;
+
+public:
+    explicit ScopedRayQueryScanContext(
+        RayQueryScanContext &context) noexcept
+        : _previous{active_ray_query_scan_context} {
+        active_ray_query_scan_context = &context;
     }
-    return widened;
+    ~ScopedRayQueryScanContext() noexcept {
+        active_ray_query_scan_context = _previous;
+    }
+};
+
+[[nodiscard]] constexpr float ray_query_embree_tnear(float tnear) noexcept {
+    static_assert(
+        sizeof(float) == sizeof(uint32_t) &&
+        std::numeric_limits<float>::is_iec559);
+    constexpr auto sign_bit = 0x80000000u;
+    constexpr auto magnitude_mask = 0x7fffffffu;
+    constexpr auto minimum_normal_bits = 0x00800000u;
+    constexpr auto infinity_bits = 0x7f800000u;
+    auto bits = std::bit_cast<uint32_t>(tnear);
+    auto magnitude = bits & magnitude_mask;
+    if (magnitude >= infinity_bits) { return tnear; }
+    if (magnitude == 0u) {
+        return std::bit_cast<float>(sign_bit | minimum_normal_bits);
+    }
+    bits = (bits & sign_bit) != 0u ? bits + 1u : bits - 1u;
+    if ((bits & magnitude_mask) < minimum_normal_bits) {
+        bits = sign_bit | minimum_normal_bits;
+    }
+    return std::bit_cast<float>(bits);
 }
+
+static_assert(
+    std::bit_cast<uint32_t>(ray_query_embree_tnear(1.0f)) ==
+    std::bit_cast<uint32_t>(1.0f) - 1u);
+static_assert(
+    std::bit_cast<uint32_t>(ray_query_embree_tnear(0.0f)) ==
+    0x80800000u);
+static_assert(
+    std::bit_cast<uint32_t>(ray_query_embree_tnear(-0.0f)) ==
+    0x80800000u);
+static_assert(
+    std::bit_cast<uint32_t>(ray_query_embree_tnear(
+        std::bit_cast<float>(uint32_t{0x7fc12345u}))) ==
+    0x7fc12345u);
 
 [[nodiscard]] bool ray_query_key_after_cursor(
     const SIMDHostRayQueryState &state,
@@ -419,7 +466,8 @@ static_assert(offsetof(RayQueryScanContext, rtc) == 0u);
     // a continuation scan.
     if (inst == state.cursor_inst && prim == state.cursor_prim &&
         instances.data != nullptr && inst < instances.size &&
-        instances.data[inst].curve != 0u) {
+        instances.data[inst].geometry_kind ==
+            static_cast<uint8_t>(SIMDHostAccelGeometryKind::curve)) {
         return false;
     }
     if (t != state.cursor_t) { return t > state.cursor_t; }
@@ -498,6 +546,52 @@ void ray_query_insert_candidate(
     std::push_heap(begin, end, ray_query_candidate_before);
 }
 
+struct RayQueryProceduralBefore {
+    [[nodiscard]] LUISA_FORCE_INLINE bool operator()(
+        const SIMDHostRayQueryProceduralHit &lhs,
+        const SIMDHostRayQueryProceduralHit &rhs) const noexcept {
+        if (lhs.inst != rhs.inst) { return lhs.inst < rhs.inst; }
+        return lhs.prim < rhs.prim;
+    }
+};
+inline constexpr RayQueryProceduralBefore
+    ray_query_procedural_before{};
+
+void ray_query_insert_procedural_candidate(
+    SIMDHostRayQueryState &state,
+    RayQueryBatchBuildState &build,
+    SIMDHostRayQueryProceduralHit candidate) noexcept {
+    constexpr auto capacity =
+        simd_host_ray_query_candidate_batch_capacity;
+    if (state.procedural_batch_count < capacity) {
+        if (state.procedural_batch_count != 0u) {
+            auto &&previous = state.procedural_batch[state.procedural_batch_count - 1u];
+            build.ascending &=
+                !ray_query_procedural_before(candidate, previous);
+            build.descending &=
+                !ray_query_procedural_before(previous, candidate);
+        }
+        state.procedural_batch[state.procedural_batch_count++] = candidate;
+        return;
+    }
+    state.procedural_batch_has_more = 1u;
+    auto begin = std::begin(state.procedural_batch);
+    auto end = begin + state.procedural_batch_count;
+    if (!build.heapified) {
+        std::make_heap(begin, end, ray_query_procedural_before);
+        build.heapified = true;
+        build.ascending = false;
+        build.descending = false;
+    }
+    if (!ray_query_procedural_before(
+            candidate, state.procedural_batch[0u])) {
+        return;
+    }
+    std::pop_heap(begin, end, ray_query_procedural_before);
+    state.procedural_batch[state.procedural_batch_count - 1u] = candidate;
+    std::push_heap(begin, end, ray_query_procedural_before);
+}
+
 void ray_query_filter(
     const RTCFilterFunctionNArguments *arguments) noexcept {
     auto *context = reinterpret_cast<RayQueryScanContext *>(
@@ -539,7 +633,9 @@ void ray_query_filter(
             arguments->hit, arguments->N, packet_lane);
         auto curve = context->instances->data != nullptr &&
                      inst < context->instances->size &&
-                     context->instances->data[inst].curve != 0u;
+                     context->instances->data[inst].geometry_kind ==
+                         static_cast<uint8_t>(
+                             SIMDHostAccelGeometryKind::curve);
         if (curve) {
             v = -1.0f;
         }
@@ -555,6 +651,53 @@ void ray_query_filter(
                 .t = t,
             },
             curve);
+    }
+}
+
+[[nodiscard]] bool procedural_key_after_cursor(
+    const SIMDHostRayQueryState &state,
+    uint32_t inst, uint32_t prim) noexcept {
+    if (state.procedural_cursor_valid == 0u) { return true; }
+    if (inst != state.procedural_cursor_inst) {
+        return inst > state.procedural_cursor_inst;
+    }
+    return prim > state.procedural_cursor_prim;
+}
+
+void collect_procedural_candidates(
+    int *valid, RTCRayN *rays, uint32_t packet_width,
+    uint32_t primitive, RayQueryRTCContext *rtc_context) noexcept {
+    if (valid == nullptr || rays == nullptr || packet_width == 0u ||
+        packet_width > 16u) {
+        return;
+    }
+    auto *context = active_ray_query_scan_context;
+    auto query_scan = context != nullptr &&
+                      rtc_context == &context->rtc &&
+                      context->instances != nullptr;
+    auto instance = query_scan ? rtc_context->instID[0u] :
+                                 RTC_INVALID_GEOMETRY_ID;
+    for (auto packet_lane = 0u; packet_lane < packet_width;
+         packet_lane++) {
+        if (valid[packet_lane] != -1) { continue; }
+        // Procedural AABBs are never physical Embree hits. Direct traversal
+        // therefore reports a miss, while a query scan records one candidate
+        // and executes its DSL handler after returning to the SIMD scheduler.
+        valid[packet_lane] = 0;
+        if (!query_scan || instance == RTC_INVALID_GEOMETRY_ID) { continue; }
+        auto lane = RTCRayN_id(rays, packet_width, packet_lane);
+        if (lane >= context->lane_count) { continue; }
+        auto *state = context->states[lane];
+        if (state == nullptr || state->terminated != 0u ||
+            !procedural_key_after_cursor(*state, instance, primitive)) {
+            continue;
+        }
+        ray_query_insert_procedural_candidate(
+            *state, context->procedural_batch_build[lane],
+            SIMDHostRayQueryProceduralHit{
+                .inst = instance,
+                .prim = primitive,
+            });
     }
 }
 
@@ -576,6 +719,10 @@ void initialize_ray_query_context(
         state->candidate_batch_index = 0u;
         state->candidate_batch_has_more = 0u;
         state->candidate_batch_initialized = 0u;
+        state->procedural_batch_count = 0u;
+        state->procedural_batch_index = 0u;
+        state->procedural_batch_has_more = 0u;
+        state->procedural_batch_initialized = 0u;
     }
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
     rtcInitIntersectContext(&context.rtc);
@@ -620,15 +767,39 @@ advance_ray_query_candidate(
     if (state.terminated != 0u) {
         return RayQueryCandidateAdvance::terminated;
     }
-    if (state.candidate_batch_initialized == 0u) {
+    if (state.candidate_batch_initialized == 0u ||
+        state.procedural_batch_initialized == 0u) {
         return RayQueryCandidateAdvance::needs_scan;
     }
     constexpr auto capacity =
         simd_host_ray_query_candidate_batch_capacity;
     LUISA_ASSERT(
         state.candidate_batch_count <= capacity &&
-            state.candidate_batch_index <= state.candidate_batch_count,
+            state.candidate_batch_index <= state.candidate_batch_count &&
+            state.procedural_batch_count <= capacity &&
+            state.procedural_batch_index <= state.procedural_batch_count,
         "SIMD ray-query candidate batch metadata is invalid.");
+    while (state.procedural_batch_index <
+           state.procedural_batch_count) {
+        auto candidate = state.procedural_batch[state.procedural_batch_index++];
+        if (!procedural_key_after_cursor(
+                state, candidate.inst, candidate.prim)) {
+            continue;
+        }
+        state.procedural_cursor_valid = 1u;
+        state.procedural_cursor_inst = candidate.inst;
+        state.procedural_cursor_prim = candidate.prim;
+        state.candidate = SIMDHostRayQuerySurfaceHit{
+            .inst = candidate.inst,
+            .prim = candidate.prim,
+            .bary = {-1.0f, -1.0f},
+            .t = 0.0f,
+        };
+        state.candidate_committed = 0u;
+        state.candidate_kind = static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::procedural);
+        return RayQueryCandidateAdvance::published;
+    }
     while (state.candidate_batch_index < state.candidate_batch_count) {
         auto candidate = state.candidate_batch[state.candidate_batch_index++];
         if (!ray_query_key_after_cursor(
@@ -672,7 +843,8 @@ advance_ray_query_candidate(
             SIMDHostRayQueryCandidateKind::surface);
         return RayQueryCandidateAdvance::published;
     }
-    if (state.candidate_batch_has_more != 0u) {
+    if (state.candidate_batch_has_more != 0u ||
+        state.procedural_batch_has_more != 0u) {
         return RayQueryCandidateAdvance::needs_scan;
     }
     state.candidate_kind = static_cast<uint32_t>(
@@ -700,8 +872,27 @@ void install_ray_query_candidate_batches(
         } else if (!build.ascending) {
             std::sort(begin, end, ray_query_candidate_before);
         }
+        auto &procedural_build =
+            context.procedural_batch_build[lane];
+        auto procedural_begin = std::begin(state->procedural_batch);
+        auto procedural_end =
+            procedural_begin + state->procedural_batch_count;
+        if (procedural_build.heapified) {
+            std::sort_heap(
+                procedural_begin, procedural_end,
+                ray_query_procedural_before);
+        } else if (procedural_build.descending &&
+                   !procedural_build.ascending) {
+            std::reverse(procedural_begin, procedural_end);
+        } else if (!procedural_build.ascending) {
+            std::sort(
+                procedural_begin, procedural_end,
+                ray_query_procedural_before);
+        }
         state->candidate_batch_index = 0u;
         state->candidate_batch_initialized = 1u;
+        state->procedural_batch_index = 0u;
+        state->procedural_batch_initialized = 1u;
         auto advanced = advance_ray_query_candidate(*state, instances);
         LUISA_ASSERT(
             advanced != RayQueryCandidateAdvance::needs_scan,
@@ -725,6 +916,7 @@ void scan_ray_query_packet(
     initialize_ray_query_context(
         context, lane_count, active_mask_bits, states, instances);
     alignas(64) std::array<int, packet_width> valid{};
+    ScopedRayQueryScanContext active_context{context};
     if (terminate_on_first) {
         alignas(64) RayPacket packet{};
         initialize_ray_packet<packet_width>(
@@ -809,6 +1001,7 @@ void scan_ray_query_scalar(
     RayQueryScanContext context{};
     initialize_ray_query_context(
         context, 1u, active_mask_bits, states, instances);
+    ScopedRayQueryScanContext active_context{context};
     if (terminate_on_first) {
         RTCRay ray{};
         initialize_scalar_ray(
@@ -850,6 +1043,24 @@ void scan_ray_query_scalar(
 }
 
 }// namespace
+
+void simd_procedural_intersect(
+    const RTCIntersectFunctionNArguments *arguments) noexcept {
+    if (arguments == nullptr || arguments->rayhit == nullptr) { return; }
+    auto *rays = RTCRayHitN_RayN(
+        arguments->rayhit, arguments->N);
+    collect_procedural_candidates(
+        arguments->valid, rays, arguments->N,
+        arguments->primID, arguments->context);
+}
+
+void simd_procedural_occluded(
+    const RTCOccludedFunctionNArguments *arguments) noexcept {
+    if (arguments == nullptr || arguments->ray == nullptr) { return; }
+    collect_procedural_candidates(
+        arguments->valid, arguments->ray, arguments->N,
+        arguments->primID, arguments->context);
+}
 
 SIMDAccel::SIMDAccel(
     RTCDevice device, const AccelOption &option) noexcept
@@ -931,24 +1142,30 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                 rtcSetGeometryTimeRange(
                     geometry, state->option.time_start,
                     state->option.time_end);
-                instance.curve =
+                instance.geometry_kind = static_cast<uint8_t>(
                     motion->child()->kind() == SIMDPrimitive::Kind::curve ?
-                        1u :
-                        0u;
+                        SIMDHostAccelGeometryKind::curve :
+                    motion->child()->kind() ==
+                            SIMDPrimitive::Kind::procedural ?
+                        SIMDHostAccelGeometryKind::procedural :
+                        SIMDHostAccelGeometryKind::triangle);
                 _motion_states[modification.index] = std::move(state);
             } else {
                 LUISA_ASSERT(
                     primitive->kind() == SIMDPrimitive::Kind::mesh ||
-                        primitive->kind() == SIMDPrimitive::Kind::curve,
-                    "SIMD accel instances currently require a mesh, curve, "
+                        primitive->kind() == SIMDPrimitive::Kind::curve ||
+                        primitive->kind() == SIMDPrimitive::Kind::procedural,
+                    "SIMD accel instances require a mesh, curve, procedural, "
                     "or motion-instance primitive.");
                 rtcSetGeometryInstancedScene(geometry, primitive->handle());
                 rtcSetGeometryTimeStepCount(geometry, 1u);
                 rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
-                instance.curve =
+                instance.geometry_kind = static_cast<uint8_t>(
                     primitive->kind() == SIMDPrimitive::Kind::curve ?
-                        1u :
-                        0u;
+                        SIMDHostAccelGeometryKind::curve :
+                    primitive->kind() == SIMDPrimitive::Kind::procedural ?
+                        SIMDHostAccelGeometryKind::procedural :
+                        SIMDHostAccelGeometryKind::triangle);
                 instance.motion_frames = nullptr;
                 instance.motion_keyframe_count = 0u;
                 instance.motion_mode = 0u;
@@ -976,48 +1193,53 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
     }
     for (auto i = size_t{0u}; i < _instances.size(); i++) {
         auto &instance = _instances[i];
-        if (!instance.dirty) { continue; }
         auto geometry = _geometries[i];
-        if (auto &motion = _motion_states[i]; motion != nullptr) {
-            LUISA_ASSERT(
-                instance.motion_frames == motion->keyframes.data() &&
-                    instance.motion_keyframe_count ==
-                        motion->keyframes.size() &&
-                    instance.motion_mode ==
-                        static_cast<uint32_t>(motion->option.mode),
-                "SIMD motion-instance metadata is inconsistent.");
-            if (motion->option.mode == AccelMotionMode::MATRIX) {
-                std::array<float, 12u> composed{};
-                for (auto key = size_t{0u};
-                     key < motion->keyframes.size(); key++) {
-                    compose_matrix_keyframe(
-                        composed.data(), instance.affine,
-                        motion->keyframes[key].as_matrix(), key);
-                    rtcSetGeometryTransform(
-                        geometry, static_cast<unsigned>(key),
-                        RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
-                        composed.data());
+        if (instance.dirty != 0u) {
+            if (auto &motion = _motion_states[i]; motion != nullptr) {
+                LUISA_ASSERT(
+                    instance.motion_frames == motion->keyframes.data() &&
+                        instance.motion_keyframe_count ==
+                            motion->keyframes.size() &&
+                        instance.motion_mode ==
+                            static_cast<uint32_t>(motion->option.mode),
+                    "SIMD motion-instance metadata is inconsistent.");
+                if (motion->option.mode == AccelMotionMode::MATRIX) {
+                    std::array<float, 12u> composed{};
+                    for (auto key = size_t{0u};
+                         key < motion->keyframes.size(); key++) {
+                        compose_matrix_keyframe(
+                            composed.data(), instance.affine,
+                            motion->keyframes[key].as_matrix(), key);
+                        rtcSetGeometryTransform(
+                            geometry, static_cast<unsigned>(key),
+                            RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
+                            composed.data());
+                    }
+                } else {
+                    LUISA_ASSERT(
+                        affine_is_identity(instance.affine),
+                        "SIMD SRT motion instances currently require an "
+                        "identity outer affine transform.");
+                    for (auto key = size_t{0u};
+                         key < motion->keyframes.size(); key++) {
+                        auto quaternion = quaternion_keyframe(
+                            motion->keyframes[key].as_srt(), key);
+                        rtcSetGeometryTransformQuaternion(
+                            geometry, static_cast<unsigned>(key),
+                            &quaternion);
+                    }
                 }
             } else {
-                LUISA_ASSERT(
-                    affine_is_identity(instance.affine),
-                    "SIMD SRT motion instances currently require an identity "
-                    "outer affine transform.");
-                for (auto key = size_t{0u};
-                     key < motion->keyframes.size(); key++) {
-                    auto quaternion = quaternion_keyframe(
-                        motion->keyframes[key].as_srt(), key);
-                    rtcSetGeometryTransformQuaternion(
-                        geometry, static_cast<unsigned>(key),
-                        &quaternion);
-                }
+                rtcSetGeometryTransform(
+                    geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
+                    instance.affine);
             }
-        } else {
-            rtcSetGeometryTransform(
-                geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
-                instance.affine);
+            rtcSetGeometryMask(geometry, instance.mask);
         }
-        rtcSetGeometryMask(geometry, instance.mask);
+        // A BLAS can be rebuilt without changing the Accel instance record.
+        // Recommitting every instance geometry refreshes Embree's cached child
+        // scene bounds before the TLAS commit; transform/mask setup remains
+        // dirty-only.
         rtcCommitGeometry(geometry);
         instance.dirty = 0u;
     }
@@ -1234,6 +1456,20 @@ void SIMDAccel::_ray_query_proceed(
                 .kind = static_cast<uint32_t>(kind),
                 .t = state->candidate.t,
             };
+            // The procedural batch was collected against the pre-commit ray
+            // interval. A successful surface or procedural commit may shrink
+            // tmax, so discard every unexposed speculative AABB candidate and
+            // request a continuation scan after cached exact surface hits
+            // only when such unexposed candidates may still exist.
+            auto procedural_candidates_remain =
+                state->procedural_batch_index <
+                    state->procedural_batch_count ||
+                state->procedural_batch_has_more != 0u;
+            state->procedural_batch_count = 0u;
+            state->procedural_batch_index = 0u;
+            state->procedural_batch_has_more =
+                procedural_candidates_remain ? 1u : 0u;
+            state->procedural_batch_initialized = 1u;
             state->candidate_committed = 0u;
             if (state->terminate_on_first != 0u) {
                 state->terminated = 1u;

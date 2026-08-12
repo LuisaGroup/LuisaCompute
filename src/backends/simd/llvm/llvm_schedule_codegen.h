@@ -110,6 +110,11 @@ struct alignas(8) SIMDHostRayQueryCommittedHit {
     float t{0.0f};
 };
 
+struct alignas(8) SIMDHostRayQueryProceduralHit {
+    uint32_t inst{~0u};
+    uint32_t prim{~0u};
+};
+
 inline constexpr auto simd_host_ray_query_candidate_batch_capacity = 32u;
 
 struct SIMDHostRayQueryState;
@@ -135,7 +140,10 @@ struct alignas(16) SIMDHostRayQueryState {
     uint32_t candidate_kind{0u};
     uint32_t candidate_committed{0u};
     uint32_t terminated{0u};
-    uint32_t reserved[2]{};
+    uint32_t procedural_cursor_valid{0u};
+    uint32_t reserved{0u};
+    uint32_t procedural_cursor_inst{~0u};
+    uint32_t procedural_cursor_prim{~0u};
     SIMDHostRayQuerySurfaceHit candidate{};
     SIMDHostRayQueryCommittedHit committed{};
     uint32_t candidate_batch_count{0u};
@@ -144,6 +152,12 @@ struct alignas(16) SIMDHostRayQueryState {
     uint32_t candidate_batch_initialized{0u};
     SIMDHostRayQuerySurfaceHit
         candidate_batch[simd_host_ray_query_candidate_batch_capacity]{};
+    uint32_t procedural_batch_count{0u};
+    uint32_t procedural_batch_index{0u};
+    uint32_t procedural_batch_has_more{0u};
+    uint32_t procedural_batch_initialized{0u};
+    SIMDHostRayQueryProceduralHit
+        procedural_batch[simd_host_ray_query_candidate_batch_capacity]{};
 };
 
 // Device-side instance metadata reads use this stable plain-data table rather
@@ -155,13 +169,20 @@ enum class SIMDHostAccelMotionMode : uint32_t {
 };
 inline constexpr size_t simd_host_accel_motion_frame_size = 64u;
 
+enum class SIMDHostAccelGeometryKind : uint8_t {
+    triangle = 0u,
+    curve = 1u,
+    procedural = 2u,
+};
+
 struct alignas(16) SIMDHostAccelInstance {
     float affine[12]{};
     uint32_t user_id{0u};
     uint8_t mask{0xffu};
     uint8_t opaque{1u};
     uint8_t dirty{0u};
-    uint8_t curve{0u};
+    uint8_t geometry_kind{
+        static_cast<uint8_t>(SIMDHostAccelGeometryKind::triangle)};
     uint64_t reserved_motion_alignment{0u};
     // Null for a static instance. Motion frames retain the public
     // MotionInstanceTransform 64-byte layout; motion_mode uses
@@ -189,17 +210,20 @@ static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelRayQueryProceed *) == sizeof(void *));
 static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
-static_assert(sizeof(SIMDHostRayQueryState) == 928u);
+static_assert(sizeof(SIMDHostRayQueryProceduralHit) == 8u);
+static_assert(sizeof(SIMDHostRayQueryState) == 1216u);
 static_assert(offsetof(SIMDHostRayQueryState, world_ray) == 16u);
-static_assert(offsetof(SIMDHostRayQueryState, candidate) == 96u);
-static_assert(offsetof(SIMDHostRayQueryState, committed) == 120u);
-static_assert(offsetof(SIMDHostRayQueryState, candidate_batch_count) == 144u);
-static_assert(offsetof(SIMDHostRayQueryState, candidate_batch) == 160u);
+static_assert(offsetof(SIMDHostRayQueryState, candidate) == 104u);
+static_assert(offsetof(SIMDHostRayQueryState, committed) == 128u);
+static_assert(offsetof(SIMDHostRayQueryState, candidate_batch_count) == 152u);
+static_assert(offsetof(SIMDHostRayQueryState, candidate_batch) == 168u);
+static_assert(offsetof(SIMDHostRayQueryState, procedural_batch_count) == 936u);
+static_assert(offsetof(SIMDHostRayQueryState, procedural_batch) == 952u);
 static_assert(sizeof(SIMDHostAccelInstance) == 80u);
 static_assert(offsetof(SIMDHostAccelInstance, affine) == 0u);
 static_assert(offsetof(SIMDHostAccelInstance, user_id) == 48u);
 static_assert(offsetof(SIMDHostAccelInstance, mask) == 52u);
-static_assert(offsetof(SIMDHostAccelInstance, curve) == 55u);
+static_assert(offsetof(SIMDHostAccelInstance, geometry_kind) == 55u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_frames) == 64u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_keyframe_count) == 72u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_mode) == 76u);
