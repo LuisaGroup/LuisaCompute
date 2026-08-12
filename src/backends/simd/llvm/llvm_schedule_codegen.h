@@ -30,9 +30,34 @@ struct alignas(16) SIMDHostBufferView {
 // callbacks never depend on runtime C++ object layouts.
 struct alignas(16) SIMDHostBindlessTextureSlot {
     void *texture{nullptr};
-    uint32_t sampler_code{0u};
-    uint32_t reserved{0u};
+    uint64_t metadata{0u};
 };
+
+static constexpr auto simd_bindless_texture_extent_bits = 20u;
+static constexpr auto simd_bindless_texture_extent_mask =
+    (uint64_t{1u} << simd_bindless_texture_extent_bits) - 1u;
+
+[[nodiscard]] constexpr uint64_t simd_bindless_texture_metadata(
+    uint32_t sampler_code, uint32_t width,
+    uint32_t height, uint32_t depth) noexcept {
+    return (sampler_code & 0x0fu) |
+           ((static_cast<uint64_t>(width) &
+             simd_bindless_texture_extent_mask)
+            << 4u) |
+           ((static_cast<uint64_t>(height) &
+             simd_bindless_texture_extent_mask)
+            << 24u) |
+           ((static_cast<uint64_t>(depth) &
+             simd_bindless_texture_extent_mask)
+            << 44u);
+}
+
+[[nodiscard]] constexpr uint32_t simd_bindless_texture_sampler(
+    const SIMDHostBindlessTextureSlot &slot) noexcept {
+    return static_cast<uint32_t>(slot.metadata & 0x0fu);
+}
+
+static_assert(sizeof(SIMDHostBindlessTextureSlot) == 16u);
 
 struct alignas(16) SIMDHostBindlessSlot {
     SIMDHostBufferView buffer{};
@@ -43,8 +68,11 @@ struct alignas(16) SIMDHostBindlessSlot {
 // Bindless texture callbacks consume one SoA packet. The runtime groups lanes
 // that resolve to the same texture/sampler before sampling, while slot_indices
 // remain free to diverge. A null sampler_codes pointer selects the sampler
-// stored in each slot; a null levels pointer selects mip zero. Results contain
-// four (sample/read) or three (size) consecutive component vectors.
+// stored in each slot. For a non-gradient sample, levels is either null (mip
+// zero) or an explicit LOD vector. Gradient-derived LOD is computed in JIT
+// fixed-vector IR from the immutable slot extent and passed through levels.
+// Results contain four (sample/read) or three (size) consecutive component
+// vectors.
 using SIMDHostBindlessTextureSample = void(
     const SIMDHostBindlessSlot *slots, size_t slot_count,
     uint32_t dimension, uint32_t lane_count,

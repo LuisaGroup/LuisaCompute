@@ -2,6 +2,8 @@
 
 #include <limits>
 
+#include "../../common/llvm_native_math.h"
+
 namespace luisa::compute::simd::detail {
 
 [[nodiscard]] ScheduleEmitter::BindlessArrayLanes
@@ -11,7 +13,7 @@ ScheduleEmitter::_bindless_array_lanes(
     auto *slot_value = _source.value(slot_id);
     auto *bindless = _load_value(bindless_id);
     auto *slot = slot_value == nullptr ? nullptr :
-        _as_lane_vector(_load_value(slot_id), *slot_value);
+                                         _as_lane_vector(_load_value(slot_id), *slot_value);
     if (bindless_value == nullptr || slot_value == nullptr ||
         bindless == nullptr || slot == nullptr ||
         bindless_value->type == nullptr ||
@@ -92,10 +94,10 @@ ScheduleEmitter::_bindless_buffer_lanes(
         _builder.CreateVectorSplat(_width, array.slots), slot_offsets);
     auto field_pointers = [&](size_t offset) noexcept {
         return offset == 0u ? slot_bases :
-            _builder.CreateGEP(
-                _builder.getInt8Ty(), slot_bases,
-                _builder.CreateVectorSplat(
-                    _width, _builder.getInt64(offset)));
+                              _builder.CreateGEP(
+                                  _builder.getInt8Ty(), slot_bases,
+                                  _builder.CreateVectorSplat(
+                                      _width, _builder.getInt64(offset)));
     };
 
     auto *pointer_type = ::llvm::PointerType::getUnqual(
@@ -185,8 +187,8 @@ ScheduleEmitter::_bindless_buffer_lanes(
     auto *index_value = _source.value(instruction.operands[2u]);
     auto *result = _source.value(*instruction.result);
     auto *index = index_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[2u]), *index_value);
+                                           _as_lane_vector(
+                                               _load_value(instruction.operands[2u]), *index_value);
     if (index_value == nullptr || result == nullptr || index == nullptr ||
         index_value->type == nullptr ||
         !index_value->type->is_scalar() ||
@@ -222,11 +224,11 @@ void ScheduleEmitter::_bindless_resource_write(
     auto *index_value = _source.value(instruction.operands[2u]);
     auto *written_value = _source.value(instruction.operands[3u]);
     auto *index = index_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[2u]), *index_value);
+                                           _as_lane_vector(
+                                               _load_value(instruction.operands[2u]), *index_value);
     auto *written = written_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[3u]), *written_value);
+                                               _as_lane_vector(
+                                                   _load_value(instruction.operands[3u]), *written_value);
     if (index_value == nullptr || written_value == nullptr ||
         index == nullptr || written == nullptr ||
         index_value->type == nullptr ||
@@ -285,8 +287,8 @@ void ScheduleEmitter::_bindless_resource_write(
     } else {
         auto *stride_value = _source.value(instruction.operands[2u]);
         auto *stride = stride_value == nullptr ? nullptr :
-            _as_lane_vector(
-                _load_value(instruction.operands[2u]), *stride_value);
+                                                 _as_lane_vector(
+                                                     _load_value(instruction.operands[2u]), *stride_value);
         if (stride_value == nullptr || stride == nullptr ||
             stride_value->type == nullptr ||
             !stride_value->type->is_scalar() ||
@@ -348,8 +350,8 @@ void ScheduleEmitter::_bindless_resource_write(
     auto *result = _source.value(*instruction.result);
     auto *coordinate_value = _source.value(instruction.operands[2u]);
     auto *coordinate = coordinate_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[2u]), *coordinate_value);
+                                                     _as_lane_vector(
+                                                         _load_value(instruction.operands[2u]), *coordinate_value);
     if (result == nullptr || result->type == nullptr ||
         !result->type->is_vector() || result->type->dimension() != 4u ||
         !result->type->element()->is_float32() ||
@@ -382,9 +384,9 @@ void ScheduleEmitter::_bindless_resource_write(
     auto *zero_i32 = ::llvm::Constant::getNullValue(i32_lanes);
     for (auto axis = uint32_t{0u}; axis < 3u; axis++) {
         auto *lanes = axis < dimension ?
-            _extract_child(
-                coordinate, coordinate_value->type, axis, true) :
-            zero_i32;
+                          _extract_child(
+                              coordinate, coordinate_value->type, axis, true) :
+                          zero_i32;
         lanes = _builder.CreateSelect(
             _active_mask, lanes, zero_i32,
             "bindless.texture.read.safe.coordinate");
@@ -398,8 +400,8 @@ void ScheduleEmitter::_bindless_resource_write(
     if (has_level) {
         auto *level_value = _source.value(instruction.operands[3u]);
         auto *level = level_value == nullptr ? nullptr :
-            _as_lane_vector(
-                _load_value(instruction.operands[3u]), *level_value);
+                                               _as_lane_vector(
+                                                   _load_value(instruction.operands[3u]), *level_value);
         if (level_value == nullptr || level == nullptr ||
             level_value->type == nullptr ||
             !level_value->type->is_scalar() ||
@@ -458,9 +460,9 @@ void ScheduleEmitter::_bindless_resource_write(
             result->type, component, true);
     }
     return result->value_class == schedule::ValueClass::varying ?
-        pixels :
-        _extract_lane(pixels, result->type,
-                      _safe_first_lane(_active_mask));
+               pixels :
+               _extract_lane(pixels, result->type,
+                             _safe_first_lane(_active_mask));
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_bindless_texture_query(
@@ -478,8 +480,8 @@ void ScheduleEmitter::_bindless_resource_write(
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL ||
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL;
     auto sample_query = !size_query &&
-        op >= xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE &&
-        op <= xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER;
+                        op >= xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE &&
+                        op <= xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER;
     if (!size_query && !sample_query) {
         _fail("unsupported bindless texture query operation");
         return nullptr;
@@ -513,6 +515,11 @@ void ScheduleEmitter::_bindless_resource_write(
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER ||
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER ||
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER;
+    auto has_gradient_level =
+        op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL ||
+        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL ||
+        op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER ||
+        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER;
     auto explicit_sampler =
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER ||
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER ||
@@ -522,10 +529,6 @@ void ScheduleEmitter::_bindless_resource_write(
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER ||
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER ||
         op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER;
-    if (has_gradient) {
-        _fail("SIMD bindless texture gradient sampling is not implemented yet");
-        return nullptr;
-    }
     if (_width > 64u) {
         _fail("bindless texture packet callbacks support widths up to 64 lanes");
         return nullptr;
@@ -561,8 +564,8 @@ void ScheduleEmitter::_bindless_resource_write(
         if (has_level) {
             auto *level_value = _source.value(instruction.operands[2u]);
             auto *level = level_value == nullptr ? nullptr :
-                _as_lane_vector(
-                    _load_value(instruction.operands[2u]), *level_value);
+                                                   _as_lane_vector(
+                                                       _load_value(instruction.operands[2u]), *level_value);
             if (level_value == nullptr || level == nullptr ||
                 level_value->type == nullptr ||
                 !level_value->type->is_scalar() ||
@@ -616,19 +619,20 @@ void ScheduleEmitter::_bindless_resource_write(
                 result->type, axis, true);
         }
         return result->value_class == schedule::ValueClass::varying ?
-            sizes :
-            _extract_lane(sizes, result->type,
-                          _safe_first_lane(_active_mask));
+                   sizes :
+                   _extract_lane(sizes, result->type,
+                                 _safe_first_lane(_active_mask));
     }
 
     auto expected_operands =
-        has_level ? (explicit_sampler ? 6u : 4u) :
-                    (explicit_sampler ? 5u : 3u);
+        3u + (has_gradient ? 2u : 0u) +
+        ((has_level || has_gradient_level) ? 1u : 0u) +
+        (explicit_sampler ? 2u : 0u);
     auto *result = _source.value(*instruction.result);
     auto *coordinate_value = _source.value(instruction.operands[2u]);
     auto *coordinate = coordinate_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[2u]), *coordinate_value);
+                                                     _as_lane_vector(
+                                                         _load_value(instruction.operands[2u]), *coordinate_value);
     if (instruction.operands.size() != expected_operands ||
         result == nullptr || result->type == nullptr ||
         !result->type->is_vector() || result->type->dimension() != 4u ||
@@ -642,15 +646,20 @@ void ScheduleEmitter::_bindless_resource_write(
         return nullptr;
     }
 
+    auto varying_result = result->value_class ==
+                          schedule::ValueClass::varying;
     auto *float_lanes = ::llvm::FixedVectorType::get(
         _builder.getFloatTy(), _width);
     auto *zero_float = ::llvm::Constant::getNullValue(float_lanes);
+    auto *one_float = ::llvm::ConstantVector::getSplat(
+        ::llvm::ElementCount::getFixed(_width),
+        ::llvm::ConstantFP::get(_builder.getFloatTy(), 1.0));
     std::array<::llvm::AllocaInst *, 3u> coordinate_scratch{};
     for (auto axis = uint32_t{0u}; axis < 3u; axis++) {
         auto *lanes = axis < dimension ?
-            _extract_child(
-                coordinate, coordinate_value->type, axis, true) :
-            zero_float;
+                          _extract_child(
+                              coordinate, coordinate_value->type, axis, true) :
+                          zero_float;
         lanes = _builder.CreateSelect(
             _active_mask, lanes, zero_float,
             "bindless.texture.sample.safe.coordinate");
@@ -661,41 +670,308 @@ void ScheduleEmitter::_bindless_resource_write(
         _builder.CreateStore(lanes, coordinate_scratch[axis]);
     }
 
+    auto operand_index = size_t{3u};
+    ::llvm::Value *gradient_level = nullptr;
+    ::llvm::Value *uniform_gradient_level = nullptr;
+    ::llvm::Value *gradient_mask = nullptr;
+    auto gradient_level_is_uniform = false;
+    if (has_gradient) {
+        auto *slot_value = _source.value(instruction.operands[1u]);
+        std::array<const schedule::Value *, 2u> gradient_values{};
+        auto uniform_gradient_lod =
+            slot_value != nullptr &&
+            schedule::is_uniform(slot_value->value_class);
+        for (auto derivative = 0u; derivative < 2u; derivative++) {
+            auto *gradient_value = _source.value(
+                instruction.operands[operand_index + derivative]);
+            gradient_values[derivative] = gradient_value;
+            if (gradient_value == nullptr ||
+                gradient_value->type == nullptr ||
+                !gradient_value->type->is_vector() ||
+                gradient_value->type->dimension() != dimension ||
+                !gradient_value->type->element()->is_float32()) {
+                _fail("bindless texture sample has an invalid gradient");
+                return nullptr;
+            }
+            uniform_gradient_lod &=
+                schedule::is_uniform(gradient_value->value_class);
+        }
+        constexpr auto texture_offset =
+            offsetof(SIMDHostBindlessSlot, texture2d);
+        constexpr auto texture_stride =
+            offsetof(SIMDHostBindlessSlot, texture3d) -
+            offsetof(SIMDHostBindlessSlot, texture2d);
+        auto descriptor_offset = texture_offset +
+                                 (dimension - 2u) * texture_stride;
+        auto *first_active_mask = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpEQ(
+                _lane_ids(), _builder.CreateVectorSplat(
+                                 _width, _safe_first_lane(_active_mask))));
+        gradient_mask = varying_result ? _active_mask : first_active_mask;
+        auto slot_uniform = schedule::is_uniform(slot_value->value_class);
+        std::array<::llvm::Value *, 3u> extents{};
+        auto *i64_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt64Ty(), _width);
+        auto metadata_offset = descriptor_offset +
+                               offsetof(SIMDHostBindlessTextureSlot, metadata);
+        ::llvm::Value *metadata = nullptr;
+        if (slot_uniform) {
+            auto *scalar_slot = _builder.CreateExtractElement(
+                array.slot_indices, _safe_first_lane(_active_mask));
+            auto *metadata_pointer = _builder.CreateGEP(
+                _builder.getInt8Ty(), array.slots,
+                _builder.CreateAdd(
+                    _builder.CreateMul(
+                        scalar_slot,
+                        _builder.getInt64(
+                            sizeof(SIMDHostBindlessSlot))),
+                    _builder.getInt64(metadata_offset)));
+            auto *zero_metadata = _entry_scratch(
+                _builder.getInt64Ty(),
+                "bindless.texture.sample.uniform.metadata.zero");
+            _builder.CreateStore(
+                _builder.getInt64(0u), zero_metadata);
+            auto *safe_metadata_pointer = _builder.CreateSelect(
+                _builder.CreateOrReduce(_active_mask),
+                metadata_pointer, zero_metadata,
+                "bindless.texture.sample.uniform.metadata.pointer");
+            auto *metadata_load = _builder.CreateLoad(
+                _builder.getInt64Ty(), safe_metadata_pointer,
+                "bindless.texture.sample.uniform.metadata");
+            metadata_load->setAlignment(
+                ::llvm::Align{alignof(uint64_t)});
+            metadata = metadata_load;
+        } else {
+            auto *slot_offsets = _builder.CreateMul(
+                array.slot_indices,
+                _builder.CreateVectorSplat(
+                    _width,
+                    _builder.getInt64(sizeof(SIMDHostBindlessSlot))));
+            auto *slot_bases = _builder.CreateGEP(
+                _builder.getInt8Ty(),
+                _builder.CreateVectorSplat(_width, array.slots),
+                slot_offsets);
+            auto *extent_pointers = _builder.CreateGEP(
+                _builder.getInt8Ty(), slot_bases,
+                _builder.CreateVectorSplat(
+                    _width, _builder.getInt64(metadata_offset)));
+            metadata = _builder.CreateMaskedGather(
+                i64_lanes, extent_pointers,
+                ::llvm::Align{alignof(uint64_t)}, gradient_mask,
+                ::llvm::Constant::getNullValue(i64_lanes));
+        }
+        for (auto axis = 0u; axis < dimension; axis++) {
+            auto shift = 4u +
+                         axis * simd_bindless_texture_extent_bits;
+            if (slot_uniform) {
+                extents[axis] = _builder.CreateUIToFP(
+                    _builder.CreateTrunc(
+                        _builder.CreateAnd(
+                            _builder.CreateLShr(
+                                metadata, _builder.getInt64(shift)),
+                            _builder.getInt64(
+                                simd_bindless_texture_extent_mask)),
+                        _builder.getInt32Ty()),
+                    _builder.getFloatTy());
+                if (!uniform_gradient_lod) {
+                    extents[axis] = _builder.CreateVectorSplat(
+                        _width, extents[axis]);
+                }
+            } else {
+                extents[axis] = _builder.CreateUIToFP(
+                    _builder.CreateTrunc(
+                        _builder.CreateAnd(
+                            _builder.CreateLShr(
+                                metadata,
+                                _builder.CreateVectorSplat(
+                                    _width, _builder.getInt64(shift))),
+                            _builder.CreateVectorSplat(
+                                _width, _builder.getInt64(
+                                            simd_bindless_texture_extent_mask))),
+                        i32_lanes),
+                    float_lanes);
+            }
+        }
+        auto native_math_mode = _enable_fast_math ?
+                                    cpu::LLVMNativeMathMode::fast :
+                                    cpu::LLVMNativeMathMode::precise;
+        if (uniform_gradient_lod) {
+            gradient_level_is_uniform = true;
+            auto *zero_scalar = ::llvm::ConstantFP::get(
+                _builder.getFloatTy(), 0.0);
+            auto *one_scalar = ::llvm::ConstantFP::get(
+                _builder.getFloatTy(), 1.0);
+            std::array<::llvm::Value *, 2u> gradient_norms{
+                zero_scalar, zero_scalar};
+            ::llvm::Value *gradient_has_nan =
+                _builder.getFalse();
+            for (auto derivative = 0u; derivative < 2u; derivative++) {
+                auto *gradient = _load_value(
+                    instruction.operands[operand_index + derivative]);
+                if (gradient == nullptr) { return nullptr; }
+                for (auto axis = 0u; axis < dimension; axis++) {
+                    auto *component = _extract_child(
+                        gradient, gradient_values[derivative]->type,
+                        axis, false);
+                    gradient_has_nan = _builder.CreateOr(
+                        gradient_has_nan,
+                        _builder.CreateFCmpUNO(component, component));
+                    auto *scaled = _builder.CreateFMul(
+                        component, extents[axis]);
+                    gradient_norms[derivative] = _builder.CreateFAdd(
+                        gradient_norms[derivative],
+                        _builder.CreateFMul(scaled, scaled));
+                }
+            }
+            auto *rho2 = _builder.CreateMaxNum(
+                gradient_norms[0u], gradient_norms[1u]);
+            rho2 = _builder.CreateMaxNum(rho2, one_scalar);
+            rho2 = _builder.CreateSelect(
+                gradient_has_nan, one_scalar, rho2,
+                "bindless.texture.sample.uniform.nan.gradient.lod");
+            uniform_gradient_level = _builder.CreateUnaryIntrinsic(
+                ::llvm::Intrinsic::log2, rho2,
+                nullptr, "bindless.texture.sample.uniform.gradient.log2");
+            uniform_gradient_level = _builder.CreateFMul(
+                uniform_gradient_level,
+                ::llvm::ConstantFP::get(
+                    _builder.getFloatTy(), 0.5));
+        } else {
+            std::array<::llvm::Value *, 2u> gradient_norms{
+                zero_float, zero_float};
+            ::llvm::Value *gradient_has_nan =
+                ::llvm::Constant::getNullValue(
+                    ::llvm::FixedVectorType::get(
+                        _builder.getInt1Ty(), _width));
+            for (auto derivative = 0u; derivative < 2u; derivative++) {
+                auto *gradient = _as_lane_vector(
+                    _load_value(instruction.operands[operand_index + derivative]),
+                    *gradient_values[derivative]);
+                if (gradient == nullptr) { return nullptr; }
+                for (auto axis = 0u; axis < dimension; axis++) {
+                    auto *lanes = _extract_child(
+                        gradient, gradient_values[derivative]->type,
+                        axis, true);
+                    lanes = _builder.CreateSelect(
+                        gradient_mask, lanes, zero_float,
+                        "bindless.texture.sample.safe.gradient");
+                    gradient_has_nan = _builder.CreateOr(
+                        gradient_has_nan,
+                        _builder.CreateFCmpUNO(lanes, lanes));
+                    auto *scaled = _builder.CreateFMul(
+                        lanes, extents[axis]);
+                    gradient_norms[derivative] = _builder.CreateFAdd(
+                        gradient_norms[derivative],
+                        _builder.CreateFMul(scaled, scaled));
+                }
+            }
+            auto *rho2 = _builder.CreateMaxNum(
+                gradient_norms[0u], gradient_norms[1u]);
+            rho2 = _builder.CreateMaxNum(rho2, one_float);
+            rho2 = _builder.CreateSelect(
+                gradient_has_nan, one_float, rho2,
+                "bindless.texture.sample.nan.gradient.lod");
+            gradient_level = cpu::LLVMNativeMath::emit_log2_f32(
+                _module, _builder, rho2, native_math_mode);
+            if (gradient_level == nullptr) {
+                _fail("bindless texture gradient LOD requires fixed f32 vectors");
+                return nullptr;
+            }
+            gradient_level = _builder.CreateFMul(
+                gradient_level,
+                ::llvm::ConstantVector::getSplat(
+                    ::llvm::ElementCount::getFixed(_width),
+                    ::llvm::ConstantFP::get(
+                        _builder.getFloatTy(), 0.5)));
+        }
+        if (!gradient_level_is_uniform) {
+            gradient_level = _builder.CreateSelect(
+                gradient_mask, gradient_level, zero_float,
+                "bindless.texture.sample.safe.gradient.level");
+        }
+        operand_index += 2u;
+    }
+
     ::llvm::Value *level_pointer = null_pointer;
-    auto sampler_operand = size_t{3u};
-    if (has_level) {
-        auto *level_value = _source.value(instruction.operands[3u]);
-        auto *level = level_value == nullptr ? nullptr :
-            _as_lane_vector(
-                _load_value(instruction.operands[3u]), *level_value);
-        if (level_value == nullptr || level == nullptr ||
+    if (has_level || has_gradient_level) {
+        auto *level_value = _source.value(
+            instruction.operands[operand_index]);
+        auto *raw_level = level_value == nullptr ? nullptr :
+                                                   _load_value(
+                                                       instruction.operands[operand_index]);
+        if (level_value == nullptr || raw_level == nullptr ||
             level_value->type == nullptr ||
             !level_value->type->is_float32()) {
-            _fail("bindless texture sample has an invalid mip level");
+            _fail(
+                has_gradient_level ?
+                    "bindless texture sample has an invalid minimum mip level" :
+                    "bindless texture sample has an invalid mip level");
             return nullptr;
         }
-        level = _builder.CreateSelect(_active_mask, level, zero_float);
+        ::llvm::Value *level = nullptr;
+        auto uniform_minimum_level =
+            has_gradient_level && gradient_level_is_uniform &&
+            schedule::is_uniform(level_value->value_class);
+        if (uniform_minimum_level) {
+            auto *scalar_level = _builder.CreateMaxNum(
+                uniform_gradient_level, raw_level);
+            level = _builder.CreateVectorSplat(
+                _width, scalar_level,
+                "bindless.texture.sample.uniform.gradient.minimum.splat");
+            level = _builder.CreateSelect(
+                gradient_mask, level, zero_float);
+        } else {
+            level = _as_lane_vector(raw_level, *level_value);
+            level = _builder.CreateSelect(
+                has_gradient_level ? gradient_mask : _active_mask,
+                level, zero_float);
+            if (has_gradient_level) {
+                if (gradient_level_is_uniform) {
+                    gradient_level = _builder.CreateVectorSplat(
+                        _width, uniform_gradient_level,
+                        "bindless.texture.sample.uniform.gradient.splat");
+                }
+                level = _builder.CreateMaxNum(
+                    gradient_level, level);
+                level = _builder.CreateSelect(
+                    gradient_mask, level, zero_float);
+            }
+        }
         auto *level_scratch = _entry_scratch(
             float_lanes, "bindless.texture.sample.levels");
         _builder.CreateStore(level, level_scratch);
         level_pointer = level_scratch;
-        sampler_operand = 4u;
+        operand_index++;
+    } else if (has_gradient) {
+        if (gradient_level_is_uniform) {
+            gradient_level = _builder.CreateVectorSplat(
+                _width, uniform_gradient_level,
+                "bindless.texture.sample.uniform.gradient.splat");
+            gradient_level = _builder.CreateSelect(
+                gradient_mask, gradient_level, zero_float,
+                "bindless.texture.sample.safe.gradient.level");
+        }
+        auto *level_scratch = _entry_scratch(
+            float_lanes, "bindless.texture.sample.gradient.levels");
+        _builder.CreateStore(gradient_level, level_scratch);
+        level_pointer = level_scratch;
     }
 
     ::llvm::Value *sampler_pointer = null_pointer;
     if (explicit_sampler) {
         auto *filter_value = _source.value(
-            instruction.operands[sampler_operand]);
+            instruction.operands[operand_index]);
         auto *address_value = _source.value(
-            instruction.operands[sampler_operand + 1u]);
+            instruction.operands[operand_index + 1u]);
         auto *filter = filter_value == nullptr ? nullptr :
-            _as_lane_vector(
-                _load_value(instruction.operands[sampler_operand]),
-                *filter_value);
+                                                 _as_lane_vector(
+                                                     _load_value(instruction.operands[operand_index]),
+                                                     *filter_value);
         auto *address = address_value == nullptr ? nullptr :
-            _as_lane_vector(
-                _load_value(instruction.operands[sampler_operand + 1u]),
-                *address_value);
+                                                   _as_lane_vector(
+                                                       _load_value(instruction.operands[operand_index + 1u]),
+                                                       *address_value);
         if (filter_value == nullptr || address_value == nullptr ||
             filter == nullptr || address == nullptr ||
             filter_value->type == nullptr ||
@@ -765,9 +1041,9 @@ void ScheduleEmitter::_bindless_resource_write(
             result->type, component, true);
     }
     return result->value_class == schedule::ValueClass::varying ?
-        pixels :
-        _extract_lane(pixels, result->type,
-                      _safe_first_lane(_active_mask));
+               pixels :
+               _extract_lane(pixels, result->type,
+                             _safe_first_lane(_active_mask));
 }
 
 }// namespace luisa::compute::simd::detail

@@ -15,7 +15,7 @@ using namespace boost::ut;
 namespace {
 
 constexpr auto thread_count = 35u;
-constexpr auto output_stride = 21u;
+constexpr auto output_stride = 30u;
 constexpr auto image_size = make_uint2(4u, 4u);
 constexpr auto volume_size = make_uint3(2u, 2u, 2u);
 
@@ -112,11 +112,11 @@ int main(int argc, char *argv[]) {
 
         auto bindless = device.create_bindless_array(2u);
         bindless.emplace_on_update(
-            0u, images[0u], Sampler::point_edge());
+            0u, images[0u], Sampler::linear_point_edge());
         bindless.emplace_on_update(
             1u, images[1u], Sampler::linear_point_mirror());
         bindless.emplace_on_update(
-            0u, volumes[0u], Sampler::point_edge());
+            0u, volumes[0u], Sampler::linear_point_edge());
         bindless.emplace_on_update(
             1u, volumes[1u], Sampler::linear_point_mirror());
 
@@ -229,6 +229,53 @@ int main(int argc, char *argv[]) {
                     std::numeric_limits<float>::infinity(),
                     SamplerFilter::LINEAR_POINT,
                     SamplerAddress::EDGE));
+            auto ddx2 = make_float2(0.5f, 0.0f);
+            auto ddy2 = make_float2(0.0f, 0.5f);
+            result.write(
+                gid * output_stride + 21u,
+                texture2d.sample(uv_mip, ddx2, ddy2));
+            auto base_ddx2 = make_float2(0.25f, 0.0f);
+            auto base_ddy2 = make_float2(0.0f, 0.25f);
+            result.write(
+                gid * output_stride + 22u,
+                texture2d.sample(
+                    uv_mip, base_ddx2, base_ddy2, 1.0f,
+                    SamplerFilter::LINEAR_POINT,
+                    SamplerAddress::EDGE));
+            auto ddx3 = make_float3(1.0f, 0.0f, 0.0f);
+            auto ddy3 = make_float3(0.0f, 1.0f, 0.0f);
+            result.write(
+                gid * output_stride + 23u,
+                texture3d.sample(make_float3(0.5f), ddx3, ddy3));
+            auto base_ddx3 = make_float3(0.5f, 0.0f, 0.0f);
+            auto base_ddy3 = make_float3(0.0f, 0.5f, 0.0f);
+            result.write(
+                gid * output_stride + 24u,
+                texture3d.sample(
+                    make_float3(0.5f), base_ddx3, base_ddy3, 1.0f,
+                    SamplerFilter::LINEAR_POINT,
+                    SamplerAddress::EDGE));
+            auto zero_gradient = make_float2(0.0f);
+            result.write(
+                gid * output_stride + 25u,
+                texture2d.sample(uv, zero_gradient, zero_gradient));
+            auto nan_gradient = make_float2(
+                std::numeric_limits<float>::quiet_NaN(), 0.0f);
+            result.write(
+                gid * output_stride + 26u,
+                texture2d.sample(uv, nan_gradient, zero_gradient));
+            auto inf_gradient = make_float2(
+                std::numeric_limits<float>::infinity(), 0.0f);
+            result.write(
+                gid * output_stride + 27u,
+                texture2d.sample(uv_mip, inf_gradient, zero_gradient));
+            auto large_gradient = make_float2(1.0f, 0.0f);
+            result.write(
+                gid * output_stride + 28u,
+                texture2d.sample(uv, nan_gradient, large_gradient));
+            result.write(
+                gid * output_stride + 29u,
+                array.tex2d(0u).sample(uv_mip, ddx2, ddy2));
         };
 
         auto shader = device.compile(kernel);
@@ -326,6 +373,39 @@ int main(int argc, char *argv[]) {
                 host[gid * output_stride + 20u],
                 image_mip_texel(slot, 0u, 0u),
                 "SIMD bindless positive-infinity mip sample mismatch");
+            expect_close(
+                host[gid * output_stride + 21u],
+                image_mip_texel(slot, x2_mip, y2_mip),
+                "SIMD bindless 2D gradient sample mismatch");
+            expect_close(
+                host[gid * output_stride + 22u],
+                image_mip_texel(slot, x2_mip, y2_mip),
+                "SIMD bindless 2D minimum-mip gradient mismatch");
+            expect_close(
+                host[gid * output_stride + 23u],
+                volume_mip_texel(slot),
+                "SIMD bindless 3D gradient sample mismatch");
+            expect_close(
+                host[gid * output_stride + 24u],
+                volume_mip_texel(slot),
+                "SIMD bindless 3D minimum-mip gradient mismatch");
+            expect_close(
+                host[gid * output_stride + 25u], expected2,
+                "SIMD bindless zero-gradient sample mismatch");
+            expect_close(
+                host[gid * output_stride + 26u], expected2,
+                "SIMD bindless NaN-gradient sample mismatch");
+            expect_close(
+                host[gid * output_stride + 27u],
+                image_mip_texel(slot, x2_mip, y2_mip),
+                "SIMD bindless infinite-gradient sample mismatch");
+            expect_close(
+                host[gid * output_stride + 28u], expected2,
+                "SIMD bindless mixed-NaN gradient sample mismatch");
+            expect_close(
+                host[gid * output_stride + 29u],
+                image_mip_texel(0u, x2_mip, y2_mip),
+                "SIMD bindless uniform-gradient LOD sample mismatch");
         }
     }
 }

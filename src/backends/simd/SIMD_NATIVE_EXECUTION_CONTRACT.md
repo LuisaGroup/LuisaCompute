@@ -655,8 +655,11 @@ public texture layout or semantics.
 
 Bindless arrays extend the same packet boundary with a runtime-owned dense
 slot table. Each slot contains independent buffer, 2D-texture, and 3D-texture
-descriptors; a texture descriptor stores the resolved `SIMDTexture` and its
-sampler code. JIT code issues exactly one callback for a varying packet and
+descriptors; a texture descriptor stores the resolved `SIMDTexture` plus a
+packed 64-bit sampler/base-extent field in a 16-byte descriptor total. Each
+extent is limited to twenty bits, and a bindless update fails before publishing
+the descriptor if an extent does not fit. JIT code issues exactly one callback
+for a varying packet and
 passes divergent slot indices through a SoA scratch array. Before any scratch
 store, table lookup, coordinate conversion, mip conversion, or sampler decode,
 inactive lanes are selected to benign zero operands. Callback result storage
@@ -668,10 +671,21 @@ A result classified warp- or cohort-uniform invokes the callback for only the
 first active lane and remains scalar after the callback. It is forbidden to
 broadcast a uniform bindless query and repeat the resource operation W times.
 The current supported bindless texture surface is 2D/3D `read`, `read_level`,
-`size`, `size_level`, `sample`, and `sample_level`, with either the sampler
-stored in the slot or an explicit filter/address pair. Gradient sampling is
-rejected with a compile-time diagnostic; it is not silently approximated by a
-non-gradient query.
+`size`, `size_level`, `sample`, `sample_level`, `sample_grad`, and
+`sample_grad_level`, with either the sampler stored in the slot or an explicit
+filter/address pair. Gradient LOD is
+`0.5 * log2(max(dot(ddx * extent, ddx * extent),
+dot(ddy * extent, ddy * extent), 1))`; the level operand is a minimum-LOD
+clamp. Varying LOD uses the shared target-independent
+fixed-vector native `log2` provider in JIT IR, with no scalar libm lane loop.
+LOD uniformity is independent of sampled-color uniformity: when slot/extent
+and both derivatives are warp- or cohort-uniform, extent decode, both squared
+norms, `log2`, and an optional uniform minimum clamp execute once in scalar
+SSA even if coordinates and the result vary. The scalar LOD is splatted only
+at the packet callback ABI. A uniform sampled result separately invokes the
+callback for only the first active lane. Gradient and extent operands are
+sanitized before loads, masked gathers, or arithmetic, including an inactive
+tail.
 
 Mip behavior is explicit. A read whose integer level is outside the allocated
 mip range returns the initialized zero pixel. A size query is computed from
@@ -679,9 +693,13 @@ the base extent as `max(base >> level, 1)`; levels at least the integer bit
 width return one without performing an invalid shift. Sampling without an
 explicit level uses mip zero. A finite explicit level below zero uses zero;
 finite positive levels clamp to the last allocated mip, `NaN` and negative
-infinity use zero, and positive infinity uses the last allocated mip. Point filtering
-retains the fallback contract and samples mip zero even when a positive level
-is supplied. The common 2D `BYTE1` stored-sampler path resolves the invariant
+infinity use zero, and positive infinity uses the last allocated mip. Point
+filtering retains the fallback contract and samples mip zero even when a
+positive level is supplied. `LINEAR_POINT` selects the nearest mip while
+`LINEAR_LINEAR` and anisotropic mode interpolate adjacent mips. A zero gradient
+selects mip zero. A NaN in either derivative produces derived LOD zero before
+an optional minimum-LOD clamp; a non-NaN infinite derivative selects the last
+mip. The common 2D `BYTE1` stored-sampler path resolves the invariant
 view once per packet and performs the four bilinear taps directly; other
 formats and sparse masks retain the generic packet path.
 

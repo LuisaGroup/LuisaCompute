@@ -7,6 +7,11 @@
 #include "simd_buffer.h"
 #include "simd_texture.h"
 
+static_assert(
+    offsetof(luisa::compute::simd::SIMDHostBindlessSlot, texture3d) -
+        offsetof(luisa::compute::simd::SIMDHostBindlessSlot, texture2d) ==
+    sizeof(luisa::compute::simd::SIMDHostBindlessTextureSlot));
+
 namespace {
 
 [[nodiscard]] constexpr uint64_t lane_mask(
@@ -60,9 +65,9 @@ void SIMDBindlessArray::_update_buffer(
                 buffer.offset_bytes, resource->size());
             auto remaining = resource->view_with_offset(buffer.offset_bytes);
             auto size = buffer.size_bytes ==
-                    BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size ?
-                remaining.size_bytes :
-                buffer.size_bytes;
+                                BindlessArrayUpdateCommand::ModifiedBuffer::whole_buffer_size ?
+                            remaining.size_bytes :
+                            buffer.size_bytes;
             LUISA_ASSERT(
                 size > 0u && size <= remaining.size_bytes,
                 "Bindless buffer view [{}, {}) exceeds buffer size {}.",
@@ -86,15 +91,15 @@ void SIMDBindlessArray::_update_texture(
         dimension == 2u || dimension == 3u,
         "Invalid SIMD bindless texture dimension {}.", dimension);
     auto expected_type = dimension == 2u ?
-        BindlessSlotType::TEXTURE2D_ONLY :
-        BindlessSlotType::TEXTURE3D_ONLY;
+                             BindlessSlotType::TEXTURE2D_ONLY :
+                             BindlessSlotType::TEXTURE3D_ONLY;
     LUISA_ASSERT(
         _type == BindlessSlotType::MULTIPLE || _type == expected_type,
         "Cannot update a {}D texture in this SIMD bindless array.",
         dimension);
     auto &descriptor = dimension == 2u ?
-        _slots[slot_index].texture2d :
-        _slots[slot_index].texture3d;
+                           _slots[slot_index].texture2d :
+                           _slots[slot_index].texture3d;
     using Operation = BindlessArrayUpdateCommand::Operation;
     switch (texture.op) {
         case Operation::NONE: break;
@@ -112,9 +117,18 @@ void SIMDBindlessArray::_update_texture(
                 resource->dimension() == dimension,
                 "SIMD bindless slot expects a {}D texture, got {}D.",
                 dimension, resource->dimension());
+            auto size = resource->size(0u);
+            LUISA_ASSERT(
+                size.x <= simd_bindless_texture_extent_mask &&
+                    size.y <= simd_bindless_texture_extent_mask &&
+                    size.z <= simd_bindless_texture_extent_mask,
+                "SIMD bindless texture extent ({}, {}, {}) exceeds the "
+                "20-bit packet descriptor limit.",
+                size.x, size.y, size.z);
             descriptor = {
                 .texture = resource,
-                .sampler_code = texture.sampler.code(),
+                .metadata = simd_bindless_texture_metadata(
+                    texture.sampler.code(), size.x, size.y, size.z),
             };
             break;
         }
@@ -154,7 +168,8 @@ void SIMDBindlessArray::_sample_texture(
             "SIMD bindless {}D texture slot {} is unbound.",
             dimension, seed_slot_index);
         auto sampler_code = sampler_codes == nullptr ?
-            seed_descriptor.sampler_code : sampler_codes[seed];
+                                simd_bindless_texture_sampler(seed_descriptor) :
+                                sampler_codes[seed];
         LUISA_ASSERT(
             sampler_code < 16u,
             "Invalid SIMD bindless sampler code {}.", sampler_code);
@@ -170,7 +185,8 @@ void SIMDBindlessArray::_sample_texture(
                 slot_index, slot_count);
             auto &descriptor = texture_slot(slots[slot_index], dimension);
             auto lane_sampler = sampler_codes == nullptr ?
-                descriptor.sampler_code : sampler_codes[lane];
+                                    simd_bindless_texture_sampler(descriptor) :
+                                    sampler_codes[lane];
             if (descriptor.texture == texture &&
                 lane_sampler == sampler_code) {
                 group |= uint64_t{1u} << lane;

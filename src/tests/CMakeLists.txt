@@ -757,4 +757,10 @@ if (TARGET luisa-compute-backend-simd)
         set_tests_properties(simd_${_simd_runtime_test} PROPERTIES
                 LABELS "integration_simd;runtime_simd")
     endforeach ()
+    add_dependencies(test_bindless_mip
+            luisa-compute-backend-simd)
+    add_test(NAME simd_test_bindless_mip
+            COMMAND $<TARGET_FILE:test_bindless_mip> simd)
+    set_tests_properties(simd_test_bindless_mip PROPERTIES
+            LABELS "integration_simd;runtime_simd")
 endif ()

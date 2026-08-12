@@ -3681,8 +3681,8 @@ void ray_query_scratch_probe(
 struct BindlessTexturePacketProbe {
     bool valid{true};
     uint32_t calls{0u};
-    std::array<uint64_t, 2u> masks{};
-    std::array<std::array<uint32_t, 8u>, 2u> slots{};
+    std::array<uint64_t, 3u> masks{};
+    std::array<std::array<uint32_t, 8u>, 3u> slots{};
 };
 
 void bindless_texture_sample_probe(
@@ -3695,10 +3695,20 @@ void bindless_texture_sample_probe(
     auto *probe = static_cast<BindlessTexturePacketProbe *>(
         slots[0u].texture2d.texture);
     auto call = probe->calls++;
+    auto gradient_call = call == 1u;
     probe->valid &= call < probe->masks.size() && slot_count == 2u &&
                     dimension == 2u && lane_count == 8u &&
-                    sampler_codes == nullptr && levels == nullptr &&
                     u != nullptr && v != nullptr && w != nullptr;
+    if (gradient_call) {
+        probe->valid &= sampler_codes != nullptr && levels != nullptr;
+        for (auto lane = uint32_t{5u}; lane < lane_count; lane++) {
+            probe->valid &= sampler_codes[lane] == 0u &&
+                            levels[lane] == 0.0f;
+        }
+    } else {
+        probe->valid &= sampler_codes == nullptr && levels == nullptr &&
+                        u != nullptr;
+    }
     if (call >= probe->masks.size()) { return; }
     probe->masks[call] = active_mask_bits;
     for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
@@ -3706,6 +3716,11 @@ void bindless_texture_sample_probe(
             continue;
         }
         probe->slots[call][lane] = slot_indices[lane];
+        if (gradient_call) {
+            probe->valid &= sampler_codes[lane] ==
+                                Sampler::linear_linear_edge().code() &&
+                            levels[lane] == 1.25f;
+        }
         for (auto component = uint32_t{0u}; component < 4u;
              component++) {
             values[component * lane_count + lane] =
@@ -3750,6 +3765,36 @@ void bindless_texture_sample_probe(
     builder.call(
         xir::ResourceWriteOp::BUFFER_WRITE,
         {output, x, varying_pixel});
+    auto ddx_value = luisa::make_float2(0.5f, 0.0f);
+    auto ddy_value = luisa::make_float2(0.0f, 0.5f);
+    auto minimum_level_value = 1.25f;
+    auto filter_value = static_cast<uint32_t>(
+        Sampler::Filter::LINEAR_LINEAR);
+    auto address_value = static_cast<uint32_t>(
+        Sampler::Address::EDGE);
+    auto *ddx = module.create_constant(
+        Type::of<luisa::float2>(), &ddx_value);
+    auto *ddy = module.create_constant(
+        Type::of<luisa::float2>(), &ddy_value);
+    auto *minimum_level = module.create_constant(
+        Type::of<float>(), &minimum_level_value);
+    auto *filter = module.create_constant(
+        Type::of<uint32_t>(), &filter_value);
+    auto *address = module.create_constant(
+        Type::of<uint32_t>(), &address_value);
+    auto *gradient_pixel = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER,
+        {bindless, slot, uv, ddx, ddy, minimum_level, filter, address});
+    auto gradient_output_offset_value = uint32_t{16u};
+    auto *gradient_output_offset = module.create_constant(
+        Type::of<uint32_t>(), &gradient_output_offset_value);
+    auto *gradient_output_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {x, gradient_output_offset});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, gradient_output_index, gradient_pixel});
     auto *uniform_pixel = builder.call(
         Type::of<luisa::float4>(),
         xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE,
@@ -3789,23 +3834,41 @@ void bindless_texture_sample_probe(
     llvm_module->print(stream, nullptr);
     stream.flush();
     CHECK(ir.find("bindless.texture.sample.result") != std::string::npos);
+    CHECK(ir.find("bindless.texture.sample.safe.gradient") != std::string::npos);
+    CHECK(ir.find("llvm.masked.gather") != std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_log2_f32_v8_u35") !=
+          std::string::npos);
+    CHECK(ir.find("bindless.texture.sample.gradient.levels") ==
+          std::string::npos);
     CHECK(ir.find("bindless.texture.sample.lane") == std::string::npos);
     CHECK(ir.find("bindless.uniform.callback.mask") != std::string::npos);
 
-    LLVMJIT jit;
+    LLVMJIT jit{true};
     CHECK(jit.succeeded());
+    auto assembly = jit.emit_assembly_copy(*llvm_module);
+    std::transform(
+        assembly.begin(), assembly.end(), assembly.begin(),
+        [](unsigned char c) noexcept {
+            return static_cast<char>(std::tolower(c));
+        });
+    CHECK(assembly.find("log2f") == std::string::npos);
+    CHECK(assembly.find("_zgv") == std::string::npos);
     CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
     using Entry = void(
         const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
     auto function = reinterpret_cast<Entry *>(jit.lookup(name));
     CHECK(function != nullptr);
+    CHECK(!jit.object().empty());
 
     BindlessTexturePacketProbe probe;
     std::array<SIMDHostBindlessSlot, 2u> slots{};
     for (auto &slot_descriptor : slots) {
         slot_descriptor.texture2d.texture = &probe;
+        slot_descriptor.texture2d.metadata =
+            simd_bindless_texture_metadata(
+                Sampler::point_edge().code(), 4u, 4u, 1u);
     }
-    std::array<luisa::float4, 16u> output_values{};
+    std::array<luisa::float4, 24u> output_values{};
     Arguments arguments{
         .bindless = {
             .slots = slots.data(),
@@ -3817,9 +3880,10 @@ void bindless_texture_sample_probe(
     auto config = launch_1d(active_lanes, width);
     function(&arguments, nullptr, &config, active_lanes);
     CHECK(probe.valid);
-    CHECK(probe.calls == 2u);
+    CHECK(probe.calls == 3u);
     CHECK(probe.masks[0u] == 0x1fu);
-    CHECK(probe.masks[1u] == 0x01u);
+    CHECK(probe.masks[1u] == 0x1fu);
+    CHECK(probe.masks[2u] == 0x01u);
     for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
         auto expected_slot = lane & 1u;
         CHECK(probe.slots[0u][lane] == expected_slot);
@@ -3830,7 +3894,163 @@ void bindless_texture_sample_probe(
                                                     static_cast<float>(30u + expected_slot))));
         CHECK(luisa::all(output_values[8u + lane] ==
                          luisa::make_float4(
-                             100.0f, 110.0f, 120.0f, 130.0f)));
+                             200.0f, 210.0f, 220.0f, 230.0f)));
+        CHECK(luisa::all(output_values[16u + lane] ==
+                         luisa::make_float4(
+                             static_cast<float>(100u + expected_slot),
+                             static_cast<float>(110u + expected_slot),
+                             static_cast<float>(120u + expected_slot),
+                             static_cast<float>(130u + expected_slot))));
+    }
+    return true;
+}
+
+struct BindlessUniformGradientProbe {
+    bool valid{true};
+    uint32_t calls{0u};
+};
+
+void bindless_uniform_gradient_probe(
+    const SIMDHostBindlessSlot *slots, size_t slot_count,
+    uint32_t dimension, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *slot_indices,
+    const uint32_t *sampler_codes,
+    const float *u, const float *v, const float *w,
+    const float *levels, float *values) {
+    auto *probe = static_cast<BindlessUniformGradientProbe *>(
+        slots[0u].texture2d.texture);
+    probe->calls++;
+    probe->valid &= slot_count == 1u && dimension == 2u &&
+                    lane_count == 8u && active_mask_bits == 0x1fu &&
+                    slot_indices != nullptr && sampler_codes == nullptr &&
+                    u != nullptr && v != nullptr && w != nullptr &&
+                    levels != nullptr && values != nullptr;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto active = lane < 5u;
+        probe->valid &= slot_indices[lane] == 0u;
+        probe->valid &= levels[lane] == (active ? 1.25f : 0.0f);
+        if (!active) { continue; }
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            values[component * lane_count + lane] =
+                static_cast<float>(100u + component * 10u + lane);
+        }
+    }
+}
+
+[[nodiscard]] bool run_bindless_uniform_gradient_lod_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("bindless_uniform_gradient_lod");
+    auto *bindless = kernel->create_resource_argument(
+        Type::of<BindlessArray>());
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::float4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero_u32 = module.create_constant_zero(Type::of<uint32_t>());
+    auto zero_f32_value = 0.0f;
+    auto *zero_f32 = module.create_constant(
+        Type::of<float>(), &zero_f32_value);
+    auto ddx_value = luisa::make_float2(0.5f, 0.0f);
+    auto ddy_value = luisa::make_float2(0.0f, 0.5f);
+    auto minimum_level_value = 1.25f;
+    auto *ddx = module.create_constant(
+        Type::of<luisa::float2>(), &ddx_value);
+    auto *ddy = module.create_constant(
+        Type::of<luisa::float2>(), &ddy_value);
+    auto *minimum_level = module.create_constant(
+        Type::of<float>(), &minimum_level_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero_u32});
+    auto *x_f32 = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, x);
+    auto *uv = builder.call(
+        Type::of<luisa::float2>(), xir::ArithmeticOp::AGGREGATE,
+        {x_f32, zero_f32});
+    auto *pixel = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL,
+        {bindless, zero_u32, uv, ddx, ddy, minimum_level});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, pixel});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-bindless-uniform-gradient-lod", *context);
+    auto name = std::string{"simd_bindless_uniform_gradient_lod"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostBindlessArrayView bindless;
+        SIMDHostBufferView output;
+    };
+    CHECK(codegen.argument_buffer_size == sizeof(Arguments));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(count_occurrences(ir, "call float @llvm.log2.f32") == 1u);
+    CHECK(ir.find("__luisa_cpu_native_log2") == std::string::npos);
+    CHECK(ir.find("bindless.texture.sample.uniform.metadata") !=
+          std::string::npos);
+    CHECK(ir.find(
+              "bindless.texture.sample.uniform.gradient.minimum.splat") !=
+          std::string::npos);
+    CHECK(ir.find("llvm.masked.gather") == std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+
+    BindlessUniformGradientProbe probe;
+    std::array<SIMDHostBindlessSlot, 1u> slots{};
+    slots[0u].texture2d.texture = &probe;
+    slots[0u].texture2d.metadata = simd_bindless_texture_metadata(
+        Sampler::point_edge().code(), 4u, 4u, 1u);
+    std::array<luisa::float4, width> output_values{};
+    Arguments arguments{
+        .bindless = {
+            .slots = slots.data(),
+            .size = slots.size(),
+            .sample_texture = bindless_uniform_gradient_probe,
+        },
+        .output = {output_values.data(), sizeof(output_values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.calls == 1u);
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        CHECK(luisa::all(
+            output_values[lane] ==
+            luisa::make_float4(
+                static_cast<float>(100u + lane),
+                static_cast<float>(110u + lane),
+                static_cast<float>(120u + lane),
+                static_cast<float>(130u + lane))));
     }
     return true;
 }
@@ -4524,6 +4744,8 @@ int main() {
          &run_accel_motion_metadata_codegen},
         {"XIR bindless texture packet callback",
          &run_bindless_texture_packet_codegen},
+        {"XIR bindless uniform gradient LOD",
+         &run_bindless_uniform_gradient_lod_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST uniform-loop buffer broadcast",
          &run_ast_uniform_loop_buffer_broadcast},

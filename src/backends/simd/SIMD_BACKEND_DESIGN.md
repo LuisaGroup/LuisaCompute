@@ -1444,11 +1444,19 @@ per-active-lane host API loop. The backend-owned slot table now carries 2D and
 3D texture descriptors plus stored samplers. JIT code sanitizes inactive slot,
 coordinate, mip, and explicit-sampler operands, materializes component-major
 scratch once, and calls the runtime once per packet. The runtime batches lanes
-that resolve to the same texture/sampler/level. A uniform result narrows the
-callback mask to the first active lane, preserving the scalar-uniform contract.
-Supported operations are 2D/3D read, size, and sample, with explicit levels
-and either stored or explicit samplers. Gradient sampling still fails with a
-specific diagnostic.
+that resolve to the same texture/sampler while preserving per-lane sample LOD;
+integer-level reads are additionally grouped by mip. A uniform result narrows
+the callback mask to the first active lane, preserving the scalar-uniform contract.
+Supported operations are 2D/3D read, size, and sample, with explicit levels,
+gradients, minimum-LOD clamping, and either stored or explicit samplers.
+Gradient LOD is derived in target-independent fixed-vector JIT IR from packed
+base extents in the unchanged 16-byte texture slot. If the slot and both
+derivatives are uniform, extent decode, range calculation, `log2`, and an
+optional uniform minimum-LOD clamp execute once in scalar SSA even when the
+coordinates and sampled color vary. Only the callback ABI receives a splat.
+Otherwise the varying LOD uses the shared native fixed-vector `log2`. A
+uniform sampled result additionally narrows the callback to its first active
+lane.
 
 The common 2D `BYTE1` stored-sampler path hoists the invariant texture view and
 performs the four bilinear taps directly. Mirror addressing uses an absolute-
@@ -1598,8 +1606,9 @@ The complete methodology, absolute medians, assembly counts, caveats, and
 next measured optimization targets are in
 [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
 The required native-math/runtime-width gate passes 3/3, the combined SIMD/XIR/
-runtime/graphics label gate passes 86/86, and the complete configured CTest
-suite passes 138/138, including the coroutine-frame tests merged from `next`.
+runtime/graphics label gate passes 87/87, and this configured complete CTest
+suite passes 128/128, including the coroutine-frame tests merged from `next`
+and the lazy-dispatch scalar snapshot regression.
 
 ### Embree packet-traversal checkpoint
 
@@ -1981,14 +1990,15 @@ indirect callback. Runtime coverage exercises MATRIX/SRT round trips, outer
 MATRIX composition, post-write refit/traversal, W1/W2/W4/W8/W16, and W8/W16
 partial tails.
 
-The required native-math/runtime-width tests plus the arithmetic,
-bindless-texture, dedicated bindless-IR callback, acceleration, curve, and
-procedural tests pass 9/9. Combined SIMD, XIR, runtime, and graphics labels pass
-83/83 in both Release configurations. Fresh full-repository CTest runs pass
-133/133 in both; no coroutine source was modified.
-The original `test_bindless_mip simd` intentionally fails at compile time on
-its gradient query, matching the explicit unsupported-feature contract rather
-than silently changing sampling semantics.
+At the motion-resource checkpoint, the required native-math/runtime-width
+tests plus the arithmetic, bindless-texture, dedicated bindless-IR callback,
+acceleration, curve, and procedural tests passed 9/9. Combined SIMD, XIR,
+runtime, and graphics labels passed 83/83 in both Release configurations, and
+fresh full-repository CTest runs passed 133/133. The newer merged configuration
+and its current counts are reported in the later validation checkpoint above.
+The repository's original `test_bindless_mip simd` is now an unattended
+runtime gate. It covers derived LOD, a minimum-LOD clamp, stored and explicit
+samplers, spatial/mip filter modes, every allocated mip, and out-of-range LOD.
 
 ## 14. Delivery plan
 
@@ -2271,7 +2281,7 @@ The next implementation boundary is completion of the Embree vertical slice:
 add opacity/cutout semantics, nonidentity outer affine composition for SRT
 motion, and a SoA packet-query-state experiment guarded by stable measurement.
 Candidate chains beyond the fixed batch remain a measured continuation case
-rather than an unbounded state allocation. Bindless gradient sampling, broader
-callable conformance, cooperative shared memory, block barriers, and the
-remaining device-library surface follow. The current compiler returns precise
-diagnostics for unsupported features rather than silently accepting them.
+rather than an unbounded state allocation. Broader callable conformance,
+cooperative shared memory, block barriers, and the remaining device-library
+surface follow. The current compiler returns precise diagnostics for
+unsupported features rather than silently accepting them.

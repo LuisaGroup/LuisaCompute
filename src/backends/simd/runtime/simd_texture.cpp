@@ -58,8 +58,8 @@ template<Address Mode>
 [[nodiscard]] LUISA_FORCE_INLINE float texture_coordinate_point(
     float uv, float size) noexcept {
     return std::isfinite(uv) && size > 0.0f ?
-        texture_coordinate_point_unchecked<Mode>(uv, size) :
-        65536.0f;
+               texture_coordinate_point_unchecked<Mode>(uv, size) :
+               65536.0f;
 }
 
 template<uint32_t Dimension, Address Mode>
@@ -161,7 +161,8 @@ template<uint32_t Dimension, Address Mode>
             lerp(lerp(v000, v001, x.t),
                  lerp(v010, v011, x.t), y.t),
             lerp(lerp(v100, v101, x.t),
-                 lerp(v110, v111, x.t), y.t), z.t);
+                 lerp(v110, v111, x.t), y.t),
+            z.t);
     }
 }
 
@@ -283,11 +284,13 @@ template<uint32_t Dimension, Filter FilterMode, Address AddressMode>
     if (level >= static_cast<float>(last_level)) {
         return spatial(last_level);
     }
+    if constexpr (FilterMode == Filter::LINEAR_POINT) {
+        auto nearest_level = static_cast<uint32_t>(
+            std::floor(level + 0.5f));
+        return spatial(std::min(nearest_level, last_level));
+    }
     auto level0 = static_cast<uint32_t>(level);
     auto value0 = spatial(level0);
-    if (FilterMode == Filter::LINEAR_POINT) {
-        return value0;
-    }
     auto value1 = spatial(level0 + 1u);
     auto t = level - std::floor(level);
     return value0 + (value1 - value0) * t;
@@ -464,8 +467,8 @@ template<typename T>
     luisa::compute::fallback::FallbackTextureView view,
     uint32_t x, uint32_t y, uint32_t z) noexcept {
     return texture->dimension() == 2u ?
-        view.read2d<T>(luisa::make_uint2(x, y)) :
-        view.read3d<T>(luisa::make_uint3(x, y, z));
+               view.read2d<T>(luisa::make_uint2(x, y)) :
+               view.read3d<T>(luisa::make_uint3(x, y, z));
 }
 
 template<typename T>

@@ -2,7 +2,8 @@
 
 Snapshot date: 2026-08-12. This report covers the Release build after merging
 `origin/next@4546cd535ff620f78ae80a1dbe573be8b99ba39d` into
-`codex/simd-cpu-backend` and adding coherent direct-CFG lowering.
+`codex/simd-cpu-backend`, adding coherent direct-CFG lowering, and completing
+the bindless gradient-sampling vertical slice.
 
 ## Test host and method
 
@@ -321,9 +322,39 @@ identical.
 5. Add software prefetch only for proven affine lookahead with a stable A/B.
    Immediate masked gathers and L1-sized textures have not justified it.
 
+## Bindless gradient-sampling completion
+
+Bindless 2D/3D gradient sampling now derives LOD in JIT IR and passes one level
+packet to the existing grouped texture callback. Base extents share the
+existing 16-byte texture descriptor by packing three twenty-bit values beside
+the sampler code, so ordinary Spacex sampling retains the same slot size and
+callback ABI. Varying dependencies use fixed-vector math; the exact W8 JIT
+assembly contains the native vector `log2` body and no `log2f` or vector-libm
+symbol, and the runtime module adds no `log2f` dependency. A separate ORC
+probe with varying coordinates but uniform slot/gradients/minimum LOD contains
+one scalar `llvm.log2.f32`, no native vector body, and no extent gather: the
+entire uniform LOD chain executes once and splats only at the callback ABI.
+
+The repository `test_bindless_mip simd` now passes instead of failing at its
+former capability boundary. A dedicated ORC probe checks the gradient ABI,
+inactive-tail sanitization, one callback per varying packet, uniform one-lane
+execution, fixed-vector native math, and final assembly symbols. Runtime
+coverage spans W1/W2/W4/W8/W16, 2D/3D gradients, stored/explicit samplers,
+minimum mip, uniform LOD with varying coordinates, zero/mixed-NaN/infinite
+gradients, and a 35-thread W16 tail.
+
+Ordinary non-gradient Spacex was checked with seven alternating before/after
+W8 processes at 32 iterations each; every image passed the same gallery
+reference. The last three warmed pairs were 50.495/50.488,
+51.411/50.801, and 51.526/51.587 ms per frame (before/after), which is neutral
+within shared-host noise. No performance gain is claimed for a feature the
+workload does not exercise; the gate demonstrates that packing the new
+metadata did not regress its hot descriptor layout.
+
 ## Validation
 
 The required native-math/fallback-math/runtime-width gate passes 3/3. The
-combined SIMD, XIR, runtime, and graphics label gate passes 86/86. After a full
-default build, the complete configured repository CTest suite passes 138/138,
-including the coroutine-frame tests merged from `next`.
+combined SIMD, XIR, runtime, and graphics label gate passes 87/87. After a full
+default build, the complete configured repository CTest suite passes 128/128.
+This includes the coroutine-frame tests merged from `next` and the repaired
+lazy-dispatch scalar snapshot regression.
