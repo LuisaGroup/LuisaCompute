@@ -9,6 +9,7 @@
 #include "simd_accel.h"
 #include "simd_buffer.h"
 #include "simd_mesh.h"
+#include "simd_motion_instance.h"
 #include "simd_shader.h"
 #include "simd_texture.h"
 
@@ -150,14 +151,21 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
             case Command::Tag::EMeshBuildCommand: {
                 auto *build = static_cast<MeshBuildCommand *>(
                     command.get());
-                auto *mesh = reinterpret_cast<SIMDMesh *>(
-                    build->handle());
+                auto *mesh = static_cast<SIMDMesh *>(
+                    reinterpret_cast<SIMDPrimitive *>(build->handle()));
                 mesh->build(*build);
+                break;
+            }
+            case Command::Tag::EMotionInstanceBuildCommand: {
+                auto *build = static_cast<MotionInstanceBuildCommand *>(
+                    command.get());
+                auto *instance = static_cast<SIMDMotionInstance *>(
+                    reinterpret_cast<SIMDPrimitive *>(build->handle()));
+                instance->build(*build);
                 break;
             }
             case Command::Tag::ECurveBuildCommand:
             case Command::Tag::EProceduralPrimitiveBuildCommand:
-            case Command::Tag::EMotionInstanceBuildCommand:
                 LUISA_ERROR_WITH_LOCATION(
                     "Ray-tracing commands are not implemented by the SIMD "
                     "runtime checkpoint yet.");

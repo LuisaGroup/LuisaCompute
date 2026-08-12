@@ -2787,6 +2787,167 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+[[nodiscard]] bool run_accel_motion_metadata_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("accel_motion_metadata");
+    auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+    auto *matrix_output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::float4x4>()));
+    auto *srt_type = Type::of<MotionInstanceTransformSRT>();
+    auto *srt_output = kernel->create_resource_argument(
+        Type::buffer(srt_type));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto eight_value = uint32_t{8u};
+    auto *eight = module.create_constant(
+        Type::of<uint32_t>(), &eight_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *keyframe = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {x, one});
+    auto *srt_instance = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {x, eight});
+    auto *matrix = builder.call(
+        Type::of<luisa::float4x4>(),
+        xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX,
+        {accel, x, keyframe});
+    auto *srt = builder.call(
+        srt_type,
+        xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT,
+        {accel, srt_instance, keyframe});
+    auto *uniform_matrix = builder.call(
+        Type::of<luisa::float4x4>(),
+        xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX,
+        {accel, zero, zero});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {matrix_output, x, matrix});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {srt_output, x, srt});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX,
+        {accel, x, keyframe, matrix});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT,
+        {accel, srt_instance, keyframe, srt});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX,
+        {accel, zero, zero, uniform_matrix});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-accel-motion-metadata", *context);
+    auto name = std::string{"simd_accel_motion_metadata"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        SIMDHostBufferView matrix_output;
+        SIMDHostBufferView srt_output;
+    };
+    CHECK(codegen.argument_buffer_size == sizeof(Arguments));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("accel.safe.motion.keyframe") != std::string::npos);
+    CHECK(ir.find("accel.motion.scalar.frame") != std::string::npos);
+    CHECK(count_occurrences(ir, "llvm.masked.gather") >= 32u);
+    CHECK(count_occurrences(ir, "llvm.masked.scatter") >= 32u);
+    CHECK(ir.find("call void %") == std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+
+    std::array<SIMDHostAccelInstance, 16u> instances{};
+    std::array<std::array<MotionInstanceTransform, 2u>, 16u> frames{};
+    for (auto instance = uint32_t{0u}; instance < 8u; instance++) {
+        for (auto key = uint32_t{0u}; key < 2u; key++) {
+            auto matrix = luisa::make_float4x4(1.0f);
+            matrix[3u].x = 1.0f + static_cast<float>(instance);
+            matrix[3u].y = 2.0f + static_cast<float>(key);
+            frames[instance][key].as_matrix() = matrix;
+            auto &srt = frames[instance + 8u][key].as_srt();
+            srt.pivot[0u] = static_cast<float>(instance) + 0.25f;
+            srt.pivot[1u] = static_cast<float>(key) + 0.5f;
+            srt.translation[2u] =
+                static_cast<float>(10u * instance + key);
+        }
+        instances[instance].motion_frames = frames[instance].data();
+        instances[instance].motion_keyframe_count = 2u;
+        instances[instance].motion_mode = static_cast<uint32_t>(
+            SIMDHostAccelMotionMode::matrix);
+        instances[instance + 8u].motion_frames =
+            frames[instance + 8u].data();
+        instances[instance + 8u].motion_keyframe_count = 2u;
+        instances[instance + 8u].motion_mode = static_cast<uint32_t>(
+            SIMDHostAccelMotionMode::srt);
+    }
+    SIMDHostAccelInstanceTable instance_table{
+        .data = instances.data(),
+        .size = instances.size(),
+    };
+    std::array<luisa::float4x4, width> matrix_values{};
+    std::array<MotionInstanceTransformSRT, width> srt_values{};
+    Arguments arguments{
+        .accel = {
+            .instances = &instance_table,
+        },
+        .matrix_output = {matrix_values.data(), sizeof(matrix_values)},
+        .srt_output = {srt_values.data(), sizeof(srt_values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        auto key = lane & 1u;
+        auto &expected_matrix = frames[lane][key].as_matrix();
+        for (auto column = uint32_t{0u}; column < 4u; column++) {
+            CHECK(luisa::all(
+                matrix_values[lane][column] ==
+                expected_matrix[column]));
+        }
+        CHECK(std::memcmp(
+                  &srt_values[lane],
+                  &frames[lane + 8u][key].as_srt(),
+                  sizeof(MotionInstanceTransformSRT)) == 0);
+        CHECK(instances[lane].dirty == 1u);
+        CHECK(instances[lane + 8u].dirty == 1u);
+    }
+    for (auto lane = active_lanes; lane < 8u; lane++) {
+        CHECK(instances[lane].dirty == 0u);
+        CHECK(instances[lane + 8u].dirty == 0u);
+    }
+    return true;
+}
+
 struct BindlessTexturePacketProbe {
     bool valid{true};
     uint32_t calls{0u};
@@ -3513,6 +3674,8 @@ int main() {
         {"XIR texture packet callback", &run_texture_packet_codegen},
         {"XIR accel instance metadata",
          &run_accel_instance_metadata_codegen},
+        {"XIR accel motion metadata",
+         &run_accel_motion_metadata_codegen},
         {"XIR bindless texture packet callback",
          &run_bindless_texture_packet_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},

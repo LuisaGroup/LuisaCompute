@@ -132,6 +132,7 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_device.cpp
         runtime/simd_event.cpp
         runtime/simd_mesh.cpp
+        runtime/simd_motion_instance.cpp
         runtime/simd_shader.cpp
         runtime/simd_stream.cpp
         runtime/simd_thread_pool.cpp

@@ -8,7 +8,8 @@ namespace luisa::compute::simd {
 
 SIMDMesh::SIMDMesh(
     RTCDevice device, const AccelOption &option) noexcept
-    : _scene{rtcNewScene(device)},
+    : SIMDPrimitive{Kind::mesh},
+      _scene{rtcNewScene(device)},
       _geometry{rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE)},
       _motion{option.motion} {
     simd_accel_set_flags(_scene, option);

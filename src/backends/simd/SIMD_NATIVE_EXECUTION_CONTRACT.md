@@ -671,14 +671,15 @@ traversal. W2 may not read beyond its two-lane source scratch while constructing
 the padded W4 packet.
 
 The currently accepted acceleration surface is static and vertex-motion
-triangle-mesh build, top-level static-instance build, affine transform,
-visibility mask, `RAY_TRACING_TRACE_CLOSEST`, `RAY_TRACING_TRACE_ANY`, and
-their motion-blur variants. Instance transform, user-id, and visibility-mask
-queries are also accepted. A static query passes a null time pointer and the
-runtime initializes Embree time to zero. A motion query passes one f32 time
-vector sanitized under the cohort mask before the callback. A result classified
-warp- or cohort-uniform invokes only the first active lane and stays scalar.
-Closest-hit scratch starts with invalid instance/primitive IDs and zero
+triangle-mesh build, top-level static and motion-instance build, affine
+transform, visibility mask, `RAY_TRACING_TRACE_CLOSEST`,
+`RAY_TRACING_TRACE_ANY`, and their motion-blur variants. Instance transform,
+user-id, visibility-mask, MATRIX-motion, and SRT-motion queries are also
+accepted. A static query passes a null time pointer and the runtime initializes
+Embree time to zero. A motion query passes one f32 time vector sanitized under
+the cohort mask before the callback. A result classified warp- or
+cohort-uniform invokes only the first active lane and stays scalar. Closest-hit
+scratch starts with invalid instance/primitive IDs and zero
 barycentrics/distance; occlusion scratch starts false. Therefore an inactive
 lane cannot observe poison or mutate query state even if complete initialized
 vectors cross the callback boundary.
@@ -698,14 +699,41 @@ Embree before traversal. Conflicting active lanes that write the same instance
 remain a device data race, as in other unordered device writes. JIT code must
 not alias the private runtime object or C++ vector layout.
 
+Motion-instance resources accept two through `RTC_MAX_TIME_STEP_COUNT`
+keyframes, a finite strictly increasing time range, and MATRIX or quaternion
+SRT mode. A motion resource must be built before it is inserted into a TLAS.
+The TLAS owns a copy of its 64-byte public keyframes and exposes only a stable
+frame pointer, count, and mode through the plain instance table. MATRIX frames
+are composed with the instance's outer affine before being supplied to Embree.
+SRT frames map pivot/quaternion/scale/shear/translation to
+`RTCQuaternionDecomposition`; Embree normalizes each nonzero quaternion and
+performs quaternion interpolation. Since the deployed Embree ABI has only one
+instance-stack level, an SRT motion instance currently requires an identity
+outer affine; accepting a nonidentity affine would otherwise silently replace
+quaternion interpolation with matrix interpolation. A time range beginning
+inside the camera shutter requires `should_vanish_start`, and a range ending
+inside it requires `should_vanish_end`, matching Embree's disappear-outside-
+range behavior instead of inventing endpoint clamping.
+
+MATRIX/SRT keyframe reads and writes use the same scalar-or-masked policy as
+static metadata. Both instance and keyframe IDs are sanitized before checks or
+address formation; active IDs must be in range and the requested mode must
+match the stored resource. A uniform instance with varying keyframes loads its
+frame descriptor once and splats only the pointer/count metadata. Writes mark
+the owning TLAS instance dirty, and a subsequent normal accel build validates
+the frame values, republishes every Embree time step, and commits the scene.
+Conflicting active lanes that write the same keyframe remain an unordered
+device data race. No host callback or per-lane extract/call/insert loop is used
+for keyframe metadata.
+
 All Embree scenes in one backend module share a single `RTCDevice`. If that
 device reports the oneTBB tasking system, backend teardown must quiesce the
 attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Ray-query callbacks, motion instances, curves, procedural geometry,
-cutout/opacity filtering and mutation, motion-instance metadata/mutation,
+Ray-query callbacks, curves, procedural geometry, cutout/opacity filtering and
+mutation, nonidentity outer affine composition for SRT motion,
 `update_instance_buffer_only`, and deeper instance-stack behavior are not part
 of this slice. They must fail at a specific capability boundary until their
 independent semantic, IR-shape, and machine-boundary gates exist; closest/any

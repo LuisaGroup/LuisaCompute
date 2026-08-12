@@ -2,6 +2,8 @@
 // This test covers:
 // - W1/W2/W4/W8/W16 closest-hit and any-hit traversal
 // - varying-time motion closest-hit and any-hit traversal
+// - MATRIX/SRT motion-instance keyframes, quaternion interpolation, device
+//   mutation, and packet traversal
 // - direct varying and uniform instance metadata reads
 // - divergent visibility masks, ray intervals, directions, and misses
 // - uniform static and motion traces that must remain scalar within a packet
@@ -34,6 +36,53 @@ constexpr auto thread_count = 35u;
             direction.x, direction.y, direction.z},
         .compressed_t_max = t_max,
     };
+}
+
+[[nodiscard]] MotionInstanceTransformSRT make_srt(
+    float3 pivot, float4 quaternion, float3 scale,
+    float3 shear, float3 translation) noexcept {
+    return MotionInstanceTransformSRT{
+        .pivot = {pivot.x, pivot.y, pivot.z},
+        .quaternion = {
+            quaternion.x, quaternion.y,
+            quaternion.z, quaternion.w},
+        .scale = {scale.x, scale.y, scale.z},
+        .shear = {shear.x, shear.y, shear.z},
+        .translation = {translation.x, translation.y, translation.z},
+    };
+}
+
+void expect_matrix_near(
+    const float4x4 &actual, const float4x4 &expected,
+    float tolerance, luisa::string_view label) {
+    for (auto column = 0u; column < 4u; column++) {
+        for (auto row = 0u; row < 4u; row++) {
+            expect(std::abs(
+                       actual[column][row] -
+                       expected[column][row]) <= tolerance)
+                << luisa::format(
+                       "{}[{}][{}] mismatch", label, column, row);
+        }
+    }
+}
+
+void expect_srt_near(
+    const MotionInstanceTransformSRT &actual,
+    const MotionInstanceTransformSRT &expected,
+    float tolerance, luisa::string_view label) {
+    auto check = [&](const float *lhs, const float *rhs,
+                     size_t count, luisa::string_view field) {
+        for (auto i = size_t{0u}; i < count; i++) {
+            expect(std::abs(lhs[i] - rhs[i]) <= tolerance)
+                << luisa::format(
+                       "{}.{}[{}] mismatch", label, field, i);
+        }
+    };
+    check(actual.pivot, expected.pivot, 3u, "pivot");
+    check(actual.quaternion, expected.quaternion, 4u, "quaternion");
+    check(actual.scale, expected.scale, 3u, "scale");
+    check(actual.shear, expected.shear, 3u, "shear");
+    check(actual.translation, expected.translation, 3u, "translation");
 }
 
 }// namespace
@@ -78,6 +127,39 @@ int main(int argc, char *argv[]) {
         auto motion_mesh = device.create_mesh(
             motion_vertex_buffer, triangle_buffer,
             motion_mesh_option);
+        AccelMotionOption matrix_instance_option{};
+        matrix_instance_option.keyframe_count = 2u;
+        matrix_instance_option.time_start = 0.0f;
+        matrix_instance_option.time_end = 1.0f;
+        matrix_instance_option.mode = AccelMotionMode::MATRIX;
+        auto matrix_motion_instance = device.create_motion_instance(
+            mesh, matrix_instance_option);
+        std::array matrix_instance_keys{
+            make_float4x4(1.0f),
+            translation(make_float3(0.0f, 0.0f, -2.0f))};
+        matrix_motion_instance.set_keyframes(
+            luisa::span{matrix_instance_keys});
+        AccelMotionOption srt_instance_option{};
+        srt_instance_option.keyframe_count = 2u;
+        srt_instance_option.time_start = 0.0f;
+        srt_instance_option.time_end = 1.0f;
+        srt_instance_option.mode = AccelMotionMode::SRT;
+        auto srt_motion_instance = device.create_motion_instance(
+            mesh, srt_instance_option);
+        std::array srt_instance_keys{
+            make_srt(
+                make_float3(0.0f), make_float4(0.0f, 0.0f, 0.0f, 1.0f),
+                make_float3(1.0f), make_float3(0.0f),
+                make_float3(3.0f, 0.0f, 0.0f)),
+            make_srt(
+                make_float3(0.0f),
+                make_float4(
+                    0.0f, 0.0f, 0.7071067811865475f,
+                    0.7071067811865475f),
+                make_float3(1.0f), make_float3(0.0f),
+                make_float3(3.0f, 0.0f, -2.0f))};
+        srt_motion_instance.set_keyframes(
+            luisa::span{srt_instance_keys});
         auto accel = device.create_accel({.allow_update = true});
         accel.emplace_back(
             mesh, make_float4x4(1.0f), 0x1u, true, 11u);
@@ -87,6 +169,14 @@ int main(int argc, char *argv[]) {
         auto motion_accel = device.create_accel();
         motion_accel.emplace_back(
             motion_mesh, make_float4x4(1.0f), 0x1u, true, 33u);
+        auto instance_motion_accel = device.create_accel({.allow_update = true});
+        instance_motion_accel.emplace_back(
+            matrix_motion_instance,
+            translation(make_float3(-3.0f, 0.0f, 0.0f)),
+            0x4u, true, 44u);
+        instance_motion_accel.emplace_back(
+            srt_motion_instance, make_float4x4(1.0f),
+            0x8u, true, 55u);
 
         std::array<Ray, thread_count> host_rays{};
         std::array<uint, thread_count> host_masks{};
@@ -210,8 +300,11 @@ int main(int argc, char *argv[]) {
                << masks.copy_from(luisa::span{host_masks})
                << mesh.build()
                << motion_mesh.build()
+               << matrix_motion_instance.build()
+               << srt_motion_instance.build()
                << accel.build()
                << motion_accel.build()
+               << instance_motion_accel.build()
                << shader(
                       rays, masks, ids, details, accel,
                       motion_accel, motion_ids, motion_details,
@@ -299,6 +392,251 @@ int main(int argc, char *argv[]) {
                         expected_transform[column])))
                     << "instance transform query mismatch";
             }
+        }
+
+        Kernel1D trace_motion_instances = [width](
+                                              AccelVar scene,
+                                              BufferUInt2 ids,
+                                              BufferFloat distances) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto instance = index & 1u;
+            auto time = cast<float>(index >> 1u);
+            auto origin_x = select(-3.0f, 3.0f, instance != 0u);
+            auto ray = make_ray(
+                make_float3(origin_x, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto hit = scene.intersect_motion(
+                ray, time,
+                AccelTraceOptions{
+                    .visibility_mask = 0x4u << instance});
+            auto any = scene.intersect_any_motion(
+                ray, time,
+                AccelTraceOptions{
+                    .visibility_mask = 0x4u << instance});
+            ids.write(index, make_uint2(hit->inst, cast<uint>(any)));
+            distances.write(index, hit->committed_ray_t);
+        };
+        auto trace_motion_instances_shader =
+            device.compile(trace_motion_instances);
+        auto motion_instance_ids = device.create_buffer<uint2>(4u);
+        auto motion_instance_distances = device.create_buffer<float>(4u);
+        std::array<uint2, 4u> host_motion_instance_ids{};
+        std::array<float, 4u> host_motion_instance_distances{};
+        stream << trace_motion_instances_shader(
+                      instance_motion_accel,
+                      motion_instance_ids,
+                      motion_instance_distances)
+                      .dispatch(4u)
+               << motion_instance_ids.copy_to(
+                      luisa::span{host_motion_instance_ids})
+               << motion_instance_distances.copy_to(
+                      luisa::span{host_motion_instance_distances})
+               << synchronize();
+        for (auto i = 0u; i < 4u; i++) {
+            auto expected_instance = i & 1u;
+            auto expected_distance = i < 2u ? 1.0f : 3.0f;
+            expect(static_cast<bool>(
+                all(host_motion_instance_ids[i] ==
+                    make_uint2(expected_instance, 1u))))
+                << "motion-instance packet traversal id mismatch";
+            expect(std::abs(
+                       host_motion_instance_distances[i] -
+                       expected_distance) <= 1.0e-5f)
+                << "motion-instance packet traversal distance mismatch";
+        }
+
+        Kernel1D trace_srt_interpolation = [width](
+                                               AccelVar scene,
+                                               BufferUInt2 ids,
+                                               BufferFloat distances) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto ray = make_ray(
+                make_float3(3.7071067811865475f, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto hit = scene.intersect_motion(
+                ray, 0.5f,
+                AccelTraceOptions{.visibility_mask = 0x8u});
+            auto any = scene.intersect_any_motion(
+                ray, 0.5f,
+                AccelTraceOptions{.visibility_mask = 0x8u});
+            ids.write(0u, make_uint2(hit->inst, cast<uint>(any)));
+            distances.write(0u, hit->committed_ray_t);
+        };
+        auto trace_srt_interpolation_shader =
+            device.compile(trace_srt_interpolation);
+        stream << trace_srt_interpolation_shader(
+                      instance_motion_accel,
+                      motion_instance_ids,
+                      motion_instance_distances)
+                      .dispatch(1u)
+               << motion_instance_ids.copy_to(
+                      luisa::span{host_motion_instance_ids}.subspan(0u, 1u))
+               << motion_instance_distances.copy_to(
+                      luisa::span{host_motion_instance_distances}.subspan(
+                          0u, 1u))
+               << synchronize();
+        expect(static_cast<bool>(
+            all(host_motion_instance_ids[0u] == make_uint2(1u, 1u))))
+            << "SRT quaternion interpolation traversal id mismatch";
+        expect(std::abs(host_motion_instance_distances[0u] - 2.0f) <=
+               1.0e-5f)
+            << "SRT quaternion interpolation traversal distance mismatch";
+
+        Kernel1D read_motion_keyframes = [width](
+                                             AccelVar scene,
+                                             BufferFloat4x4 matrices,
+                                             BufferVar<MotionInstanceTransformSRT> srts) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto key = dispatch_x();
+            matrices.write(
+                key, scene.instance_motion_matrix(0u, key));
+            srts.write(
+                key, scene.instance_motion_srt(1u, key));
+        };
+        Kernel1D write_motion_keyframes = [width](
+                                              AccelVar scene,
+                                              BufferFloat4x4 matrices,
+                                              BufferVar<MotionInstanceTransformSRT> srts) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto key = dispatch_x();
+            scene.set_instance_motion_matrix(
+                0u, key, matrices.read(key));
+            scene.set_instance_motion_srt(
+                1u, key, srts.read(key));
+        };
+        Kernel1D trace_updated_motion_instances = [width](
+                                                      AccelVar scene,
+                                                      BufferFloat3 origins,
+                                                      BufferUInt2 ids,
+                                                      BufferFloat distances) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                origins.read(index),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto hit = scene.intersect_motion(
+                ray, 0.5f,
+                AccelTraceOptions{
+                    .visibility_mask = 0x4u << index});
+            auto any = scene.intersect_any_motion(
+                ray, 0.5f,
+                AccelTraceOptions{
+                    .visibility_mask = 0x4u << index});
+            ids.write(index, make_uint2(hit->inst, cast<uint>(any)));
+            distances.write(index, hit->committed_ray_t);
+        };
+        auto read_motion_keyframes_shader =
+            device.compile(read_motion_keyframes);
+        auto write_motion_keyframes_shader =
+            device.compile(write_motion_keyframes);
+        auto trace_updated_motion_instances_shader =
+            device.compile(trace_updated_motion_instances);
+        auto matrix_keyframe_buffer = device.create_buffer<float4x4>(2u);
+        auto srt_keyframe_buffer =
+            device.create_buffer<MotionInstanceTransformSRT>(2u);
+
+        auto read_and_check_motion_keyframes =
+            [&](luisa::span<const float4x4> expected_matrices,
+                luisa::span<const MotionInstanceTransformSRT> expected_srts,
+                luisa::string_view phase) {
+                std::array<float4x4, 2u> actual_matrices{};
+                std::array<MotionInstanceTransformSRT, 2u> actual_srts{};
+                stream << read_motion_keyframes_shader(
+                              instance_motion_accel,
+                              matrix_keyframe_buffer,
+                              srt_keyframe_buffer)
+                              .dispatch(2u)
+                       << matrix_keyframe_buffer.copy_to(
+                              luisa::span{actual_matrices})
+                       << srt_keyframe_buffer.copy_to(
+                              luisa::span{actual_srts})
+                       << synchronize();
+                for (auto key = 0u; key < 2u; key++) {
+                    expect_matrix_near(
+                        actual_matrices[key], expected_matrices[key],
+                        1.0e-6f,
+                        luisa::format("{} matrix key {}", phase, key));
+                    expect_srt_near(
+                        actual_srts[key], expected_srts[key],
+                        1.0e-6f,
+                        luisa::format("{} SRT key {}", phase, key));
+                }
+            };
+        read_and_check_motion_keyframes(
+            luisa::span{matrix_instance_keys},
+            luisa::span{srt_instance_keys},
+            "initial device read");
+
+        std::array updated_matrix_keys{
+            translation(make_float3(4.0f, 0.0f, 0.0f)),
+            translation(make_float3(6.0f, 0.0f, 0.0f))};
+        std::array updated_srt_keys{
+            make_srt(
+                make_float3(0.1f, 0.2f, 0.3f),
+                make_float4(0.0f, 0.0f, 0.0f, 1.0f),
+                make_float3(1.1f, 1.2f, 1.3f),
+                make_float3(0.01f, 0.02f, 0.03f),
+                make_float3(0.0f, 1.0f, 0.0f)),
+            make_srt(
+                make_float3(0.1f, 0.2f, 0.3f),
+                make_float4(0.0f, 0.0f, 0.0f, 1.0f),
+                make_float3(1.1f, 1.2f, 1.3f),
+                make_float3(0.01f, 0.02f, 0.03f),
+                make_float3(0.0f, 3.0f, 0.0f))};
+        stream << matrix_keyframe_buffer.copy_from(
+                      luisa::span{updated_matrix_keys})
+               << srt_keyframe_buffer.copy_from(
+                      luisa::span{updated_srt_keys})
+               << write_motion_keyframes_shader(
+                      instance_motion_accel,
+                      matrix_keyframe_buffer,
+                      srt_keyframe_buffer)
+                      .dispatch(2u)
+               << instance_motion_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE);
+        read_and_check_motion_keyframes(
+            luisa::span{updated_matrix_keys},
+            luisa::span{updated_srt_keys},
+            "post-refit device read");
+
+        std::array updated_motion_origins{
+            make_float3(2.0f, 0.0f, 1.0f),
+            make_float3(0.1f, 2.2f, 1.3f)};
+        auto updated_motion_origin_buffer =
+            device.create_buffer<float3>(updated_motion_origins.size());
+        auto updated_motion_ids = device.create_buffer<uint2>(2u);
+        auto updated_motion_distances = device.create_buffer<float>(2u);
+        std::array<uint2, 2u> host_updated_motion_ids{};
+        std::array<float, 2u> host_updated_motion_distances{};
+        stream << updated_motion_origin_buffer.copy_from(
+                      luisa::span{updated_motion_origins})
+               << trace_updated_motion_instances_shader(
+                      instance_motion_accel,
+                      updated_motion_origin_buffer,
+                      updated_motion_ids,
+                      updated_motion_distances)
+                      .dispatch(2u)
+               << updated_motion_ids.copy_to(
+                      luisa::span{host_updated_motion_ids})
+               << updated_motion_distances.copy_to(
+                      luisa::span{host_updated_motion_distances})
+               << synchronize();
+        for (auto i = 0u; i < 2u; i++) {
+            expect(static_cast<bool>(
+                all(host_updated_motion_ids[i] == make_uint2(i, 1u))))
+                << "updated motion-instance traversal id mismatch";
+            expect(std::abs(host_updated_motion_distances[i] - 1.0f) <=
+                   2.0e-4f)
+                << "updated motion-instance traversal distance mismatch";
         }
 
         std::array updated_transforms{

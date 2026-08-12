@@ -2,11 +2,11 @@
 
 #include <luisa/runtime/rtx/mesh.h>
 
-#include "simd_embree.h"
+#include "simd_primitive.h"
 
 namespace luisa::compute::simd {
 
-class SIMDMesh {
+class SIMDMesh final : public SIMDPrimitive {
 
 private:
     RTCScene _scene{nullptr};
@@ -18,7 +18,7 @@ public:
     ~SIMDMesh() noexcept;
 
     void build(const MeshBuildCommand &command) noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _scene; }
+    [[nodiscard]] RTCScene handle() const noexcept override { return _scene; }
 };
 
 }// namespace luisa::compute::simd

@@ -39,6 +39,20 @@ namespace {
            type->element()->is_float32();
 }
 
+[[nodiscard]] bool is_motion_srt_type(const Type *type) noexcept {
+    if (type == nullptr || !type->is_structure() ||
+        type->members().size() != 5u) {
+        return false;
+    }
+    constexpr std::array dimensions{3u, 4u, 3u, 3u, 3u};
+    for (auto i = size_t{0u}; i < dimensions.size(); i++) {
+        if (!is_float_array(type->members()[i], dimensions[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }// namespace
 
 [[nodiscard]] ScheduleEmitter::AccelInstanceAddress
@@ -371,6 +385,300 @@ void ScheduleEmitter::_accel_instance_write(
     store(
         dirty, offsetof(SIMDHostAccelInstance, dirty),
         alignof(uint8_t));
+}
+
+[[nodiscard]] ScheduleEmitter::AccelMotionAddress
+ScheduleEmitter::_accel_motion_address(
+    ::llvm::Value *accel, schedule::ValueId instance_id,
+    schedule::ValueId keyframe_id, bool varying,
+    uint32_t expected_mode) {
+    auto *instance_value = _source.value(instance_id);
+    auto *keyframe_value = _source.value(keyframe_id);
+    auto *raw_keyframe = _load_value(keyframe_id);
+    if (instance_value == nullptr || keyframe_value == nullptr ||
+        raw_keyframe == nullptr ||
+        keyframe_value->type == nullptr ||
+        (!keyframe_value->type->is_int32() &&
+         !keyframe_value->type->is_uint32())) {
+        _fail("acceleration-structure motion keyframe index is invalid");
+        return {};
+    }
+    auto varying_instance = varying &&
+                            !schedule::is_uniform(
+                                instance_value->value_class);
+    auto instance = _accel_instance_address(
+        accel, instance_id, varying_instance);
+    if (instance.data == nullptr) { return {}; }
+
+    auto &context = _module.getContext();
+    auto *pointer_type = ::llvm::PointerType::getUnqual(context);
+    auto *has_active = _builder.CreateOrReduce(_active_mask);
+    auto load_field = [&](::llvm::Type *type, size_t offset,
+                          size_t alignment) {
+        if (varying_instance) {
+            auto *pointers = _leaf_pointers(
+                instance.data, instance.offsets, offset);
+            auto *lanes = ::llvm::FixedVectorType::get(type, _width);
+            return static_cast<::llvm::Value *>(
+                _builder.CreateMaskedGather(
+                    lanes, pointers, ::llvm::Align{alignment},
+                    _active_mask,
+                    ::llvm::Constant::getNullValue(lanes)));
+        }
+        auto *pointer = _byte_pointer(instance.scalar, offset);
+        auto *value = _builder.CreateLoad(type, pointer);
+        value->setAlignment(::llvm::Align{alignment});
+        auto *loaded = static_cast<::llvm::Value *>(value);
+        return varying ? _builder.CreateVectorSplat(_width, loaded) :
+                         loaded;
+    };
+    auto *frames = load_field(
+        pointer_type,
+        offsetof(SIMDHostAccelInstance, motion_frames),
+        alignof(void *));
+    auto *count = load_field(
+        _builder.getInt32Ty(),
+        offsetof(SIMDHostAccelInstance, motion_keyframe_count),
+        alignof(uint32_t));
+    auto *mode = load_field(
+        _builder.getInt32Ty(),
+        offsetof(SIMDHostAccelInstance, motion_mode),
+        alignof(uint32_t));
+
+    if (varying) {
+        auto *pointer_lanes = ::llvm::FixedVectorType::get(
+            pointer_type, _width);
+        auto *i32_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt32Ty(), _width);
+        auto *i64_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt64Ty(), _width);
+        auto *null_frames = _builder.CreateICmpEQ(
+            frames, ::llvm::Constant::getNullValue(pointer_lanes));
+        auto *wrong_mode = _builder.CreateICmpNE(
+            mode, _builder.CreateVectorSplat(
+                      _width, _builder.getInt32(expected_mode)));
+        _trap_if(
+            _builder.CreateOrReduce(
+                _builder.CreateAnd(
+                    _active_mask,
+                    _builder.CreateOr(null_frames, wrong_mode))),
+            "accel.motion.metadata.invalid");
+
+        auto *keyframe = _as_lane_vector(
+            raw_keyframe, *keyframe_value);
+        if (keyframe == nullptr) { return {}; }
+        keyframe = _builder.CreateZExtOrTrunc(
+            keyframe, i32_lanes);
+        keyframe = _builder.CreateSelect(
+            _active_mask, keyframe,
+            ::llvm::Constant::getNullValue(i32_lanes),
+            "accel.safe.motion.keyframe");
+        auto *invalid = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpUGE(keyframe, count));
+        _trap_if(
+            _builder.CreateOrReduce(invalid),
+            "accel.motion.keyframe.out.of.bounds");
+        auto *offsets = _builder.CreateMul(
+            _builder.CreateZExt(keyframe, i64_lanes),
+            _builder.CreateVectorSplat(
+                _width,
+                _builder.getInt64(simd_host_accel_motion_frame_size)));
+        return {
+            .instance = instance,
+            .frame = _builder.CreateGEP(
+                _builder.getInt8Ty(), frames, offsets),
+        };
+    }
+
+    auto *null_pointer =
+        ::llvm::ConstantPointerNull::get(pointer_type);
+    auto *metadata_invalid = _builder.CreateOr(
+        _builder.CreateICmpEQ(frames, null_pointer),
+        _builder.CreateICmpNE(
+            mode, _builder.getInt32(expected_mode)));
+    _trap_if(
+        _builder.CreateAnd(has_active, metadata_invalid),
+        "accel.motion.metadata.invalid");
+    auto *keyframe = _builder.CreateZExtOrTrunc(
+        raw_keyframe, _builder.getInt32Ty());
+    _trap_if(
+        _builder.CreateAnd(
+            has_active,
+            _builder.CreateICmpUGE(keyframe, count)),
+        "accel.motion.keyframe.out.of.bounds");
+    auto *offset = _builder.CreateMul(
+        _builder.CreateZExt(keyframe, _builder.getInt64Ty()),
+        _builder.getInt64(simd_host_accel_motion_frame_size));
+    return {
+        .instance = instance,
+        .frame = _builder.CreateGEP(
+            _builder.getInt8Ty(), frames, offset,
+            "accel.motion.scalar.frame"),
+    };
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_accel_motion_query(
+    const schedule::Instruction &instruction) {
+    if (!instruction.result || !instruction.source_op ||
+        instruction.operands.size() != 3u) {
+        _fail("acceleration-structure motion query is malformed");
+        return nullptr;
+    }
+    auto op = static_cast<xir::ResourceQueryOp>(
+        *instruction.source_op);
+    auto matrix =
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX;
+    auto srt =
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT;
+    auto *result = _source.value(*instruction.result);
+    auto *accel_value = _source.value(instruction.operands[0u]);
+    auto *instance_value = _source.value(instruction.operands[1u]);
+    auto *keyframe_value = _source.value(instruction.operands[2u]);
+    auto *accel = _load_value(instruction.operands[0u]);
+    if ((!matrix && !srt) || result == nullptr || accel_value == nullptr ||
+        instance_value == nullptr || keyframe_value == nullptr ||
+        accel == nullptr || accel_value->type == nullptr ||
+        !accel_value->type->is_accel() ||
+        (matrix ? !is_float4x4_type(result->type) :
+                  !is_motion_srt_type(result->type))) {
+        _fail("acceleration-structure motion query has invalid types");
+        return nullptr;
+    }
+    auto varying =
+        result->value_class == schedule::ValueClass::varying;
+    if (!varying &&
+        (!schedule::is_uniform(instance_value->value_class) ||
+         !schedule::is_uniform(keyframe_value->value_class))) {
+        _fail("uniform motion query requires uniform indices");
+        return nullptr;
+    }
+    auto address = _accel_motion_address(
+        accel, instruction.operands[1u], instruction.operands[2u],
+        varying,
+        static_cast<uint32_t>(
+            matrix ? SIMDHostAccelMotionMode::matrix :
+                     SIMDHostAccelMotionMode::srt));
+    if (address.frame == nullptr) { return nullptr; }
+    if (varying) {
+        auto *offsets = ::llvm::Constant::getNullValue(
+            ::llvm::FixedVectorType::get(
+                _builder.getInt64Ty(), _width));
+        return _gather_data(
+            address.frame, offsets, result->type);
+    }
+    return _load_uniform_data(address.frame, result->type);
+}
+
+void ScheduleEmitter::_accel_motion_write(
+    const schedule::Instruction &instruction) {
+    if (!instruction.source_op || instruction.operands.size() != 4u) {
+        _fail("acceleration-structure motion write is malformed");
+        return;
+    }
+    auto op = static_cast<xir::ResourceWriteOp>(
+        *instruction.source_op);
+    auto matrix =
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX;
+    auto srt =
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT;
+    auto *accel_value = _source.value(instruction.operands[0u]);
+    auto *instance_value = _source.value(instruction.operands[1u]);
+    auto *keyframe_value = _source.value(instruction.operands[2u]);
+    auto *written_value = _source.value(instruction.operands[3u]);
+    auto *accel = _load_value(instruction.operands[0u]);
+    auto *value = _load_value(instruction.operands[3u]);
+    if ((!matrix && !srt) || accel_value == nullptr ||
+        instance_value == nullptr || keyframe_value == nullptr ||
+        written_value == nullptr || accel == nullptr || value == nullptr ||
+        accel_value->type == nullptr || !accel_value->type->is_accel() ||
+        (matrix ? !is_float4x4_type(written_value->type) :
+                  !is_motion_srt_type(written_value->type))) {
+        _fail("acceleration-structure motion write has invalid types");
+        return;
+    }
+    auto varying =
+        !schedule::is_uniform(instance_value->value_class) ||
+        !schedule::is_uniform(keyframe_value->value_class) ||
+        !schedule::is_uniform(written_value->value_class);
+    if (varying) {
+        value = _as_lane_vector(value, *written_value);
+        auto *zero = value == nullptr ? nullptr :
+                                        ::llvm::Constant::getNullValue(
+                                            value->getType());
+        value = zero == nullptr ? nullptr :
+                                  _masked_merge(
+                                      value, zero,
+                                      written_value->type, _active_mask);
+        if (value == nullptr) { return; }
+    }
+    auto address = _accel_motion_address(
+        accel, instruction.operands[1u], instruction.operands[2u],
+        varying,
+        static_cast<uint32_t>(
+            matrix ? SIMDHostAccelMotionMode::matrix :
+                     SIMDHostAccelMotionMode::srt));
+    if (address.frame == nullptr) { return; }
+    if (varying) {
+        auto *offsets = ::llvm::Constant::getNullValue(
+            ::llvm::FixedVectorType::get(
+                _builder.getInt64Ty(), _width));
+        _scatter_data(
+            address.frame, offsets,
+            written_value->type, value);
+        if (schedule::is_uniform(instance_value->value_class)) {
+            auto scalar_instance = _accel_instance_address(
+                accel, instruction.operands[1u], false);
+            if (scalar_instance.scalar == nullptr) { return; }
+            auto *dirty_pointer = _byte_pointer(
+                scalar_instance.scalar,
+                offsetof(SIMDHostAccelInstance, dirty));
+            auto *dirty = _builder.CreateStore(
+                _builder.getInt8(1u), dirty_pointer);
+            dirty->setAlignment(::llvm::Align{alignof(uint8_t)});
+        } else {
+            auto *dirty_pointers = _leaf_pointers(
+                address.instance.data, address.instance.offsets,
+                offsetof(SIMDHostAccelInstance, dirty));
+            _builder.CreateMaskedScatter(
+                _builder.CreateVectorSplat(
+                    _width, _builder.getInt8(1u)),
+                dirty_pointers, ::llvm::Align{alignof(uint8_t)},
+                _active_mask);
+        }
+        return;
+    }
+
+    std::function<void(
+        ::llvm::Value *, const Type *, ::llvm::Value *, size_t)>
+        store_uniform;
+    store_uniform = [&](::llvm::Value *base, const Type *type,
+                        ::llvm::Value *stored, size_t offset) {
+        if (_is_scalar_data(type)) {
+            auto *pointer = _byte_pointer(base, offset);
+            if (type->is_bool()) {
+                stored = _builder.CreateZExt(
+                    stored, _builder.getInt8Ty());
+            }
+            auto *write = _builder.CreateStore(stored, pointer);
+            write->setAlignment(::llvm::Align{type->alignment()});
+            return;
+        }
+        for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
+            store_uniform(
+                base, _child_type(type, i),
+                _extract_child(stored, type, i, false),
+                offset + _child_offset(type, i));
+        }
+    };
+    store_uniform(
+        address.frame, written_value->type, value, 0u);
+    auto *dirty_pointer = _byte_pointer(
+        address.instance.scalar,
+        offsetof(SIMDHostAccelInstance, dirty));
+    auto *dirty = _builder.CreateStore(
+        _builder.getInt8(1u), dirty_pointer);
+    dirty->setAlignment(::llvm::Align{alignof(uint8_t)});
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_accel_query(

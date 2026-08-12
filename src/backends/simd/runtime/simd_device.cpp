@@ -22,6 +22,7 @@
 #include "simd_buffer.h"
 #include "simd_event.h"
 #include "simd_mesh.h"
+#include "simd_motion_instance.h"
 #include "simd_shader.h"
 #include "simd_stream.h"
 #include "simd_thread_pool.h"
@@ -308,15 +309,19 @@ ResourceCreationInfo SIMDDevice::create_mesh(
     const AccelOption &option) noexcept {
     auto *mesh = luisa::new_with_allocator<SIMDMesh>(
         _rtc_device, option);
+    auto *primitive = static_cast<SIMDPrimitive *>(mesh);
     return {
-        .handle = reinterpret_cast<uint64_t>(mesh),
+        .handle = reinterpret_cast<uint64_t>(primitive),
         .native_handle = mesh->handle(),
     };
 }
 
 void SIMDDevice::destroy_mesh(uint64_t handle) noexcept {
-    luisa::delete_with_allocator(
-        reinterpret_cast<SIMDMesh *>(handle));
+    auto *primitive = reinterpret_cast<SIMDPrimitive *>(handle);
+    LUISA_ASSERT(
+        primitive != nullptr && primitive->kind() == SIMDPrimitive::Kind::mesh,
+        "Invalid SIMD mesh handle.");
+    luisa::delete_with_allocator(static_cast<SIMDMesh *>(primitive));
 }
 
 ResourceCreationInfo SIMDDevice::create_procedural_primitive(
@@ -325,6 +330,26 @@ ResourceCreationInfo SIMDDevice::create_procedural_primitive(
 }
 
 void SIMDDevice::destroy_procedural_primitive(uint64_t) noexcept {}
+
+ResourceCreationInfo SIMDDevice::create_motion_instance(
+    const AccelMotionOption &option) noexcept {
+    auto *instance = luisa::new_with_allocator<SIMDMotionInstance>(option);
+    auto *primitive = static_cast<SIMDPrimitive *>(instance);
+    return {
+        .handle = reinterpret_cast<uint64_t>(primitive),
+        .native_handle = instance,
+    };
+}
+
+void SIMDDevice::destroy_motion_instance(uint64_t handle) noexcept {
+    auto *primitive = reinterpret_cast<SIMDPrimitive *>(handle);
+    LUISA_ASSERT(
+        primitive != nullptr &&
+            primitive->kind() == SIMDPrimitive::Kind::motion_instance,
+        "Invalid SIMD motion-instance handle.");
+    luisa::delete_with_allocator(
+        static_cast<SIMDMotionInstance *>(primitive));
+}
 
 ResourceCreationInfo SIMDDevice::create_accel(
     const AccelOption &option) noexcept {

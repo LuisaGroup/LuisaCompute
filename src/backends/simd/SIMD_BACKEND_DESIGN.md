@@ -1571,10 +1571,10 @@ linear hit distance and occlusion at every width, includes divergent
 visibility and the three-lane W16 tail, and separately checks a uniform motion
 trace remains one-lane scalar work.
 
-Ray-query callbacks, motion instances, curves, procedural primitives,
-cutout/opacity filters and mutation, motion-instance metadata/mutation, and
-full instance-stack semantics remain explicit Phase-4 work; closest/any
-support does not claim them.
+Ray-query callbacks, curves, procedural primitives, cutout/opacity filters and
+mutation, nonidentity outer affine composition for SRT motion, and full
+instance-stack semantics remain explicit Phase-4 work; closest/any support
+does not claim them.
 
 Static-instance transform, user-id, and visibility reads and writes bypass
 runtime callbacks. The accel argument carries a pointer to a stable table
@@ -1589,6 +1589,29 @@ uniform scalar loads/stores, and absence of an indirect callback. The device
 regression covers divergent reads, two-lane device mutation, full transform
 round trips, new visibility masks, post-update closest/any traversal, and
 inactive tails at every W1/W2/W4/W8/W16 width.
+
+MATRIX and quaternion-SRT motion-instance resources now form a second exact
+motion path in addition to vertex motion. The runtime validates keyframe count
+and time range, copies resource keyframes into TLAS-owned 64-byte frame arrays,
+and keeps their pointer/count/mode in the stable instance table. MATRIX
+keyframes compose with the top-level affine. SRT keyframes map directly to
+Embree quaternion decompositions and therefore retain spherical rotation
+interpolation; with the deployed one-level Embree instance ABI, SRT currently
+rejects a nonidentity outer affine rather than changing interpolation through
+a matrix approximation. Sub-shutter time ranges require the corresponding
+vanish flag because Embree makes the geometry absent outside its time range.
+
+Device MATRIX/SRT get/set operations use scalar loads/stores for uniform
+instance/key/value tuples and inactive-safe masked gathers/scatters otherwise.
+A uniform instance plus varying key index loads and splats only its frame
+descriptor. Active instance/key bounds and mode are checked before frame
+addressing; inactive values are selected to zero first. A write sets the same
+TLAS dirty byte used by static metadata, and the next normal build validates
+and republishes every motion transform before committing Embree. The dedicated
+ORC regression requires native masked operations, a scalar frame path, and no
+indirect callback. Runtime coverage exercises MATRIX/SRT round trips, outer
+MATRIX composition, post-write refit/traversal, W1/W2/W4/W8/W16, and W8/W16
+partial tails.
 
 The required native-math/runtime-width tests plus the arithmetic,
 bindless-texture, dedicated bindless-IR callback, and acceleration tests pass
@@ -1812,13 +1835,18 @@ on 2026-08-11. The repository now contains:
   2D `BYTE1` sampling path, sparse set-bit fallback, uniform one-lane callback,
   and inactive-tail sanitization while retaining the public row-major texture
   storage ABI;
-- a static and vertex-motion triangle Embree packet ABI for closest-hit and
-  occlusion where W1
+- a static, vertex-motion, and instance-motion triangle Embree packet ABI for
+  closest-hit and occlusion where W1
   alone uses the scalar interface, W2 pads into W4, and W4/W8/W16 call the
   matching packet interface once; the callback carries the exact cohort/tail
   mask and an optional sanitized motion-time vector, pre-sanitizes inactive
   operands, initializes inactive results, narrows uniform queries to the first
   active lane, and bulk-copies safe sparse native packets;
+- MATRIX and quaternion-SRT motion-instance resources with validated time
+  ranges, TLAS-owned keyframe storage, MATRIX outer-affine composition,
+  quaternion interpolation, scalar uniform keyframe access, inactive-safe
+  varying keyframe gather/scatter, and dirty refit through the normal accel
+  build boundary;
 - a stable static-instance metadata table where uniform transform/user-id/
   visibility reads and writes remain scalar, varying operations use
   inactive-safe bounds-checked LLVM masked gathers/scatters without a host
@@ -1864,9 +1892,10 @@ on 2026-08-11. The repository now contains:
   W16 tail.
 
 The next implementation boundary is completion of the Embree vertical slice:
-ray-query callbacks, motion instances, opacity and motion metadata/mutation,
-curve/procedural and cutout semantics, plus a direct packet-layout experiment
-guarded by stable measurement. Bindless gradient sampling, broader callable
-conformance, cooperative shared memory, block barriers, and the remaining
-device-library surface follow. The current compiler returns precise
-diagnostics for unsupported features rather than silently accepting them.
+ray-query callbacks, opacity/filter semantics, curve/procedural support,
+nonidentity outer affine composition for SRT motion, plus a direct
+packet-layout experiment guarded by stable measurement. Bindless gradient
+sampling, broader callable conformance, cooperative shared memory, block
+barriers, and the remaining device-library surface follow. The current
+compiler returns precise diagnostics for unsupported features rather than
+silently accepting them.

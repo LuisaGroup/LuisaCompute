@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/runtime/rtx/accel.h>
 
 #include "../llvm/llvm_schedule_codegen.h"
@@ -13,10 +14,16 @@ class alignas(16) SIMDAccel {
 private:
     using Instance = SIMDHostAccelInstance;
 
+    struct MotionState {
+        AccelMotionOption option{};
+        luisa::vector<MotionInstanceTransform> keyframes;
+    };
+
 private:
     RTCScene _scene{nullptr};
     luisa::vector<Instance> _instances;
     luisa::vector<RTCGeometry> _geometries;
+    luisa::vector<luisa::unique_ptr<MotionState>> _motion_states;
     SIMDHostAccelInstanceTable _instance_table{};
 
 private:

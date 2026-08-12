@@ -1,15 +1,107 @@
 #include "simd_accel.h"
 
 #include <array>
+#include <cmath>
 #include <cstring>
 
 #include <luisa/core/logging.h>
 
 #include "simd_mesh.h"
+#include "simd_motion_instance.h"
 
 namespace luisa::compute::simd {
 
+static_assert(
+    static_cast<uint32_t>(AccelMotionMode::MATRIX) ==
+    static_cast<uint32_t>(SIMDHostAccelMotionMode::matrix));
+static_assert(
+    static_cast<uint32_t>(AccelMotionMode::SRT) ==
+    static_cast<uint32_t>(SIMDHostAccelMotionMode::srt));
+static_assert(
+    sizeof(MotionInstanceTransform) ==
+    simd_host_accel_motion_frame_size);
+
 namespace {
+
+[[nodiscard]] bool affine_is_identity(const float affine[12]) noexcept {
+    return affine[0u] == 1.0f && affine[1u] == 0.0f &&
+           affine[2u] == 0.0f && affine[3u] == 0.0f &&
+           affine[4u] == 0.0f && affine[5u] == 1.0f &&
+           affine[6u] == 0.0f && affine[7u] == 0.0f &&
+           affine[8u] == 0.0f && affine[9u] == 0.0f &&
+           affine[10u] == 1.0f && affine[11u] == 0.0f;
+}
+
+void validate_finite(
+    const float *values, size_t count,
+    size_t keyframe, const char *field) noexcept {
+    for (auto i = size_t{0u}; i < count; i++) {
+        LUISA_ASSERT(
+            std::isfinite(values[i]),
+            "SIMD motion keyframe {} contains a non-finite {} component "
+            "at index {}.",
+            keyframe, field, i);
+    }
+}
+
+void compose_matrix_keyframe(
+    float result[12], const float outer[12],
+    const MotionInstanceTransformMatrix &keyframe,
+    size_t keyframe_index) noexcept {
+    validate_finite(
+        &keyframe[0u][0u], 16u, keyframe_index, "matrix");
+    for (auto row = 0u; row < 3u; row++) {
+        for (auto column = 0u; column < 4u; column++) {
+            result[row * 4u + column] =
+                outer[row * 4u + 0u] * keyframe[column][0u] +
+                outer[row * 4u + 1u] * keyframe[column][1u] +
+                outer[row * 4u + 2u] * keyframe[column][2u] +
+                outer[row * 4u + 3u] * keyframe[column][3u];
+        }
+    }
+}
+
+[[nodiscard]] RTCQuaternionDecomposition quaternion_keyframe(
+    const MotionInstanceTransformSRT &keyframe,
+    size_t keyframe_index) noexcept {
+    validate_finite(
+        keyframe.pivot, 3u, keyframe_index, "pivot");
+    validate_finite(
+        keyframe.quaternion, 4u, keyframe_index, "quaternion");
+    validate_finite(
+        keyframe.scale, 3u, keyframe_index, "scale");
+    validate_finite(
+        keyframe.shear, 3u, keyframe_index, "shear");
+    validate_finite(
+        keyframe.translation, 3u, keyframe_index, "translation");
+    auto norm_squared =
+        keyframe.quaternion[0u] * keyframe.quaternion[0u] +
+        keyframe.quaternion[1u] * keyframe.quaternion[1u] +
+        keyframe.quaternion[2u] * keyframe.quaternion[2u] +
+        keyframe.quaternion[3u] * keyframe.quaternion[3u];
+    LUISA_ASSERT(
+        norm_squared > 0.0f,
+        "SIMD SRT motion keyframe {} has a zero quaternion.",
+        keyframe_index);
+    return RTCQuaternionDecomposition{
+        .scale_x = keyframe.scale[0u],
+        .scale_y = keyframe.scale[1u],
+        .scale_z = keyframe.scale[2u],
+        .skew_xy = keyframe.shear[0u],
+        .skew_xz = keyframe.shear[1u],
+        .skew_yz = keyframe.shear[2u],
+        .shift_x = keyframe.pivot[0u],
+        .shift_y = keyframe.pivot[1u],
+        .shift_z = keyframe.pivot[2u],
+        .quaternion_r = keyframe.quaternion[3u],
+        .quaternion_i = keyframe.quaternion[0u],
+        .quaternion_j = keyframe.quaternion[1u],
+        .quaternion_k = keyframe.quaternion[2u],
+        .translation_x = keyframe.translation[0u],
+        .translation_y = keyframe.translation[1u],
+        .translation_z = keyframe.translation[2u],
+    };
+}
 
 [[nodiscard]] bool lane_active(
     uint64_t bits, uint32_t lane, uint32_t lane_count) noexcept {
@@ -288,10 +380,12 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         }
         _instances.resize(instance_count);
         _geometries.resize(instance_count);
+        _motion_states.resize(instance_count);
     } else {
         auto device = rtcGetSceneDevice(_scene);
         _instances.reserve(instance_count);
         _geometries.reserve(instance_count);
+        _motion_states.reserve(instance_count);
         for (auto i = _instances.size(); i < instance_count; i++) {
             auto geometry = rtcNewGeometry(
                 device, RTC_GEOMETRY_TYPE_INSTANCE);
@@ -302,6 +396,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             rtcReleaseGeometry(geometry);
             _instances.emplace_back();
             _geometries.emplace_back(geometry);
+            _motion_states.emplace_back();
         }
     }
     // Shader arguments may retain the table address across a later build.
@@ -317,14 +412,45 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         auto &instance = _instances[modification.index];
         auto geometry = _geometries[modification.index];
         if ((modification.flags & Modification::flag_primitive) != 0u) {
-            auto *mesh = reinterpret_cast<SIMDMesh *>(
+            auto *primitive = reinterpret_cast<SIMDPrimitive *>(
                 modification.primitive);
             LUISA_ASSERT(
-                mesh != nullptr,
-                "SIMD accel instance has a null mesh.");
-            rtcSetGeometryInstancedScene(geometry, mesh->handle());
-            rtcSetGeometryTimeStepCount(geometry, 1u);
-            rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
+                primitive != nullptr,
+                "SIMD accel instance has a null primitive.");
+            if (primitive->kind() == SIMDPrimitive::Kind::motion_instance) {
+                auto *motion = static_cast<SIMDMotionInstance *>(primitive);
+                LUISA_ASSERT(
+                    motion->child() != nullptr &&
+                        motion->keyframes().size() ==
+                            motion->option().keyframe_count,
+                    "SIMD motion instance must be built before its accel.");
+                auto state = luisa::make_unique<MotionState>();
+                state->option = motion->option();
+                state->keyframes.assign(
+                    motion->keyframes().begin(), motion->keyframes().end());
+                instance.motion_frames = state->keyframes.data();
+                instance.motion_keyframe_count =
+                    static_cast<uint32_t>(state->keyframes.size());
+                instance.motion_mode =
+                    static_cast<uint32_t>(state->option.mode);
+                rtcSetGeometryInstancedScene(
+                    geometry, motion->child()->handle());
+                rtcSetGeometryTimeStepCount(
+                    geometry, state->option.keyframe_count);
+                rtcSetGeometryTimeRange(
+                    geometry, state->option.time_start,
+                    state->option.time_end);
+                _motion_states[modification.index] = std::move(state);
+            } else {
+                auto *mesh = static_cast<SIMDMesh *>(primitive);
+                rtcSetGeometryInstancedScene(geometry, mesh->handle());
+                rtcSetGeometryTimeStepCount(geometry, 1u);
+                rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
+                instance.motion_frames = nullptr;
+                instance.motion_keyframe_count = 0u;
+                instance.motion_mode = 0u;
+                _motion_states[modification.index].reset();
+            }
         }
         if ((modification.flags & Modification::flag_transform) != 0u) {
             std::memcpy(
@@ -349,9 +475,45 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         auto &instance = _instances[i];
         if (!instance.dirty) { continue; }
         auto geometry = _geometries[i];
-        rtcSetGeometryTransform(
-            geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
-            instance.affine);
+        if (auto &motion = _motion_states[i]; motion != nullptr) {
+            LUISA_ASSERT(
+                instance.motion_frames == motion->keyframes.data() &&
+                    instance.motion_keyframe_count ==
+                        motion->keyframes.size() &&
+                    instance.motion_mode ==
+                        static_cast<uint32_t>(motion->option.mode),
+                "SIMD motion-instance metadata is inconsistent.");
+            if (motion->option.mode == AccelMotionMode::MATRIX) {
+                std::array<float, 12u> composed{};
+                for (auto key = size_t{0u};
+                     key < motion->keyframes.size(); key++) {
+                    compose_matrix_keyframe(
+                        composed.data(), instance.affine,
+                        motion->keyframes[key].as_matrix(), key);
+                    rtcSetGeometryTransform(
+                        geometry, static_cast<unsigned>(key),
+                        RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
+                        composed.data());
+                }
+            } else {
+                LUISA_ASSERT(
+                    affine_is_identity(instance.affine),
+                    "SIMD SRT motion instances currently require an identity "
+                    "outer affine transform.");
+                for (auto key = size_t{0u};
+                     key < motion->keyframes.size(); key++) {
+                    auto quaternion = quaternion_keyframe(
+                        motion->keyframes[key].as_srt(), key);
+                    rtcSetGeometryTransformQuaternion(
+                        geometry, static_cast<unsigned>(key),
+                        &quaternion);
+                }
+            }
+        } else {
+            rtcSetGeometryTransform(
+                geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
+                instance.affine);
+        }
         rtcSetGeometryMask(geometry, instance.mask);
         rtcCommitGeometry(geometry);
         instance.dirty = 0u;

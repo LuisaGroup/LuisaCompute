@@ -871,6 +871,11 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
         _accel_instance_write(instruction);
         return;
     }
+    if (op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX ||
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT) {
+        _accel_motion_write(instruction);
+        return;
+    }
     if (instruction.operands.size() != 3u) {
         _fail("direct resource write instruction is malformed");
         return;
@@ -942,6 +947,10 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
         op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID ||
         op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) {
         return _accel_instance_query(instruction);
+    }
+    if (op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX ||
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT) {
+        return _accel_motion_query(instruction);
     }
     if (op == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE ||
         op == xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE ||

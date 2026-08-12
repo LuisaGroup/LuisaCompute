@@ -118,6 +118,11 @@ private:
         ::llvm::Value *scalar{nullptr};
     };
 
+    struct AccelMotionAddress {
+        AccelInstanceAddress instance{};
+        ::llvm::Value *frame{nullptr};
+    };
+
 private:
     void _fail(std::string message);
     [[nodiscard]] bool _failed() const noexcept;
@@ -303,6 +308,14 @@ private:
     [[nodiscard]] ::llvm::Value *_accel_instance_query(
         const schedule::Instruction &instruction);
     void _accel_instance_write(
+        const schedule::Instruction &instruction);
+    [[nodiscard]] AccelMotionAddress _accel_motion_address(
+        ::llvm::Value *accel, schedule::ValueId instance_id,
+        schedule::ValueId keyframe_id, bool varying,
+        uint32_t expected_mode);
+    [[nodiscard]] ::llvm::Value *_accel_motion_query(
+        const schedule::Instruction &instruction);
+    void _accel_motion_write(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_read(
         const schedule::Instruction &instruction);
