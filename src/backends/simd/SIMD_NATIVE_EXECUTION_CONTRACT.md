@@ -181,7 +181,14 @@ through the general cohort scheduler;
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
 refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
 lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
-logs per-shader transform counters.
+logs per-shader transform, scheduler-state, and ray-query scratch counters.
+`LUISA_SIMD_REPORT_ASSEMBLY=1` additionally captures optimized target assembly
+and reports its static instruction/call/branch counts, stack references, the
+x86 stack allocation when recognizable, and scalar-math symbols.
+`LUISA_SIMD_DUMP_ASSEMBLY_DIR=<directory>` writes the captured assembly to
+unique timestamped files. `LUISA_SIMD_DISABLE_COLD_STATE_PARTITION=1` and
+`LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING=1` are same-binary A/B controls
+for the two state-layout refinements.
 These process-wide variables are diagnostic controls, not shader semantics or
 a replacement for the public configuration extension. Invalid width text or a
 width outside the supported set is rejected.
@@ -701,6 +708,21 @@ lane receives a distinct 16-byte-aligned fixed-size state record, while the
 uniform input expressions themselves are still evaluated only once and splat
 only at the state initialization stores. A copied query value is an internal
 pointer to that lane's record.
+
+Distinct simultaneously live query objects also receive distinct records.
+Sequential construction sites may share the same per-lane scratch only after
+a fail-closed Schedule-IR analysis proves that each construction result is
+stored into exactly one unaliased query local. Backward liveness over every
+branch, switch, convergence, loop-back, barrier-resume, and return edge builds
+an interference graph; greedy coloring assigns scratch slots. A copied query,
+an ambiguous local root, or an unrecognized use disables coloring for that
+shader. Different scheduler cohorts may safely share a colored slot because
+their active masks contain disjoint physical lanes; each construction writes
+only its active lane records. Permanent regressions cover two sequential
+queries sharing one slot, mutually exclusive divergent queries sharing one
+slot, two overlapping queries retaining two slots, and an inactive W8 tail.
+The disable control above restores one slot per construction without changing
+query semantics.
 
 `PROCEED` gathers the active state pointers into one `<W x ptr>` scratch,
 selects null for inactive lanes, and issues exactly one indirect host callback

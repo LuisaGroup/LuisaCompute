@@ -788,12 +788,16 @@ host hardware concurrency and one provides a serial diagnostic path.
 
 ## 12. Diagnostics and observability
 
-The backend will support independent dumps for:
+The backend supports an optimized target-assembly report and optional dump via
+`LUISA_SIMD_REPORT_ASSEMBLY=1` and
+`LUISA_SIMD_DUMP_ASSEMBLY_DIR=<directory>`. The report includes static
+instruction, vector-instruction, branch, call, stack-reference, recognized x86
+stack-allocation, and scalar-math-call counts. The remaining planned
+independent dumps are:
 
 - canonical XIR;
 - Schedule IR before and after scheduling optimization;
 - LLVM IR;
-- target assembly;
 - runtime cohort traces for one selected block/warp.
 
 A cohort trace records continuation ID, token/epoch, active mask, selected
@@ -1563,7 +1567,7 @@ medians:
 | image processing | 0.488x | 0.914x | 1.290x | 1.678x | 1.972x |
 | voxel ray tracer | 0.850x | 0.286x | 0.428x | 0.736x | 1.066x |
 | Spacex shader | 1.052x | 1.674x | 2.471x | 3.177x | 3.720x |
-| cutout path tracing | 0.674x | 0.438x | 0.506x | 0.525x | 0.495x |
+| cutout path tracing | 0.654x | 0.414x | 0.481x | 0.504x | 0.478x |
 
 Every image, voxel, Spacex, and 64-SPP path-tracing invocation passed its
 gallery comparison. SDF used the internal four-SPP throughput metric; its
@@ -1646,6 +1650,25 @@ The exact device regression covers W1/W2/W4/W8/W16, divergent visibility,
 ray direction and interval, closest/any results, a uniform trace, and a
 35-thread dispatch whose W16 tail has three live lanes. A separate 64-spp
 renderer sweep completed at every width.
+
+The cutout path kernel contains two sequential query constructions per bounce:
+the filtered surface query and the shadow query. Schedule-IR query-local
+liveness now colors their non-overlapping scratch into one slot, while an
+overlapping-query regression requires two. The proof rejects copied or
+ambiguous query aliases and is disabled by
+`LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING=1` for same-binary A/B. At W8
+this reduces explicit query scratch from 19,456 to 9,728 bytes and optimized
+main-kernel stack allocation from 38,976 to 27,136 bytes. Static assembly drops
+from 6,794 to 6,745 instructions and from 1,572 to 1,551 stack references;
+both forms issue the same five calls and contain no scalar math symbol.
+
+Twenty-five alternating 64-SPP process pairs measured medians of 34.691 spp/s
+with coloring and 34.506 spp/s without it, a 0.53% gain while unrelated host
+work was active. Five-repeat hardware-counter samples show the more important
+mechanism: W8 L1 data-load misses fall from 8.586 to 6.967 billion (-18.9%),
+cycles from 282.82 to 280.35 billion (-0.87%), and retired instructions from
+403.14 to 402.06 billion (-0.27%). This is retained as a cache/state-layout
+improvement, not presented as closing the path-tracing gap.
 
 Vertex-motion triangle meshes now use Embree geometry time steps and the
 configured time range. Motion closest/any instructions carry one

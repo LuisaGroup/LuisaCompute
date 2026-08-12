@@ -122,10 +122,12 @@ using SIMDHostAccelRayQueryProceed = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states);
 
-// One fixed-size state belongs to each logical lane and query construction
-// site. Embree traversal is still issued once per active packet; these AoS
-// records only let the ordinary SIMD CFG retain candidate/commit state across
-// divergent handler iterations without a second callback-side PC machine.
+// One fixed-size state belongs to each logical lane and simultaneously live
+// query object. Noninterfering construction sites may share storage after a
+// fail-closed Schedule-IR liveness proof. Embree traversal is still issued
+// once per active packet; these AoS records only let the ordinary SIMD CFG
+// retain candidate/commit state across divergent handler iterations without a
+// second callback-side PC machine.
 struct alignas(16) SIMDHostRayQueryState {
     void *accel{nullptr};
     SIMDHostAccelRayQueryProceed *proceed{nullptr};
@@ -286,6 +288,15 @@ struct SIMDPacketLaunchConfig {
 struct LLVMScheduleCodegenResult {
     ::llvm::Function *entry{nullptr};
     size_t argument_buffer_size{0u};
+    size_t schedule_block_count{0u};
+    size_t convergence_point_count{0u};
+    size_t state_slot_count{0u};
+    size_t spilled_instruction_count{0u};
+    size_t cold_state_slot_count{0u};
+    size_t stack_pinned_state_slot_count{0u};
+    size_t ray_query_count{0u};
+    size_t ray_query_scratch_slot_count{0u};
+    size_t ray_query_scratch_bytes{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

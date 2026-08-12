@@ -105,6 +105,21 @@ SIMDCompiledKernel compile_simd_kernel(
         return result;
     }
     result.argument_buffer_size = llvm_result.argument_buffer_size;
+    result.schedule_block_count = llvm_result.schedule_block_count;
+    result.convergence_point_count =
+        llvm_result.convergence_point_count;
+    result.state_slot_count = llvm_result.state_slot_count;
+    result.spilled_instruction_count =
+        llvm_result.spilled_instruction_count;
+    result.cold_state_slot_count =
+        llvm_result.cold_state_slot_count;
+    result.stack_pinned_state_slot_count =
+        llvm_result.stack_pinned_state_slot_count;
+    result.ray_query_count = llvm_result.ray_query_count;
+    result.ray_query_scratch_slot_count =
+        llvm_result.ray_query_scratch_slot_count;
+    result.ray_query_scratch_bytes =
+        llvm_result.ray_query_scratch_bytes;
     result.uniform_buffer_broadcast_count =
         llvm_result.uniform_buffer_broadcast_count;
     result.contiguous_buffer_read_count =

@@ -1,6 +1,21 @@
 #include "simd_shader.h"
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <charconv>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <string_view>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 #include <luisa/core/logging.h>
 
@@ -18,6 +33,129 @@ namespace {
 [[nodiscard]] constexpr size_t align_up(
     size_t value, size_t alignment) noexcept {
     return (value + alignment - 1u) & ~(alignment - 1u);
+}
+
+struct AssemblyStats {
+    size_t instructions{0u};
+    size_t vector_instructions{0u};
+    size_t branches{0u};
+    size_t calls{0u};
+    size_t stack_references{0u};
+    size_t stack_allocation_bytes{0u};
+    size_t scalar_math_calls{0u};
+};
+
+[[nodiscard]] AssemblyStats inspect_assembly(
+    std::string_view assembly) noexcept {
+    AssemblyStats stats;
+    for (auto line_begin = size_t{0u}; line_begin < assembly.size();) {
+        auto line_end = assembly.find('\n', line_begin);
+        if (line_end == std::string_view::npos) {
+            line_end = assembly.size();
+        }
+        auto line = assembly.substr(line_begin, line_end - line_begin);
+        auto first = line.find_first_not_of(" \t");
+        if (first != std::string_view::npos) {
+            line.remove_prefix(first);
+        }
+        if (!line.empty() && line.front() != '.' &&
+            line.front() != '#' && line.back() != ':') {
+            auto mnemonic_end = line.find_first_of(" \t");
+            auto mnemonic = line.substr(0u, mnemonic_end);
+            stats.instructions++;
+            stats.vector_instructions +=
+                !mnemonic.empty() &&
+                (mnemonic.front() == 'v' || mnemonic.front() == 'k');
+            stats.branches +=
+                (!mnemonic.empty() && mnemonic.front() == 'j') ||
+                mnemonic.starts_with("loop");
+            auto call = mnemonic.starts_with("call");
+            stats.calls += call;
+            stats.stack_references +=
+                line.find("%rsp") != std::string_view::npos ||
+                line.find("%rbp") != std::string_view::npos;
+            if (call) {
+                constexpr std::array scalar_math_symbols{
+                    "sinf", "cosf", "tanf", "asinf", "acosf",
+                    "atanf", "atan2f", "expf", "exp2f", "exp10f",
+                    "logf", "log2f", "log10f", "powf"};
+                stats.scalar_math_calls += std::any_of(
+                    scalar_math_symbols.begin(),
+                    scalar_math_symbols.end(),
+                    [&](std::string_view symbol) noexcept {
+                        return line.find(symbol) !=
+                               std::string_view::npos;
+                    });
+            }
+            if (mnemonic == "subq" &&
+                line.find("%rsp") != std::string_view::npos) {
+                auto dollar = line.find('$');
+                auto comma = line.find(',', dollar);
+                if (dollar != std::string_view::npos &&
+                    comma != std::string_view::npos) {
+                    auto immediate = line.substr(
+                        dollar + 1u, comma - dollar - 1u);
+                    auto bytes = size_t{0u};
+                    auto [end, error] = std::from_chars(
+                        immediate.data(),
+                        immediate.data() + immediate.size(), bytes);
+                    if (error == std::errc{} &&
+                        end == immediate.data() + immediate.size()) {
+                        stats.stack_allocation_bytes =
+                            std::max(
+                                stats.stack_allocation_bytes, bytes);
+                    }
+                }
+            }
+        }
+        line_begin = line_end + (line_end < assembly.size() ? 1u : 0u);
+    }
+    return stats;
+}
+
+void dump_assembly(
+    std::string_view directory, std::string_view kernel_name,
+    uint32_t width, std::string_view assembly) noexcept {
+    static std::atomic_uint64_t sequence{0u};
+    std::error_code error;
+    auto path = std::filesystem::path{directory};
+    std::filesystem::create_directories(path, error);
+    if (error) {
+        LUISA_WARNING(
+            "Failed to create SIMD assembly directory '{}': {}.",
+            directory, error.message());
+        return;
+    }
+    auto safe_name = std::string{kernel_name};
+    for (auto &character : safe_name) {
+        auto safe = (character >= 'a' && character <= 'z') ||
+                    (character >= 'A' && character <= 'Z') ||
+                    (character >= '0' && character <= '9') ||
+                    character == '_' || character == '-';
+        if (!safe) { character = '_'; }
+    }
+    auto timestamp = std::chrono::system_clock::now()
+                         .time_since_epoch()
+                         .count();
+    auto process_id =
+#ifdef _WIN32
+        static_cast<uint64_t>(_getpid());
+#else
+        static_cast<uint64_t>(getpid());
+#endif
+    auto index = sequence.fetch_add(1u, std::memory_order_relaxed);
+    path /= safe_name + "_w" + std::to_string(width) + "_" +
+            std::to_string(process_id) + "_" +
+            std::to_string(timestamp) + "_" +
+            std::to_string(index) + ".s";
+    std::ofstream stream{path, std::ios::binary};
+    stream.write(
+        assembly.data(), static_cast<std::streamsize>(assembly.size()));
+    if (!stream) {
+        LUISA_WARNING("Failed to write SIMD assembly '{}'.", path.string());
+        return;
+    }
+    LUISA_INFO("SIMD assembly written to '{}'.", path.string());
 }
 
 }// namespace
@@ -39,10 +177,15 @@ SIMDShader::SIMDShader(
         warp_width != 0u && block_threads % warp_width == 0u,
         "SIMD thread block size {} must be a multiple of warp width {}.",
         block_threads, warp_width);
+    auto *assembly_directory =
+        std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR");
+    auto capture_assembly =
+        detail::env_flag("LUISA_SIMD_REPORT_ASSEMBLY") ||
+        assembly_directory != nullptr;
     _compiled = compile_simd_kernel(
         kernel, warp_width,
         kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
-        option.enable_fast_math);
+        option.enable_fast_math, capture_assembly);
     if (!_compiled.succeeded()) {
         luisa::string diagnostics;
         for (auto &&message : _compiled.diagnostics) {
@@ -60,6 +203,11 @@ SIMDShader::SIMDShader(
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
             "cloned_instructions={}, merged_live_outs={}, "
             "direct_control_flow={}, "
+            "schedule_blocks={}, convergence_points={}, "
+            "state_slots={}, instruction_spills={}, cold_slots={}, "
+            "stack_pinned_slots={}, "
+            "ray_queries={}, ray_query_scratch_slots={}, "
+            "ray_query_scratch_bytes={}, "
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
             "contiguous_buffer_writes={}.",
             kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
@@ -70,9 +218,38 @@ SIMDShader::SIMDShader(
             _compiled.unswitched_cloned_instruction_count,
             _compiled.unswitched_live_out_count,
             _compiled.direct_control_flow,
+            _compiled.schedule_block_count,
+            _compiled.convergence_point_count,
+            _compiled.state_slot_count,
+            _compiled.spilled_instruction_count,
+            _compiled.cold_state_slot_count,
+            _compiled.stack_pinned_state_slot_count,
+            _compiled.ray_query_count,
+            _compiled.ray_query_scratch_slot_count,
+            _compiled.ray_query_scratch_bytes,
             _compiled.uniform_buffer_broadcast_count,
             _compiled.contiguous_buffer_read_count,
             _compiled.contiguous_buffer_write_count);
+    }
+    if (capture_assembly) {
+        auto stats = inspect_assembly(_compiled.assembly);
+        LUISA_INFO(
+            "SIMD assembly report [{} W{}]: bytes={}, instructions={}, "
+            "vector_instructions={}, branches={}, calls={}, "
+            "stack_references={}, stack_allocation_bytes={}, "
+            "scalar_math_calls={}.",
+            kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
+            warp_width, _compiled.assembly.size(), stats.instructions,
+            stats.vector_instructions, stats.branches, stats.calls,
+            stats.stack_references, stats.stack_allocation_bytes,
+            stats.scalar_math_calls);
+        if (assembly_directory != nullptr) {
+            dump_assembly(
+                assembly_directory,
+                kernel.name().empty() ? "simd_runtime_kernel" :
+                                        kernel.name(),
+                warp_width, _compiled.assembly);
+        }
     }
     _entry = reinterpret_cast<Entry *>(_compiled.entry);
     _build_bound_arguments(kernel.bound_arguments());

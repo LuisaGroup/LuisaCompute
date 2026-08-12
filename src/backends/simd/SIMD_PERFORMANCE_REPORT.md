@@ -34,7 +34,7 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| cutout path tracing, spp/s | 64.545 | 43.476 (0.674x) | 28.271 (0.438x) | 32.633 (0.506x) | 33.901 (0.525x) | 31.956 (0.495x) |
+| cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 34.580 (0.504x) | 32.779 (0.478x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -91,6 +91,24 @@ nearly unchanged last-level misses is consistent with scheduler/frame state
 cycling through L1/L2, not a DRAM bandwidth wall. Object and runtime audits
 confirm W8 calls `rtcIntersect8`/`rtcOccluded8` once per packet and that Embree
 advertises native W8 support.
+
+The W8 cutout main kernel contains two sequential ray-query construction sites.
+A fail-closed Schedule-IR liveness/interference analysis now colors them into
+one per-lane scratch slot; overlapping query objects remain in distinct slots.
+This changes the exact optimized assembly as follows:
+
+| W8 cutout main kernel | query scratch | stack allocation | instructions | stack references | calls |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| coloring disabled | 19,456 B | 38,976 B | 6,794 | 1,572 | 5 |
+| coloring enabled | 9,728 B | 27,136 B | 6,745 | 1,551 | 5 |
+
+Neither form contains a scalar math call. Across 25 alternating 64-SPP process
+pairs, enabled/disabled medians are 34.691/34.506 spp/s (+0.53%). Five-repeat
+counter samples measured 6.967 versus 8.586 billion L1 data-load misses
+(-18.9%), 280.35 versus 282.82 billion cycles (-0.87%), and 402.06 versus
+403.14 billion instructions (-0.27%). The small throughput change despite the
+large L1-miss reduction confirms that query allocation was one pressure source,
+not the whole divergent-scheduler deficit.
 
 ## Same-algorithm ISPC control and provenance
 

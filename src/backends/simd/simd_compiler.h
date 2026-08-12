@@ -34,6 +34,15 @@ struct SIMDCompiledKernel {
     size_t unswitched_cloned_block_count{0u};
     size_t unswitched_cloned_instruction_count{0u};
     size_t unswitched_live_out_count{0u};
+    size_t schedule_block_count{0u};
+    size_t convergence_point_count{0u};
+    size_t state_slot_count{0u};
+    size_t spilled_instruction_count{0u};
+    size_t cold_state_slot_count{0u};
+    size_t stack_pinned_state_slot_count{0u};
+    size_t ray_query_count{0u};
+    size_t ray_query_scratch_slot_count{0u};
+    size_t ray_query_scratch_bytes{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

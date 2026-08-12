@@ -3100,6 +3100,370 @@ void ray_query_packet_probe(
     return true;
 }
 
+struct RayQueryScratchProbe {
+    uint32_t calls{0u};
+    uint64_t mask{0u};
+    bool valid{true};
+};
+
+void ray_query_scratch_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    SIMDHostRayQueryState *first_state = nullptr;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if (states[lane] != nullptr) {
+            first_state = states[lane];
+            break;
+        }
+    }
+    if (first_state == nullptr) { return; }
+    auto *probe = static_cast<RayQueryScratchProbe *>(first_state->accel);
+    probe->calls++;
+    probe->mask |= active_mask_bits;
+    probe->valid &= lane_count == 8u && active_mask_bits != 0u;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto active = (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
+        if (!active) {
+            probe->valid &= states[lane] == nullptr;
+            continue;
+        }
+        auto *state = states[lane];
+        probe->valid &= state != nullptr && state->accel == probe &&
+                        state->proceed == ray_query_scratch_probe &&
+                        (state->visibility_mask == 0x31u ||
+                         state->visibility_mask == 0x72u);
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = state->visibility_mask,
+            .prim = lane,
+            .bary = {0.0f, 0.0f},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = 1.0f,
+        };
+        state->terminated = 1u;
+    }
+}
+
+[[nodiscard]] bool run_ray_query_scratch_coloring_codegen(
+    bool overlapping, bool disable_coloring = false) {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    ScopedEnvironmentVariable coloring{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING",
+        disable_coloring ? "1" : nullptr};
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name(
+        overlapping ? "ray_query_scratch_overlap" :
+                      "ray_query_scratch_sequential");
+    auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+    auto *ray = kernel->create_value_argument(Type::of<Ray>());
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::uint4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto visibility1_value = uint32_t{0x31u};
+    auto visibility2_value = uint32_t{0x72u};
+    auto *visibility1 = module.create_constant(
+        Type::of<uint32_t>(), &visibility1_value);
+    auto *visibility2 = module.create_constant(
+        Type::of<uint32_t>(), &visibility2_value);
+    auto *query_type = Type::custom("LC_RayQueryAll");
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *query_value1 = builder.call(
+        query_type, xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL,
+        {accel, ray, visibility1});
+    auto *query1 = builder.alloca_local(query_type);
+    builder.store(query1, query_value1);
+    xir::Value *committed1 = nullptr;
+    if (!overlapping) {
+        builder.call(
+            xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+            {query1});
+        committed1 = builder.call(
+            Type::of<CommittedHit>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+            {query1});
+    }
+    auto *query_value2 = builder.call(
+        query_type, xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL,
+        {accel, ray, visibility2});
+    auto *query2 = builder.alloca_local(query_type);
+    builder.store(query2, query_value2);
+    if (overlapping) {
+        builder.call(
+            xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+            {query1});
+        committed1 = builder.call(
+            Type::of<CommittedHit>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+            {query1});
+    }
+    builder.call(
+        xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+        {query2});
+    auto *committed2 = builder.call(
+        Type::of<CommittedHit>(),
+        xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+        {query2});
+    auto *inst1 = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {committed1, zero});
+    auto *inst2 = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {committed2, zero});
+    auto *metadata = builder.call(
+        Type::of<luisa::uint4>(), xir::ArithmeticOp::AGGREGATE,
+        {inst1, inst2, x, one});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, metadata});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        overlapping ? "simd-ray-query-scratch-overlap" :
+                      "simd-ray-query-scratch-sequential",
+        *context);
+    auto name = std::string{
+        overlapping ? "simd_ray_query_scratch_overlap" :
+                      "simd_ray_query_scratch_sequential"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    auto expected_slots = overlapping || disable_coloring ? 2u : 1u;
+    CHECK(codegen.ray_query_count == 2u);
+    CHECK(codegen.ray_query_scratch_slot_count == expected_slots);
+    CHECK(codegen.ray_query_scratch_bytes ==
+          expected_slots * width * sizeof(SIMDHostRayQueryState));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(count_occurrences(ir, "alloca [9728 x i8]") ==
+          expected_slots);
+    CHECK(count_occurrences(ir, "call void %") == 2u);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        Ray ray;
+        SIMDHostBufferView output;
+    };
+    RayQueryScratchProbe probe;
+    std::array<luisa::uint4, width> values{};
+    values.fill(luisa::make_uint4(0xdeadbeefu));
+    Arguments arguments{
+        .accel = {
+            .accel = &probe,
+            .ray_query_proceed = ray_query_scratch_probe,
+        },
+        .ray = {
+            .compressed_origin = {1.0f, 2.0f, 3.0f},
+            .compressed_t_min = 0.25f,
+            .compressed_direction = {4.0f, 5.0f, 6.0f},
+            .compressed_t_max = 7.0f,
+        },
+        .output = {values.data(), sizeof(values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.calls == 2u);
+    CHECK(probe.mask == 0x1fu);
+    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+        auto expected = lane < active_lanes ?
+                            luisa::make_uint4(
+                                visibility1_value,
+                                visibility2_value, lane, 1u) :
+                            luisa::make_uint4(0xdeadbeefu);
+        CHECK(luisa::all(values[lane] == expected));
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_sequential_ray_query_scratch_coloring_codegen() {
+    return run_ray_query_scratch_coloring_codegen(false);
+}
+
+[[nodiscard]] bool run_overlapping_ray_query_scratch_coloring_codegen() {
+    return run_ray_query_scratch_coloring_codegen(true);
+}
+
+[[nodiscard]] bool run_disabled_ray_query_scratch_coloring_codegen() {
+    return run_ray_query_scratch_coloring_codegen(false, true);
+}
+
+[[nodiscard]] bool run_divergent_ray_query_scratch_coloring_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    ScopedEnvironmentVariable coloring{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING", nullptr};
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("ray_query_scratch_divergent");
+    auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+    auto *ray = kernel->create_value_argument(Type::of<Ray>());
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::uint4>()));
+    auto *entry = kernel->create_body_block();
+    auto *left = kernel->create_basic_block();
+    auto *right = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto two_value = uint32_t{2u};
+    auto visibility1_value = uint32_t{0x31u};
+    auto visibility2_value = uint32_t{0x72u};
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *visibility1 = module.create_constant(
+        Type::of<uint32_t>(), &visibility1_value);
+    auto *visibility2 = module.create_constant(
+        Type::of<uint32_t>(), &visibility2_value);
+    auto *query_type = Type::custom("LC_RayQueryAll");
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {x, two});
+    builder.cond_br(condition, left, right);
+
+    auto emit_query = [&](xir::BasicBlock *block,
+                          xir::Value *visibility) {
+        builder.set_insertion_point(block);
+        auto *query_value = builder.call(
+            query_type,
+            xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL,
+            {accel, ray, visibility});
+        auto *query = builder.alloca_local(query_type);
+        builder.store(query, query_value);
+        builder.call(
+            xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+            {query});
+        auto *committed = builder.call(
+            Type::of<CommittedHit>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+            {query});
+        auto *inst = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {committed, zero});
+        builder.br(merge);
+        return inst;
+    };
+    auto *inst1 = emit_query(left, visibility1);
+    auto *inst2 = emit_query(right, visibility2);
+    builder.set_insertion_point(merge);
+    auto *inst = builder.phi(
+        Type::of<uint32_t>(), {{inst1, left}, {inst2, right}});
+    auto *metadata = builder.call(
+        Type::of<luisa::uint4>(), xir::ArithmeticOp::AGGREGATE,
+        {inst, x, one, zero});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, metadata});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-ray-query-scratch-divergent", *context);
+    auto name = std::string{"simd_ray_query_scratch_divergent"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(codegen.ray_query_count == 2u);
+    CHECK(codegen.ray_query_scratch_slot_count == 1u);
+    CHECK(codegen.ray_query_scratch_bytes ==
+          width * sizeof(SIMDHostRayQueryState));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(count_occurrences(ir, "alloca [9728 x i8]") == 1u);
+    CHECK(count_occurrences(ir, "call void %") == 2u);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        Ray ray;
+        SIMDHostBufferView output;
+    };
+    RayQueryScratchProbe probe;
+    std::array<luisa::uint4, width> values{};
+    values.fill(luisa::make_uint4(0xdeadbeefu));
+    Arguments arguments{
+        .accel = {
+            .accel = &probe,
+            .ray_query_proceed = ray_query_scratch_probe,
+        },
+        .ray = {
+            .compressed_origin = {1.0f, 2.0f, 3.0f},
+            .compressed_t_min = 0.25f,
+            .compressed_direction = {4.0f, 5.0f, 6.0f},
+            .compressed_t_max = 7.0f,
+        },
+        .output = {values.data(), sizeof(values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.calls == 2u);
+    CHECK(probe.mask == 0x1fu);
+    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+        auto expected = lane < active_lanes ?
+                            luisa::make_uint4(
+                                lane < two_value ?
+                                    visibility1_value :
+                                    visibility2_value,
+                                lane, 1u, 0u) :
+                            luisa::make_uint4(0xdeadbeefu);
+        CHECK(luisa::all(values[lane] == expected));
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_accel_motion_metadata_codegen() {
     static constexpr auto width = 8u;
     static constexpr auto active_lanes = 5u;
@@ -4094,6 +4458,14 @@ int main() {
          &run_accel_instance_metadata_codegen},
         {"XIR ray-query packet callback",
          &run_ray_query_packet_codegen},
+        {"sequential ray-query scratch coloring",
+         &run_sequential_ray_query_scratch_coloring_codegen},
+        {"overlapping ray-query scratch coloring",
+         &run_overlapping_ray_query_scratch_coloring_codegen},
+        {"disabled ray-query scratch coloring",
+         &run_disabled_ray_query_scratch_coloring_codegen},
+        {"divergent ray-query scratch coloring",
+         &run_divergent_ray_query_scratch_coloring_codegen},
         {"XIR accel motion metadata",
          &run_accel_motion_metadata_codegen},
         {"XIR bindless texture packet callback",

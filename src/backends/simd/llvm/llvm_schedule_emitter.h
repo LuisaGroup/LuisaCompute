@@ -80,6 +80,8 @@ private:
     std::vector<uint8_t> _spilled_instruction_values{};
     std::vector<uint8_t> _local_lvalue_values{};
     std::vector<::llvm::Value *> _local_allocations{};
+    std::vector<uint32_t> _ray_query_scratch_slots{};
+    std::vector<::llvm::AllocaInst *> _ray_query_scratch_storage{};
     std::vector<::llvm::Value *> _external_values{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
@@ -172,6 +174,7 @@ private:
         const schedule::BasicBlock &block,
         const std::function<void(schedule::EdgeAssignment)> &visit);
     void _analyze_local_lvalues();
+    void _analyze_ray_query_scratch();
     void _preflight_edge(const schedule::ControlEdge &edge,
                          bool split_edge);
     void _preflight();

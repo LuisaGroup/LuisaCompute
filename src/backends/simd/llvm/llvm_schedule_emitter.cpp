@@ -456,6 +456,7 @@ void ScheduleEmitter::_preflight() {
     }
     _analyze_local_lvalues();
     if (_failed()) { return; }
+    _analyze_ray_query_scratch();
     if (_source.blocks().size() >
         static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
         _fail("Schedule IR block count exceeds the packet PC width");

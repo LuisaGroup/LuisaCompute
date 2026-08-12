@@ -1129,6 +1129,8 @@ void ScheduleEmitter::_allocate_state() {
             value.name + (spill ? ".spill" : ".slot"));
         _builder.CreateStore(::llvm::Constant::getNullValue(type), slot);
         _state_slots[value.id.value] = slot;
+        _result.state_slot_count++;
+        _result.spilled_instruction_count += spill;
     }
 }
 
@@ -1154,7 +1156,12 @@ void ScheduleEmitter::_partition_state_residency() {
         slot_count++;
         cold_count += count_accesses(slot) <= max_cold_accesses;
     }
-    if (slot_count == 0u || cold_count * 2u < slot_count) { return; }
+    _result.cold_state_slot_count = cold_count;
+    if (slot_count == 0u || cold_count * 2u < slot_count ||
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_COLD_STATE_PARTITION")) {
+        return;
+    }
     for (auto *slot : _state_slots) {
         if (slot == nullptr ||
             count_accesses(slot) > max_cold_accesses) {
@@ -1168,6 +1175,7 @@ void ScheduleEmitter::_partition_state_residency() {
                 store->setVolatile(true);
             }
         }
+        _result.stack_pinned_state_slot_count++;
     }
 }
 
@@ -1278,6 +1286,9 @@ void ScheduleEmitter::_build() {
     _entry = ::llvm::Function::Create(
         function_type, ::llvm::GlobalValue::ExternalLinkage,
         _entry_name, _module);
+    _result.schedule_block_count = _source.blocks().size();
+    _result.convergence_point_count =
+        _source.convergence_points().size();
     auto argument = _entry->arg_begin();
     _argument_buffer = &*argument++;
     _argument_buffer->setName("argument_buffer");
