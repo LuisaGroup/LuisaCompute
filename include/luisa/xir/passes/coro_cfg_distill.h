@@ -128,7 +128,7 @@ private:
     uint64_t _validation_hash{0u};
 
     void _seal(FunctionDefinition *definition) noexcept;
-    friend CoroCfgDistillResult
+    friend LUISA_XIR_API CoroCfgDistillResult
     coro_cfg_distill_pass_run_on_function(
         Function *f, const struct CoroCfgDistillOptions &options) noexcept;
 

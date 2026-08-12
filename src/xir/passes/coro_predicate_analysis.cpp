@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include <luisa/ast/type.h>
+#include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/hash.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/constant.h>

@@ -20,7 +20,7 @@ private:
 
 private:
     explicit XIRPassVerificationTransaction(Module *module) noexcept;
-    friend XIRPassVerificationTransaction
+    friend LUISA_XIR_API XIRPassVerificationTransaction
     begin_xir_pass_verification_transaction(
         Module *module,
         const XIRVerificationOptions &options) noexcept;
