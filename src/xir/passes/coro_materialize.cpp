@@ -819,6 +819,20 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
             "Coroutine logical frame alias '{}' is inconsistent with its "
             "physical slot.",
             value.name);
+        for (auto &alias : value.aliases) {
+            auto [alias_field_iter, alias_field_inserted] =
+                info.name_to_field.emplace(alias, field_index);
+            auto [alias_type_iter, alias_type_inserted] =
+                info.name_to_type.emplace(alias, physical_type);
+            LUISA_ASSERT(
+                (alias_field_inserted ||
+                 alias_field_iter->second == field_index) &&
+                    (alias_type_inserted ||
+                     alias_type_iter->second == physical_type),
+                "Coroutine designated frame alias '{}' is inconsistent "
+                "with its physical slot.",
+                alias);
+        }
     }
     detail::populate_value_transition_edges(info, cfg);
 

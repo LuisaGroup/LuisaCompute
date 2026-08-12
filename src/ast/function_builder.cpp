@@ -109,21 +109,53 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
 }
 
 void FunctionBuilder::suspend_() noexcept {
-    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), luisa::string{});
+    suspend_(_next_suspend_token(), luisa::string{}, {});
 }
 
 void FunctionBuilder::suspend_(uint32_t token) noexcept {
-    LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
-    _create_and_append_statement<SuspendStmt>(token);
+    suspend_(token, luisa::string{}, {});
 }
 
 void FunctionBuilder::suspend_(luisa::string name) noexcept {
-    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), std::move(name));
+    suspend_(_next_suspend_token(), std::move(name), {});
 }
 
 void FunctionBuilder::suspend_(uint32_t token, luisa::string name) noexcept {
+    suspend_(token, std::move(name), {});
+}
+
+void FunctionBuilder::suspend_(
+    luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports) noexcept {
+    suspend_(_next_suspend_token(), std::move(name),
+             std::move(frame_exports));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports) noexcept {
+    LUISA_ASSERT(_tag == Tag::COROUTINE,
+                 "Coroutine suspension is only valid in a coroutine.");
     LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
-    _create_and_append_statement<SuspendStmt>(token, std::move(name));
+    luisa::unordered_set<luisa::string> names;
+    for (auto &&frame_export : frame_exports) {
+        frame_export.value = _internalize(frame_export.value);
+        LUISA_ASSERT(
+            frame_export.value != nullptr &&
+                frame_export.value->type() != nullptr &&
+                frame_export.value->type()->is_basic(),
+            "Coroutine frame export '{}' at suspend '{}' must be a "
+            "non-null basic value.",
+            frame_export.name, name);
+        LUISA_ASSERT(!frame_export.name.empty(),
+                     "Coroutine frame export names must be non-empty.");
+        LUISA_ASSERT(
+            names.emplace(frame_export.name).second,
+            "Duplicate coroutine frame export '{}' at suspend '{}'.",
+            frame_export.name, name);
+    }
+    _create_and_append_statement<SuspendStmt>(
+        token, std::move(name), std::move(frame_exports));
 }
 
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {

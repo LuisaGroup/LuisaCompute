@@ -80,6 +80,14 @@ class AutoDiffStmt;
 class PrintStmt;
 class DebugBreakStmt;
 
+// A value explicitly exposed by a coroutine suspension boundary. Unlike an
+// AST/XIR name, this is semantic: schedulers may observe the named value after
+// the source scope has suspended and before the target continuation resumes.
+struct CoroFrameExport {
+    const Expression *value{nullptr};
+    luisa::string name;
+};
+
 struct LUISA_AST_API StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
     virtual void visit(const ContinueStmt *) = 0;
@@ -256,18 +264,33 @@ class LUISA_AST_API SuspendStmt : public Statement {
 private:
     uint32_t _token;
     luisa::string _name;
+    luisa::vector<CoroFrameExport> _frame_exports;
 
 private:
     SuspendStmt() noexcept = default;
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
-    explicit SuspendStmt(uint32_t token, luisa::string name = "") noexcept
-        : Statement{Tag::SUSPEND}, _token{token}, _name{std::move(name)} {}
+    explicit SuspendStmt(
+        uint32_t token, luisa::string name = "",
+        luisa::vector<CoroFrameExport> frame_exports = {}) noexcept
+        : Statement{Tag::SUSPEND},
+          _token{token},
+          _name{std::move(name)},
+          _frame_exports{std::move(frame_exports)} {
+        for (auto &&frame_export : _frame_exports) {
+            if (frame_export.value != nullptr) {
+                frame_export.value->mark(Usage::READ);
+            }
+        }
+    }
     explicit SuspendStmt(luisa::string name) noexcept
         : Statement{Tag::SUSPEND}, _token{0u}, _name{std::move(name)} {}
     [[nodiscard]] auto token() const noexcept { return _token; }
     [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    [[nodiscard]] auto frame_exports() const noexcept {
+        return luisa::span<const CoroFrameExport>{_frame_exports};
+    }
     LUISA_STATEMENT_COMMON()
 };
 
@@ -667,7 +690,13 @@ void traverse_expressions(
                 rq_stmt->on_procedural_candidate(), visit, enter_stmt, exit_stmt);
             break;
         }
-        case Statement::Tag::SUSPEND: break;
+        case Statement::Tag::SUSPEND: {
+            auto suspend_stmt = static_cast<const SuspendStmt *>(stmt);
+            for (auto &&frame_export : suspend_stmt->frame_exports()) {
+                do_visit(frame_export.value);
+            }
+            break;
+        }
         case Statement::Tag::AUTO_DIFF: {
             auto ad_stmt = static_cast<const AutoDiffStmt *>(stmt);
             traverse_expressions<recurse_subexpr>(

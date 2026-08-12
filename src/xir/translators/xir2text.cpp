@@ -267,6 +267,14 @@ private:
         _main << "coro_suspend " << inst->token() << " ";
         _emit_string_escaped(_main, inst->name());
         _main << " " << _value_ident(inst->frame());
+        for (size_t i = 0u;
+             i < inst->frame_export_count(); ++i) {
+            _main << ", export ";
+            _emit_string_escaped(
+                _main, inst->frame_export_name(i));
+            _main << "="
+                  << _value_ident(inst->frame_export_value(i));
+        }
     }
 
     void _emit_coro_resume_inst(const CoroResumeInst *inst) noexcept {

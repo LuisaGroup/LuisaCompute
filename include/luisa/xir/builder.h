@@ -149,6 +149,10 @@ public:
     AutodiffScopeInst *forward_autodiff_scope(size_t n_forward_grads) noexcept;
 
     CoroSuspendInst *coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept;
+    CoroSuspendInst *coro_suspend(
+        uint32_t token, luisa::string name, Value *frame,
+        luisa::span<const luisa::string> frame_export_names,
+        luisa::span<Value *const> frame_export_values) noexcept;
     CoroResumeInst *coro_resume(uint32_t token, Value *frame) noexcept;
     CoroTerminateInst *coro_terminate() noexcept;
 

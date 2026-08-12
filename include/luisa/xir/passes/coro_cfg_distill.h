@@ -38,6 +38,11 @@ struct CoroCfgDistillResult {
         Value *value{nullptr};
         luisa::vector<uint32_t> access_chain;
         luisa::string name;
+        // Explicit scheduler ABI aliases. Diagnostic SSA/local names are not
+        // aliases unless a suspension boundary exports them semantically.
+        // One logical value may have several aliases; all resolve to its one
+        // physical frame slot after coloring.
+        luisa::vector<luisa::string> aliases;
         const Type *type{nullptr};
         // Physical payload slot assigned by interference coloring. Several
         // exact-typed logical values may share a slot when their

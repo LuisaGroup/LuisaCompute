@@ -447,9 +447,9 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
             auto tid = dispatch_x();
             auto coro_hint = (N - 1u) - tid;
-            coro_hint.set_name("coro_hint");
             auto v = tid * 7u + 3u;
-            $suspend("sort_me");
+            $suspend("sort_me", coro_frame_export(
+                                     "coro_hint", coro_hint));
             v += coro_hint;
             $suspend("done");
             buf.write(tid, v);
@@ -492,6 +492,45 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         expect(ok) << "hint sorting must preserve coroutine results";
     };
 
+    "wavefront_debug_name_is_not_scheduler_abi"_test = [options] {
+        constexpr uint N = 17u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
+            auto tid = dispatch_x();
+            auto hint = def(tid * 5u + 1u);
+            hint.set_name("coro_hint");
+            $suspend("sort_me");
+            buf.write(tid, hint);
+        });
+
+        WavefrontCoroSchedulerConfig cfg{
+            .thread_count = N,
+            .global_memory_soa = true,
+            .gather_by_sorting = false,
+            .frame_buffer_compaction = true,
+            .hint_range = N,
+            .hint_fields = {"sort_me"},
+        };
+        WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
+        expect(scheduler.config().hint_fields.empty())
+            << "an ordinary diagnostic name must not become scheduler ABI";
+
+        scheduler(output).dispatch(N)(stream);
+        luisa::vector<uint> host(N);
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+        auto correct = true;
+        for (auto i = 0u; i < N; ++i) {
+            correct &= host[i] == i * 5u + 1u;
+        }
+        expect(correct)
+            << "disabling an undeclared hint must preserve coroutine values";
+    };
+
     "wavefront_hint_sort_handles_non_power_of_two_full_bucket"_test = [options] {
         constexpr uint N = 65u;
         constexpr uint capacity = 65u;
@@ -505,9 +544,9 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
             auto tid = dispatch_x();
             auto coro_hint = (tid * 13u) & 63u;
-            coro_hint.set_name("coro_hint");
             auto v = tid + 1u;
-            $suspend("sort_me");
+            $suspend("sort_me", coro_frame_export(
+                                     "coro_hint", coro_hint));
             buf.write(tid, v + coro_hint);
         });
 
@@ -552,9 +591,9 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
             auto tid = dispatch_x();
             auto coro_hint = (tid * 37u + 19u) & 255u;
-            coro_hint.set_name("coro_hint");
             auto v = tid * 2u + 5u;
-            $suspend("sort_me");
+            $suspend("sort_me", coro_frame_export(
+                                     "coro_hint", coro_hint));
             v = (v + coro_hint) ^ (tid * 3u + 1u);
             $suspend("done");
             buf.write(tid, v + coro_hint);
@@ -607,9 +646,9 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
             auto tid = dispatch_x();
             auto coro_hint = (tid * 149u + 73u) & 1023u;
-            coro_hint.set_name("coro_hint");
             auto value = tid * 17u + 5u;
-            $suspend("sort_me");
+            $suspend("sort_me", coro_frame_export(
+                                     "coro_hint", coro_hint));
             value = (value + coro_hint) ^ (tid * 11u + 31u);
             $suspend("done");
             buf.write(tid, value + coro_hint * 3u);
@@ -821,6 +860,85 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                            [](auto count) noexcept { return count == 1u; }))
             << "alignment-aware refill must neither lose nor duplicate frames";
     };
+
+    "wavefront_incremental_counts_conserve_sparse_transitions"_test =
+        [options] {
+            constexpr uint N = 257u;
+            constexpr uint capacity = 31u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+
+            auto output = device.create_buffer<uint>(N);
+            auto visits = device.create_buffer<uint>(N);
+            luisa::vector<uint> zero(N);
+            stream << output.copy_from(luisa::span{zero})
+                   << visits.copy_from(luisa::span{zero})
+                   << synchronize();
+
+            auto coro = Coroutine<void(Buffer<uint>, Buffer<uint>)>(
+                [](BufferUInt values, BufferUInt visit_count) {
+                    auto tid = dispatch_x();
+                    auto value = tid * 17u + 3u;
+                    $suspend(17u, "refill");
+                    $if((tid % 3u) == 0u) {
+                        $suspend(101u, "thirds");
+                        value += 5u;
+                    }
+                    $else {
+                        $suspend(307u, "others");
+                        value += 11u;
+                    };
+                    auto remaining = def(tid & 3u);
+                    $while(remaining != 0u) {
+                        // One static suspension in a dynamic loop induces a
+                        // continuation self-edge. Its queue count must remain
+                        // unchanged for that transition, not underflow or
+                        // double-count the frame.
+                        $suspend(509u, "loop");
+                        value += remaining;
+                        remaining -= 1u;
+                    };
+                    values.write(tid, value);
+                    visit_count.atomic(tid).fetch_add(1u);
+                });
+
+            WavefrontCoroSchedulerConfig cfg{
+                .thread_count = capacity,
+                .global_memory_soa = true,
+                .gather_by_sorting = true,
+                .frame_buffer_compaction = true,
+                .execution_block_size = 32u,
+                .largest_continuation_first = true,
+                .refill_continuations = {"refill"},
+                .refill_threshold = capacity / 2u,
+                .incremental_continuation_counts = true,
+            };
+            WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+                device, coro, cfg};
+            scheduler(output, visits).dispatch(N)(stream);
+
+            luisa::vector<uint> host_output(N);
+            luisa::vector<uint> host_visits(N);
+            stream << output.copy_to(luisa::span{host_output})
+                   << visits.copy_to(luisa::span{host_visits})
+                   << synchronize();
+
+            auto correct = true;
+            for (auto i = 0u; i < N; ++i) {
+                auto expected = i * 17u + 3u +
+                                (i % 3u == 0u ? 5u : 11u);
+                for (auto r = i & 3u; r != 0u; --r) {
+                    expected += r;
+                }
+                correct &= host_output[i] == expected;
+                correct &= host_visits[i] == 1u;
+            }
+            expect(correct)
+                << "incremental queue counts must preserve every sparse-token "
+                   "branch and self-loop transition under refill/compaction";
+        };
 }
 
 int main(int argc, char *argv[]) {

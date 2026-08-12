@@ -53,6 +53,15 @@ struct WavefrontCoroSchedulerConfig {
     // selects half the active frame capacity, matching the legacy scheduler
     // and Cycles' upper bound for its device-derived busy-state threshold.
     uint refill_threshold = 0u;
+    // Maintain the number of frames in each nonterminal continuation
+    // incrementally at coroutine transitions, then scan only for the
+    // continuation selected by the host. This replaces a complete token
+    // multi-split per scheduling iteration with one selected-token gather.
+    // LUISA_CORO_WAVEFRONT_VERIFY_QUEUES=1 independently materializes and
+    // checks the invariant at scheduler boundaries. This strategy requires
+    // greedy one-continuation-at-a-time scheduling. Kept last for positional
+    // source compatibility.
+    bool incremental_continuation_counts = false;
 };
 
 template<typename... Args>
@@ -65,12 +74,16 @@ public:
 private:
     Config _config;
     ByteBuffer _frame_buffer;
-    Shader1D<uint, Buffer<uint>, uint, uint, uint, uint, uint3, Args...> _gen_kernel;
-    luisa::vector<Shader1D<uint, Buffer<uint>, uint, uint, Args...>> _resume_kernels;
+    Shader1D<uint, Buffer<uint>, uint, uint, uint, uint, uint3, Args...>
+        _gen_kernel;
+    luisa::vector<Shader1D<uint, Buffer<uint>, uint, uint, Args...>>
+        _resume_kernels;
     Shader1D<uint, uint> _initialize_shader;
     Shader1D<Buffer<uint>, uint> _clear_count_shader;
     Shader1D<uint, Buffer<uint>, uint> _count_shader;
     Shader1D<uint, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
+    Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint>
+        _gather_selected_shader;
     Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint, uint> _compact_shader;
     Buffer<uint> _resume_index;
     Buffer<uint> _resume_count;
@@ -196,11 +209,11 @@ private:
         if (auto hint_count = _valid_hint_field_count(); hint_count != 0u) {
             _hint_field_index = _find_frame_field_index(coro.frame(), "coro_hint");
             if (_hint_field_index == static_cast<size_t>(-1)) {
-                LUISA_WARNING("WavefrontCoroSchedulerConfig::hint_fields requires a uint variable named 'coro_hint'; hint sorting is disabled.");
+                LUISA_WARNING("WavefrontCoroSchedulerConfig::hint_fields requires a uint frame value explicitly exported as 'coro_hint'; hint sorting is disabled.");
                 std::fill(_have_hint.begin(), _have_hint.end(), false);
                 _config.hint_fields.clear();
             } else if (coro.frame().frame_field_type(_hint_field_index) != Type::of<uint>()) {
-                LUISA_WARNING("Coroutine frame field 'coro_hint' must be uint; hint sorting is disabled.");
+                LUISA_WARNING("Coroutine frame export 'coro_hint' must be uint; hint sorting is disabled.");
                 std::fill(_have_hint.begin(), _have_hint.end(), false);
                 _config.hint_fields.clear();
             }
@@ -224,7 +237,10 @@ private:
             _config.hint_fields.clear();
         }
         _has_hint_sort = _valid_hint_field_count() != 0u;
-        auto use_sort = _config.gather_by_sorting || _has_hint_sort;
+        auto use_token_sort =
+            _config.gather_by_sorting &&
+            !_config.incremental_continuation_counts;
+        auto use_sort = use_token_sort || _has_hint_sort;
 
         _frame_buffer = device.create_byte_buffer(_frame_layout.size_bytes);
         // The scheduler owns this complete allocation for the lifetime of all
@@ -235,6 +251,14 @@ private:
         auto *frame_buffer = &_frame_buffer;
         _resume_index = device.create_buffer<uint>(_config.thread_count);
         _resume_count = device.create_buffer<uint>(nc);
+        // Incremental queue counts are scheduler-owned captured state. For
+        // every nonterminal continuation t, C[t] is the cardinality of the
+        // active-prefix frames whose target token is t. Queue zero is derived
+        // as prefix_size - sum(C[1..]) and is deliberately not maintained.
+        // Keeping the buffer captured avoids changing every coroutine user's
+        // argument ABI; the host policy still enters the shader structure
+        // through its compile-time C++ branch below.
+        auto *queue_count = &_resume_count;
         _resume_offset = device.create_buffer<uint>(nc);
         _global_buffer = device.create_buffer<uint>(1u);
         if (use_sort) {
@@ -264,7 +288,7 @@ private:
                                                                     UInt) noexcept {
             return index;
         };
-        if (_config.gather_by_sorting) {
+        if (use_token_sort) {
             _sort_token = radix_sort::instance<ByteBuffer, uint>{
                 device, _config.thread_count, _sort_temp_storage,
                 &get_scheduler_token, &identity_index, &get_scheduler_token,
@@ -303,8 +327,9 @@ private:
         }
 
         if (auto entry_sub = coro[0u]) {
-            Kernel1D k_gen = [&coro, frame_buffer, layout = _frame_layout, output_fields = _transition_output_fields[0u],
+            Kernel1D k_gen = [&coro, frame_buffer, queue_count, layout = _frame_layout, output_fields = _transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
+                              incremental = _config.incremental_continuation_counts,
                               execution_block_size = _config.execution_block_size,
                               token_to_index](
                                  UInt frame_capacity,
@@ -323,6 +348,12 @@ private:
                 coro.entry()(frame, k_args...);
                 auto next = token_to_index(frame.target_token);
                 frame.target_token = next;
+                if (incremental) {
+                    auto counts = Expr<Buffer<uint>>{*queue_count};
+                    $if(next != 0u) {
+                        counts.atomic(next).fetch_add(1u);
+                    };
+                }
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
                     $if (next == static_cast<uint>(target)) {
                         coro_frame_store(
@@ -341,8 +372,9 @@ private:
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
-            Kernel1D k_cont = [&coro, frame_buffer, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
+            Kernel1D k_cont = [&coro, frame_buffer, queue_count, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
+                               incremental = _config.incremental_continuation_counts,
                                execution_block_size = _config.execution_block_size,
                                read_scheduler_token, token_to_index](
                                   UInt frame_capacity,
@@ -356,6 +388,10 @@ private:
                 auto idx = resume_index.read(resume_offset + x);
                 auto tok = read_scheduler_token(idx, frame_buf, frame_capacity);
                 $if (tok != static_cast<uint>(i)) { $return(); };
+                if (incremental) {
+                    auto counts = Expr<Buffer<uint>>{*queue_count};
+                    counts.atomic(static_cast<uint>(i)).fetch_sub(1u);
+                }
                 auto frame = coro_frame_load(
                     &coro.frame(), frame_buf, idx, frame_capacity,
                     layout, soa, luisa::span{input_fields});
@@ -363,6 +399,12 @@ private:
                 coro[i](frame, k_args...);
                 auto next = token_to_index(frame.target_token);
                 frame.target_token = next;
+                if (incremental) {
+                    auto counts = Expr<Buffer<uint>>{*queue_count};
+                    $if(next != 0u) {
+                        counts.atomic(next).fetch_add(1u);
+                    };
+                }
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
                     $if (next == static_cast<uint>(target)) {
                         coro_frame_store(
@@ -439,6 +481,29 @@ private:
             device, gather_kernel,
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "wavefront_gather"));
+
+        if (_config.incremental_continuation_counts) {
+            Kernel1D gather_selected_kernel =
+                [frame_buffer, layout = _frame_layout,
+                 soa = _config.global_memory_soa,
+                 read_scheduler_token](
+                    UInt frame_capacity, BufferUInt index,
+                    BufferUInt write_count, UInt selected, UInt n) noexcept {
+                    auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
+                    auto x = dispatch_x();
+                    $if(x >= n) { $return(); };
+                    auto tok = read_scheduler_token(
+                        x, frame_buf, frame_capacity);
+                    $if(tok == selected) {
+                        auto slot = write_count.atomic(0u).fetch_add(1u);
+                        index.write(slot, x);
+                    };
+                };
+            _gather_selected_shader = _compile_shader(
+                device, gather_selected_kernel,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option, "wavefront_gather_selected"));
+        }
 
         Kernel1D compact_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
@@ -526,7 +591,10 @@ private:
 
         auto nc = _resume_kernels.size();
         for (size_t i = 0u; i < nc; ++i) {
-            _host_count[i] = i == 0u ? _active_frame_capacity : 0u;
+            _host_count[i] =
+                _config.incremental_continuation_counts ?
+                    0u :
+                    (i == 0u ? _active_frame_capacity : 0u);
             _host_offset[i] = i == 0u ? 0u : _active_frame_capacity;
         }
         stream << _resume_count.copy_from(luisa::span{_host_count.data(), _host_count.size()});
@@ -562,9 +630,39 @@ private:
                     iteration_count, dispatch_counter, _used_frame_count,
                     scan_count, _active_frame_capacity);
             }
-            gather_scan_count += scan_count;
+            // The incremental policy defers its one selected-token scan until
+            // after host selection. Legacy policies materialize every token
+            // bucket here.
+            if (!_config.incremental_continuation_counts) {
+                gather_scan_count += scan_count;
+            }
             max_scan_count = std::max(max_scan_count, scan_count);
-            if (_config.gather_by_sorting) {
+            if (_config.incremental_continuation_counts) {
+                stream << _resume_count.copy_to(
+                              luisa::span{_host_count.data(),
+                                          _host_count.size()})
+                       << synchronize();
+                if (verify_queues && scan_count != 0u) {
+                    stream << _clear_count_shader(
+                                  _resume_offset, static_cast<uint>(nc))
+                                  .dispatch(static_cast<uint>(nc));
+                    stream << _count_shader(
+                                  _config.thread_count,
+                                  _resume_offset, scan_count)
+                                  .dispatch(scan_count);
+                    luisa::vector<uint> actual(nc);
+                    stream << _resume_offset.copy_to(luisa::span{actual})
+                           << synchronize();
+                    for (size_t i = 1u; i < nc; ++i) {
+                        LUISA_ASSERT(
+                            actual[i] == _host_count[i],
+                            "Incremental wavefront queue invariant violation "
+                            "at iteration {}, continuation {}: maintained "
+                            "count {} differs from materialized count {}.",
+                            iteration_count, i, _host_count[i], actual[i]);
+                    }
+                }
+            } else if (_config.gather_by_sorting) {
                 _sort_token_buckets(stream, scan_count);
                 if (verify_queues && scan_count != 0u) {
                     luisa::vector<uint> indices(scan_count);
@@ -640,8 +738,15 @@ private:
                 }
             }
 
-            if (!_config.gather_by_sorting && scan_count != 0u) {
-                stream << _resume_offset.copy_from(luisa::span{_host_offset.data(), _host_offset.size()});
+            // The legacy counter/gather path materializes every queue before
+            // the refill decision because compaction may need queue zero's
+            // empty-slot indices. Keep that established ordering unchanged;
+            // only the incremental policy defers a selected-token gather.
+            if (!_config.incremental_continuation_counts &&
+                !_config.gather_by_sorting && scan_count != 0u) {
+                stream << _resume_offset.copy_from(
+                              luisa::span{_host_offset.data(),
+                                          _host_offset.size()});
                 stream << _gather_shader(
                               _config.thread_count,
                               _resume_index, _resume_offset, scan_count)
@@ -667,6 +772,33 @@ private:
                 auto gen_count = std::min(N - dispatch_counter, empty_count);
                 auto frame_offset = active_count;
                 if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
+                    if (_config.incremental_continuation_counts) {
+                        // Compaction needs the empty frame indices. They are
+                        // scheduler queue zero, so collect only that queue on
+                        // the uncommon refill/relocation path.
+                        stream << _clear_count_shader(_global_buffer, 1u)
+                                      .dispatch(1u);
+                        stream << _gather_selected_shader(
+                                      _config.thread_count, _resume_index,
+                                      _global_buffer, 0u, scan_count)
+                                      .dispatch(scan_count);
+                        gather_scan_count += scan_count;
+                        _host_offset[0u] = 0u;
+                        if (verify_queues) {
+                            uint gathered_empty_count = 0u;
+                            stream << _global_buffer.copy_to(
+                                          luisa::span{
+                                              &gathered_empty_count, 1u})
+                                   << synchronize();
+                            LUISA_ASSERT(
+                                gathered_empty_count == compact_empty_count,
+                                "Incremental wavefront empty-queue gather "
+                                "violation at iteration {}: gathered {} "
+                                "frames, expected {}.",
+                                iteration_count, gathered_empty_count,
+                                compact_empty_count);
+                        }
+                    }
                     stream << _clear_count_shader(_global_buffer, 1u).dispatch(1u);
                     stream << _compact_shader(_config.thread_count,
                                               _resume_index, _global_buffer,
@@ -685,6 +817,32 @@ private:
                     _used_frame_count = frame_offset + gen_count;
                 }
             } else {
+                if (_config.incremental_continuation_counts &&
+                    selected < nc && selected_count != 0u &&
+                    scan_count != 0u) {
+                    stream << _clear_count_shader(_global_buffer, 1u)
+                                  .dispatch(1u);
+                    stream << _gather_selected_shader(
+                                  _config.thread_count, _resume_index,
+                                  _global_buffer,
+                                  static_cast<uint>(selected), scan_count)
+                                  .dispatch(scan_count);
+                    if (verify_queues) {
+                        uint gathered_count = 0u;
+                        stream << _global_buffer.copy_to(
+                                      luisa::span{&gathered_count, 1u})
+                               << synchronize();
+                        LUISA_ASSERT(
+                            gathered_count == selected_count,
+                            "Incremental wavefront selected-queue gather "
+                            "violation at iteration {}, continuation {}: "
+                            "gathered {} frames, expected {}.",
+                            iteration_count, selected, gathered_count,
+                            selected_count);
+                    }
+                    gather_scan_count += scan_count;
+                    _host_offset[selected] = 0u;
+                }
                 for (size_t i = 1u; i < nc; ++i) {
                     if (_config.largest_continuation_first && i != selected) {
                         continue;
@@ -740,6 +898,17 @@ public:
                      "Wavefront coroutine execution block size must be a "
                      "multiple of 32 in [32, 1024], but got {}.",
                      _config.execution_block_size);
+        LUISA_ASSERT(
+            !_config.incremental_continuation_counts ||
+                _config.largest_continuation_first,
+            "Incremental selected-queue scheduling requires greedy "
+            "largest-continuation-first execution.");
+        LUISA_ASSERT(
+            !_config.incremental_continuation_counts ||
+                _config.frame_buffer_compaction,
+            "Incremental selected-queue scheduling currently requires "
+            "frame-buffer compaction so refill can use the compact active "
+            "prefix without a persistent free-list.");
         _create_shader(device, coro);
     }
     WavefrontCoroScheduler(Device &device, const Coro &coro) noexcept

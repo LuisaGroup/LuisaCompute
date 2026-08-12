@@ -399,6 +399,7 @@ public:
         if (lhs.value != rhs.value ||
             lhs.access_chain != rhs.access_chain ||
             lhs.name != rhs.name ||
+            lhs.aliases != rhs.aliases ||
             lhs.type != rhs.type || lhs.slot != rhs.slot ||
             lhs.bit_offset != rhs.bit_offset) {
             return false;
@@ -532,6 +533,7 @@ public:
     luisa::vector<uint8_t> occupied_slots(
         result.frame_slots.size(), 0u);
     luisa::unordered_set<luisa::string> slot_names;
+    luisa::unordered_map<luisa::string, size_t> frame_alias_slots;
     for (auto &slot : result.frame_slots) {
         if (slot.type == nullptr || slot.name.empty() ||
             !slot_names.emplace(slot.name).second) {
@@ -566,6 +568,14 @@ public:
                 frame_value.value->type(), frame_value.access_chain) !=
                 frame_value.type) {
             return false;
+        }
+        for (auto &alias : frame_value.aliases) {
+            auto [iter, inserted] =
+                frame_alias_slots.try_emplace(alias, frame_value.slot);
+            if (alias.empty() ||
+                (!inserted && iter->second != frame_value.slot)) {
+                return false;
+            }
         }
         value_paths[frame_value.value].emplace_back(
             frame_value.access_chain);

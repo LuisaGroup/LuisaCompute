@@ -57,6 +57,26 @@ int main() {
         expect(sus->token() != 0xFFFFFFFFu);
     };
 
+    "suspend_frame_export_is_explicit_semantic_state"_test = [] {
+        Coroutine c = [](Var<uint> x) {
+            auto hint = x * 13u + 7u;
+            $suspend("sort", coro_frame_export(
+                                 "coro_hint", hint));
+        };
+        auto *body = c.function_builder()->body();
+        auto *s = fst(body, Statement::Tag::SUSPEND);
+        expect(s != nullptr);
+        auto *sus = static_cast<const SuspendStmt *>(s);
+        expect(sus->frame_exports().size() == 1u);
+        if (sus->frame_exports().size() == 1u) {
+            expect(sus->frame_exports().front().name ==
+                   "coro_hint");
+            expect(sus->frame_exports().front().value != nullptr);
+            expect(sus->frame_exports().front().value->type() ==
+                   Type::of<uint>());
+        }
+    };
+
     "multiple_suspends_produce_distinct_tokens"_test = [] {
         Coroutine c = [](Var<int> x) {
             $suspend("first");

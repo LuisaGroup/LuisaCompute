@@ -427,6 +427,12 @@ public:
     void suspend_(luisa::string name) noexcept;
     /// Add suspend statement with token and name
     void suspend_(uint32_t token, luisa::string name) noexcept;
+    /// Add suspend statement with explicitly scheduler-visible frame values
+    void suspend_(luisa::string name,
+                  luisa::vector<CoroFrameExport> frame_exports) noexcept;
+    /// Add named/tokenized suspend statement with frame exports
+    void suspend_(uint32_t token, luisa::string name,
+                  luisa::vector<CoroFrameExport> frame_exports) noexcept;
     /// Add comment statement
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement

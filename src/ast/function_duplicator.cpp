@@ -487,7 +487,15 @@ private:
             }
             case Statement::Tag::SUSPEND: {
                 auto s = static_cast<const SuspendStmt *>(stmt);
-                fb->suspend_(s->token(), luisa::string{s->name()});
+                luisa::vector<CoroFrameExport> frame_exports;
+                frame_exports.reserve(s->frame_exports().size());
+                for (auto &&frame_export : s->frame_exports()) {
+                    frame_exports.emplace_back(CoroFrameExport{
+                        .value = _dup_expr(frame_export.value),
+                        .name = frame_export.name});
+                }
+                fb->suspend_(s->token(), luisa::string{s->name()},
+                             std::move(frame_exports));
                 break;
             }
             case Statement::Tag::RAY_QUERY: {

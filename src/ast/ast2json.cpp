@@ -1025,6 +1025,18 @@ private:
     void _convert_suspend_stmt(JSON &j, const SuspendStmt *stmt) noexcept {
         j["token"] = stmt->token();
         j["name"] = stmt->name();
+        j["frame_exports"] = [&] {
+            JSON::Array a;
+            a.reserve(stmt->frame_exports().size());
+            for (auto &&frame_export : stmt->frame_exports()) {
+                JSON value;
+                value["name"] = frame_export.name;
+                value["value"] =
+                    _convert_expr(frame_export.value);
+                a.emplace_back(std::move(value));
+            }
+            return a;
+        }();
     }
     void _convert_ray_query_stmt(JSON &j, const RayQueryStmt *stmt) noexcept {
         j["query"] = _convert_expr(stmt->query());
