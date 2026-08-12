@@ -14,6 +14,8 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
+#include <algorithm>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
@@ -651,6 +653,173 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 expect(ok) << "radix-range hint sorting must preserve frame indices and values";
             }
         }
+    };
+
+    "wavefront_largest_continuation_first_is_greedy_and_complete"_test = [options] {
+        constexpr uint N = 65u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+
+        auto order = device.create_buffer<uint>(N + 1u);
+        auto visits = device.create_buffer<uint>(N);
+        luisa::vector<uint> zero_order(N + 1u);
+        luisa::vector<uint> zero_visits(N);
+        stream << order.copy_from(luisa::span{zero_order})
+               << visits.copy_from(luisa::span{zero_visits})
+               << synchronize();
+
+        auto coro = Coroutine<void(Buffer<uint>, Buffer<uint>)>(
+            [](BufferUInt order_buffer, BufferUInt visit_buffer) {
+                auto tid = dispatch_x();
+                $if (tid == 0u) {
+                    $suspend("small");
+                    auto slot = order_buffer.atomic(0u).fetch_add(1u);
+                    order_buffer.write(slot + 1u, 1u);
+                }
+                $else {
+                    $suspend("large");
+                    auto slot = order_buffer.atomic(0u).fetch_add(1u);
+                    order_buffer.write(slot + 1u, 2u);
+                };
+                visit_buffer.atomic(tid).fetch_add(1u);
+            });
+
+        WavefrontCoroSchedulerConfig cfg{
+            .thread_count = N,
+            .global_memory_soa = true,
+            .gather_by_sorting = true,
+            .frame_buffer_compaction = true,
+            .execution_block_size = 32u,
+            .largest_continuation_first = true,
+        };
+        WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+            device, coro, cfg};
+        scheduler(order, visits).dispatch(N)(stream);
+
+        luisa::vector<uint> host_order(N + 1u);
+        luisa::vector<uint> host_visits(N);
+        stream << order.copy_to(luisa::span{host_order})
+               << visits.copy_to(luisa::span{host_visits})
+               << synchronize();
+
+        auto greedy = host_order[0u] == N;
+        for (auto i = 1u; i < N; ++i) {
+            greedy &= host_order[i] == 2u;
+        }
+        greedy &= host_order[N] == 1u;
+        expect(greedy)
+            << "the largest queue must run before the earlier small token";
+        expect(std::all_of(host_visits.begin(), host_visits.end(),
+                           [](auto count) noexcept { return count == 1u; }))
+            << "greedy scheduling must neither lose nor duplicate frames";
+    };
+
+    "wavefront_single_frame_default_refill_makes_progress"_test = [options] {
+        constexpr uint N = 3u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+
+        auto visits = device.create_buffer<uint>(N);
+        luisa::vector<uint> zero(N);
+        stream << visits.copy_from(luisa::span{zero}) << synchronize();
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt visit_buffer) {
+            auto tid = dispatch_x();
+            $suspend("checkpoint");
+            visit_buffer.atomic(tid).fetch_add(1u);
+        });
+
+        WavefrontCoroSchedulerConfig cfg{
+            .thread_count = 1u,
+            .global_memory_soa = true,
+            .gather_by_sorting = true,
+            .frame_buffer_compaction = true,
+            .execution_block_size = 32u,
+            .largest_continuation_first = true,
+            .refill_continuations = {"checkpoint"},
+        };
+        WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
+        scheduler(visits).dispatch(N)(stream);
+
+        luisa::vector<uint> host(N);
+        stream << visits.copy_to(luisa::span{host}) << synchronize();
+        expect(std::all_of(host.begin(), host.end(),
+                           [](auto count) noexcept { return count == 1u; }))
+            << "a one-frame scheduler must escape its empty state and drain "
+               "all logical invocations";
+    };
+
+    "wavefront_refill_waits_for_named_alignment_queue"_test = [options] {
+        constexpr uint N = 8u;
+        constexpr uint capacity = 4u;
+        constexpr uint log_capacity = 16u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+
+        auto log = device.create_buffer<uint>(log_capacity);
+        auto visits = device.create_buffer<uint>(N);
+        luisa::vector<uint> zero_log(log_capacity);
+        luisa::vector<uint> zero_visits(N);
+        stream << log.copy_from(luisa::span{zero_log})
+               << visits.copy_from(luisa::span{zero_visits})
+               << synchronize();
+
+        auto coro = Coroutine<void(Buffer<uint>, Buffer<uint>)>(
+            [](BufferUInt event_log, BufferUInt visit_buffer) {
+                auto tid = dispatch_x();
+                auto entry_slot = event_log.atomic(0u).fetch_add(1u);
+                event_log.write(entry_slot + 1u, 100u + tid);
+                $suspend("refill");
+                $if ((tid & 3u) == 0u) {
+                    $suspend("blocked");
+                    auto blocked_slot = event_log.atomic(0u).fetch_add(1u);
+                    event_log.write(blocked_slot + 1u, 300u + tid);
+                };
+                visit_buffer.atomic(tid).fetch_add(1u);
+            });
+
+        WavefrontCoroSchedulerConfig cfg{
+            .thread_count = capacity,
+            .global_memory_soa = true,
+            .gather_by_sorting = true,
+            .frame_buffer_compaction = true,
+            .execution_block_size = 32u,
+            .largest_continuation_first = true,
+            .refill_continuations = {"refill"},
+            .refill_threshold = 2u,
+        };
+        WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+            device, coro, cfg};
+        scheduler(log, visits).dispatch(N)(stream);
+
+        luisa::vector<uint> host_log(log_capacity);
+        luisa::vector<uint> host_visits(N);
+        stream << log.copy_to(luisa::span{host_log})
+               << visits.copy_to(luisa::span{host_visits})
+               << synchronize();
+
+        auto first_blocked = log_capacity;
+        auto second_batch_entry = log_capacity;
+        auto event_count = std::min(host_log[0u], log_capacity - 1u);
+        for (auto i = 0u; i < event_count; ++i) {
+            auto event = host_log[i + 1u];
+            if (event == 300u) { first_blocked = std::min(first_blocked, i); }
+            if (event >= 104u && event <= 107u) {
+                second_batch_entry = std::min(second_batch_entry, i);
+            }
+        }
+        expect(first_blocked < second_batch_entry)
+            << "low occupancy at an unlisted continuation must drain that "
+               "queue before admitting the next entry batch";
+        expect(std::all_of(host_visits.begin(), host_visits.end(),
+                           [](auto count) noexcept { return count == 1u; }))
+            << "alignment-aware refill must neither lose nor duplicate frames";
     };
 }
 

@@ -36,6 +36,23 @@ struct WavefrontCoroSchedulerConfig {
     // sizes because some of them use block-local collectives. Kept last to
     // preserve the meaning of existing positional aggregate initializers.
     uint execution_block_size = 256u;
+    // Cycles-style greedy scheduling executes only the largest non-empty
+    // continuation queue in each host iteration. The default drains every
+    // queue, preserving the original scheduler policy. This option changes
+    // scheduling order only: coroutine transition semantics and frame layout
+    // are identical. Kept after the legacy fields so positional aggregate
+    // initializers retain their meaning.
+    bool largest_continuation_first = false;
+    // If non-empty, new entry work may be admitted alongside live frames only
+    // when the largest continuation queue has one of these suspend names.
+    // This models schedulers such as Cycles, which align old and new paths at
+    // INTERSECT_CLOSEST before filling idle state slots. An empty list retains
+    // the legacy unrestricted refill policy.
+    luisa::vector<luisa::string> refill_continuations;
+    // Minimum live-frame population below which refill is considered. Zero
+    // selects half the active frame capacity, matching the legacy scheduler
+    // and Cycles' upper bound for its device-derived busy-state threshold.
+    uint refill_threshold = 0u;
 };
 
 template<typename... Args>
@@ -67,6 +84,7 @@ private:
     luisa::vector<uint> _host_count;
     luisa::vector<uint> _host_offset;
     luisa::vector<bool> _have_hint;
+    luisa::vector<bool> _refill_at;
     CoroFrameStorageLayout _frame_layout;
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
@@ -148,6 +166,17 @@ private:
         _host_count.resize(nc);
         _host_offset.resize(nc);
         _have_hint.resize(nc, false);
+        _refill_at.resize(nc, false);
+
+        for (auto &name : _config.refill_continuations) {
+            auto node = coro.graph().node_by_name(name);
+            LUISA_ASSERT(node != nullptr && node->index != 0u &&
+                             node->index < nc,
+                         "Wavefront refill continuation '{}' does not name a "
+                         "valid non-entry coroutine suspension.",
+                         name);
+            _refill_at[node->index] = true;
+        }
 
         luisa::vector<luisa::string> valid_hint_fields;
         valid_hint_fields.reserve(_config.hint_fields.size());
@@ -599,6 +628,18 @@ private:
             }
             if (dispatch_counter == N && active_count == 0u) { break; }
 
+            auto selected = nc;
+            auto selected_count = 0u;
+            for (size_t i = 1u; i < nc; ++i) {
+                // Strict comparison makes the lowest continuation index the
+                // deterministic winner for equal populations, matching
+                // Cycles' DeviceKernel scan order.
+                if (_host_count[i] > selected_count) {
+                    selected = i;
+                    selected_count = _host_count[i];
+                }
+            }
+
             if (!_config.gather_by_sorting && scan_count != 0u) {
                 stream << _resume_offset.copy_from(luisa::span{_host_offset.data(), _host_offset.size()});
                 stream << _gather_shader(
@@ -607,7 +648,22 @@ private:
                               .dispatch(scan_count);
             }
 
-            if (empty_count > _active_frame_capacity / 2u && dispatch_counter < N) {
+            auto refill_threshold = _config.refill_threshold == 0u ?
+                                        _active_frame_capacity / 2u :
+                                        std::min(_config.refill_threshold,
+                                                 _active_frame_capacity);
+            auto refill_aligned = active_count == 0u ||
+                                  _config.refill_continuations.empty() ||
+                                  (selected < _refill_at.size() &&
+                                   _refill_at[selected]);
+            // An empty scheduler must always admit work. In particular,
+            // floor(capacity / 2) is zero for a one-frame pool, so using only
+            // the threshold inequality would leave the empty state as a
+            // fixed point and make forward progress impossible.
+            auto should_refill = active_count == 0u ||
+                                 active_count < refill_threshold;
+            if (should_refill && refill_aligned &&
+                dispatch_counter < N) {
                 auto gen_count = std::min(N - dispatch_counter, empty_count);
                 auto frame_offset = active_count;
                 if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
@@ -630,6 +686,9 @@ private:
                 }
             } else {
                 for (size_t i = 1u; i < nc; ++i) {
+                    if (_config.largest_continuation_first && i != selected) {
+                        continue;
+                    }
                     auto count = _host_count[i];
                     if (count == 0u) { continue; }
                     resumed_count += count;
