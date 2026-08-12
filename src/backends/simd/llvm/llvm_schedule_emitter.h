@@ -112,6 +112,12 @@ private:
         ::llvm::Value *slot_indices{nullptr};
     };
 
+    struct AccelInstanceAddress {
+        ::llvm::Value *data{nullptr};
+        ::llvm::Value *offsets{nullptr};
+        ::llvm::Value *scalar{nullptr};
+    };
+
 private:
     void _fail(std::string message);
     [[nodiscard]] bool _failed() const noexcept;
@@ -291,7 +297,12 @@ private:
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_accel_query(
         const schedule::Instruction &instruction);
+    [[nodiscard]] AccelInstanceAddress _accel_instance_address(
+        ::llvm::Value *accel, schedule::ValueId index_id,
+        bool varying);
     [[nodiscard]] ::llvm::Value *_accel_instance_query(
+        const schedule::Instruction &instruction);
+    void _accel_instance_write(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_read(
         const schedule::Instruction &instruction);

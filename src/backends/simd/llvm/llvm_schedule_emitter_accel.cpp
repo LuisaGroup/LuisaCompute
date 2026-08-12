@@ -41,48 +41,18 @@ namespace {
 
 }// namespace
 
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_accel_instance_query(
-    const schedule::Instruction &instruction) {
-    if (!instruction.result || !instruction.source_op ||
-        instruction.operands.size() != 2u) {
-        _fail("acceleration-structure instance query is malformed");
-        return nullptr;
-    }
-    auto op = static_cast<xir::ResourceQueryOp>(
-        *instruction.source_op);
-    auto transform =
-        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM;
-    auto user_id =
-        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID;
-    auto visibility =
-        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK;
-    if (!transform && !user_id && !visibility) {
-        _fail("unsupported acceleration-structure instance query");
-        return nullptr;
-    }
-
-    auto *result = _source.value(*instruction.result);
-    auto *accel_value = _source.value(instruction.operands[0u]);
-    auto *index_value = _source.value(instruction.operands[1u]);
-    auto *accel = _load_value(instruction.operands[0u]);
-    auto *raw_index = _load_value(instruction.operands[1u]);
-    if (result == nullptr || accel_value == nullptr ||
-        index_value == nullptr || accel == nullptr || raw_index == nullptr ||
-        accel_value->type == nullptr || !accel_value->type->is_accel() ||
-        index_value->type == nullptr ||
+[[nodiscard]] ScheduleEmitter::AccelInstanceAddress
+ScheduleEmitter::_accel_instance_address(
+    ::llvm::Value *accel, schedule::ValueId index_id,
+    bool varying) {
+    auto *index_value = _source.value(index_id);
+    auto *raw_index = _load_value(index_id);
+    if (accel == nullptr || index_value == nullptr ||
+        raw_index == nullptr || index_value->type == nullptr ||
         (!index_value->type->is_int32() &&
-         !index_value->type->is_uint32()) ||
-        (transform ? !is_float4x4_type(result->type) :
-                     !result->type->is_uint32())) {
-        _fail("acceleration-structure instance query has invalid types");
-        return nullptr;
-    }
-
-    auto varying =
-        result->value_class == schedule::ValueClass::varying;
-    if (!varying && !schedule::is_uniform(index_value->value_class)) {
-        _fail("uniform instance query requires a uniform instance index");
-        return nullptr;
+         !index_value->type->is_uint32())) {
+        _fail("acceleration-structure instance index is invalid");
+        return {};
     }
     auto &context = _module.getContext();
     auto *pointer_type = ::llvm::PointerType::getUnqual(context);
@@ -108,11 +78,9 @@ namespace {
             _builder.CreateICmpEQ(data, null_pointer)),
         "accel.instance.data.null");
 
-    ::llvm::Value *instance_offsets = nullptr;
-    ::llvm::Value *scalar_instance = nullptr;
     if (varying) {
         auto *index = _as_lane_vector(raw_index, *index_value);
-        if (index == nullptr) { return nullptr; }
+        if (index == nullptr) { return {}; }
         auto *i32_lanes = ::llvm::FixedVectorType::get(
             _builder.getInt32Ty(), _width);
         auto *i64_lanes = ::llvm::FixedVectorType::get(
@@ -131,24 +99,78 @@ namespace {
         _trap_if(
             _builder.CreateOrReduce(invalid),
             "accel.instance.index.out.of.bounds");
-        instance_offsets = _builder.CreateMul(
+        auto *offsets = _builder.CreateMul(
             wide_index,
             _builder.CreateVectorSplat(
                 _width,
                 _builder.getInt64(sizeof(SIMDHostAccelInstance))));
-    } else {
-        auto *index = _builder.CreateZExtOrTrunc(
-            raw_index, _builder.getInt64Ty());
-        auto *invalid = _builder.CreateICmpUGE(index, size);
-        _trap_if(
-            _builder.CreateAnd(has_active, invalid),
-            "accel.instance.index.out.of.bounds");
-        auto *offset = _builder.CreateMul(
-            index,
-            _builder.getInt64(sizeof(SIMDHostAccelInstance)));
-        scalar_instance = _builder.CreateGEP(
-            _builder.getInt8Ty(), data, offset);
+        return {
+            .data = data,
+            .offsets = offsets,
+        };
     }
+
+    auto *index = _builder.CreateZExtOrTrunc(
+        raw_index, _builder.getInt64Ty());
+    auto *invalid = _builder.CreateICmpUGE(index, size);
+    _trap_if(
+        _builder.CreateAnd(has_active, invalid),
+        "accel.instance.index.out.of.bounds");
+    auto *offset = _builder.CreateMul(
+        index,
+        _builder.getInt64(sizeof(SIMDHostAccelInstance)));
+    return {
+        .data = data,
+        .scalar = _builder.CreateGEP(
+            _builder.getInt8Ty(), data, offset),
+    };
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_accel_instance_query(
+    const schedule::Instruction &instruction) {
+    if (!instruction.result || !instruction.source_op ||
+        instruction.operands.size() != 2u) {
+        _fail("acceleration-structure instance query is malformed");
+        return nullptr;
+    }
+    auto op = static_cast<xir::ResourceQueryOp>(
+        *instruction.source_op);
+    auto transform =
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM;
+    auto user_id =
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID;
+    auto visibility =
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK;
+    if (!transform && !user_id && !visibility) {
+        _fail("unsupported acceleration-structure instance query");
+        return nullptr;
+    }
+
+    auto *result = _source.value(*instruction.result);
+    auto *accel_value = _source.value(instruction.operands[0u]);
+    auto *index_value = _source.value(instruction.operands[1u]);
+    auto *accel = _load_value(instruction.operands[0u]);
+    if (result == nullptr || accel_value == nullptr ||
+        index_value == nullptr || accel == nullptr ||
+        accel_value->type == nullptr || !accel_value->type->is_accel() ||
+        (transform ? !is_float4x4_type(result->type) :
+                     !result->type->is_uint32())) {
+        _fail("acceleration-structure instance query has invalid types");
+        return nullptr;
+    }
+
+    auto varying =
+        result->value_class == schedule::ValueClass::varying;
+    if (!varying && !schedule::is_uniform(index_value->value_class)) {
+        _fail("uniform instance query requires a uniform instance index");
+        return nullptr;
+    }
+    auto address = _accel_instance_address(
+        accel, instruction.operands[1u], varying);
+    if (address.data == nullptr) { return nullptr; }
+    auto *data = address.data;
+    auto *instance_offsets = address.offsets;
+    auto *scalar_instance = address.scalar;
 
     auto gather = [&](const Type *type, size_t offset) {
         if (varying) {
@@ -238,6 +260,117 @@ namespace {
                                constant;
                 });
         });
+}
+
+void ScheduleEmitter::_accel_instance_write(
+    const schedule::Instruction &instruction) {
+    if (!instruction.source_op || instruction.operands.size() != 3u) {
+        _fail("acceleration-structure instance write is malformed");
+        return;
+    }
+    auto op = static_cast<xir::ResourceWriteOp>(
+        *instruction.source_op);
+    auto transform =
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM;
+    auto visibility =
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK;
+    auto user_id =
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID;
+    if (!transform && !visibility && !user_id) {
+        _fail("unsupported acceleration-structure instance write");
+        return;
+    }
+
+    auto *accel_value = _source.value(instruction.operands[0u]);
+    auto *index_value = _source.value(instruction.operands[1u]);
+    auto *written_value = _source.value(instruction.operands[2u]);
+    auto *accel = _load_value(instruction.operands[0u]);
+    auto *value = _load_value(instruction.operands[2u]);
+    if (accel_value == nullptr || index_value == nullptr ||
+        written_value == nullptr || accel == nullptr || value == nullptr ||
+        accel_value->type == nullptr || !accel_value->type->is_accel() ||
+        (transform ? !is_float4x4_type(written_value->type) :
+                     !written_value->type->is_uint32())) {
+        _fail("acceleration-structure instance write has invalid types");
+        return;
+    }
+    auto varying =
+        !schedule::is_uniform(index_value->value_class) ||
+        !schedule::is_uniform(written_value->value_class);
+    if (varying) {
+        value = _as_lane_vector(value, *written_value);
+        auto *zero = value == nullptr ? nullptr :
+                                        ::llvm::Constant::getNullValue(
+                                            value->getType());
+        value = zero == nullptr ? nullptr :
+                                  _masked_merge(
+                                      value, zero,
+                                      written_value->type, _active_mask);
+        if (value == nullptr) { return; }
+    }
+    auto address = _accel_instance_address(
+        accel, instruction.operands[1u], varying);
+    if (address.data == nullptr) { return; }
+
+    auto store = [&](::llvm::Value *stored, size_t offset,
+                     size_t alignment) {
+        if (varying) {
+            auto *pointers = _leaf_pointers(
+                address.data, address.offsets, offset);
+            _builder.CreateMaskedScatter(
+                stored, pointers, ::llvm::Align{alignment},
+                _active_mask);
+            return;
+        }
+        auto *pointer = _byte_pointer(address.scalar, offset);
+        if (auto *pointer_instruction =
+                ::llvm::dyn_cast<::llvm::Instruction>(pointer)) {
+            pointer_instruction->setName(
+                "accel.instance.scalar.store");
+        }
+        auto *write = _builder.CreateStore(stored, pointer);
+        write->setAlignment(::llvm::Align{alignment});
+    };
+
+    if (transform) {
+        for (auto row = uint32_t{0u}; row < 3u; row++) {
+            for (auto column = uint32_t{0u}; column < 4u; column++) {
+                auto *column_type = _child_type(
+                    written_value->type, column);
+                auto *column_value = _extract_child(
+                    value, written_value->type, column, varying);
+                auto *component = _extract_child(
+                    column_value, column_type, row, varying);
+                store(
+                    component,
+                    offsetof(SIMDHostAccelInstance, affine) +
+                        (row * 4u + column) * sizeof(float),
+                    alignof(float));
+            }
+        }
+    } else if (visibility) {
+        auto *i8 = varying ?
+                       static_cast<::llvm::Type *>(::llvm::FixedVectorType::get(
+                           _builder.getInt8Ty(), _width)) :
+                       _builder.getInt8Ty();
+        store(
+            _builder.CreateTrunc(value, i8),
+            offsetof(SIMDHostAccelInstance, mask),
+            alignof(uint8_t));
+    } else {
+        store(
+            value, offsetof(SIMDHostAccelInstance, user_id),
+            alignof(uint32_t));
+    }
+
+    auto *dirty = varying ?
+                      static_cast<::llvm::Value *>(
+                          _builder.CreateVectorSplat(
+                              _width, _builder.getInt8(1u))) :
+                      _builder.getInt8(1u);
+    store(
+        dirty, offsetof(SIMDHostAccelInstance, dirty),
+        alignof(uint8_t));
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_accel_query(

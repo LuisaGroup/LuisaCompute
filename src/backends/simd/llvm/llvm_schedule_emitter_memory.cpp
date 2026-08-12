@@ -865,6 +865,12 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
         _bindless_resource_write(instruction);
         return;
     }
+    if (op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK ||
+        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID) {
+        _accel_instance_write(instruction);
+        return;
+    }
     if (instruction.operands.size() != 3u) {
         _fail("direct resource write instruction is malformed");
         return;

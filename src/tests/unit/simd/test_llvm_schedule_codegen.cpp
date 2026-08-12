@@ -2675,6 +2675,18 @@ uint32_t texture_packet_size_probe(
     builder.call(
         xir::ResourceWriteOp::BUFFER_WRITE,
         {transform_output, x, transform});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM,
+        {accel, instance_id, transform});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK,
+        {accel, instance_id, visibility});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID,
+        {accel, instance_id, user_id});
+    builder.call(
+        xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID,
+        {accel, zero, uniform_user_id});
     builder.return_void();
 
     auto lowered = schedule::lower_xir_to_schedule(
@@ -2705,7 +2717,9 @@ uint32_t texture_packet_size_probe(
     llvm_module->print(stream, nullptr);
     stream.flush();
     CHECK(count_occurrences(ir, "llvm.masked.gather") >= 14u);
+    CHECK(count_occurrences(ir, "llvm.masked.scatter") >= 17u);
     CHECK(ir.find("accel.instance.scalar.load") != std::string::npos);
+    CHECK(ir.find("accel.instance.scalar.store") != std::string::npos);
     CHECK(ir.find("call void %") == std::string::npos);
 
     LLVMJIT jit;
@@ -2768,6 +2782,8 @@ uint32_t texture_packet_size_probe(
                 transform_values[lane][column] == expected[column]));
         }
     }
+    CHECK(instances[0u].dirty == 1u);
+    CHECK(instances[1u].dirty == 1u);
     return true;
 }
 

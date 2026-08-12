@@ -1572,20 +1572,23 @@ visibility and the three-lane W16 tail, and separately checks a uniform motion
 trace remains one-lane scalar work.
 
 Ray-query callbacks, motion instances, curves, procedural primitives,
-cutout/opacity filters, device-side instance mutation, motion-instance
-metadata, and full instance-stack semantics remain explicit Phase-4 work;
-closest/any support does not claim them.
+cutout/opacity filters and mutation, motion-instance metadata/mutation, and
+full instance-stack semantics remain explicit Phase-4 work; closest/any
+support does not claim them.
 
-Static-instance transform, user-id, and visibility queries bypass runtime
-callbacks. The accel argument carries a pointer to a stable table descriptor;
-the runtime republishes its data pointer and count after vector storage may
-move. Uniform IDs become one scalar load, while varying IDs become sanitized,
-bounds-checked LLVM masked gathers. The affine query gathers the twelve stored
-row-major components and assembles Luisa's column-major `float4x4` directly in
-SSA. The IR regression requires the varying gathers, the uniform scalar load,
-and absence of an indirect callback; the device regression covers divergent
-IDs, all three metadata operations, complete transforms, and the W16 inactive
-tail at every supported width.
+Static-instance transform, user-id, and visibility reads and writes bypass
+runtime callbacks. The accel argument carries a pointer to a stable table
+descriptor; the runtime republishes its data pointer and count after vector
+storage may move. Uniform IDs/values become one scalar operation, while
+varying operations become sanitized, bounds-checked LLVM masked gathers or
+scatters. Affine operations transpose between the twelve stored row-major
+components and Luisa's column-major `float4x4` directly in SSA. Writes mark the
+instance dirty, and a following normal accel build commits transform/mask
+changes to Embree. The IR regression requires varying gathers/scatters,
+uniform scalar loads/stores, and absence of an indirect callback. The device
+regression covers divergent reads, two-lane device mutation, full transform
+round trips, new visibility masks, post-update closest/any traversal, and
+inactive tails at every W1/W2/W4/W8/W16 width.
 
 The required native-math/runtime-width tests plus the arithmetic,
 bindless-texture, dedicated bindless-IR callback, and acceleration tests pass
@@ -1817,8 +1820,9 @@ on 2026-08-11. The repository now contains:
   operands, initializes inactive results, narrows uniform queries to the first
   active lane, and bulk-copies safe sparse native packets;
 - a stable static-instance metadata table where uniform transform/user-id/
-  visibility queries remain scalar and varying queries use inactive-safe,
-  bounds-checked LLVM masked gathers without a host callback;
+  visibility reads and writes remain scalar, varying operations use
+  inactive-safe bounds-checked LLVM masked gathers/scatters without a host
+  callback, and normal accel builds commit dirty traversal state;
 - a device-owned persistent worker pool that dynamically schedules flattened
   block ranges, keeps all warps of one block together, joins before the next
   stream command, and retains a one-worker serial diagnostic mode;
@@ -1860,7 +1864,7 @@ on 2026-08-11. The repository now contains:
   W16 tail.
 
 The next implementation boundary is completion of the Embree vertical slice:
-ray-query callbacks, motion instances, instance mutation and motion metadata,
+ray-query callbacks, motion instances, opacity and motion metadata/mutation,
 curve/procedural and cutout semantics, plus a direct packet-layout experiment
 guarded by stable measurement. Bindless gradient sampling, broader callable
 conformance, cooperative shared memory, block barriers, and the remaining

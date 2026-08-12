@@ -78,7 +78,7 @@ int main(int argc, char *argv[]) {
         auto motion_mesh = device.create_mesh(
             motion_vertex_buffer, triangle_buffer,
             motion_mesh_option);
-        auto accel = device.create_accel();
+        auto accel = device.create_accel({.allow_update = true});
         accel.emplace_back(
             mesh, make_float4x4(1.0f), 0x1u, true, 11u);
         accel.emplace_back(
@@ -298,6 +298,116 @@ int main(int argc, char *argv[]) {
                     all(host_instance_transforms[i][column] ==
                         expected_transform[column])))
                     << "instance transform query mismatch";
+            }
+        }
+
+        std::array updated_transforms{
+            translation(make_float3(-3.0f, 0.0f, 0.0f)),
+            translation(make_float3(3.0f, 0.0f, 0.0f))};
+        std::array updated_ray_origins{
+            make_float3(-3.0f, 0.0f, 1.0f),
+            make_float3(3.0f, 0.0f, 1.0f)};
+        auto updated_transform_buffer =
+            device.create_buffer<float4x4>(updated_transforms.size());
+        auto updated_origin_buffer =
+            device.create_buffer<float3>(updated_ray_origins.size());
+        auto updated_metadata = device.create_buffer<uint4>(2u);
+        auto updated_details = device.create_buffer<float4>(2u);
+        auto updated_transform_output =
+            device.create_buffer<float4x4>(2u);
+
+        Kernel1D mutate_instances = [width](
+                                        AccelVar scene,
+                                        BufferFloat4x4 transforms) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            scene.set_instance_transform(index, transforms.read(index));
+            scene.set_instance_visibility(index, 0x4u << index);
+            scene.set_instance_user_id(index, 101u + index);
+        };
+        Kernel1D inspect_updates = [width](
+                                       AccelVar scene,
+                                       BufferFloat3 origins,
+                                       BufferUInt4 metadata,
+                                       BufferFloat4 details,
+                                       BufferFloat4x4 transforms) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto visibility = 0x4u << index;
+            auto ray = make_ray(
+                origins.read(index),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto options = AccelTraceOptions{
+                .visibility_mask = visibility};
+            auto hit = scene.intersect(ray, options);
+            auto any = scene.intersect_any(ray, options);
+            auto transform = scene.instance_transform(index);
+            metadata.write(
+                index,
+                make_uint4(
+                    scene.instance_user_id(index),
+                    scene.instance_visibility_mask(index),
+                    hit->inst, cast<uint>(any)));
+            details.write(
+                index,
+                make_float4(
+                    hit->committed_ray_t,
+                    transform[3u].x,
+                    transform[3u].y,
+                    transform[3u].z));
+            transforms.write(index, transform);
+        };
+        auto mutate_shader = device.compile(mutate_instances);
+        auto inspect_shader = device.compile(inspect_updates);
+        std::array<uint4, 2u> host_updated_metadata{};
+        std::array<float4, 2u> host_updated_details{};
+        std::array<float4x4, 2u> host_updated_transforms{};
+        stream << updated_transform_buffer.copy_from(
+                      luisa::span{updated_transforms})
+               << updated_origin_buffer.copy_from(
+                      luisa::span{updated_ray_origins})
+               << mutate_shader(accel, updated_transform_buffer)
+                      .dispatch(2u)
+               << accel.build(Accel::BuildRequest::PREFER_UPDATE)
+               << inspect_shader(
+                      accel, updated_origin_buffer,
+                      updated_metadata, updated_details,
+                      updated_transform_output)
+                      .dispatch(2u)
+               << updated_metadata.copy_to(
+                      luisa::span{host_updated_metadata})
+               << updated_details.copy_to(
+                      luisa::span{host_updated_details})
+               << updated_transform_output.copy_to(
+                      luisa::span{host_updated_transforms})
+               << synchronize();
+        for (auto i = 0u; i < 2u; i++) {
+            expect(static_cast<bool>(
+                all(host_updated_metadata[i] == make_uint4(
+                                                    101u + i,
+                                                    0x4u << i,
+                                                    i, 1u))))
+                << "device instance mutation metadata mismatch";
+            expect(std::abs(host_updated_details[i].x - 1.0f) <= 1.0e-6f)
+                << "device instance mutation traversal distance mismatch";
+            expect(std::abs(
+                       host_updated_details[i].y -
+                       updated_transforms[i][3u].x) <= 1.0e-6f &&
+                   std::abs(
+                       host_updated_details[i].z -
+                       updated_transforms[i][3u].y) <= 1.0e-6f &&
+                   std::abs(
+                       host_updated_details[i].w -
+                       updated_transforms[i][3u].z) <= 1.0e-6f)
+                << "device instance mutation translation mismatch";
+            for (auto column = 0u; column < 4u; column++) {
+                expect(static_cast<bool>(
+                    all(host_updated_transforms[i][column] ==
+                        updated_transforms[i][column])))
+                    << "device instance mutation transform mismatch";
             }
         }
     }
