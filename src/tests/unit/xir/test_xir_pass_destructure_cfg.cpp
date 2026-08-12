@@ -52,6 +52,20 @@ namespace {
     return n;
 }
 
+[[nodiscard]] size_t count_ray_query_read_op(
+    FunctionDefinition *def, RayQueryObjectReadOp op) noexcept {
+    size_t n = 0u;
+    for (auto *block : def->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<RayQueryObjectReadInst>() &&
+                static_cast<RayQueryObjectReadInst *>(inst)->op() == op) {
+                ++n;
+            }
+        }
+    }
+    return n;
+}
+
 [[nodiscard]] size_t count_isa_branch(FunctionDefinition *def) noexcept {
     size_t n = 0u;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
@@ -273,6 +287,7 @@ void reg_destructure_cfg() {
         auto *exit_phi = b.phi(Type::of<int>());
         exit_phi->add_incoming(m.create_constant_one(Type::of<int>()), disp);
         b.return_void();
+        auto source_block_count = count_owned_blocks(k->definition());
         auto lower_info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
         expect(lower_info.lowered_ray_query_loop_count == 1u);
         expect(lower_info.error_count == 0u);
@@ -280,6 +295,11 @@ void reg_destructure_cfg() {
         expect(xir_verify_module(&m).succeeded());
         expect(disp->is_terminated());
         expect(disp->terminator()->isa<UnreachableInst>());
+        expect(count_owned_blocks(k->definition()) == source_block_count + 4u);
+        expect(count_ray_query_read_op(
+                   k->definition(),
+                   RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE) ==
+               0u);
         auto *lowered_loop = static_cast<LoopInst *>(body->terminator());
         expect(lowered_loop->name().has_value());
         if (lowered_loop->name()) {
@@ -289,6 +309,13 @@ void reg_destructure_cfg() {
         auto *candidate_dispatch =
             lowered_loop->body_block()->terminator();
         expect(candidate_dispatch->isa<IfInst>());
+        auto *candidate_if = static_cast<IfInst *>(candidate_dispatch);
+        expect(candidate_if->true_block() == on_surf);
+        expect(candidate_if->false_block() == on_proc);
+        expect(static_cast<BranchInst *>(on_surf->terminator())->target_block() ==
+               candidate_if->merge_block());
+        expect(static_cast<BranchInst *>(on_proc->terminator())->target_block() ==
+               candidate_if->merge_block());
         expect(candidate_dispatch->name().has_value());
         if (candidate_dispatch->name()) {
             expect(*candidate_dispatch->name() ==

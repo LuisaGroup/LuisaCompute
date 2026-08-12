@@ -148,9 +148,8 @@ struct RetargetableHandlerRegion {
 //
 // Output structure (LoopInst with prepare/body/update/merge):
 //   prepare: proceed(rq); cond_br(is_active, body, merge)
-//   body:    IfInst(is_triangle, on_surface_block, else_block, candidate_continue)
-//              else_block: IfInst(is_procedural, on_procedural_block, skip, candidate_continue)
-//                skip: br(candidate_continue)
+//   body:    IfInst(is_triangle, on_surface_block, on_procedural_block,
+//                   candidate_continue)
 //            candidate_continue: br(update)
 //   update:  br(prepare)
 //   merge:   (original merge — post-loop code)
@@ -278,66 +277,42 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
 
     b.set_insertion_point(body_block);
     auto is_triangle = b.call(bool_type, RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE, {query_object});
-    auto is_procedural = b.call(bool_type, RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE, {query_object});
 
-    auto tri_merge = def->create_basic_block();
-    auto tri_else_block = def->create_basic_block();
-    auto tri_if = b.if_(is_triangle);
-    tri_if->set_true_target(on_surface_block);
-    tri_if->set_false_target(tri_else_block);
-    tri_if->set_merge_block(tri_merge);
+    // PROCEED publishes exactly one of terminated, triangle candidate, or
+    // procedural candidate. The prepare branch has already excluded the
+    // terminated state, so the false arm of is_triangle is necessarily the
+    // procedural handler. Keeping a second candidate-kind query here creates
+    // a redundant nested diamond and extra scheduler states on SIMD targets.
+    auto candidate_continue = def->create_basic_block();
+    auto candidate_if = b.if_(is_triangle);
+    candidate_if->set_true_target(on_surface_block);
+    candidate_if->set_false_target(on_procedural_block);
+    candidate_if->set_merge_block(candidate_continue);
 
-    b.set_insertion_point(tri_merge);
+    b.set_insertion_point(candidate_continue);
     b.br(update_block);
 
-    auto proc_merge = def->create_basic_block();
-    auto proc_skip_block = def->create_basic_block();
-    b.set_insertion_point(tri_else_block);
-    auto proc_if = b.if_(is_procedural);
-    proc_if->set_true_target(on_procedural_block);
-    proc_if->set_false_target(proc_skip_block);
-    proc_if->set_merge_block(proc_merge);
-
-    b.set_insertion_point(proc_merge);
-    b.br(tri_merge);
-
-    b.set_insertion_point(proc_skip_block);
-    b.br(proc_merge);
-
-    // Retarget handler terminators: br(dispatch_block) → br(tri_merge)
+    // Retarget handler terminators:
+    // br(dispatch_block) -> br(candidate_continue).
     // Only retarget BranchInst targets, not merge_block fields of nested constructs.
     auto removed_dispatch = dispatch_inst->remove_self();
-    // The outer triangle test is the unique replacement for candidate
-    // dispatch. The nested procedural test only refines its false arm.
-    clone_metadata_impl(*removed_dispatch, *tri_if);
+    clone_metadata_impl(*removed_dispatch, *candidate_if);
     b.set_insertion_point(dispatch_block);
     b.unreachable_();
-    auto retarget_handler_branches = [&](BasicBlock *handler_entry, BasicBlock *target) noexcept {
-        luisa::vector<BasicBlock *> worklist;
-        luisa::unordered_set<BasicBlock *> visited;
-        worklist.emplace_back(handler_entry);
-        while (!worklist.empty()) {
-            auto *bb = worklist.back();
-            worklist.pop_back();
-            if (!visited.emplace(bb).second) { continue; }
+    auto retarget_handler_branches = [&](const RetargetableHandlerRegion &region) noexcept {
+        for (auto *bb : region.blocks) {
             if (!bb->is_terminated()) { continue; }
             auto *term = bb->terminator();
             if (term->derived_instruction_tag() == DerivedInstructionTag::BRANCH) {
                 auto *br = static_cast<BranchInst *>(term);
                 if (br->target_block() == dispatch_block) {
-                    br->set_target_block(target);
-                    continue;
+                    br->set_target_block(candidate_continue);
                 }
             }
-            bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (!visited.contains(succ) && succ != tri_merge && succ != proc_merge) {
-                    worklist.emplace_back(succ);
-                }
-            });
         }
     };
-    retarget_handler_branches(on_surface_block, tri_merge);
-    retarget_handler_branches(on_procedural_block, proc_merge);
+    retarget_handler_branches(surface_region);
+    retarget_handler_branches(procedural_region);
 
     info.lowered_ray_query_loop_count += 1;
     return true;
