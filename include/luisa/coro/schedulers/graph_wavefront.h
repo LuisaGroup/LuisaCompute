@@ -33,8 +33,9 @@ struct GraphWavefrontCoroSchedulerConfig {
     // Once all logical invocations have been generated, a small residual set
     // is cheaper to finish in one graph-derived state-machine kernel than in
     // one guarded launch per continuation. This is a host policy parameter:
-    // it does not participate in shader construction or cache identity. Zero
-    // disables the hybrid tail drain.
+    // its nonzero magnitude does not participate in shader construction or
+    // cache identity. Zero disables the hybrid tail drain and avoids compiling
+    // the optional state-machine shader altogether.
     uint tail_megakernel_threshold = 4096u;
     bool report_stats = false;
     ShaderOption shader_option{};
