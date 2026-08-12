@@ -5,7 +5,10 @@ Snapshot date: 2026-08-13. This report covers the Release build after merging
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
 postprocessing from curve-free acceleration structures and native-width
-direct-trace packet copies.
+direct-trace packet copies. The current snapshot additionally promotes
+eligible local aggregates before Schedule IR, allowing their varying fields to
+remain independent SoA SSA values instead of repeatedly crossing an AoS
+storage boundary.
 
 ## Test host and method
 
@@ -20,13 +23,15 @@ direct-trace packet copies.
 Graphics and SDF cells below are medians of seven independent processes.
 Image processing repeats its four-dispatch pipeline 32 times, voxel repeats 16
 renders, and Spacex renders four frames after its upload/update synchronization.
-Cutout path tracing uses 64 spp and forces one spp per dispatch on both backends
-to remove a batching asymmetry. Image, voxel, Spacex, and path tracing compare
+Cutout path tracing uses 64 spp and ordinary path tracing uses 128 spp; both
+force one spp per dispatch on both backends to remove a batching asymmetry.
+Their current rows use six adjacent fallback/SIMD pairs per width with reversed
+order on alternating pairs. Image, voxel, Spacex, and path tracing compare
 every measured output with the repository gallery reference. SDF uses its
 internal four-SPP throughput metric; high-SPP SDF image comparison remains a
-separate conformance gate. The accepted runtime-sparse studies below supersede
-the W8/W16 cutout cells with the latest ten-pair medians; other cells retain
-the seven-process sweep.
+separate conformance gate. Image/SDF/voxel/Spacex/GEMM cells retain the earlier
+seven-process sweep because the relevant kernels have no eligible aggregate
+local and unchanged JIT code under this transform.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -39,8 +44,8 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 73.286 | 62.123 (0.848x) | 44.564 (0.608x) | 53.265 (0.727x) | 58.537 (0.799x) | 57.814 (0.789x) |
-| cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 36.591 (0.534x) | 34.688 (0.506x) |
+| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 73.484 | 64.858 (0.880x) | 51.468 (0.719x) | 65.399 (0.921x) | 78.748 (1.065x) | 82.187 (1.132x) |
+| cutout path tracing, fixed 1 spp/dispatch, spp/s | 68.363 | 45.924 (0.697x) | 31.663 (0.454x) | 38.265 (0.551x) | 42.647 (0.643x) | 43.525 (0.624x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -51,17 +56,56 @@ process medians ranged from 41.594 to 88.326 GFLOP/s under shared-host load,
 while the SIMD distributions were tight. Its relative speedups must therefore
 be treated as host observations, not cross-machine constants.
 
-The ordinary path-tracing row is the final eight-process sweep at 128 spp. It
-uses the shared `--max-spp-per-dispatch 1` option on both backends so the row
-measures width, divergent scheduling, resource callbacks, and Embree packets
-without a dispatch-batching asymmetry. Its observed ranges were
-70.702--75.216, 60.345--63.179, 42.889--46.091, 51.333--54.531,
-55.273--60.255, and 57.637--59.810 spp/s from fallback through W16. Paired
-geometric-mean speedups were 0.844x/0.610x/0.726x/0.802x/0.798x for
-W1/W2/W4/W8/W16. A separate twelve-process real-default sweep, where fallback
-uses one spp per dispatch and SIMD uses up to 64, produced medians of
-72.205/78.657/55.056/62.260/66.910/65.413 spp/s. That batching policy makes
-W1 1.089x fallback but does not make W8 or W16 faster than fallback.
+The current path-tracing rows are paired rather than independent medians because
+an unrelated host task moved the load average during the sweeps. The displayed
+fallback cell is the pooled fallback median; each SIMD cell is its six-process
+median and the parenthesized speedup is the preferred geometric mean of six
+adjacent SIMD/fallback ratios. Every one of the 120 performance processes
+passed its gallery comparison. Ordinary W8 and W16 won all six pairs and now
+exceed fallback by 1.0647x and 1.1319x respectively. W1/W2/W4 remain at
+0.8801x/0.7188x/0.9213x. Cutout remains below fallback at every width despite
+the local-state improvement: 0.6966x/0.4541x/0.5514x/0.6434x/0.6236x from W1
+through W16. Its ray-query proceed/filter/candidate machinery remains a larger
+state-crossing and sparse-cohort cost.
+
+### Pre-schedule aggregate promotion
+
+The ordinary and cutout path kernels each report 11 decomposed aggregate
+allocas and 37 inserted leaf allocas. Image processing, voxel, and Spacex
+report zero and produce unchanged JIT code. The compiler runs the shared,
+target-independent XIR SROA before both `mem2reg` stages; a same-binary
+`LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` oracle restores the prior layout.
+This is a bounded local AoS-to-field/SoA conversion, not an external resource
+layout change or general tile transpose.
+
+Ten alternating W8 ordinary-path pairs at 128 spp measured a 1.3165x promoted/
+disabled geometric mean with 10/10 wins; medians were 77.535 and 58.383 spp/s.
+Ten W8 cutout pairs at 64 spp measured 1.1469x with 10/10 wins; medians were
+43.719 and 38.229 spp/s. Within each workload all 20 outputs were byte-identical
+between modes and passed the gallery reference.
+
+The exact W8 ordinary-path JIT object identifies the mechanism:
+
+| Main kernel | promotion disabled | promotion enabled |
+| --- | ---: | ---: |
+| `.text` bytes | 22,815 | 20,711 |
+| static instructions | 3,885 | 3,586 |
+| static branches | 237 | 234 |
+| stack references | 1,050 | 1,024 |
+| stack allocation | 9,728 B | 7,168 B |
+| `vgatherqps` / `vscatterqps` | 65 / 55 | 18 / 6 |
+| calls / scalar-math calls | 5 / 0 | 5 / 0 |
+
+Three alternating 256-spp `perf stat` pairs measured enabled/disabled mean
+ratios of 0.7614 for cycles, 0.9753 for instructions, 0.9993 for branches,
+0.9970 for branch misses, 0.8148 for L1 data loads, and 0.5867 for L1
+data-load misses. The large cache/load reduction with nearly unchanged branch
+count distinguishes this result from dispatcher surgery: the former Ray/Onb
+aggregate round trips became independently promotable fields. A separate
+exact-PC profile put the shared scheduler dispatcher at only 0.131% of total
+process cycles; simple continuation-stealing variants were measured and
+rejected because their extra routing was neutral on ordinary path tracing and
+regressed SDF.
 
 ## Scheduler cost and assembly evidence
 
@@ -162,16 +206,19 @@ candidate/baseline ratios of 0.9907 at W8 and 0.9875 at W16; branches changed
 by 0.9903 and 0.9928. The W8 main-kernel stack remains 9,728 bytes with 1,050
 stack references, and the final callback object bodies shrink by 51% for
 any-hit and 32% for closest-hit. Host load rose above 25 and corrupted several
-wall-clock samples, so no additional throughput uplift is claimed and the
-conservative fallback-relative row above is unchanged.
+wall-clock samples, so that checkpoint claimed no additional throughput
+uplift. Its then-current fallback-relative row was left unchanged; the
+aggregate-promotion sweep at the top of this report now supersedes it.
 
-A final eight-process rotating sweep at 128 spp, again forcing one spp per
+The then-final eight-process rotating sweep at 128 spp, again forcing one spp per
 dispatch for every backend, measured medians of 73.286/62.123/44.564/53.265/
 58.537/57.814 spp/s for fallback/W1/W2/W4/W8/W16. Paired geometric-mean
 SIMD/fallback throughputs were 0.844x/0.610x/0.726x/0.802x/0.798x. The host
 load average rose to about 19 by the end, so the paired measurements are the
-preferred ratios. The optimization is real and repeatable, but does not erase
-the renderer's divergence-driven fallback deficit.
+preferred ratios. The optimization was real and repeatable, but did not erase
+the renderer's divergence-driven fallback deficit at that checkpoint. These
+numbers are retained as provenance for the callback stage and are superseded
+by the current table.
 
 ### Curve-free direct-trace postprocessing
 
@@ -506,9 +553,10 @@ identical.
 
 ## Next measured optimization targets
 
-1. Split hot varying scheduler state into register-resident/SoA regions and
-   rematerialize immutable launch/ray-query fields across suspension, following
-   the liveness/frame principles merged from `next`.
+1. Extend the accepted local aggregate promotion to scheduler-generated and
+   ray-query state: split proven hot fields into register-resident/SoA regions
+   and rematerialize immutable fields across suspension, following the
+   liveness/frame principles merged from `next`.
 2. Compact or rebatch sparse ray cohorts before Embree and reduce ray-query
    state crossings; inlining Embree LLVM IR is exploratory and cannot replace
    this measured scheduler work.
@@ -527,7 +575,7 @@ byte store for a uniform operation or one inactive-safe masked byte scatter for
 a varying operation, without a host callback. The exact LLVM and W1/W2/W4/W8/
 W16 runtime gates validate the capability. The measured ray-query targets above
 remain unchanged. A fresh 1024-SPP cutout gallery sweep passed at W1/W2/W4/W8/
-W16 with RGB PSNR 39.10/39.74/39.67/39.58/39.48 dB respectively. These are
+W16 with RGB PSNR 42.93/44.65/44.43/44.17/43.89 dB respectively. These are
 correctness runs under shared-host load, not a replacement for the alternating
 multi-process performance table.
 
@@ -565,8 +613,10 @@ metadata did not regress its hot descriptor layout.
 The required native-math/fallback-math/runtime-width gate passes 3/3. A
 focused gate including in-place packet codegen, accel, curve-summary
 replacement, and example-option parsing passes 7/7. After a full Release
-build, the complete configured
-repository CTest suite passes 140/140: 26 integration-SIMD, 21 runtime-SIMD,
-and three graphics-SIMD tests are included. This also includes the
-coroutine-frame tests merged from `next` and the repaired lazy-dispatch scalar
-snapshot regression.
+build, the current configured repository CTest suite passes 129/129: 26
+integration-SIMD, 21 runtime-SIMD, and three graphics-SIMD tests are included.
+This also includes the coroutine-frame tests merged from `next`, the repaired
+lazy-dispatch scalar snapshot regression, and the W1/W2/W4/W8/W16 aggregate-
+promotion differential test. Separate 1024-SPP gallery gates pass ordinary
+and cutout path tracing at all five widths, and non-coro SDF W8 passes at
+63.13 dB RGB PSNR.

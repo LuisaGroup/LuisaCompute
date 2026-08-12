@@ -279,6 +279,33 @@ A merely cohort-uniform value is not invariant across loop epochs and is not a
 candidate. The generic XIR pass exposes cloning and live-out counters; the SIMD
 policy and inactive-tail execution have permanent regressions.
 
+Before either Schedule IR or LLVM state-slot construction, the AST compiler
+front door promotes eligible local aggregates into independent fields. It runs
+the shared XIR SROA pass after ray-query lowering and again after CFG
+destructuring/inlining, with `mem2reg` and DCE after each stage. The pass
+decomposes one struct/array level at a time, so the two pipeline positions can
+expose nested or newly inlined storage without teaching the scheduler a
+backend-specific aggregate transform. Vector and matrix allocas are not split
+by this policy.
+
+This is the first implemented lane/value-layout conversion: a lane-private
+aggregate that would otherwise cross blocks as an AoS alloca becomes disjoint
+field allocas, and `mem2reg` can keep the hot varying leaves as SoA LLVM SSA
+vectors/registers. The rewrite is fail-closed and failure-atomic. It accepts
+only `LOCAL` storage whose complete use chain is loads, stores, or GEPs with a
+constant top-level index. A dynamic top-level index, an escaping/unknown use,
+or one-index GEP metadata that has no unique replacement rejects the whole
+alloca before mutation; dynamic indices below a proven constant member remain
+legal. This deliberately does not transpose external memory, ray-query state,
+or arbitrary tile axes.
+
+`LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores the pre-promotion pipeline
+for same-binary measurement. The optimization report exposes both decomposed
+aggregate and inserted leaf-allocation counts. A permanent W1/W2/W4/W8/W16
+test uses partial field updates across a varying branch, a loop, and a
+13-thread inactive tail and compares promoted execution with the disabled
+oracle.
+
 The O2 pipeline may otherwise promote every cross-block state slot through the
 global dispatcher and create more live vector PHIs than the physical register
 file can hold. Codegen therefore counts direct accesses to each state slot. If
@@ -2227,6 +2254,9 @@ on 2026-08-11. The repository now contains:
 - bounded speculation-safe diamond if-conversion, common-operation/select
   factoring, and invariant-condition loop unswitching before Schedule
   emission, each with a same-binary disable control and inactive-tail proof;
+- two-stage, fail-closed local struct/array SROA before scheduling, followed by
+  `mem2reg`, so constant-member aggregate state can cross blocks as independent
+  SoA SSA leaves rather than lane-private AoS round trips;
 - per-kernel cold/hot suspension-state partitioning that keeps frequently
   accessed slots promotable to registers while preventing a cold-slot majority
   from inflating global dispatcher PHIs and physical register spills;

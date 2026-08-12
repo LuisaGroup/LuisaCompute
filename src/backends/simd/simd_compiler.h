@@ -26,6 +26,8 @@ struct SIMDCompiledKernel {
     // Pre-schedule rewrite feedback for diagnostics/tests.
     size_t fast_math_identity_count{0u};
     size_t fast_math_radix_pow_count{0u};
+    size_t decomposed_aggregate_alloca_count{0u};
+    size_t inserted_aggregate_leaf_alloca_count{0u};
     size_t predicated_diamond_count{0u};
     size_t predicated_instruction_count{0u};
     size_t predicated_phi_count{0u};

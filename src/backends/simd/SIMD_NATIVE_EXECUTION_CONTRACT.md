@@ -108,6 +108,31 @@ Target legalization may split `<16 x float>` into two or four physical vector
 instructions. That still satisfies `native`: the split is by physical vector
 width, not a hidden source-level lane loop or scalar device-library call.
 
+### Pre-schedule aggregate promotion
+
+The AST compiler front door runs target-independent XIR SROA before each of
+its two `mem2reg` stages. The SIMD policy decomposes local structs and arrays
+one level at a time; it does not request vector or matrix decomposition. An
+alloca is eligible only when it is `LOCAL`, every transitive use is a load,
+store, or GEP, and the first index of every directly rooted GEP is a constant
+in range. Dynamic indices below that selected member are preserved. Unknown or
+escaping uses, dynamic first indices, and instruction metadata that cannot be
+mapped uniquely reject the alloca before any replacement is inserted.
+
+The transform preserves source semantics and inactive-lane rules: it changes
+only private storage identity, clones semantic storage metadata, and leaves
+masking/sanitization to the same downstream Schedule lowering. It does not
+split resources, atomics, ray-query objects, external ABI aggregates, or
+memory reached through pointers. The resulting leaf allocas may be promoted
+to scalar or fixed-vector SSA; no contract requires LLVM to keep every leaf in
+a physical register.
+
+`LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` disables both pipeline invocations
+for differential diagnostics. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports
+`aggregate_allocas` and `aggregate_leaf_allocas`. Permanent execution coverage
+compares enabled and disabled output at W1/W2/W4/W8/W16 across varying partial
+field updates, loop-carried values, and inactive tails.
+
 ### 4.1 Direct coherent CFG refinement
 
 For `W = 1`, a warp has no distinct lanes that can diverge or rendezvous.
@@ -178,6 +203,8 @@ API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
 `LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide control-flow A/B controls;
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces otherwise coherent functions
 through the general cohort scheduler;
+`LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores aggregate local storage
+before the two SROA/`mem2reg` stages;
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
 refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
 lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`

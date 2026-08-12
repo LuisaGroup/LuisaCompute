@@ -224,7 +224,8 @@ SIMDShader::SIMDShader(
     if (detail::env_flag(
             "LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
         LUISA_INFO(
-            "SIMD optimization report [{} W{}]: predicated_diamonds={}, "
+            "SIMD optimization report [{} W{}]: aggregate_allocas={}, "
+            "aggregate_leaf_allocas={}, predicated_diamonds={}, "
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
             "cloned_instructions={}, merged_live_outs={}, "
             "direct_control_flow={}, "
@@ -236,7 +237,9 @@ SIMDShader::SIMDShader(
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
             "contiguous_buffer_writes={}.",
             kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
-            warp_width, _compiled.predicated_diamond_count,
+            warp_width, _compiled.decomposed_aggregate_alloca_count,
+            _compiled.inserted_aggregate_leaf_alloca_count,
+            _compiled.predicated_diamond_count,
             _compiled.factored_select_count,
             _compiled.unswitched_loop_count,
             _compiled.unswitched_cloned_block_count,

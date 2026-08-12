@@ -34,6 +34,15 @@
 using namespace luisa::compute;
 using namespace luisa::compute::simd;
 
+struct SIMDAggregatePromotionProbe {
+    float x;
+    float y;
+    float z;
+    uint32_t tag;
+};
+
+LUISA_STRUCT(SIMDAggregatePromotionProbe, x, y, z, tag) {};
+
 namespace {
 
 [[nodiscard]] bool check(bool condition, const char *expression,
@@ -4492,6 +4501,95 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_aggregate_promotion() {
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferFloat4 output) noexcept {
+        auto index = dispatch_id().x;
+        auto index_f32 = cast<float>(index);
+        Var<SIMDAggregatePromotionProbe> state =
+            def<SIMDAggregatePromotionProbe>(
+                index_f32 + 0.25f, index_f32 * 2.0f + 0.5f,
+                1.0f, index + 100u);
+        $if ((index & 1u) == 0u) {
+            state.x += 10.0f;
+            state.tag += 3u;
+        }
+        $else {
+            state.y -= 4.0f;
+            state.tag += 5u;
+        };
+        $for (iteration, 3u) {
+            state.z += (cast<float>(iteration) + 0.5f) *
+                       (index_f32 + 1.0f);
+        };
+        output.write(
+            index,
+            make_float4(state.x, state.y, state.z,
+                        cast<float>(state.tag)));
+    };
+
+    auto compile = [&](uint32_t width, bool disable,
+                       std::string_view name) {
+        ScopedEnvironmentVariable setting{
+            "LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION",
+            disable ? "1" : "0"};
+        return compile_simd_kernel(
+            kernel.function()->function(), width, name);
+    };
+    auto execute = [&](const SIMDCompiledKernel &compiled,
+                       uint32_t width,
+                       std::array<luisa::float4, count> &output) {
+        output.fill(luisa::make_float4(-999.0f));
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            entry(&argument, nullptr, &config, width);
+        }
+    };
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto suffix = "_w" + std::to_string(width);
+        auto promoted = compile(
+            width, false, "simd_ast_aggregate_promoted" + suffix);
+        auto baseline = compile(
+            width, true, "simd_ast_aggregate_baseline" + suffix);
+        CHECK(promoted.succeeded());
+        CHECK(baseline.succeeded());
+        CHECK(promoted.decomposed_aggregate_alloca_count != 0u);
+        CHECK(promoted.inserted_aggregate_leaf_alloca_count >
+              promoted.decomposed_aggregate_alloca_count);
+        CHECK(baseline.decomposed_aggregate_alloca_count == 0u);
+        CHECK(baseline.inserted_aggregate_leaf_alloca_count == 0u);
+
+        std::array<luisa::float4, count> promoted_output{};
+        std::array<luisa::float4, count> baseline_output{};
+        execute(promoted, width, promoted_output);
+        execute(baseline, width, baseline_output);
+        for (auto i = uint32_t{0u}; i < count; i++) {
+            auto i_f32 = static_cast<float>(i);
+            auto even = (i & 1u) == 0u;
+            auto expected = luisa::make_float4(
+                i_f32 + 0.25f + (even ? 10.0f : 0.0f),
+                i_f32 * 2.0f + 0.5f -
+                    (even ? 0.0f : 4.0f),
+                1.0f + 4.5f * (i_f32 + 1.0f),
+                static_cast<float>(
+                    i + 100u + (even ? 3u : 5u)));
+            CHECK(luisa::all(promoted_output[i] == expected));
+            CHECK(luisa::all(baseline_output[i] == expected));
+            CHECK(luisa::all(
+                promoted_output[i] == baseline_output[i]));
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_uniform_loop_buffer_broadcast_width(
     uint32_t width, uint64_t expected_broadcast_count) {
     static constexpr auto count = 13u;
@@ -5143,6 +5241,8 @@ int main() {
         {"XIR bindless uniform gradient LOD",
          &run_bindless_uniform_gradient_lod_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
+        {"AST aggregate local promotion",
+         &run_ast_aggregate_promotion},
         {"AST uniform-loop buffer broadcast",
          &run_ast_uniform_loop_buffer_broadcast},
         {"AST coherent-loop direct control",

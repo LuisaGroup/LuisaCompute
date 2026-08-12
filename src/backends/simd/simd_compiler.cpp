@@ -20,6 +20,7 @@
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
+#include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/translators/ast2xir.h>
 
 #include "../common/env_flag.h"
@@ -170,6 +171,18 @@ SIMDCompiledKernel compile_simd_kernel(
         result.diagnostics.emplace_back("AST to XIR translation failed");
         return result;
     }
+    auto aggregate_promotion_info = xir::SROAInfo{};
+    auto promote_aggregate_allocas = [&]() noexcept {
+        if (detail::env_flag(
+                "LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION")) {
+            return;
+        }
+        auto info = xir::sroa_pass_run_on_module(module.get());
+        aggregate_promotion_info.decomposed_alloca_count +=
+            info.decomposed_alloca_count;
+        aggregate_promotion_info.inserted_alloca_count +=
+            info.inserted_alloca_count;
+    };
 
     // Single-block callables can be folded before CFG legalization. A second
     // pass after destructuring handles multi-block callables without cloning
@@ -188,6 +201,7 @@ SIMDCompiledKernel compile_simd_kernel(
             std::to_string(ray_query.error_count) + ")");
         return result;
     }
+    promote_aggregate_allocas();
     static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
 
@@ -203,6 +217,7 @@ SIMDCompiledKernel compile_simd_kernel(
     }
     strip_debug_call_metadata_for_legalization(module.get());
     static_cast<void>(xir::inline_all_pass_run_on_module(module.get()));
+    promote_aggregate_allocas();
     static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
     auto fast_math_info = xir::FastMathSimplifyInfo{};
@@ -244,6 +259,10 @@ SIMDCompiledKernel compile_simd_kernel(
         capture_assembly);
     result.fast_math_identity_count = fast_math_info.identity_count;
     result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
+    result.decomposed_aggregate_alloca_count =
+        aggregate_promotion_info.decomposed_alloca_count;
+    result.inserted_aggregate_leaf_alloca_count =
+        aggregate_promotion_info.inserted_alloca_count;
     result.predicated_diamond_count =
         predication_info.if_conversion.converted_diamond_count;
     result.predicated_instruction_count =
