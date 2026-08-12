@@ -8,6 +8,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/coro/schedulers/graph_wavefront.h>
 #include <luisa/coro/schedulers/wavefront.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/context.h>
@@ -104,6 +105,222 @@ public:
 }// namespace
 
 void reg_coro_wavefront(luisa::test::coro_test::Options options) {
+
+    "graph_wavefront_uses_coro_graph_consumers_and_batches_counter_readback"_test = [options] {
+        constexpr uint N = 257u;
+        constexpr uint capacity = 32u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+        auto loop_visits = device.create_buffer<uint>(N);
+
+        auto coroutine = Coroutine<void(Buffer<uint>, Buffer<uint>)>{
+            [](BufferUInt values, BufferUInt visits) noexcept {
+                auto tid = dispatch_x();
+                auto value = tid * 3u + 5u;
+                $suspend("first");
+                value += 7u;
+                auto iteration = def(0u);
+                auto iteration_count = tid % 3u + 1u;
+                $while(iteration < iteration_count) {
+                    $suspend("loop");
+                    visits.atomic(tid).fetch_add(1u);
+                    value += iteration + 1u;
+                    iteration += 1u;
+                };
+                $suspend("last");
+                values.write(tid, value);
+            }};
+
+        struct ReadbackCase {
+            uint batch_size;
+            uint pipeline_depth;
+            bool soa;
+        };
+        for (auto [batch_size, pipeline_depth, soa] :
+             {ReadbackCase{1u, 1u, false}, ReadbackCase{4u, 2u, true},
+              ReadbackCase{8u, 4u, true}}) {
+            luisa::vector<uint> zeros(N);
+            stream << output.copy_from(luisa::span{zeros})
+                   << loop_visits.copy_from(luisa::span{zeros})
+                   << synchronize();
+
+            GraphWavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+                device, coroutine,
+                GraphWavefrontCoroSchedulerConfig{
+                    .thread_count = capacity,
+                    .global_memory_soa = soa,
+                    .execution_block_size = 32u,
+                    .counter_readback_batch_size = batch_size,
+                    .counter_readback_pipeline_depth = pipeline_depth,
+                    .tail_megakernel_threshold = 0u,
+                    .report_stats = true}};
+            scheduler(output, loop_visits).dispatch(N)(stream);
+
+            luisa::vector<uint> host_output(N);
+            luisa::vector<uint> host_visits(N);
+            stream << output.copy_to(luisa::span{host_output})
+                   << loop_visits.copy_to(luisa::span{host_visits})
+                   << synchronize();
+
+            auto exact = true;
+            auto mismatch_count = 0u;
+            for (auto tid = 0u; tid < N; ++tid) {
+                auto iterations = tid % 3u + 1u;
+                auto expected = tid * 3u + 12u;
+                for (auto i = 0u; i < iterations; ++i) {
+                    expected += i + 1u;
+                }
+                if (host_output[tid] != expected ||
+                    host_visits[tid] != iterations) {
+                    if (mismatch_count < 8u) {
+                        LUISA_WARNING(
+                            "Graph wavefront mismatch: batch={} tid={} "
+                            "output={}/{} visits={}/{}.",
+                            batch_size, tid, host_output[tid], expected,
+                            host_visits[tid], iterations);
+                    }
+                    mismatch_count++;
+                    exact = false;
+                }
+            }
+            expect(exact)
+                << "CoroGraph consumers must execute every logical instance "
+                   "and self-loop iteration exactly once";
+            expect(scheduler.node_count() == coroutine.graph().node_count());
+            expect(scheduler.active_frame_capacity() == capacity);
+
+            auto &&stats = scheduler.last_dispatch_stats();
+            expect(stats.generated_count == N);
+            expect(stats.counter_snapshot_count == stats.sweep_count);
+            expect(stats.counter_snapshot_count ==
+                   stats.counter_readback_count * batch_size);
+            if (batch_size > 1u) {
+                expect(stats.counter_readback_count <
+                       stats.counter_snapshot_count)
+                    << "one contiguous readback must amortize multiple graph "
+                       "sweeps";
+            }
+        }
+    };
+
+    "graph_wavefront_tail_megakernel_finishes_residual_frames"_test =
+        [options] {
+            constexpr uint N = 66u;
+            constexpr uint capacity = 16u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+
+            auto coroutine = Coroutine<void(Buffer<uint>)>{
+                [](BufferUInt values) noexcept {
+                    auto tid = dispatch_x();
+                    $if ((tid & 1u) == 0u) {
+                        values.write(tid, 11u);
+                        $return();
+                    };
+                    $suspend("odd_tail");
+                    values.write(tid, 22u);
+                }};
+
+            luisa::vector<uint> zeros(N);
+            stream << output.copy_from(luisa::span{zeros})
+                   << synchronize();
+
+            GraphWavefrontCoroScheduler<Buffer<uint>> scheduler{
+                device, coroutine,
+                GraphWavefrontCoroSchedulerConfig{
+                    .thread_count = capacity,
+                    .global_memory_soa = true,
+                    .execution_block_size = 32u,
+                    .counter_readback_batch_size = 1u,
+                    .counter_readback_pipeline_depth = 1u,
+                    .tail_megakernel_threshold = capacity,
+                    .report_stats = true}};
+            scheduler(output).dispatch(N)(stream);
+
+            luisa::vector<uint> host_output(N);
+            stream << output.copy_to(luisa::span{host_output})
+                   << synchronize();
+            for (auto tid = 0u; tid < N; ++tid) {
+                expect(host_output[tid] == ((tid & 1u) == 0u ? 11u : 22u))
+                    << "entry termination and tail continuation must each "
+                       "execute exactly once";
+            }
+            auto &&stats = scheduler.last_dispatch_stats();
+            expect(stats.generated_count == N);
+            expect(stats.tail_dispatch_count == 1u)
+                << "an exact, non-speculative snapshot must switch a small "
+                   "residual set to the graph-derived state machine";
+            expect(stats.tail_instance_count != 0u &&
+                   stats.tail_instance_count <= capacity)
+                << "the tail must contain exactly the latest bounded active "
+                   "set, independent of entry batch boundaries";
+        };
+
+    "graph_wavefront_tail_flattens_multiple_token_queues_bijectively"_test =
+        [options] {
+            constexpr uint N = 32u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+
+            auto coroutine = Coroutine<void(Buffer<uint>)>{
+                [](BufferUInt values) noexcept {
+                    auto tid = dispatch_x();
+                    auto value = tid * 5u;
+                    $if ((tid & 1u) == 0u) {
+                        value += 3u;
+                        $suspend("even_tail");
+                        value += 7u;
+                    }
+                    $else {
+                        value += 11u;
+                        $suspend("odd_tail");
+                        value += 13u;
+                    };
+                    values.write(tid, value);
+                }};
+
+            luisa::vector<uint> zeros(N);
+            stream << output.copy_from(luisa::span{zeros})
+                   << synchronize();
+            GraphWavefrontCoroScheduler<Buffer<uint>> scheduler{
+                device, coroutine,
+                GraphWavefrontCoroSchedulerConfig{
+                    .thread_count = N * 2u,
+                    .global_memory_soa = true,
+                    .execution_block_size = 32u,
+                    .counter_readback_batch_size = 1u,
+                    .counter_readback_pipeline_depth = 1u,
+                    .tail_megakernel_threshold = N,
+                    .report_stats = true}};
+            scheduler(output).dispatch(N)(stream);
+
+            luisa::vector<uint> host_output(N);
+            stream << output.copy_to(luisa::span{host_output})
+                   << synchronize();
+            for (auto tid = 0u; tid < N; ++tid) {
+                auto expected = tid * 5u +
+                                ((tid & 1u) == 0u ? 10u : 24u);
+                expect(host_output[tid] == expected)
+                    << "flattening multiple token queues must neither omit "
+                       "nor duplicate a frame";
+            }
+            auto &&stats = scheduler.last_dispatch_stats();
+            expect(scheduler.active_frame_capacity() == N)
+                << "the ownership pool is the active dispatch capacity, not "
+                   "the larger physical queue storage capacity";
+            expect(stats.tail_dispatch_count == 1u);
+            expect(stats.tail_instance_count == N)
+                << "the exact first snapshot contains both token queues";
+        };
 
     "wavefront_constructor_and_type_check"_test = [] {
         static_assert(std::is_base_of_v<CoroScheduler<Buffer<int>>,
