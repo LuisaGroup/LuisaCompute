@@ -872,6 +872,94 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_generated_dispatch_uses_physical_loop_boundary_arms"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *dispatch_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *zero =
+            module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        builder.set_insertion_point(prepare);
+        builder.cond_br(loop_condition, body, loop_merge);
+
+        builder.set_insertion_point(body);
+        auto *outer = builder.if_(outer_condition);
+        auto *nested_header = outer->create_true_block();
+        auto *payload = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        builder.set_insertion_point(nested_header);
+        auto *nested = builder.if_(dispatch_condition);
+        auto *direct_continue = nested->create_true_block();
+        nested->set_false_target(payload);
+        auto *nested_merge = nested->create_merge_block();
+        builder.set_insertion_point(direct_continue);
+        builder.br(prepare);
+        builder.set_insertion_point(nested_merge);
+        builder.unreachable_();
+
+        builder.set_insertion_point(payload);
+        auto *payload_write = builder.call(
+            ResourceWriteOp::BUFFER_WRITE,
+            {buffer, zero, zero});
+        builder.br(prepare);
+        builder.set_insertion_point(outer_merge);
+        builder.unreachable_();
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        const auto initial_block_count =
+            count_owned_blocks(kernel);
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(payload_write->parent_block() == payload)
+            << "the non-boundary arm's payload must not be folded into a "
+               "physical continue edge";
+        expect(count_owned_blocks(kernel) <=
+               initial_block_count + 20u)
+            << "a generated exit dispatch must be consumed once instead of "
+               "being wrapped once per fixed-point round";
+        auto verification = xir_verify_module(
+            &module,
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
+
+        const auto stable_block_count =
+            count_owned_blocks(kernel);
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(kernel) ==
+               stable_block_count);
+    };
+
     "restructure_module_late_failure_is_atomic_across_functions"_test = [] {
         Module m;
         BasicBlock *first_entry;
@@ -1868,6 +1956,85 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::SWITCH) == 0u);
         expect(count_non_canonical_loop_prepare(def) == 0u);
         expect(count_non_canonical_loop_update(def) == 0u);
+    };
+
+    "restructure_natural_loop_can_start_with_structured_loop"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *definition = kernel->definition();
+        auto *inner_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *inner_owner = definition->create_basic_block();
+        auto *outer_exit = definition->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        builder.br(inner_owner);
+        builder.set_insertion_point(inner_owner);
+        auto *inner_loop = builder.loop();
+        auto *inner_prepare = inner_loop->create_prepare_block();
+        auto *inner_body = inner_loop->create_body_block();
+        auto *inner_update = inner_loop->create_update_block();
+        auto *inner_merge = inner_loop->create_merge_block();
+        builder.set_insertion_point(inner_prepare);
+        builder.cond_br(
+            inner_condition, inner_body, inner_merge);
+        builder.set_insertion_point(inner_body);
+        builder.br(inner_update);
+        builder.set_insertion_point(inner_update);
+        builder.br(inner_prepare);
+        builder.set_insertion_point(inner_merge);
+        builder.cond_br(
+            outer_condition, inner_owner, outer_exit);
+        builder.set_insertion_point(outer_exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.restructured_loop_count == 1u)
+            << "the outer natural loop must wrap the existing structured "
+               "inner loop instead of being reinterpreted as a selection";
+        expect(count_terminator_kind(
+                   definition, DerivedInstructionTag::LOOP) +
+                   count_terminator_kind(
+                       definition,
+                       DerivedInstructionTag::SIMPLE_LOOP) ==
+               2u);
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               count_canonical_conditional_loop_prepare(
+                   definition));
+        expect(count_owned_blocks(definition) <=
+               initial_block_count + 8u)
+            << "recovering the outer loop must have bounded CFG growth";
+        auto verification = xir_verify_module(
+            &module,
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
+
+        const auto stable_block_count =
+            count_owned_blocks(definition);
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) ==
+               stable_block_count);
     };
 
     "restructure_nested_loop_shared_outer_continue_collapses_exit_dispatch"_test = [] {

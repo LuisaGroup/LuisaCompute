@@ -1215,6 +1215,81 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     return kind;
 }
 
+// A semantic path may eventually reach a loop boundary after executing
+// arbitrary work. That fact alone does not make the first edge a physical
+// break/continue edge: SPIR-V may omit a selection merge only when the arm is
+// an exclusive, side-effect-free forwarding chain to that boundary.
+//
+// The proof is local and exact. Every proper forwarding block must contain
+// only its terminator and have the immediately preceding chain block as its
+// sole predecessor. `selection_merge` is an optional convergence barrier: an
+// arm may start at the declared merge, but the sibling arm may not pass
+// through it and still claim an independent boundary edge.
+[[nodiscard]] LoopBoundaryTargetKind
+classify_exclusive_loop_boundary_arm(
+    BasicBlock *branch_header,
+    BasicBlock *entry,
+    BasicBlock *selection_merge,
+    BasicBlock *continue_target,
+    BasicBlock *loop_entry,
+    BasicBlock *merge) noexcept {
+    if (branch_header == nullptr || entry == nullptr ||
+        continue_target == nullptr || loop_entry == nullptr ||
+        merge == nullptr) {
+        return LoopBoundaryTargetKind::NONE;
+    }
+    auto *expected_predecessor = branch_header;
+    auto *block = entry;
+    luisa::unordered_set<BasicBlock *> visited;
+    while (block != nullptr && visited.emplace(block).second) {
+        if (block == continue_target || block == loop_entry) {
+            return LoopBoundaryTargetKind::CONTINUE;
+        }
+        if (block == merge) {
+            return LoopBoundaryTargetKind::BREAK;
+        }
+        if ((block == selection_merge && block != entry) ||
+            !has_only_terminator(block)) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        auto predecessor_count = size_t{0u};
+        auto has_unexpected_predecessor = false;
+        block->traverse_predecessors(
+            false, [&](BasicBlock *predecessor) noexcept {
+                ++predecessor_count;
+                has_unexpected_predecessor |=
+                    predecessor != expected_predecessor;
+            });
+        if (predecessor_count != 1u ||
+            has_unexpected_predecessor) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        auto *terminator = block->terminator();
+        if (terminator->isa<BreakInst>()) {
+            return static_cast<BreakInst *>(terminator)
+                               ->target_block() == merge ?
+                       LoopBoundaryTargetKind::BREAK :
+                       LoopBoundaryTargetKind::NONE;
+        }
+        if (terminator->isa<ContinueInst>()) {
+            auto *target =
+                static_cast<ContinueInst *>(terminator)
+                    ->target_block();
+            return target == continue_target ||
+                           target == loop_entry ?
+                       LoopBoundaryTargetKind::CONTINUE :
+                       LoopBoundaryTargetKind::NONE;
+        }
+        if (!terminator->isa<BranchInst>()) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        expected_predecessor = block;
+        block = static_cast<BranchInst *>(terminator)
+                    ->target_block();
+    }
+    return LoopBoundaryTargetKind::NONE;
+}
+
 [[nodiscard]] bool normalize_one_loop_boundary_conditional_branch(FunctionDefinition *def,
                                                                   luisa::unordered_set<BasicBlock *> &
                                                                       exit_dispatch_headers,
@@ -1262,6 +1337,11 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
         BasicBlock *merge{nullptr};
         BasicBlock *selection_merge{nullptr};
         Value *condition{nullptr};
+        LoopBoundaryTargetKind true_kind{
+            LoopBoundaryTargetKind::NONE};
+        LoopBoundaryTargetKind false_kind{
+            LoopBoundaryTargetKind::NONE};
+        bool generated_boundary_guard{false};
         size_t loop_depth{0u};
     };
     luisa::vector<Candidate> candidates;
@@ -1317,18 +1397,57 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
                 auto one_sided_boundary =
                     singular_boundary(true_kind) !=
                     singular_boundary(false_kind);
-                auto generated_boundary_guard =
+                // Terminal dataflow and physical edge shape are different
+                // facts. A generated state-dispatch arm may perform ordinary
+                // work before eventually continuing the loop; only the exact
+                // forwarding-chain proof permits boundary lowering.
+                auto physical_true_kind =
+                    classify_exclusive_loop_boundary_arm(
+                        branch_block, t, nullptr,
+                        site.continue_target, site.entry,
+                        site.merge);
+                auto physical_false_kind =
+                    classify_exclusive_loop_boundary_arm(
+                        branch_block, f, nullptr,
+                        site.continue_target, site.entry,
+                        site.merge);
+                auto physical_one_sided_boundary =
+                    singular_boundary(physical_true_kind) !=
+                    singular_boundary(physical_false_kind);
+                auto physical_opposing_boundaries =
+                    (physical_true_kind ==
+                         LoopBoundaryTargetKind::BREAK &&
+                     physical_false_kind ==
+                         LoopBoundaryTargetKind::CONTINUE) ||
+                    (physical_true_kind ==
+                         LoopBoundaryTargetKind::CONTINUE &&
+                     physical_false_kind ==
+                         LoopBoundaryTargetKind::BREAK);
+                auto generated_dispatch =
                     generated_exit_dispatch_headers.contains(
-                        branch_block) &&
-                    one_sided_boundary;
-                if (generated_boundary_guard || opposing ||
-                    (allow_one_sided_boundary &&
-                     one_sided_boundary)) {
+                        branch_block);
+                auto generated_boundary_guard =
+                    generated_dispatch &&
+                    (physical_one_sided_boundary ||
+                     physical_opposing_boundaries);
+                if (generated_boundary_guard ||
+                    (!generated_dispatch &&
+                     (opposing ||
+                      (allow_one_sided_boundary &&
+                       one_sided_boundary)))) {
                     candidates.emplace_back(Candidate{
                         branch_block, t, f, site.entry,
                         site.continue_target, site.merge,
                         site.selection_merge,
-                        cbr->condition(), site.depth});
+                        cbr->condition(),
+                        generated_boundary_guard ?
+                            physical_true_kind :
+                            true_kind,
+                        generated_boundary_guard ?
+                            physical_false_kind :
+                            false_kind,
+                        generated_boundary_guard,
+                        site.depth});
                 }
             };
         // A canonical conditional prepare is already the native loop guard.
@@ -1408,8 +1527,8 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     if (cand.branch_block == nullptr || !cand.branch_block->is_terminated()) { return false; }
     auto *old_term = cand.branch_block->terminator();
     if (!old_term->isa<ConditionalBranchInst>()) { return false; }
-    auto true_kind = classify_loop_boundary_path(cand.true_target, cand.continue_target, cand.loop_entry, cand.merge);
-    auto false_kind = classify_loop_boundary_path(cand.false_target, cand.continue_target, cand.loop_entry, cand.merge);
+    auto true_kind = cand.true_kind;
+    auto false_kind = cand.false_kind;
 
     auto opposing =
         (true_kind == LoopBoundaryTargetKind::BREAK &&
@@ -1420,9 +1539,7 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
         singular_boundary(true_kind) !=
         singular_boundary(false_kind);
     auto generated_boundary_guard =
-        generated_exit_dispatch_headers.contains(
-            cand.branch_block) &&
-        (one_sided_boundary || opposing);
+        cand.generated_boundary_guard;
     old_term->remove_self();
     // Keep the exit-dispatch role when a raw dispatch becomes a loop-boundary
     // guard. The IfInst is the structured XIR spelling of a physical branch
@@ -1988,73 +2105,16 @@ void remove_write_only_dispatch_selectors(
     auto *selection_merge = if_inst->merge_block();
     auto true_is_merge = if_inst->true_block() == selection_merge;
     auto false_is_merge = if_inst->false_block() == selection_merge;
-    auto classify_physical_arm =
-        [&](BasicBlock *entry) noexcept {
-            auto *expected_predecessor = if_inst->parent_block();
-            auto *block = entry;
-            luisa::unordered_set<BasicBlock *> visited;
-            while (block != nullptr &&
-                   visited.emplace(block).second) {
-                if (block == continue_target ||
-                    block == loop_entry) {
-                    return LoopBoundaryTargetKind::CONTINUE;
-                }
-                if (block == merge) {
-                    return LoopBoundaryTargetKind::BREAK;
-                }
-                // The declared merge may itself be an arm and then end in a
-                // loop boundary terminator. Reaching it later from the other
-                // arm is ordinary selection convergence, not an independently
-                // lowerable loop-boundary edge.
-                if ((block == selection_merge && entry != selection_merge) ||
-                    !has_only_terminator(block)) {
-                    return LoopBoundaryTargetKind::NONE;
-                }
-
-                auto predecessor_count = size_t{0u};
-                auto has_unexpected_predecessor = false;
-                block->traverse_predecessors(
-                    false,
-                    [&](BasicBlock *predecessor) noexcept {
-                        ++predecessor_count;
-                        has_unexpected_predecessor |=
-                            predecessor != expected_predecessor;
-                    });
-                if (predecessor_count != 1u ||
-                    has_unexpected_predecessor) {
-                    return LoopBoundaryTargetKind::NONE;
-                }
-
-                auto *terminator = block->terminator();
-                if (terminator->isa<BreakInst>()) {
-                    return static_cast<BreakInst *>(terminator)
-                                       ->target_block() == merge ?
-                               LoopBoundaryTargetKind::BREAK :
-                               LoopBoundaryTargetKind::NONE;
-                }
-                if (terminator->isa<ContinueInst>()) {
-                    auto *target =
-                        static_cast<ContinueInst *>(terminator)
-                            ->target_block();
-                    return target == continue_target ||
-                                   target == loop_entry ?
-                               LoopBoundaryTargetKind::CONTINUE :
-                               LoopBoundaryTargetKind::NONE;
-                }
-                if (!terminator->isa<BranchInst>()) {
-                    return LoopBoundaryTargetKind::NONE;
-                }
-                expected_predecessor = block;
-                block = static_cast<BranchInst *>(terminator)
-                            ->target_block();
-            }
-            return LoopBoundaryTargetKind::NONE;
-        };
-
     auto true_kind =
-        classify_physical_arm(if_inst->true_block());
+        classify_exclusive_loop_boundary_arm(
+            if_inst->parent_block(), if_inst->true_block(),
+            selection_merge, continue_target, loop_entry,
+            merge);
     auto false_kind =
-        classify_physical_arm(if_inst->false_block());
+        classify_exclusive_loop_boundary_arm(
+            if_inst->parent_block(), if_inst->false_block(),
+            selection_merge, continue_target, loop_entry,
+            merge);
     auto opposing_boundaries =
         (true_kind == LoopBoundaryTargetKind::BREAK &&
          false_kind == LoopBoundaryTargetKind::CONTINUE) ||
@@ -3919,8 +3979,6 @@ struct SelectionExitDrainResult {
         if (!header->is_terminated()) { continue; }
         if (already_loop_headers.contains(header)) { continue; }
         if (newly_restructured_headers.contains(header)) { continue; }
-        auto *header_term = header->terminator();
-        if (header_term->isa<LoopInst>() || header_term->isa<SimpleLoopInst>()) { continue; }
 
         // Re-validate latches: they may have been modified by earlier restructuring.
         luisa::vector<BasicBlock *> valid_latches;
