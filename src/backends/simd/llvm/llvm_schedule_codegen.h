@@ -110,6 +110,8 @@ struct alignas(8) SIMDHostRayQueryCommittedHit {
     float t{0.0f};
 };
 
+inline constexpr auto simd_host_ray_query_candidate_batch_capacity = 32u;
+
 struct SIMDHostRayQueryState;
 using SIMDHostAccelRayQueryProceed = void(
     uint32_t lane_count, uint64_t active_mask_bits,
@@ -136,6 +138,12 @@ struct alignas(16) SIMDHostRayQueryState {
     uint32_t reserved[2]{};
     SIMDHostRayQuerySurfaceHit candidate{};
     SIMDHostRayQueryCommittedHit committed{};
+    uint32_t candidate_batch_count{0u};
+    uint32_t candidate_batch_index{0u};
+    uint32_t candidate_batch_has_more{0u};
+    uint32_t candidate_batch_initialized{0u};
+    SIMDHostRayQuerySurfaceHit
+        candidate_batch[simd_host_ray_query_candidate_batch_capacity]{};
 };
 
 // Device-side instance metadata reads use this stable plain-data table rather
@@ -181,10 +189,12 @@ static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelRayQueryProceed *) == sizeof(void *));
 static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
-static_assert(sizeof(SIMDHostRayQueryState) == 144u);
+static_assert(sizeof(SIMDHostRayQueryState) == 928u);
 static_assert(offsetof(SIMDHostRayQueryState, world_ray) == 16u);
 static_assert(offsetof(SIMDHostRayQueryState, candidate) == 96u);
 static_assert(offsetof(SIMDHostRayQueryState, committed) == 120u);
+static_assert(offsetof(SIMDHostRayQueryState, candidate_batch_count) == 144u);
+static_assert(offsetof(SIMDHostRayQueryState, candidate_batch) == 160u);
 static_assert(sizeof(SIMDHostAccelInstance) == 80u);
 static_assert(offsetof(SIMDHostAccelInstance, affine) == 0u);
 static_assert(offsetof(SIMDHostAccelInstance, user_id) == 48u);

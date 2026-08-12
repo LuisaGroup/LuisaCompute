@@ -2818,6 +2818,10 @@ void ray_query_packet_probe(
                         state->candidate_kind == 0u &&
                         state->candidate_committed == 0u &&
                         state->terminated == 0u &&
+                        state->candidate_batch_count == 0u &&
+                        state->candidate_batch_index == 0u &&
+                        state->candidate_batch_has_more == 0u &&
+                        state->candidate_batch_initialized == 0u &&
                         state->committed.inst == ~0u &&
                         state->committed.prim == ~0u &&
                         state->committed.kind == 0u &&

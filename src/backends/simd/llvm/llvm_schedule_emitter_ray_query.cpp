@@ -216,6 +216,19 @@ namespace {
     scatter(
         zero_i32, offsetof(SIMDHostRayQueryState, terminated),
         alignof(uint32_t));
+    scatter(
+        zero_i32, offsetof(SIMDHostRayQueryState, candidate_batch_count),
+        alignof(uint32_t));
+    scatter(
+        zero_i32, offsetof(SIMDHostRayQueryState, candidate_batch_index),
+        alignof(uint32_t));
+    scatter(
+        zero_i32, offsetof(SIMDHostRayQueryState, candidate_batch_has_more),
+        alignof(uint32_t));
+    scatter(
+        zero_i32,
+        offsetof(SIMDHostRayQueryState, candidate_batch_initialized),
+        alignof(uint32_t));
 
     auto *invalid_i32 = ::llvm::Constant::getAllOnesValue(i32_lanes);
     scatter(

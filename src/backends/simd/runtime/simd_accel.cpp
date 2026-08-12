@@ -1,5 +1,6 @@
 #include "simd_accel.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -359,12 +360,10 @@ void trace_any_packet(
     }
 }
 
-struct RayQueryScanCandidate {
-    uint32_t inst{RTC_INVALID_GEOMETRY_ID};
-    uint32_t prim{RTC_INVALID_GEOMETRY_ID};
-    float bary[2]{};
-    float t{0.0f};
-    bool found{false};
+struct RayQueryBatchBuildState {
+    bool heapified{false};
+    bool ascending{true};
+    bool descending{true};
 };
 
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -377,7 +376,7 @@ struct RayQueryScanContext {
     RayQueryRTCContext rtc{};
     uint32_t lane_count{0u};
     std::array<SIMDHostRayQueryState *, 16u> states{};
-    std::array<RayQueryScanCandidate, 16u> best{};
+    std::array<RayQueryBatchBuildState, 16u> batch_build{};
 };
 static_assert(offsetof(RayQueryScanContext, rtc) == 0u);
 
@@ -402,11 +401,50 @@ static_assert(offsetof(RayQueryScanContext, rtc) == 0u);
 
 [[nodiscard]] bool ray_query_key_before(
     float t, uint32_t inst, uint32_t prim,
-    const RayQueryScanCandidate &candidate) noexcept {
-    if (!candidate.found) { return true; }
+    const SIMDHostRayQuerySurfaceHit &candidate) noexcept {
     if (t != candidate.t) { return t < candidate.t; }
     if (inst != candidate.inst) { return inst < candidate.inst; }
     return prim < candidate.prim;
+}
+
+[[nodiscard]] bool ray_query_candidate_before(
+    const SIMDHostRayQuerySurfaceHit &lhs,
+    const SIMDHostRayQuerySurfaceHit &rhs) noexcept {
+    return ray_query_key_before(lhs.t, lhs.inst, lhs.prim, rhs);
+}
+
+void ray_query_insert_candidate(
+    SIMDHostRayQueryState &state,
+    RayQueryBatchBuildState &build,
+    SIMDHostRayQuerySurfaceHit candidate) noexcept {
+    constexpr auto capacity =
+        simd_host_ray_query_candidate_batch_capacity;
+    if (state.candidate_batch_count < capacity) {
+        if (state.candidate_batch_count != 0u) {
+            auto &&previous = state.candidate_batch[state.candidate_batch_count - 1u];
+            build.ascending &=
+                !ray_query_candidate_before(candidate, previous);
+            build.descending &=
+                !ray_query_candidate_before(previous, candidate);
+        }
+        state.candidate_batch[state.candidate_batch_count++] = candidate;
+        return;
+    }
+    state.candidate_batch_has_more = 1u;
+    auto begin = std::begin(state.candidate_batch);
+    auto end = begin + state.candidate_batch_count;
+    if (!build.heapified) {
+        std::make_heap(begin, end, ray_query_candidate_before);
+        build.heapified = true;
+        build.ascending = false;
+        build.descending = false;
+    }
+    if (!ray_query_candidate_before(candidate, state.candidate_batch[0u])) {
+        return;
+    }
+    std::pop_heap(begin, end, ray_query_candidate_before);
+    state.candidate_batch[state.candidate_batch_count - 1u] = candidate;
+    std::push_heap(begin, end, ray_query_candidate_before);
 }
 
 void ray_query_filter(
@@ -421,9 +459,10 @@ void ray_query_filter(
     for (auto packet_lane = 0u; packet_lane < arguments->N;
          packet_lane++) {
         if (arguments->valid[packet_lane] != -1) { continue; }
-        // Every candidate is rejected from Embree itself. The closest
-        // lexicographically subsequent candidate is retained in our fixed
-        // per-lane state and exposed to the ordinary SIMD CFG by proceed().
+        // Every candidate is rejected from Embree itself. The closest fixed
+        // batch of lexicographically subsequent candidates is retained in
+        // lane-private state and exposed to the ordinary SIMD CFG by
+        // proceed().
         arguments->valid[packet_lane] = 0;
         auto lane = RTCRayN_id(
             arguments->ray, arguments->N, packet_lane);
@@ -440,31 +479,40 @@ void ray_query_filter(
               t <= state->world_ray[7u]) ||
             inst == RTC_INVALID_GEOMETRY_ID ||
             prim == RTC_INVALID_GEOMETRY_ID ||
-            !ray_query_key_after_cursor(*state, t, inst, prim) ||
-            !ray_query_key_before(
-                t, inst, prim, context->best[lane])) {
+            !ray_query_key_after_cursor(*state, t, inst, prim)) {
             continue;
         }
-        context->best[lane] = RayQueryScanCandidate{
-            .inst = inst,
-            .prim = prim,
-            .bary = {
-                RTCHitN_u(
-                    arguments->hit, arguments->N, packet_lane),
-                RTCHitN_v(
-                    arguments->hit, arguments->N, packet_lane)},
-            .t = t,
-            .found = true,
-        };
+        ray_query_insert_candidate(
+            *state, context->batch_build[lane],
+            SIMDHostRayQuerySurfaceHit{
+                .inst = inst,
+                .prim = prim,
+                .bary = {
+                    RTCHitN_u(
+                        arguments->hit, arguments->N, packet_lane),
+                    RTCHitN_v(
+                        arguments->hit, arguments->N, packet_lane)},
+                .t = t,
+            });
     }
 }
 
 void initialize_ray_query_context(
     RayQueryScanContext &context, uint32_t lane_count,
+    uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) noexcept {
     context.lane_count = lane_count;
     for (auto lane = 0u; lane < lane_count; lane++) {
         context.states[lane] = states[lane];
+        if (!lane_active(active_mask_bits, lane, lane_count)) { continue; }
+        auto *state = states[lane];
+        LUISA_ASSERT(
+            state != nullptr,
+            "SIMD ray-query scan contains a null active state.");
+        state->candidate_batch_count = 0u;
+        state->candidate_batch_index = 0u;
+        state->candidate_batch_has_more = 0u;
+        state->candidate_batch_initialized = 0u;
     }
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
     rtcInitIntersectContext(&context.rtc);
@@ -496,40 +544,53 @@ void initialize_ray_query_inputs(
     }
 }
 
-void publish_ray_query_candidates(
-    const RayQueryScanContext &context, uint64_t active_mask_bits,
+enum struct RayQueryCandidateAdvance : uint8_t {
+    published,
+    needs_scan,
+    terminated,
+};
+
+[[nodiscard]] LUISA_FORCE_INLINE RayQueryCandidateAdvance
+advance_ray_query_candidate(
+    SIMDHostRayQueryState &state,
     const SIMDHostAccelInstanceTable &instances) noexcept {
-    for (auto lane = 0u; lane < context.lane_count; lane++) {
-        if (!lane_active(
-                active_mask_bits, lane, context.lane_count)) {
+    if (state.terminated != 0u) {
+        return RayQueryCandidateAdvance::terminated;
+    }
+    if (state.candidate_batch_initialized == 0u) {
+        return RayQueryCandidateAdvance::needs_scan;
+    }
+    constexpr auto capacity =
+        simd_host_ray_query_candidate_batch_capacity;
+    LUISA_ASSERT(
+        state.candidate_batch_count <= capacity &&
+            state.candidate_batch_index <= state.candidate_batch_count,
+        "SIMD ray-query candidate batch metadata is invalid.");
+    while (state.candidate_batch_index < state.candidate_batch_count) {
+        auto candidate = state.candidate_batch[state.candidate_batch_index++];
+        if (!ray_query_key_after_cursor(
+                state, candidate.t, candidate.inst, candidate.prim)) {
             continue;
         }
-        auto *state = context.states[lane];
-        auto candidate = context.best[lane];
-        if (!candidate.found) {
-            state->candidate_kind = static_cast<uint32_t>(
-                SIMDHostRayQueryCandidateKind::none);
-            state->terminated = 1u;
-            continue;
+        if (candidate.t < state.world_ray[3u]) { continue; }
+        if (candidate.t > state.world_ray[7u]) {
+            state.candidate_batch_index = state.candidate_batch_count;
+            state.candidate_batch_has_more = 0u;
+            break;
         }
-        state->cursor_valid = 1u;
-        state->cursor_inst = candidate.inst;
-        state->cursor_prim = candidate.prim;
-        state->cursor_t = candidate.t;
-        state->candidate = SIMDHostRayQuerySurfaceHit{
-            .inst = candidate.inst,
-            .prim = candidate.prim,
-            .bary = {candidate.bary[0u], candidate.bary[1u]},
-            .t = candidate.t,
-        };
-        state->candidate_committed = 0u;
+        state.cursor_valid = 1u;
+        state.cursor_inst = candidate.inst;
+        state.cursor_prim = candidate.prim;
+        state.cursor_t = candidate.t;
+        state.candidate = candidate;
+        state.candidate_committed = 0u;
         LUISA_ASSERT(
             instances.data != nullptr &&
                 candidate.inst < instances.size,
             "SIMD ray query returned an invalid instance ID {}.",
             candidate.inst);
         if (instances.data[candidate.inst].opaque != 0u) {
-            state->committed = SIMDHostRayQueryCommittedHit{
+            state.committed = SIMDHostRayQueryCommittedHit{
                 .inst = candidate.inst,
                 .prim = candidate.prim,
                 .bary = {candidate.bary[0u], candidate.bary[1u]},
@@ -537,14 +598,50 @@ void publish_ray_query_candidates(
                     SIMDHostRayQueryCandidateKind::surface),
                 .t = candidate.t,
             };
-            state->world_ray[7u] = candidate.t;
-            state->candidate_kind = static_cast<uint32_t>(
+            state.world_ray[7u] = candidate.t;
+            state.candidate_kind = static_cast<uint32_t>(
                 SIMDHostRayQueryCandidateKind::none);
-            state->terminated = 1u;
-        } else {
-            state->candidate_kind = static_cast<uint32_t>(
-                SIMDHostRayQueryCandidateKind::surface);
+            state.terminated = 1u;
+            return RayQueryCandidateAdvance::terminated;
         }
+        state.candidate_kind = static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::surface);
+        return RayQueryCandidateAdvance::published;
+    }
+    if (state.candidate_batch_has_more != 0u) {
+        return RayQueryCandidateAdvance::needs_scan;
+    }
+    state.candidate_kind = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::none);
+    state.terminated = 1u;
+    return RayQueryCandidateAdvance::terminated;
+}
+
+void install_ray_query_candidate_batches(
+    RayQueryScanContext &context, uint64_t active_mask_bits,
+    const SIMDHostAccelInstanceTable &instances) noexcept {
+    for (auto lane = 0u; lane < context.lane_count; lane++) {
+        if (!lane_active(
+                active_mask_bits, lane, context.lane_count)) {
+            continue;
+        }
+        auto *state = context.states[lane];
+        auto &build = context.batch_build[lane];
+        auto begin = std::begin(state->candidate_batch);
+        auto end = begin + state->candidate_batch_count;
+        if (build.heapified) {
+            std::sort_heap(begin, end, ray_query_candidate_before);
+        } else if (build.descending && !build.ascending) {
+            std::reverse(begin, end);
+        } else if (!build.ascending) {
+            std::sort(begin, end, ray_query_candidate_before);
+        }
+        state->candidate_batch_index = 0u;
+        state->candidate_batch_initialized = 1u;
+        auto advanced = advance_ray_query_candidate(*state, instances);
+        LUISA_ASSERT(
+            advanced != RayQueryCandidateAdvance::needs_scan,
+            "A newly scanned SIMD ray-query batch made no progress.");
     }
 }
 
@@ -561,7 +658,8 @@ void scan_ray_query_packet(
         lane_count, active_mask_bits, states,
         components.data(), visibility_masks.data(), times.data());
     RayQueryScanContext context{};
-    initialize_ray_query_context(context, lane_count, states);
+    initialize_ray_query_context(
+        context, lane_count, active_mask_bits, states);
     alignas(64) std::array<int, packet_width> valid{};
     if (terminate_on_first) {
         alignas(64) RayPacket packet{};
@@ -629,7 +727,7 @@ void scan_ray_query_packet(
         }
 #endif
     }
-    publish_ray_query_candidates(
+    install_ray_query_candidate_batches(
         context, active_mask_bits, instances);
 }
 
@@ -645,7 +743,8 @@ void scan_ray_query_scalar(
         1u, active_mask_bits, states,
         components.data(), visibility_masks.data(), times.data());
     RayQueryScanContext context{};
-    initialize_ray_query_context(context, 1u, states);
+    initialize_ray_query_context(
+        context, 1u, active_mask_bits, states);
     if (terminate_on_first) {
         RTCRay ray{};
         initialize_scalar_ray(
@@ -682,7 +781,7 @@ void scan_ray_query_scalar(
         rtcIntersect1(scene, &ray_hit, &arguments);
 #endif
     }
-    publish_ray_query_candidates(
+    install_ray_query_candidate_batches(
         context, active_mask_bits, instances);
 }
 
@@ -1061,7 +1160,14 @@ void SIMDAccel::_ray_query_proceed(
                 state->terminated = 1u;
             }
         }
-        if (state->terminated == 0u) { pending |= bit; }
+        if (state->terminated == 0u) {
+            auto *self = static_cast<SIMDAccel *>(state->accel);
+            auto advanced = advance_ray_query_candidate(
+                *state, self->_instance_table);
+            if (advanced == RayQueryCandidateAdvance::needs_scan) {
+                pending |= bit;
+            }
+        }
     }
 
     while (pending != 0u) {

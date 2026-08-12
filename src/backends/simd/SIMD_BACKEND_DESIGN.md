@@ -1589,15 +1589,52 @@ inactive tails at every supported width. The LLVM boundary regression requires
 one packed callback, distinct active-lane state pointers, null inactive
 pointers, masked state gathers/scatters, and no per-lane traversal callback.
 
-Candidate enumeration is deliberately a correctness-first baseline: an Embree
-filter records the nearest triangle after a lexicographic candidate cursor and
-rejects it physically, so another `PROCEED` can rescan the BVH for the next
-candidate. This preserves handler semantics and batches compatible lanes, but
-long reject chains can traverse the BVH repeatedly. A measured continuation or
-candidate-batch path is still required before calling ray-query performance
-complete. Curves, procedural candidates, cutout/device-opacity mutation,
-nonidentity outer affine composition for SRT motion, and full instance-stack
-semantics remain explicit work.
+Candidate enumeration now retains a bounded speculative batch in the persistent
+lane state. One Embree argument-filter traversal keeps the nearest 32 candidates
+after the lexicographic cursor, using an O(1) append for traversal orders that
+already fit and a max heap only after overflow. The completed batch is sorted
+once, and later `PROCEED` calls advance through it without another BVH scan.
+Commit-time `t_max`, explicit terminate, query-any termination, opaque
+auto-commit, sparse cohorts, and inactive tails all prune or preserve the cache
+without changing handler CFG semantics. More than 32 surviving candidates use
+another grouped packet traversal after the batch is exhausted; the exact
+35-candidate regression exercises that continuation at every width. Curves,
+procedural candidates, cutout/device-opacity mutation, nonidentity outer affine
+composition for SRT motion, and full instance-stack semantics remain explicit
+work.
+
+The rejection-chain benchmark uses the public DSL/runtime path and a scene of
+16 non-opaque triangles; every handler rejects until the farthest candidate.
+On the Ryzen 9 9950X3D Release test host (32 logical CPUs, Embree 4.4.1), each
+final process measured seven samples of 2,097,152 rays. The table reports the
+median of three independent process medians; process order was reversed and
+rotated to expose shared-host drift:
+
+| Backend/width | Old one-candidate scan (Mray/s) | 32-entry batch (Mray/s) | Batch / old | Batch / fallback |
+| --- | ---: | ---: | ---: | ---: |
+| fallback | 37.6157 | 36.6681 | 0.97x | 1.000 |
+| SIMD W1 | 1.99909 | 28.0464 | 14.03x | 0.765 |
+| SIMD W2 | 1.96015 | 22.4157 | 11.44x | 0.611 |
+| SIMD W4 | 2.18383 | 25.6824 | 11.76x | 0.700 |
+| SIMD W8 | 2.39690 | 29.4010 | 12.27x | 0.802 |
+| SIMD W16 | 2.28014 | 29.1311 | 12.78x | 0.795 |
+
+The old column is the pre-change seven-sample process median with a shorter
+sample duration, so it is retained as a diagnostic baseline rather than a
+paired confidence interval. An identical short-harness `perf stat` comparison
+reduced W8 total cycles from 66.53 billion to 5.88 billion and instructions
+from 172.45 billion to 15.01 billion. With 32 candidates, increasing the batch
+from 16 to 32 raised the median-of-three W8 result from 8.086 to 14.724 Mray/s
+while 16-candidate W8/W16 changed by only about -0.5%, within observed host
+noise. The 32-candidate final result is 80.9% of fallback.
+
+A final W8 cycle profile attributes 58.33% to Embree, 27.53% to the SIMD
+runtime, and 13.00% to JIT code (the user handler plus ordinary cohort CFG and
+state accesses). Runtime symbols are dominated by the argument filter (13.10%
+of total cycles), `_ray_query_proceed` including the inlined cache advance
+(8.59%), and batch sorting/installation (5.62%). Thus the former repeated-BVH
+failure is removed for bounded chains; the remaining gap is primarily Embree
+packet/filter and host-boundary work, not a second independent-PC scheduler.
 
 Static-instance transform, user-id, and visibility reads and writes bypass
 runtime callbacks. The accel argument carries a pointer to a stable table
@@ -1868,7 +1905,9 @@ on 2026-08-11. The repository now contains:
 - triangle query-all/query-any state machines lowered into ordinary scheduled
   XIR, with lane-private state, one packet `PROCEED` callback per active cohort,
   surface reject/commit/terminate and opaque auto-commit semantics, static and
-  motion traversal, W2-to-W4 padding, and exact W1/W2/W4/W8/W16 tail coverage;
+  motion traversal, a persistent 32-candidate speculative batch, W2-to-W4
+  padding, and exact W1/W2/W4/W8/W16 tail and 35-candidate continuation
+  coverage;
 - MATRIX and quaternion-SRT motion-instance resources with validated time
   ranges, TLAS-owned keyframe storage, MATRIX outer-affine composition,
   quaternion interpolation, scalar uniform keyframe access, inactive-safe
@@ -1919,10 +1958,11 @@ on 2026-08-11. The repository now contains:
   W16 tail.
 
 The next implementation boundary is completion of the Embree vertical slice:
-measure and remove repeated-BVH cost for long triangle query rejection chains,
-then add opacity/filter semantics, curve/procedural candidates, nonidentity
-outer affine composition for SRT motion, and a direct packet-layout experiment
-guarded by stable measurement. Bindless gradient sampling, broader callable
-conformance, cooperative shared memory, block barriers, and the remaining
-device-library surface follow. The current compiler returns precise diagnostics
-for unsupported features rather than silently accepting them.
+add opacity/cutout semantics, curve/procedural candidates, nonidentity outer
+affine composition for SRT motion, and a direct packet-layout experiment guarded
+by stable measurement. Candidate chains beyond the fixed batch remain a
+measured continuation case rather than an unbounded state allocation. Bindless
+gradient sampling, broader callable conformance, cooperative shared memory,
+block barriers, and the remaining device-library surface follow. The current
+compiler returns precise diagnostics for unsupported features rather than
+silently accepting them.

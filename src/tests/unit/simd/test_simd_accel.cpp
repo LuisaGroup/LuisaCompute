@@ -26,6 +26,7 @@ using namespace boost::ut;
 namespace {
 
 constexpr auto thread_count = 35u;
+constexpr auto deep_query_candidate_count = 35u;
 
 [[nodiscard]] Ray make_host_ray(
     float3 origin, float3 direction,
@@ -184,6 +185,16 @@ int main(int argc, char *argv[]) {
         query_accel.emplace_back(
             mesh, translation(make_float3(0.0f, 0.0f, -2.0f)),
             0x10u, false, 77u);
+        auto deep_query_accel = device.create_accel();
+        for (auto candidate = 0u;
+             candidate < deep_query_candidate_count; candidate++) {
+            deep_query_accel.emplace_back(
+                mesh,
+                translation(make_float3(
+                    0.0f, 0.0f,
+                    -2.0f * static_cast<float>(candidate))),
+                0x20u, false, candidate);
+        }
 
         std::array<Ray, thread_count> host_rays{};
         std::array<uint, thread_count> host_masks{};
@@ -313,6 +324,7 @@ int main(int argc, char *argv[]) {
                << motion_accel.build()
                << instance_motion_accel.build()
                << query_accel.build()
+               << deep_query_accel.build()
                << shader(
                       rays, masks, ids, details, accel,
                       motion_accel, motion_ids, motion_details,
@@ -571,6 +583,60 @@ int main(int argc, char *argv[]) {
                 all(host_query_terminate_metadata[i] ==
                     expected_terminated)))
                 << "triangle ray-query terminate mismatch";
+        }
+
+        // Cross the fixed thirty-two-candidate speculative batch boundary. The
+        // thirty-third candidate must trigger a continuation scan without
+        // duplicating or skipping handler invocations.
+        Kernel1D trace_deep_query = [width](
+                                        AccelVar scene,
+                                        BufferUInt4 metadata) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(0.0f, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 128.0f);
+            UInt callback_count = 0u;
+            auto committed = scene.traverse(
+                                      ray,
+                                      AccelTraceOptions{
+                                          .visibility_mask = 0x20u})
+                                 .on_surface_candidate(
+                                     [&](SurfaceCandidate &candidate) noexcept {
+                                         callback_count += 1u;
+                                         $if (candidate.hit()->inst ==
+                                              deep_query_candidate_count - 1u) {
+                                             candidate.commit();
+                                         };
+                                     })
+                                 .on_procedural_candidate(
+                                     [](ProceduralCandidate &) noexcept {})
+                                 .trace();
+            metadata.write(
+                index,
+                make_uint4(
+                    committed->hit_type, committed->inst,
+                    committed->prim, callback_count));
+        };
+        auto trace_deep_query_shader = device.compile(trace_deep_query);
+        auto deep_query_metadata = device.create_buffer<uint4>(5u);
+        std::array<uint4, 5u> host_deep_query_metadata{};
+        stream << trace_deep_query_shader(
+                      deep_query_accel, deep_query_metadata)
+                      .dispatch(5u)
+               << deep_query_metadata.copy_to(
+                      luisa::span{host_deep_query_metadata})
+               << synchronize();
+        for (auto metadata : host_deep_query_metadata) {
+            expect(static_cast<bool>(
+                all(metadata == make_uint4(
+                                    static_cast<uint32_t>(
+                                        HitType::Surface),
+                                    deep_query_candidate_count - 1u,
+                                    0u, deep_query_candidate_count))))
+                << "deep triangle ray-query continuation mismatch";
         }
 
         Kernel1D trace_motion_instances = [width](

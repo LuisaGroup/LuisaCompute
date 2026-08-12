@@ -694,15 +694,25 @@ commit. An opaque instance auto-commits without entering the surface handler.
 Miss state begins with invalid instance/primitive IDs, `HitType::Miss`, zero
 barycentrics, and zero committed distance.
 
-The current triangle candidate enumerator is a correctness-first packet
-baseline. An Embree argument filter rejects every physical candidate while
-retaining the nearest `(t, instance, primitive)` key after the lane's cursor;
-each subsequent `PROCEED` therefore performs another packet traversal for the
-remaining active lanes. This preserves ordinary scheduler semantics and
-speculatively batches lanes that still share an accel/query mode, but a scene
-with many rejected candidates may rescan its BVH many times. It must not be
-described as the final ray-query performance path until a measured continuation
-or candidate-batch design removes that repeated traversal.
+Triangle candidate enumeration uses a bounded speculative batch. During one
+Embree traversal, the argument filter rejects physical candidates while
+retaining the nearest 32 `(t, instance, primitive)` keys after each lane's
+cursor directly in that lane's persistent query state. Arrival order is not
+assumed: the runtime keeps the closest 32 with a max heap only after overflow,
+then publishes the batch in ascending lexicographic order. A later `PROCEED`
+still crosses the normal packet callback boundary, but consumes the next cached
+candidate without traversing Embree. Commit updates `t_max` immediately and
+invalidates cached candidates beyond it; terminate and opaque auto-commit stop
+the lane without consuming the rest of the batch.
+
+The fixed state ABI is 928 bytes per lane, including the 32 surface hits and
+four explicit batch metadata fields. If more than 32 candidates survive the
+cursor and current interval, exhaustion triggers another grouped packet scan
+starting strictly after the last published key. The permanent 35-candidate
+regression crosses this boundary at W1/W2/W4/W8/W16, including the five-live-
+lane W16 tail, and requires exactly-once ascending handler delivery before the
+last candidate commits. This removes repeated traversal for the common bounded
+case without moving handler execution or its control flow into the runtime.
 
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build, top-level static and motion-instance build, affine
