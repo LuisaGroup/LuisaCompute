@@ -11,6 +11,7 @@
 #include <luisa/coro/coro_frame_storage.h>
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/coro/schedulers/detail/token_index.h>
+#include <luisa/coro/schedulers/graph_wavefront_policy.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/byte_buffer.h>
@@ -30,6 +31,16 @@ struct GraphWavefrontCoroSchedulerConfig {
     // grid-stride bijection over the actual device queue count, so it changes
     // scheduling cost but neither shader identity nor coroutine semantics.
     uint worker_count = 0u;
+    // Consume only one continuation queue per action, selected from exact
+    // host-observed populations. This is a scheduling-order policy; device
+    // ownership and backpressure remain exact. Initially restricted to one
+    // snapshot per readback so no action is chosen from stale state.
+    bool selective_scheduling = false;
+    // Entry refill threshold and optional CoroGraph node names. Zero means
+    // half the active frame capacity. Empty means every selected node is
+    // aligned for refill.
+    uint refill_threshold = 0u;
+    luisa::vector<luisa::string> refill_continuations;
     uint counter_readback_batch_size = 4u;
     // Number of readback slots kept in flight. A value greater than one lets
     // the GPU execute later fixed sweeps while the host waits for an older
@@ -59,6 +70,7 @@ struct GraphWavefrontCoroDispatchStats {
     uint tail_dispatch_count{0u};
     uint tail_instance_count{0u};
     uint worker_count{0u};
+    uint64_t entry_dispatch_count{0u};
     // Host-observed destination populations for each CoroGraph node. Node
     // zero is always zero here because free frames are reported separately.
     // In a non-tail dispatch, summing q[t + 1] over all snapshots is exactly
@@ -67,6 +79,10 @@ struct GraphWavefrontCoroDispatchStats {
     luisa::vector<uint64_t> queued_count_sum;
     luisa::vector<uint64_t> nonempty_snapshot_count;
     luisa::vector<uint> peak_queued_count;
+    luisa::vector<uint> input_field_count;
+    luisa::vector<uint> max_transition_output_field_count;
+    luisa::vector<uint64_t> continuation_dispatch_count;
+    luisa::vector<uint64_t> continuation_executed_count;
     double elapsed_ms{0.0};
 };
 
@@ -117,6 +133,8 @@ private:
     Shader1D<uint, uint> _initialize_shader;
     Shader1D<uint> _clear_counts_shader;
     Shader1D<uint, uint, uint> _prepare_entry_shader;
+    Shader1D<uint, uint, uint, uint, uint, uint> _prepare_action_shader;
+    Shader1D<uint, uint, uint, uint> _carry_queues_shader;
     Shader1D<uint, uint, uint3, Args...> _entry_shader;
     luisa::vector<Shader1D<uint, uint, uint, Args...>>
         _continuation_shaders;
@@ -129,6 +147,9 @@ private:
     luisa::vector<uint> _host_snapshots;
     luisa::vector<uint64_t> _shader_structure_hashes;
     GraphWavefrontCoroDispatchStats _last_dispatch_stats;
+    luisa::vector<uint> _input_field_count;
+    luisa::vector<uint> _max_transition_output_field_count;
+    luisa::vector<uint> _refill_nodes;
     uint _node_count{};
     uint _snapshot_stride{};
     uint _active_frame_capacity{};
@@ -269,6 +290,93 @@ private:
         _prepare_entry_shader = _compile(
             device, prepare_entry, "graph_wavefront_prepare_entry");
 
+        // A selective action consumes at most one continuation. Every other
+        // queue is carried verbatim into the destination bank. Its copied
+        // prefix is published before producers append, so transitions into an
+        // unselected queue append after that prefix without overlap.
+        Kernel1D prepare_action =
+            [queue_counts, work_state, dispatch_state,
+             active_node_count](UInt source_bank, UInt destination_bank,
+                                UInt selected_node, UInt admit_entry,
+                                UInt logical_count,
+                                UInt active_capacity) noexcept {
+                auto counts = Expr<Buffer<uint>>{*queue_counts};
+                auto work = Expr<Buffer<uint>>{*work_state};
+                auto state = Expr<Buffer<uint>>{*dispatch_state};
+                auto free_count = counts.read(0u);
+                auto remaining_capacity = def(active_capacity);
+                auto ownership_valid = def(free_count <= active_capacity);
+                remaining_capacity -= min(free_count, remaining_capacity);
+                for (auto node = 1u; node <= active_node_count; ++node) {
+                    auto source_queue = 1u + source_bank * active_node_count +
+                                        node - 1u;
+                    auto source_count = counts.read(source_queue);
+                    ownership_valid &= source_count <= active_capacity;
+                    ownership_valid &= source_count <= remaining_capacity;
+                    remaining_capacity -= min(
+                        source_count, remaining_capacity);
+                    auto destination_queue =
+                        1u + destination_bank * active_node_count + node - 1u;
+                    auto carry_count = ite(
+                        selected_node == node, 0u, source_count);
+                    counts.write(destination_queue, carry_count);
+                    work.write(5u + node - 1u,
+                               ite(selected_node == node,
+                                   source_count, 0u));
+                }
+                ownership_valid &= remaining_capacity == 0u;
+                auto logical_first = state.read(0u);
+                auto remaining = ite(
+                    logical_first < logical_count,
+                    logical_count - logical_first, 0u);
+                auto admit_count = min(
+                    free_count, remaining) * min(admit_entry, 1u);
+                work.write(0u, logical_first);
+                work.write(1u, 0u);
+                work.write(2u, free_count);
+                $if (ownership_valid) {
+                    auto free_first = free_count - admit_count;
+                    counts.write(0u, free_first);
+                    state.write(0u, logical_first + admit_count);
+                    work.write(1u, admit_count);
+                    work.write(2u, free_first);
+                }
+                $else {
+                    unreachable(
+                        "Graph wavefront selective-action ownership "
+                        "certificate failed before execution.");
+                };
+            };
+        _prepare_action_shader = _compile(
+            device, prepare_action, "graph_wavefront_prepare_action");
+
+        Kernel1D carry_queues =
+            [queue_indices, queue_counts, active_node_count](
+                UInt source_bank, UInt destination_bank,
+                UInt selected_node, UInt storage_capacity) noexcept {
+                auto indices = Expr<Buffer<uint>>{*queue_indices};
+                auto counts = Expr<Buffer<uint>>{*queue_counts};
+                auto x = def(dispatch_x());
+                $while (x < storage_capacity) {
+                    for (auto node = 1u; node <= active_node_count; ++node) {
+                        auto source_queue =
+                            1u + source_bank * active_node_count + node - 1u;
+                        auto destination_queue =
+                            1u + destination_bank * active_node_count + node - 1u;
+                        auto count = counts.read(source_queue);
+                        $if ((selected_node != node) & (x < count)) {
+                            indices.write(
+                                destination_queue * storage_capacity + x,
+                                indices.read(
+                                    source_queue * storage_capacity + x));
+                        };
+                    }
+                    x += dispatch_size_x();
+                };
+            };
+        _carry_queues_shader = _compile(
+            device, carry_queues, "graph_wavefront_carry_queues");
+
         auto token_to_index = detail::make_coro_token_index_callable(coro);
         auto push_frame = Callable<void(uint, uint, uint, uint, uint)>{
             [queue_indices, queue_counts](
@@ -343,6 +451,8 @@ private:
             device, entry, "graph_wavefront_entry");
 
         _continuation_shaders.resize(_node_count);
+        _input_field_count.resize(_node_count, 0u);
+        _max_transition_output_field_count.resize(_node_count, 0u);
         for (auto node_index = 1u; node_index < _node_count; ++node_index) {
             auto subroutine = coro[node_index];
             LUISA_ASSERT(subroutine,
@@ -355,7 +465,12 @@ private:
             for (auto target = 0u; target < _node_count; ++target) {
                 output_fields[target] = coro_frame_collect_output_fields(
                     coro.graph(), node_index, target);
+                _max_transition_output_field_count[node_index] = std::max(
+                    _max_transition_output_field_count[node_index],
+                    static_cast<uint>(output_fields[target].size()));
             }
+            _input_field_count[node_index] =
+                static_cast<uint>(input_fields.size());
             Kernel1D continuation =
                 [&coro, frame_buffer, queue_indices, queue_counts, work_state,
                  block_size,
@@ -404,9 +519,9 @@ private:
         }
 
         // Returning frame indices to the free stack is a publication
-        // transaction. The old free count and the number of returns must be
-        // frozen before the parallel copy; publishing the new free count in
-        // the copy kernel would race with other lanes reading the old count.
+        // transaction. Entry lanes may still be reading the popped stack
+        // suffix while other entry lanes terminate, so returns must remain in
+        // a disjoint queue until every producer kernel has completed.
         Kernel1D prepare_returns = [queue_counts, work_state, return_queue](
                                        UInt storage_capacity,
                                        UInt returned_capacity) noexcept {
@@ -628,6 +743,13 @@ private:
         _last_dispatch_stats.queued_count_sum.resize(_node_count, 0u);
         _last_dispatch_stats.nonempty_snapshot_count.resize(_node_count, 0u);
         _last_dispatch_stats.peak_queued_count.resize(_node_count, 0u);
+        _last_dispatch_stats.continuation_dispatch_count.resize(
+            _node_count, 0u);
+        _last_dispatch_stats.continuation_executed_count.resize(
+            _node_count, 0u);
+        _last_dispatch_stats.input_field_count = _input_field_count;
+        _last_dispatch_stats.max_transition_output_field_count =
+            _max_transition_output_field_count;
         Clock clock;
         struct PendingReadback {
             uint slot{};
@@ -637,6 +759,12 @@ private:
             _config.counter_readback_pipeline_depth;
         auto snapshots_per_slot =
             _config.counter_readback_batch_size;
+        LUISA_ASSERT(
+            !_config.selective_scheduling ||
+                (pipeline_depth == 1u && snapshots_per_slot == 1u),
+            "Exact selective graph-wavefront scheduling currently requires "
+            "one snapshot and one readback slot; delayed actions require the "
+            "Markov predictor.");
         auto elements_per_slot =
             static_cast<size_t>(_snapshot_stride) * snapshots_per_slot;
         auto pending = luisa::vector<PendingReadback>(pipeline_depth);
@@ -645,6 +773,10 @@ private:
         auto observed_sweeps = uint64_t{0u};
         auto latest_live_count = 0u;
         auto latest_generated_count = 0u;
+        auto latest_population = GraphWavefrontPopulation{
+            .queues = luisa::vector<double>(_node_count, 0.0),
+            .generated_count = 0.0};
+        latest_population.queues[0u] = _active_frame_capacity;
         auto done = false;
         auto tail_candidate = false;
 
@@ -664,6 +796,7 @@ private:
                 auto live_count = 0u;
                 for (auto node = 1u; node < _node_count; ++node) {
                     auto queued = _host_snapshots[offset + node];
+                    latest_population.queues[node] = queued;
                     live_count += queued;
                     _last_dispatch_stats.queued_count_sum[node] += queued;
                     _last_dispatch_stats.nonempty_snapshot_count[node] +=
@@ -674,6 +807,9 @@ private:
                 _last_dispatch_stats.max_live_count = std::max(
                     _last_dispatch_stats.max_live_count, live_count);
                 auto generated = _host_snapshots[offset + _node_count];
+                latest_population.queues[0u] =
+                    _active_frame_capacity - live_count;
+                latest_population.generated_count = generated;
                 observed_sweeps++;
                 latest_live_count = live_count;
                 latest_generated_count = generated;
@@ -693,21 +829,68 @@ private:
                 auto source_bank = static_cast<uint>(
                     _last_dispatch_stats.sweep_count & 1u);
                 auto destination_bank = 1u - source_bank;
-                stream << _clear_counts_shader(destination_bank)
-                              .dispatch(active_node_count)
-                       << _prepare_entry_shader(
-                              source_bank, logical_count,
-                              _active_frame_capacity)
-                              .dispatch(1u)
-                       << _entry_shader(destination_bank,
-                                        _config.thread_count, dispatch_size,
-                                        args...)
-                              .dispatch(worker_count);
-                for (auto node = 1u; node < _node_count; ++node) {
-                    stream << _continuation_shaders[node](
+                if (_config.selective_scheduling) {
+                    auto action = graph_wavefront_select_action(
+                        latest_population, logical_count,
+                        _active_frame_capacity, _config.refill_threshold,
+                        luisa::span{_refill_nodes});
+                    stream << _clear_counts_shader(destination_bank)
+                                  .dispatch(active_node_count)
+                           << _prepare_action_shader(
                                   source_bank, destination_bank,
-                                  _config.thread_count, args...)
+                                  action.selected_node,
+                                  static_cast<uint>(action.admit_entry),
+                                  logical_count, _active_frame_capacity)
+                                  .dispatch(1u)
+                           << _carry_queues_shader(
+                                  source_bank, destination_bank,
+                                  action.selected_node,
+                                  _config.thread_count)
                                   .dispatch(worker_count);
+                    if (action.admit_entry) {
+                        stream << _entry_shader(
+                                      destination_bank,
+                                      _config.thread_count, dispatch_size,
+                                      args...)
+                                      .dispatch(worker_count);
+                        _last_dispatch_stats.entry_dispatch_count++;
+                    }
+                    if (action.selected_node != 0u) {
+                        stream << _continuation_shaders[action.selected_node](
+                                      source_bank, destination_bank,
+                                      _config.thread_count, args...)
+                                      .dispatch(worker_count);
+                        _last_dispatch_stats
+                            .continuation_dispatch_count[action.selected_node]++;
+                        _last_dispatch_stats
+                            .continuation_executed_count[action.selected_node] +=
+                            static_cast<uint64_t>(latest_population.queues[
+                                action.selected_node]);
+                    }
+                } else {
+                    stream << _clear_counts_shader(destination_bank)
+                                  .dispatch(active_node_count)
+                           << _prepare_entry_shader(
+                                  source_bank, logical_count,
+                                  _active_frame_capacity)
+                                  .dispatch(1u)
+                           << _entry_shader(
+                                  destination_bank, _config.thread_count,
+                                  dispatch_size, args...)
+                                  .dispatch(worker_count);
+                    _last_dispatch_stats.entry_dispatch_count++;
+                    for (auto node = 1u; node < _node_count; ++node) {
+                        stream << _continuation_shaders[node](
+                                      source_bank, destination_bank,
+                                      _config.thread_count, args...)
+                                      .dispatch(worker_count);
+                        _last_dispatch_stats
+                            .continuation_dispatch_count[node]++;
+                        _last_dispatch_stats
+                            .continuation_executed_count[node] +=
+                            static_cast<uint64_t>(
+                                latest_population.queues[node]);
+                    }
                 }
                 stream << _prepare_returns_shader(
                               _config.thread_count, _active_frame_capacity)
@@ -793,6 +976,14 @@ private:
         // queue banks; they never access frame storage. Their readback buffers
         // still belong to this scheduler, so drain them before reuse/destruction.
         while (consumed < submitted) { consume_oldest(true); }
+        if (!_config.selective_scheduling) {
+            for (auto node = 1u; node < _node_count; ++node) {
+                _last_dispatch_stats.continuation_dispatch_count[node] =
+                    _last_dispatch_stats.sweep_count;
+                _last_dispatch_stats.continuation_executed_count[node] =
+                    _last_dispatch_stats.queued_count_sum[node];
+            }
+        }
         if (report_stats) {
             _last_dispatch_stats.elapsed_ms = clock.toc();
             LUISA_INFO(
@@ -815,10 +1006,19 @@ private:
             for (auto node = 1u; node < _node_count; ++node) {
                 LUISA_INFO(
                     "Graph wavefront queue: index={} queued_sum={} "
-                    "nonempty_snapshots={} peak_queued={}.",
+                    "nonempty_snapshots={} peak_queued={} input_fields={} "
+                    "max_transition_output_fields={} dispatches={} "
+                    "executed={}.",
                     node, _last_dispatch_stats.queued_count_sum[node],
                     _last_dispatch_stats.nonempty_snapshot_count[node],
-                    _last_dispatch_stats.peak_queued_count[node]);
+                    _last_dispatch_stats.peak_queued_count[node],
+                    _last_dispatch_stats.input_field_count[node],
+                    _last_dispatch_stats
+                        .max_transition_output_field_count[node],
+                    _last_dispatch_stats
+                        .continuation_dispatch_count[node],
+                    _last_dispatch_stats
+                        .continuation_executed_count[node]);
             }
         }
     }
@@ -843,6 +1043,19 @@ public:
             _config.counter_readback_pipeline_depth != 0u,
             "Graph wavefront counter readback pipeline must contain at least "
             "one slot.");
+        _refill_nodes.reserve(_config.refill_continuations.size());
+        for (auto &&name : _config.refill_continuations) {
+            auto *node = coro.graph().node_by_name(name);
+            LUISA_ASSERT(node != nullptr && node->index != 0u,
+                         "Graph-wavefront refill continuation '{}' does not "
+                         "name a materialized non-entry CoroGraph node.",
+                         name);
+            _refill_nodes.emplace_back(static_cast<uint>(node->index));
+        }
+        std::sort(_refill_nodes.begin(), _refill_nodes.end());
+        _refill_nodes.erase(
+            std::unique(_refill_nodes.begin(), _refill_nodes.end()),
+            _refill_nodes.end());
         LUISA_ASSERT(
             coro.subroutine_count() > 1u &&
                 coro.subroutine_count() <=

@@ -354,6 +354,7 @@ luisa_compute_add_test(test_coro_compile_trigger unit/dsl/test_coro_compile_trig
 luisa_compute_add_test(test_coro_func            unit/dsl/test_coro_func.cpp            LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_suspend         unit/dsl/test_coro_suspend.cpp         LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_graph unit/coro/test_coro_graph.cpp LABELS "unit;unit_coro")
+luisa_compute_add_test(test_coro_graph_wavefront_policy unit/coro/test_coro_graph_wavefront_policy.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_scheduler_base unit/coro/test_coro_scheduler_base.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_state_machine unit/coro/test_coro_state_machine.cpp)
 luisa_compute_add_test(test_coro_persistent    unit/coro/test_coro_persistent.cpp)

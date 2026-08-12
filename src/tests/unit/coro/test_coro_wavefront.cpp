@@ -214,6 +214,27 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             }
 
             auto &&stats = scheduler.last_dispatch_stats();
+            auto frame_field_count =
+                static_cast<uint>(coroutine.frame().frame_field_count());
+            expect(stats.input_field_count.size() ==
+                   coroutine.graph().node_count());
+            expect(stats.max_transition_output_field_count.size() ==
+                   coroutine.graph().node_count());
+            auto has_partial_input = false;
+            auto has_partial_output = false;
+            for (auto node = 1u; node < coroutine.graph().node_count(); ++node) {
+                has_partial_input |=
+                    stats.input_field_count[node] < frame_field_count;
+                has_partial_output |=
+                    stats.max_transition_output_field_count[node] <
+                    frame_field_count;
+            }
+            expect(has_partial_input)
+                << "continuations must load CoroGraph-certified inputs, not "
+                   "the complete frame";
+            expect(has_partial_output)
+                << "continuations must store edge-certified outputs, not "
+                   "the complete frame";
             expect(stats.generated_count == N);
             expect(stats.counter_snapshot_count == stats.sweep_count);
             expect(stats.counter_snapshot_count ==
@@ -224,6 +245,72 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     << "one contiguous readback must amortize multiple graph "
                        "sweeps";
             }
+        }
+    };
+
+    "graph_wavefront_selective_actions_preserve_queues_and_self_edges"_test = [options] {
+        constexpr uint N = 257u;
+        constexpr uint capacity = 32u;
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+        auto visits = device.create_buffer<uint>(N);
+        auto coroutine = Coroutine<void(Buffer<uint>, Buffer<uint>)>{
+            [](BufferUInt values, BufferUInt loop_visits) noexcept {
+                auto tid = dispatch_x();
+                auto value = tid + 1u;
+                $suspend("first");
+                auto i = def(0u);
+                $while (i < tid % 4u) {
+                    $suspend("loop");
+                    loop_visits.atomic(tid).fetch_add(1u);
+                    value += i + 3u;
+                    i += 1u;
+                };
+                $suspend("last");
+                values.write(tid, value);
+            }};
+        luisa::vector<uint> zeros(N);
+        stream << output.copy_from(luisa::span{zeros})
+               << visits.copy_from(luisa::span{zeros}) << synchronize();
+
+        GraphWavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+            device, coroutine,
+            GraphWavefrontCoroSchedulerConfig{
+                .thread_count = capacity,
+                .global_memory_soa = true,
+                .execution_block_size = 32u,
+                .worker_count = 5u,
+                .selective_scheduling = true,
+                .counter_readback_batch_size = 1u,
+                .counter_readback_pipeline_depth = 1u,
+                .tail_megakernel_threshold = 0u,
+                .report_stats = true}};
+        scheduler(output, visits).dispatch(N)(stream);
+
+        luisa::vector<uint> host_output(N);
+        luisa::vector<uint> host_visits(N);
+        stream << output.copy_to(luisa::span{host_output})
+               << visits.copy_to(luisa::span{host_visits}) << synchronize();
+        for (auto tid = 0u; tid < N; ++tid) {
+            auto expected = tid + 1u;
+            for (auto i = 0u; i < tid % 4u; ++i) {
+                expected += i + 3u;
+            }
+            expect(host_output[tid] == expected);
+            expect(host_visits[tid] == tid % 4u);
+        }
+        expect(scheduler.last_dispatch_stats().generated_count == N);
+        auto &&stats = scheduler.last_dispatch_stats();
+        expect(stats.entry_dispatch_count != 0u);
+        for (auto node = 1u; node < coroutine.graph().node_count(); ++node) {
+            expect(stats.continuation_executed_count[node] <=
+                   stats.queued_count_sum[node])
+                << "selective execution cannot consume more frames than "
+                   "were observed in that queue";
+            expect(stats.continuation_executed_count[node] != 0u);
         }
     };
 
