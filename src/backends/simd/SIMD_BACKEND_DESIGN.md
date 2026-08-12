@@ -1567,7 +1567,7 @@ medians:
 | image processing | 0.488x | 0.914x | 1.290x | 1.678x | 1.972x |
 | voxel ray tracer | 0.850x | 0.286x | 0.428x | 0.736x | 1.066x |
 | Spacex shader | 1.052x | 1.674x | 2.471x | 3.177x | 3.720x |
-| cutout path tracing | 0.654x | 0.414x | 0.481x | 0.522x | 0.504x |
+| cutout path tracing | 0.654x | 0.414x | 0.481x | 0.534x | 0.506x |
 
 Every image, voxel, Spacex, and 64-SPP path-tracing invocation passed its
 gallery comparison. SDF used the internal four-SPP throughput metric; its
@@ -1703,6 +1703,32 @@ real procedural-callable renderer improve by 1.0090x with 4/5 wins. Every
 path, procedural, overflow, and inactive-tail reference check passes. These
 results justify the set-bit specialization while preserving the dense baseline
 rather than claiming a general scheduler rewrite.
+
+The same density rule applies inside Embree's surface-filter callback. A
+profile attributed roughly forty percent of that callback's samples to the
+physical-lane valid check, skip branch, and loop backedge. W8/W16 filter
+invocations now form a fixed-width integer valid mask and visit only its set
+bits; this also handles the sparse callback masks that Embree may produce from
+an initially full cohort. W1/W2/W4 retain the original dense callback. This
+changes no candidate ordering, cursor, overflow, curve-deduplication, or
+packet-width semantics and never reads an inactive state record.
+
+The wide filter lives in a final, append-only runtime translation unit. Its
+context is a shared standard-layout base; the established runtime uses a
+pointer-interconvertible empty derived type so callback recovery from Embree's
+first-member context pointer is defined by the C++ object model. The split
+also prevents GCC from outlining shared candidate insertion from the narrow
+filter. A GCC-only no-partition source option avoids a 65-byte cold clone that
+otherwise shifts existing hot text. In the accepted binary, the narrow
+filter, batch installer, and proceed callback retain their previous addresses,
+sizes, stack frames, and normalized control flow.
+
+Ten final W8/W16 64-spp cutout pairs improve by paired geometric means of
+1.0143x/1.0202x with 10/10 wins at each width. Medians are
+36.196->36.591 and 34.212->34.688 spp/s. W2/W4 dense rejection gates remain
+neutral at 1.0046x/0.9990x, the latter across thirty pairs; fifteen real W8
+procedural-callable pairs are neutral at 0.9978x. An opaque-hit Embree pruning
+experiment was rejected at 0.9877x over ten W8 path pairs.
 
 Vertex-motion triangle meshes now use Embree geometry time steps and the
 configured time range. Motion closest/any instructions carry one

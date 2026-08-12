@@ -799,6 +799,17 @@ LLVM boundary regression covers W4 and W8. No inactive state pointer or
 operand may be inspected before its mask check, and overflow/cursor ordering
 is identical on both paths.
 
+For a W8/W16 packet, the Embree surface filter may first convert the
+fixed-width `valid` array into an integer mask and iterate only its set bits.
+This includes sparse callback masks produced by Embree from an initially full
+cohort. It is an implementation refinement of the same packet callback: it
+must clear every visited Embree-valid entry, preserve candidate ordering,
+curve-primitive deduplication, cursor tests, and overflow behavior, and must
+not inspect any inactive query-state pointer. Every W1/W2/W4 packet uses the
+original dense filter. The shared filter context is a standard-layout base at
+offset zero; any runtime wrapper must be a proven pointer-interconvertible
+empty derived type, not an unrelated layout-compatible reinterpretation.
+
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build; static and control-point-motion round-curve build for
 piecewise-linear, cubic B-spline, Catmull--Rom, and Bezier bases; static and

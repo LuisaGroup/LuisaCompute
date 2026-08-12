@@ -139,7 +139,19 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_shader.cpp
         runtime/simd_stream.cpp
         runtime/simd_thread_pool.cpp
-        runtime/simd_texture.cpp)
+        runtime/simd_texture.cpp
+        # Keep this append-only specialization last so existing narrow
+        # runtime object order and hot-code layout remain stable.
+        runtime/simd_accel_ray_query.cpp)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # Keep the optional W8/W16 ray-query filter from contributing a small
+    # .text.unlikely partition ahead of the established narrow hot text. On
+    # GCC that 65-byte split shifts every narrow callback by 128 bytes and is
+    # measurably harmful even though their machine code is otherwise equal.
+    set_source_files_properties(
+            runtime/simd_accel_ray_query.cpp
+            PROPERTIES COMPILE_OPTIONS "-fno-reorder-blocks-and-partition")
+endif ()
 target_link_libraries(luisa-compute-backend-simd PRIVATE
         luisa-compute-simd-compiler
         embree)

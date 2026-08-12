@@ -1,4 +1,5 @@
 #include "simd_accel.h"
+#include "simd_accel_ray_query.h"
 
 #include <algorithm>
 #include <array>
@@ -6,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 
 #include <luisa/core/logging.h>
 
@@ -379,27 +381,18 @@ void mark_curve_surface_hits(
     }
 }
 
-struct RayQueryBatchBuildState {
-    bool heapified{false};
-    bool ascending{true};
-    bool descending{true};
-};
+using RayQueryBatchBuildState = detail::RayQueryBatchBuildState;
+using RayQueryRTCContext = detail::RayQueryRTCContext;
 
-#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
-using RayQueryRTCContext = RTCIntersectContext;
-#else
-using RayQueryRTCContext = RTCRayQueryContext;
-#endif
-
-struct RayQueryScanContext {
-    RayQueryRTCContext rtc{};
-    uint32_t lane_count{0u};
-    const SIMDHostAccelInstanceTable *instances{nullptr};
-    std::array<SIMDHostRayQueryState *, 16u> states{};
-    std::array<RayQueryBatchBuildState, 16u> batch_build{};
-    std::array<RayQueryBatchBuildState, 16u> procedural_batch_build{};
-};
-static_assert(offsetof(RayQueryScanContext, rtc) == 0u);
+struct RayQueryScanContext final : detail::RayQueryScanContext {};
+static_assert(std::is_standard_layout_v<detail::RayQueryScanContext>);
+static_assert(std::is_standard_layout_v<RayQueryScanContext>);
+static_assert(std::is_pointer_interconvertible_base_of_v<
+              detail::RayQueryScanContext, RayQueryScanContext>);
+static_assert(sizeof(RayQueryScanContext) ==
+              sizeof(detail::RayQueryScanContext));
+static_assert(alignof(RayQueryScanContext) ==
+              alignof(detail::RayQueryScanContext));
 
 thread_local RayQueryScanContext *active_ray_query_scan_context{nullptr};
 
@@ -759,7 +752,7 @@ void initialize_ray_query_context_wide(
     }
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
     rtcInitIntersectContext(&context.rtc);
-    context.rtc.filter = ray_query_filter;
+    context.rtc.filter = detail::ray_query_filter_wide;
 #else
     rtcInitRayQueryContext(&context.rtc);
 #endif
@@ -1119,6 +1112,13 @@ void scan_ray_query_packet_wide(
         initialize_ray_query_context_wide(
             context, lane_count, active_mask_bits, states, instances);
     }
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    // Embree 3 stores the filter on the intersect context rather than the
+    // per-call arguments used by Embree 4. Keep the W8/W16 callback contract
+    // identical across both APIs, including for an initially full cohort:
+    // traversal may still present a sparse valid mask to the filter.
+    context.rtc.filter = detail::ray_query_filter_wide;
+#endif
     alignas(64) std::array<int, packet_width> valid{};
     ScopedRayQueryScanContext active_context{context};
     if (terminate_on_first) {
@@ -1142,7 +1142,7 @@ void scan_ray_query_packet_wide(
         arguments.flags = static_cast<RTCRayQueryFlags>(
             arguments.flags |
             RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
-        arguments.filter = ray_query_filter;
+        arguments.filter = detail::ray_query_filter_wide;
         if constexpr (packet_width == 8u) {
             rtcOccluded8(valid.data(), scene, &packet, &arguments);
         } else {
@@ -1171,7 +1171,7 @@ void scan_ray_query_packet_wide(
         arguments.flags = static_cast<RTCRayQueryFlags>(
             arguments.flags |
             RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
-        arguments.filter = ray_query_filter;
+        arguments.filter = detail::ray_query_filter_wide;
         if constexpr (packet_width == 8u) {
             rtcIntersect8(valid.data(), scene, &packet, &arguments);
         } else {

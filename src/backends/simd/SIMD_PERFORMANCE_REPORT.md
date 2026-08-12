@@ -21,9 +21,9 @@ Cutout path tracing uses 64 spp and forces one spp per dispatch on both backends
 to remove a batching asymmetry. Image, voxel, Spacex, and path tracing compare
 every measured output with the repository gallery reference. SDF uses its
 internal four-SPP throughput metric; high-SPP SDF image comparison remains a
-separate conformance gate. The accepted runtime-sparse study below supersedes
-the W8/W16 cutout cells with ten-pair medians; other cells retain the
-seven-process sweep.
+separate conformance gate. The accepted runtime-sparse studies below supersede
+the W8/W16 cutout cells with the latest ten-pair medians; other cells retain
+the seven-process sweep.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -36,7 +36,7 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 35.816 (0.522x) | 34.525 (0.504x) |
+| cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 36.591 (0.534x) | 34.688 (0.506x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -158,6 +158,33 @@ gate is neutral-positive at 1.0024x (8/12 wins). W1/W2/W4 ten-pair gates are
 1.0001x, 1.0036x, and 1.0071x respectively. Five final-binary W8 pairs of
 the real procedural-callable renderer improve by a 1.0090x geometric mean
 with 4/5 wins; all five gallery comparisons pass.
+
+The next `perf annotate` pass localized about forty percent of the surface
+filter's own samples to its physical-lane `valid == -1` check, skip branch,
+and loop backedge. The accepted W8/W16 filter first compares the fixed Embree
+valid array into a small integer bit mask and then visits only set bits with
+`countr_zero`/clear-lowest-bit. It remains target-independent C++ and retains
+the exact packet width; inactive state pointers are never dereferenced. The
+same callback handles sparse valid masks produced from an initially full
+cohort, while W1/W2/W4 still use the original dense filter.
+
+This filter is isolated in an append-only translation unit. A shared
+standard-layout context base plus a pointer-interconvertible empty derived
+type avoids unrelated-struct aliasing. On GCC only, that source disables hot/
+cold block partitioning: a measured 65-byte `.text.unlikely` clone otherwise
+shifted all established narrow callbacks and produced a repeatable narrow
+layout regression. The final narrow filter, batch installer, and proceed
+callback have the same addresses, sizes, stack frames, and normalized control
+flow as the preceding binary; `.init_array` also remains 104 bytes.
+
+With this final layout, ten alternating W8 64-spp cutout pairs all improve;
+the paired geometric-mean speedup is 1.0143x and medians move from 36.196 to
+36.591 spp/s. Ten W16 pairs also all improve, by 1.0202x; medians move from
+34.212 to 34.688 spp/s. W2 ten-pair and W4 thirty-pair dense rejection gates
+are neutral at 1.0046x and 0.9990x. Fifteen W8 procedural-callable pairs are
+neutral at 0.9978x, and all reference comparisons pass. An alternative that
+let Embree accept opaque closest-query hits while also batching them was
+rejected: ten W8 path pairs measured 0.9877x with only 2/10 wins.
 
 ## Same-algorithm ISPC control and provenance
 
