@@ -11,6 +11,7 @@
 #include <luisa/coro/schedulers/detail/token_index.h>
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/coro/radix_sort.h>
+#include <luisa/coro/schedulers/wavefront_auxiliary.h>
 #include <luisa/core/clock.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
@@ -78,6 +79,13 @@ struct WavefrontCoroContinuationStats {
     uint peak_queued_count{0u};
 };
 
+struct WavefrontCoroAuxiliaryStats {
+    luisa::string name;
+    uint64_t dispatch_count{0u};
+    uint64_t executed_count{0u};
+    uint peak_queued_count{0u};
+};
+
 /// Diagnostics for the most recent dispatch. Collection is enabled by
 /// WavefrontCoroSchedulerConfig::report_stats or
 /// LUISA_CORO_WAVEFRONT_STATS. It is a host-only observation: enabling it
@@ -93,6 +101,7 @@ struct WavefrontCoroDispatchStats {
     uint max_active_count{0u};
     double elapsed_ms{0.0};
     luisa::vector<WavefrontCoroContinuationStats> continuations;
+    luisa::vector<WavefrontCoroAuxiliaryStats> auxiliary_work;
 };
 
 template<typename... Args>
@@ -103,6 +112,12 @@ public:
     using Config = WavefrontCoroSchedulerConfig;
 
 private:
+    using AuxiliaryWork = WavefrontCoroAuxiliaryWork<Args...>;
+    struct RegisteredAuxiliaryWork {
+        luisa::shared_ptr<AuxiliaryWork> work;
+        luisa::vector<uint> max_emitted_per_continuation;
+    };
+
     Config _config;
     ByteBuffer _frame_buffer;
     Shader1D<uint, Buffer<uint>, uint, uint, uint, uint, uint3, Args...>
@@ -135,10 +150,12 @@ private:
     luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
     luisa::vector<uint64_t> _shader_structure_hashes;
     WavefrontCoroDispatchStats _last_dispatch_stats;
+    luisa::vector<RegisteredAuxiliaryWork> _auxiliary_work;
     size_t _hint_field_index{static_cast<size_t>(-1)};
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
     bool _has_hint_sort{false};
+    bool _has_dispatched{false};
 
 private:
     [[nodiscard]] static auto _linear_dispatch_index() noexcept {
@@ -635,6 +652,11 @@ private:
             continuation.executed_count = 0u;
             continuation.peak_queued_count = 0u;
         }
+        for (auto &work : _last_dispatch_stats.auxiliary_work) {
+            work.dispatch_count = 0u;
+            work.executed_count = 0u;
+            work.peak_queued_count = 0u;
+        }
         // `thread_count` is the allocated frame-pool ceiling, not a mandate to
         // initialize and scan every slot. A paper-scale pool (2^24 frames) is
         // intentionally much larger than many tiled or diagnostic dispatches;
@@ -656,6 +678,10 @@ private:
             _host_offset[i] = i == 0u ? 0u : _active_frame_capacity;
         }
         stream << _resume_count.copy_from(luisa::span{_host_count.data(), _host_count.size()});
+        for (auto &&registered : _auxiliary_work) {
+            registered.work->reset(stream);
+        }
+        _has_dispatched = true;
 
         auto dispatch_counter = 0u;
         auto trace_iterations =
@@ -694,6 +720,13 @@ private:
                 gather_scan_count += scan_count;
             }
             max_scan_count = std::max(max_scan_count, scan_count);
+            // Queue-count readbacks are ordered after all producers and side
+            // consumers from the previous iteration. The scheduler's normal
+            // main-queue synchronization below also completes these copies,
+            // so observing side queues adds no host synchronization point.
+            for (auto &&registered : _auxiliary_work) {
+                registered.work->enqueue_count_readback(stream);
+            }
             if (_config.incremental_continuation_counts) {
                 stream << _resume_count.copy_to(
                               luisa::span{_host_count.data(),
@@ -766,6 +799,29 @@ private:
                 }
             }
             max_active_count = std::max(max_active_count, active_count);
+            auto auxiliary_active_count = uint64_t{0u};
+            auto selected_auxiliary = _auxiliary_work.size();
+            auto selected_auxiliary_count = 0u;
+            for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
+                auto count = _auxiliary_work[i].work->host_count();
+                LUISA_ASSERT(
+                    count <= _auxiliary_work[i].work->capacity(),
+                    "Wavefront auxiliary queue '{}' contains {} items, "
+                    "exceeding its capacity {}.",
+                    _auxiliary_work[i].work->name(), count,
+                    _auxiliary_work[i].work->capacity());
+                auxiliary_active_count += count;
+                if (report_stats) {
+                    auto &work =
+                        _last_dispatch_stats.auxiliary_work[i];
+                    work.peak_queued_count = std::max(
+                        work.peak_queued_count, count);
+                }
+                if (count > selected_auxiliary_count) {
+                    selected_auxiliary = i;
+                    selected_auxiliary_count = count;
+                }
+            }
             LUISA_ASSERT(active_count <= scan_count,
                          "Wavefront coroutine queue invariant violation: active frames ({}) exceed scanned frame prefix ({}).",
                          active_count, scan_count);
@@ -788,7 +844,10 @@ private:
                 _host_offset[i] = active_offset;
                 active_offset += _host_count[i];
             }
-            if (dispatch_counter == N && active_count == 0u) { break; }
+            if (dispatch_counter == N && active_count == 0u &&
+                auxiliary_active_count == 0u) {
+                break;
+            }
 
             auto selected = nc;
             auto selected_count = 0u;
@@ -802,11 +861,53 @@ private:
                 }
             }
 
+            // Side work competes with main continuations by queue
+            // cardinality. A producer whose complete queue cannot be
+            // admitted without overflowing a side queue is blocked and that
+            // side queue is drained first. Registration proves that an empty
+            // side queue can always admit a full main continuation queue.
+            auto forced_auxiliary = _auxiliary_work.size();
+            auto forced_auxiliary_count = 0u;
+            if (selected < nc && selected_count != 0u) {
+                for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
+                    auto &&registered = _auxiliary_work[i];
+                    auto bound =
+                        registered.max_emitted_per_continuation[selected];
+                    if (bound == 0u) { continue; }
+                    auto queued = registered.work->host_count();
+                    auto required =
+                        static_cast<uint64_t>(selected_count) * bound;
+                    if (!wavefront_auxiliary_queue_can_admit(
+                            registered.work->capacity(), queued,
+                            selected_count, bound)) {
+                        LUISA_ASSERT(
+                            queued != 0u,
+                            "Wavefront auxiliary queue '{}' cannot admit "
+                            "continuation '{}' even while empty (required={}, "
+                            "capacity={}).",
+                            registered.work->name(),
+                            _last_dispatch_stats.continuations[selected].name,
+                            required, registered.work->capacity());
+                        if (queued > forced_auxiliary_count) {
+                            forced_auxiliary = i;
+                            forced_auxiliary_count = queued;
+                        }
+                    }
+                }
+            }
+            auto dispatch_auxiliary =
+                forced_auxiliary != _auxiliary_work.size() ?
+                    forced_auxiliary :
+                    (selected_auxiliary_count > selected_count ?
+                         selected_auxiliary :
+                         _auxiliary_work.size());
+
             // The legacy counter/gather path materializes every queue before
             // the refill decision because compaction may need queue zero's
             // empty-slot indices. Keep that established ordering unchanged;
             // only the incremental policy defers a selected-token gather.
-            if (!_config.incremental_continuation_counts &&
+            if (dispatch_auxiliary == _auxiliary_work.size() &&
+                !_config.incremental_continuation_counts &&
                 !_config.gather_by_sorting && scan_count != 0u) {
                 stream << _resume_offset.copy_from(
                               luisa::span{_host_offset.data(),
@@ -831,7 +932,8 @@ private:
             // fixed point and make forward progress impossible.
             auto should_refill = active_count == 0u ||
                                  active_count < refill_threshold;
-            if (should_refill && refill_aligned &&
+            if (dispatch_auxiliary == _auxiliary_work.size() &&
+                should_refill && refill_aligned &&
                 dispatch_counter < N) {
                 auto gen_count = std::min(N - dispatch_counter, empty_count);
                 auto frame_offset = active_count;
@@ -887,6 +989,23 @@ private:
                     _used_frame_count = frame_offset + gen_count;
                 }
             } else {
+                if (dispatch_auxiliary != _auxiliary_work.size()) {
+                    auto &&registered =
+                        _auxiliary_work[dispatch_auxiliary];
+                    auto count = registered.work->host_count();
+                    LUISA_ASSERT(count != 0u,
+                                 "Selected an empty wavefront auxiliary "
+                                 "queue '{}'.",
+                                 registered.work->name());
+                    registered.work->dispatch(stream, args...);
+                    if (report_stats) {
+                        auto &work = _last_dispatch_stats
+                                         .auxiliary_work[dispatch_auxiliary];
+                        work.dispatch_count++;
+                        work.executed_count += count;
+                    }
+                    continue;
+                }
                 if (_config.incremental_continuation_counts &&
                     selected < nc && selected_count != 0u &&
                     scan_count != 0u) {
@@ -968,6 +1087,14 @@ private:
                     continuation.executed_count,
                     continuation.peak_queued_count);
             }
+            for (auto &&work :
+                 _last_dispatch_stats.auxiliary_work) {
+                LUISA_INFO(
+                    "Wavefront auxiliary: name='{}' dispatches={} "
+                    "executed={} peak_queued={}.",
+                    work.name, work.dispatch_count,
+                    work.executed_count, work.peak_queued_count);
+            }
         }
     }
 
@@ -977,6 +1104,81 @@ public:
     [[nodiscard]] const WavefrontCoroDispatchStats &
     last_dispatch_stats() const noexcept {
         return _last_dispatch_stats;
+    }
+    void register_auxiliary_work(
+        luisa::shared_ptr<AuxiliaryWork> work) noexcept {
+        LUISA_ASSERT(work != nullptr,
+                     "Cannot register null wavefront auxiliary work.");
+        LUISA_ASSERT(!_has_dispatched,
+                     "Wavefront auxiliary work must be registered before "
+                     "the first dispatch.");
+        LUISA_ASSERT(
+            _config.largest_continuation_first,
+            "Wavefront auxiliary admission control requires greedy "
+            "one-continuation-at-a-time scheduling.");
+        LUISA_ASSERT(work->capacity() != 0u,
+                     "Wavefront auxiliary queue '{}' must have positive "
+                     "capacity.",
+                     work->name());
+        for (auto &&registered : _auxiliary_work) {
+            LUISA_ASSERT(
+                registered.work->name() != work->name(),
+                "Duplicate wavefront auxiliary queue name '{}'.",
+                work->name());
+        }
+        RegisteredAuxiliaryWork registered{
+            .work = std::move(work),
+            .max_emitted_per_continuation =
+                luisa::vector<uint>(
+                    _last_dispatch_stats.continuations.size(), 0u)};
+        for (auto &&producer : registered.work->producers()) {
+            LUISA_ASSERT(
+                producer.max_emitted_per_invocation != 0u,
+                "Wavefront auxiliary producer '{}' for queue '{}' must "
+                "have a positive emission bound.",
+                producer.continuation, registered.work->name());
+            auto node_index =
+                _last_dispatch_stats.continuations.size();
+            for (size_t i = 1u;
+                 i < _last_dispatch_stats.continuations.size(); ++i) {
+                if (_last_dispatch_stats.continuations[i].name ==
+                    producer.continuation) {
+                    node_index = i;
+                    break;
+                }
+            }
+            LUISA_ASSERT(
+                node_index < _last_dispatch_stats.continuations.size(),
+                "Wavefront auxiliary producer '{}' for queue '{}' does "
+                "not name a non-entry coroutine continuation.",
+                producer.continuation, registered.work->name());
+            LUISA_ASSERT(
+                registered.max_emitted_per_continuation[node_index] == 0u,
+                "Wavefront auxiliary queue '{}' repeats producer '{}'.",
+                registered.work->name(), producer.continuation);
+            auto maximum_full_queue_emission =
+                static_cast<uint64_t>(_config.thread_count) *
+                producer.max_emitted_per_invocation;
+            LUISA_ASSERT(
+                wavefront_auxiliary_queue_can_admit(
+                    registered.work->capacity(), 0u,
+                    _config.thread_count,
+                    producer.max_emitted_per_invocation),
+                "Wavefront auxiliary queue '{}' capacity {} cannot admit "
+                "the proven full-queue emission bound {} from '{}'.",
+                registered.work->name(), registered.work->capacity(),
+                maximum_full_queue_emission, producer.continuation);
+            registered.max_emitted_per_continuation[node_index] =
+                producer.max_emitted_per_invocation;
+        }
+        LUISA_ASSERT(
+            !registered.work->producers().empty(),
+            "Wavefront auxiliary queue '{}' has no producers.",
+            registered.work->name());
+        _last_dispatch_stats.auxiliary_work.emplace_back(
+            WavefrontCoroAuxiliaryStats{
+                .name = luisa::string{registered.work->name()}});
+        _auxiliary_work.emplace_back(std::move(registered));
     }
     /// Structural hashes of the scheduler-owned generate, continuation, and
     /// queue-management kernels. These exclude allocation sizes and provide a

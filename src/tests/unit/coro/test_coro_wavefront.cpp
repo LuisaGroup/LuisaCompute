@@ -15,12 +15,93 @@
 #include <luisa/runtime/stream.h>
 
 #include <algorithm>
+#include <limits>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
 using namespace boost::ut;
 using namespace boost::ut::literals;
+
+namespace {
+
+class TestWavefrontAuxiliaryWork final
+    : public WavefrontCoroAuxiliaryWork<
+          Buffer<uint>, Buffer<uint>, Buffer<uint>> {
+
+private:
+    Buffer<uint> _items;
+    Buffer<uint> _count;
+    Shader1D<Buffer<uint>, Buffer<uint>, Buffer<uint>, uint>
+        _consumer;
+    luisa::vector<WavefrontCoroAuxiliaryProducer> _producers;
+    uint _capacity{};
+    uint _host_count{};
+    uint _zero{};
+
+public:
+    TestWavefrontAuxiliaryWork(
+        Device &device, uint capacity,
+        luisa::vector<WavefrontCoroAuxiliaryProducer> producers)
+        : _items{device.create_buffer<uint>(capacity)},
+          _count{device.create_buffer<uint>(1u)},
+          _producers{std::move(producers)},
+          _capacity{capacity} {
+        auto *items = &_items;
+        Kernel1D consume = [items](
+                               BufferUInt,
+                               BufferUInt auxiliary_visits,
+                               BufferUInt,
+                               UInt count) noexcept {
+            auto item_buffer = Expr<Buffer<uint>>{*items};
+            auto x = dispatch_x();
+            $if(x < count) {
+                auto logical_id = item_buffer.read(x);
+                auxiliary_visits.atomic(logical_id).fetch_add(1u);
+            };
+        };
+        _consumer = device.compile(consume);
+    }
+
+    [[nodiscard]] luisa::string_view name() const noexcept override {
+        return "test_side_work";
+    }
+    [[nodiscard]] uint capacity() const noexcept override {
+        return _capacity;
+    }
+    [[nodiscard]] luisa::span<const WavefrontCoroAuxiliaryProducer>
+    producers() const noexcept override {
+        return _producers;
+    }
+    void reset(Stream &stream) noexcept override {
+        _host_count = 0u;
+        stream << _count.copy_from(luisa::span{&_zero, 1u});
+    }
+    void enqueue_count_readback(Stream &stream) noexcept override {
+        stream << _count.copy_to(luisa::span{&_host_count, 1u});
+    }
+    [[nodiscard]] uint host_count() const noexcept override {
+        return _host_count;
+    }
+    void dispatch(Stream &stream,
+                  BufferView<uint> main_visits,
+                  BufferView<uint> auxiliary_visits,
+                  BufferView<uint> overflow) noexcept override {
+        auto count = _host_count;
+        LUISA_ASSERT(count != 0u && count <= _capacity,
+                     "Invalid test auxiliary dispatch count {}.", count);
+        stream << _consumer(
+                      main_visits, auxiliary_visits, overflow, count)
+                      .dispatch(count)
+               << _count.copy_from(luisa::span{&_zero, 1u});
+        _host_count = 0u;
+    }
+
+    [[nodiscard]] auto &items() noexcept { return _items; }
+    [[nodiscard]] auto &count() noexcept { return _count; }
+};
+
+}// namespace
 
 void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
@@ -192,6 +273,124 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         expect_node("even", N / 2u, N / 2u);
         expect_node("odd", N / 2u, N / 2u);
         expect_node("join", N, N);
+    };
+
+    "wavefront_auxiliary_work_is_bounded_and_exact"_test = [options] {
+        constexpr uint N = 20u;
+        constexpr uint capacity = 8u;
+
+        static_assert(wavefront_auxiliary_queue_can_admit(8u, 0u, 8u, 1u));
+        static_assert(wavefront_auxiliary_queue_can_admit(8u, 2u, 3u, 2u));
+        static_assert(!wavefront_auxiliary_queue_can_admit(8u, 1u, 8u, 1u));
+        static_assert(!wavefront_auxiliary_queue_can_admit(8u, 9u, 0u, 1u));
+        static_assert(wavefront_auxiliary_queue_can_admit(
+            std::numeric_limits<uint>::max(), 0u,
+            std::numeric_limits<uint>::max(), 1u));
+        static_assert(!wavefront_auxiliary_queue_can_admit(
+            std::numeric_limits<uint>::max(), 0u,
+            std::numeric_limits<uint>::max(),
+            std::numeric_limits<uint>::max()));
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        for (auto incremental : {false, true}) {
+            auto main_visits = device.create_buffer<uint>(N);
+            auto auxiliary_visits = device.create_buffer<uint>(N);
+            auto overflow = device.create_buffer<uint>(1u);
+            luisa::vector<uint> zero_visits(N);
+            uint zero = 0u;
+            stream << main_visits.copy_from(luisa::span{zero_visits})
+                   << auxiliary_visits.copy_from(luisa::span{zero_visits})
+                   << overflow.copy_from(luisa::span{&zero, 1u})
+                   << synchronize();
+
+            auto auxiliary = luisa::make_shared<TestWavefrontAuxiliaryWork>(
+                device, capacity,
+                luisa::vector<WavefrontCoroAuxiliaryProducer>{
+                    {.continuation = "sparse_publish",
+                     .max_emitted_per_invocation = 1u},
+                    {.continuation = "dense_publish",
+                     .max_emitted_per_invocation = 1u}});
+            auto *items = &auxiliary->items();
+            auto *item_count = &auxiliary->count();
+            auto coro = Coroutine<void(
+                Buffer<uint>, Buffer<uint>, Buffer<uint>)>(
+                [items, item_count, capacity](BufferUInt main_output,
+                                              BufferUInt,
+                                              BufferUInt overflow_output) {
+                    auto item_buffer = Expr<Buffer<uint>>{*items};
+                    auto count_buffer = Expr<Buffer<uint>>{*item_count};
+                    auto tid = dispatch_x();
+                    $suspend("sparse_publish");
+                    $if((tid % capacity) == 0u) {
+                        auto slot = count_buffer.atomic(0u).fetch_add(1u);
+                        $if(slot < capacity) {
+                            item_buffer.write(slot, tid);
+                        }
+                        $else {
+                            overflow_output.atomic(0u).fetch_add(1u);
+                        };
+                    };
+                    $suspend("dense_publish");
+                    auto slot = count_buffer.atomic(0u).fetch_add(1u);
+                    $if(slot < capacity) {
+                        item_buffer.write(slot, tid);
+                    }
+                    $else {
+                        overflow_output.atomic(0u).fetch_add(1u);
+                    };
+                    main_output.atomic(tid).fetch_add(1u);
+                });
+
+            WavefrontCoroScheduler<
+                Buffer<uint>, Buffer<uint>, Buffer<uint>> scheduler{
+                device, coro,
+                WavefrontCoroSchedulerConfig{
+                    .thread_count = capacity,
+                    .gather_by_sorting = false,
+                    .frame_buffer_compaction = true,
+                    .report_stats = true,
+                    .execution_block_size = 32u,
+                    .largest_continuation_first = true,
+                    .incremental_continuation_counts = incremental}};
+            scheduler.register_auxiliary_work(auxiliary);
+            scheduler(main_visits, auxiliary_visits, overflow)
+                .dispatch(N)(stream);
+
+            luisa::vector<uint> host_main(N);
+            luisa::vector<uint> host_auxiliary(N);
+            uint host_overflow = ~0u;
+            stream << main_visits.copy_to(luisa::span{host_main})
+                   << auxiliary_visits.copy_to(luisa::span{host_auxiliary})
+                   << overflow.copy_to(luisa::span{&host_overflow, 1u})
+                   << synchronize();
+
+            expect(host_overflow == 0u)
+                << "admission control must prevent auxiliary queue overflow";
+            expect(std::all_of(host_main.begin(), host_main.end(),
+                               [](auto count) noexcept { return count == 1u; }))
+                << "auxiliary scheduling must not perturb main coroutine work";
+            auto auxiliary_exact = true;
+            for (auto i = 0u; i < N; ++i) {
+                auto expected = 1u + static_cast<uint>((i % capacity) == 0u);
+                auxiliary_exact &= host_auxiliary[i] == expected;
+            }
+            expect(auxiliary_exact)
+                << "every published auxiliary item must execute exactly once";
+
+            auto &&stats = scheduler.last_dispatch_stats();
+            expect(stats.auxiliary_work.size() == 1u);
+            if (!stats.auxiliary_work.empty()) {
+                auto &&side = stats.auxiliary_work.front();
+                expect(side.name == "test_side_work");
+                expect(side.executed_count == N + 3u);
+                expect(side.dispatch_count == 5u)
+                    << "full frame batches must drain sparse work before the "
+                       "dense producer, while a safe tail may coalesce";
+                expect(side.peak_queued_count == capacity);
+            }
+        }
     };
 
     "wavefront_fixed_capacity_pool_runs_oversubscribed_dispatch"_test = [options] {
