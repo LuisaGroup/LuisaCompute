@@ -63,26 +63,20 @@ int main(int argc, char *argv[]) {
     // time without changing the rendered result. Keep other backends uncapped
     // and retain the command-line override for architecture-specific tuning.
     auto max_registers = std::string_view{argv[1]} == "hip" ? 176u : 0u;
-    std::optional<uint32_t> max_spp_per_dispatch_override;
     for (auto i = 2; i < argc; i++) {
         auto option = std::string_view{argv[i]};
-        if (option == "--max-registers" ||
-            option == "--max-spp-per-dispatch") {
+        if (option == "--max-registers") {
             if (i + 1 >= argc) {
                 LUISA_WARNING("Missing value for {}.", option);
                 return 1;
             }
             auto value = std::string_view{argv[++i]};
             auto parsed = luisa::ref::parse_uint32_option_value(value);
-            if (!parsed || (option == "--max-spp-per-dispatch" && *parsed == 0u)) {
+            if (!parsed) {
                 LUISA_WARNING("Invalid value '{}' for {}.", value, option);
                 return 1;
             }
-            if (option == "--max-registers") {
-                max_registers = *parsed;
-            } else {
-                max_spp_per_dispatch_override = *parsed;
-            }
+            max_registers = *parsed;
         }
     }
 
@@ -239,7 +233,7 @@ int main(int argc, char *argv[]) {
                 device.backend_name() == "fallback" ?
             1u :
             64u;
-    auto max_spp_per_dispatch = max_spp_per_dispatch_override.value_or(
+    auto max_spp_per_dispatch = opts.max_spp_per_dispatch.value_or(
         default_max_spp_per_dispatch);
     bool infinite_render = !opts.offline && opts.spp == 0u;
     auto sample_plan = luisa::ref::PathTracingSamplePassPlan{

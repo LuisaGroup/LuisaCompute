@@ -42,6 +42,7 @@ struct ExampleOptions {
     bool offline{false};
     uint32_t spp{0u};
     uint32_t iterations{1u};
+    std::optional<uint32_t> max_spp_per_dispatch;
     std::optional<std::filesystem::path> compare_path;
     std::optional<std::filesystem::path> out_ref_path;
     bool out_ref_write{false};
@@ -96,6 +97,17 @@ struct ExampleOptions {
                                 std::string{value} + "'.");
                 }
                 opts.iterations = *parsed_value;
+            } else if (a == "--max-spp-per-dispatch") {
+                if (missing_value(i, argc, argv)) {
+                    return fail("Missing value for --max-spp-per-dispatch.");
+                }
+                std::string_view value{argv[++i]};
+                auto parsed_value = parse_uint32_option_value(value);
+                if (!parsed_value || *parsed_value == 0u) {
+                    return fail("Invalid positive integer for --max-spp-per-dispatch: '" +
+                                std::string{value} + "'.");
+                }
+                opts.max_spp_per_dispatch = *parsed_value;
             } else if (a == "--out_ref") {
                 if (missing_value(i, argc, argv)) {
                     return fail("Missing mode for --out_ref; expected 'write <path>' or 'read <path>'.");
