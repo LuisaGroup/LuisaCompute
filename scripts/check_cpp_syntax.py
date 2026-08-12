@@ -11,9 +11,11 @@ clangd receives the matching compilation flags.
 import argparse
 import orjson
 import os
+import queue
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -40,8 +42,9 @@ class ClangdLSPClient:
         self.compile_commands_dir = compile_commands_dir
         self.process = None
         self.request_id = 0
-        self.diagnostics = []
         self.verbose = verbose
+        self._messages = queue.Queue()
+        self._reader_thread = None
 
     def start(self):
         """Start clangd process."""
@@ -52,7 +55,6 @@ class ClangdLSPClient:
             "--clang-tidy=true",
             "--completion-style=bundled",
             "--pch-storage=memory",
-            "--cross-file-rename=false",
         ]
 
         if self.verbose:
@@ -62,19 +64,30 @@ class ClangdLSPClient:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=None if self.verbose else subprocess.DEVNULL,
         )
+        self._reader_thread = threading.Thread(
+            target=self._read_messages,
+            name="clangd-lsp-reader",
+            daemon=True,
+        )
+        self._reader_thread.start()
 
     def stop(self):
         """Stop clangd process."""
         if self.process:
             try:
-                self._send_request("shutdown", {})
-                self._send_notification("exit", {})
+                if self.process.poll() is None:
+                    self._send_request("shutdown", {})
+                    self._send_notification("exit", {})
                 self.process.wait(timeout=2)
             except Exception:
                 self.process.kill()
+                self.process.wait(timeout=2)
             finally:
+                if self._reader_thread is not None:
+                    self._reader_thread.join(timeout=1)
+                    self._reader_thread = None
                 self.process = None
 
     def _send_message(self, message: bytes):
@@ -106,8 +119,8 @@ class ClangdLSPClient:
         }
         self._send_message(orjson.dumps(message))
 
-    def _read_message(self) -> dict:
-        """Read a message from clangd."""
+    def _read_message_from_pipe(self) -> dict | None:
+        """Read one message from clangd's stdout pipe."""
         # Read header
         header = b""
         while True:
@@ -135,12 +148,46 @@ class ClangdLSPClient:
             print(f"[verbose] LSP <-- {orjson.dumps(msg).decode()}")
         return msg
 
-    def initialize(self):
+    def _read_messages(self):
+        """Forward blocking pipe reads to a queue so callers can time out."""
+        try:
+            while True:
+                message = self._read_message_from_pipe()
+                if message is None:
+                    break
+                self._messages.put(message)
+        except Exception as error:
+            self._messages.put(error)
+        finally:
+            self._messages.put(None)
+
+    def _next_message(self, timeout: float) -> dict:
+        """Read the next queued message, failing closed on timeout or EOF."""
+        try:
+            message = self._messages.get(timeout=max(timeout, 0.0))
+        except queue.Empty as error:
+            raise TimeoutError(
+                "timed out waiting for clangd diagnostics"
+            ) from error
+        if isinstance(message, Exception):
+            raise RuntimeError(f"failed to read clangd response: {message}") \
+                from message
+        if message is None:
+            return_code = (
+                None if self.process is None else self.process.poll()
+            )
+            raise RuntimeError(
+                f"clangd exited before producing diagnostics"
+                f" (exit code {return_code})"
+            )
+        return message
+
+    def initialize(self, timeout: float = 10.0):
         """Initialize the LSP connection."""
         root_uri = Path(self.compile_commands_dir).resolve().as_uri()
         if self.verbose:
             print(f"[verbose] Initializing LSP with rootUri: {root_uri}")
-        self._send_request(
+        request_id = self._send_request(
             "initialize",
             {
                 "processId": os.getpid(),
@@ -152,10 +199,16 @@ class ClangdLSPClient:
             },
         )
 
-        # Wait for initialize response
+        deadline = time.monotonic() + timeout
         while True:
-            msg = self._read_message()
-            if msg and "id" in msg and msg.get("result"):
+            msg = self._next_message(deadline - time.monotonic())
+            if msg.get("id") != request_id:
+                continue
+            if "error" in msg:
+                raise RuntimeError(
+                    f"clangd initialization failed: {msg['error']}"
+                )
+            if "result" in msg:
                 break
 
         self._send_notification("initialized", {})
@@ -178,38 +231,17 @@ class ClangdLSPClient:
         )
 
     def get_diagnostics(self, file_path: str, timeout: float = 10.0) -> list:
-        """Get diagnostics for a file using textDocument/diagnostic."""
+        """Wait for clangd's push diagnostics for the requested document."""
         uri = Path(file_path).resolve().as_uri()
-        req_id = self._send_request(
-            "textDocument/diagnostic",
-            {
-                "textDocument": {"uri": uri},
-                "identifier": "syntax-check",
-            },
-        )
-
-        start_time = time.time()
+        deadline = time.monotonic() + timeout
         if self.verbose:
             print(f"[verbose] Waiting for diagnostics (timeout={timeout}s)...")
-        while time.time() - start_time < timeout:
-            msg = self._read_message()
-            if msg is None:
-                break
-
-            # Check for diagnostic response
-            if msg.get("id") == req_id and "result" in msg:
-                result = msg["result"]
-                if isinstance(result, dict) and "items" in result:
-                    return result["items"]
-                return []
-
-            # Check for publishDiagnostics notification
+        while True:
+            msg = self._next_message(deadline - time.monotonic())
             if msg.get("method") == "textDocument/publishDiagnostics":
                 params = msg.get("params", {})
                 if params.get("uri") == uri:
                     return params.get("diagnostics", [])
-
-        return []
 
 
 def _compile_commands_contains(database: Path, file_path: Path) -> bool:
@@ -385,9 +417,6 @@ def check_syntax(
         client.initialize()
 
         client.open_document(str(file_path), content)
-
-        # Wait for clangd to process
-        time.sleep(0.5)
 
         diagnostics = client.get_diagnostics(str(file_path))
         

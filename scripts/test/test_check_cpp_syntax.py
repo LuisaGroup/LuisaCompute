@@ -12,7 +12,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from check_all_cpp_syntax import check_file
+from check_all_cpp_syntax import load_compile_command_files
 from check_cpp_syntax import (
+    ClangdLSPClient,
     check_syntax,
     load_compile_commands,
     resolve_executable,
@@ -94,7 +96,81 @@ class LoadCompileCommandsTest(unittest.TestCase):
             self.assertIn("Could not find compile_commands.json", error.getvalue())
 
 
+class DiagnosticsTest(unittest.TestCase):
+
+    def test_waits_for_requested_document_push_diagnostics(self):
+        source = Path("source.cpp").resolve()
+        source_uri = source.as_uri()
+        client = ClangdLSPClient("clangd", ".")
+        client._next_message = mock.Mock(side_effect=[
+            {
+                "method": "textDocument/publishDiagnostics",
+                "params": {"uri": Path(".clangd").resolve().as_uri(),
+                           "diagnostics": []},
+            },
+            {
+                "method": "textDocument/publishDiagnostics",
+                "params": {"uri": source_uri,
+                           "diagnostics": [{"severity": 1}]},
+            },
+        ])
+        self.assertEqual(
+            client.get_diagnostics(str(source)),
+            [{"severity": 1}],
+        )
+        self.assertEqual(client.request_id, 0)
+
+    def test_diagnostic_timeout_is_not_reported_as_success(self):
+        client = ClangdLSPClient("clangd", ".")
+        client._next_message = mock.Mock(
+            side_effect=TimeoutError("diagnostic timeout"),
+        )
+        with self.assertRaisesRegex(TimeoutError, "diagnostic timeout"):
+            client.get_diagnostics("source.cpp")
+
+    @mock.patch("check_cpp_syntax.ClangdLSPClient")
+    def test_check_syntax_fails_closed_on_diagnostic_timeout(self, client_type):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.cpp"
+            source.write_text("int value;", encoding="utf-8")
+            LoadCompileCommandsTest._write_database(root / "build", source)
+            client_type.return_value.get_diagnostics.side_effect = TimeoutError(
+                "diagnostic timeout"
+            )
+            error = StringIO()
+            with redirect_stderr(error):
+                result = check_syntax(
+                    str(source),
+                    project_root=root,
+                    clangd_path="clangd",
+                )
+            self.assertEqual(result, 2)
+            self.assertIn("diagnostic timeout", error.getvalue())
+
+
 class CheckAllSyntaxTest(unittest.TestCase):
+
+    def test_resolves_relative_files_and_removes_duplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = root / "build"
+            source = root / "src" / "source.cpp"
+            build.mkdir()
+            source.parent.mkdir()
+            source.write_text("", encoding="utf-8")
+            database = build / "compile_commands.json"
+            database.write_text(
+                '[{"directory":"' + str(build) +
+                '","file":"../src/source.cpp"},' +
+                '{"directory":"' + str(build) +
+                '","file":"' + str(source) + '"}]',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                load_compile_command_files(str(database)),
+                [str(source.resolve())],
+            )
 
     @mock.patch("check_all_cpp_syntax.subprocess.run")
     def test_forwards_explicit_database(self, run):

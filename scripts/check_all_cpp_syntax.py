@@ -13,25 +13,37 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
+DEFAULT_JOBS = min(8, os.cpu_count() or 1)
+
+
 def load_compile_command_files(compile_commands_path: str) -> list[str]:
-    with open(compile_commands_path, "r", encoding="utf-8") as f:
+    database = Path(compile_commands_path).resolve()
+    with open(database, "r", encoding="utf-8") as f:
         data = orjson.loads(f.read())
     files = []
+    seen = set()
     cpp_exts = {".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp", ".hh", ".hxx", ".h++"}
     for entry in data:
         file_path = entry.get("file")
-        if file_path:
-            ext = Path(file_path).suffix.lower()
-            if ext in cpp_exts:
-                files.append(file_path)
+        if not isinstance(file_path, str) or not file_path:
+            continue
+        source = Path(file_path)
+        if not source.is_absolute():
+            directory = entry.get("directory")
+            base = (
+                Path(directory)
+                if isinstance(directory, str) and directory
+                else database.parent
+            )
+            if not base.is_absolute():
+                base = database.parent / base
+            source = base / source
+        source = source.resolve()
+        if source.suffix.lower() not in cpp_exts or source in seen:
+            continue
+        seen.add(source)
+        files.append(str(source))
     return files
-
-
-def is_only_unknown_argument_error(stdout: str, stderr: str) -> bool:
-    """Check if output contains exactly 1 error and it's 'Unknown argument'."""
-    output = (stdout or "") + (stderr or "")
-    error_lines = [line for line in output.splitlines() if line.startswith("Error:")]
-    return len(error_lines) == 1 and "unknown argument" in error_lines[0].lower()
 
 
 def check_file(
@@ -75,8 +87,8 @@ def main():
     parser.add_argument(
         "--jobs",
         type=int,
-        default=os.cpu_count(),
-        help=f"Maximum parallel jobs (default: {os.cpu_count()})",
+        default=DEFAULT_JOBS,
+        help=f"Maximum parallel jobs (default: {DEFAULT_JOBS})",
     )
 
     args = parser.parse_args()
@@ -121,20 +133,16 @@ def main():
             completed += 1
 
             if returncode != 0:
-                if is_only_unknown_argument_error(stdout, stderr):
-                    # Treat single 'Unknown argument' error as success
-                    pass
+                if stdout or stderr:
+                    print(f"[{completed}/{total}] {file_path} (exit={returncode})")
+                    if stdout:
+                        print(stdout, end="")
+                    if stderr:
+                        print(stderr, end="")
+                if returncode == 1:
+                    errors += 1
                 else:
-                    if stdout or stderr:
-                        print(f"[{completed}/{total}] {file_path} (exit={returncode})")
-                        if stdout:
-                            print(stdout, end="")
-                        if stderr:
-                            print(stderr, end="")
-                    if returncode == 1:
-                        errors += 1
-                    elif returncode == 2:
-                        failures += 1
+                    failures += 1
             # else:
             #     if stdout:
             #         print(f"[{completed}/{total}] {file_path}")
