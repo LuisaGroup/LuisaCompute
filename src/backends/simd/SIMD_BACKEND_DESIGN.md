@@ -792,8 +792,15 @@ The backend supports an optimized target-assembly report and optional dump via
 `LUISA_SIMD_REPORT_ASSEMBLY=1` and
 `LUISA_SIMD_DUMP_ASSEMBLY_DIR=<directory>`. The report includes static
 instruction, vector-instruction, branch, call, stack-reference, recognized x86
-stack-allocation, and scalar-math-call counts. The remaining planned
-independent dumps are:
+stack-allocation, and scalar-math-call counts. A dump consists of a matching
+annotated `.s` and exact ORC compiler `.o`. Both use an explicit PIC/small code
+model and share instruction/basic-block offsets; the object is the
+authoritative pre-JITLink input for disassembly and unresolved-symbol audits.
+`LUISA_SIMD_REPORT_JIT_ADDRESS=1` reports the materialized entry address for
+correlation with live profiler records. This distinction matters on sampling
+profilers: skid-prone cycle samples must not be assigned to a semantic block
+using a separately laid-out assembly file. The remaining planned independent
+dumps are:
 
 - canonical XIR;
 - Schedule IR before and after scheduling optimization;

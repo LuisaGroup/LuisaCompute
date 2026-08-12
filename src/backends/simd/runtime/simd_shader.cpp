@@ -113,9 +113,10 @@ struct AssemblyStats {
     return stats;
 }
 
-void dump_assembly(
+void dump_compilation_artifacts(
     std::string_view directory, std::string_view kernel_name,
-    uint32_t width, std::string_view assembly) noexcept {
+    uint32_t width, std::string_view assembly,
+    std::string_view object) noexcept {
     static std::atomic_uint64_t sequence{0u};
     std::error_code error;
     auto path = std::filesystem::path{directory};
@@ -147,15 +148,39 @@ void dump_assembly(
     path /= safe_name + "_w" + std::to_string(width) + "_" +
             std::to_string(process_id) + "_" +
             std::to_string(timestamp) + "_" +
-            std::to_string(index) + ".s";
-    std::ofstream stream{path, std::ios::binary};
-    stream.write(
+            std::to_string(index);
+    auto assembly_path = path;
+    assembly_path += ".s";
+    std::ofstream assembly_stream{assembly_path, std::ios::binary};
+    assembly_stream.write(
         assembly.data(), static_cast<std::streamsize>(assembly.size()));
-    if (!stream) {
-        LUISA_WARNING("Failed to write SIMD assembly '{}'.", path.string());
+    if (!assembly_stream) {
+        LUISA_WARNING(
+            "Failed to write SIMD assembly '{}'.",
+            assembly_path.string());
         return;
     }
-    LUISA_INFO("SIMD assembly written to '{}'.", path.string());
+    LUISA_INFO(
+        "SIMD assembly written to '{}'.", assembly_path.string());
+    if (object.empty()) {
+        LUISA_WARNING(
+            "SIMD JIT object capture was empty for '{}'.",
+            assembly_path.string());
+        return;
+    }
+    auto object_path = path;
+    object_path += ".o";
+    std::ofstream object_stream{object_path, std::ios::binary};
+    object_stream.write(
+        object.data(), static_cast<std::streamsize>(object.size()));
+    if (!object_stream) {
+        LUISA_WARNING(
+            "Failed to write SIMD JIT object '{}'.",
+            object_path.string());
+        return;
+    }
+    LUISA_INFO(
+        "SIMD JIT object written to '{}'.", object_path.string());
 }
 
 }// namespace
@@ -244,14 +269,22 @@ SIMDShader::SIMDShader(
             stats.stack_references, stats.stack_allocation_bytes,
             stats.scalar_math_calls);
         if (assembly_directory != nullptr) {
-            dump_assembly(
+            dump_compilation_artifacts(
                 assembly_directory,
                 kernel.name().empty() ? "simd_runtime_kernel" :
                                         kernel.name(),
-                warp_width, _compiled.assembly);
+                warp_width, _compiled.assembly,
+                _compiled.jit->object());
         }
     }
     _entry = reinterpret_cast<Entry *>(_compiled.entry);
+    if (detail::env_flag("LUISA_SIMD_REPORT_JIT_ADDRESS")) {
+        LUISA_INFO(
+            "SIMD JIT entry [{} W{}]: {}.",
+            kernel.name().empty() ? "simd_runtime_kernel" :
+                                    kernel.name(),
+            warp_width, _compiled.entry);
+    }
     _build_bound_arguments(kernel.bound_arguments());
     _argument_usages.reserve(kernel.arguments().size());
     for (auto argument : kernel.arguments()) {

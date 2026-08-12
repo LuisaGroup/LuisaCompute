@@ -185,8 +185,15 @@ logs per-shader transform, scheduler-state, and ray-query scratch counters.
 `LUISA_SIMD_REPORT_ASSEMBLY=1` additionally captures optimized target assembly
 and reports its static instruction/call/branch counts, stack references, the
 x86 stack allocation when recognizable, and scalar-math symbols.
-`LUISA_SIMD_DUMP_ASSEMBLY_DIR=<directory>` writes the captured assembly to
-unique timestamped files. `LUISA_SIMD_DISABLE_COLD_STATE_PARTITION=1` and
+`LUISA_SIMD_DUMP_ASSEMBLY_DIR=<directory>` writes matching, uniquely named
+`.s` and `.o` files. The annotated `.s` is compiled with the same explicit
+PIC/small target model as ORC and supplies LLVM basic-block labels; the `.o`
+is the exact relocatable compiler output consumed by ORC before JITLink and is
+authoritative for object bytes, symbols, and disassembly. The two artifacts
+have matching instruction and basic-block offsets, although assembler padding
+encodings need not be byte-identical. `LUISA_SIMD_REPORT_JIT_ADDRESS=1` logs
+the live entry address so profiler records can be correlated with the object
+symbol/section offsets. `LUISA_SIMD_DISABLE_COLD_STATE_PARTITION=1` and
 `LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING=1` are same-binary A/B controls
 for the two state-layout refinements.
 These process-wide variables are diagnostic controls, not shader semantics or

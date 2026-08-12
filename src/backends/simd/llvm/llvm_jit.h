@@ -26,6 +26,7 @@ private:
     std::unique_ptr<::llvm::orc::LLJIT> _jit{};
     std::unique_ptr<::llvm::TargetMachine> _target_machine{};
     std::string _target_triple{};
+    std::shared_ptr<std::string> _object{};
     std::string _error{};
 
 private:
@@ -35,7 +36,7 @@ private:
         ::llvm::Module &module) noexcept;
 
 public:
-    LLVMJIT() noexcept;
+    explicit LLVMJIT(bool capture_object = false) noexcept;
     ~LLVMJIT() noexcept;
     LLVMJIT(LLVMJIT &&) noexcept;
     LLVMJIT &operator=(LLVMJIT &&) noexcept;
@@ -63,6 +64,12 @@ public:
     [[nodiscard]] const std::string &error() const noexcept { return _error; }
     [[nodiscard]] const std::string &target_triple() const noexcept {
         return _target_triple;
+    }
+    // Exact relocatable object emitted by ORC's compiler, before JITLink
+    // applies relocations. Populated only when requested at construction.
+    [[nodiscard]] const std::string &object() const noexcept {
+        static const std::string empty;
+        return _object == nullptr ? empty : *_object;
     }
 };
 

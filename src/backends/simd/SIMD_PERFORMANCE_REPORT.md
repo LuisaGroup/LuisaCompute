@@ -97,7 +97,9 @@ advertises native W8 support.
 The W8 cutout main kernel contains two sequential ray-query construction sites.
 A fail-closed Schedule-IR liveness/interference analysis now colors them into
 one per-lane scratch slot; overlapping query objects remain in distinct slots.
-This changes the exact optimized assembly as follows:
+This changed the then-current audit assembly as follows. These paired counts
+remain a valid code-shape delta, but predate the exact ORC code-model
+synchronization described below and are not live-object address maps:
 
 | W8 cutout main kernel | query scratch | stack allocation | instructions | stack references | calls |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -111,6 +113,55 @@ counter samples measured 6.967 versus 8.586 billion L1 data-load misses
 403.14 billion instructions (-0.27%). The small throughput change despite the
 large L1-miss reduction confirms that query allocation was one pressure source,
 not the whole divergent-scheduler deficit.
+
+### Exact JIT-object and branch-flow audit
+
+The diagnostic path now captures the exact relocatable object produced by
+ORC's compiler alongside an annotated assembly clone. Both explicitly use the
+same PIC/small code model. For the current W8 cutout main kernel, the `.text`
+section is 36,856 bytes; assembling the annotated `.s` produces the same text
+size and agrees at every basic-block offset. Padding bytes may differ without
+changing layout. The current report counts 6,456 instructions, 3,902 vector
+instructions, 506 branches, 1,556 stack references, and a 27,136-byte stack
+allocation. The object has no undefined scalar-libm symbol.
+
+This corrected an earlier profiler attribution error. An independently emitted
+large-code-model assembly was 38,532 bytes, so runtime PCs did not identify the
+same semantic blocks. In particular, a skid-prone `cycles` profile appeared to
+place fast trigonometry's large-range reduction on the hot path even though a
+temporary fail-fast probe proved that block was not entered by this workload.
+Cycle sampling alone is therefore not used for exact basic-block attribution.
+
+An AMD last-branch-record profile of one W8 64-spp cutout run supplied 320,828
+main-kernel user branch edges. After mapping those exact edge endpoints through
+the captured object and annotated offsets, the retired branch-flow distribution
+was:
+
+| Main-kernel branch category | branch-edge share |
+| --- | ---: |
+| convergence cascades | 43.07% |
+| kernel schedule blocks | 11.10% |
+| ray-query state/control | 10.79% |
+| dynamic coherence tests | 8.98% |
+| mask-stack overflow logic | 8.75% |
+| scheduler dispatch/loop | 7.51% |
+| unlabeled LLVM blocks | 5.44% |
+| fast-math exits | 2.05% |
+| convergence target | 1.46% |
+| acceleration setup/control | 0.86% |
+
+These are shares of recorded retired branch edges, not shares of cycles or wall
+time. They nevertheless quantify substantial state-machine control traffic:
+the four hottest individual convergence cascades each contribute roughly
+5.5--5.7% of the recorded edges, and `scheduler.dispatch` contributes 4.78%.
+
+Two narrow cascade simplifications were rejected. Bounding a cascade by the
+number of static convergence points sharing a target is unsound because loop
+iterations can create a dynamic `A -> B -> A` frame chain. Removing the
+explicit depth counter is valid for a well-formed state and cut static branches
+from 506 to 491, but ten paired path-tracing runs measured a 0.9969x geometric
+mean with only two wins, so it was reverted. The next useful scheduler change
+must reduce frame/state traffic rather than merely shrink this branch chain.
 
 ## Runtime-sparse ray-query cohorts
 

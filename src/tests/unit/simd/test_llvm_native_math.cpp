@@ -806,6 +806,23 @@ template<size_t Width>
            test_extended_trig_width<16u>(operation);
 }
 
+[[nodiscard]] bool test_jit_object_capture() {
+    auto executable_module = make_trig_module(4u, false);
+    auto entry_name = executable_module.entry_name;
+    simd::LLVMJIT jit{true};
+    CHECK(jit.succeeded());
+    CHECK(jit.object().empty());
+    CHECK(jit.add_module(
+        std::move(executable_module.module),
+        std::move(executable_module.context)));
+    // ORC materializes lazily: the compiler-object transform runs at lookup.
+    CHECK(jit.object().empty());
+    simd::LLVMJIT moved_jit{std::move(jit)};
+    CHECK(moved_jit.lookup(entry_name) != nullptr);
+    CHECK(!moved_jit.object().empty());
+    return true;
+}
+
 template<size_t Width>
 [[nodiscard]] bool test_width(bool cosine) {
     auto shape_module = make_trig_module(Width, cosine);
@@ -1323,7 +1340,8 @@ int main(int argc, char *argv[]) {
                    0 :
                    1;
     }
-    return test_width<2u>(false) &&
+    return test_jit_object_capture() &&
+                   test_width<2u>(false) &&
                    test_width<3u>(false) &&
                    test_width<4u>(false) &&
                    test_width<8u>(false) &&

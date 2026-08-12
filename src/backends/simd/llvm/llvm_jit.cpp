@@ -7,6 +7,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/ObjectTransformLayer.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -14,6 +15,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/CodeGen.h>
+#include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
@@ -43,7 +45,7 @@ void LLVMJIT::_fail(std::string message) noexcept {
     if (_error.empty()) { _error = std::move(message); }
 }
 
-LLVMJIT::LLVMJIT() noexcept {
+LLVMJIT::LLVMJIT(bool capture_object) noexcept {
     if (::llvm::InitializeNativeTarget() ||
         ::llvm::InitializeNativeTargetAsmPrinter()) {
         _fail("failed to initialize the LLVM native target");
@@ -56,6 +58,12 @@ LLVMJIT::LLVMJIT() noexcept {
         return;
     }
     host->setCodeGenOptLevel(::llvm::CodeGenOptLevel::Aggressive);
+    // LLJIT selects PIC for an unspecified relocation model. Make that
+    // choice explicit before creating the audit TargetMachine as well, so
+    // captured assembly and ORC's final relocatable object have identical
+    // instruction layout.
+    host->setRelocationModel(::llvm::Reloc::PIC_);
+    host->setCodeModel(::llvm::CodeModel::Small);
     _target_triple = host->getTargetTriple().str();
     auto target_machine = host->createTargetMachine();
     if (!target_machine) {
@@ -64,6 +72,7 @@ LLVMJIT::LLVMJIT() noexcept {
         return;
     }
     _target_machine = std::move(*target_machine);
+    _target_machine->Options.MCOptions.AsmVerbose = true;
     ::llvm::orc::LLJITBuilder builder;
     builder.setJITTargetMachineBuilder(std::move(*host));
     auto jit = builder.create();
@@ -74,6 +83,18 @@ LLVMJIT::LLVMJIT() noexcept {
         return;
     }
     _jit = std::move(*jit);
+    if (capture_object) {
+        _object = std::make_shared<std::string>();
+        _jit->getObjTransformLayer().setTransform(
+            [capture = _object](
+                std::unique_ptr<::llvm::MemoryBuffer> object)
+                -> ::llvm::Expected<
+                    std::unique_ptr<::llvm::MemoryBuffer>> {
+                auto buffer = object->getBuffer();
+                capture->assign(buffer.data(), buffer.size());
+                return std::move(object);
+            });
+    }
 }
 
 LLVMJIT::~LLVMJIT() noexcept = default;
