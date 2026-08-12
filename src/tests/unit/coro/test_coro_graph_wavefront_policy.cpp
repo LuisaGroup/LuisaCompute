@@ -58,6 +58,62 @@ int main() {
             << "the empty state must never be a fixed point while work remains";
     };
 
+    "graph_wavefront_bounded_fairness_serves_adversarial_sparse_queue"_test = [] {
+        GraphWavefrontPopulation population{
+            .queues = {0.0, 1000.0, 1.0, 1.0},
+            .generated_count = 1002.0};
+        luisa::vector<uint64_t> wait_actions(4u, 0u);
+        constexpr auto horizon = uint64_t{3u};
+        auto node2_last_service = uint64_t{0u};
+        auto node3_last_service = uint64_t{0u};
+        for (auto action_index = uint64_t{1u};
+             action_index <= 24u; ++action_index) {
+            auto action = graph_wavefront_select_action(
+                population, 1002.0, 1002.0, 0.0,
+                luisa::span<const uint>{}, luisa::span{wait_actions}, horizon);
+            if (action_index <= horizon) {
+                expect(action.selected_node == 1u)
+                    << "largest-queue throughput policy wins before the "
+                       "fairness horizon";
+                expect(!action.forced_by_fairness);
+            }
+            if (action.selected_node == 2u) {
+                expect(action_index - node2_last_service <= horizon + 2u)
+                    << "node 2 violated the N-queue bounded-service proof";
+                node2_last_service = action_index;
+            }
+            if (action.selected_node == 3u) {
+                expect(action_index - node3_last_service <= horizon + 2u)
+                    << "node 3 violated the N-queue bounded-service proof";
+                node3_last_service = action_index;
+            }
+            // All three queues are adversarial self-loops: their populations
+            // remain non-empty and the hot queue is always numerically largest.
+            graph_wavefront_advance_wait_actions(
+                population, action.selected_node, luisa::span{wait_actions});
+        }
+        expect(node2_last_service != 0u);
+        expect(node3_last_service != 0u);
+    };
+
+    "graph_wavefront_fairness_age_tracks_source_nonempty_interval"_test = [] {
+        GraphWavefrontPopulation population{
+            .queues = {9.0, 1.0, 0.0}, .generated_count = 1.0};
+        luisa::vector<uint64_t> wait_actions{17u, 4u, 9u};
+        graph_wavefront_advance_wait_actions(
+            population, 0u, luisa::span{wait_actions});
+        expect(wait_actions[0u] == 0u);
+        expect(wait_actions[1u] == 5u);
+        expect(wait_actions[2u] == 0u)
+            << "a source-empty queue cannot inherit stale waiting age";
+        population.queues[2u] = 1.0;
+        auto action = graph_wavefront_select_action(
+            population, 10.0, 10.0, 0.0,
+            luisa::span<const uint>{}, luisa::span{wait_actions}, 5u);
+        expect(action.selected_node == 1u);
+        expect(action.forced_by_fairness);
+    };
+
     "graph_wavefront_markov_prediction_conserves_ownership"_test = [] {
         GraphWavefrontMarkovModel model{{{1u}, {1u, 2u}, {1u}}};
         expect(model.supports(1u, 0u));

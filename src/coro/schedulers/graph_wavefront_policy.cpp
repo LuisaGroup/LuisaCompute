@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 #include <luisa/core/logging.h>
@@ -167,20 +168,63 @@ void GraphWavefrontMarkovModel::observe(
     }
 }
 
+void graph_wavefront_advance_wait_actions(
+    const GraphWavefrontPopulation &source,
+    uint selected_node,
+    luisa::span<uint64_t> wait_actions) noexcept {
+    LUISA_ASSERT(wait_actions.size() == source.queues.size(),
+                 "Graph-wavefront waiting-age/population size mismatch.");
+    LUISA_ASSERT(selected_node < source.queues.size(),
+                 "Graph-wavefront serviced node is out of range.");
+    wait_actions[0u] = 0u;
+    for (auto node = 1u; node < source.queues.size(); ++node) {
+        if (node == selected_node || source.queues[node] <= 0.0) {
+            wait_actions[node] = 0u;
+        } else {
+            LUISA_ASSERT(wait_actions[node] !=
+                             std::numeric_limits<uint64_t>::max(),
+                         "Graph-wavefront waiting age overflowed.");
+            wait_actions[node]++;
+        }
+    }
+}
+
 GraphWavefrontAction graph_wavefront_select_action(
     const GraphWavefrontPopulation &population,
     double logical_count,
     double active_capacity,
     double refill_threshold,
-    luisa::span<const uint> refill_nodes) noexcept {
+    luisa::span<const uint> refill_nodes,
+    luisa::span<const uint64_t> wait_actions,
+    uint64_t max_queue_wait_actions) noexcept {
     LUISA_ASSERT(!population.queues.empty(),
                  "Graph-wavefront population requires an entry queue.");
+    LUISA_ASSERT(wait_actions.empty() ||
+                     wait_actions.size() == population.queues.size(),
+                 "Graph-wavefront waiting-age/population size mismatch.");
     auto selected = 0u;
     auto selected_count = 0.0;
     for (auto node = 1u; node < population.queues.size(); ++node) {
         if (population.queues[node] > selected_count) {
             selected = node;
             selected_count = population.queues[node];
+        }
+    }
+    auto forced_by_fairness = false;
+    if (max_queue_wait_actions != 0u && !wait_actions.empty()) {
+        auto oldest = uint64_t{0u};
+        auto overdue = 0u;
+        for (auto node = 1u; node < population.queues.size(); ++node) {
+            if (population.queues[node] > 0.0 &&
+                wait_actions[node] >= max_queue_wait_actions &&
+                wait_actions[node] > oldest) {
+                overdue = node;
+                oldest = wait_actions[node];
+            }
+        }
+        if (overdue != 0u) {
+            selected = overdue;
+            forced_by_fairness = true;
         }
     }
     auto live = live_count(population);
@@ -192,7 +236,9 @@ GraphWavefrontAction graph_wavefront_select_action(
     auto work_remaining = population.generated_count < logical_count;
     auto admit = work_remaining && population.queues[0u] > 0.0 && aligned &&
                  (live == 0.0 || live < threshold);
-    return {.selected_node = selected, .admit_entry = admit};
+    return {.selected_node = selected,
+            .admit_entry = admit,
+            .forced_by_fairness = forced_by_fairness};
 }
 
 }// namespace luisa::compute::coro

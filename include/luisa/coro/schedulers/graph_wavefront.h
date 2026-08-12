@@ -41,6 +41,11 @@ struct GraphWavefrontCoroSchedulerConfig {
     // aligned for refill.
     uint refill_threshold = 0u;
     luisa::vector<luisa::string> refill_continuations;
+    // Largest-queue-first can otherwise starve a sparse self-loop behind a
+    // permanently populated hot queue. A nonzero limit adds a host-only
+    // bounded-service rule. It changes scheduling order, never shader AST or
+    // cache identity. Zero preserves unrestricted greedy selection.
+    uint64_t max_queue_wait_actions = 32u;
     uint counter_readback_batch_size = 4u;
     // Number of readback slots kept in flight. A value greater than one lets
     // the GPU execute later fixed sweeps while the host waits for an older
@@ -71,6 +76,7 @@ struct GraphWavefrontCoroDispatchStats {
     uint tail_instance_count{0u};
     uint worker_count{0u};
     uint64_t entry_dispatch_count{0u};
+    uint64_t fairness_dispatch_count{0u};
     // Host-observed destination populations for each CoroGraph node. Node
     // zero is always zero here because free frames are reported separately.
     // In a non-tail dispatch, summing q[t + 1] over all snapshots is exactly
@@ -83,6 +89,8 @@ struct GraphWavefrontCoroDispatchStats {
     luisa::vector<uint> max_transition_output_field_count;
     luisa::vector<uint64_t> continuation_dispatch_count;
     luisa::vector<uint64_t> continuation_executed_count;
+    luisa::vector<uint64_t> continuation_max_wait_actions;
+    luisa::vector<luisa::string> continuation_names;
     double elapsed_ms{0.0};
 };
 
@@ -149,6 +157,7 @@ private:
     GraphWavefrontCoroDispatchStats _last_dispatch_stats;
     luisa::vector<uint> _input_field_count;
     luisa::vector<uint> _max_transition_output_field_count;
+    luisa::vector<luisa::string> _continuation_names;
     luisa::vector<uint> _refill_nodes;
     uint _node_count{};
     uint _snapshot_stride{};
@@ -453,7 +462,11 @@ private:
         _continuation_shaders.resize(_node_count);
         _input_field_count.resize(_node_count, 0u);
         _max_transition_output_field_count.resize(_node_count, 0u);
+        _continuation_names.resize(_node_count);
+        _continuation_names[0u] = "<entry>";
         for (auto node_index = 1u; node_index < _node_count; ++node_index) {
+            _continuation_names[node_index] =
+                coro.graph().node(node_index).name;
             auto subroutine = coro[node_index];
             LUISA_ASSERT(subroutine,
                          "CoroGraph node {} has no materialized consumer.",
@@ -747,6 +760,9 @@ private:
             _node_count, 0u);
         _last_dispatch_stats.continuation_executed_count.resize(
             _node_count, 0u);
+        _last_dispatch_stats.continuation_max_wait_actions.resize(
+            _node_count, 0u);
+        _last_dispatch_stats.continuation_names = _continuation_names;
         _last_dispatch_stats.input_field_count = _input_field_count;
         _last_dispatch_stats.max_transition_output_field_count =
             _max_transition_output_field_count;
@@ -777,6 +793,7 @@ private:
             .queues = luisa::vector<double>(_node_count, 0.0),
             .generated_count = 0.0};
         latest_population.queues[0u] = _active_frame_capacity;
+        auto queue_wait_actions = luisa::vector<uint64_t>(_node_count, 0u);
         auto done = false;
         auto tail_candidate = false;
 
@@ -830,10 +847,25 @@ private:
                     _last_dispatch_stats.sweep_count & 1u);
                 auto destination_bank = 1u - source_bank;
                 if (_config.selective_scheduling) {
+                    for (auto node = 1u; node < _node_count; ++node) {
+                        _last_dispatch_stats
+                            .continuation_max_wait_actions[node] = std::max(
+                                _last_dispatch_stats
+                                    .continuation_max_wait_actions[node],
+                                queue_wait_actions[node]);
+                    }
                     auto action = graph_wavefront_select_action(
                         latest_population, logical_count,
                         _active_frame_capacity, _config.refill_threshold,
-                        luisa::span{_refill_nodes});
+                        luisa::span{_refill_nodes},
+                        luisa::span{queue_wait_actions},
+                        _config.max_queue_wait_actions);
+                    if (action.forced_by_fairness) {
+                        _last_dispatch_stats.fairness_dispatch_count++;
+                    }
+                    graph_wavefront_advance_wait_actions(
+                        latest_population, action.selected_node,
+                        luisa::span{queue_wait_actions});
                     stream << _clear_counts_shader(destination_bank)
                                   .dispatch(active_node_count)
                            << _prepare_action_shader(
@@ -990,7 +1022,7 @@ private:
                 "Graph wavefront stats: sweeps={} snapshots={} "
                 "readbacks={} bytes={} waits={} max_in_flight={} generated={} "
                 "max_live={} workers={} tail_dispatches={} tail_instances={} "
-                "elapsed_ms={:.3f}.",
+                "fairness_dispatches={} elapsed_ms={:.3f}.",
                 _last_dispatch_stats.sweep_count,
                 _last_dispatch_stats.counter_snapshot_count,
                 _last_dispatch_stats.counter_readback_count,
@@ -1002,14 +1034,16 @@ private:
                 _last_dispatch_stats.worker_count,
                 _last_dispatch_stats.tail_dispatch_count,
                 _last_dispatch_stats.tail_instance_count,
+                _last_dispatch_stats.fairness_dispatch_count,
                 _last_dispatch_stats.elapsed_ms);
             for (auto node = 1u; node < _node_count; ++node) {
                 LUISA_INFO(
-                    "Graph wavefront queue: index={} queued_sum={} "
+                    "Graph wavefront queue: index={} name='{}' queued_sum={} "
                     "nonempty_snapshots={} peak_queued={} input_fields={} "
                     "max_transition_output_fields={} dispatches={} "
-                    "executed={}.",
-                    node, _last_dispatch_stats.queued_count_sum[node],
+                    "executed={} max_wait_actions={}.",
+                    node, _last_dispatch_stats.continuation_names[node],
+                    _last_dispatch_stats.queued_count_sum[node],
                     _last_dispatch_stats.nonempty_snapshot_count[node],
                     _last_dispatch_stats.peak_queued_count[node],
                     _last_dispatch_stats.input_field_count[node],
@@ -1018,7 +1052,9 @@ private:
                     _last_dispatch_stats
                         .continuation_dispatch_count[node],
                     _last_dispatch_stats
-                        .continuation_executed_count[node]);
+                        .continuation_executed_count[node],
+                    _last_dispatch_stats
+                        .continuation_max_wait_actions[node]);
             }
         }
     }
@@ -1043,6 +1079,13 @@ public:
             _config.counter_readback_pipeline_depth != 0u,
             "Graph wavefront counter readback pipeline must contain at least "
             "one slot.");
+        LUISA_ASSERT(
+            _config.max_queue_wait_actions == 0u ||
+                _config.max_queue_wait_actions <=
+                    std::numeric_limits<uint64_t>::max() -
+                        coro.subroutine_count(),
+            "Graph-wavefront fairness horizon plus node count overflows "
+            "uint64.");
         _refill_nodes.reserve(_config.refill_continuations.size());
         for (auto &&name : _config.refill_continuations) {
             auto *node = coro.graph().node_by_name(name);
