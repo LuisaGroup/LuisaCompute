@@ -2036,6 +2036,36 @@ of total cycles), `_ray_query_proceed` including the inlined cache advance
 failure is removed for bounded chains; the remaining gap is primarily Embree
 packet/filter and host-boundary work, not a second independent-PC scheduler.
 
+Triangle-only acceleration structures now select an independent surface-only
+ray-query runtime. Every accel build recomputes curve and procedural summaries,
+including motion children, and `host_view()` chooses the provider when the
+command is encoded; a `mesh -> procedural -> mesh` replacement therefore
+switches generic/specialized/generic behavior without recompiling the shader.
+The specialization retains the public 1216-byte state and the native packet
+mapping, but its private scan context has no instance-kind pointer or
+procedural build array. It never clears or advances procedural metadata and its
+filter omits geometry-kind loads and curve deduplication. Candidate ordering,
+overflow continuation, opacity, query-any, sparse masks, and inactive-tail
+safety remain identical. `LUISA_SIMD_DISABLE_TRIANGLE_ONLY_RAY_QUERY=1`,
+sampled at accel construction, is the same-binary oracle.
+
+This provider is kept in an append-only translation unit. Sharing generic and
+triangle code through one template was rejected even though it was source-
+compact: it changed generic procedural layout and measured 0.9907x at W4 and
+0.9962x at W8. In the matched GCC Release A/B binaries, generic narrow/wide
+proceed and wide-filter symbol sizes are byte-for-byte equal to the pre-change
+module; exact sizes are compiler- and build-specific.
+Three W8 counter pairs show the specialization retires 2.54% fewer
+instructions and 6.55% fewer branches, with 1.07% fewer cycles and 15.27%
+fewer L1 data-load misses. Twelve 64-spp cutout pairs measure 1.0069x with 9/12
+wins; W1/W2/W4 four-pair gates measure 1.0511x/1.0289x/1.0157x, and W16 six
+pairs measure 1.0067x. All reference comparisons pass. Ordinary direct-trace
+path tracing produces identical JIT objects/assembly and is neutral, as it
+does not call the query provider. A final five-pair public 16-candidate
+rejection sweep remains below fallback at every width: W1/W2/W4/W8/W16 reach
+0.8182x/0.6551x/0.7609x/0.8522x/0.8576x paired throughput. The accepted host
+specialization therefore does not close the JIT query-state/filter boundary.
+
 Static-instance transform, user-id, and visibility reads and writes bypass
 runtime callbacks. The accel argument carries a pointer to a stable table
 descriptor; the runtime republishes its data pointer and count after vector
@@ -2314,6 +2344,11 @@ on 2026-08-11. The repository now contains:
   motion traversal, curve classification and per-primitive front/back
   deduplication, a persistent 32-candidate speculative batch, W2-to-W4 padding,
   and exact W1/W2/W4/W8/W16 tail and 35-candidate continuation coverage;
+- a dynamically selected triangle-only query provider whose build-time accel
+  summary excludes curve/procedural instances (including motion children),
+  whose compact scan context and surface filter never touch procedural/curve
+  bookkeeping, and whose mesh/procedural/mesh rebuild regression proves that
+  one compiled shader follows provider changes without stale host views;
 - MATRIX and quaternion-SRT motion-instance resources with validated time
   ranges, TLAS-owned keyframe storage, MATRIX outer-affine composition,
   quaternion interpolation, scalar uniform keyframe access, inactive-safe

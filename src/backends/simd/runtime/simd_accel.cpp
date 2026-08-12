@@ -1310,7 +1310,9 @@ void simd_procedural_occluded(
 
 SIMDAccel::SIMDAccel(
     RTCDevice device, const AccelOption &option) noexcept
-    : _scene{rtcNewScene(device)} {
+    : _scene{rtcNewScene(device)},
+      _enable_triangle_only_ray_query{
+          triangle_ray_query::triangle_only_ray_query_enabled()} {
     simd_accel_set_flags(_scene, option);
 }
 
@@ -1495,6 +1497,13 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             return instance.geometry_kind ==
                    static_cast<uint8_t>(
                        SIMDHostAccelGeometryKind::curve);
+        });
+    _has_procedural_instances = std::any_of(
+        _instances.cbegin(), _instances.cend(),
+        [](const Instance &instance) noexcept {
+            return instance.geometry_kind ==
+                   static_cast<uint8_t>(
+                       SIMDHostAccelGeometryKind::procedural);
         });
     rtcCommitScene(_scene);
 }

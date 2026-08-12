@@ -8,7 +8,8 @@ postprocessing from curve-free acceleration structures and native-width
 direct-trace packet copies. The current snapshot additionally promotes
 eligible local aggregates before Schedule IR, allowing their varying fields to
 remain independent SoA SSA values instead of repeatedly crossing an AoS
-storage boundary.
+storage boundary, and selects a surface-only ray-query runtime for acceleration
+structures whose current instances are all triangle meshes.
 
 ## Test host and method
 
@@ -25,8 +26,10 @@ Image processing repeats its four-dispatch pipeline 32 times, voxel repeats 16
 renders, and Spacex renders four frames after its upload/update synchronization.
 Cutout path tracing uses 64 spp and ordinary path tracing uses 128 spp; both
 force one spp per dispatch on both backends to remove a batching asymmetry.
-Their current rows use six adjacent fallback/SIMD pairs per width with reversed
-order on alternating pairs. Image, voxel, Spacex, and path tracing compare
+Their current rows use three adjacent fallback/SIMD pairs per width with
+reversed order on alternating pairs. The focused triangle-only-provider result
+uses twelve W8 pairs, while the other widths use four to six pairs. Image,
+voxel, Spacex, and path tracing compare
 every measured output with the repository gallery reference. SDF uses its
 internal four-SPP throughput metric; high-SPP SDF image comparison remains a
 separate conformance gate. Image/SDF/voxel/Spacex/GEMM cells retain the earlier
@@ -44,8 +47,8 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 73.484 | 64.858 (0.880x) | 51.468 (0.719x) | 65.399 (0.921x) | 78.748 (1.065x) | 82.187 (1.132x) |
-| cutout path tracing, fixed 1 spp/dispatch, spp/s | 68.363 | 45.924 (0.697x) | 31.663 (0.454x) | 38.265 (0.551x) | 42.647 (0.643x) | 43.525 (0.624x) |
+| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 69.784 | 61.813 (0.863x) | 51.087 (0.730x) | 63.853 (0.932x) | 74.108 (1.108x) | 79.461 (1.133x) |
+| cutout path tracing, fixed 1 spp/dispatch, spp/s | 64.827 | 48.501 (0.688x) | 31.862 (0.482x) | 37.967 (0.597x) | 42.747 (0.661x) | 42.313 (0.652x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -57,16 +60,16 @@ while the SIMD distributions were tight. Its relative speedups must therefore
 be treated as host observations, not cross-machine constants.
 
 The current path-tracing rows are paired rather than independent medians because
-an unrelated host task moved the load average during the sweeps. The displayed
-fallback cell is the pooled fallback median; each SIMD cell is its six-process
-median and the parenthesized speedup is the preferred geometric mean of six
-adjacent SIMD/fallback ratios. Every one of the 120 performance processes
-passed its gallery comparison. Ordinary W8 and W16 won all six pairs and now
-exceed fallback by 1.0647x and 1.1319x respectively. W1/W2/W4 remain at
-0.8801x/0.7188x/0.9213x. Cutout remains below fallback at every width despite
-the local-state improvement: 0.6966x/0.4541x/0.5514x/0.6434x/0.6236x from W1
-through W16. Its ray-query proceed/filter/candidate machinery remains a larger
-state-crossing and sparse-cohort cost.
+unrelated host tasks moved the load average during the sweeps. The displayed
+fallback cell is the pooled fallback median; each SIMD cell is its three-process
+median and the parenthesized speedup is the preferred geometric mean of three
+adjacent SIMD/fallback ratios. Every one of the 60 performance processes passed
+its gallery comparison. Ordinary W8 and W16 won all three pairs and exceed
+fallback by 1.1081x and 1.1329x respectively. W1/W2/W4 remain at
+0.8627x/0.7303x/0.9325x. Cutout remains below fallback at every width despite
+the surface-only runtime improvement: 0.6885x/0.4820x/0.5966x/0.6607x/0.6521x
+from W1 through W16. Its JIT-side query state machine and sparse cohorts remain
+the dominant unresolved deficit.
 
 ### Pre-schedule aggregate promotion
 
@@ -515,6 +518,77 @@ No outlier was removed. The exact LLVM fixture covers every width, the eager
 batch oracle, the unpacked oracle, and a three-lane W16 tail; it counts masked-
 scatter callsites rather than intrinsic declarations.
 
+### Triangle-only ray-query runtime
+
+An acceleration structure whose current instance summary contains neither a
+curve nor a procedural primitive now selects a separate surface-only query
+provider. The summary is recomputed after every build, including motion-child
+classification and instance replacement, so one compiled shader can safely
+observe `mesh -> procedural -> mesh` rebuilds. The generic provider remains the
+only path for mixed, curve, and procedural scenes. The same-binary oracle
+`LUISA_SIMD_DISABLE_TRIANGLE_ONLY_RAY_QUERY=1` is sampled when the accel is
+created and restores the generic provider without changing JIT code.
+
+The specialized provider preserves the 1216-byte public query-state ABI and
+the same W1/W2/W4/W8/W16 Embree mapping. It does not clear, sort, advance, or
+test the procedural batch, does not load geometry kind or perform curve
+deduplication in the surface filter, and uses a surface-only scan context. It
+still rejects every physical Embree candidate into the bounded ordered batch,
+retains overflow continuation and cursor ordering, auto-commits opaque
+instances, groups by accel/query-any mode, and sanitizes inactive tails before
+one packet traversal. W8/W16 retain the sparse set-bit callback; W2 still pads
+to one W4 packet. Runtime disassembly contains native `rtcIntersect4/8/16` and
+`rtcOccluded4/8/16` callsites plus W1 scalar callsites; it contains no
+per-active-lane scalar traversal loop.
+
+Twelve final-binary alternating W8 cutout pairs at 64 spp, with one spp per
+dispatch, measured a 1.0069x geometric-mean enabled/disabled speedup and 9/12
+wins; independent medians were 43.713 and 43.256 spp/s. Four-pair W1/W2/W4
+gates measured 1.0511x/1.0289x/1.0157x, all with 4/4 wins. Six W16 pairs
+measured 1.0067x with 4/6 wins. Every output passed the gallery comparison and
+every enabled/disabled W8 image had the same SHA-256
+`ad97b2a0e41cab86019e7def16f0bd8d63007e640eb4a468d2b71c09a9e74eda`.
+
+Three alternating 128-spp W8 `perf stat` pairs were less noisy than wall time.
+Enabled/disabled mean ratios were 0.9893 for cycles, 0.9746 for instructions,
+0.9345 for branches, 0.9853 for branch misses, 0.9837 for L1 data loads, and
+0.8473 for L1 data-load misses; all three cycle/instruction/branch/load ratios
+moved in the expected direction. Ordinary direct-trace path tracing never
+calls this provider: five JIT objects, five assembly files, and the output PNG
+were byte-identical with the oracle toggled. Six 128-spp W8 pairs were neutral
+at 1.0056x with 4/6 wins.
+
+The public 16-candidate rejection-chain benchmark gives the complementary
+fallback-relative result. Five independent, alternating processes per width
+each took the median of seven samples of 2,097,152 rays and validated the exact
+far hit and callback count:
+
+| Backend/width | Median Mray/s | Paired geometric mean vs fallback | Wins |
+| --- | ---: | ---: | ---: |
+| fallback | 31.6226 | 1.0000x | -- |
+| SIMD W1 | 26.6705 | 0.8182x | 0/5 |
+| SIMD W2 | 21.2639 | 0.6551x | 0/5 |
+| SIMD W4 | 24.8335 | 0.7609x | 0/5 |
+| SIMD W8 | 27.9990 | 0.8522x | 0/5 |
+| SIMD W16 | 28.0799 | 0.8576x | 0/5 |
+
+The fallback process medians drifted from 36.3795 to 30.0180 Mray/s as other
+host work changed, so the paired geometric means are authoritative. The
+surface-only provider narrows the gap but does not make dense candidate
+rejection faster than fallback; its Embree filter, bounded-batch installation,
+and JIT query-state crossings remain measurable costs.
+
+The specialization lives in an append-only translation unit and GCC disables
+hot/cold block partitioning for it. In the GCC Release A/B build used for these
+measurements, the established generic wide/narrow proceed symbols remain
+exactly `0x3433`/`0x2e38` bytes and the generic wide filter remains `0x102a`,
+matching the isolated pre-change module built by the same compiler. A rejected
+shared-template implementation perturbed generic code layout and measured
+0.9907x at W4 and 0.9962x at W8 on the 16-candidate procedural benchmark. The
+isolated final layout instead measured 0.9981x across five fresh W8 pairs, so
+no procedural throughput claim is made and preserving generic compiler/layout
+shape within a matched A/B build is a permanent review constraint.
+
 ## Same-algorithm ISPC control and provenance
 
 `benchmark_ispc_gemm.ispc` was independently written to match the DSL loop and
@@ -557,9 +631,11 @@ identical.
    ray-query state: split proven hot fields into register-resident/SoA regions
    and rematerialize immutable fields across suspension, following the
    liveness/frame principles merged from `next`.
-2. Compact or rebatch sparse ray cohorts before Embree and reduce ray-query
-   state crossings; inlining Embree LLVM IR is exploratory and cannot replace
-   this measured scheduler work.
+2. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
+   JIT-side ray-query state crossings. The accepted triangle-only host provider
+   removes surface-runtime bookkeeping but does not compact lanes; inlining
+   Embree LLVM IR is exploratory and cannot replace this measured scheduler
+   work.
 3. Move fixed-vector texture tap selection into JIT IR or introduce a measured
    tile/swizzle upload boundary. Preserve row-major public image semantics.
 4. Generalize lane-affine recognition into bounded lane/value axis rotation
@@ -612,7 +688,8 @@ metadata did not regress its hot descriptor layout.
 
 The required native-math/fallback-math/runtime-width gate passes 3/3. A
 focused gate including in-place packet codegen, accel, curve-summary
-replacement, and example-option parsing passes 7/7. After a full Release
+replacement, procedural-summary replacement, and example-option parsing passes
+7/7. After a full Release
 build, the current configured repository CTest suite passes 129/129: 26
 integration-SIMD, 21 runtime-SIMD, and three graphics-SIMD tests are included.
 This also includes the coroutine-frame tests merged from `next`, the repaired

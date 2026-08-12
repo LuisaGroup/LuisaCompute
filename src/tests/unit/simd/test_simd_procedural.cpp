@@ -3,7 +3,7 @@
 // This exercises W1/W2/W4/W8/W16, inactive tails, direct-trace rejection,
 // query-all/query-any commit/reject/terminate behavior, ordered continuation
 // scans, mixed triangle/procedural traversal, visibility, primitive motion,
-// and motion instances.
+// motion instances, and mesh/procedural provider refresh after accel rebuild.
 
 #include "ut/ut.hpp"
 
@@ -315,6 +315,87 @@ void test_long_candidate_chain(
     expect_near(host_distance, 0.95f, "long-chain distance");
 }
 
+void test_procedural_summary_refresh(
+    Device &device, Stream &stream, uint32_t width) {
+    const std::array vertices{
+        make_float3(-0.5f, -0.5f, 0.0f),
+        make_float3(0.5f, -0.5f, 0.0f),
+        make_float3(0.0f, 0.5f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    const std::array boxes{
+        AABB{.packed_min = {-0.5f, -0.5f, -0.1f},
+             .packed_max = {0.5f, 0.5f, 0.1f}}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto box_buffer = device.create_buffer<AABB>(boxes.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto procedural = device.create_procedural_primitive(box_buffer);
+    auto accel = device.create_accel({.allow_update = true});
+    accel.emplace_back(
+        mesh, make_float4x4(1.0f), 0xffu, false);
+
+    Kernel1D kernel = [width](
+                          AccelVar scene,
+                          BufferUInt4 result) noexcept {
+        set_block_size(32u, 1u, 1u);
+        set_warp_size(static_cast<uint8_t>(width));
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+        UInt callback_mask = 0u;
+        auto hit = scene.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               callback_mask |= 1u;
+                               candidate.commit();
+                           })
+                       .on_procedural_candidate(
+                           [&](ProceduralCandidate &candidate) noexcept {
+                               callback_mask |= 2u;
+                               candidate.commit(1.0f);
+                           })
+                       .trace();
+        result.write(
+            0u, make_uint4(
+                    hit->hit_type, callback_mask,
+                    hit->inst, hit->prim));
+    };
+    auto shader = device.compile(kernel);
+    auto result = device.create_buffer<uint4>(1u);
+    uint4 host_result{};
+    auto check = [&](uint32_t expected_kind, uint32_t expected_mask,
+                     luisa::string_view label) {
+        stream << accel.build()
+               << shader(accel, result).dispatch(1u)
+               << result.copy_to(&host_result)
+               << synchronize();
+        expect(static_cast<bool>(
+            all(host_result == make_uint4(
+                                   expected_kind, expected_mask,
+                                   0u, 0u))))
+            << label;
+    };
+
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << box_buffer.copy_from(luisa::span{boxes})
+           << mesh.build()
+           << procedural.build()
+           << synchronize();
+    check(
+        static_cast<uint32_t>(HitType::Surface), 1u,
+        "mesh must select the triangle-only ray-query provider");
+    accel.set_procedural_primitive(0u, procedural);
+    check(
+        static_cast<uint32_t>(HitType::Procedural), 2u,
+        "procedural replacement must restore the generic provider");
+    accel.set_mesh(0u, mesh);
+    check(
+        static_cast<uint32_t>(HitType::Surface), 1u,
+        "mesh replacement must restore the triangle-only provider");
+}
+
 void test_mixed_surface_and_motion(
     Device &device, Stream &stream, uint32_t width) {
     const std::array vertices{
@@ -515,6 +596,7 @@ int main(int argc, char *argv[]) {
         auto stream = device.create_stream();
         test_static_queries(device, stream, width);
         test_long_candidate_chain(device, stream, width);
+        test_procedural_summary_refresh(device, stream, width);
         test_mixed_surface_and_motion(device, stream, width);
     }
     return 0;

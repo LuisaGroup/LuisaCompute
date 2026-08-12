@@ -9,6 +9,19 @@
 
 namespace luisa::compute::simd {
 
+namespace triangle_ray_query {
+
+struct SIMDAccelAccess;
+[[nodiscard]] bool triangle_only_ray_query_enabled() noexcept;
+void ray_query_proceed_triangle_only(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept;
+void ray_query_proceed_wide_triangle_only(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept;
+
+}// namespace triangle_ray_query
+
 class alignas(16) SIMDAccel {
 
 private:
@@ -26,6 +39,10 @@ private:
     luisa::vector<luisa::unique_ptr<MotionState>> _motion_states;
     SIMDHostAccelInstanceTable _instance_table{};
     bool _has_curve_instances{false};
+    bool _has_procedural_instances{false};
+    bool _enable_triangle_only_ray_query{true};
+
+    friend struct triangle_ray_query::SIMDAccelAccess;
 
 private:
     static void _trace_closest(
@@ -51,13 +68,20 @@ public:
     void build(const AccelBuildCommand &command) noexcept;
     [[nodiscard]] auto native_handle() const noexcept { return _scene; }
     [[nodiscard]] SIMDHostAccelView host_view() noexcept {
+        auto use_triangle_only_provider =
+            !_has_procedural_instances && !_has_curve_instances &&
+            _enable_triangle_only_ray_query;
         return {
             .accel = this,
             .trace_closest = _trace_closest,
             .trace_any = _trace_any,
             .instances = &_instance_table,
-            .ray_query_proceed = _ray_query_proceed,
-            .ray_query_proceed_wide = _ray_query_proceed_wide,
+            .ray_query_proceed = use_triangle_only_provider ?
+                                     triangle_ray_query::ray_query_proceed_triangle_only :
+                                     _ray_query_proceed,
+            .ray_query_proceed_wide = use_triangle_only_provider ?
+                                          triangle_ray_query::ray_query_proceed_wide_triangle_only :
+                                          _ray_query_proceed_wide,
         };
     }
 };

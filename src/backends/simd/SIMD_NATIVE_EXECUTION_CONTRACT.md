@@ -884,30 +884,58 @@ ascending handler delivery before the final commit. This removes repeated
 traversal for the common bounded case without moving handler execution or its
 control flow into the runtime.
 
-At W8/W16, a full runtime cohort mask must use the original dense proceed
-loop in the adaptive provider. A sparse mask may iterate its set bits and may
-initialize/install only the corresponding lane records, but it must retain the
-physical Embree packet width and pass the exact sparse valid mask to one packet
-traversal. This is a runtime refinement of a varying cohort, not a promotion
-in the static `warp_uniform -> cohort_uniform -> varying` lattice. If a
-varying control-flow region happens to reconverge to a full cohort, the next
-proceed call must take the dense path automatically. W1/W2/W4 statically use
-the original provider and do not carry adaptive control flow. The host-view
-provider choice must be fixed by specialization width; a distinct-provider
-LLVM boundary regression covers W4 and W8. No inactive state pointer or
-operand may be inspected before its mask check, and overflow/cursor ordering
-is identical on both paths.
+Each normal accel build recomputes whether the complete current instance table
+contains a curve or procedural primitive. Motion instances are classified by
+their child. When both summaries are false, the host view may select the
+triangle-only ray-query provider; otherwise it must select the generic
+surface/curve/procedural provider. Provider selection happens whenever an
+accel view is encoded, so replacing an instance and rebuilding may change the
+provider without recompiling the shader. The diagnostic control
+`LUISA_SIMD_DISABLE_TRIANGLE_ONLY_RAY_QUERY=1` is sampled once at accel
+construction and forces the generic provider for that accel.
+
+The triangle-only provider is a semantic specialization, not a smaller state
+ABI. JIT construction and callbacks still exchange the same 1216-byte state,
+and every public field retains its existing meaning. The specialized runtime
+must not read or write procedural batch/cursor fields, load geometry kind, or
+run curve front/back deduplication. Its private Embree context contains only
+the RTC context, lane count, active state pointers, and surface batch-build
+metadata; only active entries need initialization. Candidate order,
+32-candidate overflow continuation, interval/cursor tests, commit and query-any
+termination, instance opacity, visibility, ray time, signed-zero `t_min`
+handling, and inactive-tail safety are identical to the generic provider.
+W1 uses one scalar Embree traversal, W2 one padded W4 traversal, and W4/W8/W16
+one matching native packet traversal per scan. Curves or procedural instances
+must never enter this path, including through a motion child.
+
+At W8/W16, a full runtime cohort mask must use a dense proceed loop in either
+the generic or triangle-only adaptive provider. A sparse mask may iterate its
+set bits and may initialize/install only the corresponding lane records, but
+it must retain the physical Embree packet width and pass the exact sparse valid
+mask to one packet traversal. This is a runtime refinement of a varying cohort,
+not a promotion in the static `warp_uniform -> cohort_uniform -> varying`
+lattice. If a varying control-flow region happens to reconverge to a full
+cohort, the next proceed call must take the dense path automatically. W1/W2/W4
+use the dense specialization and do not carry adaptive control flow. The JIT-
+side choice between dense and adaptive callback remains fixed by specialization
+width; the accel-host-view choice between generic and triangle-only callbacks
+is fixed for each encoded accel view. A distinct-provider LLVM boundary
+regression covers W4 and W8. No inactive state pointer or operand may be
+inspected before its mask check, and overflow/cursor ordering is identical on
+both paths.
 
 For a W8/W16 packet, the Embree surface filter may first convert the
 fixed-width `valid` array into an integer mask and iterate only its set bits.
 This includes sparse callback masks produced by Embree from an initially full
 cohort. It is an implementation refinement of the same packet callback: it
 must clear every visited Embree-valid entry, preserve candidate ordering,
-curve-primitive deduplication, cursor tests, and overflow behavior, and must
-not inspect any inactive query-state pointer. Every W1/W2/W4 packet uses the
-original dense filter. The shared filter context is a standard-layout base at
-offset zero; any runtime wrapper must be a proven pointer-interconvertible
-empty derived type, not an unrelated layout-compatible reinterpretation.
+cursor tests, and overflow behavior, and must not inspect any inactive
+query-state pointer. The generic filter additionally preserves curve-primitive
+deduplication; the triangle-only filter is allowed to omit it only under the
+accel summary above. Every W1/W2/W4 packet uses a dense filter. Each filter
+context places the configured Embree context at offset zero, as required by
+Embree callback recovery; the triangle-only context is an independent private
+type rather than an unrelated layout-compatible cast of the generic context.
 
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build; static and control-point-motion round-curve build for
