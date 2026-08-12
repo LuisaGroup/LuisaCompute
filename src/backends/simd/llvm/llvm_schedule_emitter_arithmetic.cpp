@@ -1221,6 +1221,27 @@ namespace luisa::compute::simd::detail {
                     return _builder.CreateFDiv(value, length);
                 });
         }
+        case xir::ArithmeticOp::FACEFORWARD: {
+            if (!require(3u) || !result->type->is_float_vector() ||
+                operand_types[0u] != result->type ||
+                operand_types[1u] != result->type ||
+                operand_types[2u] != result->type) {
+                return nullptr;
+            }
+            auto *orientation = dot(
+                operands[1u], operands[2u], result->type);
+            if (orientation == nullptr) { return nullptr; }
+            auto *forward = _builder.CreateFCmpOLT(
+                orientation,
+                ::llvm::Constant::getNullValue(
+                    orientation->getType()));
+            return _assemble(result->type, varying, [&](uint32_t i) {
+                auto *normal = _extract_child(
+                    operands[0u], result->type, i, varying);
+                return _builder.CreateSelect(
+                    forward, normal, _builder.CreateFNeg(normal));
+            });
+        }
         case xir::ArithmeticOp::REFLECT: {
             if (!require(2u) || !result->type->is_float_vector() ||
                 operand_types[0u] != result->type ||

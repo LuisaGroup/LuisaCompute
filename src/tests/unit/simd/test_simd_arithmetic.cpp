@@ -15,7 +15,7 @@ using namespace boost::ut;
 namespace {
 
 constexpr auto thread_count = 35u;
-constexpr auto output_stride = 7u;
+constexpr auto output_stride = 9u;
 
 [[nodiscard]] float smoothstep_reference(
     float edge0, float edge1, float x) noexcept {
@@ -101,6 +101,31 @@ int main(int argc, char *argv[]) {
             result.write(
                 gid * output_stride + 6u,
                 matrix4 * make_float4(x, 1.0f, 2.0f, -1.0f));
+            auto faceforward_normal = make_float3(
+                x + 0.5f, 1.0f - 0.25f * x, -0.75f);
+            auto faceforward_incident = make_float3(
+                ite((gid & 1u) == 0u, -1.0f, 1.0f),
+                0.0f, 0.0f);
+            result.write(
+                gid * output_stride + 7u,
+                make_float4(
+                    faceforward(
+                        faceforward_normal,
+                        faceforward_incident,
+                        make_float3(1.0f, 0.0f, 0.0f)),
+                    0.0f));
+            Float3 uniform_faceforward_normal =
+                make_float3(0.25f, -0.5f, 1.0f);
+            Float3 uniform_faceforward_incident = make_float3(0.0f);
+            Float3 uniform_faceforward_reference =
+                make_float3(1.0f, 0.0f, 0.0f);
+            auto uniform_faceforward = faceforward(
+                uniform_faceforward_normal,
+                uniform_faceforward_incident,
+                uniform_faceforward_reference);
+            result.write(
+                gid * output_stride + 8u,
+                make_float4(uniform_faceforward, 0.0f));
         };
 
         auto shader = device.compile(kernel);
@@ -158,6 +183,20 @@ int main(int argc, char *argv[]) {
                 host[gid * output_stride + 6u],
                 make_float4(x - 7.0f, 2.0f * x + 3.0f, 14.0f, 4.0f),
                 "SIMD float4x4-vector multiply mismatch");
+            auto faceforward_normal = make_float3(
+                x + 0.5f, 1.0f - 0.25f * x, -0.75f);
+            auto faceforward_result =
+                (gid & 1u) == 0u ?
+                    faceforward_normal :
+                    -faceforward_normal;
+            expect_close(
+                host[gid * output_stride + 7u],
+                make_float4(faceforward_result, 0.0f),
+                "SIMD varying faceforward mismatch");
+            expect_close(
+                host[gid * output_stride + 8u],
+                make_float4(-0.25f, 0.5f, -1.0f, 0.0f),
+                "SIMD uniform faceforward zero-orientation mismatch");
         }
     }
 }

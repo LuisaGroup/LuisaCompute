@@ -2021,6 +2021,113 @@ template<size_t Width>
     return true;
 }
 
+[[nodiscard]] bool run_faceforward_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("faceforward");
+    auto *buffer_type = Type::buffer(Type::of<luisa::float3>());
+    auto *normal_argument = kernel->create_resource_argument(buffer_type);
+    auto *incident_argument = kernel->create_resource_argument(buffer_type);
+    auto *reference_argument = kernel->create_resource_argument(buffer_type);
+    auto *output_argument = kernel->create_resource_argument(buffer_type);
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *normal = builder.call(
+        Type::of<luisa::float3>(), xir::ResourceReadOp::BUFFER_READ,
+        {normal_argument, index});
+    auto *incident = builder.call(
+        Type::of<luisa::float3>(), xir::ResourceReadOp::BUFFER_READ,
+        {incident_argument, index});
+    auto *reference = builder.call(
+        Type::of<luisa::float3>(), xir::ResourceReadOp::BUFFER_READ,
+        {reference_argument, index});
+    auto *result = builder.call(
+        Type::of<luisa::float3>(), xir::ArithmeticOp::FACEFORWARD,
+        {normal, incident, reference});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output_argument, index, result});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-faceforward", *context);
+    auto name = std::string{"simd_faceforward"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(codegen.argument_buffer_size ==
+          4u * sizeof(SIMDHostBufferView));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(count_occurrences(ir, "fcmp olt <8 x float>") == 1u);
+    CHECK(count_occurrences(ir, "select <8 x i1>") >= 3u);
+    CHECK(count_occurrences(ir, "fneg <8 x float>") == 3u);
+    CHECK(ir.find("llvm.x86.") == std::string::npos);
+    CHECK(ir.find("llvm.aarch64.") == std::string::npos);
+    CHECK(ir.find("llvm.arm.neon.") == std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    std::array<luisa::float3, count> normals{};
+    std::array<luisa::float3, count> incidents{};
+    std::array<luisa::float3, count> references{};
+    std::array<luisa::float3, count> output{};
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        normals[i] = luisa::make_float3(
+            static_cast<float>(i) + 0.25f,
+            1.0f - static_cast<float>(i) * 0.125f,
+            -0.75f);
+        incidents[i] = luisa::make_float3(
+            (i & 1u) == 0u ? -1.0f : 1.0f, 0.0f, 0.0f);
+        references[i] = luisa::make_float3(1.0f, 0.0f, 0.0f);
+        output[i] = luisa::make_float3(1234.0f);
+    }
+    alignas(16) std::array<SIMDHostBufferView, 4u> arguments{
+        SIMDHostBufferView{normals.data(), sizeof(normals)},
+        SIMDHostBufferView{incidents.data(), sizeof(incidents)},
+        SIMDHostBufferView{references.data(), sizeof(references)},
+        SIMDHostBufferView{output.data(), sizeof(output)},
+    };
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        function(arguments.data(), nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        auto expected = (i & 1u) == 0u ? normals[i] : -normals[i];
+        CHECK(output[i].x == expected.x);
+        CHECK(output[i].y == expected.y);
+        CHECK(output[i].z == expected.z);
+    }
+    return true;
+}
+
 [[nodiscard]] std::optional<schedule::Function>
 make_lane_affine_buffer_schedule(uint32_t width) {
     xir::Module module;
@@ -3861,6 +3968,8 @@ int main() {
          &run_return_convergence_cascade_codegen},
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
+        {"XIR faceforward fixed-vector arithmetic",
+         &run_faceforward_codegen},
         {"lane-affine scalar buffer load/store",
          &run_lane_affine_buffer_codegen},
         {"uniform buffer read broadcast",
