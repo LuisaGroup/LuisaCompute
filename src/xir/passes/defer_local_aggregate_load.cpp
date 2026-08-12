@@ -1,6 +1,7 @@
 #include <algorithm>
 
 #include <luisa/ast/type.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/builder.h>

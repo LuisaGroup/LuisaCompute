@@ -8,6 +8,7 @@
 #include <utility>
 #include <limits>
 
+using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
 using namespace boost::ut;
