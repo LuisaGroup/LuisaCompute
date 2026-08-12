@@ -937,6 +937,12 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
     }
     auto op = static_cast<xir::ResourceQueryOp>(
         *instruction.source_op);
+    if (op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
+        op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
+        op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+        op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR) {
+        return _ray_query_create(instruction);
+    }
     if (op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST ||
         op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY ||
         op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR ||

@@ -88,6 +88,56 @@ using SIMDHostAccelTraceAny = void(
     const float *ray_components, const uint32_t *visibility_masks,
     const float *times, uint32_t *occluded);
 
+enum class SIMDHostRayQueryCandidateKind : uint32_t {
+    none = 0u,
+    surface = 1u,
+    procedural = 2u,
+};
+
+struct alignas(8) SIMDHostRayQuerySurfaceHit {
+    uint32_t inst{~0u};
+    uint32_t prim{~0u};
+    float bary[2]{};
+    float t{0.0f};
+    uint32_t reserved{0u};
+};
+
+struct alignas(8) SIMDHostRayQueryCommittedHit {
+    uint32_t inst{~0u};
+    uint32_t prim{~0u};
+    float bary[2]{};
+    uint32_t kind{0u};
+    float t{0.0f};
+};
+
+struct SIMDHostRayQueryState;
+using SIMDHostAccelRayQueryProceed = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states);
+
+// One fixed-size state belongs to each logical lane and query construction
+// site. Embree traversal is still issued once per active packet; these AoS
+// records only let the ordinary SIMD CFG retain candidate/commit state across
+// divergent handler iterations without a second callback-side PC machine.
+struct alignas(16) SIMDHostRayQueryState {
+    void *accel{nullptr};
+    SIMDHostAccelRayQueryProceed *proceed{nullptr};
+    float world_ray[8]{};
+    float time{0.0f};
+    uint32_t visibility_mask{0xffu};
+    uint32_t terminate_on_first{0u};
+    uint32_t cursor_valid{0u};
+    uint32_t cursor_inst{~0u};
+    uint32_t cursor_prim{~0u};
+    float cursor_t{0.0f};
+    uint32_t candidate_kind{0u};
+    uint32_t candidate_committed{0u};
+    uint32_t terminated{0u};
+    uint32_t reserved[2]{};
+    SIMDHostRayQuerySurfaceHit candidate{};
+    SIMDHostRayQueryCommittedHit committed{};
+};
+
 // Device-side instance metadata reads use this stable plain-data table rather
 // than depending on SIMDAccel's C++ object or vector layout. The table object
 // itself remains at a fixed address while a build may replace its data pointer.
@@ -123,9 +173,18 @@ struct alignas(16) SIMDHostAccelView {
     SIMDHostAccelTraceClosest *trace_closest{nullptr};
     SIMDHostAccelTraceAny *trace_any{nullptr};
     const SIMDHostAccelInstanceTable *instances{nullptr};
+    SIMDHostAccelRayQueryProceed *ray_query_proceed{nullptr};
+    void *reserved{nullptr};
 };
 static_assert(sizeof(SIMDHostAccelTraceClosest *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
+static_assert(sizeof(SIMDHostAccelRayQueryProceed *) == sizeof(void *));
+static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
+static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
+static_assert(sizeof(SIMDHostRayQueryState) == 144u);
+static_assert(offsetof(SIMDHostRayQueryState, world_ray) == 16u);
+static_assert(offsetof(SIMDHostRayQueryState, candidate) == 96u);
+static_assert(offsetof(SIMDHostRayQueryState, committed) == 120u);
 static_assert(sizeof(SIMDHostAccelInstance) == 80u);
 static_assert(offsetof(SIMDHostAccelInstance, affine) == 0u);
 static_assert(offsetof(SIMDHostAccelInstance, user_id) == 48u);
@@ -138,7 +197,9 @@ static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, instances) == 3u * sizeof(void *));
-static_assert(sizeof(SIMDHostAccelView) == 4u * sizeof(void *));
+static_assert(offsetof(SIMDHostAccelView, ray_query_proceed) ==
+              4u * sizeof(void *));
+static_assert(sizeof(SIMDHostAccelView) == 6u * sizeof(void *));
 
 // Texture callbacks operate once per SIMD packet. Coordinates are SoA vectors
 // of lane_count elements and values contain four consecutive component

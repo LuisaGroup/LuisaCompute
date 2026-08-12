@@ -6,6 +6,12 @@ namespace luisa::compute::simd::detail {
 
 namespace {
 
+[[nodiscard]] bool is_ray_query_type(const Type *type) noexcept {
+    return type != nullptr && type->is_custom() &&
+           (type == Type::custom("LC_RayQueryAll") ||
+            type == Type::custom("LC_RayQueryAny"));
+}
+
 [[nodiscard]] constexpr bool is_power_of_two(uint32_t value) noexcept {
     return value != 0u && (value & (value - 1u)) == 0u;
 }
@@ -54,16 +60,20 @@ void ScheduleEmitter::_fail(std::string message) {
 }
 
 [[nodiscard]] bool ScheduleEmitter::_is_scalar_data(const Type *type) noexcept {
-    return type != nullptr && type->is_scalar() && !type->is_float8();
+    return type != nullptr &&
+           ((type->is_scalar() && !type->is_float8()) ||
+            is_ray_query_type(type));
 }
 
 [[nodiscard]] bool ScheduleEmitter::_is_data(const Type *type) noexcept {
-    if (type == nullptr || type->is_resource() || type->is_custom() ||
+    if (type == nullptr || type->is_resource() ||
+        (type->is_custom() && !is_ray_query_type(type)) ||
         type->is_cooperative_vector() ||
         type->is_cooperative_vector_ref() ||
         type->is_cooperative_matrix_ref()) {
         return false;
     }
+    if (is_ray_query_type(type)) { return true; }
     if (type->is_scalar()) { return !type->is_float8(); }
     if (type->is_vector() || type->is_matrix() || type->is_array()) {
         return _is_data(type->element());
@@ -77,6 +87,7 @@ void ScheduleEmitter::_fail(std::string message) {
 }
 
 [[nodiscard]] size_t ScheduleEmitter::_abi_size(const Type *type) noexcept {
+    if (is_ray_query_type(type)) { return sizeof(void *); }
     if (type != nullptr && type->is_buffer()) {
         return sizeof(SIMDHostBufferView);
     }
@@ -93,6 +104,7 @@ void ScheduleEmitter::_fail(std::string message) {
 }
 
 [[nodiscard]] size_t ScheduleEmitter::_abi_alignment(const Type *type) noexcept {
+    if (is_ray_query_type(type)) { return alignof(void *); }
     if (type != nullptr && type->is_buffer()) {
         return alignof(SIMDHostBufferView);
     }
@@ -380,6 +392,12 @@ void ScheduleEmitter::_analyze_local_lvalues() {
                     _fail("LLVM packet codegen only supports loads and stores to thread-local storage");
                     return;
                 }
+            } else if ((instruction.opcode == schedule::Opcode::ray_query_read ||
+                        instruction.opcode == schedule::Opcode::ray_query_write) &&
+                       (instruction.operands.empty() ||
+                        !_is_local_lvalue(instruction.operands.front()))) {
+                _fail("ray-query object access requires thread-local storage");
+                return;
             } else if (instruction.opcode == schedule::Opcode::atomic &&
                        !instruction.operands.empty() &&
                        _is_local_lvalue(instruction.operands.front())) {
@@ -512,6 +530,8 @@ void ScheduleEmitter::_preflight() {
                 instruction.opcode != schedule::Opcode::resource_query &&
                 instruction.opcode != schedule::Opcode::resource_read &&
                 instruction.opcode != schedule::Opcode::resource_write &&
+                instruction.opcode != schedule::Opcode::ray_query_read &&
+                instruction.opcode != schedule::Opcode::ray_query_write &&
                 instruction.opcode != schedule::Opcode::atomic &&
                 instruction.opcode != schedule::Opcode::warp_collective) {
                 auto message = std::string{
@@ -790,7 +810,8 @@ void ScheduleEmitter::_preflight() {
     auto *pointer_type = ::llvm::PointerType::getUnqual(context);
     auto *type = ::llvm::StructType::get(
         context,
-        {pointer_type, pointer_type, pointer_type, pointer_type});
+        {pointer_type, pointer_type, pointer_type,
+         pointer_type, pointer_type});
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     constexpr std::array offsets{
@@ -798,6 +819,7 @@ void ScheduleEmitter::_preflight() {
         offsetof(SIMDHostAccelView, trace_closest),
         offsetof(SIMDHostAccelView, trace_any),
         offsetof(SIMDHostAccelView, instances),
+        offsetof(SIMDHostAccelView, ray_query_proceed),
     };
     for (auto i = uint32_t{0u}; i < offsets.size(); i++) {
         auto *field = _builder.CreateLoad(

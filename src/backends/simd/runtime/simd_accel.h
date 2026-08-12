@@ -38,6 +38,9 @@ private:
         uint64_t active_mask_bits, const float *ray_components,
         const uint32_t *visibility_masks,
         const float *times, uint32_t *occluded) noexcept;
+    static void _ray_query_proceed(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states) noexcept;
 
 public:
     SIMDAccel(RTCDevice device, const AccelOption &option) noexcept;
@@ -51,6 +54,7 @@ public:
             .trace_closest = _trace_closest,
             .trace_any = _trace_any,
             .instances = &_instance_table,
+            .ray_query_proceed = _ray_query_proceed,
         };
     }
 };

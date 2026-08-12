@@ -7,7 +7,9 @@ gather/scatter plus bindless buffer/texture packet tables are implemented behind
 `LUISA_COMPUTE_ENABLE_SIMD`. The shared LLVM native-math layer now has
 independently implemented precise and fast tiers for twenty f32 operations:
 the initial twelve unary operations, binary `atan2` and `pow`, and six
-hyperbolic/inverse-hyperbolic operations.
+hyperbolic/inverse-hyperbolic operations. Static, vertex-motion, and
+instance-motion triangle traversal now includes both closest/any traces and
+stateful query-all/query-any handlers at W1/W2/W4/W8/W16.
 
 Baseline: `LuisaGroup/LuisaCompute@next`, commit
 `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -1571,10 +1573,31 @@ linear hit distance and occlusion at every width, includes divergent
 visibility and the three-lane W16 tail, and separately checks a uniform motion
 trace remains one-lane scalar work.
 
-Ray-query callbacks, curves, procedural primitives, cutout/opacity filters and
-mutation, nonidentity outer affine composition for SRT motion, and full
-instance-stack semantics remain explicit Phase-4 work; closest/any support
-does not claim them.
+Triangle query-all/query-any is now lowered through the ordinary cohort
+scheduler rather than a second callback-side PC machine. The structured
+`RayQueryLoop` becomes ordinary XIR loop/if control; its mutable object is a
+varying pointer to one fixed-size, lane-private state record even when all
+constructor operands are uniform. Each `PROCEED` gathers active state pointers
+into one packet scratch and makes one host callback for the cohort. The runtime
+groups compatible states by accel and query mode and selects W1 scalar, W2
+padded W4, or matching W4/W8/W16 Embree traversal.
+
+The exact device regression covers surface reject/commit, query-any automatic
+termination, explicit termination, immediate world-ray `t_max` update,
+committed-hit reads, opaque auto-commit, motion time, divergent lanes, and
+inactive tails at every supported width. The LLVM boundary regression requires
+one packed callback, distinct active-lane state pointers, null inactive
+pointers, masked state gathers/scatters, and no per-lane traversal callback.
+
+Candidate enumeration is deliberately a correctness-first baseline: an Embree
+filter records the nearest triangle after a lexicographic candidate cursor and
+rejects it physically, so another `PROCEED` can rescan the BVH for the next
+candidate. This preserves handler semantics and batches compatible lanes, but
+long reject chains can traverse the BVH repeatedly. A measured continuation or
+candidate-batch path is still required before calling ray-query performance
+complete. Curves, procedural candidates, cutout/device-opacity mutation,
+nonidentity outer affine composition for SRT motion, and full instance-stack
+semantics remain explicit work.
 
 Static-instance transform, user-id, and visibility reads and writes bypass
 runtime callbacks. The accel argument carries a pointer to a stable table
@@ -1842,6 +1865,10 @@ on 2026-08-11. The repository now contains:
   mask and an optional sanitized motion-time vector, pre-sanitizes inactive
   operands, initializes inactive results, narrows uniform queries to the first
   active lane, and bulk-copies safe sparse native packets;
+- triangle query-all/query-any state machines lowered into ordinary scheduled
+  XIR, with lane-private state, one packet `PROCEED` callback per active cohort,
+  surface reject/commit/terminate and opaque auto-commit semantics, static and
+  motion traversal, W2-to-W4 padding, and exact W1/W2/W4/W8/W16 tail coverage;
 - MATRIX and quaternion-SRT motion-instance resources with validated time
   ranges, TLAS-owned keyframe storage, MATRIX outer-affine composition,
   quaternion interpolation, scalar uniform keyframe access, inactive-safe
@@ -1892,10 +1919,10 @@ on 2026-08-11. The repository now contains:
   W16 tail.
 
 The next implementation boundary is completion of the Embree vertical slice:
-ray-query callbacks, opacity/filter semantics, curve/procedural support,
-nonidentity outer affine composition for SRT motion, plus a direct
-packet-layout experiment guarded by stable measurement. Bindless gradient
-sampling, broader callable conformance, cooperative shared memory, block
-barriers, and the remaining device-library surface follow. The current
-compiler returns precise diagnostics for unsupported features rather than
-silently accepting them.
+measure and remove repeated-BVH cost for long triangle query rejection chains,
+then add opacity/filter semantics, curve/procedural candidates, nonidentity
+outer affine composition for SRT motion, and a direct packet-layout experiment
+guarded by stable measurement. Bindless gradient sampling, broader callable
+conformance, cooperative shared memory, block barriers, and the remaining
+device-library surface follow. The current compiler returns precise diagnostics
+for unsupported features rather than silently accepting them.

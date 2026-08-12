@@ -59,7 +59,8 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_emitter_accel.cpp
         llvm/llvm_schedule_emitter_collectives.cpp
         llvm/llvm_schedule_emitter_control.cpp
-        llvm/llvm_schedule_emitter_memory.cpp)
+        llvm/llvm_schedule_emitter_memory.cpp
+        llvm/llvm_schedule_emitter_ray_query.cpp)
 
 # Keep the hand-written code generator reviewable. Generated sources are not
 # part of this list; a focused lowering unit that grows past this budget must

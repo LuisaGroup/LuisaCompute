@@ -2787,6 +2787,196 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+struct RayQueryPacketProbe {
+    uint32_t calls{0u};
+    uint32_t lane_count{0u};
+    uint64_t mask{0u};
+    bool valid{true};
+};
+
+void ray_query_packet_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    auto *probe = static_cast<RayQueryPacketProbe *>(states[0u]->accel);
+    probe->calls++;
+    probe->lane_count = lane_count;
+    probe->mask = active_mask_bits;
+    probe->valid &= lane_count == 8u && active_mask_bits == 0x1fu;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto active = (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
+        if (!active) {
+            probe->valid &= states[lane] == nullptr;
+            continue;
+        }
+        auto *state = states[lane];
+        probe->valid &= state != nullptr && state->accel == probe &&
+                        state->proceed == ray_query_packet_probe &&
+                        state->time == 0.0f &&
+                        state->visibility_mask == 0x5au &&
+                        state->terminate_on_first == 0u &&
+                        state->cursor_valid == 0u &&
+                        state->candidate_kind == 0u &&
+                        state->candidate_committed == 0u &&
+                        state->terminated == 0u &&
+                        state->committed.inst == ~0u &&
+                        state->committed.prim == ~0u &&
+                        state->committed.kind == 0u &&
+                        state->committed.t == 0.0f;
+        constexpr std::array expected_ray{
+            1.0f, 2.0f, 3.0f, 0.25f,
+            4.0f, 5.0f, 6.0f, 7.0f};
+        for (auto component = uint32_t{0u};
+             component < expected_ray.size(); component++) {
+            probe->valid &=
+                state->world_ray[component] == expected_ray[component];
+        }
+        for (auto previous = uint32_t{0u}; previous < lane; previous++) {
+            probe->valid &= states[previous] != state;
+        }
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = 10u + lane,
+            .prim = 20u + lane,
+            .bary = {0.125f, 0.25f},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = 30.0f + static_cast<float>(lane),
+        };
+        state->terminated = 1u;
+    }
+}
+
+[[nodiscard]] bool run_ray_query_packet_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("ray_query_packet");
+    auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+    auto *ray = kernel->create_value_argument(Type::of<Ray>());
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::uint4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto three_value = uint32_t{3u};
+    auto visibility_value = uint32_t{0x5au};
+    auto *three = module.create_constant(
+        Type::of<uint32_t>(), &three_value);
+    auto *visibility = module.create_constant(
+        Type::of<uint32_t>(), &visibility_value);
+    auto *query_type = Type::custom("LC_RayQueryAll");
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *query_value = builder.call(
+        query_type, xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL,
+        {accel, ray, visibility});
+    auto *query = builder.alloca_local(query_type);
+    builder.store(query, query_value);
+    builder.call(
+        xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+        {query});
+    auto *committed = builder.call(
+        Type::of<CommittedHit>(),
+        xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+        {query});
+    auto *inst = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {committed, zero});
+    auto *prim = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {committed, one});
+    auto *kind = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {committed, three});
+    auto *metadata = builder.call(
+        Type::of<luisa::uint4>(), xir::ArithmeticOp::AGGREGATE,
+        {inst, prim, kind, x});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, metadata});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-ray-query-packet", *context);
+    auto name = std::string{"simd_ray_query_packet"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        Ray ray;
+        SIMDHostBufferView output;
+    };
+    CHECK(codegen.argument_buffer_size == sizeof(Arguments));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("ray.query.state") != std::string::npos);
+    CHECK(ir.find("ray.query.packet") != std::string::npos);
+    CHECK(ir.find("ray.query.proceed.lane") == std::string::npos);
+    CHECK(count_occurrences(ir, "call void %") == 1u);
+    CHECK(count_occurrences(ir, "llvm.masked.scatter") >= 20u);
+    CHECK(count_occurrences(ir, "llvm.masked.gather") >= 9u);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+
+    RayQueryPacketProbe probe;
+    std::array<luisa::uint4, width> values{};
+    values.fill(luisa::make_uint4(0xdeadbeefu));
+    Arguments arguments{
+        .accel = {
+            .accel = &probe,
+            .ray_query_proceed = ray_query_packet_probe,
+        },
+        .ray = {
+            .compressed_origin = {1.0f, 2.0f, 3.0f},
+            .compressed_t_min = 0.25f,
+            .compressed_direction = {4.0f, 5.0f, 6.0f},
+            .compressed_t_max = 7.0f,
+        },
+        .output = {values.data(), sizeof(values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.calls == 1u);
+    CHECK(probe.lane_count == width);
+    CHECK(probe.mask == 0x1fu);
+    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+        auto expected = lane < active_lanes ?
+                            luisa::make_uint4(
+                                10u + lane, 20u + lane,
+                                static_cast<uint32_t>(
+                                    SIMDHostRayQueryCandidateKind::surface),
+                                lane) :
+                            luisa::make_uint4(0xdeadbeefu);
+        CHECK(luisa::all(values[lane] == expected));
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_accel_motion_metadata_codegen() {
     static constexpr auto width = 8u;
     static constexpr auto active_lanes = 5u;
@@ -3674,6 +3864,8 @@ int main() {
         {"XIR texture packet callback", &run_texture_packet_codegen},
         {"XIR accel instance metadata",
          &run_accel_instance_metadata_codegen},
+        {"XIR ray-query packet callback",
+         &run_ray_query_packet_codegen},
         {"XIR accel motion metadata",
          &run_accel_motion_metadata_codegen},
         {"XIR bindless texture packet callback",

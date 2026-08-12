@@ -17,6 +17,7 @@
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/translators/ast2xir.h>
 
@@ -115,6 +116,16 @@ SIMDCompiledKernel compile_simd_kernel(
     static_cast<void>(xir::local_store_forward_pass_run_on_module(module.get()));
     static_cast<void>(xir::local_load_elimination_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+
+    auto ray_query =
+        xir::lower_ray_query_loop_to_loop_pass_run_on_module(module.get());
+    if (!ray_query.succeeded()) {
+        SIMDCompiledKernel result{.warp_width = warp_width};
+        result.diagnostics.emplace_back(
+            "XIR ray-query loop lowering failed (errors=" +
+            std::to_string(ray_query.error_count) + ")");
+        return result;
+    }
     static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
 

@@ -670,16 +670,52 @@ mask is sparse: inactive values are already benign and remain excluded from
 traversal. W2 may not read beyond its two-lane source scratch while constructing
 the padded W4 packet.
 
+Triangle ray queries use the same width mapping, but retain state across
+candidate handlers. The AST `RayQueryLoop` is first lowered to ordinary XIR
+loop/if control containing `PROCEED`, candidate-kind reads, and object writes;
+the existing cohort scheduler therefore executes divergent handlers without a
+second callback-side PC machine. Query construction is always varying even
+when its accel, ray, time, and visibility inputs are uniform: each physical
+lane receives a distinct 16-byte-aligned fixed-size state record, while the
+uniform input expressions themselves are still evaluated only once and splat
+only at the state initialization stores. A copied query value is an internal
+pointer to that lane's record.
+
+`PROCEED` gathers the active state pointers into one `<W x ptr>` scratch,
+selects null for inactive lanes, and issues exactly one indirect host callback
+for the current cohort. The callback groups states by accel and query-all/
+query-any mode, then uses W1 scalar traversal, W2 padded W4 traversal, or the
+matching W4/W8/W16 packet entry. No active-lane extract/call/insert traversal
+loop is permitted. Query-all and query-any support triangle surface candidate
+reads, reject-by-return, triangle commit, explicit terminate, world-ray reads,
+committed-hit reads, static time zero, and motion time. Committing immediately
+updates the public world-ray `t_max`; query-any terminates after the first
+commit. An opaque instance auto-commits without entering the surface handler.
+Miss state begins with invalid instance/primitive IDs, `HitType::Miss`, zero
+barycentrics, and zero committed distance.
+
+The current triangle candidate enumerator is a correctness-first packet
+baseline. An Embree argument filter rejects every physical candidate while
+retaining the nearest `(t, instance, primitive)` key after the lane's cursor;
+each subsequent `PROCEED` therefore performs another packet traversal for the
+remaining active lanes. This preserves ordinary scheduler semantics and
+speculatively batches lanes that still share an accel/query mode, but a scene
+with many rejected candidates may rescan its BVH many times. It must not be
+described as the final ray-query performance path until a measured continuation
+or candidate-batch design removes that repeated traversal.
+
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build, top-level static and motion-instance build, affine
 transform, visibility mask, `RAY_TRACING_TRACE_CLOSEST`,
-`RAY_TRACING_TRACE_ANY`, and their motion-blur variants. Instance transform,
+`RAY_TRACING_TRACE_ANY`, triangle `RAY_TRACING_QUERY_ALL`/
+`RAY_TRACING_QUERY_ANY`, and their motion-blur variants. Instance transform,
 user-id, visibility-mask, MATRIX-motion, and SRT-motion queries are also
-accepted. A static query passes a null time pointer and the runtime initializes
-Embree time to zero. A motion query passes one f32 time vector sanitized under
-the cohort mask before the callback. A result classified warp- or
-cohort-uniform invokes only the first active lane and stays scalar. Closest-hit
-scratch starts with invalid instance/primitive IDs and zero
+accepted. A static trace/query uses time zero. A motion operation passes one
+f32 time vector sanitized under the cohort mask before the callback. A normal
+closest/any result classified warp- or cohort-uniform invokes only the first
+active lane and stays scalar; mutable ray-query state is the explicit varying
+exception described above. Closest-hit scratch starts with invalid
+instance/primitive IDs and zero
 barycentrics/distance; occlusion scratch starts false. Therefore an inactive
 lane cannot observe poison or mutate query state even if complete initialized
 vectors cross the callback boundary.
@@ -732,12 +768,12 @@ attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Ray-query callbacks, curves, procedural geometry, cutout/opacity filtering and
-mutation, nonidentity outer affine composition for SRT motion,
+Curve and procedural ray-query candidates, cutout filtering, device-side
+opacity mutation, nonidentity outer affine composition for SRT motion,
 `update_instance_buffer_only`, and deeper instance-stack behavior are not part
 of this slice. They must fail at a specific capability boundary until their
-independent semantic, IR-shape, and machine-boundary gates exist; closest/any
-packet traversal does not imply their support.
+independent semantic, IR-shape, and machine-boundary gates exist; triangle
+ray-query support does not imply those geometry/filter capabilities.
 
 ## 7. Executable audit matrix
 

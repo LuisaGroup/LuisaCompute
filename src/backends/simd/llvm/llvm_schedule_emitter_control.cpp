@@ -26,6 +26,12 @@ void ScheduleEmitter::_emit_instruction(const schedule::Instruction &instruction
         case schedule::Opcode::resource_query:
             value = _resource_query(instruction);
             break;
+        case schedule::Opcode::ray_query_read:
+            value = _ray_query_read(instruction);
+            break;
+        case schedule::Opcode::ray_query_write:
+            _ray_query_write(instruction);
+            break;
         case schedule::Opcode::resource_read:
             value = _resource_read(instruction);
             break;
@@ -1064,22 +1070,26 @@ void ScheduleEmitter::_allocate_state() {
                 continue;
             }
             auto *value = _source.value(*instruction.result);
+            auto value_size = value == nullptr ? 0u :
+                                                 _abi_size(value->type);
+            auto value_alignment = value == nullptr ? 1u :
+                                                      _abi_alignment(value->type);
             if (value == nullptr || value->type == nullptr ||
                 !_is_local_lvalue(*instruction.result) ||
-                value->type->size() == 0u) {
+                value_size == 0u) {
                 _fail("thread-local allocation has an invalid data type");
                 return;
             }
             auto byte_count = static_cast<uint64_t>(_width) *
-                              value->type->size();
+                              value_size;
             auto *storage_type = ::llvm::ArrayType::get(
                 _builder.getInt8Ty(), byte_count);
             auto *storage = _builder.CreateAlloca(
                 storage_type, nullptr, value->name + ".local");
             storage->setAlignment(
-                ::llvm::Align{value->type->alignment()});
+                ::llvm::Align{value_alignment});
             auto *offsets = _lane_offsets(
-                _lane_ids(), value->type->size());
+                _lane_ids(), value_size);
             _local_allocations[instruction.result->value] =
                 _local_handle(
                     _builder.CreateVectorSplat(_width, storage),

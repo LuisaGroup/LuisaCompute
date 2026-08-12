@@ -302,6 +302,14 @@ private:
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_accel_query(
         const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_ray_query_create(
+        const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_ray_query_state_handles(
+        schedule::ValueId object_id);
+    [[nodiscard]] ::llvm::Value *_ray_query_read(
+        const schedule::Instruction &instruction);
+    void _ray_query_write(
+        const schedule::Instruction &instruction);
     [[nodiscard]] AccelInstanceAddress _accel_instance_address(
         ::llvm::Value *accel, schedule::ValueId index_id,
         bool varying);

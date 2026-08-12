@@ -4,6 +4,7 @@
 // - varying-time motion closest-hit and any-hit traversal
 // - MATRIX/SRT motion-instance keyframes, quaternion interpolation, device
 //   mutation, and packet traversal
+// - non-opaque triangle ray-query rejection/commit under divergent handlers
 // - direct varying and uniform instance metadata reads
 // - divergent visibility masks, ray intervals, directions, and misses
 // - uniform static and motion traces that must remain scalar within a packet
@@ -177,6 +178,12 @@ int main(int argc, char *argv[]) {
         instance_motion_accel.emplace_back(
             srt_motion_instance, make_float4x4(1.0f),
             0x8u, true, 55u);
+        auto query_accel = device.create_accel();
+        query_accel.emplace_back(
+            mesh, make_float4x4(1.0f), 0x10u, false, 66u);
+        query_accel.emplace_back(
+            mesh, translation(make_float3(0.0f, 0.0f, -2.0f)),
+            0x10u, false, 77u);
 
         std::array<Ray, thread_count> host_rays{};
         std::array<uint, thread_count> host_masks{};
@@ -305,6 +312,7 @@ int main(int argc, char *argv[]) {
                << accel.build()
                << motion_accel.build()
                << instance_motion_accel.build()
+               << query_accel.build()
                << shader(
                       rays, masks, ids, details, accel,
                       motion_accel, motion_ids, motion_details,
@@ -394,6 +402,177 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        Kernel1D trace_query = [width](
+                                   AccelVar scene,
+                                   BufferUInt4 metadata,
+                                   BufferFloat2 details,
+                                   BufferUInt4 any_metadata,
+                                   BufferFloat2 any_details,
+                                   BufferUInt4 terminate_metadata) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto target = index & 1u;
+            auto ray = make_ray(
+                make_float3(0.0f, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            UInt callback_count = 0u;
+            Float callback_tmax = -1.0f;
+            auto committed = scene.traverse(
+                                      ray,
+                                      AccelTraceOptions{
+                                          .visibility_mask = 0x10u})
+                                 .on_surface_candidate(
+                                     [&](SurfaceCandidate &candidate) noexcept {
+                                         auto hit = candidate.hit();
+                                         callback_count += 1u;
+                                         $if (hit->inst == target) {
+                                             candidate.commit();
+                                             callback_tmax =
+                                                 candidate.ray()->t_max();
+                                         };
+                                     })
+                                 .on_procedural_candidate(
+                                     [](ProceduralCandidate &) noexcept {})
+                                 .trace();
+            metadata.write(
+                index,
+                make_uint4(
+                    committed->hit_type, committed->inst,
+                    committed->prim, callback_count));
+            details.write(
+                index,
+                make_float2(
+                    committed->committed_ray_t, callback_tmax));
+
+            UInt any_callback_count = 0u;
+            Float any_callback_tmax = -1.0f;
+            auto any_committed = scene.traverse_any(
+                                          ray,
+                                          AccelTraceOptions{
+                                              .visibility_mask = 0x10u})
+                                     .on_surface_candidate(
+                                         [&](SurfaceCandidate &candidate) noexcept {
+                                             auto hit = candidate.hit();
+                                             any_callback_count += 1u;
+                                             $if (hit->inst == target) {
+                                                 candidate.commit();
+                                                 any_callback_tmax =
+                                                     candidate.ray()->t_max();
+                                             };
+                                         })
+                                     .on_procedural_candidate(
+                                         [](ProceduralCandidate &) noexcept {})
+                                     .trace();
+            any_metadata.write(
+                index,
+                make_uint4(
+                    any_committed->hit_type, any_committed->inst,
+                    any_committed->prim, any_callback_count));
+            any_details.write(
+                index,
+                make_float2(
+                    any_committed->committed_ray_t,
+                    any_callback_tmax));
+
+            UInt terminate_callback_count = 0u;
+            auto terminated = scene.traverse(
+                                       ray,
+                                       AccelTraceOptions{
+                                           .visibility_mask = 0x10u})
+                                  .on_surface_candidate(
+                                      [&](SurfaceCandidate &candidate) noexcept {
+                                          terminate_callback_count += 1u;
+                                          $if ((index & 1u) == 0u) {
+                                              candidate.terminate();
+                                          }
+                                          $else {
+                                              candidate.commit();
+                                          };
+                                      })
+                                  .on_procedural_candidate(
+                                      [](ProceduralCandidate &) noexcept {})
+                                  .trace();
+            terminate_metadata.write(
+                index,
+                make_uint4(
+                    terminated->hit_type, terminated->inst,
+                    terminated->prim, terminate_callback_count));
+        };
+        auto trace_query_shader = device.compile(trace_query);
+        auto query_metadata = device.create_buffer<uint4>(5u);
+        auto query_details = device.create_buffer<float2>(5u);
+        auto query_any_metadata = device.create_buffer<uint4>(5u);
+        auto query_any_details = device.create_buffer<float2>(5u);
+        auto query_terminate_metadata = device.create_buffer<uint4>(5u);
+        std::array<uint4, 5u> host_query_metadata{};
+        std::array<float2, 5u> host_query_details{};
+        std::array<uint4, 5u> host_query_any_metadata{};
+        std::array<float2, 5u> host_query_any_details{};
+        std::array<uint4, 5u> host_query_terminate_metadata{};
+        stream << trace_query_shader(
+                      query_accel, query_metadata, query_details,
+                      query_any_metadata, query_any_details,
+                      query_terminate_metadata)
+                      .dispatch(5u)
+               << query_metadata.copy_to(luisa::span{host_query_metadata})
+               << query_details.copy_to(luisa::span{host_query_details})
+               << query_any_metadata.copy_to(
+                      luisa::span{host_query_any_metadata})
+               << query_any_details.copy_to(
+                      luisa::span{host_query_any_details})
+               << query_terminate_metadata.copy_to(
+                      luisa::span{host_query_terminate_metadata})
+               << synchronize();
+        for (auto i = 0u; i < host_query_metadata.size(); i++) {
+            auto target = i & 1u;
+            expect(static_cast<bool>(
+                all(host_query_metadata[i] == make_uint4(
+                                                  static_cast<uint32_t>(
+                                                      HitType::Surface),
+                                                  target, 0u,
+                                                  target + 1u))))
+                << "triangle ray-query metadata mismatch";
+            auto expected_distance = target == 0u ? 1.0f : 3.0f;
+            expect(std::abs(
+                       host_query_details[i].x - expected_distance) <=
+                   1.0e-5f)
+                << "triangle ray-query distance mismatch";
+            expect(std::abs(
+                       host_query_details[i].y - expected_distance) <=
+                   1.0e-5f)
+                << "triangle ray-query committed tmax mismatch";
+            expect(static_cast<bool>(
+                all(host_query_any_metadata[i] == make_uint4(
+                                                      static_cast<uint32_t>(
+                                                          HitType::Surface),
+                                                      target, 0u,
+                                                      target + 1u))))
+                << "triangle any ray-query metadata mismatch";
+            expect(std::abs(
+                       host_query_any_details[i].x - expected_distance) <=
+                   1.0e-5f)
+                << "triangle any ray-query distance mismatch";
+            expect(std::abs(
+                       host_query_any_details[i].y - expected_distance) <=
+                   1.0e-5f)
+                << "triangle any ray-query committed tmax mismatch";
+            auto expected_terminated = (i & 1u) == 0u ?
+                                           make_uint4(
+                                               static_cast<uint32_t>(
+                                                   HitType::Miss),
+                                               ~0u, ~0u, 1u) :
+                                           make_uint4(
+                                               static_cast<uint32_t>(
+                                                   HitType::Surface),
+                                               0u, 0u, 1u);
+            expect(static_cast<bool>(
+                all(host_query_terminate_metadata[i] ==
+                    expected_terminated)))
+                << "triangle ray-query terminate mismatch";
+        }
+
         Kernel1D trace_motion_instances = [width](
                                               AccelVar scene,
                                               BufferUInt2 ids,
@@ -446,6 +625,88 @@ int main(int argc, char *argv[]) {
                        host_motion_instance_distances[i] -
                        expected_distance) <= 1.0e-5f)
                 << "motion-instance packet traversal distance mismatch";
+        }
+
+        Kernel1D trace_motion_query = [width](
+                                          AccelVar scene,
+                                          BufferUInt4 metadata,
+                                          BufferFloat2 distances) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto instance = index & 1u;
+            auto time = cast<float>(index >> 1u);
+            auto origin_x = select(-3.0f, 3.0f, instance != 0u);
+            auto ray = make_ray(
+                make_float3(origin_x, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto options = AccelTraceOptions{
+                .visibility_mask = 0x4u << instance};
+            UInt all_callback_count = 0u;
+            auto all = scene.traverse_motion(ray, time, options)
+                           .on_surface_candidate(
+                               [&](SurfaceCandidate &candidate) noexcept {
+                                   all_callback_count += 1u;
+                                   candidate.commit();
+                               })
+                           .on_procedural_candidate(
+                               [](ProceduralCandidate &) noexcept {})
+                           .trace();
+            UInt any_callback_count = 0u;
+            auto any = scene.traverse_any_motion(ray, time, options)
+                           .on_surface_candidate(
+                               [&](SurfaceCandidate &candidate) noexcept {
+                                   any_callback_count += 1u;
+                                   candidate.commit();
+                               })
+                           .on_procedural_candidate(
+                               [](ProceduralCandidate &) noexcept {})
+                           .trace();
+            metadata.write(
+                index,
+                make_uint4(
+                    all->inst, any->inst,
+                    all_callback_count, any_callback_count));
+            distances.write(
+                index,
+                make_float2(
+                    all->committed_ray_t,
+                    any->committed_ray_t));
+        };
+        auto trace_motion_query_shader =
+            device.compile(trace_motion_query);
+        auto motion_query_metadata = device.create_buffer<uint4>(4u);
+        auto motion_query_distances = device.create_buffer<float2>(4u);
+        std::array<uint4, 4u> host_motion_query_metadata{};
+        std::array<float2, 4u> host_motion_query_distances{};
+        stream << trace_motion_query_shader(
+                      instance_motion_accel,
+                      motion_query_metadata,
+                      motion_query_distances)
+                      .dispatch(4u)
+               << motion_query_metadata.copy_to(
+                      luisa::span{host_motion_query_metadata})
+               << motion_query_distances.copy_to(
+                      luisa::span{host_motion_query_distances})
+               << synchronize();
+        for (auto i = 0u; i < 4u; i++) {
+            auto expected_instance = i & 1u;
+            auto expected_distance = i < 2u ? 1.0f : 3.0f;
+            expect(static_cast<bool>(
+                all(host_motion_query_metadata[i] ==
+                    make_uint4(
+                        expected_instance, expected_instance,
+                        0u, 0u))))
+                << "opaque motion ray-query metadata mismatch";
+            expect(
+                std::abs(
+                    host_motion_query_distances[i].x -
+                    expected_distance) <= 1.0e-5f &&
+                std::abs(
+                    host_motion_query_distances[i].y -
+                    expected_distance) <= 1.0e-5f)
+                << "opaque motion ray-query distance mismatch";
         }
 
         Kernel1D trace_srt_interpolation = [width](

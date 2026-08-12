@@ -9,6 +9,16 @@
 
 namespace luisa::compute::simd {
 
+namespace {
+
+[[nodiscard]] bool is_ray_query_type(const Type *type) noexcept {
+    return type != nullptr && type->is_custom() &&
+           (type == Type::custom("LC_RayQueryAll") ||
+            type == Type::custom("LC_RayQueryAny"));
+}
+
+}// namespace
+
 LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
                                  uint32_t width) noexcept
     : _context{context}, _width{width} {
@@ -101,7 +111,8 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
         case Tag::ACCEL: {
             auto *pointer = ::llvm::PointerType::getUnqual(_context);
             result = ::llvm::StructType::get(
-                _context, {pointer, pointer, pointer});
+                _context,
+                {pointer, pointer, pointer, pointer, pointer});
             break;
         }
         case Tag::FLOAT8_E4M3:
@@ -110,7 +121,11 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
         case Tag::COOPERATIVE_VECTOR:
         case Tag::COOPERATIVE_VECTOR_REF:
         case Tag::COOPERATIVE_MATRIX_REF:
-        case Tag::CUSTOM: break;
+        case Tag::CUSTOM:
+            if (is_ray_query_type(type)) {
+                result = ::llvm::PointerType::getUnqual(_context);
+            }
+            break;
     }
     if (result == nullptr) {
         return _fail(type, "unsupported Phase 2 LLVM value type");
@@ -165,6 +180,12 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
                 result = ::llvm::StructType::get(_context, members);
                 break;
             }
+            case Tag::CUSTOM:
+                if (is_ray_query_type(type)) {
+                    result = ::llvm::FixedVectorType::get(
+                        ::llvm::PointerType::getUnqual(_context), _width);
+                }
+                break;
             default: break;
         }
     }

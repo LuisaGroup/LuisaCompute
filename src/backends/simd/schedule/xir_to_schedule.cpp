@@ -21,6 +21,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/thread_group.h>
@@ -129,6 +130,8 @@ struct CFGEdgeHash {
         case Tag::RESOURCE_QUERY:
         case Tag::RESOURCE_READ:
         case Tag::RESOURCE_WRITE:
+        case Tag::RAY_QUERY_OBJECT_READ:
+        case Tag::RAY_QUERY_OBJECT_WRITE:
         case Tag::CAST:
         case Tag::PRINT:
         case Tag::CLOCK:
@@ -745,6 +748,8 @@ private:
             case Tag::RESOURCE_QUERY: return Opcode::resource_query;
             case Tag::RESOURCE_READ: return Opcode::resource_read;
             case Tag::RESOURCE_WRITE: return Opcode::resource_write;
+            case Tag::RAY_QUERY_OBJECT_READ: return Opcode::ray_query_read;
+            case Tag::RAY_QUERY_OBJECT_WRITE: return Opcode::ray_query_write;
             case Tag::CAST: return Opcode::cast;
             case Tag::PRINT: return Opcode::print;
             case Tag::CLOCK: return Opcode::clock;
@@ -940,6 +945,16 @@ private:
             case Tag::RESOURCE_WRITE:
                 return static_cast<uint32_t>(
                     static_cast<const xir::ResourceWriteInst *>(instruction)
+                        ->op());
+            case Tag::RAY_QUERY_OBJECT_READ:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::RayQueryObjectReadInst *>(
+                        instruction)
+                        ->op());
+            case Tag::RAY_QUERY_OBJECT_WRITE:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::RayQueryObjectWriteInst *>(
+                        instruction)
                         ->op());
             case Tag::CAST:
                 return static_cast<uint32_t>(

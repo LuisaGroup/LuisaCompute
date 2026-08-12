@@ -11,6 +11,7 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/special_register.h>
 
@@ -154,9 +155,25 @@ void WarpUniformityAnalysis::analyze(
             case Tag::ARITHMETIC:
             case Tag::CAST:
             case Tag::GEP:
-            case Tag::RESOURCE_QUERY:
                 add_all_operands();
                 break;
+            case Tag::RESOURCE_QUERY: {
+                auto op = static_cast<const xir::ResourceQueryInst *>(
+                              instruction)
+                              ->op();
+                if (op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
+                    op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
+                    op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+                    op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR) {
+                    // A query is mutable lane-local state. Even a uniform ray
+                    // must receive one state object per physical lane because
+                    // its handlers may make varying commit decisions.
+                    set_immediate(State::varying);
+                } else {
+                    add_all_operands();
+                }
+                break;
+            }
             case Tag::PHI: {
                 auto *phi = static_cast<const xir::PhiInst *>(instruction);
                 if (phi->incoming_count() == 0u) {
