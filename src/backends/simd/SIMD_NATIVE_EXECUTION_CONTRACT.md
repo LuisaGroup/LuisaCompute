@@ -723,6 +723,16 @@ mask is sparse: inactive values are already benign and remain excluded from
 traversal. W2 may not read beyond its two-lane source scratch while constructing
 the padded W4 packet.
 
+Direct closest-hit traversal sets `bary.y = -1` for round curves after Embree
+returns. Each normal accel build recomputes whether its current instance table
+contains any curve, including after primitive replacement or instance-count
+shrink. A curve-free accel skips this per-active-lane geometry-kind scan; an
+accel containing at least one static or motion-instance curve must retain the
+scan for every direct closest-hit packet. This summary is a performance gate
+only and does not change the stable instance table, valid mask, or hit ABI.
+Permanent coverage replaces one instance `mesh -> curve -> mesh` and checks
+classification after every rebuild at W1/W2/W4/W8/W16.
+
 Ray queries use the same width mapping, but retain state across candidate
 handlers. The AST `RayQueryLoop` is first lowered to ordinary XIR
 loop/if control containing `PROCEED`, candidate-kind reads, and object writes;

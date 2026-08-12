@@ -25,6 +25,7 @@ private:
     luisa::vector<RTCGeometry> _geometries;
     luisa::vector<luisa::unique_ptr<MotionState>> _motion_states;
     SIMDHostAccelInstanceTable _instance_table{};
+    bool _has_curve_instances{false};
 
 private:
     static void _trace_closest(

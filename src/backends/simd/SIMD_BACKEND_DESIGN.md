@@ -1605,10 +1605,11 @@ finds no per-active-lane `rtcIntersect1` loop.
 The complete methodology, absolute medians, assembly counts, caveats, and
 next measured optimization targets are in
 [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
-The required native-math/runtime-width gate passes 3/3, the combined SIMD/XIR/
-runtime/graphics label gate passes 88/88, and this configured complete CTest
-suite passes 129/129, including the coroutine-frame tests merged from `next`
-and the lazy-dispatch scalar snapshot regression.
+The required native-math/runtime-width gate passes 3/3. A focused accel,
+curve-summary replacement, and example-option gate passes 6/6. After a full
+Release build, this configured complete CTest suite passes 140/140, including
+26 integration-SIMD, 21 runtime-SIMD, three graphics-SIMD, the coroutine-frame
+tests merged from `next`, and the lazy-dispatch scalar snapshot regression.
 
 ### Embree packet-traversal checkpoint
 
@@ -1821,6 +1822,17 @@ and time-range contract. A curve may also be the child of a MATRIX or SRT
 motion instance. One byte in the stable instance table records curve geometry,
 so closest-hit postprocessing and query filters set `bary.y = -1` while
 preserving Embree's `u` as the public curve parameter.
+
+The accel also maintains a build-time summary of whether its current instance
+table contains any curve. Direct closest-hit traversal skips the per-active-
+lane geometry-kind scan when this summary is false; a static curve or curve
+motion-instance retains the original postprocessing. Every normal build
+recomputes the summary after resize and primitive replacement, so it is not a
+one-way hint. The exact curve regression performs `mesh -> curve -> mesh`
+replacement and direct classification at W1/W2/W4/W8/W16. Isolated renderer
+A/B measurements show the fast path is neutral at W2 and improves W1/W4/W8/
+W16, with the largest paired geometric mean 1.0196x at W16; the complete
+numbers and counter evidence are in the performance report.
 
 Embree may invoke a rejecting filter for both the front and back surface of one
 round-curve primitive. Luisa exposes that primitive once, at its closest hit;

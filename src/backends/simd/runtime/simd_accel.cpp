@@ -1444,6 +1444,13 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         rtcCommitGeometry(geometry);
         instance.dirty = 0u;
     }
+    _has_curve_instances = std::any_of(
+        _instances.cbegin(), _instances.cend(),
+        [](const Instance &instance) noexcept {
+            return instance.geometry_kind ==
+                   static_cast<uint8_t>(
+                       SIMDHostAccelGeometryKind::curve);
+        });
     rtcCommitScene(_scene);
 }
 
@@ -1534,9 +1541,11 @@ void SIMDAccel::_trace_closest(
             LUISA_ERROR_WITH_LOCATION(
                 "Unsupported SIMD Embree packet width {}.", lane_count);
     }
-    mark_curve_surface_hits(
-        self->_instance_table, lane_count, active_mask_bits,
-        hit_ids, hit_values);
+    if (self->_has_curve_instances) {
+        mark_curve_surface_hits(
+            self->_instance_table, lane_count, active_mask_bits,
+            hit_ids, hit_values);
+    }
 }
 
 void SIMDAccel::_trace_any(

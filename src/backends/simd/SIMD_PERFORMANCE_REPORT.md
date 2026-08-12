@@ -1,9 +1,10 @@
 # SIMD CPU backend performance report
 
-Snapshot date: 2026-08-12. This report covers the Release build after merging
-`origin/next@4546cd535ff620f78ae80a1dbe573be8b99ba39d` into
-`codex/simd-cpu-backend`, adding coherent direct-CFG lowering, and completing
-the bindless gradient-sampling vertical slice.
+Snapshot date: 2026-08-13. This report covers the Release build after merging
+`origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
+`codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
+bindless gradient-sampling vertical slice, and eliminating curve-hit
+postprocessing from curve-free acceleration structures.
 
 ## Test host and method
 
@@ -37,6 +38,7 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
+| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 71.935 | 58.522 (0.814x) | 43.605 (0.606x) | 51.833 (0.721x) | 57.308 (0.797x) | 57.497 (0.799x) |
 | cutout path tracing, spp/s | 68.570 | 44.870 (0.654x) | 28.400 (0.414x) | 32.982 (0.481x) | 36.591 (0.534x) | 34.688 (0.506x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
@@ -47,6 +49,18 @@ validates the output against double-precision accumulation. The fallback
 process medians ranged from 41.594 to 88.326 GFLOP/s under shared-host load,
 while the SIMD distributions were tight. Its relative speedups must therefore
 be treated as host observations, not cross-machine constants.
+
+The ordinary path-tracing row is the final eight-process sweep at 64 spp. It
+uses the shared `--max-spp-per-dispatch 1` option on both backends so the row
+measures width, divergent scheduling, resource callbacks, and Embree packets
+without a dispatch-batching asymmetry. Its observed ranges were
+70.046--73.815, 57.216--59.738, 41.082--44.248, 49.543--52.726,
+55.802--58.504, and 55.914--58.484 spp/s from fallback through W16. Paired
+geometric-mean speedups were 0.813x/0.601x/0.717x/0.797x/0.795x for
+W1/W2/W4/W8/W16. A separate twelve-process real-default sweep, where fallback
+uses one spp per dispatch and SIMD uses up to 64, produced medians of
+72.205/78.657/55.056/62.260/66.910/65.413 spp/s. That batching policy makes
+W1 1.089x fallback but does not make W8 or W16 faster than fallback.
 
 ## Scheduler cost and assembly evidence
 
@@ -94,6 +108,43 @@ nearly unchanged last-level misses is consistent with scheduler/frame state
 cycling through L1/L2, not a DRAM bandwidth wall. Object and runtime audits
 confirm W8 calls `rtcIntersect8`/`rtcOccluded8` once per packet and that Embree
 advertises native W8 support.
+
+### Curve-free direct-trace postprocessing
+
+Direct closest-hit traversal historically scanned every active result after
+Embree returned, loaded the hit instance's geometry kind, and changed
+`bary.y` only for a round curve. A build-time accel summary now records whether
+the current instance table contains any curve. Triangle/procedural-only scenes
+skip the entire per-lane scan; curve scenes retain the exact old path. The
+summary is recomputed after every normal accel build, including instance
+replacement and shrink, rather than maintained as a one-way incremental bit.
+A permanent W1/W2/W4/W8/W16 regression replaces one instance
+`mesh -> curve -> mesh` and checks direct-hit classification after each build.
+
+Isolated old/new backend modules ran the ordinary renderer at 128 spp and one
+spp per dispatch. No outlier was removed:
+
+| Width | Pairs | New/old paired geometric mean | Wins | Median ratio |
+| --- | ---: | ---: | ---: | ---: |
+| W1 | 8 | 1.0063x | 6/8 | 1.0083x |
+| W2 | 8 | 0.9974x | 5/8 | 1.0064x |
+| W4 | 8 | 1.0102x | 7/8 | 1.0168x |
+| W8 | 10 | 1.0163x | 7/10 | 1.0143x |
+| W16 | 8 | 1.0196x | 8/8 | 1.0186x |
+
+Three longer W8 `perf stat` pairs measured a 1.0302x throughput geometric
+mean. Candidate/baseline ratios were 0.9680--0.9832 for cycles, about 0.9889
+for instructions, about 0.9547 for branches, 0.7349--0.7496 for branch
+misses, about 0.9974 for L1 data loads, and 0.9146--0.9694 for L1 data-load
+misses. A tempting removal of the zero initialization for temporary Embree ray
+packets was rejected separately: it changed machine code but ten W8 pairs
+measured 0.9952x with only 4/10 wins. The production code keeps the bulk zero.
+
+Fresh 1024-spp ordinary path-tracing comparisons passed at W1/W2/W4/W8/W16
+with RGB PSNR 35.43/42.78/40.94/39.22/37.80 dB respectively. The gallery
+reference was read-only. These correctness runs and the fixed-dispatch
+performance row use the new shared positive-integer
+`--max-spp-per-dispatch` example option; default rendering policy is unchanged.
 
 The W8 cutout main kernel contains two sequential ray-query construction sites.
 A fail-closed Schedule-IR liveness/interference analysis now colors them into
@@ -445,8 +496,10 @@ metadata did not regress its hot descriptor layout.
 
 ## Validation
 
-The required native-math/fallback-math/runtime-width gate passes 3/3. The
-combined SIMD, XIR, runtime, and graphics label gate passes 88/88. After a full
-default build, the complete configured repository CTest suite passes 129/129.
-This includes the coroutine-frame tests merged from `next` and the repaired
-lazy-dispatch scalar snapshot regression.
+The required native-math/fallback-math/runtime-width gate passes 3/3. A
+focused gate including accel, curve-summary replacement, and example-option
+parsing passes 6/6. After a full Release build, the complete configured
+repository CTest suite passes 140/140: 26 integration-SIMD, 21 runtime-SIMD,
+and three graphics-SIMD tests are included. This also includes the
+coroutine-frame tests merged from `next` and the repaired lazy-dispatch scalar
+snapshot regression.

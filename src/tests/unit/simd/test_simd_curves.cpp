@@ -3,7 +3,8 @@
 // The five-ray dispatch exercises direct closest/any traversal, query-all and
 // query-any, opaque auto-commit, non-opaque accept/reject handlers, curve hit
 // classification, all four curve bases, and an inactive tail at every
-// supported SIMD width.
+// supported SIMD width. Primitive replacement also verifies that the accel's
+// curve-instance summary is refreshed in both directions.
 
 #include "ut/ut.hpp"
 
@@ -23,6 +24,69 @@ namespace {
 constexpr auto curve_basis = CurveBasis::PIECEWISE_LINEAR;
 constexpr auto test_dispatch_size = 8u;
 constexpr auto motion_dispatch_size = 5u;
+
+void test_curve_instance_summary_refresh(
+    Device &device, Stream &stream, uint32_t width,
+    Curve &curve) {
+    const std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    auto vertex_buffer =
+        device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(
+        vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel({.allow_update = true});
+    accel.emplace_back(mesh);
+
+    Kernel1D kernel = [width](
+                          AccelVar scene,
+                          BufferUInt classification) noexcept {
+        set_block_size(32u, 1u, 1u);
+        set_warp_size(static_cast<uint8_t>(width));
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -2.0f),
+            0.0f, 1.0f);
+        auto hit = scene.intersect(
+            ray,
+            AccelTraceOptions{
+                .curve_bases = {
+                    CurveBasis::PIECEWISE_LINEAR}});
+        classification.write(
+            index, cast<uint>(hit->is_curve()));
+    };
+    auto shader = device.compile(kernel);
+    auto classification =
+        device.create_buffer<uint>(motion_dispatch_size);
+    std::array<uint, motion_dispatch_size>
+        host_classification{};
+    auto check = [&](uint expected, luisa::string_view label) {
+        stream << accel.build()
+               << shader(accel, classification)
+                      .dispatch(motion_dispatch_size)
+               << classification.copy_to(
+                      luisa::span{host_classification})
+               << synchronize();
+        for (auto value : host_classification) {
+            expect(eq(value, expected)) << label;
+        }
+    };
+
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << synchronize();
+    check(0u, "mesh instance must not be classified as a curve");
+    accel.set_curve(0u, curve);
+    check(1u, "curve replacement must refresh the curve summary");
+    accel.set_mesh(0u, mesh);
+    check(0u, "mesh replacement must refresh the curve summary");
+}
 
 void expect_near(
     float actual, float expected,
@@ -526,6 +590,8 @@ int main(int argc, char *argv[]) {
                 expected_instance, expected_primitive,
                 expected_t, "query-any");
         }
+        test_curve_instance_summary_refresh(
+            device, stream, width, curve);
         test_motion_curves(device, stream, width, curve);
     }
     return 0;
