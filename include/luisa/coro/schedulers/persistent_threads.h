@@ -50,7 +50,7 @@ public:
 
 private:
     Config _config;
-    Shader1D<Buffer<uint>, ByteBuffer, uint3, Args...> _pt_shader;
+    Shader1D<Buffer<uint>, ByteBuffer, uint3, uint, Args...> _pt_shader;
     Shader1D<Buffer<uint>> _clear_shader;
     Buffer<uint> _global;
     ByteBuffer _global_frames;
@@ -58,6 +58,7 @@ private:
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
     size_t _static_shared_memory_size_bytes{};
+    uint64_t _main_shader_structure_hash{};
 
 private:
     [[nodiscard]] static Config _normalize_config(
@@ -65,8 +66,12 @@ private:
         constexpr auto uint_max = std::numeric_limits<uint>::max();
         LUISA_ASSERT(config.thread_count != 0u,
                      "Persistent coroutine worker count must be positive.");
-        LUISA_ASSERT(config.block_size != 0u,
-                     "Persistent coroutine block size must be positive.");
+        LUISA_ASSERT(config.block_size >= 32u &&
+                         config.block_size <= 1024u &&
+                         config.block_size % 32u == 0u,
+                     "Persistent coroutine block size must be a multiple of "
+                     "32 in [32, 1024], but got {}.",
+                     config.block_size);
         LUISA_ASSERT(config.fetch_size != 0u,
                      "Persistent coroutine fetch size must be positive.");
         LUISA_ASSERT(subroutine_count != 0u && subroutine_count <= uint_max,
@@ -195,7 +200,8 @@ private:
                              output_fields = _output_fields,
                              global_layout = _global_frame_layout](
                                 BufferUInt global, ByteBufferVar global_frames,
-                                UInt3 dispatch_size_prefix_product, Var<Args>... args) noexcept {
+                                UInt3 dispatch_size_prefix_product,
+                                UInt fetch_size, Var<Args>... args) noexcept {
                 set_block_size(_config.block_size, 1u, 1u);
                 auto subroutine_count = static_cast<uint>(coro.subroutine_count());
                 auto shared_queue_size =
@@ -276,7 +282,10 @@ private:
 
                     $if (thread_x() == _config.block_size - 1u) {
                         $if (workload[0u] >= workload[1u] & rem_global[0u] != 0u) {
-                            auto fetch_count = _config.block_size * _config.fetch_size;
+                            // Fetch granularity changes only the partition of the
+                            // monotonically allocated global task interval. It is
+                            // therefore a dispatch policy, not shader structure.
+                            auto fetch_count = _config.block_size * fetch_size;
                             auto st = global.atomic(0u).fetch_add(fetch_count);
                             workload[0u] = st;
                             workload[1u] = min(st + fetch_count, dispatch_size_prefix_product.z);
@@ -580,6 +589,8 @@ private:
             device.create_byte_buffer(
                 _global_frame_layout.size_bytes);
         _static_shared_memory_size_bytes = shared_memory_size;
+        _main_shader_structure_hash =
+            main_kernel.function()->function().hash();
         auto main_shader_option =
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "persistent_main");
@@ -620,13 +631,24 @@ private:
             worker_count = static_cast<uint>(
                 luisa::align(dispatch_size_prefix_product.z, _config.block_size));
         }
-        stream << _pt_shader(_global, _global_frames, dispatch_size_prefix_product, args...).dispatch(worker_count);
+        stream << _pt_shader(
+                      _global, _global_frames,
+                      dispatch_size_prefix_product,
+                      _config.fetch_size, args...)
+                      .dispatch(worker_count);
     }
 
 public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
     [[nodiscard]] size_t static_shared_memory_size_bytes() const noexcept {
         return _static_shared_memory_size_bytes;
+    }
+    /// Structural identity of the persistent state-machine kernel. Worker
+    /// capacity and task-fetch granularity are dispatch policy and therefore
+    /// deliberately excluded; block size and storage representation remain
+    /// structural.
+    [[nodiscard]] uint64_t main_shader_structure_hash() const noexcept {
+        return _main_shader_structure_hash;
     }
 
     PersistentThreadsCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept

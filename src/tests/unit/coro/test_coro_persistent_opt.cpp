@@ -74,6 +74,61 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         expect(cfg.global_memory_frames == true);
     };
 
+    "T33_worker_and_fetch_sizes_are_runtime_dispatch_policy"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+
+        constexpr uint N = 257u;
+        auto output = device.create_buffer<uint>(N);
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buffer) {
+            auto i = dispatch_x();
+            auto value = i * 17u + 3u;
+            $suspend("first");
+            value ^= i + 11u;
+            $suspend("second");
+            // The payload keeps a non-trivial value live across both
+            // continuations; the counter proves that the runtime task
+            // partition executes each logical instance exactly once.
+            $if (value == ((i * 17u + 3u) ^ (i + 11u))) {
+                buffer.atomic(i).fetch_add(1u);
+            };
+        });
+
+        auto make_scheduler = [&](uint worker_count, uint fetch_size) {
+            return PersistentThreadsCoroScheduler<Buffer<uint>>{
+                device, coro,
+                PersistentThreadsCoroSchedulerConfig{
+                    .thread_count = worker_count,
+                    .block_size = 32u,
+                    .fetch_size = fetch_size,
+                    .shared_memory_soa = true,
+                    .global_memory_ext = true,
+                }};
+        };
+        auto fine = make_scheduler(64u, 1u);
+        auto coarse = make_scheduler(96u, 17u);
+        expect(fine.main_shader_structure_hash() ==
+               coarse.main_shader_structure_hash())
+            << "worker and fetch sizes must not enter persistent shader identity";
+
+        luisa::vector<uint> zero(N);
+        luisa::vector<uint> fine_result(N);
+        luisa::vector<uint> coarse_result(N);
+        stream << output.copy_from(luisa::span{zero}) << synchronize();
+        fine(output).dispatch(N)(stream);
+        stream << output.copy_to(luisa::span{fine_result}) << synchronize();
+        stream << output.copy_from(luisa::span{zero}) << synchronize();
+        coarse(output).dispatch(N)(stream);
+        stream << output.copy_to(luisa::span{coarse_result}) << synchronize();
+        expect(fine_result == coarse_result)
+            << "runtime fetch partitions must preserve the logical task set";
+        expect(std::all_of(
+            fine_result.begin(), fine_result.end(),
+            [](auto count) noexcept { return count == 1u; }))
+            << "every logical task must execute exactly once";
+    };
+
     "T33_GME_scheduler_creates_and_dispatches"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
         auto &device = dc.device;
