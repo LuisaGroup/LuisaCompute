@@ -350,6 +350,8 @@ private:
         ::llvm::Value *active_bits, ::llvm::Value *index);
     [[nodiscard]] ::llvm::Value *_frame_mask_pointer(
         ::llvm::AllocaInst *frames, ::llvm::Value *index);
+    [[nodiscard]] ::llvm::Value *_load_convergence_target(
+        ::llvm::Value *static_id);
     [[nodiscard]] ::llvm::Value *_ready_element_pointer(
         ::llvm::AllocaInst *array, ::llvm::Value *index);
     void _trap_if(::llvm::Value *condition, std::string_view label);

@@ -1381,6 +1381,20 @@ template<size_t Width>
         CHECK(ir.find("ready.token") != std::string::npos);
         CHECK(count_occurrences(ir, "\nconvergence.cascade") ==
               2u * convergence_target_count);
+        if constexpr (Width >= 4u) {
+            CHECK(ir.find(
+                      "@convergence.targets = private unnamed_addr "
+                      "constant") != std::string::npos);
+            CHECK(ir.find(
+                      "convergence.dynamic.target = load i32") !=
+                  std::string::npos);
+        } else {
+            CHECK(ir.find("@convergence.targets =") ==
+                  std::string::npos);
+            CHECK(ir.find(
+                      "convergence.dynamic.target = extractelement") !=
+                  std::string::npos);
+        }
     }
     LLVMJIT jit;
     CHECK(jit.succeeded());
@@ -1402,6 +1416,11 @@ template<size_t Width>
 [[nodiscard]] bool run_nested_codegen() {
     return run_control_fixture<8u>(
         make_nested_divergence(8u), "schedule_nested_w8", 1u);
+}
+
+[[nodiscard]] bool run_nested_w2_codegen() {
+    return run_control_fixture<2u>(
+        make_nested_divergence(2u), "schedule_nested_w2", 1u);
 }
 
 [[nodiscard]] bool run_large_cfg_codegen() {
@@ -4466,6 +4485,7 @@ int main() {
         {"multiple-exit loop collective",
          &run_multiple_exit_loop_collective_codegen},
         {"Schedule IR nested convergence", &run_nested_codegen},
+        {"Schedule IR nested convergence W2", &run_nested_w2_codegen},
         {"Schedule IR 96-block CFG", &run_large_cfg_codegen},
         {"scheduler state residency", &run_state_residency_codegen},
         {"scalar uniform values", &run_uniform_value_codegen},

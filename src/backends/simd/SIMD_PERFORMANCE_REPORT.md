@@ -119,11 +119,12 @@ not the whole divergent-scheduler deficit.
 The diagnostic path now captures the exact relocatable object produced by
 ORC's compiler alongside an annotated assembly clone. Both explicitly use the
 same PIC/small code model. For the current W8 cutout main kernel, the `.text`
-section is 36,856 bytes; assembling the annotated `.s` produces the same text
-size and agrees at every basic-block offset. Padding bytes may differ without
-changing layout. The current report counts 6,456 instructions, 3,902 vector
-instructions, 506 branches, 1,556 stack references, and a 27,136-byte stack
-allocation. The object has no undefined scalar-libm symbol.
+section at the profiler checkpoint was 36,856 bytes; assembling the annotated
+`.s` produced the same text size and agreed at every basic-block offset.
+Padding bytes may differ without changing layout. That report counted 6,456
+instructions, 3,902 vector instructions, 506 branches, 1,556 stack references,
+and a 27,136-byte stack allocation. The object had no undefined scalar-libm
+symbol.
 
 This corrected an earlier profiler attribution error. An independently emitted
 large-code-model assembly was 38,532 bytes, so runtime PCs did not identify the
@@ -162,6 +163,37 @@ explicit depth counter is valid for a well-formed state and cut static branches
 from 506 to 491, but ten paired path-tracing runs measured a 0.9969x geometric
 mean with only two wins, so it was reverted. The next useful scheduler change
 must reduce frame/state traffic rather than merely shrink this branch chain.
+
+The first accepted follow-up changes the immutable convergence-static-ID target
+map at W4/W8/W16 from an LLVM vector to a private constant array. On x86, a
+dynamic vector extract had materialized the complete constant vector on the
+stack in every destination cascade. The array form hoists one RIP-relative
+base and performs an indexed scalar load. The current W8 main object changes
+as follows:
+
+| W8 cutout main kernel | before | constant target array |
+| --- | ---: | ---: |
+| `.text` bytes | 36,856 | 35,956 |
+| static instructions | 6,456 | 6,367 |
+| vector instructions | 3,902 | 3,824 |
+| static branches | 506 | 506 |
+| stack references | 1,556 | 1,487 |
+| stack allocation | 27,136 B | 24,192 B |
+
+Ten alternating 128-spp pairs, with one spp per dispatch and reference-image
+validation on every process, measured 1.0102x at W4 (8/10 wins), 1.0058x at
+W8 (9/10), and 1.0021x at W16 (7/10). The final object still has no undefined
+scalar-libm symbol. A separate ten-pair 64-spp W2 array experiment measured
+0.9864x with 6/10 wins under shared-host load, so W1/W2 retain their prior
+vector lowering rather than inheriting an unproven wide-width heuristic.
+
+Two more register/state-layout experiments were rejected. Packing static ID
+and parent token reduced W8 instructions and stack references but measured
+0.9969x with 3/10 wins. Storing those fields as scalar arrays cut the accepted
+target-array object's instruction count from 6,367 to 6,134 and its stack from
+24,192 to 21,440 bytes, yet ten W8 pairs were 0.9999x with 5/10 wins. This is
+direct evidence that smaller assembly or fewer L1-resident stack accesses are
+not sufficient acceptance criteria; both experimental changes were reverted.
 
 ## Runtime-sparse ray-query cohorts
 

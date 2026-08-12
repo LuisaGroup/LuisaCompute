@@ -250,7 +250,13 @@ single target.
 Convergence arrival is emitted once at the destination block entry rather than
 duplicated on every incoming edge. The executing cohort owns one scalar token,
 and each suspended record stores one scalar token; no per-lane token vector is
-materialized. Active convergence-frame slots use one scalar `iW` bitset.
+materialized. Active convergence-frame slots use one scalar `iW` bitset. At
+W4/W8/W16, the immutable static-convergence-ID-to-target map is emitted as a
+private LLVM constant array. Dynamic arrival then becomes one indexed scalar
+load instead of forcing LLVM/x86 to spill a whole constant vector before a
+dynamic `extractelement`. W1/W2 retain the vector form: it is smaller there,
+and a measured W2 array experiment did not pass the throughput gate. Both
+forms are target-independent LLVM IR and implement the same checked lookup.
 
 The first bounded loop-unswitch refinement is implemented before Schedule IR
 construction. It accepts one innermost, positive constant-trip natural loop per

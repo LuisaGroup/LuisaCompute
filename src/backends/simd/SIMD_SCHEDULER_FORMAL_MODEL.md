@@ -434,6 +434,7 @@ refinement.
 | `token[l]` | one scalar `current.token` for the executing cohort plus one scalar `ready.token.*` in each suspended record; no per-lane token vector is materialized |
 | frame active/static ID/parent | scalar `iW` bitset `frame.active`, plus `frame.static.id` and `frame.parent.token` |
 | frame expected/arrived | `frame.expected`, `frame.arrived` |
+| static convergence target map | immutable LLVM vector at W1/W2 or private constant array at W4/W8/W16; both map the checked frame static ID to the same Schedule block ID |
 | loop epochs | dynamic frame/worklist-record identity plus Schedule IR loop membership; no `loop.epoch.*` alloca is materialized |
 | terminating-execution post-dominance | `PostDomTreeOptions::account_for_infinite_paths = false` |
 | dynamic target arrival/cascade | `_arrive_at_convergence_target`, `_cascade_at_convergence_target` |

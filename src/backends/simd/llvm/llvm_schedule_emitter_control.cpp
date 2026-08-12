@@ -171,6 +171,24 @@ void ScheduleEmitter::_apply_assignments(
         array, frames, {_builder.getInt32(0u), index});
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_convergence_target(
+    ::llvm::Value *static_id) {
+    if (auto *global = ::llvm::dyn_cast<::llvm::GlobalVariable>(
+            _convergence_targets)) {
+        auto *array = ::llvm::cast<::llvm::ArrayType>(
+            global->getValueType());
+        auto *pointer = _builder.CreateInBoundsGEP(
+            array, global, {_builder.getInt32(0u), static_id},
+            "convergence.target.pointer");
+        return _builder.CreateLoad(
+            _builder.getInt32Ty(), pointer,
+            "convergence.dynamic.target");
+    }
+    return _builder.CreateExtractElement(
+        _convergence_targets, static_id,
+        "convergence.dynamic.target");
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_ready_element_pointer(
     ::llvm::AllocaInst *array, ::llvm::Value *index) {
     auto *array_type = ::llvm::cast<::llvm::ArrayType>(
@@ -306,8 +324,7 @@ void ScheduleEmitter::_declare_convergence(
     auto *static_ids = _builder.CreateLoad(
         _frame_static_id->getAllocatedType(), _frame_static_id);
     auto *static_id = _builder.CreateExtractElement(static_ids, index);
-    auto *dynamic_target = _builder.CreateExtractElement(
-        _convergence_targets, static_id);
+    auto *dynamic_target = _load_convergence_target(static_id);
     auto *matches = _builder.CreateAnd(
         has_token,
         _builder.CreateAnd(
@@ -795,8 +812,7 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                     auto *static_id = _builder.CreateExtractElement(
                         static_ids, index);
                     if (_convergence_targets != nullptr) {
-                        auto *target = _builder.CreateExtractElement(
-                            _convergence_targets, static_id);
+                        auto *target = _load_convergence_target(static_id);
                         // The target entry performs the same dynamic cascade
                         // as an ordinary CFG arrival. Deferring it avoids one
                         // copy of the full frame logic per return-site frame.
@@ -1061,8 +1077,23 @@ void ScheduleEmitter::_allocate_state() {
             convergence_targets.emplace_back(
                 _builder.getInt32(point.target.value));
         }
-        _convergence_targets = convergence_targets.empty() ? nullptr :
-                                                             ::llvm::ConstantVector::get(convergence_targets);
+        if (!convergence_targets.empty() && _width >= 4u) {
+            auto *array = ::llvm::ArrayType::get(
+                _builder.getInt32Ty(), convergence_targets.size());
+            auto *initializer = ::llvm::ConstantArray::get(
+                array, convergence_targets);
+            auto *global = new ::llvm::GlobalVariable(
+                _module, array, true,
+                ::llvm::GlobalValue::PrivateLinkage, initializer,
+                "convergence.targets");
+            global->setUnnamedAddr(
+                ::llvm::GlobalValue::UnnamedAddr::Global);
+            global->setAlignment(::llvm::Align{4u});
+            _convergence_targets = global;
+        } else if (!convergence_targets.empty()) {
+            _convergence_targets =
+                ::llvm::ConstantVector::get(convergence_targets);
+        }
         _target_convergence_depths.assign(
             _source.blocks().size(), 0u);
         for (auto &&point : _source.convergence_points()) {
