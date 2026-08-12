@@ -11,18 +11,13 @@ namespace luisa::compute::simd {
 class alignas(16) SIMDAccel {
 
 private:
-    struct alignas(16) Instance {
-        float affine[12]{};
-        uint32_t user_id{0u};
-        uint8_t mask{0xffu};
-        bool opaque{true};
-        bool dirty{false};
-    };
+    using Instance = SIMDHostAccelInstance;
 
 private:
     RTCScene _scene{nullptr};
     luisa::vector<Instance> _instances;
     luisa::vector<RTCGeometry> _geometries;
+    SIMDHostAccelInstanceTable _instance_table{};
 
 private:
     static void _trace_closest(
@@ -48,6 +43,7 @@ public:
             .accel = this,
             .trace_closest = _trace_closest,
             .trace_any = _trace_any,
+            .instances = &_instance_table,
         };
     }
 };

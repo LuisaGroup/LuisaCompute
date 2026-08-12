@@ -304,6 +304,10 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             _geometries.emplace_back(geometry);
         }
     }
+    // Shader arguments may retain the table address across a later build.
+    // Publish the current vector storage only after every possible reallocation.
+    _instance_table.data = _instances.data();
+    _instance_table.size = _instances.size();
 
     using Modification = AccelBuildCommand::Modification;
     for (auto modification : command.modifications()) {
@@ -335,9 +339,11 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         }
         if ((modification.flags & Modification::flag_opaque) != 0u) {
             instance.opaque =
-                (modification.flags & Modification::flag_opaque_on) != 0u;
+                (modification.flags & Modification::flag_opaque_on) != 0u ?
+                    1u :
+                    0u;
         }
-        instance.dirty = true;
+        instance.dirty = 1u;
     }
     for (auto i = size_t{0u}; i < _instances.size(); i++) {
         auto &instance = _instances[i];
@@ -348,7 +354,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             instance.affine);
         rtcSetGeometryMask(geometry, instance.mask);
         rtcCommitGeometry(geometry);
-        instance.dirty = false;
+        instance.dirty = 0u;
     }
     rtcCommitScene(_scene);
 }

@@ -291,6 +291,8 @@ private:
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_accel_query(
         const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_accel_instance_query(
+        const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_read(
         const schedule::Instruction &instruction);
     void _resource_write(const schedule::Instruction &instruction);

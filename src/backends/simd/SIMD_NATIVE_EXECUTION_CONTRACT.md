@@ -673,7 +673,8 @@ the padded W4 packet.
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build, top-level static-instance build, affine transform,
 visibility mask, `RAY_TRACING_TRACE_CLOSEST`, `RAY_TRACING_TRACE_ANY`, and
-their motion-blur variants. A static query passes a null time pointer and the
+their motion-blur variants. Instance transform, user-id, and visibility-mask
+queries are also accepted. A static query passes a null time pointer and the
 runtime initializes Embree time to zero. A motion query passes one f32 time
 vector sanitized under the cohort mask before the callback. A result classified
 warp- or cohort-uniform invokes only the first active lane and stays scalar.
@@ -682,6 +683,15 @@ barycentrics/distance; occlusion scratch starts false. Therefore an inactive
 lane cannot observe poison or mutate query state even if complete initialized
 vectors cross the callback boundary.
 
+Instance metadata uses a stable runtime-owned table descriptor whose data
+pointer and count are republished after any build that can reallocate storage.
+Uniform instance IDs issue scalar loads. Varying IDs are selected to zero under
+the inverse active mask before bounds checks, stride multiplication, pointer
+formation, and masked gathers. Any active out-of-range ID traps. The stored
+3x4 row-major affine is explicitly transposed and extended with `(0, 0, 0, 1)`
+to produce Luisa's column-major `float4x4`; JIT code must not alias the private
+runtime object or C++ vector layout.
+
 All Embree scenes in one backend module share a single `RTCDevice`. If that
 device reports the oneTBB tasking system, backend teardown must quiesce the
 attached task scheduler after releasing the device and before `dlclose` can
@@ -689,11 +699,11 @@ unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
 Ray-query callbacks, motion instances, curves, procedural geometry,
-cutout/opacity filtering, device-side instance metadata/mutation, and deeper
-instance-stack behavior are not part of this slice. They must fail at a
-specific capability boundary until their independent semantic, IR-shape, and
-machine-boundary gates exist; closest/any packet traversal does not imply
-their support.
+cutout/opacity filtering, device-side instance mutation, motion-instance
+metadata, and deeper instance-stack behavior are not part of this slice. They
+must fail at a specific capability boundary until their independent semantic,
+IR-shape, and machine-boundary gates exist; closest/any packet traversal does
+not imply their support.
 
 ## 7. Executable audit matrix
 

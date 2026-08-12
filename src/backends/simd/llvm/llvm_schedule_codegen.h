@@ -88,16 +88,41 @@ using SIMDHostAccelTraceAny = void(
     const float *ray_components, const uint32_t *visibility_masks,
     const float *times, uint32_t *occluded);
 
+// Device-side instance metadata reads use this stable plain-data table rather
+// than depending on SIMDAccel's C++ object or vector layout. The table object
+// itself remains at a fixed address while a build may replace its data pointer.
+struct alignas(16) SIMDHostAccelInstance {
+    float affine[12]{};
+    uint32_t user_id{0u};
+    uint8_t mask{0xffu};
+    uint8_t opaque{1u};
+    uint8_t dirty{0u};
+    uint8_t reserved{0u};
+};
+
+struct alignas(16) SIMDHostAccelInstanceTable {
+    SIMDHostAccelInstance *data{nullptr};
+    size_t size{0u};
+};
+
 struct alignas(16) SIMDHostAccelView {
     void *accel{nullptr};
     SIMDHostAccelTraceClosest *trace_closest{nullptr};
     SIMDHostAccelTraceAny *trace_any{nullptr};
+    const SIMDHostAccelInstanceTable *instances{nullptr};
 };
 static_assert(sizeof(SIMDHostAccelTraceClosest *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
+static_assert(sizeof(SIMDHostAccelInstance) == 64u);
+static_assert(offsetof(SIMDHostAccelInstance, affine) == 0u);
+static_assert(offsetof(SIMDHostAccelInstance, user_id) == 48u);
+static_assert(offsetof(SIMDHostAccelInstance, mask) == 52u);
+static_assert(sizeof(SIMDHostAccelInstanceTable) == 16u);
 static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
+static_assert(offsetof(SIMDHostAccelView, instances) == 3u * sizeof(void *));
+static_assert(sizeof(SIMDHostAccelView) == 4u * sizeof(void *));
 
 // Texture callbacks operate once per SIMD packet. Coordinates are SoA vectors
 // of lane_count elements and values contain four consecutive component

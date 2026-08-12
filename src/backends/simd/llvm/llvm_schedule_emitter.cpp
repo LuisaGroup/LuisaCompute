@@ -789,13 +789,15 @@ void ScheduleEmitter::_preflight() {
     auto &context = _module.getContext();
     auto *pointer_type = ::llvm::PointerType::getUnqual(context);
     auto *type = ::llvm::StructType::get(
-        context, {pointer_type, pointer_type, pointer_type});
+        context,
+        {pointer_type, pointer_type, pointer_type, pointer_type});
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     constexpr std::array offsets{
         offsetof(SIMDHostAccelView, accel),
         offsetof(SIMDHostAccelView, trace_closest),
         offsetof(SIMDHostAccelView, trace_any),
+        offsetof(SIMDHostAccelView, instances),
     };
     for (auto i = uint32_t{0u}; i < offsets.size(); i++) {
         auto *field = _builder.CreateLoad(
@@ -823,10 +825,10 @@ void ScheduleEmitter::_ensure_launch_vectors() {
             offsetof(SIMDPacketLaunchConfig, dispatch_size) +
             sizeof(uint32_t) * i);
         _block_size[i] = _static_block_size[i] == 0u ?
-            _load_launch_u32(
-                offsetof(SIMDPacketLaunchConfig, block_size) +
-                sizeof(uint32_t) * i) :
-            _builder.getInt32(_static_block_size[i]);
+                             _load_launch_u32(
+                                 offsetof(SIMDPacketLaunchConfig, block_size) +
+                                 sizeof(uint32_t) * i) :
+                             _builder.getInt32(_static_block_size[i]);
     }
     auto *first = _load_launch_u32(
         offsetof(SIMDPacketLaunchConfig, thread_index));

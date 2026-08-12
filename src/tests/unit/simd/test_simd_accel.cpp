@@ -2,6 +2,7 @@
 // This test covers:
 // - W1/W2/W4/W8/W16 closest-hit and any-hit traversal
 // - varying-time motion closest-hit and any-hit traversal
+// - direct varying and uniform instance metadata reads
 // - divergent visibility masks, ray intervals, directions, and misses
 // - uniform static and motion traces that must remain scalar within a packet
 // - an inactive W16 tail with only three live lanes
@@ -112,6 +113,9 @@ int main(int argc, char *argv[]) {
         auto details = device.create_buffer<float4>(thread_count);
         auto motion_ids = device.create_buffer<uint4>(thread_count);
         auto motion_details = device.create_buffer<float4>(thread_count);
+        auto instance_metadata = device.create_buffer<uint4>(thread_count);
+        auto instance_transforms =
+            device.create_buffer<float4x4>(thread_count);
 
         Kernel1D kernel = [width](
                               BufferVar<Ray> ray_buffer,
@@ -121,7 +125,9 @@ int main(int argc, char *argv[]) {
                               AccelVar scene,
                               AccelVar motion_scene,
                               BufferUInt4 motion_id_buffer,
-                              BufferFloat4 motion_detail_buffer) noexcept {
+                              BufferFloat4 motion_detail_buffer,
+                              BufferUInt4 instance_metadata_buffer,
+                              BufferFloat4x4 instance_transform_buffer) noexcept {
             set_block_size(32u, 1u, 1u);
             set_warp_size(static_cast<uint8_t>(width));
             auto index = dispatch_x();
@@ -176,6 +182,17 @@ int main(int argc, char *argv[]) {
                     motion_hit->bary.x, motion_hit->bary.y,
                     motion_hit->committed_ray_t,
                     uniform_motion_hit->committed_ray_t));
+
+            auto instance_index = index & 1u;
+            instance_metadata_buffer.write(
+                index,
+                make_uint4(
+                    instance_index,
+                    scene.instance_user_id(instance_index),
+                    scene.instance_visibility_mask(instance_index),
+                    scene.instance_user_id(1u)));
+            instance_transform_buffer.write(
+                index, scene.instance_transform(instance_index));
         };
         auto shader = device.compile(kernel);
 
@@ -183,6 +200,8 @@ int main(int argc, char *argv[]) {
         std::array<float4, thread_count> host_details{};
         std::array<uint4, thread_count> host_motion_ids{};
         std::array<float4, thread_count> host_motion_details{};
+        std::array<uint4, thread_count> host_instance_metadata{};
+        std::array<float4x4, thread_count> host_instance_transforms{};
         stream << vertex_buffer.copy_from(luisa::span{vertices})
                << motion_vertex_buffer.copy_from(
                       luisa::span{motion_vertices})
@@ -195,13 +214,18 @@ int main(int argc, char *argv[]) {
                << motion_accel.build()
                << shader(
                       rays, masks, ids, details, accel,
-                      motion_accel, motion_ids, motion_details)
+                      motion_accel, motion_ids, motion_details,
+                      instance_metadata, instance_transforms)
                       .dispatch(thread_count)
                << ids.copy_to(luisa::span{host_ids})
                << details.copy_to(luisa::span{host_details})
                << motion_ids.copy_to(luisa::span{host_motion_ids})
                << motion_details.copy_to(
                       luisa::span{host_motion_details})
+               << instance_metadata.copy_to(
+                      luisa::span{host_instance_metadata})
+               << instance_transforms.copy_to(
+                      luisa::span{host_instance_transforms})
                << synchronize();
 
         for (auto i = 0u; i < thread_count; i++) {
@@ -254,6 +278,26 @@ int main(int argc, char *argv[]) {
                 expect(std::abs(host_motion_details[i].z - expected_motion_t) <=
                        1.0e-6f)
                     << "motion closest-hit distance mismatch";
+            }
+
+            auto instance_index = i & 1u;
+            auto expected_user_id = instance_index == 0u ? 11u : 22u;
+            auto expected_visibility = instance_index == 0u ? 0x1u : 0x2u;
+            expect(static_cast<bool>(
+                all(host_instance_metadata[i] == make_uint4(
+                                                     instance_index,
+                                                     expected_user_id,
+                                                     expected_visibility,
+                                                     22u))))
+                << "instance metadata query mismatch";
+            auto expected_transform = instance_index == 0u ?
+                                          make_float4x4(1.0f) :
+                                          translation(make_float3(0.0f, 0.0f, -1.0f));
+            for (auto column = 0u; column < 4u; column++) {
+                expect(static_cast<bool>(
+                    all(host_instance_transforms[i][column] ==
+                        expected_transform[column])))
+                    << "instance transform query mismatch";
             }
         }
     }

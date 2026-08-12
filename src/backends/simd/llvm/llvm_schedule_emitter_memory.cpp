@@ -932,6 +932,11 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
         op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR) {
         return _accel_query(instruction);
     }
+    if (op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM ||
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID ||
+        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) {
+        return _accel_instance_query(instruction);
+    }
     if (op == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE ||
         op == xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE ||
         op == xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS) {

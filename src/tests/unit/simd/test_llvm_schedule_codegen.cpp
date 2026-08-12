@@ -2627,6 +2627,150 @@ uint32_t texture_packet_size_probe(
     return true;
 }
 
+[[nodiscard]] bool run_accel_instance_metadata_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("accel_instance_metadata");
+    auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+    auto *metadata_output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::uint4>()));
+    auto *transform_output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::float4x4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *instance_id = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {x, one});
+    auto *user_id = builder.call(
+        Type::of<uint32_t>(),
+        xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID,
+        {accel, instance_id});
+    auto *visibility = builder.call(
+        Type::of<uint32_t>(),
+        xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK,
+        {accel, instance_id});
+    auto *uniform_user_id = builder.call(
+        Type::of<uint32_t>(),
+        xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID,
+        {accel, zero});
+    auto *metadata = builder.call(
+        Type::of<luisa::uint4>(), xir::ArithmeticOp::AGGREGATE,
+        {instance_id, user_id, visibility, uniform_user_id});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {metadata_output, x, metadata});
+    auto *transform = builder.call(
+        Type::of<luisa::float4x4>(),
+        xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM,
+        {accel, instance_id});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {transform_output, x, transform});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-accel-instance-metadata", *context);
+    auto name = std::string{"simd_accel_instance_metadata"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        SIMDHostBufferView metadata_output;
+        SIMDHostBufferView transform_output;
+    };
+    CHECK(codegen.argument_buffer_size == sizeof(Arguments));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(count_occurrences(ir, "llvm.masked.gather") >= 14u);
+    CHECK(ir.find("accel.instance.scalar.load") != std::string::npos);
+    CHECK(ir.find("call void %") == std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+
+    std::array<SIMDHostAccelInstance, 2u> instances{};
+    std::array affine0{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f};
+    std::array affine1{
+        2.0f, 7.0f, 17.0f, 29.0f,
+        3.0f, 11.0f, 19.0f, 31.0f,
+        5.0f, 13.0f, 23.0f, 37.0f};
+    std::memcpy(
+        instances[0u].affine, affine0.data(), sizeof(affine0));
+    std::memcpy(
+        instances[1u].affine, affine1.data(), sizeof(affine1));
+    instances[0u].user_id = 11u;
+    instances[0u].mask = 0x1u;
+    instances[1u].user_id = 22u;
+    instances[1u].mask = 0x2u;
+    SIMDHostAccelInstanceTable instance_table{
+        .data = instances.data(),
+        .size = instances.size(),
+    };
+    std::array<luisa::uint4, width> metadata_values{};
+    std::array<luisa::float4x4, width> transform_values{};
+    Arguments arguments{
+        .accel = {
+            .instances = &instance_table,
+        },
+        .metadata_output = {metadata_values.data(), sizeof(metadata_values)},
+        .transform_output = {transform_values.data(), sizeof(transform_values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    auto expected0 = luisa::make_float4x4(1.0f);
+    auto expected1 = luisa::make_float4x4(
+        luisa::make_float4(2.0f, 3.0f, 5.0f, 0.0f),
+        luisa::make_float4(7.0f, 11.0f, 13.0f, 0.0f),
+        luisa::make_float4(17.0f, 19.0f, 23.0f, 0.0f),
+        luisa::make_float4(29.0f, 31.0f, 37.0f, 1.0f));
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        auto instance_id = lane & 1u;
+        CHECK(luisa::all(
+            metadata_values[lane] == luisa::make_uint4(
+                                         instance_id,
+                                         instance_id == 0u ? 11u : 22u,
+                                         instance_id == 0u ? 0x1u : 0x2u,
+                                         11u)));
+        auto expected = instance_id == 0u ? expected0 : expected1;
+        for (auto column = uint32_t{0u}; column < 4u; column++) {
+            CHECK(luisa::all(
+                transform_values[lane][column] == expected[column]));
+        }
+    }
+    return true;
+}
+
 struct BindlessTexturePacketProbe {
     bool valid{true};
     uint32_t calls{0u};
@@ -2773,10 +2917,10 @@ void bindless_texture_sample_probe(
         auto expected_slot = lane & 1u;
         CHECK(probe.slots[0u][lane] == expected_slot);
         CHECK(luisa::all(output_values[lane] == luisa::make_float4(
-            static_cast<float>(expected_slot),
-            static_cast<float>(10u + expected_slot),
-            static_cast<float>(20u + expected_slot),
-            static_cast<float>(30u + expected_slot))));
+                                                    static_cast<float>(expected_slot),
+                                                    static_cast<float>(10u + expected_slot),
+                                                    static_cast<float>(20u + expected_slot),
+                                                    static_cast<float>(30u + expected_slot))));
         CHECK(luisa::all(output_values[8u + lane] ==
                          luisa::make_float4(
                              100.0f, 110.0f, 120.0f, 130.0f)));
@@ -3351,6 +3495,8 @@ int main() {
         {"uniform buffer read broadcast",
          &run_uniform_buffer_broadcast_codegen},
         {"XIR texture packet callback", &run_texture_packet_codegen},
+        {"XIR accel instance metadata",
+         &run_accel_instance_metadata_codegen},
         {"XIR bindless texture packet callback",
          &run_bindless_texture_packet_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
