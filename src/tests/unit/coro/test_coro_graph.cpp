@@ -197,6 +197,67 @@ void reg_coro_graph() {
         expect(graph.node_by_token(999u) == nullptr);
     };
 
+    "relocation_payload_uses_distilled_live_begin"_test = [] {
+        // `late` is resident at the first continuation but is not evaluated
+        // there. Immediate callable inputs may therefore omit its physical
+        // field, while relocation must retain it until the second resume.
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *first_resume = k->create_basic_block();
+        auto *second_resume = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *early = b.clock();
+        auto *late = b.clock();
+        b.coro_suspend(301u, "early", nullptr);
+        b.set_insertion_point(first_resume);
+        b.coro_resume(301u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {early, m.create_constant_one(Type::of<uint64_t>())}));
+        b.coro_suspend(302u, "late", nullptr);
+        b.set_insertion_point(second_resume);
+        b.coro_resume(302u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {late, m.create_constant_one(Type::of<uint64_t>())}));
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(k);
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(
+            &m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(
+            &m, cfg, split);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
+
+        auto *early_node = graph.node_by_name("early");
+        auto *late_node = graph.node_by_name("late");
+        expect(early_node != nullptr);
+        expect(late_node != nullptr);
+        if (early_node != nullptr && late_node != nullptr) {
+            auto late_only = std::find_if(
+                late_node->input_fields.begin(),
+                late_node->input_fields.end(),
+                [&](auto field) noexcept {
+                    return std::find(
+                               early_node->input_fields.begin(),
+                               early_node->input_fields.end(), field) ==
+                           early_node->input_fields.end();
+                });
+            expect(late_only != late_node->input_fields.end());
+            if (late_only != late_node->input_fields.end()) {
+                expect(std::find(
+                           early_node->relocation_fields.begin(),
+                           early_node->relocation_fields.end(),
+                           *late_only) !=
+                       early_node->relocation_fields.end())
+                    << "live-through state must be projected from the "
+                       "distilled liveness certificate";
+            }
+        }
+    };
+
     "terminal_scope_has_terminal_flag"_test = [] {
         // given: a kernel that ends with CoroTerminateInst
         Module m;

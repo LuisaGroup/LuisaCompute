@@ -57,6 +57,7 @@ private:
     CoroFrameStorageLayout _global_frame_layout;
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
+    luisa::vector<luisa::vector<size_t>> _relocation_fields;
     size_t _static_shared_memory_size_bytes{};
     uint64_t _main_shader_structure_hash{};
 
@@ -183,6 +184,8 @@ private:
             _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
             _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
         }
+        _relocation_fields = coro_frame_collect_relocation_fields(
+            coro.graph(), coro.frame().frame_field_count());
         auto token_to_index = detail::make_coro_token_index_callable(coro);
 
         auto make_main_kernel = [&]() noexcept {
@@ -193,9 +196,43 @@ private:
                                            0u;
             auto global_memory_frames =
                 _config.global_memory_frames;
+            luisa::vector<size_t> common_relocation_fields;
+            if (coro.subroutine_count() > 1u) {
+                common_relocation_fields = _relocation_fields[1u];
+                for (auto i = 2u; i < coro.subroutine_count(); ++i) {
+                    auto &fields = _relocation_fields[i];
+                    common_relocation_fields.erase(
+                        std::remove_if(
+                            common_relocation_fields.begin(),
+                            common_relocation_fields.end(),
+                            [&](auto field) noexcept {
+                                return std::find(
+                                           fields.begin(), fields.end(),
+                                           field) == fields.end();
+                            }),
+                        common_relocation_fields.end());
+                }
+            }
+            auto residual_relocation_fields = _relocation_fields;
+            for (auto i = 1u; i < coro.subroutine_count(); ++i) {
+                auto &fields = residual_relocation_fields[i];
+                fields.erase(
+                    std::remove_if(
+                        fields.begin(), fields.end(),
+                        [&](auto field) noexcept {
+                            return std::find(
+                                       common_relocation_fields.begin(),
+                                       common_relocation_fields.end(),
+                                       field) !=
+                                   common_relocation_fields.end();
+                        }),
+                    fields.end());
+            }
             return Kernel1D{[this, &coro, &token_to_index,
                              shared_queue_factor, global_queue_factor,
                              global_memory_frames,
+                             common_relocation_fields,
+                             residual_relocation_fields,
                              input_fields = _input_fields,
                              output_fields = _output_fields,
                              global_layout = _global_frame_layout](
@@ -236,6 +273,102 @@ private:
                 Shared<uint> work_stat{2u};
                 Shared<uint> rem_global{1u};
                 Shared<uint> rem_local{1u};
+
+                // A queued frame is a token-indexed sum type. Relocation must
+                // preserve not only fields read by continuation t, but fields
+                // live through t and first consumed later. CoroGraph projects
+                // cfg-distill's least-fixed-point live_begin certificate onto
+                // these physical relocation fields.
+                auto load_global_frame = [&](UInt token,
+                                             UInt global_id) noexcept {
+                    auto result = CoroFrame::create(&coro.frame());
+                    if (coro.subroutine_count() <= 1u) {
+                        return result;
+                    }
+                    if (!common_relocation_fields.empty()) {
+                        coro_frame_load_into(
+                            result, global_frames, global_id,
+                            global_layout, false,
+                            luisa::span{common_relocation_fields}, true);
+                    }
+                    auto load = switch_(token);
+                    for (size_t i = 1u;
+                         i < coro.subroutine_count(); ++i) {
+                        load = std::move(load).case_(
+                            static_cast<uint>(i), [&, i] {
+                                if (!residual_relocation_fields[i].empty()) {
+                                    coro_frame_load_into(
+                                        result, global_frames, global_id,
+                                        global_layout, false,
+                                        luisa::span{
+                                            residual_relocation_fields[i]},
+                                        true, false);
+                                }
+                            });
+                    }
+                    std::move(load).default_([] {});
+                    return result;
+                };
+                auto store_shared_frame = [&](UInt token, UInt shared_id,
+                                              const CoroFrame &frame) noexcept {
+                    if (coro.subroutine_count() <= 1u) { return; }
+                    if (!common_relocation_fields.empty()) {
+                        shared_frames->write(
+                            shared_id, frame,
+                            luisa::span{common_relocation_fields});
+                    }
+                    auto store = switch_(token);
+                    for (size_t i = 1u;
+                         i < coro.subroutine_count(); ++i) {
+                        store = std::move(store).case_(
+                            static_cast<uint>(i), [&, i] {
+                                if (!residual_relocation_fields[i].empty()) {
+                                    shared_frames->write(
+                                        shared_id, frame,
+                                        luisa::span{
+                                            residual_relocation_fields[i]},
+                                        false);
+                                }
+                            });
+                    }
+                    std::move(store).default_([] {});
+                };
+                auto spill_shared_frame = [&](UInt token, UInt shared_id,
+                                              UInt global_id) noexcept {
+                    if (coro.subroutine_count() <= 1u) { return; }
+                    auto frame = CoroFrame::create(&coro.frame());
+                    if (!common_relocation_fields.empty()) {
+                        shared_frames->read_into(
+                            shared_id, frame,
+                            luisa::span{common_relocation_fields});
+                        coro_frame_store(
+                            global_frames, global_id, frame,
+                            global_layout, false,
+                            luisa::span{common_relocation_fields}, true);
+                    }
+                    auto spill = switch_(token);
+                    for (size_t i = 1u;
+                         i < coro.subroutine_count(); ++i) {
+                        spill = std::move(spill).case_(
+                            static_cast<uint>(i), [&, i] {
+                                if (!residual_relocation_fields[i].empty()) {
+                                    shared_frames->read_into(
+                                        shared_id,
+                                        frame,
+                                        luisa::span{
+                                            residual_relocation_fields[i]},
+                                        false);
+                                    coro_frame_store(
+                                        global_frames, global_id, frame,
+                                        global_layout, false,
+                                        luisa::span{
+                                            residual_relocation_fields[i]},
+                                        true, false);
+                                }
+                            });
+                    }
+                    std::move(spill).default_([] {});
+                };
 
                 for (auto index = 0u;
                      index < shared_queue_factor; index++) {
@@ -380,24 +513,29 @@ private:
                                         auto global_id = block_x() * global_queue_size + global_queue_id;
                                         auto frame_token = def(all_token[dst]);
                                         $if (coro_token != 0u) {
-                                            auto global_frame = coro_frame_load(
-                                                &coro.frame(), global_frames, global_id,
-                                                global_layout, false, luisa::nullopt, true);
+                                            // This is an in-place exchange:
+                                            // load the incoming value before
+                                            // overwriting its global slot.
+                                            auto global_frame =
+                                                load_global_frame(
+                                                    coro_token, global_id);
                                             $if (frame_token != 0u) {
-                                                auto frame = shared_frames->read(dst);
-                                                coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
+                                                spill_shared_frame(
+                                                    frame_token, dst,
+                                                    global_id);
                                             };
-                                            shared_frames->write(dst, global_frame);
+                                            store_shared_frame(
+                                                coro_token, dst,
+                                                global_frame);
                                             all_token[global_token_index] = frame_token;
                                             all_token[dst] = coro_token;
                                         }
                                         $elif (frame_token != 0u) {
-                                            auto frame = shared_frames->read(dst);
-                                            coro_frame_store(global_frames, global_id, frame, global_layout, false, luisa::nullopt, true);
-                                            $if (frame_token != 0u) {
-                                                all_token[global_token_index] = frame_token;
-                                                all_token[dst] = coro_token;
-                                            };
+                                            spill_shared_frame(
+                                                frame_token, dst,
+                                                global_id);
+                                            all_token[global_token_index] = frame_token;
+                                            all_token[dst] = coro_token;
                                         };
                                     };
                                 };

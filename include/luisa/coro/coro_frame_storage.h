@@ -132,8 +132,10 @@ struct CoroFrameStorageLayout {
 };
 
 [[nodiscard]] inline auto coro_frame_is_active_field(
-    size_t index, luisa::optional<luisa::span<const size_t>> active_fields) noexcept {
-    if (index < CoroFrameDesc::reserved_field_count) { return true; }
+    size_t index, luisa::optional<luisa::span<const size_t>> active_fields,
+    bool include_reserved_fields = true) noexcept {
+    if (include_reserved_fields &&
+        index < CoroFrameDesc::reserved_field_count) { return true; }
     return !active_fields || std::find(active_fields->begin(), active_fields->end(), index) != active_fields->end();
 }
 
@@ -171,6 +173,31 @@ inline void coro_frame_append_reserved_fields(luisa::vector<size_t> &fields) noe
     return fields;
 }
 
+/// Return the exact token-indexed frame state that must survive relocation of
+/// a queued continuation. CoroGraph projects cfg-distill's already solved
+/// live_begin sets onto physical frame fields; do not infer this state from
+/// immediate callable inputs or materialized stores, because both omit
+/// dormant pass-through values by design.
+[[nodiscard]] inline auto coro_frame_collect_relocation_fields(
+    const CoroGraph &graph, size_t frame_field_count) noexcept {
+    luisa::vector<luisa::vector<size_t>> relocation_fields;
+    relocation_fields.reserve(graph.node_count());
+    for (auto &&node : graph.nodes()) {
+        auto fields = luisa::vector<size_t>{node.relocation_fields};
+        for (auto field : fields) {
+            LUISA_ASSERT(
+                field < frame_field_count,
+                "Coroutine node {} relocation field {} is outside frame field "
+                "count {}.",
+                node.index, field, frame_field_count);
+        }
+        luisa::sort(fields.begin(), fields.end());
+        fields.erase(std::unique(fields.begin(), fields.end()), fields.end());
+        relocation_fields.emplace_back(std::move(fields));
+    }
+    return relocation_fields;
+}
+
 class CoroFrameSharedStorage {
 
 private:
@@ -206,42 +233,61 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(
-        I &&index,
-        luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt) const noexcept {
+    void read_into(
+        I &&index, const CoroFrame &frame,
+        luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+        bool include_reserved_fields = true) const noexcept {
         auto i = def(std::forward<I>(index));
         auto *fb = luisa::compute::detail::FunctionBuilder::current();
-        auto *frame_expr = fb->local(_desc->frame_type());
-        fb->assign(frame_expr, fb->call(_desc->frame_type(), CallOp::ZERO, {}));
         if (!_is_soa()) {
             auto *src = fb->access(_desc->frame_type(), _expressions.front(), i.expression());
             if (!active_fields) {
-                fb->assign(frame_expr, src);
+                fb->assign(frame.expression(), src);
             } else {
-                for (auto field_index : *active_fields) {
+                for (auto field_index = 0u;
+                     field_index < _desc->frame_field_count();
+                     field_index++) {
+                    if (!coro_frame_is_active_field(
+                            field_index, active_fields,
+                            include_reserved_fields)) { continue; }
                     auto *type = _desc->frame_field_type(field_index);
-                    auto *dst = fb->member(type, frame_expr, field_index);
+                    auto *dst = fb->member(
+                        type, frame.expression(), field_index);
                     auto *field = fb->member(type, src, field_index);
                     fb->assign(dst, field);
                 }
             }
         } else {
             for (auto field_index = 0u; field_index < _desc->frame_field_count(); field_index++) {
-                if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
+                if (!coro_frame_is_active_field(
+                        field_index, active_fields,
+                        include_reserved_fields)) { continue; }
                 auto *type = _desc->frame_field_type(field_index);
-                auto *dst = fb->member(type, frame_expr, field_index);
+                auto *dst = fb->member(
+                    type, frame.expression(), field_index);
                 auto *src = fb->access(type, _expressions[field_index], i.expression());
                 fb->assign(dst, src);
             }
         }
-        return CoroFrame{_desc, static_cast<const Expression *>(frame_expr)};
+    }
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(
+        I &&index,
+        luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt) const noexcept {
+        auto frame = CoroFrame::create(_desc);
+        read_into(
+            std::forward<I>(index), frame, active_fields);
+        return frame;
     }
 
     template<typename I>
         requires is_integral_expr_v<I>
     void write(
         I &&index, const CoroFrame &frame,
-        luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt) const noexcept {
+        luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+        bool include_reserved_fields = true) const noexcept {
         auto i = def(std::forward<I>(index));
         auto *fb = luisa::compute::detail::FunctionBuilder::current();
         if (!_is_soa()) {
@@ -249,7 +295,12 @@ public:
             if (!active_fields) {
                 fb->assign(dst, frame.expression());
             } else {
-                for (auto field_index : *active_fields) {
+                for (auto field_index = 0u;
+                     field_index < _desc->frame_field_count();
+                     field_index++) {
+                    if (!coro_frame_is_active_field(
+                            field_index, active_fields,
+                            include_reserved_fields)) { continue; }
                     auto *type = _desc->frame_field_type(field_index);
                     auto *src = fb->member(type, frame.expression(), field_index);
                     auto *field = fb->member(type, dst, field_index);
@@ -258,7 +309,9 @@ public:
             }
         } else {
             for (auto field_index = 0u; field_index < _desc->frame_field_count(); field_index++) {
-                if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
+                if (!coro_frame_is_active_field(
+                        field_index, active_fields,
+                        include_reserved_fields)) { continue; }
                 auto *type = _desc->frame_field_type(field_index);
                 auto *src = fb->member(type, frame.expression(), field_index);
                 auto *dst = fb->access(type, _expressions[field_index], i.expression());
@@ -272,11 +325,14 @@ inline void coro_frame_store_aos(
     const Expr<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto base = frame_index * static_cast<uint>(layout.frame_stride);
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
     for (auto field_index = 0u; field_index < frame.desc()->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
+        if (!coro_frame_is_active_field(
+                field_index, active_fields,
+                include_reserved_fields)) { continue; }
         auto *type = frame.desc()->frame_field_type(field_index);
         auto *member = fb->member(type, frame.expression(), field_index);
         fb->call(is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE : CallOp::BYTE_BUFFER_WRITE,
@@ -286,23 +342,36 @@ inline void coro_frame_store_aos(
     }
 }
 
-[[nodiscard]] inline auto coro_frame_load_aos(
-    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
+inline void coro_frame_load_aos_into(
+    const CoroFrame &frame, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
-    auto frame = CoroFrame::create(desc);
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto base = frame_index * static_cast<uint>(layout.frame_stride);
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
-    for (auto field_index = 0u; field_index < desc->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
-        auto *type = desc->frame_field_type(field_index);
+    for (auto field_index = 0u;
+         field_index < frame.desc()->frame_field_count(); field_index++) {
+        if (!coro_frame_is_active_field(
+                field_index, active_fields,
+                include_reserved_fields)) { continue; }
+        auto *type = frame.desc()->frame_field_type(field_index);
         auto *value = fb->call(type, is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ : CallOp::BYTE_BUFFER_READ,
                                {buffer.expression(),
                                 luisa::compute::detail::extract_expression(base + static_cast<uint>(layout.field_offsets[field_index]))});
         auto *member = fb->member(type, frame.expression(), field_index);
         fb->assign(member, value);
     }
+}
+
+[[nodiscard]] inline auto coro_frame_load_aos(
+    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const CoroFrameStorageLayout &layout,
+    luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+    bool is_volatile = false) noexcept {
+    auto frame = CoroFrame::create(desc);
+    coro_frame_load_aos_into(
+        frame, buffer, frame_index, layout, active_fields, is_volatile);
     return frame;
 }
 
@@ -310,10 +379,13 @@ inline void coro_frame_store_soa(
     const Expr<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
     for (auto field_index = 0u; field_index < frame.desc()->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
+        if (!coro_frame_is_active_field(
+                field_index, active_fields,
+                include_reserved_fields)) { continue; }
         auto offset = static_cast<uint>(layout.field_offsets[field_index]) +
                       frame_index * static_cast<uint>(layout.field_strides[field_index]);
         auto *type = frame.desc()->frame_field_type(field_index);
@@ -323,23 +395,36 @@ inline void coro_frame_store_soa(
     }
 }
 
+inline void coro_frame_load_soa_into(
+    const CoroFrame &frame, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
+    const CoroFrameStorageLayout &layout,
+    luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
+    auto *fb = luisa::compute::detail::FunctionBuilder::current();
+    for (auto field_index = 0u;
+         field_index < frame.desc()->frame_field_count(); field_index++) {
+        if (!coro_frame_is_active_field(
+                field_index, active_fields,
+                include_reserved_fields)) { continue; }
+        auto offset = static_cast<uint>(layout.field_offsets[field_index]) +
+                      frame_index * static_cast<uint>(layout.field_strides[field_index]);
+        auto *type = frame.desc()->frame_field_type(field_index);
+        auto *value = fb->call(type, is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ : CallOp::BYTE_BUFFER_READ,
+                               {buffer.expression(), luisa::compute::detail::extract_expression(offset)});
+        auto *member = fb->member(type, frame.expression(), field_index);
+        fb->assign(member, value);
+    }
+}
+
 [[nodiscard]] inline auto coro_frame_load_soa(
     const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
     bool is_volatile = false) noexcept {
     auto frame = CoroFrame::create(desc);
-    auto *fb = luisa::compute::detail::FunctionBuilder::current();
-    for (auto field_index = 0u; field_index < desc->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
-        auto offset = static_cast<uint>(layout.field_offsets[field_index]) +
-                      frame_index * static_cast<uint>(layout.field_strides[field_index]);
-        auto *type = desc->frame_field_type(field_index);
-        auto *value = fb->call(type, is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ : CallOp::BYTE_BUFFER_READ,
-                               {buffer.expression(), luisa::compute::detail::extract_expression(offset)});
-        auto *member = fb->member(type, frame.expression(), field_index);
-        fb->assign(member, value);
-    }
+    coro_frame_load_soa_into(
+        frame, buffer, frame_index, layout, active_fields, is_volatile);
     return frame;
 }
 
@@ -361,11 +446,14 @@ inline void coro_frame_store_runtime_soa(
     Expr<uint> capacity, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
     for (auto field_index = 0u;
          field_index < frame.desc()->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
+        if (!coro_frame_is_active_field(
+                field_index, active_fields,
+                include_reserved_fields)) { continue; }
         auto offset = coro_frame_runtime_soa_offset(
             frame_index, capacity, layout, field_index);
         auto *type = frame.desc()->frame_field_type(field_index);
@@ -377,20 +465,22 @@ inline void coro_frame_store_runtime_soa(
     }
 }
 
-[[nodiscard]] inline auto coro_frame_load_runtime_soa(
-    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer,
+inline void coro_frame_load_runtime_soa_into(
+    const CoroFrame &frame, const Expr<ByteBuffer> &buffer,
     Expr<uint> frame_index, Expr<uint> capacity,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
-    auto frame = CoroFrame::create(desc);
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
     for (auto field_index = 0u;
-         field_index < desc->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(field_index, active_fields)) { continue; }
+         field_index < frame.desc()->frame_field_count(); field_index++) {
+        if (!coro_frame_is_active_field(
+                field_index, active_fields,
+                include_reserved_fields)) { continue; }
         auto offset = coro_frame_runtime_soa_offset(
             frame_index, capacity, layout, field_index);
-        auto *type = desc->frame_field_type(field_index);
+        auto *type = frame.desc()->frame_field_type(field_index);
         auto *value = fb->call(
             type,
             is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
@@ -400,6 +490,18 @@ inline void coro_frame_store_runtime_soa(
         auto *member = fb->member(type, frame.expression(), field_index);
         fb->assign(member, value);
     }
+}
+
+[[nodiscard]] inline auto coro_frame_load_runtime_soa(
+    const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer,
+    Expr<uint> frame_index, Expr<uint> capacity,
+    const CoroFrameStorageLayout &layout,
+    luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+    bool is_volatile = false) noexcept {
+    auto frame = CoroFrame::create(desc);
+    coro_frame_load_runtime_soa_into(
+        frame, buffer, frame_index, capacity,
+        layout, active_fields, is_volatile);
     return frame;
 }
 
@@ -407,11 +509,16 @@ inline void coro_frame_store(
     const Expr<ByteBuffer> &buffer, Expr<uint> frame_index, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     if (soa) {
-        coro_frame_store_soa(buffer, frame_index, frame, layout, active_fields, is_volatile);
+        coro_frame_store_soa(
+            buffer, frame_index, frame, layout, active_fields,
+            is_volatile, include_reserved_fields);
     } else {
-        coro_frame_store_aos(buffer, frame_index, frame, layout, active_fields, is_volatile);
+        coro_frame_store_aos(
+            buffer, frame_index, frame, layout, active_fields,
+            is_volatile, include_reserved_fields);
     }
 }
 
@@ -420,15 +527,57 @@ inline void coro_frame_store(
     Expr<uint> soa_capacity, const CoroFrame &frame,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     if (soa) {
         coro_frame_store_runtime_soa(
             buffer, frame_index, soa_capacity, frame,
-            layout, active_fields, is_volatile);
+            layout, active_fields, is_volatile,
+            include_reserved_fields);
     } else {
         coro_frame_store_aos(
             buffer, frame_index, frame,
-            layout, active_fields, is_volatile);
+            layout, active_fields, is_volatile,
+            include_reserved_fields);
+    }
+}
+
+inline void coro_frame_load_into(
+    const CoroFrame &frame, const Expr<ByteBuffer> &buffer,
+    Expr<uint> frame_index, const CoroFrameStorageLayout &layout, bool soa,
+    luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
+    if (soa) {
+        coro_frame_load_soa_into(
+            frame, buffer, frame_index, layout,
+            active_fields, is_volatile,
+            include_reserved_fields);
+    } else {
+        coro_frame_load_aos_into(
+            frame, buffer, frame_index, layout,
+            active_fields, is_volatile,
+            include_reserved_fields);
+    }
+}
+
+inline void coro_frame_load_into(
+    const CoroFrame &frame, const Expr<ByteBuffer> &buffer,
+    Expr<uint> frame_index, Expr<uint> soa_capacity,
+    const CoroFrameStorageLayout &layout, bool soa,
+    luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
+    if (soa) {
+        coro_frame_load_runtime_soa_into(
+            frame, buffer, frame_index, soa_capacity,
+            layout, active_fields, is_volatile,
+            include_reserved_fields);
+    } else {
+        coro_frame_load_aos_into(
+            frame, buffer, frame_index, layout,
+            active_fields, is_volatile,
+            include_reserved_fields);
     }
 }
 

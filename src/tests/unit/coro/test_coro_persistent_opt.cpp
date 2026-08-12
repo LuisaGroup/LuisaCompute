@@ -11,6 +11,9 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
+#include <array>
+#include <bit>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
@@ -246,6 +249,132 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         expect(ok) << "SoA shared frame storage must spill and restore scalar header fields";
     };
 
+    "T33_sparse_aos_load_updates_only_the_active_sum_variant"_test = [options] {
+        constexpr uint N = 64u;
+        constexpr auto active_user_field =
+            CoroFrameDesc::reserved_field_count;
+        constexpr std::array<size_t, 1u> active_fields{
+            active_user_field};
+
+        CoroFrameDesc desc;
+        desc.add_field("active", Type::of<uint>());
+        desc.add_field("inactive_a", Type::of<uint>());
+        desc.add_field("inactive_b", Type::of<uint>());
+        auto layout = CoroFrameStorageLayout::make_aos(desc, N);
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto frames = device.create_byte_buffer(layout.size_bytes);
+        auto output = device.create_buffer<uint>(N * 20u);
+
+        Kernel1D store = [&desc, layout](ByteBufferVar frames) noexcept {
+            auto tid = dispatch_x();
+            auto frame = CoroFrame::create(&desc);
+            frame.coro_id = make_uint3(tid + 1u, tid + 2u, tid + 3u);
+            frame.dispatch_size_x = tid + 4u;
+            frame.dispatch_size_y = tid + 5u;
+            frame.dispatch_size_z = tid + 6u;
+            frame.target_token = tid + 7u;
+            auto active = frame.get<uint>(0u);
+            auto inactive_a = frame.get<uint>(1u);
+            auto inactive_b = frame.get<uint>(2u);
+            active = tid + 8u;
+            inactive_a = tid + 9u;
+            inactive_b = tid + 10u;
+            coro_frame_store(
+                frames, tid, frame, layout, false,
+                luisa::nullopt, true);
+        };
+        Kernel1D load = [&desc, layout, active_fields](
+                            ByteBufferVar frames,
+                            BufferUInt output) noexcept {
+            auto tid = dispatch_x();
+            auto frame = CoroFrame::create(&desc);
+            frame.coro_id = make_uint3(101u, 102u, 103u);
+            frame.dispatch_size_x = 104u;
+            frame.dispatch_size_y = 105u;
+            frame.dispatch_size_z = 106u;
+            frame.target_token = 107u;
+            auto active = frame.get<uint>(0u);
+            auto inactive_a = frame.get<uint>(1u);
+            auto inactive_b = frame.get<uint>(2u);
+            active = 108u;
+            inactive_a = 109u;
+            inactive_b = 110u;
+            coro_frame_load_into(
+                frame, frames, tid, layout, false,
+                luisa::span{active_fields}, true);
+
+            auto base = tid * 20u;
+            output.write(base + 0u, frame.coro_id.x);
+            output.write(base + 1u, frame.coro_id.y);
+            output.write(base + 2u, frame.coro_id.z);
+            output.write(base + 3u, frame.dispatch_size_x);
+            output.write(base + 4u, frame.dispatch_size_y);
+            output.write(base + 5u, frame.dispatch_size_z);
+            output.write(base + 6u, frame.target_token);
+            output.write(base + 7u, frame.get<uint>(0u));
+            output.write(base + 8u, frame.get<uint>(1u));
+            output.write(base + 9u, frame.get<uint>(2u));
+
+            auto exact = CoroFrame::create(&desc);
+            exact.coro_id = make_uint3(201u, 202u, 203u);
+            exact.dispatch_size_x = 204u;
+            exact.dispatch_size_y = 205u;
+            exact.dispatch_size_z = 206u;
+            exact.target_token = 207u;
+            auto exact_active = exact.get<uint>(0u);
+            auto exact_inactive_a = exact.get<uint>(1u);
+            auto exact_inactive_b = exact.get<uint>(2u);
+            exact_active = 208u;
+            exact_inactive_a = 209u;
+            exact_inactive_b = 210u;
+            coro_frame_load_into(
+                exact, frames, tid, layout, false,
+                luisa::span{active_fields}, true, false);
+            output.write(base + 10u, exact.coro_id.x);
+            output.write(base + 11u, exact.coro_id.y);
+            output.write(base + 12u, exact.coro_id.z);
+            output.write(base + 13u, exact.dispatch_size_x);
+            output.write(base + 14u, exact.dispatch_size_y);
+            output.write(base + 15u, exact.dispatch_size_z);
+            output.write(base + 16u, exact.target_token);
+            output.write(base + 17u, exact.get<uint>(0u));
+            output.write(base + 18u, exact.get<uint>(1u));
+            output.write(base + 19u, exact.get<uint>(2u));
+        };
+
+        auto store_shader = device.compile(store);
+        auto load_shader = device.compile(load);
+        stream << store_shader(frames).dispatch(N)
+               << load_shader(frames, output).dispatch(N);
+        luisa::vector<uint> host(output.size());
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+
+        auto correct = true;
+        for (auto i = 0u; i < N && correct; i++) {
+            const std::array<uint, 20u> expected{
+                i + 1u, i + 2u, i + 3u, i + 4u, i + 5u,
+                i + 6u, i + 7u, i + 8u, 109u, 110u,
+                201u, 202u, 203u, 204u, 205u,
+                206u, 207u, i + 8u, 209u, 210u};
+            for (auto j = 0u; j < expected.size(); j++) {
+                if (host[i * expected.size() + j] != expected[j]) {
+                    LUISA_WARNING(
+                        "sparse AoS load mismatch instance={} field={}: "
+                        "got {}, expected {}",
+                        i, j, host[i * expected.size() + j], expected[j]);
+                    correct = false;
+                    break;
+                }
+            }
+        }
+        expect(correct)
+            << "token-indexed loads must restore reserved and active fields "
+               "without overwriting another sum variant's inactive payload";
+    };
+
     "T33_GME_spills_and_preserves_frame_fields"_test = [options] {
         constexpr uint N = 257u;
         constexpr uint thread_count = 64u;
@@ -326,6 +455,100 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
                 expect(scheduler.config().shared_memory_soa == shared_soa);
             }
         }
+    };
+
+    "T33_GME_preserves_state_live_through_an_intermediate_continuation"_test = [options] {
+        constexpr uint N = 257u;
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N * 2u);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto tid = dispatch_x();
+            auto early = make_float3(
+                cast<float>(tid) + 0.25f,
+                cast<float>(tid) + 0.5f,
+                cast<float>(tid) + 0.75f);
+            // `late` is already part of the queued frame, but the first
+            // continuation neither reads nor redefines it. It must survive
+            // relocation through that continuation for the second one.
+            auto late = def(tid * 17u + 11u);
+            $suspend("early_float3");
+            output.write(tid * 2u, early.x.as<uint>());
+            $suspend("late_uint");
+            output.write(tid * 2u + 1u, late);
+        });
+
+        auto *early_node = coro.graph().node_by_name("early_float3");
+        auto *late_node = coro.graph().node_by_name("late_uint");
+        expect(early_node != nullptr);
+        expect(late_node != nullptr);
+        if (early_node != nullptr && late_node != nullptr) {
+            expect(early_node->input_fields != late_node->input_fields)
+                << "different continuation payload types must form distinct "
+                   "token variants";
+            auto relocation_fields = coro_frame_collect_relocation_fields(
+                coro.graph(), coro.frame().frame_field_count());
+            auto early_index = early_node->index;
+            auto late_only = std::find_if(
+                late_node->input_fields.begin(),
+                late_node->input_fields.end(),
+                [&](auto field) noexcept {
+                    return std::find(
+                               early_node->input_fields.begin(),
+                               early_node->input_fields.end(), field) ==
+                           early_node->input_fields.end();
+                });
+            expect(late_only != late_node->input_fields.end())
+                << "the fixture must contain a field first consumed after "
+                   "the intermediate continuation";
+            if (late_only != late_node->input_fields.end()) {
+                expect(std::find(
+                           relocation_fields[early_index].begin(),
+                           relocation_fields[early_index].end(),
+                           *late_only) !=
+                       relocation_fields[early_index].end())
+                    << "a field read later and not redefined on the edge must "
+                       "remain live through the intermediate queue token";
+            }
+            expect(early_node->input_fields.size() <
+                   coro.frame().frame_field_count());
+            expect(late_node->input_fields.size() <
+                   coro.frame().frame_field_count());
+        }
+
+        PersistentThreadsCoroSchedulerConfig config{
+            .thread_count = 64u,
+            .block_size = 32u,
+            .fetch_size = 4u,
+            .shared_memory_soa = true,
+            .global_memory_ext = true,
+        };
+        PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{
+            device, coro, config};
+        scheduler(output).dispatch(N)(stream);
+        luisa::vector<uint> host(output.size());
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+
+        auto correct = true;
+        for (auto i = 0u; i < N && correct; i++) {
+            auto expected_early =
+                std::bit_cast<uint>(static_cast<float>(i) + 0.25f);
+            auto expected_late = i * 17u + 11u;
+            if (host[i * 2u] != expected_early ||
+                host[i * 2u + 1u] != expected_late) {
+                LUISA_WARNING(
+                    "disjoint persistent live-in mismatch at {}: "
+                    "got ({}, {}), expected ({}, {})",
+                    i, host[i * 2u], host[i * 2u + 1u],
+                    expected_early, expected_late);
+                correct = false;
+            }
+        }
+        expect(correct)
+            << "GME exchange must preserve both immediate live-ins and state "
+               "that is live through an intermediate continuation";
     };
 
     "T33_shared_frame_lower_bound_selects_global_frames"_test = [options] {
