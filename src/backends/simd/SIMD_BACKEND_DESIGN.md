@@ -1705,6 +1705,16 @@ W1/W4/W16 gates improve by 1.0144x/1.0248x/1.0350x with 6/6 wins each. W2
 retains eager initialization because all sixteen pairs, including every shared-
 host outlier, measured 0.9972x despite 12/16 wins.
 
+W4/W8/W16 additionally combine five adjacent query-initialization field pairs
+with identical bit patterns into 64-bit masked scatters. W1/W2 retain 32-bit
+stores after neutral/negative paired gates. Relative to lazy-but-unpacked W8,
+the exact object falls from 6,319 to 6,281 instructions, from 3,776 to 3,738
+vector instructions, from 1,469 to 1,454 stack references, and from 23,808 to
+23,488 bytes of stack; branch and call counts remain unchanged. Same-binary
+cutout pairs measure 1.0185x at W4 (5/6 wins), 1.0186x at W8 (10/10), and
+1.0356x at W16 (6/6). W1 is neutral at 0.9994x and W2 is negative at 0.9877x,
+so neither narrow specialization enables the packed path.
+
 The active query cohort may also become much smaller than its physical width
 after construction. A W8 cutout audit observed 3.62 active lanes per proceed
 call on average and found that 78.0% of active lanes needed a packet scan.

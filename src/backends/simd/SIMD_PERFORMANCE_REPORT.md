@@ -277,8 +277,10 @@ scan. W1/W4/W8/W16 query construction now clears only those gates; the first
 scan clears count, index, and continuation for both surface and procedural
 batches before publishing the gates. W2 remains eager. A same-binary oracle,
 `LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT=1`, restores all six redundant
-construction stores. The exact LLVM fixture locks the default/oracle at 34/40
-masked scatters and covers W1/W2/W4/W8/W16 plus a three-lane W16 tail.
+construction stores. The exact LLVM fixture locks lazy/unpacked versus
+eager/unpacked construction at 31/37 masked-scatter callsites and covers
+W1/W2/W4/W8/W16 plus a three-lane W16 tail. The later packed specialization
+reduces W4/W8/W16 construction to 26 callsites.
 
 The exact W8 cutout object changes as follows:
 
@@ -313,6 +315,41 @@ while retaining the same 24,320-byte frame: the extra cold-batch pointer offset
 the smaller hot stride. The production ABI remains the single AoS record; a
 future SoA experiment must change the packet/state crossing rather than merely
 partitioning the same fields.
+
+### Packed ray-query initialization
+
+After lazy batch initialization, five pairs of adjacent fields still carried
+identical all-zero or all-one bit patterns. W4/W8/W16 now issue one 64-bit
+masked scatter per pair; W1/W2 keep the unpacked 32-bit form. Static ABI
+assertions lock every participating offset, and the two potentially unaligned
+hot-state pairs truthfully declare four-byte alignment. The committed-hit
+pairs are eight-byte aligned. `LUISA_SIMD_DISABLE_RAY_QUERY_PACKED_INIT=1`
+restores the unpacked same-binary oracle.
+
+The exact W8 cutout object changes incrementally from lazy/unpacked to
+lazy/packed:
+
+| W8 main kernel | unpacked | packed |
+| --- | ---: | ---: |
+| instructions | 6,319 | 6,281 |
+| vector instructions | 3,776 | 3,738 |
+| stack references | 1,469 | 1,454 |
+| stack allocation | 23,808 B | 23,488 B |
+| branches / calls | 506 / 5 | 506 / 5 |
+
+Alternating same-binary 64-SPP cutout processes measured:
+
+| Width | Pairs | Packed/unpacked | Wins | Decision |
+| --- | ---: | ---: | ---: | --- |
+| W1 | 6 | 0.9994x | 4/6 | keep unpacked |
+| W2 | 6 | 0.9877x | 3/6 | keep unpacked |
+| W4 | 6 | 1.0185x | 5/6 | enable packed |
+| W8 | 10 | 1.0186x | 10/10 | enable packed |
+| W16 | 6 | 1.0356x | 6/6 | enable packed |
+
+No outlier was removed. The exact LLVM fixture covers every width, the eager
+batch oracle, the unpacked oracle, and a three-lane W16 tail; it counts masked-
+scatter callsites rather than intrinsic declarations.
 
 ## Same-algorithm ISPC control and provenance
 

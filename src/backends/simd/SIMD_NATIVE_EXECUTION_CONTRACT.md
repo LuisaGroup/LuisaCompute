@@ -812,8 +812,22 @@ initialized bit is published. `advance_ray_query_candidate` must test both
 gates before reading any of those fields. W2 retains eager initialization: its
 padded-W4 renderer measurements did not establish a stable benefit from the
 lazy path. The eager oracle is selected with
-`LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT=1`; exact LLVM tests require 34
-construction scatters for the accepted widths and 40 for W2/the oracle.
+`LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT=1`. Exact LLVM tests count
+masked-scatter callsites rather than intrinsic declarations: lazy/unpacked
+construction requires 31 and eager/unpacked construction requires 37.
+At W4/W8/W16, five adjacent equal-bit-pattern field pairs are initialized by
+five 64-bit masked scatters instead of ten 32-bit scatters: candidate kind/
+commit flag, terminated/procedural-cursor-valid, committed instance/primitive,
+committed barycentrics, and committed kind/distance. The first two addresses
+carry their real four-byte alignment; committed-hit addresses are eight-byte
+aligned. Only all-zero or all-one pairs are packed, so the representation is
+independent of host byte order and preserves positive-zero floats. W1/W2 keep
+the unpacked stores because their renderer A/B did not establish a benefit.
+`LUISA_SIMD_DISABLE_RAY_QUERY_PACKED_INIT=1` selects the unpacked oracle.
+Inactive lanes remain excluded by the same construction mask. The final exact
+counts are 31 for lazy/unpacked W1, 37 for eager/unpacked W2, 26 for packed
+W4/W8/W16, 32 for the W8 eager/packed oracle, and 31 for the W8 lazy/unpacked
+oracle.
 The permanent surface 35-candidate and procedural 40-candidate regressions
 cross the respective boundaries at W1/W2/W4/W8/W16 and require exactly-once
 ascending handler delivery before the final commit. This removes repeated

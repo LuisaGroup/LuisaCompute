@@ -698,19 +698,36 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     scatter(
         zero_i32, offsetof(SIMDHostRayQueryState, cursor_valid),
         alignof(uint32_t));
-    scatter(
-        zero_i32, offsetof(SIMDHostRayQueryState, candidate_kind),
-        alignof(uint32_t));
-    scatter(
-        zero_i32, offsetof(SIMDHostRayQueryState, candidate_committed),
-        alignof(uint32_t));
-    scatter(
-        zero_i32, offsetof(SIMDHostRayQueryState, terminated),
-        alignof(uint32_t));
-    scatter(
-        zero_i32,
-        offsetof(SIMDHostRayQueryState, procedural_cursor_valid),
-        alignof(uint32_t));
+    auto packed_init =
+        _width >= 4u &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_RAY_QUERY_PACKED_INIT");
+    auto *i64_lanes = ::llvm::FixedVectorType::get(
+        _builder.getInt64Ty(), _width);
+    auto *zero_i64 = ::llvm::Constant::getNullValue(i64_lanes);
+    if (packed_init) {
+        scatter(
+            zero_i64, offsetof(SIMDHostRayQueryState, candidate_kind),
+            alignof(uint32_t));
+        scatter(
+            zero_i64, offsetof(SIMDHostRayQueryState, terminated),
+            alignof(uint32_t));
+    } else {
+        scatter(
+            zero_i32, offsetof(SIMDHostRayQueryState, candidate_kind),
+            alignof(uint32_t));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, candidate_committed),
+            alignof(uint32_t));
+        scatter(
+            zero_i32, offsetof(SIMDHostRayQueryState, terminated),
+            alignof(uint32_t));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, procedural_cursor_valid),
+            alignof(uint32_t));
+    }
     auto eager_batch_init =
         _width == 2u ||
         luisa::compute::detail::env_flag(
@@ -753,37 +770,58 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         offsetof(SIMDHostRayQueryState, procedural_batch_initialized),
         alignof(uint32_t));
 
-    auto *invalid_i32 = ::llvm::Constant::getAllOnesValue(i32_lanes);
-    scatter(
-        invalid_i32,
-        offsetof(SIMDHostRayQueryState, committed) +
-            offsetof(SIMDHostRayQueryCommittedHit, inst),
-        alignof(uint32_t));
-    scatter(
-        invalid_i32,
-        offsetof(SIMDHostRayQueryState, committed) +
-            offsetof(SIMDHostRayQueryCommittedHit, prim),
-        alignof(uint32_t));
-    scatter(
-        zero_float,
-        offsetof(SIMDHostRayQueryState, committed) +
-            offsetof(SIMDHostRayQueryCommittedHit, bary),
-        alignof(float));
-    scatter(
-        zero_float,
-        offsetof(SIMDHostRayQueryState, committed) +
-            offsetof(SIMDHostRayQueryCommittedHit, bary) + sizeof(float),
-        alignof(float));
-    scatter(
-        zero_i32,
-        offsetof(SIMDHostRayQueryState, committed) +
-            offsetof(SIMDHostRayQueryCommittedHit, kind),
-        alignof(uint32_t));
-    scatter(
-        zero_float,
-        offsetof(SIMDHostRayQueryState, committed) +
-            offsetof(SIMDHostRayQueryCommittedHit, t),
-        alignof(float));
+    if (packed_init) {
+        auto *invalid_i64 =
+            ::llvm::Constant::getAllOnesValue(i64_lanes);
+        scatter(
+            invalid_i64,
+            offsetof(SIMDHostRayQueryState, committed),
+            alignof(uint64_t));
+        scatter(
+            zero_i64,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, bary),
+            alignof(uint64_t));
+        scatter(
+            zero_i64,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, kind),
+            alignof(uint64_t));
+    } else {
+        auto *invalid_i32 =
+            ::llvm::Constant::getAllOnesValue(i32_lanes);
+        scatter(
+            invalid_i32,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, inst),
+            alignof(uint32_t));
+        scatter(
+            invalid_i32,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, prim),
+            alignof(uint32_t));
+        scatter(
+            zero_float,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, bary),
+            alignof(float));
+        scatter(
+            zero_float,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, bary) +
+                sizeof(float),
+            alignof(float));
+        scatter(
+            zero_i32,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, kind),
+            alignof(uint32_t));
+        scatter(
+            zero_float,
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, t),
+            alignof(float));
+    }
     return _builder.CreateBitCast(states, pointer_lanes);
 }
 

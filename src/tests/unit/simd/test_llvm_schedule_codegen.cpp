@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -2986,12 +2987,18 @@ void ray_query_packet_probe_impl(
                         state->candidate_kind == 0u &&
                         state->candidate_committed == 0u &&
                         state->terminated == 0u &&
+                        state->procedural_cursor_valid == 0u &&
                         state->candidate_batch_initialized == 0u &&
                         state->procedural_batch_initialized == 0u &&
                         state->committed.inst == ~0u &&
                         state->committed.prim == ~0u &&
+                        std::bit_cast<uint32_t>(
+                            state->committed.bary[0u]) == 0u &&
+                        std::bit_cast<uint32_t>(
+                            state->committed.bary[1u]) == 0u &&
                         state->committed.kind == 0u &&
-                        state->committed.t == 0.0f;
+                        std::bit_cast<uint32_t>(
+                            state->committed.t) == 0u;
         constexpr std::array expected_ray{
             1.0f, 2.0f, 3.0f, 0.25f,
             4.0f, 5.0f, 6.0f, 7.0f};
@@ -3031,10 +3038,14 @@ void ray_query_packet_probe_wide(
 
 [[nodiscard]] bool run_ray_query_packet_codegen_case(
     uint32_t width, uint32_t active_lanes,
-    bool expect_wide, bool disable_lazy_batch_init = false) {
+    bool expect_wide, bool disable_lazy_batch_init = false,
+    bool disable_packed_init = false) {
     ScopedEnvironmentVariable lazy_batch_init{
         "LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT",
         disable_lazy_batch_init ? "1" : nullptr};
+    ScopedEnvironmentVariable packed_init{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_PACKED_INIT",
+        disable_packed_init ? "1" : nullptr};
     xir::Module module;
     auto *kernel = module.create_kernel();
     kernel->set_name("ray_query_packet");
@@ -3118,8 +3129,12 @@ void ray_query_packet_probe_wide(
     CHECK(ir.find("ray.query.packet") != std::string::npos);
     CHECK(ir.find("ray.query.proceed.lane") == std::string::npos);
     CHECK(count_occurrences(ir, "call void %") == 1u);
-    CHECK(count_occurrences(ir, "llvm.masked.scatter") ==
-          (width == 2u || disable_lazy_batch_init ? 40u : 34u));
+    auto scatter_calls =
+        count_occurrences(ir, "call void @llvm.masked.scatter");
+    auto expect_packed = width >= 4u && !disable_packed_init;
+    CHECK(scatter_calls ==
+          (width == 2u || disable_lazy_batch_init ? 37u : 31u) -
+              (expect_packed ? 5u : 0u));
     CHECK(count_occurrences(ir, "llvm.masked.gather") >= 9u);
 
     LLVMJIT jit;
@@ -3180,6 +3195,8 @@ void ray_query_packet_probe_wide(
            run_ray_query_packet_codegen_case(4u, 3u, false) &&
            run_ray_query_packet_codegen_case(8u, 5u, true) &&
            run_ray_query_packet_codegen_case(8u, 5u, true, true) &&
+           run_ray_query_packet_codegen_case(
+               8u, 5u, true, false, true) &&
            run_ray_query_packet_codegen_case(16u, 3u, true);
 }
 
