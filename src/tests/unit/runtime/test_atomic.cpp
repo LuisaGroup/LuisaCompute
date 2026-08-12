@@ -264,16 +264,16 @@ void test_float_atomic_cross_dispatch_visibility(Device &device) {
     luisa::vector<float> host_old_values(element_count * stage_count);
     luisa::vector<uint> host_counters(stage_count, 0u);
     auto stream = device.create_stream();
-    stream << values.copy_from(host_values.data())
-           << counters.copy_from(host_counters.data());
+    stream << values.copy_from(luisa::span{host_values.data(), element_count})
+           << counters.copy_from(luisa::span{host_counters.data(), stage_count});
     for (auto stage = 0u; stage < stage_count; stage++) {
         auto &&shader = (stage & 1u) == 0u ? add_shader : subtract_shader;
         stream << shader(values, old_values, counters, stage)
                       .dispatch(element_count);
     }
-    stream << values.copy_to(host_values.data())
-           << old_values.copy_to(host_old_values.data())
-           << counters.copy_to(host_counters.data())
+    stream << values.copy_to(luisa::span{host_values.data(), element_count})
+           << old_values.copy_to(luisa::span{host_old_values.data(), element_count * stage_count})
+           << counters.copy_to(luisa::span{host_counters.data(), stage_count})
            << synchronize();
 
     auto expected = initial_value;
