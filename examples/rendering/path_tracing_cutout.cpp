@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N] [--max-spp-per-dispatch N]. <backend>: cuda, dx, metal, vk, hip, fallback, simd", argv[0]);
         exit(1);
     }
 
@@ -63,9 +63,26 @@ int main(int argc, char *argv[]) {
     // time without changing the rendered result. Keep other backends uncapped
     // and retain the command-line override for architecture-specific tuning.
     auto max_registers = std::string_view{argv[1]} == "hip" ? 176u : 0u;
-    for (auto i = 2; i + 1 < argc; i++) {
-        if (std::string_view{argv[i]} == "--max-registers") {
-            max_registers = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+    std::optional<uint32_t> max_spp_per_dispatch_override;
+    for (auto i = 2; i < argc; i++) {
+        auto option = std::string_view{argv[i]};
+        if (option == "--max-registers" ||
+            option == "--max-spp-per-dispatch") {
+            if (i + 1 >= argc) {
+                LUISA_WARNING("Missing value for {}.", option);
+                return 1;
+            }
+            auto value = std::string_view{argv[++i]};
+            auto parsed = luisa::ref::parse_uint32_option_value(value);
+            if (!parsed || (option == "--max-spp-per-dispatch" && *parsed == 0u)) {
+                LUISA_WARNING("Invalid value '{}' for {}.", value, option);
+                return 1;
+            }
+            if (option == "--max-registers") {
+                max_registers = *parsed;
+            } else {
+                max_spp_per_dispatch_override = *parsed;
+            }
         }
     }
 
@@ -217,7 +234,13 @@ int main(int argc, char *argv[]) {
         return valid;
     };
 
-    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto default_max_spp_per_dispatch =
+        device.backend_name() == "metal" ||
+                device.backend_name() == "fallback" ?
+            1u :
+            64u;
+    auto max_spp_per_dispatch = max_spp_per_dispatch_override.value_or(
+        default_max_spp_per_dispatch);
     bool infinite_render = !opts.offline && opts.spp == 0u;
     auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
         .total_spp = opts.offline ? (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp) : opts.spp,

@@ -55,6 +55,20 @@ public:
                 }
             },
             nullptr);
+        LUISA_VERBOSE(
+            "SIMD Embree {}.{}.{} native ray packets: W4={}, W8={}, W16={}",
+            rtcGetDeviceProperty(
+                _handle, RTC_DEVICE_PROPERTY_VERSION_MAJOR),
+            rtcGetDeviceProperty(
+                _handle, RTC_DEVICE_PROPERTY_VERSION_MINOR),
+            rtcGetDeviceProperty(
+                _handle, RTC_DEVICE_PROPERTY_VERSION_PATCH),
+            rtcGetDeviceProperty(
+                _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED),
+            rtcGetDeviceProperty(
+                _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED),
+            rtcGetDeviceProperty(
+                _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED));
     }
 
     ~SharedEmbreeDevice() noexcept {
