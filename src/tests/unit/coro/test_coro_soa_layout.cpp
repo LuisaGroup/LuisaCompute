@@ -417,6 +417,49 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
                "must not invalidate scheduler shader caches";
     };
 
+    "wavefront_execution_block_size_is_structural"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto value = def(dispatch_x() * 7u + 3u);
+            $suspend("live_value");
+            output.write(dispatch_x(), value);
+        });
+        auto make_config = [](uint block_size) noexcept {
+            return WavefrontCoroSchedulerConfig{
+                .thread_count = 257u,
+                .global_memory_soa = true,
+                .gather_by_sorting = false,
+                .frame_buffer_compaction = true,
+                .execution_block_size = block_size};
+        };
+        WavefrontCoroScheduler<Buffer<uint>> narrow{
+            device, coro, make_config(32u)};
+        WavefrontCoroScheduler<Buffer<uint>> wide{
+            device, coro, make_config(256u)};
+        auto narrow_hashes = narrow.shader_structure_hashes();
+        auto wide_hashes = wide.shader_structure_hashes();
+        expect(narrow_hashes.size() == wide_hashes.size());
+        expect(!std::equal(narrow_hashes.begin(), narrow_hashes.end(),
+                           wide_hashes.begin(), wide_hashes.end()))
+            << "execution block size changes generate/resume kernel structure "
+               "and must invalidate their shader cache entries";
+
+        constexpr uint n = 257u;
+        auto output = device.create_buffer<uint>(n);
+        auto stream = device.create_stream();
+        narrow(output).dispatch(n)(stream);
+        luisa::vector<uint> host(n);
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+        auto correct = true;
+        for (auto i = 0u; i < n; ++i) {
+            correct &= host[i] == i * 7u + 3u;
+        }
+        expect(correct)
+            << "a non-default execution block size must preserve the exact "
+               "logical-frame mapping, including a partial final block";
+    };
+
     "soa_layout_constructs_and_has_correct_config"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
         auto &device = dc.device;
