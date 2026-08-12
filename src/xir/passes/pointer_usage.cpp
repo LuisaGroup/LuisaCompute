@@ -86,6 +86,12 @@ struct PointerUsageAnalysis::Impl {
     luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> predecessors;
     luisa::vector<Value *> tracked_pointers;
     luisa::unordered_set<Value *> tracked_pointer_set;
+    // The transfer functions are pointwise in pointer-view identity after
+    // access projection: no K/T/L coordinate reads another pointer's state.
+    // Keep the complete pointer graph above for alias validation, while this
+    // subset selects the exact product-lattice coordinates to materialize.
+    luisa::vector<Value *> result_pointers;
+    luisa::unordered_set<Value *> result_pointer_set;
     luisa::unordered_map<Value *, PointerPath> paths;
     luisa::unordered_set<Value *> resolving_paths;
     luisa::unordered_map<BasicBlock *, luisa::vector<AccessEvent>> events;
@@ -108,6 +114,8 @@ struct PointerUsageAnalysis::Impl {
         predecessors.clear();
         tracked_pointers.clear();
         tracked_pointer_set.clear();
+        result_pointers.clear();
+        result_pointer_set.clear();
         paths.clear();
         resolving_paths.clear();
         events.clear();
@@ -321,6 +329,30 @@ struct PointerUsageAnalysis::Impl {
         info.tracked_pointer_count = tracked_pointers.size();
     }
 
+    void select_result_pointers(
+        luisa::optional<luisa::span<Value *const>> requested) noexcept {
+        auto append = [&](Value *pointer) noexcept {
+            if (pointer != nullptr &&
+                tracked_pointer_set.contains(pointer) &&
+                result_pointer_set.emplace(pointer).second) {
+                result_pointers.emplace_back(pointer);
+            }
+        };
+        if (requested) {
+            for (auto *pointer : *requested) {
+                if (pointer == nullptr ||
+                    !tracked_pointer_set.contains(pointer)) {
+                    ++info.invalid_access_count;
+                    continue;
+                }
+                append(pointer);
+            }
+        } else {
+            for (auto *pointer : tracked_pointers) { append(pointer); }
+        }
+        info.materialized_pointer_count = result_pointers.size();
+    }
+
     [[nodiscard]] bool validate_projection(const Type *base_type, luisa::span<Value *const> indices,
                                            const Type *result_type) noexcept {
         auto *type = base_type;
@@ -452,7 +484,7 @@ struct PointerUsageAnalysis::Impl {
         result.invalid |= !root_access.valid;
         result.conservative |= force_may || !root_access.valid || !root_access.precise;
         auto pointer_indices = flatten_indices(*path);
-        for (auto *target : tracked_pointers) {
+        for (auto *target : result_pointers) {
             auto *target_path = resolve_path(target);
             if (target_path == nullptr || !target_path->connected || target_path->pointers.empty() ||
                 target_path->pointers.front() != root) {
@@ -650,7 +682,7 @@ struct PointerUsageAnalysis::Impl {
 
     [[nodiscard]] PointerUsageMap make_state(bool kill_top = false) const noexcept {
         PointerUsageMap state;
-        for (auto *pointer : tracked_pointers) {
+        for (auto *pointer : result_pointers) {
             auto usage = luisa::make_unique<PointerUsage>(pointer->type());
             if (kill_top) { usage->kill.set(true); }
             state.emplace(pointer, std::move(usage));
@@ -660,7 +692,7 @@ struct PointerUsageAnalysis::Impl {
 
     [[nodiscard]] PointerUsageMap copy_state(const PointerUsageMap &source) const noexcept {
         PointerUsageMap copy;
-        for (auto *pointer : tracked_pointers) {
+        for (auto *pointer : result_pointers) {
             auto usage = luisa::make_unique<PointerUsage>(pointer->type());
             if (auto iter = source.find(pointer); iter != source.end()) { *usage = *iter->second; }
             copy.emplace(pointer, std::move(usage));
@@ -712,7 +744,7 @@ struct PointerUsageAnalysis::Impl {
                         new_in = copy_state(block_results.at(pred_iter->second.front()).out);
                         for (size_t i = 1u; i < pred_iter->second.size(); ++i) {
                             auto &pred_out = block_results.at(pred_iter->second[i]).out;
-                            for (auto *pointer : tracked_pointers) {
+                            for (auto *pointer : result_pointers) {
                                 new_in.at(pointer)->kill &= pred_out.at(pointer)->kill;
                                 new_in.at(pointer)->touch |= pred_out.at(pointer)->touch;
                             }
@@ -750,7 +782,7 @@ struct PointerUsageAnalysis::Impl {
                 if (auto succ_iter = successors.find(block); succ_iter != successors.end()) {
                     for (auto *successor : succ_iter->second) {
                         auto &successor_in = block_results.at(successor).in;
-                        for (auto *pointer : tracked_pointers) {
+                        for (auto *pointer : result_pointers) {
                             new_out.at(pointer)->live |= successor_in.at(pointer)->live;
                         }
                     }
@@ -765,7 +797,7 @@ struct PointerUsageAnalysis::Impl {
                 }
                 auto &result = block_results.at(block);
                 if (!same_live_state(result.in, new_in) || !same_live_state(result.out, new_out)) {
-                    for (auto *pointer : tracked_pointers) {
+                    for (auto *pointer : result_pointers) {
                         result.in.at(pointer)->live = new_in.at(pointer)->live;
                         result.out.at(pointer)->live = new_out.at(pointer)->live;
                     }
@@ -775,7 +807,10 @@ struct PointerUsageAnalysis::Impl {
         } while (changed);
     }
 
-    [[nodiscard]] PointerUsageAnalysisInfo run(FunctionDefinition *function) noexcept {
+    [[nodiscard]] PointerUsageAnalysisInfo run(
+        FunctionDefinition *function,
+        luisa::optional<luisa::span<Value *const>> requested =
+            luisa::nullopt) noexcept {
         clear();
         if (function != nullptr && function->body_block() == nullptr &&
             function->derived_function_tag() ==
@@ -792,6 +827,7 @@ struct PointerUsageAnalysis::Impl {
             return info;
         }
         collect_pointers();
+        select_result_pointers(requested);
         collect_events();
         initialize_results();
         run_forward();
@@ -815,6 +851,13 @@ PointerUsageAnalysisInfo PointerUsageAnalysis::analyze(FunctionDefinition *funct
     return _impl->run(function);
 }
 
+PointerUsageAnalysisInfo PointerUsageAnalysis::analyze(
+    FunctionDefinition *function,
+    luisa::span<Value *const> result_pointers) noexcept {
+    if (_impl == nullptr) { _impl = luisa::make_unique<Impl>(); }
+    return _impl->run(function, result_pointers);
+}
+
 FunctionDefinition *PointerUsageAnalysis::function() const noexcept {
     return _impl == nullptr || _impl->lifetime_token.expired() ? nullptr : _impl->def;
 }
@@ -825,6 +868,12 @@ bool PointerUsageAnalysis::is_current() const noexcept {
 
 const BasicBlockPointerUsage *PointerUsageAnalysis::block_usage(BasicBlock *block) const noexcept {
     if (_impl == nullptr || block == nullptr || !_impl->is_current()) { return nullptr; }
+    return current_block_usage(block);
+}
+
+const BasicBlockPointerUsage *PointerUsageAnalysis::current_block_usage(
+    BasicBlock *block) const noexcept {
+    if (_impl == nullptr || block == nullptr) { return nullptr; }
     auto iter = _impl->block_results.find(block);
     return iter == _impl->block_results.end() ? nullptr : &iter->second;
 }
@@ -858,6 +907,7 @@ PointerUsageAnalysisInfo pointer_usage_pass_run_on_module(Module *module, PassRe
             if (auto *def = function->definition()) {
                 auto function_info = pointer_usage_pass_run_on_function(def);
                 info.tracked_pointer_count += function_info.tracked_pointer_count;
+                info.materialized_pointer_count += function_info.materialized_pointer_count;
                 info.analyzed_block_count += function_info.analyzed_block_count;
                 info.conservative_access_count += function_info.conservative_access_count;
                 info.invalid_access_count += function_info.invalid_access_count;
@@ -867,6 +917,7 @@ PointerUsageAnalysisInfo pointer_usage_pass_run_on_module(Module *module, PassRe
     }
     if (report != nullptr) {
         report->set("tracked_pointer", info.tracked_pointer_count);
+        report->set("materialized_pointer", info.materialized_pointer_count);
         report->set("analyzed_block", info.analyzed_block_count);
         report->set("conservative_access", info.conservative_access_count);
         report->set("invalid_access", info.invalid_access_count);

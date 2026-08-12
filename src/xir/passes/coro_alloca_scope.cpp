@@ -320,29 +320,60 @@ private:
         // that return. Calls inside the callee remain conservative opaque
         // read/writes, so an unsupported or recursive dependency can only make
         // this summary less precise, never unsound.
-        PointerUsageAnalysis analysis;
-        auto info = analysis.analyze(definition);
+        luisa::vector<Value *> reference_arguments;
         for (auto *argument : definition->arguments()) {
             if (argument->is_reference()) {
                 _effects.try_emplace(argument, ReferenceArgumentEffect{});
+                reference_arguments.emplace_back(argument);
             }
         }
+        if (reference_arguments.empty()) { return; }
+
+        // Pointer usage is a product lattice over pointer views. Reference
+        // summaries query only formal-reference coordinates, so solving those
+        // coordinates is exactly equivalent to solving every local alloca/GEP
+        // view and projecting afterward. Pointer discovery and malformed-use
+        // validation remain whole-function and therefore fail closed.
+        PointerUsageAnalysis analysis;
+        auto info = analysis.analyze(
+            definition, luisa::span<Value *const>{reference_arguments});
         if (!info.succeeded()) { return; }
+        // The summary pass below is read-only. Validate the captured IR
+        // version once, then query the immutable block-result table directly;
+        // validating the whole instruction snapshot for every argument and
+        // return block would turn extraction into O(queries * instructions).
+        LUISA_ASSERT(analysis.is_current(),
+                     "Fresh pointer-usage analysis is unexpectedly stale.");
 
         for (auto *argument : definition->arguments()) {
             if (!argument->is_reference()) { continue; }
-            auto *entry = analysis.in_usage(
-                definition->body_block(), argument);
-            if (entry == nullptr) { continue; }
+            auto *entry_block = analysis.current_block_usage(
+                definition->body_block());
+            auto entry_iter = entry_block == nullptr ?
+                                  PointerUsageMap::const_iterator{} :
+                                  entry_block->in.find(argument);
+            if (entry_block == nullptr ||
+                entry_iter == entry_block->in.end()) {
+                continue;
+            }
+            auto *entry = entry_iter->second.get();
 
             auto has_normal_return = false;
             auto defines_at_every_return = true;
             for (auto *block : definition->basic_blocks()) {
-                auto *usage = analysis.out_usage(block, argument);
-                if (usage == nullptr || !block->is_terminated() ||
+                if (!block->is_terminated() ||
                     !block->terminator()->isa<ReturnInst>()) {
                     continue;
                 }
+                auto *block_usage = analysis.current_block_usage(block);
+                auto usage_iter = block_usage == nullptr ?
+                                      PointerUsageMap::const_iterator{} :
+                                      block_usage->out.find(argument);
+                if (block_usage == nullptr ||
+                    usage_iter == block_usage->out.end()) {
+                    continue;
+                }
+                auto *usage = usage_iter->second.get();
                 has_normal_return = true;
                 defines_at_every_return &= usage->kill.access().all();
             }
