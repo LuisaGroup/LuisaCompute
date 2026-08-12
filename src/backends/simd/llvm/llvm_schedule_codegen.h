@@ -101,24 +101,26 @@ struct alignas(16) SIMDHostBindlessArrayView {
 };
 
 // Acceleration-structure callbacks consume an in-place, component-major packet
-// with Embree's public RTCRay/RTCHit field order. Each field is one vector of
-// lane_count 32-bit words. The stable field indices below are shared by the
-// target-independent JIT and the runtime; the runtime statically proves them
-// against the configured Embree headers. W2 is still padded to Embree's W4
-// ABI, while W1 alone may use the scalar API. W4/W8/W16 pass this scratch
-// directly to Embree, which also writes the result fields in place.
+// with Embree's public RTCRay/RTCHit field order. Direct trace does not expose
+// Embree's application-defined ray ID, so the JIT stores Embree-compatible
+// -1/0 validity lanes in that packet field. The runtime derives valid from the
+// packet instead of round-tripping a packed mask. Each packet field is one
+// vector of lane_count 32-bit words. The stable field indices below are shared
+// by the target-independent JIT and the runtime; the runtime statically proves
+// them against the configured Embree headers. W2 is still padded to Embree's
+// W4 ABI, while W1 alone may use the scalar API. W4/W8/W16 pass the scratch and
+// its embedded valid array directly to Embree, which writes results in place.
 inline constexpr auto simd_host_accel_ray_tfar_field = 8u;
+inline constexpr auto simd_host_accel_ray_id_field = 10u;
 inline constexpr auto simd_host_accel_hit_u_field = 15u;
 inline constexpr auto simd_host_accel_hit_v_field = 16u;
 inline constexpr auto simd_host_accel_hit_prim_field = 17u;
 inline constexpr auto simd_host_accel_hit_geom_field = 18u;
 inline constexpr auto simd_host_accel_hit_inst_field = 19u;
 using SIMDHostAccelTraceClosest = void(
-    void *accel, uint32_t lane_count, uint64_t active_mask_bits,
-    void *ray_hit_packet);
+    void *accel, uint32_t lane_count, void *ray_hit_packet);
 using SIMDHostAccelTraceAny = void(
-    void *accel, uint32_t lane_count, uint64_t active_mask_bits,
-    void *ray_packet);
+    void *accel, uint32_t lane_count, void *ray_packet);
 
 enum class SIMDHostRayQueryCandidateKind : uint32_t {
     none = 0u,

@@ -1615,27 +1615,32 @@ tests merged from `next`, and the lazy-dispatch scalar snapshot regression.
 
 The first Phase-4 vertical slice supports static triangle meshes, top-level
 instances, affine transforms, visibility masks, closest-hit, and occlusion.
-The JIT builds one component-major in-place ray/hit packet plus a packed cohort
-mask. W1 alone calls `rtcIntersect1`/`rtcOccluded1`; W2 pads into W4; W4, W8,
-and W16 pass the JIT scratch directly to the matching Embree packet entry
-exactly once. Embree writes `tfar` and hit fields into the same scratch, so the
-native widths have no runtime-side ray construction or hit copy. Uniform trace
-results narrow the callback mask to the first active lane. The path-tracing
-kernel's `reorder_shader_execution` remains an optional hint and is discarded
-because the explicit scheduler already forms cohorts; varying `all`/`any`
-reduce logical vector components without collapsing physical SIMD lanes.
+The JIT builds one component-major in-place ray/hit packet. Direct trace does
+not expose Embree's application-defined ray ID, so that field carries the
+sign-extended `-1/0` cohort-valid vector. W1 alone calls
+`rtcIntersect1`/`rtcOccluded1`; W2 pads into W4; W4, W8, and W16 pass the JIT
+scratch and its embedded valid field directly to the matching Embree packet
+entry exactly once. Embree writes `tfar` and hit fields into the same scratch,
+so the native widths have no runtime-side ray construction, packed-mask
+expansion, or hit copy. Uniform trace results narrow validity to the first
+active lane. The path-tracing kernel's `reorder_shader_execution` remains an
+optional hint and is discarded because the explicit scheduler already forms
+cohorts; varying `all`/`any` reduce logical vector components without
+collapsing physical SIMD lanes.
 
 Inactive ray and visibility operands are selected to benign values in LLVM
 before the callback, and all public hit fields are initialized. Compile-time
 layout checks bind the shared field indices to the configured Embree header's
 public `sizeof`, `alignof`, and `offsetof` values. W2 retains a guarded copy
 because its two-lane scratch is smaller than the padded W4 object. Object
-inspection shows
-one callsite for each of `rtcIntersect1/4/8/16` and
+inspection shows one callsite for each of `rtcIntersect1/4/8/16` and
 `rtcOccluded1/4/8/16`; there is no per-lane scalar traversal loop at W2 or
-wider. Embree scenes share one backend-owned `RTCDevice`; when Embree uses
-oneTBB, module teardown attaches to and finalizes the scheduler before the
-dynamically loaded backend releases its final dependency.
+wider. The embedded-valid convention is direct-trace-only: ray-query packets
+retain lane IDs in `ray.id` because their candidate filters use those IDs to
+recover persistent lane state. Embree scenes share one backend-owned
+`RTCDevice`; when Embree uses oneTBB, module teardown attaches to and finalizes
+the scheduler before the dynamically loaded backend releases its final
+dependency.
 
 A real Cornell-box path tracer was measured at 1024x1024 and 16 spp. Every
 cell below is a median of nine forward/reverse interleaved processes while

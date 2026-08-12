@@ -127,9 +127,10 @@ copied instance/primitive/u/v/t back. The JIT now constructs Embree's public
 component order directly and the W1/W4/W8/W16 runtime passes that aligned
 scratch in place; W2 alone performs its required pad-to-W4 conversion.
 Compile-time layout assertions fail the build if the configured Embree headers
-do not match. A permanent sparse-tail callback probe checks inputs and returned
-closest/any fields at W1/W2/W4/W8/W16, while the runtime accel and curve gates
-exercise real Embree.
+do not match. A permanent callback probe checks sparse tails at
+W1/W2/W4/W8/W16 and a non-contiguous W8 `0x55` cohort, including inputs,
+inactive sanitization, and returned closest/any fields. The runtime accel and
+curve gates exercise real Embree.
 
 Isolated old/new backend modules ran ordinary path tracing at 128 spp and one
 spp per dispatch, with alternating order and no removed sample. Output files
@@ -151,6 +152,18 @@ because it now owns the complete public hit packet, but its final assembly
 still contains vector arithmetic and no scalar math symbol; runtime object
 disassembly shows direct native-width Embree calls without the old packet
 initialization/copy path.
+
+The follow-up callback ABI removes its final packed-mask round trip. Luisa
+direct trace has no application-visible Embree ray ID, so LLVM sign-extends the
+cohort mask into the packet's `ray.id` field and the runtime passes that field
+as Embree's `valid` array. Ray queries keep their existing physical lane IDs.
+Across five 256-spp `perf stat` pairs, retired instructions changed by stable
+candidate/baseline ratios of 0.9907 at W8 and 0.9875 at W16; branches changed
+by 0.9903 and 0.9928. The W8 main-kernel stack remains 9,728 bytes with 1,050
+stack references, and the final callback object bodies shrink by 51% for
+any-hit and 32% for closest-hit. Host load rose above 25 and corrupted several
+wall-clock samples, so no additional throughput uplift is claimed and the
+conservative fallback-relative row above is unchanged.
 
 A final eight-process rotating sweep at 128 spp, again forcing one spp per
 dispatch for every backend, measured medians of 73.286/62.123/44.564/53.265/

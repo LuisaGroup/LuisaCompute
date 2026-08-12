@@ -43,6 +43,7 @@ inline constexpr auto embree_ray_packet_field_count = 12u;
 
 static_assert(
     simd_host_accel_ray_tfar_field == 8u &&
+    simd_host_accel_ray_id_field == 10u &&
     simd_host_accel_hit_u_field ==
         embree_ray_packet_field_count + 3u &&
     simd_host_accel_hit_v_field ==
@@ -891,12 +892,6 @@ void ScheduleEmitter::_accel_motion_write(
             ray_components[7u], zero_float,
             "accel.safe.ray.tfar"));
     store_packet_field(9u, visibility);
-    std::vector<::llvm::Constant *> lane_ids;
-    lane_ids.reserve(_width);
-    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-        lane_ids.emplace_back(_builder.getInt32(lane));
-    }
-    store_packet_field(10u, ::llvm::ConstantVector::get(lane_ids));
     store_packet_field(11u, zero_i32);
     if (closest) {
         for (auto field = embree_ray_packet_field_count;
@@ -921,19 +916,31 @@ void ScheduleEmitter::_accel_motion_write(
             _builder.CreateOrReduce(_active_mask), missing_callback),
         closest ? "accel.trace.closest.callback.null" :
                   "accel.trace.any.callback.null");
-    auto *active_mask_bits = _bindless_callback_mask(
-        result->value_class == schedule::ValueClass::varying);
+    auto *callback_mask = static_cast<::llvm::Value *>(_active_mask);
+    if (result->value_class != schedule::ValueClass::varying) {
+        std::vector<::llvm::Constant *> lane_ids;
+        lane_ids.reserve(_width);
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            lane_ids.emplace_back(_builder.getInt32(lane));
+        }
+        callback_mask = _builder.CreateICmpEQ(
+            ::llvm::ConstantVector::get(lane_ids),
+            _builder.CreateVectorSplat(
+                _width, _safe_first_lane(_active_mask)),
+            "accel.uniform.callback.mask");
+    }
+    store_packet_field(
+        simd_host_accel_ray_id_field,
+        _builder.CreateSExt(callback_mask, i32_lanes));
 
     if (closest) {
         auto *callback_type = ::llvm::FunctionType::get(
             _builder.getVoidTy(),
-            {pointer_type, _builder.getInt32Ty(),
-             _builder.getInt64Ty(), pointer_type},
+            {pointer_type, _builder.getInt32Ty(), pointer_type},
             false);
         _builder.CreateCall(
             callback_type, callback,
-            {object, _builder.getInt32(_width), active_mask_bits,
-             packet});
+            {object, _builder.getInt32(_width), packet});
 
         auto load_field = [&](uint32_t field) {
             auto *pointer = _builder.CreateGEP(
@@ -974,13 +981,11 @@ void ScheduleEmitter::_accel_motion_write(
 
     auto *callback_type = ::llvm::FunctionType::get(
         _builder.getVoidTy(),
-        {pointer_type, _builder.getInt32Ty(),
-         _builder.getInt64Ty(), pointer_type},
+        {pointer_type, _builder.getInt32Ty(), pointer_type},
         false);
     _builder.CreateCall(
         callback_type, callback,
-        {object, _builder.getInt32(_width), active_mask_bits,
-         packet});
+        {object, _builder.getInt32(_width), packet});
     auto *tfar_pointer = _builder.CreateGEP(
         packet_type, packet,
         {_builder.getInt32(0u),

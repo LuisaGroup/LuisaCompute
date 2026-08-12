@@ -35,11 +35,15 @@ inline constexpr auto embree_hit_packet_field_count =
 #endif
 inline constexpr auto embree_ray_packet_field_count = 12u;
 
+static_assert(sizeof(int) == sizeof(uint32_t));
+static_assert(std::bit_cast<uint32_t>(-1) == ~uint32_t{0u});
 static_assert(sizeof(RTCRay) ==
               embree_ray_packet_field_count * sizeof(uint32_t));
 static_assert(alignof(RTCRay) == 16u);
 static_assert(offsetof(RTCRay, tfar) ==
               simd_host_accel_ray_tfar_field * sizeof(uint32_t));
+static_assert(offsetof(RTCRay, id) ==
+              simd_host_accel_ray_id_field * sizeof(uint32_t));
 static_assert(offsetof(RTCHit, u) == 3u * sizeof(uint32_t));
 static_assert(offsetof(RTCHit, v) == 4u * sizeof(uint32_t));
 static_assert(offsetof(RTCHit, primID) == 5u * sizeof(uint32_t));
@@ -59,6 +63,9 @@ static_assert(sizeof(RTCRayHit) >=
     static_assert(alignof(RTCRay##width) == width * sizeof(uint32_t)); \
     static_assert(offsetof(RTCRay##width, tfar) ==                     \
                   simd_host_accel_ray_tfar_field * width *             \
+                      sizeof(uint32_t));                               \
+    static_assert(offsetof(RTCRay##width, id) ==                       \
+                  simd_host_accel_ray_id_field * width *               \
                       sizeof(uint32_t));                               \
     static_assert(offsetof(RTCHit##width, u) ==                        \
                   3u * width * sizeof(uint32_t));                      \
@@ -348,37 +355,18 @@ void occlude_scalar(RTCScene scene, RTCRay &ray) noexcept {
 #endif
 }
 
-template<size_t packet_width>
-void initialize_valid_packet(
-    std::array<int, packet_width> &valid,
-    uint64_t active_mask_bits) noexcept {
-    constexpr auto packet_mask =
-        (uint64_t{1u} << packet_width) - 1u;
-    active_mask_bits &= packet_mask;
-    if (active_mask_bits == packet_mask) {
-        valid.fill(-1);
-        return;
-    }
-    for (auto lane = uint32_t{0u}; lane < packet_width; lane++) {
-        valid[lane] =
-            ((active_mask_bits >> lane) & 1u) != 0u ? -1 : 0;
-    }
-}
-
-template<size_t packet_width, typename Packet, typename Invoke>
+template<typename Packet, typename Invoke>
 void trace_packet_in_place(
-    RTCScene scene, uint64_t active_mask_bits,
+    RTCScene scene, const int *valid,
     void *packet_storage, Invoke &&invoke) noexcept {
-    alignas(64) std::array<int, packet_width> valid{};
-    initialize_valid_packet(valid, active_mask_bits);
     invoke(
-        valid.data(), scene,
+        valid, scene,
         static_cast<Packet *>(packet_storage));
 }
 
 template<typename Packet, typename Invoke>
 void trace_w2_padded(
-    RTCScene scene, uint64_t active_mask_bits,
+    RTCScene scene, const int *source_valid,
     void *packet_storage,
     Invoke &&invoke) noexcept {
     static_assert(
@@ -406,8 +394,8 @@ void trace_w2_padded(
             source_width * sizeof(uint32_t));
     }
     std::array<int, packet_width> valid{};
-    valid[0u] = (active_mask_bits & 1u) != 0u ? -1 : 0;
-    valid[1u] = (active_mask_bits & 2u) != 0u ? -1 : 0;
+    valid[0u] = source_valid[0u];
+    valid[1u] = source_valid[1u];
     invoke(valid.data(), scene, &padded);
     // Copy the complete public packet ABI back. Inactive fields were already
     // sanitized by the JIT, while the two padded lanes remain unreachable.
@@ -422,10 +410,10 @@ void trace_w2_padded(
 
 void mark_curve_surface_hits(
     const SIMDHostAccelInstanceTable &instances,
-    uint32_t lane_count, uint64_t active_mask_bits,
+    uint32_t lane_count, const int *valid,
     const uint32_t *hit_instances, float *hit_v) noexcept {
     for (auto lane = 0u; lane < lane_count; lane++) {
-        if (!lane_active(active_mask_bits, lane, lane_count)) { continue; }
+        if (valid[lane] == 0) { continue; }
         auto inst = hit_instances[lane];
         if (inst == RTC_INVALID_GEOMETRY_ID) { continue; }
         LUISA_ASSERT(
@@ -1513,23 +1501,29 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
 
 void SIMDAccel::_trace_closest(
     void *accel, uint32_t lane_count,
-    uint64_t active_mask_bits,
     void *ray_hit_packet) noexcept {
     auto *self = static_cast<SIMDAccel *>(accel);
     LUISA_ASSERT(
-        self != nullptr && ray_hit_packet != nullptr,
+        self != nullptr && ray_hit_packet != nullptr &&
+            (lane_count == 1u || lane_count == 2u ||
+             lane_count == 4u || lane_count == 8u ||
+             lane_count == 16u),
         "Invalid SIMD closest-hit packet arguments.");
-    if (active_mask_bits == 0u) { return; }
+    auto *valid = reinterpret_cast<const int *>(
+        static_cast<uint32_t *>(ray_hit_packet) +
+        simd_host_accel_ray_id_field * lane_count);
     switch (lane_count) {
         case 1u: {
-            intersect_scalar(
-                self->_scene,
-                *static_cast<RTCRayHit *>(ray_hit_packet));
+            if (valid[0u] != 0) {
+                intersect_scalar(
+                    self->_scene,
+                    *static_cast<RTCRayHit *>(ray_hit_packet));
+            }
             break;
         }
         case 2u:
             trace_w2_padded<RTCRayHit4>(
-                self->_scene, active_mask_bits, ray_hit_packet,
+                self->_scene, valid, ray_hit_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRayHit4 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -1544,8 +1538,8 @@ void SIMDAccel::_trace_closest(
                 });
             break;
         case 4u:
-            trace_packet_in_place<4u, RTCRayHit4>(
-                self->_scene, active_mask_bits, ray_hit_packet,
+            trace_packet_in_place<RTCRayHit4>(
+                self->_scene, valid, ray_hit_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRayHit4 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -1560,8 +1554,8 @@ void SIMDAccel::_trace_closest(
                 });
             break;
         case 8u:
-            trace_packet_in_place<8u, RTCRayHit8>(
-                self->_scene, active_mask_bits, ray_hit_packet,
+            trace_packet_in_place<RTCRayHit8>(
+                self->_scene, valid, ray_hit_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRayHit8 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -1576,8 +1570,8 @@ void SIMDAccel::_trace_closest(
                 });
             break;
         case 16u:
-            trace_packet_in_place<16u, RTCRayHit16>(
-                self->_scene, active_mask_bits, ray_hit_packet,
+            trace_packet_in_place<RTCRayHit16>(
+                self->_scene, valid, ray_hit_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRayHit16 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -1599,7 +1593,7 @@ void SIMDAccel::_trace_closest(
         auto *packet_words =
             static_cast<uint32_t *>(ray_hit_packet);
         mark_curve_surface_hits(
-            self->_instance_table, lane_count, active_mask_bits,
+            self->_instance_table, lane_count, valid,
             packet_words +
                 simd_host_accel_hit_inst_field * lane_count,
             reinterpret_cast<float *>(
@@ -1610,23 +1604,29 @@ void SIMDAccel::_trace_closest(
 
 void SIMDAccel::_trace_any(
     void *accel, uint32_t lane_count,
-    uint64_t active_mask_bits,
     void *ray_packet) noexcept {
     auto *self = static_cast<SIMDAccel *>(accel);
     LUISA_ASSERT(
-        self != nullptr && ray_packet != nullptr,
+        self != nullptr && ray_packet != nullptr &&
+            (lane_count == 1u || lane_count == 2u ||
+             lane_count == 4u || lane_count == 8u ||
+             lane_count == 16u),
         "Invalid SIMD any-hit packet arguments.");
-    if (active_mask_bits == 0u) { return; }
+    auto *valid = reinterpret_cast<const int *>(
+        static_cast<uint32_t *>(ray_packet) +
+        simd_host_accel_ray_id_field * lane_count);
     switch (lane_count) {
         case 1u: {
-            occlude_scalar(
-                self->_scene,
-                *static_cast<RTCRay *>(ray_packet));
+            if (valid[0u] != 0) {
+                occlude_scalar(
+                    self->_scene,
+                    *static_cast<RTCRay *>(ray_packet));
+            }
             break;
         }
         case 2u:
             trace_w2_padded<RTCRay4>(
-                self->_scene, active_mask_bits, ray_packet,
+                self->_scene, valid, ray_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRay4 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -1641,8 +1641,8 @@ void SIMDAccel::_trace_any(
                 });
             break;
         case 4u:
-            trace_packet_in_place<4u, RTCRay4>(
-                self->_scene, active_mask_bits, ray_packet,
+            trace_packet_in_place<RTCRay4>(
+                self->_scene, valid, ray_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRay4 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -1657,8 +1657,8 @@ void SIMDAccel::_trace_any(
                 });
             break;
         case 8u:
-            trace_packet_in_place<8u, RTCRay8>(
-                self->_scene, active_mask_bits, ray_packet,
+            trace_packet_in_place<RTCRay8>(
+                self->_scene, valid, ray_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRay8 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -1673,8 +1673,8 @@ void SIMDAccel::_trace_any(
                 });
             break;
         case 16u:
-            trace_packet_in_place<16u, RTCRay16>(
-                self->_scene, active_mask_bits, ray_packet,
+            trace_packet_in_place<RTCRay16>(
+                self->_scene, valid, ray_packet,
                 [](const int *valid, RTCScene scene,
                    RTCRay16 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3

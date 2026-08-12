@@ -720,11 +720,21 @@ excludes them. LLVM performs that sanitization before the callback and
 initializes every public result field. The scratch uses Embree's public
 `RTCRayN`/`RTCHitN` component order; compile-time `sizeof`, `alignof`, and
 `offsetof` checks prove the configured Embree headers match the shared field
-indices. For native W4/W8/W16, the runtime passes this scratch directly to
-Embree and Embree writes the result in place. No intermediate ray packet or
-hit copy is permitted. W1 uses the same in-place layout with the scalar API.
-W2 alone copies its two-lane fields into a zero-padded W4 packet and copies
-the public fields back, and may not read beyond the two-lane source scratch.
+indices. Direct trace does not expose Embree's application-defined `ray.id`,
+so LLVM sign-extends the callback-valid mask into that packet field. For native
+W4/W8/W16, the runtime aliases the field as Embree's `const int *valid`, passes
+the same scratch directly to Embree, and receives results in place. No packed
+mask expansion, intermediate ray packet, or hit copy is permitted. W1 checks
+the embedded scalar validity before using the same in-place layout with the
+scalar API. W2 alone copies its two-lane fields into a zero-padded W4 packet,
+copies validity into the padded Embree mask, and copies the public fields back;
+it may not read beyond the two-lane source scratch.
+
+This reuse is restricted to direct trace/occlusion. Ray queries retain physical
+lane IDs in `ray.id`: candidate filters use them to recover lane-private query
+state. A permanent callback probe covers sparse tails at W1/W2/W4/W8/W16 and a
+non-contiguous W8 `0x55` cohort, including inactive operand sanitization and
+returned closest/any fields.
 
 Direct closest-hit traversal sets `bary.y = -1` for round curves after Embree
 returns. Each normal accel build recomputes whether its current instance table
