@@ -10,6 +10,7 @@ set(LUISA_COMPUTE_AST_SOURCES
         function_duplicator.cpp
         op.cpp
         statement.cpp
+        tensor.cpp
         type.cpp
         variable.cpp)
 

@@ -156,24 +156,6 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/runtime/volume.h>
 
-#ifdef LUISA_ENABLE_TENSOR
-#include <luisa/tensor/expression.h>
-#include <luisa/tensor/ext.h>
-#include <luisa/tensor/fallback/i_tensor_expr_executor.h>
-#include <luisa/tensor/fallback/interface.h>
-#include <luisa/tensor/fallback/matmul_impl.h>
-#include <luisa/tensor/fallback/set_value_impl.h>
-#include <luisa/tensor/fallback/softmax_impl.h>
-#include <luisa/tensor/fused_activation.h>
-#include <luisa/tensor/graph.h>
-#include <luisa/tensor/kernel.h>
-#include <luisa/tensor/pass/expr_topo.h>
-#include <luisa/tensor/pass/shader_manager.h>
-#include <luisa/tensor/tensor.h>
-#include <luisa/tensor/tensor_builder.h>
-#include <luisa/tensor/tensor_interface.h>
-#endif
-
 #include <luisa/vstl/allocate_type.h>
 #include <luisa/vstl/arena_hash_map.h>
 #include <luisa/vstl/common.h>

@@ -1,6 +1,6 @@
 ---
 name: lc_optimize
-description: Optimize LuisaCompute DSL kernels using warp/wave primitives, shared-memory aggregation, and block-level collectives. Use when kernels bottleneck on atomics, reductions, or inter-thread communication.
+description: Optimize LuisaCompute DSL kernels using warp/wave primitives, shared-memory aggregation, block-level collectives, and C++ branch-prediction hints (`[[likely]]`/`[[unlikely]]`). Use when kernels bottleneck on atomics, reductions, or inter-thread communication.
 ---
 
 # LuisaCompute DSL Kernel Optimization Guide
@@ -707,3 +707,46 @@ cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
 3. **Always capture by value** (shared_ptr, unique_ptr, or copy). Raw pointers and references to stack variables are dangling by the time the callback runs.
 4. **One final `synchronize()` is still needed** at the end of a pipeline to ensure the last iteration's callbacks have fired before the program exits.
 5. **Callbacks execute on an internal worker thread** — they should not throw, block on the GPU, or perform GPU API calls on the same stream.
+
+---
+
+## 8. C++ Branch-Prediction Hints: `[[likely]]` / `[[unlikely]]`
+
+The engine compiles with C++20 (`lc_cxx_standard`, default `cxx20`), so the `[[likely]]` / `[[unlikely]]` attributes are available in every translation unit. They are **hints, never semantic changes**: they bias branch layout, inlining, and code generation toward the annotated direction. Apply them to native C++ `if`/`else` branches whose runtime direction is strongly skewed — hot serialization/deserialization, validation, decode, and dispatch paths. This is a generic rule applied per branch; do not copy annotations from one file to another without re-checking that branch's own frequency.
+
+### 8.1 Syntax (codebase convention)
+
+Place the attribute **after the condition (or the `else` keyword), before the branch body**:
+
+```cpp
+if (cond) [[unlikely]] { return false; }        // exceptional / error path
+if (ptr != nullptr) [[likely]] { use(ptr); }    // common fast path
+if (a) { ... } else [[likely]] { ... }          // also valid on the else side
+```
+
+### 8.2 Generic decision rule
+
+Classify each branch by *how often it runs at runtime*, then hint accordingly:
+
+- `[[unlikely]]` — the branch that almost never runs:
+  - error / validation failures (malformed input, out-of-range enum or index, size mismatch, not-found);
+  - early-return guards (`return false` / `return nullptr` / `return error`);
+  - boundary / sentinel cases that only trigger at the edge of a loop or data range.
+- `[[likely]]` — the branch that almost always runs:
+  - the common path of a hot `if`/`else` (e.g. data is present: `ptr != nullptr`, presence flags set);
+  - default setup that usually applies (e.g. filling in default views/offsets);
+  - the non-empty case in guarded bulk operations (e.g. `if (n != 0u)` around `memcpy`).
+
+### 8.3 When NOT to hint
+
+1. **Ambiguous frequency** — both sides run often (general lookups, formatting separators, balanced `if`/`else`). A wrong hint misleads the optimizer; leave the branch unannotated.
+2. **Cold code** — debug/describe/formatting helpers where the hint cannot affect a measurable hot path.
+3. **DSL branches** — `$if` / `$else` inside kernels are LuisaCompute expression-building macros (see `include/luisa/dsl/sugar.h`), not native C++ statements; these attributes do not apply to them. Optimize kernel control flow with the warp/shared-memory techniques in sections 1–4 instead.
+4. **Balanced branches** — never annotate when the split is close to 50/50; the hint is a promise about frequency, not a preference.
+
+### 8.4 Workflow
+
+1. Identify frequently-executed functions (serialize/deserialize, validators, decode, hot dispatch loops).
+2. For each `if`/`else`, ask: *“which side runs almost always / almost never?”*
+3. Annotate only branches with a clear answer; leave the rest untouched.
+4. Verify syntax with the project checker: `python scripts/check_cpp_syntax.py <file>` (C++20 is the default; these attributes compile on all supported toolchains).
