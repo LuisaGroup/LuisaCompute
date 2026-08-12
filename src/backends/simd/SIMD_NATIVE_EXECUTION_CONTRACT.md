@@ -670,7 +670,7 @@ mask is sparse: inactive values are already benign and remain excluded from
 traversal. W2 may not read beyond its two-lane source scratch while constructing
 the padded W4 packet.
 
-Triangle ray queries use the same width mapping, but retain state across
+Surface ray queries use the same width mapping, but retain state across
 candidate handlers. The AST `RayQueryLoop` is first lowered to ordinary XIR
 loop/if control containing `PROCEED`, candidate-kind reads, and object writes;
 the existing cohort scheduler therefore executes divergent handlers without a
@@ -686,15 +686,16 @@ selects null for inactive lanes, and issues exactly one indirect host callback
 for the current cohort. The callback groups states by accel and query-all/
 query-any mode, then uses W1 scalar traversal, W2 padded W4 traversal, or the
 matching W4/W8/W16 packet entry. No active-lane extract/call/insert traversal
-loop is permitted. Query-all and query-any support triangle surface candidate
-reads, reject-by-return, triangle commit, explicit terminate, world-ray reads,
-committed-hit reads, static time zero, and motion time. Committing immediately
-updates the public world-ray `t_max`; query-any terminates after the first
-commit. An opaque instance auto-commits without entering the surface handler.
-Miss state begins with invalid instance/primitive IDs, `HitType::Miss`, zero
-barycentrics, and zero committed distance.
+loop is permitted. Query-all and query-any support triangle and round-curve
+surface candidate reads, reject-by-return, surface commit, explicit terminate,
+world-ray reads, committed-hit reads, static time zero, and motion time.
+Committing immediately updates the public world-ray `t_max`; query-any
+terminates after the first commit. An opaque instance auto-commits without
+entering the surface handler. Miss state begins with invalid
+instance/primitive IDs, `HitType::Miss`, zero barycentrics, and zero committed
+distance.
 
-Triangle candidate enumeration uses a bounded speculative batch. During one
+Surface candidate enumeration uses a bounded speculative batch. During one
 Embree traversal, the argument filter rejects physical candidates while
 retaining the nearest 32 `(t, instance, primitive)` keys after each lane's
 cursor directly in that lane's persistent query state. Arrival order is not
@@ -704,6 +705,14 @@ still crosses the normal packet callback boundary, but consumes the next cached
 candidate without traversing Embree. Commit updates `t_max` immediately and
 invalidates cached candidates beyond it; terminate and opaque auto-commit stop
 the lane without consuming the rest of the batch.
+
+For a round curve, Embree may report both front and back surfaces after a filter
+rejects the first hit. The batch keeps only the nearest candidate for each
+curve `(instance, primitive)` pair, and a continuation scan suppresses that
+pair after it has been published once. This realizes Luisa's one-candidate-per-
+curve-primitive contract without adding the O(N) duplicate check to triangle
+insertion. Direct and query hits preserve Embree `u` as the curve parameter and
+set `bary.y = -1` as the public curve discriminator.
 
 The fixed state ABI is 928 bytes per lane, including the 32 surface hits and
 four explicit batch metadata fields. If more than 32 candidates survive the
@@ -715,20 +724,20 @@ last candidate commits. This removes repeated traversal for the common bounded
 case without moving handler execution or its control flow into the runtime.
 
 The currently accepted acceleration surface is static and vertex-motion
-triangle-mesh build, top-level static and motion-instance build, affine
-transform, visibility mask, `RAY_TRACING_TRACE_CLOSEST`,
-`RAY_TRACING_TRACE_ANY`, triangle `RAY_TRACING_QUERY_ALL`/
-`RAY_TRACING_QUERY_ANY`, and their motion-blur variants. Instance transform,
-user-id, visibility-mask, MATRIX-motion, and SRT-motion queries are also
-accepted. A static trace/query uses time zero. A motion operation passes one
-f32 time vector sanitized under the cohort mask before the callback. A normal
-closest/any result classified warp- or cohort-uniform invokes only the first
-active lane and stays scalar; mutable ray-query state is the explicit varying
-exception described above. Closest-hit scratch starts with invalid
-instance/primitive IDs and zero
-barycentrics/distance; occlusion scratch starts false. Therefore an inactive
-lane cannot observe poison or mutate query state even if complete initialized
-vectors cross the callback boundary.
+triangle-mesh build; static and control-point-motion round-curve build for
+piecewise-linear, cubic B-spline, Catmull--Rom, and Bezier bases; top-level
+static and mesh/curve motion-instance build; affine transform; visibility mask;
+`RAY_TRACING_TRACE_CLOSEST`; `RAY_TRACING_TRACE_ANY`; surface
+`RAY_TRACING_QUERY_ALL`/`RAY_TRACING_QUERY_ANY`; and their motion-blur variants.
+Instance transform, user-id, visibility-mask, MATRIX-motion, and SRT-motion
+queries are also accepted. A static trace/query uses time zero. A motion
+operation passes one f32 time vector sanitized under the cohort mask before the
+callback. A normal closest/any result classified warp- or cohort-uniform invokes
+only the first active lane and stays scalar; mutable ray-query state is the
+explicit varying exception described above. Closest-hit scratch starts with
+invalid instance/primitive IDs and zero barycentrics/distance; occlusion scratch
+starts false. Therefore an inactive lane cannot observe poison or mutate query
+state even if complete initialized vectors cross the callback boundary.
 
 Instance metadata uses a stable runtime-owned table descriptor whose data
 pointer and count are republished after any build that can reallocate storage.
@@ -778,8 +787,8 @@ attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Curve and procedural ray-query candidates, cutout filtering, device-side
-opacity mutation, nonidentity outer affine composition for SRT motion,
+Procedural ray-query candidates, cutout filtering, device-side opacity mutation,
+nonidentity outer affine composition for SRT motion,
 `update_instance_buffer_only`, and deeper instance-stack behavior are not part
 of this slice. They must fail at a specific capability boundary until their
 independent semantic, IR-shape, and machine-boundary gates exist; triangle

@@ -161,7 +161,7 @@ struct alignas(16) SIMDHostAccelInstance {
     uint8_t mask{0xffu};
     uint8_t opaque{1u};
     uint8_t dirty{0u};
-    uint8_t reserved{0u};
+    uint8_t curve{0u};
     uint64_t reserved_motion_alignment{0u};
     // Null for a static instance. Motion frames retain the public
     // MotionInstanceTransform 64-byte layout; motion_mode uses
@@ -199,6 +199,7 @@ static_assert(sizeof(SIMDHostAccelInstance) == 80u);
 static_assert(offsetof(SIMDHostAccelInstance, affine) == 0u);
 static_assert(offsetof(SIMDHostAccelInstance, user_id) == 48u);
 static_assert(offsetof(SIMDHostAccelInstance, mask) == 52u);
+static_assert(offsetof(SIMDHostAccelInstance, curve) == 55u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_frames) == 64u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_keyframe_count) == 72u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_mode) == 76u);

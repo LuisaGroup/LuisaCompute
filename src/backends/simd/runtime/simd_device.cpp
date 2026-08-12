@@ -20,6 +20,7 @@
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
+#include "simd_curve.h"
 #include "simd_event.h"
 #include "simd_mesh.h"
 #include "simd_motion_instance.h"
@@ -322,6 +323,26 @@ void SIMDDevice::destroy_mesh(uint64_t handle) noexcept {
         primitive != nullptr && primitive->kind() == SIMDPrimitive::Kind::mesh,
         "Invalid SIMD mesh handle.");
     luisa::delete_with_allocator(static_cast<SIMDMesh *>(primitive));
+}
+
+ResourceCreationInfo SIMDDevice::create_curve(
+    const AccelOption &option) noexcept {
+    auto *curve = luisa::new_with_allocator<SIMDCurve>(
+        _rtc_device, option);
+    auto *primitive = static_cast<SIMDPrimitive *>(curve);
+    return {
+        .handle = reinterpret_cast<uint64_t>(primitive),
+        .native_handle = curve->handle(),
+    };
+}
+
+void SIMDDevice::destroy_curve(uint64_t handle) noexcept {
+    auto *primitive = reinterpret_cast<SIMDPrimitive *>(handle);
+    LUISA_ASSERT(
+        primitive != nullptr &&
+            primitive->kind() == SIMDPrimitive::Kind::curve,
+        "Invalid SIMD curve handle.");
+    luisa::delete_with_allocator(static_cast<SIMDCurve *>(primitive));
 }
 
 ResourceCreationInfo SIMDDevice::create_procedural_primitive(

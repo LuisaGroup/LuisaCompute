@@ -10,6 +10,7 @@
 
 #include <luisa/ast/function.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/destructure_cfg.h>
@@ -28,6 +29,42 @@
 #include "schedule/xir_to_schedule.h"
 
 namespace luisa::compute::simd {
+
+namespace {
+
+void strip_debug_call_metadata_for_legalization(
+    xir::Module *module) noexcept {
+    // The generic XIR inliner conservatively retains a call when metadata has
+    // no unique replacement owner. DSL $outline sites carry source comments,
+    // but the SIMD backend requires every ordinary callable to be legalized
+    // away before scheduling. Name/location/comment metadata is diagnostic
+    // only, so discard it at this backend boundary while preserving semantic
+    // metadata (which continues to produce a precise unsupported-call error).
+    for (auto *function : module->function_list()) {
+        auto *definition = function->definition();
+        if (definition == nullptr) { continue; }
+        for (auto *block : definition->basic_blocks()) {
+            for (auto *instruction : block->instructions()) {
+                if (!instruction->isa<xir::CallInst>()) { continue; }
+                auto *metadata = instruction->metadata_list().head();
+                while (metadata != nullptr) {
+                    auto *next = metadata->next();
+                    switch (metadata->derived_metadata_tag()) {
+                        case xir::DerivedMetadataTag::NAME:
+                        case xir::DerivedMetadataTag::LOCATION:
+                        case xir::DerivedMetadataTag::COMMENT:
+                            static_cast<void>(metadata->remove_self());
+                            break;
+                        default: break;
+                    }
+                    metadata = next;
+                }
+            }
+        }
+    }
+}
+
+}// namespace
 
 SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
@@ -139,6 +176,7 @@ SIMDCompiledKernel compile_simd_kernel(
             std::to_string(destructure.leaked_block_count) + ")");
         return result;
     }
+    strip_debug_call_metadata_for_legalization(module.get());
     static_cast<void>(xir::inline_all_pass_run_on_module(module.get()));
     static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));

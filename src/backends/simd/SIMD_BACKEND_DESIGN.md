@@ -124,6 +124,15 @@ The intended initial XIR pipeline is:
    analyses;
 7. build and verify Schedule IR.
 
+Callable inlining is a legalization requirement for this backend, not its
+generic cost heuristic. Immediately before the final inline-all pass, the
+SIMD front door removes only diagnostic name/location/comment metadata from
+ordinary call instructions so a DSL `$outline` source annotation cannot keep
+an otherwise legal callable alive. Semantic call/callee metadata is retained
+and continues to block inlining with an explicit unsupported-call diagnostic.
+The runtime-width regression exercises this boundary at W1/W2/W4/W8/W16, and
+the curve graphics gate exercises it through `CurveEvaluator::evaluate`.
+
 The canonical AST-to-XIR path currently spills early returns to one exit while
 destructuring. Schedule IR and the direct unstructured-XIR entry still model
 per-lane return explicitly, so CFG producers are not required to rely on that
@@ -1598,10 +1607,75 @@ Commit-time `t_max`, explicit terminate, query-any termination, opaque
 auto-commit, sparse cohorts, and inactive tails all prune or preserve the cache
 without changing handler CFG semantics. More than 32 surviving candidates use
 another grouped packet traversal after the batch is exhausted; the exact
-35-candidate regression exercises that continuation at every width. Curves,
-procedural candidates, cutout/device-opacity mutation, nonidentity outer affine
-composition for SRT motion, and full instance-stack semantics remain explicit
-work.
+35-candidate regression exercises that continuation at every width.
+
+Round curves now use the same packet traversal and surface-candidate pipeline.
+The four public bases map to Embree round linear, B-spline, Catmull--Rom, and
+Bezier geometry; shared `float4` control points retain radius in `w`, and
+static plus control-point-motion builds use the public stride, offset, keyframe,
+and time-range contract. A curve may also be the child of a MATRIX or SRT
+motion instance. One byte in the stable instance table records curve geometry,
+so closest-hit postprocessing and query filters set `bary.y = -1` while
+preserving Embree's `u` as the public curve parameter.
+
+Embree may invoke a rejecting filter for both the front and back surface of one
+round-curve primitive. Luisa exposes that primitive once, at its closest hit;
+therefore the fixed candidate batch retains only the nearest `(instance,
+primitive)` curve candidate and a continuation cursor suppresses later
+surfaces of the same primitive. Triangle insertion remains O(1) until batch
+overflow. The exact curve regression covers all four bases, opaque automatic
+commit, non-opaque accept/reject, query-all/query-any, direct closest/any,
+control-point motion, curve motion instances, W1/W2/W4/W8/W16, and inactive
+tails. Procedural candidates, cutout/device-opacity mutation, nonidentity outer
+affine composition for SRT motion, and full instance-stack semantics remain
+explicit work.
+
+Two existing graphics examples provide end-to-end and motion-heavy reality
+checks on the same Ryzen 9 9950X3D/Embree 4.4.1 Release host. The 800x600
+Catmull--Rom `test_curve` renders 256 samples, performs curve evaluation and
+`pow` color conversion, and writes a PNG. Five whole-process runs were
+interleaved in rotating/reversed order; the table includes JIT, BVH build, and
+PNG output:
+
+| Backend/width | Median wall time (s) | Speedup vs fallback |
+| --- | ---: | ---: |
+| fallback | 0.80 | 1.000x |
+| SIMD W1 | 1.02 | 0.784x |
+| SIMD W2 | 0.99 | 0.808x |
+| SIMD W4 | 0.84 | 0.952x |
+| SIMD W8 | 0.79 | 1.013x |
+| SIMD W16 | 0.75 | 1.067x |
+
+The W8/W16 aggregate process CPU time is 10.8%/18.3% below fallback even
+though whole-process wall time contains serial setup and output. The SIMD W8
+image matches fallback at 69.78 dB RGB PSNR; the same comparison passes at
+every W1/W2/W4/W8/W16 width.
+
+The 512x512 `test_motion_blur` is the harder case: 1024 samples combine a
+vertex-motion triangle mesh, a Catmull--Rom curve under an SRT motion instance,
+dynamic ray time, random-number loops, and progressive buffer traffic. Three
+rotated/reversed processes report the example's synchronized render interval:
+
+| Backend/width | Median render time (s) | Speedup vs fallback |
+| --- | ---: | ---: |
+| fallback | 3.112 | 1.000x |
+| SIMD W1 | 3.255 | 0.956x |
+| SIMD W2 | 5.944 | 0.524x |
+| SIMD W4 | 4.560 | 0.683x |
+| SIMD W8 | 3.832 | 0.812x |
+| SIMD W16 | 3.584 | 0.868x |
+
+Every width passes the fallback image comparison (88.28--88.64 dB RGB PSNR).
+A paired `perf stat` run
+shows W16 retires 676.7 billion instructions and 26.9 billion branches versus
+fallback's 861.1 billion and 52.1 billion, but consumes 530.4 billion cycles
+versus 463.7 billion (IPC 1.28 versus 1.86). A W16 cycle profile attributes
+54.35% to JIT code, 44.09% to Embree, and only 1.04% to the SIMD runtime;
+fallback is 19.53% JIT, 79.80% Embree, and 0.55% runtime. Packet traversal is
+therefore reducing Embree and branch work, but the remaining generated-kernel
+state/data path has substantially lower machine utilization. The regression is
+not explained by the worker pool or the thin trace wrapper, and wider packets
+must not be advertised as a motion-render speedup yet.
 
 The rejection-chain benchmark uses the public DSL/runtime path and a scene of
 16 non-opaque triangles; every handler rejects until the farthest candidate.
@@ -1674,9 +1748,10 @@ MATRIX composition, post-write refit/traversal, W1/W2/W4/W8/W16, and W8/W16
 partial tails.
 
 The required native-math/runtime-width tests plus the arithmetic,
-bindless-texture, dedicated bindless-IR callback, and acceleration tests pass
-7/7. Combined SIMD, XIR, runtime, and graphics labels pass 79/79. A fresh
-full-repository CTest passes 129/129; no coroutine source was modified.
+bindless-texture, dedicated bindless-IR callback, acceleration, and curve tests
+pass 8/8. Combined SIMD, XIR, runtime, and graphics labels pass 80/80 in both
+Release configurations. Fresh full-repository CTest runs pass 130/130 in both;
+no coroutine source was modified.
 The original `test_bindless_mip simd` intentionally fails at compile time on
 its gradient query, matching the explicit unsupported-feature contract rather
 than silently changing sampling semantics.
@@ -1896,18 +1971,19 @@ on 2026-08-11. The repository now contains:
   and inactive-tail sanitization while retaining the public row-major texture
   storage ABI;
 - a static, vertex-motion, and instance-motion triangle Embree packet ABI for
-  closest-hit and occlusion where W1
+  closest-hit and occlusion, extended to all four round-curve bases, curve
+  control-point motion, and curve motion-instance children, where W1
   alone uses the scalar interface, W2 pads into W4, and W4/W8/W16 call the
   matching packet interface once; the callback carries the exact cohort/tail
   mask and an optional sanitized motion-time vector, pre-sanitizes inactive
   operands, initializes inactive results, narrows uniform queries to the first
   active lane, and bulk-copies safe sparse native packets;
-- triangle query-all/query-any state machines lowered into ordinary scheduled
+- triangle/curve query-all/query-any state machines lowered into ordinary scheduled
   XIR, with lane-private state, one packet `PROCEED` callback per active cohort,
   surface reject/commit/terminate and opaque auto-commit semantics, static and
-  motion traversal, a persistent 32-candidate speculative batch, W2-to-W4
-  padding, and exact W1/W2/W4/W8/W16 tail and 35-candidate continuation
-  coverage;
+  motion traversal, curve classification and per-primitive front/back
+  deduplication, a persistent 32-candidate speculative batch, W2-to-W4 padding,
+  and exact W1/W2/W4/W8/W16 tail and 35-candidate continuation coverage;
 - MATRIX and quaternion-SRT motion-instance resources with validated time
   ranges, TLAS-owned keyframe storage, MATRIX outer-affine composition,
   quaternion interpolation, scalar uniform keyframe access, inactive-safe
@@ -1958,11 +2034,11 @@ on 2026-08-11. The repository now contains:
   W16 tail.
 
 The next implementation boundary is completion of the Embree vertical slice:
-add opacity/cutout semantics, curve/procedural candidates, nonidentity outer
-affine composition for SRT motion, and a direct packet-layout experiment guarded
-by stable measurement. Candidate chains beyond the fixed batch remain a
-measured continuation case rather than an unbounded state allocation. Bindless
-gradient sampling, broader callable conformance, cooperative shared memory,
-block barriers, and the remaining device-library surface follow. The current
-compiler returns precise diagnostics for unsupported features rather than
-silently accepting them.
+add opacity/cutout semantics, procedural candidates, nonidentity outer affine
+composition for SRT motion, and a direct packet-layout experiment guarded by
+stable measurement. Candidate chains beyond the fixed batch remain a measured
+continuation case rather than an unbounded state allocation. Bindless gradient
+sampling, broader callable conformance, cooperative shared memory, block
+barriers, and the remaining device-library surface follow. The current compiler
+returns precise diagnostics for unsupported features rather than silently
+accepting them.

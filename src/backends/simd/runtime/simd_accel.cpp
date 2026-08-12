@@ -8,7 +8,6 @@
 
 #include <luisa/core/logging.h>
 
-#include "simd_mesh.h"
 #include "simd_motion_instance.h"
 
 namespace luisa::compute::simd {
@@ -360,6 +359,23 @@ void trace_any_packet(
     }
 }
 
+void mark_curve_surface_hits(
+    const SIMDHostAccelInstanceTable &instances,
+    uint32_t lane_count, uint64_t active_mask_bits,
+    const uint32_t *hit_ids, float *hit_values) noexcept {
+    for (auto lane = 0u; lane < lane_count; lane++) {
+        if (!lane_active(active_mask_bits, lane, lane_count)) { continue; }
+        auto inst = hit_ids[lane];
+        if (inst == RTC_INVALID_GEOMETRY_ID) { continue; }
+        LUISA_ASSERT(
+            instances.data != nullptr && inst < instances.size,
+            "SIMD curve trace returned an invalid instance ID {}.", inst);
+        if (instances.data[inst].curve != 0u) {
+            hit_values[lane_count + lane] = -1.0f;
+        }
+    }
+}
+
 struct RayQueryBatchBuildState {
     bool heapified{false};
     bool ascending{true};
@@ -375,6 +391,7 @@ using RayQueryRTCContext = RTCRayQueryContext;
 struct RayQueryScanContext {
     RayQueryRTCContext rtc{};
     uint32_t lane_count{0u};
+    const SIMDHostAccelInstanceTable *instances{nullptr};
     std::array<SIMDHostRayQueryState *, 16u> states{};
     std::array<RayQueryBatchBuildState, 16u> batch_build{};
 };
@@ -392,8 +409,19 @@ static_assert(offsetof(RayQueryScanContext, rtc) == 0u);
 
 [[nodiscard]] bool ray_query_key_after_cursor(
     const SIMDHostRayQueryState &state,
-    float t, uint32_t inst, uint32_t prim) noexcept {
+    float t, uint32_t inst, uint32_t prim,
+    const SIMDHostAccelInstanceTable &instances) noexcept {
     if (state.cursor_valid == 0u) { return true; }
+    // Embree's round-curve intersectors may report both the front and back
+    // surface of one curve primitive after the first hit is rejected by the
+    // query filter. Luisa exposes one closest surface candidate per primitive,
+    // so a curve primitive already published by proceed() must not reappear on
+    // a continuation scan.
+    if (inst == state.cursor_inst && prim == state.cursor_prim &&
+        instances.data != nullptr && inst < instances.size &&
+        instances.data[inst].curve != 0u) {
+        return false;
+    }
     if (t != state.cursor_t) { return t > state.cursor_t; }
     if (inst != state.cursor_inst) { return inst > state.cursor_inst; }
     return prim > state.cursor_prim;
@@ -416,9 +444,32 @@ static_assert(offsetof(RayQueryScanContext, rtc) == 0u);
 void ray_query_insert_candidate(
     SIMDHostRayQueryState &state,
     RayQueryBatchBuildState &build,
-    SIMDHostRayQuerySurfaceHit candidate) noexcept {
+    SIMDHostRayQuerySurfaceHit candidate,
+    bool deduplicate_primitive) noexcept {
     constexpr auto capacity =
         simd_host_ray_query_candidate_batch_capacity;
+    if (deduplicate_primitive) {
+        for (auto i = 0u; i < state.candidate_batch_count; i++) {
+            auto &existing = state.candidate_batch[i];
+            if (candidate.inst != existing.inst ||
+                candidate.prim != existing.prim) {
+                continue;
+            }
+            if (ray_query_candidate_before(candidate, existing)) {
+                existing = candidate;
+                if (build.heapified) {
+                    auto begin = std::begin(state.candidate_batch);
+                    std::make_heap(
+                        begin, begin + state.candidate_batch_count,
+                        ray_query_candidate_before);
+                } else {
+                    build.ascending = false;
+                    build.descending = false;
+                }
+            }
+            return;
+        }
+    }
     if (state.candidate_batch_count < capacity) {
         if (state.candidate_batch_count != 0u) {
             auto &&previous = state.candidate_batch[state.candidate_batch_count - 1u];
@@ -454,7 +505,8 @@ void ray_query_filter(
     LUISA_ASSERT(
         context != nullptr && arguments->valid != nullptr &&
             arguments->ray != nullptr && arguments->hit != nullptr &&
-            arguments->N != 0u && arguments->N <= 16u,
+            arguments->N != 0u && arguments->N <= 16u &&
+            context->instances != nullptr,
         "Invalid SIMD ray-query filter invocation.");
     for (auto packet_lane = 0u; packet_lane < arguments->N;
          packet_lane++) {
@@ -479,8 +531,17 @@ void ray_query_filter(
               t <= state->world_ray[7u]) ||
             inst == RTC_INVALID_GEOMETRY_ID ||
             prim == RTC_INVALID_GEOMETRY_ID ||
-            !ray_query_key_after_cursor(*state, t, inst, prim)) {
+            !ray_query_key_after_cursor(
+                *state, t, inst, prim, *context->instances)) {
             continue;
+        }
+        auto v = RTCHitN_v(
+            arguments->hit, arguments->N, packet_lane);
+        auto curve = context->instances->data != nullptr &&
+                     inst < context->instances->size &&
+                     context->instances->data[inst].curve != 0u;
+        if (curve) {
+            v = -1.0f;
         }
         ray_query_insert_candidate(
             *state, context->batch_build[lane],
@@ -490,18 +551,20 @@ void ray_query_filter(
                 .bary = {
                     RTCHitN_u(
                         arguments->hit, arguments->N, packet_lane),
-                    RTCHitN_v(
-                        arguments->hit, arguments->N, packet_lane)},
+                    v},
                 .t = t,
-            });
+            },
+            curve);
     }
 }
 
 void initialize_ray_query_context(
     RayQueryScanContext &context, uint32_t lane_count,
     uint64_t active_mask_bits,
-    SIMDHostRayQueryState *const *states) noexcept {
+    SIMDHostRayQueryState *const *states,
+    const SIMDHostAccelInstanceTable &instances) noexcept {
     context.lane_count = lane_count;
+    context.instances = &instances;
     for (auto lane = 0u; lane < lane_count; lane++) {
         context.states[lane] = states[lane];
         if (!lane_active(active_mask_bits, lane, lane_count)) { continue; }
@@ -569,7 +632,8 @@ advance_ray_query_candidate(
     while (state.candidate_batch_index < state.candidate_batch_count) {
         auto candidate = state.candidate_batch[state.candidate_batch_index++];
         if (!ray_query_key_after_cursor(
-                state, candidate.t, candidate.inst, candidate.prim)) {
+                state, candidate.t, candidate.inst, candidate.prim,
+                instances)) {
             continue;
         }
         if (candidate.t < state.world_ray[3u]) { continue; }
@@ -659,7 +723,7 @@ void scan_ray_query_packet(
         components.data(), visibility_masks.data(), times.data());
     RayQueryScanContext context{};
     initialize_ray_query_context(
-        context, lane_count, active_mask_bits, states);
+        context, lane_count, active_mask_bits, states, instances);
     alignas(64) std::array<int, packet_width> valid{};
     if (terminate_on_first) {
         alignas(64) RayPacket packet{};
@@ -744,7 +808,7 @@ void scan_ray_query_scalar(
         components.data(), visibility_masks.data(), times.data());
     RayQueryScanContext context{};
     initialize_ray_query_context(
-        context, 1u, active_mask_bits, states);
+        context, 1u, active_mask_bits, states, instances);
     if (terminate_on_first) {
         RTCRay ray{};
         initialize_scalar_ray(
@@ -867,12 +931,24 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                 rtcSetGeometryTimeRange(
                     geometry, state->option.time_start,
                     state->option.time_end);
+                instance.curve =
+                    motion->child()->kind() == SIMDPrimitive::Kind::curve ?
+                        1u :
+                        0u;
                 _motion_states[modification.index] = std::move(state);
             } else {
-                auto *mesh = static_cast<SIMDMesh *>(primitive);
-                rtcSetGeometryInstancedScene(geometry, mesh->handle());
+                LUISA_ASSERT(
+                    primitive->kind() == SIMDPrimitive::Kind::mesh ||
+                        primitive->kind() == SIMDPrimitive::Kind::curve,
+                    "SIMD accel instances currently require a mesh, curve, "
+                    "or motion-instance primitive.");
+                rtcSetGeometryInstancedScene(geometry, primitive->handle());
                 rtcSetGeometryTimeStepCount(geometry, 1u);
                 rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
+                instance.curve =
+                    primitive->kind() == SIMDPrimitive::Kind::curve ?
+                        1u :
+                        0u;
                 instance.motion_frames = nullptr;
                 instance.motion_keyframe_count = 0u;
                 instance.motion_mode = 0u;
@@ -1035,6 +1111,9 @@ void SIMDAccel::_trace_closest(
             LUISA_ERROR_WITH_LOCATION(
                 "Unsupported SIMD Embree packet width {}.", lane_count);
     }
+    mark_curve_surface_hits(
+        self->_instance_table, lane_count, active_mask_bits,
+        hit_ids, hit_values);
 }
 
 void SIMDAccel::_trace_any(

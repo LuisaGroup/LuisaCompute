@@ -130,6 +130,7 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_accel.cpp
         runtime/simd_bindless_array.cpp
         runtime/simd_buffer.cpp
+        runtime/simd_curve.cpp
         runtime/simd_device.cpp
         runtime/simd_event.cpp
         runtime/simd_mesh.cpp

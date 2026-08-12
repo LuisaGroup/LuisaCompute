@@ -43,8 +43,10 @@ void SIMDMotionInstance::build(
         _option.keyframe_count, command.keyframes().size());
     auto *child = reinterpret_cast<SIMDPrimitive *>(command.child());
     LUISA_ASSERT(
-        child != nullptr && child->kind() == Kind::mesh,
-        "SIMD motion instances currently require a mesh child.");
+        child != nullptr &&
+            (child->kind() == Kind::mesh ||
+             child->kind() == Kind::curve),
+        "SIMD motion instances require a mesh or curve child.");
     _child = child;
     _keyframes.assign(
         command.keyframes().begin(), command.keyframes().end());

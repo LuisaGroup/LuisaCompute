@@ -9,6 +9,7 @@ class SIMDPrimitive {
 public:
     enum class Kind : uint8_t {
         mesh,
+        curve,
         motion_instance,
     };
 

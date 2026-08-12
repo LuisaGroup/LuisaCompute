@@ -98,6 +98,27 @@ int main(int argc, char *argv[]) {
                 << "SIMD thread-block packet partition mismatch";
         }
 
+        // DSL $outline adds source-comment metadata to its call site. That
+        // metadata must not prevent the SIMD compiler's mandatory callable
+        // legalization pass from inlining the outlined region.
+        Kernel1D outlined_kernel = [width](BufferUInt result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            UInt value = dispatch_x();
+            $outline {
+                value = value * 3u + 7u;
+            };
+            result.write(dispatch_x(), value);
+        };
+        auto outlined_shader = device.compile(outlined_kernel);
+        stream << outlined_shader(output).dispatch(block_threads)
+               << output.copy_to(luisa::span{host})
+               << synchronize();
+        for (auto thread = 0u; thread < block_threads; thread++) {
+            expect(host[thread] == thread * 3u + 7u)
+                << "SIMD outlined callable legalization mismatch";
+        }
+
         // Regression: LLVM integer div/rem may lower to trapping scalar
         // instructions even when a zero divisor exists only in an inactive
         // tail lane. Sanitization therefore has to happen before the vector

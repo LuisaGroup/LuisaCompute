@@ -82,6 +82,9 @@ public:
     [[nodiscard]] ResourceCreationInfo create_mesh(
         const AccelOption &option) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
+    [[nodiscard]] ResourceCreationInfo create_curve(
+        const AccelOption &option) noexcept override;
+    void destroy_curve(uint64_t handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_procedural_primitive(
         const AccelOption &option) noexcept override;
     void destroy_procedural_primitive(uint64_t handle) noexcept override;

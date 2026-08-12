@@ -8,6 +8,7 @@
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
+#include "simd_curve.h"
 #include "simd_mesh.h"
 #include "simd_motion_instance.h"
 #include "simd_shader.h"
@@ -156,6 +157,14 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 mesh->build(*build);
                 break;
             }
+            case Command::Tag::ECurveBuildCommand: {
+                auto *build = static_cast<CurveBuildCommand *>(
+                    command.get());
+                auto *curve = static_cast<SIMDCurve *>(
+                    reinterpret_cast<SIMDPrimitive *>(build->handle()));
+                curve->build(*build);
+                break;
+            }
             case Command::Tag::EMotionInstanceBuildCommand: {
                 auto *build = static_cast<MotionInstanceBuildCommand *>(
                     command.get());
@@ -164,7 +173,6 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 instance->build(*build);
                 break;
             }
-            case Command::Tag::ECurveBuildCommand:
             case Command::Tag::EProceduralPrimitiveBuildCommand:
                 LUISA_ERROR_WITH_LOCATION(
                     "Ray-tracing commands are not implemented by the SIMD "
