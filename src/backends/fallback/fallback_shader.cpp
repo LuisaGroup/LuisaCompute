@@ -392,7 +392,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
                 jit->mangleAndIntern(name), symbol);
         };
 
-#include "fallback_device_api_map_symbols.inl.h"
+#include "fallback_device_api_map_symbols.generated.inl.h"
 
         map_symbol("luisa.asin.f16", &luisa_fallback_asin_f16);
         map_symbol("luisa.asin.f32", &luisa_fallback_asin_f32);

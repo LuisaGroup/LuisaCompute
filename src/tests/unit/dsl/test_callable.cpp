@@ -114,6 +114,61 @@ void test_callable(Device &device) {
     expect(all_correct) << "callable composition should produce correct results (data[i] + 3.0f)";
 }
 
+void test_equivalent_callable_capture_environments(Device &device) {
+    static constexpr auto element_count = 257u;
+    auto lhs = device.create_buffer<uint32_t>(element_count);
+    auto rhs = device.create_buffer<uint32_t>(element_count);
+    auto output = device.create_buffer<uint2>(element_count);
+
+    luisa::vector<uint32_t> lhs_values(element_count);
+    luisa::vector<uint32_t> rhs_values(element_count);
+    luisa::vector<uint2> output_values(element_count);
+    for (auto i = 0u; i < element_count; ++i) {
+        lhs_values[i] = 0x10000000u + i * 17u;
+        rhs_values[i] = 0x80000000u + i * 29u;
+    }
+
+    uint64_t lhs_callable_hash = 0u;
+    uint64_t rhs_callable_hash = 0u;
+    Kernel1D kernel = [&](BufferUInt lhs_argument,
+                          BufferUInt rhs_argument,
+                          BufferUInt2 output_argument) noexcept {
+        Callable read_lhs = [&lhs_argument](UInt index) noexcept {
+            return lhs_argument.read(index);
+        };
+        Callable read_rhs = [&rhs_argument](UInt index) noexcept {
+            return rhs_argument.read(index);
+        };
+        lhs_callable_hash = read_lhs.function().hash();
+        rhs_callable_hash = read_rhs.function().hash();
+        const auto index = dispatch_x();
+        output_argument.write(
+            index,
+            make_uint2(read_lhs(index), read_rhs(index)));
+    };
+
+    expect(lhs_callable_hash == rhs_callable_hash)
+        << "equivalent callable definitions must have one structural hash";
+    expect(kernel.function()->function().custom_callables().size() == 1u)
+        << "the completed call graph must canonicalize equivalent definitions";
+
+    auto shader = device.compile(
+        kernel, ShaderOption{.enable_cache = false});
+    auto stream = device.create_stream();
+    stream << lhs.copy_from(lhs_values.data())
+           << rhs.copy_from(rhs_values.data())
+           << shader(lhs, rhs, output).dispatch(element_count)
+           << output.copy_to(output_values.data())
+           << synchronize();
+
+    for (auto i = 0u; i < element_count; ++i) {
+        expect(output_values[i].x == lhs_values[i])
+            << "canonical callable definition lost the left capture environment";
+        expect(output_values[i].y == rhs_values[i])
+            << "canonical callable definition lost the right capture environment";
+    }
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -123,4 +178,5 @@ int main(int argc, char *argv[]) {
 
     auto &device = dc->device;
     test_callable(device);
+    test_equivalent_callable_capture_environments(device);
 }

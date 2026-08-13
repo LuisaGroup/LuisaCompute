@@ -1,5 +1,5 @@
 luisa_compute_link_llvm_into_backend(hip
-        COMPONENTS core ir amdgpucodegen support targetparser irreader bitreader passes analysis linker bitwriter asmparser
+        COMPONENTS core amdgpucodegen amdgpuasmparser support targetparser irreader bitreader passes analysis linker bitwriter asmparser
         DEFINITIONS LUISA_COMPUTE_ENABLE_LLVM=1)
 if (LUISA_COMPUTE_HIP_LINKED_LLVM)
     message(STATUS "Linking LLVM AMDGPU into the HIP backend")

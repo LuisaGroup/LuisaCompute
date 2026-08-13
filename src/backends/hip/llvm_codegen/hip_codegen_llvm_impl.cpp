@@ -963,17 +963,41 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     MPM.run(*_llvm_module, MAM);
 
     // make hiprt/hiprtc happy
+    // Resolve by the stable IR spelling instead of referring to the generated
+    // C++ enum name. Downstream LLVM branches can recognize an attribute in
+    // bitcode while omitting its named enumerator from their public headers.
+    // The resolved AttrKind is still required: LLVM's StringRef removal
+    // overload only removes target-dependent string attributes, not enum
+    // attributes with the same spelling.
+    constexpr auto no_create_undef_or_poison =
+        "nocreateundeforpoison";
+    const auto no_create_undef_or_poison_kind =
+        llvm::Attribute::getAttrKindFromName(
+            no_create_undef_or_poison);
+    auto remove_no_create_undef_or_poison =
+        [no_create_undef_or_poison_kind](
+            llvm::AttributeList attrs,
+            llvm::LLVMContext &context) noexcept {
+            return no_create_undef_or_poison_kind !=
+                           llvm::Attribute::None ?
+                       attrs.removeAttributeAtIndex(
+                           context,
+                           llvm::AttributeList::FunctionIndex,
+                           no_create_undef_or_poison_kind) :
+                       attrs.removeAttributeAtIndex(
+                           context,
+                           llvm::AttributeList::FunctionIndex,
+                           "nocreateundeforpoison");
+        };
     for (auto &func : *_llvm_module) {
-        auto attrs = func.getAttributes().removeAttributeAtIndex(
-            func.getContext(), llvm::AttributeList::FunctionIndex,
-            llvm::Attribute::NoCreateUndefOrPoison);
+        auto attrs = remove_no_create_undef_or_poison(
+            func.getAttributes(), func.getContext());
         func.setAttributes(attrs);
         for (auto &bb : func) {
             for (auto &inst : bb) {
                 if (auto *cb = llvm::dyn_cast<llvm::CallBase>(&inst)) {
-                    auto cb_attrs = cb->getAttributes().removeAttributeAtIndex(
-                        cb->getContext(), llvm::AttributeList::FunctionIndex,
-                        llvm::Attribute::NoCreateUndefOrPoison);
+                    auto cb_attrs = remove_no_create_undef_or_poison(
+                        cb->getAttributes(), cb->getContext());
                     cb->setAttributes(cb_attrs);
                 }
             }
